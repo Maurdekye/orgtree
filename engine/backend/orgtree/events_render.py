@@ -562,7 +562,7 @@ def _r_cheap(ev: _R) -> str:
                 f'transcript.jsonl beside it; Grep/Read the parts you need instead of '
                 f'reading it whole. You may also orgtree_rehire "{pred}" as your own '
                 f'subordinate to interrogate it directly, and retire it again when '
-                f'done.{ev.get("team_note") or ""}')
+                f'done.{ev.get("team_note") or ""}{ev.get("request_note") or ""}')
     by = str(ev["by"])
     who = "the user" if by == USER else "the system (auto)" if by == "@system" else by
     return (f'Your report "{ev["node"]}" was cheap-compacted by {who}: same seat and '

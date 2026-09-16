@@ -11,9 +11,10 @@ into `prev_status`, and that pop runs AFTER the gate, so the gate always reads
 the PREVIOUS turn's self-report while a turn is being admitted. The recorded
 node still carries the proof — `prev_status` holds the 22:50:23Z blocked row.
 
-These tests hold both halves: the recorded shape must compact, and the thing the
-old guard was worth keeping — never mooting a request the user has not resolved
-— must still refuse.
+These tests hold both halves: the recorded shape must compact, and the standing
+question that agent was waiting on must RIDE THROUGH the compaction rather than
+hold it back or be destroyed by it (user ruling 2026-09-16: "maintain asked
+questions through cheap compaction, but answering them still should trigger it").
 """
 import hashlib
 import json
@@ -104,15 +105,19 @@ class RecordedIncidentTests(unittest.TestCase):
             sup._auto_cheap_context_ready(
                 recorded_node(last_status=None), CFG, MODELS)[0], ready)
 
-    def test_an_unresolved_user_request_still_refuses(self):
-        # The half of the old guard worth keeping: `cheap_compact` moots the
-        # seat's open request batch, so a standing card must outlive the gate.
-        ready, why = sup._auto_cheap_context_ready(
-            recorded_node(), CFG, MODELS, open_request=True)
-        self.assertFalse(ready)
-        self.assertIn('moot', why)
-        self.assertFalse(sup._auto_cheap_ready(
-            recorded_node(), CFG, self.forecast, MODELS, open_request=True))
+    def test_the_gate_reads_nothing_but_the_session(self):
+        # Every refusal this guard can return names a property of the SESSION
+        # — liveness, a lock, size, freshness. Nothing self-reported and
+        # nothing about the user's inbox: a standing question is carried
+        # through a compaction now, so it is not this gate's business.
+        for over in ({'last_status': {'status': 'blocked', 'at': BLOCKED_AT}},
+                     {'last_status': {'status': 'working', 'at': BLOCKED_AT}},
+                     {'last_status': None}):
+            with self.subTest(over=over):
+                self.assertEqual(
+                    sup._auto_cheap_context_ready(
+                        recorded_node(**over), CFG, MODELS),
+                    (True, 'context 52% meets the 25% minimum'))
 
     def test_the_other_guards_are_untouched(self):
         for over, fragment in (
@@ -145,11 +150,17 @@ class RecordedIncidentTests(unittest.TestCase):
             recorded_node(), CFG, warm, MODELS))
 
 
-class OpenRequestReadingTests(unittest.TestCase):
-    """`_auto_cheap_open_request` over a real org document."""
+class RequestSurvivesCompactionTests(unittest.TestCase):
+    """User ruling 2026-09-16: a question outlives the session that asked it.
+
+    `cheap_compact` used to moot the seat's open request batch on retire's
+    reasoning. Retire removes the party that could ever act on the answer;
+    this does not — the SEAT is the same one, same id, same mailbox, same
+    work — so the request stays and the successor is told it inherited one.
+    """
 
     def setUp(self):
-        self.slug = self._testMethodName.replace('_', '-')[:40]
+        self.slug = self._testMethodName.replace('_', '-')[:40].strip('-')
         org = store.create_org(self.slug)
         org.hire(ledger.USER, None, 'opus', 0, 'worker')
         store.save_org(org)
@@ -160,47 +171,79 @@ class OpenRequestReadingTests(unittest.TestCase):
     def org(self):
         return store.load_org(self.slug)
 
-    def test_no_request_no_refusal(self):
-        self.assertFalse(sup._auto_cheap_open_request(self.org(), 'worker'))
-
-    def test_an_open_question_is_seen_and_an_answered_one_is_not(self):
+    def compact(self):
         org = self.org()
-        r = org.ask_user('worker', 'which way?', [{'label': 'left'},
-                                                  {'label': 'right'}])
+        before = org.node('worker')['session_id']
+        r = org.cheap_compact(ledger.USER, 'worker')
         store.save_org(org)
-        self.assertTrue(sup._auto_cheap_open_request(self.org(), 'worker'))
-        # …and the answer closes the row BEFORE `ask_answer` drives the node,
-        # which is what lets the answer's own wake compact.
-        org = self.org()
-        org.ask_answer(r['asked'], selected=['left'])
-        store.save_org(org)
-        self.assertFalse(sup._auto_cheap_open_request(self.org(), 'worker'))
+        return before, r
 
-    def test_another_agents_open_question_does_not_hold_this_seat(self):
+    def test_an_open_question_rides_through_the_compaction(self):
         org = self.org()
-        org.hire(ledger.USER, None, 'opus', 0, 'other')
-        org.ask_user('other', 'which way?')
+        asked = org.ask_user('worker', 'which way?',
+                             [{'label': 'left'}, {'label': 'right'}])['asked']
         store.save_org(org)
-        self.assertFalse(sup._auto_cheap_open_request(self.org(), 'worker'))
-        self.assertTrue(sup._auto_cheap_open_request(self.org(), 'other'))
+        before, r = self.compact()
+        org = self.org()
+        # the session really was replaced …
+        self.assertNotEqual(org.node('worker')['session_id'], before)
+        self.assertEqual(org.nodes[r['bearer']]['successor'], 'worker')
+        # … and the card is still open, on the same seat, unchanged
+        row = next(a for a in org.d['asks'] if a['id'] == asked)
+        self.assertEqual((row['status'], row['node']), ('open', 'worker'))
+        self.assertIsNone(row.get('reason'))
+        # and it is still the node's live request for every reader
+        self.assertEqual(org.open_request('worker')['id'], asked)
 
-    def test_the_badge_and_the_gate_give_the_same_answer(self):
+    def self_notice(self):
+        """The rendered cheap-compaction notice the successor will read."""
+        rows = [n for n in
+                ((self.org().d.get('notices') or {}).get('worker') or [])
+                if (n.get('ev') or {}).get('variant')
+                == 'lifecycle.cheap_compacted'
+                and (n.get('ev') or {}).get('relation') == 'self']
+        self.assertEqual(len(rows), 1)
+        return rows[0]['text']
+
+    def test_the_successor_is_told_what_it_inherited(self):
+        org = self.org()
+        asked = org.ask_user('worker', 'which way?')['asked']
+        store.save_org(org)
+        self.compact()
+        text = self.self_notice()
+        self.assertIn('STANDING REQUEST', text)
+        self.assertIn(asked, text)
+        # the successor must not tidy away a card it does not remember posing
+        self.assertIn('do not withdraw or replace it', text)
+
+    def test_an_answered_question_leaves_no_inherited_note(self):
+        org = self.org()
+        asked = org.ask_user('worker', 'which way?')['asked']
+        org.ask_answer(asked, text='left')
+        store.save_org(org)
+        self.compact()
+        self.assertNotIn('STANDING REQUEST', self.self_notice())
+
+    def test_every_request_kind_is_named(self):
+        org = self.org()
+        org.request_credits('worker', 9, 'more room')
+        store.save_org(org)
+        self.assertTrue(any(s.startswith('credit request')
+                            for s in self.org()._open_request_kinds('worker')))
+
+    def test_the_badge_promises_a_compaction_with_a_question_standing(self):
         org = self.org()
         org.node('worker').update(recorded_node())
         org.d['auto_cheap_compact'] = {'enabled': True, 'occ': 0.25}
         org.d['models'] = dict(MODELS)
-        store.save_org(org)
-        action, why = sup._cache_precompact_decision(
-            self.org(), 'worker', expired_forecast(HISTORY))
-        self.assertEqual((action, 'moot' in why), ('will_compact', False))
-        # a standing question flips the badge in step with the gate
-        org = self.org()
         org.ask_user('worker', 'which way?')
         store.save_org(org)
-        action, why = sup._cache_precompact_decision(
-            self.org(), 'worker', expired_forecast(HISTORY))
-        self.assertEqual(action, 'not_applicable')
-        self.assertIn('moot', why)
+        # The badge is a forecast of what admission will do, so a standing
+        # question must not change it either.
+        self.assertEqual(
+            sup._cache_precompact_decision(
+                self.org(), 'worker', expired_forecast(HISTORY)),
+            ('will_compact', 'context 52% meets the 25% minimum'))
 
 
 class AdmissionPathTests(unittest.TestCase):
@@ -303,15 +346,18 @@ class AdmissionPathTests(unittest.TestCase):
                    if n.get('successor') == 'worker']
         self.assertEqual(len(bearers), 1)
 
-    def test_a_standing_question_holds_the_same_carrier_back(self):
+    def test_a_standing_question_rides_through_the_same_carrier(self):
+        # The incident's own shape, one step earlier: the agent asked, went
+        # quiet for hours, and is woken by mail that is NOT the answer. It
+        # compacts, and the user's card is still on the screen afterwards.
         with store.DOC_LOCK:
             org = store.load_org(self.slug)
             org.ask_user('worker', 'which way?')
             store.save_org(org)
         self.admit()
         org = store.load_org(self.slug)
-        self.assertEqual(org.node('worker')['session_id'],
-                         self.session_before)
+        self.assertNotEqual(org.node('worker')['session_id'],
+                            self.session_before)
         self.assertEqual([a['status'] for a in org.d['asks']], ['open'])
 
 

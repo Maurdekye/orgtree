@@ -4075,9 +4075,22 @@ class Org:
         in-place shape has neither problem, so BOTH are gone: reports keep
         their superior, correspondents keep their address.
 
-        The seat's open request batch is MOOTED: the successor session never
-        asked, and an answer arriving to it would read as someone else's
-        mail (same reasoning as retire's mooting)."""
+        The seat's open request batch SURVIVES (user ruling 2026-09-16:
+        "maintain asked questions through cheap compaction, but answering
+        them still should trigger it"). It used to be mooted here on
+        retire's reasoning — the successor never asked, so an answer would
+        read as someone else's mail — but retire removes the party who could
+        ever act on the answer, and this does not: the SEAT is the same one,
+        with the same id, mailbox and work, and the answer lands on the
+        agent that still owes the work the question was asked for. Mooting
+        it made the automatic cache-protective compaction the one thing that
+        could take a standing card off the user's screen without the user or
+        the asking agent doing it, which the 2026-08-06 ruling reserves to
+        those two hands — and it forced the destructive gate to refuse for
+        exactly the agents it exists for (a question asked, an answer hours
+        later, a cold cache). The successor is TOLD what it inherited rather
+        than left to be surprised by an answer to a question it has no
+        memory of posing."""
         self._require_authority(actor, nid)
         n = self.node(nid)
         if n["state"] != "live":
@@ -4087,26 +4100,34 @@ class Org:
             raise LedgerError(
                 f"{nid} still owns open background tasks — cheap compaction "
                 "would replace the only session observing their outcome")
+        standing = self._open_request_kinds(nid)
         pred_id, old_sid = self._archive_session_in_place(nid)
-        self._moot_asks(nid, "the asking session was cheap-compacted — the "
-                             "successor starts fresh and never posed it")
-        # …and the same reasoning one door down: the predecessor's unread
-        # notice backlog is a diff the successor has no baseline for
+        # The unread NOTICE backlog is still folded: a notice is a diff, and
+        # the successor has no baseline for one. A standing REQUEST is not a
+        # diff — it is an unfinished exchange with the user — so it stays.
         folded = self._fold_notices(nid)
         kids = self.children(nid)
         team = (f" Your team ({', '.join(kids)}) is UNCHANGED and reports "
                 f"to you — they remember you; you do not remember them, so "
                 f"read the transcript before directing them." if kids else "")
+        request = (f" You inherit a STANDING REQUEST your predecessor posed "
+                   f"to the user ({', '.join(standing)}), still open and "
+                   f"still on the user's screen: the answer will arrive as "
+                   f"mail addressed to you. Read the transcript for what it "
+                   f"was asked for before you act on it, and do not withdraw "
+                   f"or replace it merely because you do not remember posing "
+                   f"it." if standing else "")
         def _cheap(relation: str) -> dict[str, Any]:
             return _mint("lifecycle.cheap_compacted", actor_of(actor), self.node_ref(nid),
                          node=nid, relation=relation, by=actor, predecessor=str(pred_id),
-                         team_note=(team or None))
+                         team_note=(team or None), request_note=(request or None))
         self._notify_ev([nid], _cheap("self"))
         self._notify_ev([p for p in [n["parent"]] if p is not None and p != actor],
                         _cheap("report"))
         self._log("cheap_compact", actor,
                   {"node": nid, "bearer": pred_id, "old_session": old_sid,
-                   "notices_folded": folded, "transfer": "fresh"},
+                   "notices_folded": folded, "transfer": "fresh",
+                   "requests_kept": standing},
                   [])
         return {"node": nid, "bearer": pred_id, "old_session": old_sid,
                 "warnings": []}
@@ -9168,6 +9189,25 @@ class Org:
                   {k: v for k, v in (
                       ("target", target), ("reason", (reason or "").strip()[:200] or None),
                       ("deadline_minutes", deadline_minutes)) if v}, [])
+
+    def _open_request_kinds(self, nid: str) -> list[str]:
+        """Labels for every request of `nid`'s the user has not resolved.
+
+        The read half of `_moot_asks`, over the same three lists and the same
+        live statuses — so a kind that can be mooted can never be a kind this
+        fails to name. Used where a request SURVIVES a lifecycle change and
+        the inheriting session has to be told it holds one.
+        """
+        out: list[str] = []
+        for key, live, label in (("asks", "open", "question"),
+                                 ("credit_requests", "pending",
+                                  "credit request"),
+                                 ("scope_requests", "pending",
+                                  "scope request")):
+            for row in self.d.get(key, []):
+                if row.get("node") == nid and row.get("status") == live:
+                    out.append(f"{label} {row.get('id')}")
+        return out
 
     def _moot_asks(self, nid: str, why: str) -> None:
         """The asker leaving the org moots its active request (redteam gap

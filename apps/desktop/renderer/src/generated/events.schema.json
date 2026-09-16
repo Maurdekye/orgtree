@@ -2818,6 +2818,16 @@
               "type": "null"
             }
           ]
+        },
+        "request_note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -2830,7 +2840,8 @@
         "relation",
         "by",
         "predecessor",
-        "team_note"
+        "team_note",
+        "request_note"
       ],
       "additionalProperties": false
     },
@@ -8095,6 +8106,16 @@
               "type": "null"
             }
           ]
+        },
+        "request_note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -8107,7 +8128,8 @@
         "relation",
         "by",
         "predecessor",
-        "team_note"
+        "team_note",
+        "request_note"
       ],
       "additionalProperties": false
     },
