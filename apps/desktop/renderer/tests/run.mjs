@@ -329,12 +329,22 @@ const ps = path.join(process.env.SystemRoot ?? 'C:\\Windows',
 argRoot = mkdtempSync(path.join(os.tmpdir(), 'orgtree-renderer-args-'))
 const deadline = RUN_TIMEOUT_MS > 0 ? Date.now() + RUN_TIMEOUT_MS : 0
 let aggregate = 0
+// ⚠ FILES THAT NEVER RAN MUST NEVER READ AS PASSING. With one batch a killed
+// run is unmistakable (exit 124, no summary at all), but the moment the file
+// list splits past ORGTREE_TEST_MAX_ARG_CHARS, a run limit that fires between
+// batches leaves batch 1's "fail 0" summary as the last thing on screen while
+// later batches were silently dropped. This counter feeds the RUN INCOMPLETE
+// line below: every file in a batch that was never spawned, or whose batch
+// was killed by the run limit or containment before completing, is counted
+// and named against the total — in addition to exit 124, never instead of it.
+let filesIncomplete = 0
 for (let index = 0; index < batches.length; index++) {
   const args = [...nodePrefix, ...batches[index]]
   const remaining = deadline ? deadline - Date.now() : 0
   if (deadline && remaining <= 0) {
     console.error(`[run.mjs] RUN LIMIT: no batch remained within ${RUN_TIMEOUT_MS} ms`)
     aggregate = 124
+    filesIncomplete += batches.slice(index).reduce((n, b) => n + b.length, 0)
     break
   }
   let status
@@ -361,8 +371,11 @@ for (let index = 0; index < batches.length; index++) {
     status = result.error?.code === 'ETIMEDOUT' ? 124 : (result.status ?? 1)
     if (status === 124) console.error(`[run.mjs] batch ${index + 1}/${batches.length} hit the run limit; child descendants are not covered without a Job Object`)
   }
+  if (status === 124) filesIncomplete += batches[index].length
   if (status !== 0) aggregate = status === 124 ? 124 : (aggregate || 1)
 }
+if (filesIncomplete > 0) console.error(
+  `[run.mjs] RUN INCOMPLETE: ${filesIncomplete} of ${files.length} test files never ran to completion — any earlier "fail 0" summary covers only the batches that finished`)
 
 cleanup()
 process.exitCode = aggregate
