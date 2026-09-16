@@ -241,6 +241,25 @@ class CodexPromptNamesTheWall(unittest.TestCase):
         second = sup.identity_prompt(self.org, name)
         self.assertEqual(first, second, "identity prompt is not byte-stable")
 
+    def test_s2_10_the_helper_script_is_named_when_it_EXISTS(self):
+        # worktree-setup owns `python tools/worktree.py add`; it places the
+        # worktree correctly and verifies dependencies resolve, so an agent
+        # should reach for it before composing raw git.
+        (self.repo / "tools").mkdir()
+        (self.repo / "tools" / "worktree.py").write_text("# helper\n")
+        text = flat(self.prompt())
+        self.assertIn("tools/worktree.py add", text)
+
+    def test_s2_11_the_helper_script_is_NOT_named_when_it_is_absent(self):
+        # ⚠ THE REASON THIS LINE WAS HELD BACK ONCE ALREADY. A seat holding
+        # some other checkout has no such script; naming it would send the
+        # agent after `invalid choice: 'add'` and then back to raw git, which
+        # is worse than never mentioning it. The fixture repo has no `tools/`.
+        text = flat(self.prompt())
+        self.assertNotIn("tools/worktree.py", text)
+        # the rest of the paragraph must still be there
+        self.assertIn("git worktree add", text)
+
     def test_s2_9_many_repos_are_bounded_and_the_remainder_COUNTED(self):
         # a silently truncated list reads as "these are all of them"
         dirs = []

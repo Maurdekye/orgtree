@@ -8244,6 +8244,26 @@ def identity_prompt(org: Org, nid: str, include_archived: bool = False, *,
                              f"{where}. ")
             else:
                 git_where = ""
+            # ⚠ NAMED ONLY WHERE IT ACTUALLY EXISTS (2026-09-16). `worktree
+            # -setup` asked for this line and it was deliberately NOT added on
+            # the first pass, because the subcommand was not on `main` yet:
+            # putting a command in every codex seat's prompt before it exists
+            # is the same broken promise the read-only sandbox branch above was
+            # rewritten to avoid, and an agent that runs it, gets `invalid
+            # choice: 'add'` and falls back to raw git is worse off than one
+            # that was only ever told raw git. It landed, so it is named now —
+            # but per GRANTED REPOSITORY, because a seat holding some other
+            # checkout has no such script and must not be sent looking for it.
+            helper = next((r for r in named
+                           if os.path.exists(os.path.join(r, "tools",
+                                                          "worktree.py"))), "")
+            helper_line = (
+                f"That repository ships a helper that places the worktree "
+                f"correctly and checks its dependencies resolve before "
+                f"reporting success — `python tools/worktree.py add <name>` "
+                f"from `{helper}`, with `remove` and `verify` alongside it; "
+                f"prefer it over composing the raw command yourself. "
+                if helper else "")
             tool_line += (
                 "Sandbox: your shell runs in an OS sandbox, and a write it "
                 "blocks is reported to you as a plain 'Permission denied' — "
@@ -8262,7 +8282,9 @@ def identity_prompt(org: Org, nid: str, include_archived: bool = False, *,
                 "⚠ CREATING A WORKTREE IS THE COMMON CASE and the standing "
                 "charter makes it your first step, so expect the denial and "
                 "ask for the elevated retry on the FIRST attempt rather than "
-                "after a failure. If it is a path you were never granted, the "
+                "after a failure. "
+                + helper_line +
+                "If it is a path you were never granted, the "
                 "denial is real and stands — do not go looking for another "
                 "way around it, raise it instead. ")
         else:
