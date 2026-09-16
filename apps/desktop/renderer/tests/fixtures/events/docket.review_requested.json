@@ -15,13 +15,15 @@
       "title": "docket.review_requested·object.title"
     },
     "engine_authored": false,
-    "acceptance": ["docket.review_requested acceptance"],
     "reviewer": "docket.review_requested·reviewer",
     "requested_by": "docket.review_requested·requested_by",
     "owner": "docket.review_requested·owner",
     "objective": "docket.review_requested·objective",
     "done_so_far": [
       "docket.review_requested·done_so_far[0]"
+    ],
+    "acceptance": [
+      "docket.review_requested·acceptance[0]"
     ],
     "revision": 3,
     "candidate": "docket.review_requested·candidate"
@@ -30,7 +32,6 @@
     "v": 1,
     "variant": "docket.review_requested",
     "projection": "public",
-    "acceptance": ["docket.review_requested acceptance"],
     "actor": {
       "kind": "agent",
       "id": "docket.review_requested·actor"
@@ -47,8 +48,11 @@
     "done_so_far": [
       "docket.review_requested·done_so_far[0]"
     ],
+    "acceptance": [
+      "docket.review_requested·acceptance[0]"
+    ],
     "revision": 3,
     "candidate": "docket.review_requested·candidate"
   },
-  "body": "[DOCKET REVIEW REQUEST · docket.review_requested·object.slug \"docket.review_requested·object.title\"] You are named as the REVIEWER of this docket item. THIS IS NOT OWNERSHIP: docket.review_requested·owner keeps the work and the responsibility for delivering it. You hold exactly three things — read it, add `evidence`, and record ONE decision with orgtree_work action='review': `approve` (the check passed — that COMPLETES the item) or `changes` (it goes back to the owner as in_progress, and your note is what they act on). Until you decide, the next action on this item is yours.\nRequested by docket.review_requested·requested_by.\nIssued at item revision 3; candidate docket.review_requested·candidate.\nDescription: docket.review_requested·objective\nWhat the owner says is done: docket.review_requested·done_so_far[0]"
+  "body": "[DOCKET REVIEW REQUEST · docket.review_requested·object.slug \"docket.review_requested·object.title\"] You are named as the REVIEWER of this docket item. THIS IS NOT OWNERSHIP: docket.review_requested·owner keeps the work and the responsibility for delivering it. You hold exactly three things — read it, add `evidence`, and record ONE decision with orgtree_work action='review': `approve` (the check passed — that COMPLETES the item) or `changes` (it goes back to the owner as in_progress, and your note is what they act on). Until you decide, the next action on this item is yours.\nRequested by docket.review_requested·requested_by.\nIssued at item revision 3; candidate docket.review_requested·candidate.\nDescription: docket.review_requested·objective\nAcceptance conditions: docket.review_requested·acceptance[0]\nWhat the owner says is done: docket.review_requested·done_so_far[0]\nRead the complete standalone scope with orgtree_work get slug=docket.review_requested·object.slug before reviewing it."
 }
