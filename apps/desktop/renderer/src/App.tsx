@@ -1263,10 +1263,14 @@ export default function App() {
                 onOpenMailHandled={() => setMailJump(null)}
                 openDocAt={docJump}
                 onOpenDocHandled={() => setDocJump(null)}
-                onOpenAgentGallery={(id) => {
+                onOpenAgentGallery={(id, opts) => {
                   // the same shortcut again is an activation click: raise a
                   // pinned window sitting behind, toggle off only from on top
-                  if (agentGalleryId === id && isModalPinned('agent-gallery', slug)) {
+                  // — EXCEPT for `keepOpen`, which is the desk corner's pin and
+                  // pop-out asking for a surface to act on. Those two must never
+                  // close the very panel they are about to move, so they opt out
+                  // of the toggle and keep the rest of the route.
+                  if (!opts?.keepOpen && agentGalleryId === id && isModalPinned('agent-gallery', slug)) {
                     if (pinnedModalBehind('agent-gallery', slug)) raisePinnedModal('agent-gallery', slug)
                     else setAgentGalleryId(null)
                     return

@@ -35,6 +35,8 @@ import type { ResolvedRef } from './reflinks'
 import type { TypedRef } from './workrefs'
 import { NodeInboxModal, OrgInboxModal } from './mail'
 import { AgentDocketModal } from './agentdocket'
+import { AgentSurfaceRoutesProvider } from './panelcorner'
+import type { AgentSurfaceRoutes } from './panelcorner'
 import { TeamDocketModal } from './teamdocket'
 import { NodeConfig, PilePicker, WatchdogPanel } from './modals'
 import { DraftNode, NodeSquare, UserNode } from './cards'
@@ -89,8 +91,10 @@ export interface OrgCanvasProps {
    *  guessed at up front. */
   openDocAt?: string | null
   onOpenDocHandled?: () => void
-  /** open the selected agent's presentations in a shell modal */
-  onOpenAgentGallery?: (agentId: string) => void
+  /** open the selected agent's presentations in a shell modal. `keepOpen` is
+   *  the desk corner's pin/pop-out asking for the surface to be SHOWN rather
+   *  than toggled — see PanelCorner (canvas/panelcorner.tsx). */
+  onOpenAgentGallery?: (agentId: string, opts?: { keepOpen?: boolean }) => void
 }
 
 /** has this spring arrived? Both the spring loop (which snaps to the target on
@@ -283,6 +287,15 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       raisePinnedModal(kind, slug); set(id); return
     }
     set((current) => isModalPinned(kind, slug) && current === id ? null : id)
+  }, [])
+  /** The same route WITHOUT the toggle-off above. A desk corner's pin and
+   *  pop-out have to end with the surface on screen — it is what they measure
+   *  and what they move — so an opener that can close it is the one thing they
+   *  cannot use. Everything else about the route is shared. */
+  const showNodeSurface = useCallback((kind: string, id: string,
+    set: (v: string | null | ((current: string | null) => string | null)) => void) => {
+    if (pinnedModalBehind(kind, slug)) raisePinnedModal(kind, slug)
+    set(id)
   }, [])
   const toggleDog = useCallback((id: string) => {
     if (pinnedModalBehind('watchdog', slug)) {
@@ -2764,8 +2777,29 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   // their own cards, while `killswitched` separately drives the org cascade.
   const redAlert = !!tree.killswitch
 
+  // ⚠ THE DESK'S CORNER BUTTONS GET THE SHELL'S OWN OPENERS, NOT COPIES. These
+  // are literally the callbacks the agent's context menu is handed a few
+  // hundred lines above (`trayRowMenu`, and the card's own props below), so
+  // "the modal button does the same as right-clicking the agent" is true by
+  // construction rather than by two call sites agreeing today. `show` is the
+  // same route without the toggle-off, for pin and pop-out — see
+  // canvas/panelcorner.tsx.
+  const agentSurfaceRoutes = useMemo((): AgentSurfaceRoutes => ({
+    open: (kind, id) => {
+      if (kind === 'agent-gallery') onOpenAgentGallery?.(id)
+      else toggleNodeSurface(kind, id,
+        kind === 'agent-docket' ? setAgentDocketId : setInboxId)
+    },
+    show: (kind, id) => {
+      if (kind === 'agent-gallery') onOpenAgentGallery?.(id, { keepOpen: true })
+      else showNodeSurface(kind, id,
+        kind === 'agent-docket' ? setAgentDocketId : setInboxId)
+    },
+  }), [onOpenAgentGallery, toggleNodeSurface, showNodeSurface])
+
   return (
     <OrgKillswitchContext.Provider value={!!tree.killswitch}>
+    <AgentSurfaceRoutesProvider value={agentSurfaceRoutes}>
     <DeskHosts map={map} slug={slug} treeSlug={tree.slug}><div style={freeAnchor ?? undefined} className={'viewport' + (tree.sandboxed ? ' sandboxed' : '')
       + (tree.headless ? ' headless' : '')
       + (tree.killswitch ? ' killswitched' : '') + (redAlert ? ' redalert' : '')} data-culling={visibleRect ? 'active' : 'unmeasured'} data-pin-org={slug} ref={viewportRef}
@@ -3638,6 +3672,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         </div>
       })}
     </div></DeskHosts>
+    </AgentSurfaceRoutesProvider>
     </OrgKillswitchContext.Provider>
   )
 }

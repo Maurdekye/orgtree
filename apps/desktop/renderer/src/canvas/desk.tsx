@@ -61,6 +61,7 @@ import { InboxView, RetiredFold } from './mail'
 import { AskCard } from './asks'
 import { AgentDocketView, actionableAssignedCount, agentItems } from './docket'
 import { AgentGalleryView } from './gallery'
+import { PanelCorner } from './panelcorner'
 import { PresentationCard } from './docs'
 import { buildNodeFacts } from './docket'
 import { AgentDirectoryProvider, AgentName, agentFactsSig, useAgentDirectory } from './identity'
@@ -3295,16 +3296,28 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
           token live in the message above and inert in the docket below — one
           desk, two answers. It is handed the world whole and overrides only
           what an ITEM click does, because it holds the rows itself. */}
-      {view === 'docket' && <AgentDocketView slug={slug} nid={node.id}
-        mine={myWork} facts={workFacts} toast={toast} onFocusAgent={onJump}
-        showArchived={showArchivedDocket}
-        onShowArchived={setShowArchivedDocket}
-        refs={deskRefs}
-        onChanged={() => setWorkBump((n) => n + 1)} />}
+      {/* ⚠ THE CORNER IS A WRAPPER HERE, NOT A PROP ON THE VIEW. Each of these
+          three views is ALSO the body of its own modal (AgentDocketModal,
+          AgentGalleryModal, NodeInboxModal), and that modal's title bar already
+          carries a pin and a pop-out. Mounting the corner inside the view would
+          put a second set of both in every one of those windows. It belongs to
+          the DESK TAB, so the desk tab is where it is mounted. */}
+      {view === 'docket' && <div className="desk-tabpanel">
+        <PanelCorner kind="agent-docket" slug={slug} nid={node.id} />
+        <AgentDocketView slug={slug} nid={node.id}
+          mine={myWork} facts={workFacts} toast={toast} onFocusAgent={onJump}
+          showArchived={showArchivedDocket}
+          onShowArchived={setShowArchivedDocket}
+          refs={deskRefs}
+          onChanged={() => setWorkBump((n) => n + 1)} />
+      </div>}
       {view === 'presented' && (
-        <AgentGalleryView slug={slug} nid={node.id} node={node} toast={toast}
-          onFocusAgent={onJump} refs={deskRefs}
-          onChanged={() => refresh(true)} />
+        <div className="desk-tabpanel">
+          <PanelCorner kind="agent-gallery" slug={slug} nid={node.id} />
+          <AgentGalleryView slug={slug} nid={node.id} node={node} toast={toast}
+            onFocusAgent={onJump} refs={deskRefs}
+            onChanged={() => refresh(true)} />
+        </div>
       )}
       {/* the mailbox is a name surface too (user request 2026-09-05: the inbox
           was named explicitly). `onJump` is the SAME callback NavChip and the
@@ -3313,16 +3326,19 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
           omit the control rather than draw a dead one. `hasAgent` still decides
           WHICH names route; `tierOf` is a separate fact, so a real agent whose
           model is unknown navigates without a chip. */}
-      {view === 'inbox' && <InboxView slug={slug} nid={node.id} tier={node.tier}
-        toast={toast}
-        tierOf={(id) => map.get(id)?.tier}
-        hasAgent={(id) => map.has(id)}
-        refs={deskRefs}
-        onFocusAgent={onJump}
-        onRetract={(m) => retractMail(slug, node.id, m.id)
-          .then(() => refresh(true))
-          // rethrow: InboxView's optimistic hide rolls back on rejection
-          .catch((e: Error) => { toast([`error: ${e.message}`]); throw e })} />}
+      {view === 'inbox' && <div className="desk-tabpanel">
+        <PanelCorner kind="node-inbox" slug={slug} nid={node.id} />
+        <InboxView slug={slug} nid={node.id} tier={node.tier}
+          toast={toast}
+          tierOf={(id) => map.get(id)?.tier}
+          hasAgent={(id) => map.has(id)}
+          refs={deskRefs}
+          onFocusAgent={onJump}
+          onRetract={(m) => retractMail(slug, node.id, m.id)
+            .then(() => refresh(true))
+            // rethrow: InboxView's optimistic hide rolls back on rejection
+            .catch((e: Error) => { toast([`error: ${e.message}`]); throw e })} />
+      </div>}
       {/* F-04/F-05: the ask card — pinned above the composer while the ask is
           open ("a question answering ui should appear on the agent"), AND —
           message-visibility invariant, user 2026-09-10, superseding the

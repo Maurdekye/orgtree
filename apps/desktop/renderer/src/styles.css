@@ -4297,15 +4297,67 @@ span.ref-chip.ref-chip {
    top-left corner of an empty box */
 .docket-agent > .pad { padding: 12px 10px; line-height: 1.5; }
 
-/* the agent presentations view on the desk shares the docket panel's narrow-column
-   split and overflow clipping */
+/* the agent presentations view on the desk shares the docket panel's overflow
+   clipping.
+
+   ⚠ IT NO LONGER SHARES THE DOCKET'S 52% SPLIT (user report 2026-09-16: "the
+   left side list panel is too wide and the right side content panel is too
+   narrow"). That number was borrowed from `.docket-agent` above, where it is
+   measured and load-bearing — a docket row is an item NAME that has to be read
+   IN THE LIST, so the list is the wide half on purpose. A presentation row is a
+   title you click to open a DOCUMENT, and the document is the half that has to
+   be readable. Borrowing the docket's proportion put a 200px column of prose
+   next to a 230px column of titles.
+
+   The proportion is now the one this view's own popped-out/pinned panel already
+   uses — see `.settings.gallery-modal .mailer-list` near the end of this file,
+   "collection modals reserve at least two thirds for the selected document".
+   That rule is the primitive, so the DESK view is added to its selector rather
+   than given a second copy of its number: the two cannot drift, and the desk
+   tab and its own modal now read as one component family, which is what they
+   always were in markup (`.gallery-modal` is on both). */
 .msgs.gallery-agent {
   overflow: hidden; gap: 0; padding: 6px;
 }
-.gallery-agent .mailer-list { width: 52%; max-width: none; }
 .gallery-agent .mailer-read { padding: 8px 10px; }
 .gallery-agent > .pad { padding: 12px 10px; line-height: 1.5; }
 .gallery-agent .desk-presented-head { padding: 0 4px 4px; }
+
+/* ---------------------------------------- the desk tab's pin/popout/modal corner
+   (user request 2026-09-16, extended the same day to the docket and inbox tabs)
+
+   One wrapper per tab body, so the cluster has a corner to sit in. It mirrors
+   `.msgs-wrap` — which is the chat tab's own wrapper — with the flex column
+   added, because the inbox's `.mailwrap` is a flex ITEM and would otherwise
+   collapse to its content height. */
+.desk-tabpanel {
+  position: relative; flex: 1; min-height: 0;
+  display: flex; flex-direction: column;
+}
+.desk-tabpanel > .mailwrap, .desk-tabpanel > .msgs { flex: 1; min-height: 0; }
+/* ABOVE the panel, never in its flow: an extra row would cost the reading pane
+   height on a desk that has little to spare, and these three buttons are chrome
+   for the panel rather than part of what it lists. */
+.panel-corner {
+  position: absolute; top: 0; right: 2px; z-index: 4;
+  display: flex; align-items: center; gap: 1px;
+}
+/* sized and coloured as `.modalpin-btn`, which is the same three affordances in
+   a pinned window's title bar — one look for one action */
+.panel-corner-btn {
+  background: none; border: none; padding: 2px; display: inline-flex;
+  color: var(--dim); font-size: 14px; cursor: pointer; border-radius: 3px;
+  flex: none; line-height: 1;
+}
+.panel-corner-btn:hover { color: var(--ink-strong); background: var(--panel); }
+.panel-corner-btn[aria-pressed="true"] { color: var(--agent-accent-text, var(--accent)); }
+/* ⚠ ROOM RESERVED IN EACH TAB'S OWN TOP ROW. The cluster floats, so without
+   this it would sit on top of whatever that row ends in — and two of the three
+   end flush right: the docket's filter checkboxes are `justify-content:
+   flex-end`, and the gallery caption wraps to the panel's right edge. */
+.desk-tabpanel > .gallery-agent .desk-presented-head,
+.desk-tabpanel > .docket-agent > .docket-filterbar,
+.desk-tabpanel > .mailwrap > .mail-folders { padding-right: 72px; }
 
 /* vibrant orange badge WITHOUT the mail bell's pulse animation — the
    2026-08-04 ruling keeps the glow/pulse to that one bell alone */
@@ -7363,8 +7415,13 @@ html.mobile .popout-button { display: none; }
 .presentation-chat-card {display:flex; align-items:center; gap:10px; padding:14px 18px; margin:8px 0; max-width:100%; text-align:left; white-space:normal; border:1px solid var(--border); border-radius:8px;}
 .presentation-chat-card svg {flex:none; font-size:24px;}
 
-/* Collection modals reserve at least two thirds for the selected document. */
-.settings.gallery-modal .mailer-list { width: 33.333333%; max-width: 33.333333%; min-width: 0; flex: 0 0 33.333333%; }
+/* Collection modals reserve at least two thirds for the selected document.
+   THE AGENT DESK'S PRESENTED TAB IS THE SAME COLLECTION (user report
+   2026-09-16 — it had inherited the docket's deliberately list-heavy 52% and
+   was unreadable). It joins this selector instead of restating the fraction,
+   so there is exactly one place the gallery's split is decided. */
+.settings.gallery-modal .mailer-list,
+.gallery-agent .mailer-list { width: 33.333333%; max-width: 33.333333%; min-width: 0; flex: 0 0 33.333333%; }
 
 /* Provider-local secondary account management. */
 .provider-accounts:empty{display:none}
