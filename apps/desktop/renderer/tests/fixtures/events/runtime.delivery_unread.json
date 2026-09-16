@@ -42,5 +42,5 @@
     "waited": "runtime.delivery_unread·waited",
     "boundary_for": "4s"
   },
-  "body": "Your mid-turn message to \"runtime.delivery_unread·to\" has NOT been read yet — it has been waiting runtime.delivery_unread·waited in its steer store. Mid-turn mail is injected when the recipient's current tool call returns, and runtime.delivery_unread·to has been inside one call for 4s. Nothing is lost — it is delivered at that boundary, or at runtime.delivery_unread·to's next turn if the turn ends first. If it cannot wait that long, orgtree_interrupt (⏸) on runtime.delivery_unread·to creates a boundary immediately without ending its session."
+  "body": "Your mid-turn message to \"runtime.delivery_unread·to\" has NOT been read yet — it has been waiting runtime.delivery_unread·waited in its steer store. Mid-turn mail is injected when the recipient's current tool call returns, and runtime.delivery_unread·to has not reported a steering poll for 4s. Nothing is lost — it is delivered at that boundary, or at runtime.delivery_unread·to's next turn if the turn ends first. A safe boundary is requested; opaque tools may defer it until they return. The tool is not interrupted or repeated to deliver this mail."
 }

@@ -170,6 +170,10 @@ class GeneratedEventsInSyncTests(unittest.TestCase):
                  ).read_bytes().decode('utf-8')
         self.assertEqual(actual.replace('\r\n', '\n'), expected.replace('\r\n', '\n'))
 
+    def test_event_fixtures_match_source(self):
+        from tools.gen_event_fixtures import mismatches
+        self.assertEqual(mismatches(), [])
+
 
 # `store.STORE_BACKEND` binds from ORGTREE_STORE at import time, exactly like
 # DATA_ROOT — so testing BOTH backends needs two separate subprocesses, one

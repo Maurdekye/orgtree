@@ -113,7 +113,7 @@ export function projectEvent(event: KnownEvent): EventView {
     case "context.org_charter": return layout(event, "Organization instructions", [])
     case "context.command": return layout(event, "Command", [["text", "Response", "body"]])
     case "context.drive_mail_pointer": return layout(event, "Delivery context", [])
-    case "context.drive_restart_interrupted": return layout(event, "Interrupted restart", [])
+    case "context.drive_restart_interrupted": return layout(event, "Interrupted restart", [["summary", "What happened", "body"]])
     case "context.drive_restart_wake": return layout(event, "Restart wake", [])
   }
   return assertNever(event)

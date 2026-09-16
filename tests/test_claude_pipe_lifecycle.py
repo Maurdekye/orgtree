@@ -324,7 +324,14 @@ class ClaudePipeLifecycleTests(unittest.TestCase):
 
     def test_graceful_interrupt_still_yields_a_turn_boundary(self):
         self.start("interrupt")
-        self.assertEqual(sup.interrupt_turn(self.slug, self.nid), {"interrupted": True})
+        result = sup.interrupt_turn(self.slug, self.nid)
+        self.assertTrue(result["interrupted"])
+        self.assertRegex(result["operation_id"], r"^turn:[0-9a-f]+$")
+        self.assertEqual(result["cleanup"], {
+            "operation_id": result["operation_id"],
+            "state": "pending",
+            "reason": "interrupt requested",
+        })
         self.assert_settled()
         self.assertIsNone(self.st.get("last_error"))
         self.assertFalse(self.st["busy"])

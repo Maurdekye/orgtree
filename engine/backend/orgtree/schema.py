@@ -295,6 +295,15 @@ class InflightInfo(TypedDict):
     # Structured human projection of ``text``.  Machine-added context is
     # deliberately absent; raw replay text remains untouched above.
     view: NotRequired[str]
+    # The TYPED COMPOSITION of the same turn (`supervisor._segments_for`), so a
+    # replay can hand back what the turn was made of instead of only how it
+    # read. Without it the restart replay had `view` and nothing else, and the
+    # composer's last branch filed the whole projection — mail envelope and all
+    # — as a single `text` segment, which the desk prints as prose (user report
+    # 2026-09-16). Absent on a marker written by an older build, and absent
+    # when the composition was too large to keep: both fall back to that same
+    # text segment, which is the behaviour this field replaces, not a new one.
+    segments: NotRequired[list[dict[str, Any]]]
     cmd: NotRequired[bool]
     # The secret-free prefix/namespace record of the request this turn was
     # launched with (`supervisor._cache_persistable`, the same shape as the

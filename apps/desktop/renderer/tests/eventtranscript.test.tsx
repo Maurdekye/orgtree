@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { Msg } from '../src/canvas/desk'
 import { SegmentList, isSegments } from '../src/events/segments'
+import { HUMAN_HIDDEN_VARIANTS } from '../src/generated/events'
 import { AgentDirectoryProvider } from '../src/canvas/identity'
 declare const __SRC_DIR__: string
 const f=(name:string)=>JSON.parse(readFileSync(path.resolve(__SRC_DIR__,'../tests/fixtures/events',name+'.json'),'utf8'))
@@ -45,8 +46,12 @@ test('public transcript uses permitted typed fields, retains allowed content and
 
 
 test('machine-only segments leave no empty card and preserve mixed readable composition in both profiles',async t=>{
-  const hidden=['context.org_state','context.provider_usage','context.cache_continuity','context.org_charter',
-    'context.drive_mail_pointer','context.drive_restart_interrupted','context.drive_restart_wake']
+  // DERIVED, not hand-listed. A leaf is hidden by declaring every own field
+  // model_only, so the set moves when a leaf gains a human field — which is
+  // exactly what happened to `context.drive_restart_interrupted` on
+  // 2026-09-16, and a hand-written copy of the list said it was still hidden
+  // while the desk had started drawing it.
+  const hidden=[...HUMAN_HIDDEN_VARIANTS]
   for(const profile of ['operator','public'] as const) {
     const eventKey=profile==='operator'?'event':'event_public', rowKey=profile==='operator'?'ev':'ev_public'
     const fixtureKey=profile==='operator'?'private':'public'
