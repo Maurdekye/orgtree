@@ -2383,14 +2383,21 @@ export interface WorkItem {
    *  the body — a warning anywhere else is a warning the reader of the
    *  description does not meet. */
   objective_notice?: WorkObjectiveNotice | null
-  /** backlogged | open | in_progress | blocked | review | deploy_ready |
-   *  done | superseded | dropped. `backlogged` = not yet approached or
+  /** backlogged | open | in_progress | blocked | review | approved |
+   *  deploy_ready | done | superseded | dropped. `backlogged` = not yet approached or
    *  approved: served in its own group behind its own toggle and never
    *  counted as active. `blocked` = cannot move until an answer or event
    *  outside the item happens: it counts as active, stays on the desk, and
    *  is never nudged by the idle reminder (user 2026-09-07). There is no
    *  `waiting` state any more (user 2026-09-07): a row recorded as waiting is
-   *  SERVED as blocked, with `legacy_status` saying so. `deploy_ready`
+   *  SERVED as blocked, with `legacy_status` saying so. `approved` = a
+   *  reviewer approved an exact commit (`candidate_verdict.candidate` holds
+   *  the sha) and it is NOT LANDED: active, still owned by the implementer,
+   *  and the outstanding action is the push. It is the only status no agent
+   *  can assert — a reviewer's `approve_stage` verdict is the sole way in —
+   *  and it exists because `approve` used to complete the item outright,
+   *  which made the docket read Done for code `git` said was not in the
+   *  product. `deploy_ready`
    *  (2026-09-08) = implementation is complete and awaiting deployment or
    *  publication — not blocked (nothing outside the item is stuck) and not
    *  done (not live yet): it counts as active and IS nudged, unlike blocked.

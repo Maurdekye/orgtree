@@ -1,0 +1,44 @@
+{
+  "variant": "docket.review_approved_stage",
+  "family": "review",
+  "private": {
+    "v": 1,
+    "variant": "docket.review_approved_stage",
+    "actor": {
+      "kind": "agent",
+      "id": "docket.review_approved_stage·actor"
+    },
+    "object": {
+      "kind": "work_item",
+      "org": "docket.review_approved_stage·object.org",
+      "slug": "docket.review_approved_stage·object.slug",
+      "title": "docket.review_approved_stage·object.title"
+    },
+    "engine_authored": false,
+    "reviewer": "docket.review_approved_stage·reviewer",
+    "owner": "docket.review_approved_stage·owner",
+    "candidate": "docket.review_approved_stage·candidate",
+    "note": "docket.review_approved_stage·note",
+    "relayed": false
+  },
+  "public": {
+    "v": 1,
+    "variant": "docket.review_approved_stage",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "docket.review_approved_stage·actor"
+    },
+    "object": {
+      "kind": "work_item",
+      "slug": "docket.review_approved_stage·object.slug",
+      "title": "docket.review_approved_stage·object.title"
+    },
+    "reviewer": "docket.review_approved_stage·reviewer",
+    "owner": "docket.review_approved_stage·owner",
+    "candidate": "docket.review_approved_stage·candidate",
+    "note": "docket.review_approved_stage·note",
+    "relayed": false
+  },
+  "body": "[DOCKET REVIEW · docket.review_approved_stage·object.slug \"docket.review_approved_stage·object.title\"] COMMIT APPROVED — docket.review_approved_stage·reviewer approved commit docket.review_approved_stage·candidate on this item. It is NOT done: the item is `approved`, it is still yours, and the next action is the LANDING — rebase, fast-forward and push that commit.\nReviewer's note: docket.review_approved_stage·note\nWhen it is on main, record it (orgtree_work claim slug=docket.review_approved_stage·object.slug stage=pushed ref=<sha>, then `verify`) and complete the item only then. Nobody completes it for you — this outcome exists precisely so the docket does not read Done for code that is not in the product."
+}

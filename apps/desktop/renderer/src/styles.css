@@ -82,6 +82,16 @@
                                mistaken for either neighbor at a glance, and it
                                is deliberately not --ok green — the work is not
                                live yet, so it must not read as finished. */
+  --approved: #b58ce0;      /* docket "Approved — not landed" — a reviewer passed
+                               an exact commit that is not on main yet. Orchid
+                               (~283°), the midpoint of the remaining gap between
+                               --deploy-ready (251°) and --review (violet, 311°),
+                               which is also where it sits in the real sequence:
+                               reviewed, approved, landed, deployable. Emphatically
+                               NOT --ok green — this status exists because approval
+                               was reading as completion, and a green chip would
+                               reintroduce at a glance exactly the untrue record
+                               the status was added to remove. */
   --shadow: 0 2px 8px rgba(0, 0, 0, .36);
   --mono: Consolas, 'Cascadia Mono', 'Courier New', monospace;
   /* the counterpart --mono always implied: the app's ordinary text face. It
@@ -166,6 +176,7 @@
   --review: #815379;
   --backlog: #326b66;
   --deploy-ready: #6350a8;
+  --approved: #7a4fa8;
   --ice: #326b82;
   --tip-fill: #176377;
   --tip-seat: #155e75;
@@ -3893,6 +3904,7 @@ main.solo { width: 100%; }
 /* `waiting` takes --warn, the band that already marks PENDING things — every
    other declared token is a docket status already, or too near one. */
 .docket-status.status-waiting { color: var(--warn); }
+.docket-status.status-approved { color: var(--approved); }
 .docket-status.status-deploy_ready { color: var(--deploy-ready); }
 .docket-status.status-backlogged { color: var(--backlog); }
 .docket-status.status-done { color: var(--ok); }
@@ -3903,6 +3915,7 @@ main.solo { width: 100%; }
 .docket-modal .mailrow.status-in_progress { border-left: 3px solid var(--work); }
 .docket-modal .mailrow.status-blocked { border-left: 3px solid var(--bad); }
 .docket-modal .mailrow.status-review { border-left: 3px solid var(--review); }
+.docket-modal .mailrow.status-approved { border-left: 3px solid var(--approved); }
 .docket-modal .mailrow.status-deploy_ready { border-left: 3px solid var(--deploy-ready); }
 .docket-modal .mailrow.status-backlogged { border-left: 3px solid var(--backlog); }
 .docket-modal .mailrow.status-done { border-left: 3px solid var(--ok); }

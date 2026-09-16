@@ -209,6 +209,24 @@ def _r_review_approved(ev: _R) -> str:
             + _relay_suffix(ev))
 
 
+@renderer("docket.review_approved_stage")
+def _r_review_approved_stage(ev: _R) -> str:
+    note = ev.get("note")
+    o = _obj(ev)
+    return (_docket_head("REVIEW", ev)
+            + f"COMMIT APPROVED — {_user_or(str(ev['reviewer']))} approved commit "
+              f"{ev['candidate']} on this item. It is NOT done: the item is "
+              "`approved`, it is still yours, and the next action is the "
+              "LANDING — rebase, fast-forward and push that commit."
+            + (f"\nReviewer's note: {_note(ev, 'approval')}" if note else "")
+            + f"\nWhen it is on main, record it (orgtree_work claim "
+              f"slug={o['slug']} stage=pushed ref=<sha>, then `verify`) and "
+              "complete the item only then. Nobody completes it for you — this "
+              "outcome exists precisely so the docket does not read Done for "
+              "code that is not in the product."
+            + _relay_suffix(ev))
+
+
 @renderer("docket.participant_added")
 def _r_participant(ev: _R) -> str:
     o = _obj(ev)

@@ -6994,8 +6994,14 @@ def _work_mutate_action(org: Org, nid: str, a: dict[str, Any],
         return org.work_request_handoff(nid, wid, _s("target"),
                                         _s("reason"))
     if act == "review":
-        return org.work_review_decide(nid, wid, str(a.get("decision") or ""),
-                                      _s("note"))
+        return org.work_review_decide(
+            nid, wid, str(a.get("decision") or ""), _s("note"),
+            # `approve_stage` names the commit it approved. Read from the same
+            # spellings the candidate verdict below accepts, so a reviewer that
+            # has used one route does not have to learn a second field name.
+            candidate=(a.get("candidate") or a.get("candidate_sha")
+                       or a.get("sha")),
+            evidence=a.get("evidence"))
     if act in ("verdict", "candidate_verdict", "integration_verdict",
                "review_verdict"):
         return org.work_candidate_verdict(

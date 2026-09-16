@@ -42,6 +42,11 @@ export function projectEvent(event: KnownEvent): EventView {
     case "docket.review_requested": return layout(event, "Review requested", [["reviewer", "Reviewer", "header"], ["requested_by", "Requested by", "header"], ["owner", "Assigned to", "header"], ["revision", "Item revision", "header"], ["candidate", "Candidate", "header"], ["objective_notice", "Scope warning", "body"], ["objective", "Objective", "body"], ["acceptance", "Acceptance conditions", "context"], ["done_so_far", "Completed", "context"]])
     case "docket.review_changes": return layout(event, "Changes requested", [["reviewer", "Reviewer", "header"], ["owner", "Assigned to", "header"], ["note", "Review note", "body"], ["relayed", "Relayed to owner", "context"]])
     case "docket.review_approved": return layout(event, "Review approved", [["note", "Review note", "body"], ["reviewer", "Reviewer", "header"], ["owner", "Assigned to", "header"], ["relayed", "Relayed to owner", "context"]])
+    // the commit is a HEADER field, not context: which commit was approved is
+    // the whole content of this outcome, and burying it would leave the row
+    // reading like a plain approval — the exact confusion the outcome exists
+    // to end
+    case "docket.review_approved_stage": return layout(event, "Commit approved — not landed", [["candidate", "Approved commit", "header"], ["note", "Review note", "body"], ["reviewer", "Reviewer", "header"], ["owner", "Assigned to", "header"], ["relayed", "Relayed to owner", "context"]])
     case "status.report": return layout(event, "Status update", [["state", "State", "header"], ["summary", "Summary", "body"]])
     case "answer.ask": return layout(event, "Question answered", [["questions", "Questions and answers", "body"], ["text", "Response", "body"], ["dismissed", "Dismissed", "header"], ["single", "Single question", "context"]])
     case "answer.batch": return layout(event, "Request resolved", [["sections", "Answers and decisions", "body"]])

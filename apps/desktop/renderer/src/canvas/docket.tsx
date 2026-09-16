@@ -70,6 +70,7 @@ const STATUS_LABEL: Record<string, string> = {
   // no label is needed for it; an older backend that still serves the word
   // falls through to the raw status
   review: 'Agent review',
+  approved: 'Approved — not landed',
   deploy_ready: 'Deploy Ready',
   done: 'Done',
   superseded: 'Superseded',
@@ -84,13 +85,17 @@ const DROPPED_HELP = 'Ended WITHOUT being completed — cancelled, or failed in 
 // distinguishes it from both Blocked (stuck on something outside the item —
 // this is not) and Done (not live yet — that is the whole reason it exists)
 const DEPLOY_READY_HELP = 'Implementation is complete and awaiting deployment or publication. Active and actionable — not stuck on anything, and not yet live — so it stays on the desk and is nudged like any other in-flight status'
+// the word "approved" on its own reads like "finished and signed off"; it means
+// the opposite of Done, so the help says what is still owed and by whom
+const APPROVED_HELP = 'A reviewer approved one exact commit and it is NOT on main yet — the item is still with its owner and the outstanding action is the landing. Completion happens after the push is recorded, never before it'
 const statusLabel = (status: string): string => STATUS_LABEL[status] ?? status
 /** hover help, only where the status word can be read two ways */
 const statusHelp = (status: string): string | undefined =>
   (status === 'review' ? REVIEW_HELP
     : status === 'blocked' ? BLOCKED_HELP
       : status === 'dropped' ? DROPPED_HELP
-        : status === 'deploy_ready' ? DEPLOY_READY_HELP : undefined)
+        : status === 'approved' ? APPROVED_HELP
+          : status === 'deploy_ready' ? DEPLOY_READY_HELP : undefined)
 
 /** Group-by-status order, exactly as specified: effective attention first,
  *  then blocked, in_progress, review, deploy_ready, open, done, then
@@ -103,6 +108,9 @@ const STATUS_GROUPS: { key: string; heading: string }[] = [
   { key: 'blocked', heading: 'Blocked' },
   { key: 'in_progress', heading: 'In progress' },
   { key: 'review', heading: 'Agent review' },
+  // between review and deploy-ready, which is where it sits in the real
+  // sequence: reviewed, approved, not landed, then landed, then deployable
+  { key: 'approved', heading: 'Approved — not landed' },
   { key: 'deploy_ready', heading: 'Deploy Ready' },
   { key: 'open', heading: 'Open' },
   { key: 'backlogged', heading: 'Backlogged' },

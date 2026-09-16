@@ -1745,6 +1745,61 @@
       ],
       "additionalProperties": false
     },
+    "DocketReviewApprovedStage": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "variant": {
+          "const": "docket.review_approved_stage"
+        },
+        "actor": {
+          "$ref": "#/$defs/Actor"
+        },
+        "engine_authored": {
+          "type": "boolean"
+        },
+        "object": {
+          "$ref": "#/$defs/WorkItemRef"
+        },
+        "reviewer": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "candidate": {
+          "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "relayed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "v",
+        "variant",
+        "actor",
+        "engine_authored",
+        "object",
+        "reviewer",
+        "owner",
+        "candidate",
+        "note",
+        "relayed"
+      ],
+      "additionalProperties": false
+    },
     "StatusReport": {
       "type": "object",
       "properties": {
@@ -5432,6 +5487,9 @@
           "$ref": "#/$defs/DocketReviewApproved"
         },
         {
+          "$ref": "#/$defs/DocketReviewApprovedStage"
+        },
+        {
           "$ref": "#/$defs/StatusReport"
         },
         {
@@ -7081,6 +7139,61 @@
         "object",
         "reviewer",
         "owner",
+        "note",
+        "relayed"
+      ],
+      "additionalProperties": false
+    },
+    "PublicDocketReviewApprovedStage": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "variant": {
+          "const": "docket.review_approved_stage"
+        },
+        "projection": {
+          "const": "public"
+        },
+        "actor": {
+          "$ref": "#/$defs/PublicActor"
+        },
+        "object": {
+          "$ref": "#/$defs/PublicWorkItemRef"
+        },
+        "reviewer": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "candidate": {
+          "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "relayed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "v",
+        "variant",
+        "projection",
+        "actor",
+        "object",
+        "reviewer",
+        "owner",
+        "candidate",
         "note",
         "relayed"
       ],
@@ -10624,6 +10737,9 @@
         },
         {
           "$ref": "#/$defs/PublicDocketReviewApproved"
+        },
+        {
+          "$ref": "#/$defs/PublicDocketReviewApprovedStage"
         },
         {
           "$ref": "#/$defs/PublicStatusReport"

@@ -10715,12 +10715,41 @@ class Org:
     # unlike `blocked`, it IS nudged by the idle reminder: this is actionable
     # work with an owner who owes the next move (getting it in front of
     # whoever deploys), not work stuck on an external event.
+    #
+    # `approved` (this push): a reviewer has approved an EXACT commit and the
+    # item is NOT YET LANDED. It exists because `approve` completed the item
+    # outright, and approval always happens BEFORE the rebase, the fast-forward
+    # and the push — so the docket read `done` for code `git` said was not in
+    # the product. About twenty-five agents reported that window last release;
+    # one counted it four times on a single item. The third review outcome
+    # (`approve_stage`) puts the item HERE instead of at `done`, and the
+    # approved sha is recorded on the item so what was approved is not a matter
+    # of memory. It counts as ACTIVE (not `WORK_UNCOUNTED`), does not
+    # auto-archive (not `WORK_ARCHIVES_ITSELF`), and — like every status that
+    # is not `review` or `deploy_ready` — its next action is owed by the OWNER,
+    # who owes exactly one thing: landing the approved commit and recording it.
+    #
+    # ⚠ IT IS DELIBERATELY ABSENT FROM `WORK_AGENT_STATUSES`, which is the
+    # no-self-approval rule stated where it can actually fire. Every other
+    # status is agent-assertable through `work_update`; if this one were too,
+    # an owner could write "approved" onto its own item and the word would stop
+    # meaning "a reviewer checked this" — the same back door
+    # `work_review_decide` already closes by re-checking reviewer != owner at
+    # decision time rather than only at naming time. The ONLY way into
+    # `approved` is a reviewer's verdict. Getting OUT is unrestricted: `status`
+    # is validated only when an update asserts one, so the owner updates a
+    # landed item freely and completes it with `done`/`accept` as always.
     WORK_STATUSES: Final = ("backlogged", "open", "in_progress", "blocked",
-                            "review", "deploy_ready", "done", "superseded",
-                            "dropped")
+                            "review", "approved", "deploy_ready", "done",
+                            "superseded", "dropped")
     WORK_AGENT_STATUSES: Final = ("backlogged", "open", "in_progress",
                                   "blocked", "review", "deploy_ready",
                                   "dropped")
+    #: THE STATE `approve_stage` PRODUCES, named once. The product question of
+    #: whether approved-not-landed is its own status or a flag on an existing
+    #: one was put to the user; this constant is the single seam that answer
+    #: moves, so it is one assignment rather than a search across the verb.
+    WORK_STAGED_STATUS: Final = "approved"
     WORK_CLOSED: Final = ("done", "superseded", "dropped")
     WORK_BACKLOG: Final = "backlogged"
     #: THE STAFFING BOUNDARY. A one-call staffing (`orgtree_staff`) that sends
@@ -15206,9 +15235,34 @@ class Org:
     work_review_verdict = work_candidate_verdict
 
     def work_review_decide(self, actor: str, wid: str, decision: str,
-                           note: str | None = None) -> dict[str, Any]:
-        """The named reviewer's verdict: `approve` (→ done) or `changes`
-        (→ in_progress, and the OWNER is told what to do next).
+                           note: str | None = None,
+                           candidate: Any = None,
+                           evidence: Any = None) -> dict[str, Any]:
+        """The named reviewer's verdict: `approve` (→ done), `approve_stage`
+        (→ `approved`, holding an exact commit, item NOT completed) or
+        `changes` (→ in_progress, and the OWNER is told what to do next).
+
+        ⚠ `approve_stage` IS A THIRD PATH, NOT A REDIRECTION OF THE OTHER TWO.
+        `approve` still completes the item through the same
+        `_work_accept_core` it always did, with the same acceptance record and
+        the same acceptance guard; `changes` still sends the item back
+        unchanged. What was missing was a way to say the very common third
+        thing — "this commit is good, now go land it" — which had no
+        representation at all, so reviewers said `approve` and the docket
+        reported `done` for code that was not on `main`. That window is what
+        this outcome closes, and it closes it by ADDING a state between the
+        two, never by weakening completion.
+
+        ⚠ `approve_stage` REQUIRES AN EXACT CANDIDATE SHA. Approving "the
+        work" is what produced the ambiguity in the first place: an item can
+        be rebased, amended or force-pushed between the review and the
+        landing, and an approval that does not name a commit cannot tell you
+        afterwards whether what landed is what was read. The sha is validated
+        here and recorded on the item (`candidate_verdict`, plus the
+        append-only `candidate_verdicts` history) exactly as the nonterminal
+        `work_candidate_verdict` records one, so there is ONE shape on the
+        item for "a reviewer approved this exact commit" rather than two that
+        can disagree.
 
         ⚠ REVIEWER ≠ OWNER IS CHECKED HERE TOO, not only when the reviewer was
         named. Ownership moves — an update claims the item — so an agent named
@@ -15223,9 +15277,13 @@ class Org:
         self._work_sweep()
         it, _ = self._work_get_for(actor, wid)
         dec = str(decision or "").strip().lower()
-        if dec not in ("approve", "changes"):
-            raise LedgerError("decision must be 'approve' (the review passed — "
-                              "the item is done) or 'changes' (send it back to "
+        if dec not in ("approve", "approve_stage", "changes"):
+            raise LedgerError("decision must be 'approve' (the review passed "
+                              "AND the work is landed — the item is done), "
+                              "'approve_stage' (this exact commit is good but "
+                              "it is not on main yet — pass `candidate`; the "
+                              "item goes to `approved` and stays with its "
+                              "owner to land) or 'changes' (send it back to "
                               "the owner as in_progress)")
         rev_node = self._work_actor_node(it.get("reviewer"))
         own = self._work_actor_node(it.get("owner"))
@@ -15252,6 +15310,9 @@ class Org:
                 actor, it, own, "docket.review_approved",
                 note=(str(note) if note else None))
             return out
+        if dec == "approve_stage":
+            return self._work_review_approve_stage(actor, it, own, note,
+                                                   candidate, evidence)
         frm = it.get("status")
         it["status"] = "in_progress"
         # A sendback is a real status change and belongs in the status clock
@@ -15293,6 +15354,88 @@ class Org:
                     actor, it, own, "docket.review_changes",
                     note=(str(note) if note else None))}
 
+    def _work_review_approve_stage(self, actor: str, it: WorkItem,
+                                   own: str | None, note: str | None,
+                                   candidate: Any,
+                                   evidence: Any) -> dict[str, Any]:
+        """THE THIRD REVIEW OUTCOME: this exact commit passed, and the item is
+        not done because it is not landed.
+
+        ⚠ IT WRITES NO `accepted` RECORD AND TOUCHES NO ACCEPTANCE CONDITION.
+        That is the point of it, not an omission: the item has not been
+        completed, so asserting a completion — even a provisional one — would
+        recreate the untrue record in a quieter place. When the owner lands the
+        work and completes the item, `accept`/`done` writes the SAME acceptance
+        record through the SAME `_work_accept_core` it always did, under the
+        same guard that every acceptance condition carry an explicit `met` or
+        `known_negative` check. Approval staged here does not spend that guard
+        and does not weaken it.
+
+        ⚠ THE OWNER KEEPS THE ITEM, exactly as it does across `changes`. A
+        staged approval is a statement about a commit, not a transfer: the
+        owner still owes the landing, `_work_next_recipient` returns it for
+        every status that is not `review` or `deploy_ready`, and the reviewer
+        is left named so the same pair can close the loop on what actually
+        landed without the owner having to re-nominate anybody."""
+        from . import workitems
+        wid = str(it["slug"])
+        try:
+            sha = workitems.validate_sha(candidate)
+        except workitems.ShaError as e:
+            raise LedgerError(
+                f"approve_stage approves ONE EXACT COMMIT and needs it in "
+                f"`candidate` — {e}. An approval that does not name a commit "
+                f"cannot say afterwards whether what landed is what was read, "
+                f"which is the ambiguity this outcome exists to remove") from None
+        ev = self._work_verdict_evidence(evidence)
+        frm = it.get("status")
+        verdict = {"candidate": sha, "decision": "approve_stage",
+                   "evidence": ev,
+                   "note": (_prose(note) if note else None),
+                   # who acts next, and it is the owner: the remaining work is
+                   # the landing, which is the owner's to do
+                   "next_actor": self._work_actor(own or actor),
+                   "by": self._work_actor(actor), "at": now()}
+        # ONE shape on the item for "a reviewer approved this exact commit",
+        # shared with the nonterminal `work_candidate_verdict` — a second,
+        # parallel record would be a second thing to keep in agreement.
+        cast("list[dict[str, Any]]",
+             it.setdefault("candidate_verdicts", [])).append(verdict)
+        it["candidate_verdict"] = verdict
+        it["status"] = self.WORK_STAGED_STATUS
+        # ⚠ ONLY WHEN IT MOVED THE VALUE, the same guard `changes` carries: a
+        # second staged approval (a re-review after an amend) assigns
+        # `approved` over `approved`, and stamping that would turn "most
+        # recently changed state" into "most recently touched".
+        if frm != self.WORK_STAGED_STATUS:
+            self._work_stamp_status(it)
+        # every state-information field, for the same reason `changes` clears
+        # them: an item reading `BLOCKED BECAUSE …` while it sits at `approved`
+        # is a pane that lies, and nothing would fail
+        self._work_clear_state_info(it)
+        packet_was = it.get("review_packet")
+        if packet_was is not None:
+            # this review cycle ended in a verdict. The complete packet stays
+            # in review_packets/history; it is just no longer next-cycle work.
+            it["review_packet"] = None
+        self._work_hist(it, actor, "review_approve_stage",
+                        {"from": frm, "candidate": sha,
+                         "note": (_prose(note) if note else None),
+                         **({"review_packet_was": packet_was}
+                            if packet_was is not None else {})})
+        self._work_mark_review_requests_stale(it)
+        it["docket_at"] = now()
+        self._log("work_review", actor,
+                  {"item": wid, "decision": "approve_stage",
+                   "candidate": sha}, [])
+        return {"reviewed": wid, "decision": "approve_stage", "candidate": sha,
+                "rev": it["rev"], "status": self._work_status(it),
+                "landing": "approved, NOT done — the owner lands this commit "
+                           "and records it, and completion happens only then",
+                "notified": self._work_tell_owner(
+                    actor, it, own, "docket.review_approved_stage",
+                    candidate=sha, note=(str(note) if note else None))}
+
     def _work_tell_owner(self, actor: str, it: WorkItem, own: str | None,
                          variant: str, **fields: Any) -> str | None:
         """Tell the OWNER what a review decided — a typed `docket.review_*`
@@ -15316,6 +15459,10 @@ class Org:
             # wants every mint( site to name its variant as a string literal
             if variant == "docket.review_approved":
                 return _mint("docket.review_approved", actor_of(actor),
+                             self.work_item_ref(it), reviewer=actor, owner=own,
+                             relayed=relayed, **fields)
+            if variant == "docket.review_approved_stage":
+                return _mint("docket.review_approved_stage", actor_of(actor),
                              self.work_item_ref(it), reviewer=actor, owner=own,
                              relayed=relayed, **fields)
             return _mint("docket.review_changes", actor_of(actor),

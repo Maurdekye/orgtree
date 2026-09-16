@@ -240,6 +240,14 @@ LEAVES: Final[dict[str, dict[str, Any]]] = {
     "docket.review_approved": leaf(
         "review", "WorkItemRef", reviewer=F("str", B, True), owner=F("str", B, True, _YOU),
         note=F("str?", B, True), relayed=F("bool", B, True)),
+    # the THIRD review outcome: an exact commit passed, and the item is NOT
+    # done because it is not landed. `candidate` is required rather than
+    # optional — the whole point of this outcome is that the approval names a
+    # commit, so an event carrying none would describe nothing checkable.
+    "docket.review_approved_stage": leaf(
+        "review", "WorkItemRef", reviewer=F("str", B, True), owner=F("str", B, True, _YOU),
+        candidate=F("str", B, True), note=F("str?", B, True),
+        relayed=F("bool", B, True)),
     # ---- family status
     "status.report": leaf("status", "NodeRef", state=F("L[done|blocked]", B, True),
                           summary=F("str", B, True)),
