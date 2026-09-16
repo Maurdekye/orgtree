@@ -3199,7 +3199,11 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
               // than defaulting open on "not user".
               : <RefMdBody className="md" world={deskRefs.world} onOpen={deskRefs.onOpen}
                   html={md(row.event_id === convo.draftEventId && draft ? draft : row.text,
-                    fileBase(slug, node.id), row.role === 'assistant')} />}
+                    fileBase(slug, node.id), row.role === 'assistant',
+                    // live only when this row IS the growing draft; a settled
+                    // transient row is ordinary text and belongs in the
+                    // ordinary cache
+                    row.event_id === convo.draftEventId && !!draft)} />}
           </div>)}
           {thinkingMark && <div className="reply-event"
             data-reply-event={convo.thinkingEventId ?? ''} data-reply-quote={convo.thinkingReplyQuote} onContextMenu={e => openReply(e, { event_id: convo.thinkingEventId })}>{(thinking
@@ -3214,7 +3218,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
           {draftMark && <div className="reply-event" data-reply-event={convo.draftEventId ?? ''} data-reply-quote={convo.draftReplyQuote}
             onContextMenu={e => openReply(e, { event_id: convo.draftEventId })}><RefMdBody className="msg assistant live md draft"
             world={deskRefs.world} onOpen={deskRefs.onOpen}
-            html={md(draft, fileBase(slug, node.id), true)} /></div>}
+            html={md(draft, fileBase(slug, node.id), true, true)} /></div>}
           {/* D-29: the turn has begun but the CLI has not produced anything
               yet — process launch, hooks, `init`, roughly six seconds during
               which the panel showed nothing but a spinner in the chrome. This
