@@ -489,6 +489,20 @@ def now() -> str:
     return d.strftime("%Y-%m-%dT%H:%M:%S.") + f"{d.microsecond // 1000:03d}Z"
 
 
+#: this backend process's boot stamp in `now()` format, memoised for
+#: `Ledger._boot_at` (see `node_ask`'s per-process linger bound)
+_BOOT_AT: str | None = None
+
+
+def _reset_boot_at_for_tests() -> None:
+    """Forget the memoised boot stamp AND the one `restart_wake` holds, so a
+    test can pose as a later process and re-read it. Paired with
+    `restart_wake._reset_boot_build_info_for_tests`, which is what a test
+    injects the fake stamp through."""
+    global _BOOT_AT
+    _BOOT_AT = None
+
+
 # kind flags that are QUALIFIERS on a provider-scoped freeze (a usage limit,
 # a network drop) rather than kinds of their own — mirrors
 # supervisor._resumable's own exemption list exactly.
@@ -9360,9 +9374,73 @@ class Org:
         best = max(pool, key=stamp)
         cutoff = (datetime.now(timezone.utc)
                   - timedelta(minutes=15)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        # THE LINGER IS PER BACKEND PROCESS, and the second bound is not a
+        # refinement of the first — it is the one that makes the window mean
+        # what it says. The window exists for ONE job: to cover the handoff of
+        # an answer this process just posted, from the submit until the mail
+        # renders in the transcript (message-visibility invariant, user
+        # 2026-09-10 13:22Z). `resolved_at` is persisted, so the 15 minutes
+        # alone outlive the process — and a backend restart changes the
+        # `x-orgtree-instance` header, which reloads the page (D-60,
+        # tests/restart.test.ts). The desk's record that the answer was
+        # already shown is in-page memory (`answerSeenTranscript`, a useRef in
+        # desk.tsx), so the reload destroys it and the fresh page can only
+        # re-derive the fact from the transcript window it loaded — which
+        # after a restart is the NEW CLI session's rows, without the
+        # pre-restart answer mail. The card therefore re-pinned at FULL SIZE
+        # and sat there for the rest of the 15 minutes (user report
+        # 2026-09-16, 2.1.6-beta.1: "the last asked question is stuck as an
+        # 'answered' annotation and doesn't go away").
+        #
+        # The desk cannot fix this itself: a fresh mount with an answered card
+        # and the answer nowhere on screen is the SAME payload as the live
+        # race askhandoff.test.tsx §3 exists to protect, where the panel must
+        # stand in. Only this side knows which process posted the answer.
+        #
+        # ⚠ AND NOTHING GOES INVISIBLE WHEN THE CARD GOES. The desk suppresses
+        # the answer's own pending bubble only while it is drawing this card
+        # (`askAnswerRow` returns false with no card), so an answer still
+        # genuinely queued at restart comes back as a queued bubble instead —
+        # visible exactly once either way. The resolved card itself is never
+        # erased: it keeps its place in the user's inbox through `tree.asks`,
+        # which does not consult this window at all.
+        boot_at = self._boot_at()
+        if boot_at and boot_at > cutoff:
+            cutoff = boot_at
         if (best.get("resolved_at") or best["at"]) < cutoff:
             return None
         return best
+
+    @staticmethod
+    def _boot_at() -> str:
+        """When THIS backend process started, in the stamp format `node_ask`'s
+        cutoff compares. Empty when it cannot be read — which degrades to the
+        old wall-clock-only window rather than hiding a card, because a
+        missing boot stamp is not evidence of a restart.
+
+        Memoised here as well as in `restart_wake`: `node_ask` runs once per
+        node per tree payload, and the source returns a fresh dict copy every
+        call. `_reset_boot_at_for_tests` clears both."""
+        global _BOOT_AT
+        if _BOOT_AT is not None:
+            return _BOOT_AT
+        try:
+            from . import restart_wake
+            started = str(restart_wake.get_boot_build_info().get("started_at") or "")
+        except Exception:                                        # noqa: BLE001
+            return ""
+        # `now_iso()` is `datetime.isoformat()` — "…T10:27:05.813123+00:00",
+        # neither the `Z` nor the millisecond width `now()` writes. Normalise
+        # to `now()`'s exact shape so the comparison is plain string order,
+        # and round DOWN to `.000Z`: `.000Z` sorts before every millisecond
+        # stamp in the same second AND before a legacy second-resolution
+        # "…:05Z" ("." < "Z"), so an answer resolved inside the boot second is
+        # KEPT. The one-second slack is deliberately on the side of showing a
+        # card that is a second too old rather than hiding one that is live.
+        if len(started) < 19:
+            return ""
+        _BOOT_AT = started[:19] + ".000Z"
+        return _BOOT_AT
 
     def fable_filter_hit(self, nid: str, detail: str) -> str:
         """A Fable content filter flagged this node's message mid-turn (user
