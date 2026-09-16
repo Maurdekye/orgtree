@@ -10890,6 +10890,34 @@ def _auto_cheap_cfg(org: Org, nid: str) -> dict[str, float] | None:
         return {"occ": 0.5}
 
 
+def _auto_cheap_open_request(org: Org, nid: str) -> bool:
+    """True while the user still holds an UNRESOLVED request from this seat.
+
+    `Org.cheap_compact` MOOTS the seat's open request batch — the successor
+    session never asked, so an answer arriving for it would read as somebody
+    else's mail. That makes an automatic compaction the one thing that can
+    take a standing card off the user's screen without the user or the asking
+    agent doing it, which the 2026-08-06 ruling reserves to exactly those two
+    hands. So the destructive gate waits until the request is resolved; the
+    answer's own wake is then free to compact, because answering closes the
+    row before `ask_answer` drives the node.
+
+    The three request kinds are read exactly as `_moot_asks` writes them —
+    one list of questions and two of pending grants — so a kind that would be
+    mooted can never be a kind this predicate fails to see.
+    """
+    for key, live in (("asks", "open"), ("credit_requests", "pending"),
+                      ("scope_requests", "pending")):
+        rows = org.d.get(key)
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if (isinstance(row, dict) and row.get("node") == nid
+                    and row.get("status") == live):
+                return True
+    return False
+
+
 #: `identity_in_env`'s "a token no stored row explains" answer. Named here
 #: because `_cache_moved_account` must REFUSE it, and a bare string literal in
 #: that test would drift silently from the one `identity_in_env` returns.
@@ -10920,9 +10948,28 @@ def _cache_moved_account(n: NodeDoc | dict[str, Any],
 
 def _auto_cheap_context_ready(n: NodeDoc | dict[str, Any],
                               cfg: dict[str, float],
-                              models: Mapping[str, Any] | None = None
+                              models: Mapping[str, Any] | None = None,
+                              *, open_request: bool = False
                               ) -> tuple[bool, str]:
-    """Destructive-action guard: real, sufficiently large, non-fresh context."""
+    """Destructive-action guard: real, sufficiently large, non-fresh context.
+
+    ⚠ THIS ASKS ABOUT THE SESSION, NOT ABOUT THE AGENT'S MOOD. It used to
+    refuse a node whose `last_status` said "blocked", and that guard was
+    exactly backwards at the only site that can act on it. A turn start POPS
+    `last_status` into `prev_status` (see the pop beside the `inflight`
+    marker), and the pop runs AFTER the admission gate — so at the gate
+    `last_status` is always the PREVIOUS turn's self-report, while a turn is
+    being admitted right now. "Durably blocked" is therefore false by
+    construction there, and the refusal landed on precisely the agents the
+    policy exists for: the one that asked the user a question, reported
+    blocked, sat idle past its cache TTL and came back cold on the answer.
+    Measured live 2026-09-16T06:02:20Z on `answer-crash` — 52% of a 1M window,
+    `expired_known_entry`, every other guard clear, no compaction, because it
+    had said "blocked" seven hours earlier.
+
+    What that guard was worth protecting is handled by `open_request`, which
+    is about a durable fact (an unanswered card) rather than a stale word.
+    """
     if n.get("state") not in (None, "live"):
         return False, "the agent is not live"
     if n.get("frozen") or n.get("limit_locked") or n.get("remote_controlled"):
@@ -10935,10 +10982,9 @@ def _auto_cheap_context_ready(n: NodeDoc | dict[str, Any],
         return False, "the successor context is new or only estimated"
     if n.get("bearer_state"):
         return False, "knowledge-bearer sessions are never auto-compacted"
-    last_status = n.get("last_status")
-    if (isinstance(last_status, dict)
-            and last_status.get("status") == "blocked"):
-        return False, "the agent is durably blocked"
+    if open_request:
+        return False, ("a request the user has not resolved is still "
+                       "standing; compaction would moot it")
     try:
         ratio = float(occ) / float(cw)
     except (TypeError, ValueError, ZeroDivisionError, OverflowError):
@@ -10981,8 +11027,9 @@ def _cache_precompact_decision(org: Org, nid: str,
         return ("not_applicable",
                 "The organization is frozen or storage-blocked; no send-time "
                 "compaction is promised.")
-    ready, why = _auto_cheap_context_ready(org.node(nid), cfg,
-                                           org.d.get("models"))
+    ready, why = _auto_cheap_context_ready(
+        org.node(nid), cfg, org.d.get("models"),
+        open_request=_auto_cheap_open_request(org, nid))
     if not ready:
         return "not_applicable", why
     return "will_compact", why
@@ -11354,17 +11401,22 @@ def cache_forecast_public(org: Org, nid: str,
 def _auto_cheap_ready(n: NodeDoc | dict[str, Any],
                       cfg: dict[str, float],
                       forecast: dict[str, Any] | None = None,
-                      models: Mapping[str, Any] | None = None) -> bool:
+                      models: Mapping[str, Any] | None = None,
+                      *, open_request: bool = False) -> bool:
     """True only for a proven-cold forecast and a measured large context.
 
     No turn timestamp, UI-idle clock or operator timeout is read here. Time can
     enter solely through ``expired_known_entry``, which the classifier derives
     from a positive same-lane provider receipt and its fixed lane boundary.
+
+    ``open_request`` is the caller's `_auto_cheap_open_request` reading: it
+    needs the org document, which this predicate deliberately does not take.
     """
     if not isinstance(forecast, dict) or forecast.get("state") not in (
             "known_incompatible", "expired_known_entry"):
         return False
-    return _auto_cheap_context_ready(n, cfg, models)[0]
+    return _auto_cheap_context_ready(n, cfg, models,
+                                     open_request=open_request)[0]
 
 
 # ── reported-working prompt-cache lifecycle ───────────────────────────────
@@ -17257,7 +17309,9 @@ def _run_one_turn_recorded(slug: str, nid: str,
                         if (_cfg0 is not None
                                 and _auto_cheap_ready(
                                     org.node(nid), _cfg0, _forecast0,
-                                    org.d.get("models"))):
+                                    org.d.get("models"),
+                                    open_request=_auto_cheap_open_request(
+                                        org, nid))):
                             _before = org.node(nid)
                             _occ0 = _before.get("occupancy")
                             _cw0 = context_window(_before, org.d.get("models"))
@@ -18787,7 +18841,10 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                                     _co.node(nid), _cfg_b,
                                                     _fc0 if isinstance(
                                                         _fc0, dict) else None,
-                                                    _co.d.get("models"))):
+                                                    _co.d.get("models"),
+                                                    open_request=(
+                                                        _auto_cheap_open_request(
+                                                            _co, nid)))):
                                             # Leave the queue untouched. The
                                             # ordinary follow-up admission
                                             # cheap-compacts before it drains.
