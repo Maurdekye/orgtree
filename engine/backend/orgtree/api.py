@@ -11037,10 +11037,15 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
             "(orgtree) Your superior manually UNSTUCK you. Handle any mail "
             "above and continue."
         ]
+        # B (2026-09-16): NOT a mail_ping. These are the freeze's replayed
+        # texts (or the unstuck banner) — real content that reads correctly
+        # with an empty mailbox, which is exactly the case _admit_message's
+        # docstring says must not ride a pointer: a ping with nothing to
+        # drain is dropped before the turn starts, and the replay was
+        # silently discarded with it.
         for i, _text in enumerate(_texts):
             supervisor.send_message(
-                body.org, _target, _text, mail_ping=True, sender=body.node,
-                ping_reason="unstuck",
+                body.org, _target, _text, sender=body.node,
                 view=_views[i] if i < len(_views) else _text)
         supervisor.notify(body.org, _target, "turn_started")
     if smoke_req is not None:

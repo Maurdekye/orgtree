@@ -735,7 +735,25 @@ def _r_switched(ev: _R) -> str:
     head = (f'{who} switched your model {old}→{new} (seat {_g(ev["seat_old"])}→'
             f'{_g(ev["seat_new"])}){qnote}. ')
     if not ev["crossed"]:
-        return head + "Your context is intact — carry on."
+        # E (2026-09-16): the old text here — "Your context is intact — carry
+        # on." — conflated three different continuities. Same provider means
+        # the SESSION resumes under the new model, but the provider prompt
+        # cache is namespaced per model and per account, so the next turn is
+        # still a provider-side cold open; and when an ACCOUNT move rides the
+        # switch on a session-boundary lane, the session does NOT survive —
+        # `lifecycle.session_rebound` (minted right after this notice) is the
+        # correction for that case.
+        return head + (
+            "Same provider, so this switch keeps your session: your "
+            "conversation resumes under the new model and nothing local was "
+            "lost. One cost to expect: the provider prompt cache is "
+            "namespaced per model (and per account), so your next turn opens "
+            "a fresh cache namespace — a one-time provider-side cold open. "
+            "That is not the same thing as a local restart: your process, "
+            "files and history are untouched, and a local restart by itself "
+            "never means a provider cache miss. If an ACCOUNT move rode "
+            "along with this switch, a separate notice right after this one "
+            "says what that did to your session.")
     return head + (
         f'That is a different PROVIDER ({ev["old_provider"]}→{ev["new_provider"]}), so '
         f'your conversation could NOT be carried over: this session is FRESH and you '
@@ -748,6 +766,22 @@ def _r_switched(ev: _R) -> str:
         f'normal one — expect it, and do not switch back and forth. Check your scratch '
         f'CLAUDE.md, and your breadcrumbs and mail are untouched; read them to pick up '
         f'where you left off.')
+
+
+@renderer("lifecycle.session_rebound")
+def _r_session_rebound(ev: _R) -> str:
+    return (f'The ACCOUNT move that rode along with your model switch could not '
+            f'carry your session: on your lane a provider account change archives '
+            f'the session and starts a fresh one, so your conversation does NOT '
+            f'carry over even though the provider did not change. If your context '
+            f'shows earlier turns, that is retained REPLAY text, not turns that '
+            f'ran — verify anything it claims before building on it. Your '
+            f'predecessor is archived as "{ev["predecessor"]}" — its full '
+            f'transcript is at transcript.jsonl beside your breadcrumbs.md, and '
+            f'your scratch files, breadcrumbs and mail are untouched. New account '
+            f'plus fresh session is also a fresh provider cache namespace, so '
+            f'this turn is a cold open — that cost comes from the account move, '
+            f'not from any local restart.')
 
 
 @renderer("lifecycle.switch_dropped")

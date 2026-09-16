@@ -4767,6 +4767,18 @@ class Org:
             if isinstance(old_freeze, dict) and freeze_describes_provider(
                     cast(FrozenInfo, old_freeze)):
                 n.pop("frozen", None)
+                # B (2026-09-16): the freeze's replay record — the turn(s) the
+                # freeze interrupted — must survive this pop, or the crossing
+                # discards the node's in-flight work. Stashed ON THE NODE, not
+                # merely in the result, so a crash between this save and the
+                # off-lock wake leaves it recoverable (the startup reconcile
+                # sweeps for it); `drive_unfrozen_by_switch` consumes it.
+                if old_freeze.get("resume_texts") or old_freeze.get("resume_views"):
+                    n["switch_resume"] = {
+                        "texts": [str(t) for t in cast(
+                            "list[Any]", old_freeze.get("resume_texts") or [])],
+                        "views": [str(t) for t in cast(
+                            "list[Any]", old_freeze.get("resume_views") or [])]}
                 resume_stale_freeze.append(nid)
                 warnings.append(
                     f"{nid} was frozen on {providers.provider_of(old)} — "

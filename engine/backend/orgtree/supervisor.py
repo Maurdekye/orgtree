@@ -12867,6 +12867,7 @@ def finish_switch_binding(org: Org, slug: str, nid: str,
     selection = registry.validate_selection(slug, str(node.get("model") or ""), account)
     account = selection["id"]
     previous = str(node.get("account") or "")
+    _rebound_pred: str | None = None
     if previous != account and (
             providers.provider_of(str(node.get("model") or "")) == "openai"
             or bool(node.get("codex_thread"))):
@@ -12878,6 +12879,7 @@ def finish_switch_binding(org: Org, slug: str, nid: str,
                                 "successor starts fresh and never posed it")
             org._fold_notices(nid)
             node = org.node(nid)
+            _rebound_pred = str(pred_id)
         else:
             node["session_id"] = str(uuid.uuid4())
             node["session_unrun"] = True
@@ -12891,6 +12893,21 @@ def finish_switch_binding(org: Org, slug: str, nid: str,
     else:
         node.pop("account", None)
         node["account_primary"] = True
+    if _rebound_pred:
+        # E (2026-09-16): the `model_switched` notice for a NON-crossed switch
+        # tells the node its conversation carries over — the archive above
+        # just made that false for this lane. This event is the correction:
+        # it lands in the same envelope, right after that notice, and warns
+        # that any retained context is replay, not turns that ran. Wrapped so
+        # a narration failure can never break the switch itself.
+        try:
+            from .ledger import _mint as _ev_mint, actor_of as _actor_of
+            org._notify_ev([nid], _ev_mint(
+                "lifecycle.session_rebound", _actor_of(actor),
+                org.node_ref(nid), node=nid, predecessor=_rebound_pred))
+        except Exception:                                    # noqa: BLE001
+            print(f"[orgtree] {slug}/{nid}: session_rebound event emit "
+                  f"failed (archive still logged)")
     org._log("account_assign", actor,
              {"account": selection["name"], "previous_account": previous or None,
               "via": "switch_model"}, [])
@@ -12908,8 +12925,11 @@ UNFROZEN_BY_SWITCH_TEXT: Final = (
     "(orgtree) You were frozen by a usage limit, connection problem, "
     "or rejected credential on your PREVIOUS provider — a model "
     "switch has moved you to a different provider, so that freeze "
-    "no longer describes anything and has been cleared. Handle any "
-    "mail above and continue.")
+    "no longer describes anything and has been cleared. If the freeze "
+    "interrupted work, the interrupted message(s) are replayed to you "
+    "right after this one — act on them; they are a REPLAY of what was "
+    "cut short, not new turns that already ran. Handle any mail above "
+    "and continue.")
 
 
 ACCOUNT_UNPARK_TEXT: Final = (
@@ -12965,11 +12985,36 @@ def drive_auth_thaw(slug: str, nid: str) -> None:
 def drive_unfrozen_by_switch(slug: str, nids: Iterable[str]) -> None:
     """Wake every node whose provider freeze a crossing just cleared. Must be
     called OFF DOC_LOCK (send_message loads the org itself). Safe on a busy
-    node: the carrier queues and rides the next boundary."""
+    node: the carrier queues and rides the next boundary.
+
+    B (2026-09-16): this wake is a REAL carrier, never a mail_ping. The old
+    ping shape was dropped by the phantom-wake gate whenever the mailbox was
+    empty — which is the NORMAL state for a node frozen mid-task — so the node
+    ended live, unfrozen and idle with nothing ever re-driving it, and the
+    freeze's replay record was already gone. The replay record now survives
+    the ledger's pop as the node's `switch_resume` marker; it is consumed
+    here (pop + save under DOC_LOCK, then sent off-lock), so the interrupted
+    work rides the wake instead of being discarded."""
     for t in dict.fromkeys(nids):
+        texts: list[str] = []
+        views: list[str] = []
         try:
-            send_message(slug, t, UNFROZEN_BY_SWITCH_TEXT,
-                         mail_ping=True, ping_reason="unfrozen_by_switch")
+            with store.DOC_LOCK:
+                _o = store.load_org(slug)
+                if t in _o.nodes:
+                    rec = _o.node(t).pop("switch_resume", None)
+                    if isinstance(rec, dict):
+                        texts = [str(x) for x in rec.get("texts") or []]
+                        views = [str(x) for x in rec.get("views") or []]
+                        store.save_org(_o)
+        except Exception:                                    # noqa: BLE001
+            print(f"[orgtree] {slug}/{t}: switch_resume read failed — waking "
+                  f"without the replay texts")
+        try:
+            send_message(slug, t, UNFROZEN_BY_SWITCH_TEXT)
+            for i, txt in enumerate(texts):
+                send_message(slug, t, txt,
+                             view=views[i] if i < len(views) else txt)
         except Exception:                                    # noqa: BLE001
             # a failed wake must not take the boundary/reconcile with it —
             # the node is live and any later mail still drives it
@@ -13689,8 +13734,13 @@ def assign_account(slug: str, nid: str, account_id: str, *,
         _fz0 = node.get("frozen")
         _auth_freeze = isinstance(_fz0, dict) and (
             _fz0.get("cause") in ("auth", "balance") or bool(_fz0.get("untrusted")))
+        # cause=="account" is the ACCOUNT PARK (no valid binding), not a
+        # capacity freeze, even when it carries limit=True — assigning an
+        # account IS its fix, and the unpark path below owns clearing it
+        # (coordinator ruling point 5: that path stays as-is).
         _limit_freeze = (isinstance(_fz0, dict) and bool(_fz0.get("limit"))
-                         and not _auth_freeze)
+                         and not _auth_freeze
+                         and _fz0.get("cause") != "account")
         if _limit_freeze and not allow_frozen:
             raise RuntimeError(
                 f"{nid} is frozen by a usage limit — moving its account here "
@@ -31056,6 +31106,21 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
     # the revive loop below skips this set so nobody is driven twice.
     _sw = [] if latched else [t for t in dict.fromkeys(switch_wake)
                               if t not in resumed]
+    # B (2026-09-16): a `switch_resume` replay marker that survived a crash
+    # between the ledger's save and the off-lock wake is durable on the node —
+    # sweep for lingering ones so the interrupted work is replayed instead of
+    # sitting forever on a live, unfrozen, idle node the in-memory wake list
+    # no longer names. `drive_unfrozen_by_switch` consumes the marker.
+    if not latched:
+        try:
+            _o_sw = store.load_org(slug)
+            for _n2, _v2 in _o_sw.nodes.items():
+                if (_v2.get("switch_resume") and not _v2.get("frozen")
+                        and _v2.get("state") == "live"
+                        and _n2 not in _sw and _n2 not in resumed):
+                    _sw.append(_n2)
+        except Exception:                                    # noqa: BLE001
+            pass
     if _sw:
         print(f"[orgtree] {slug}: waking {_sw} — a queued provider switch "
               f"cleared their stale freeze at startup")

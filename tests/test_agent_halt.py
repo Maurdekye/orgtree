@@ -880,10 +880,15 @@ class AgentHaltTests(unittest.TestCase):
         self.assertIsNone(node.get("frozen"))
         self.assertNotIn("pending_switch", node)
         self.assertEqual(node["halt"]["phase"], "halted")
-        wakes = [c for c in node["halt_queue"]
-                 if c.get("ping_reason") == "unfrozen_by_switch"]
-        self.assertEqual(len(wakes), 1)
-        self.assertEqual(wakes[0]["text"], sup.UNFROZEN_BY_SWITCH_TEXT)
+        # B (2026-09-16): the wake is a REAL carrier now (the old mail_ping
+        # shape was dropped on an empty mailbox), and the freeze's replay
+        # rides along with it — both retained through the halt.
+        _texts = [c.get("text") if isinstance(c, dict) else c
+                  for c in node["halt_queue"]]
+        self.assertEqual(
+            _texts.count(sup.UNFROZEN_BY_SWITCH_TEXT), 1)
+        self.assertEqual(_texts.count("work before the limit"), 1)
+        self.assertNotIn("switch_resume", node)
         self.assertFalse(sup.state(self.slug, self.nid)["busy"])
         self.assertFalse(halt._workers.get((self.slug, self.nid)))
 

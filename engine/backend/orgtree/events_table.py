@@ -372,6 +372,16 @@ LEAVES: Final[dict[str, dict[str, Any]]] = {
                                      old_provider=F("str?", B, True),
                                      new_provider=F("str?", B, True),
                                      predecessor=F("str?", B, True)),
+    # E (2026-09-16): minted by `finish_switch_binding` when the ACCOUNT move
+    # riding a SAME-provider model switch archives the session (openai/codex
+    # session-boundary lanes). The model_switched notice for a non-crossed
+    # switch says the conversation carries over; this event is the correction
+    # that says the account move ended the session anyway. A NEW leaf, not new
+    # fields on model_switched: every leaf field is required on decode, so
+    # widening model_switched would turn every stored historical row malformed.
+    "lifecycle.session_rebound": leaf("lifecycle", "NodeRef",
+                                      node=F("str", B, True, _YOU),
+                                      predecessor=F("str", B, True)),
     "lifecycle.switch_queued": leaf("lifecycle", "NodeRef", node=F("str", B, True),
                                     old=F("str", B, True), new=F("str", B, True),
                                     by=F("str", B, True)),
