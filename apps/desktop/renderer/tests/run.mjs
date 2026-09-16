@@ -104,28 +104,64 @@ const cleanup = () => {
 }
 process.once('exit', cleanup)
 
-if (!prebuilt) await esbuild.build({
-  entryPoints: entries,
-  outdir: out,
-  bundle: true,
-  format: 'esm',
-  platform: 'node',
-  target: 'node22',
-  jsx: 'automatic',
-  sourcemap: 'inline',
-  outExtension: { '.js': '.mjs' },
-  logLevel: 'warning',
-  // jsdom is a real node package with native-ish internals — never bundle it
-  // The temp run has a private junction to dependencies beside its bundles.
-  // Keep jsdom external because its native-ish internals do not bundle safely.
-  external: ['jsdom', 'node:*'],
-  define: {
-    'process.env.NODE_ENV': '"development"',
-    // the bundle runs from node_modules/.orgtree-tests, so a suite that reads
-    // the sources cannot find them from import.meta.url — hand it the path
-    __SRC_DIR__: JSON.stringify(path.join(HERE, '..', 'src')),
-  },
-})
+// ⚠ THE BUILD RUNS IN BATCHES, AND THE SERVICE IS STOPPED BETWEEN THEM —
+// BECAUSE THE BUNDLE STEP WAS THE MACHINE-KILLER (2026-09-16). Every
+// `*.test.ts(x)` is its own entry point and each one bundles a PRIVATE copy of
+// the whole app; that was priced when this file said ~35 suites, and at 233
+// entries the ONE esbuild service child holding all 233 app copies at once
+// reached 5.4-9.0 GB working set on four observed runs, exhausted the 31 GB
+// machine's commit charge, and killed the orgtree backend twice. MEASURED on
+// this machine, same options, service working set right after the build:
+// linear in entry count — 5 entries → 444 MB, 10 → 697 MB, ~50 MB/entry ⇒
+// ~10 GB extrapolated at 233.
+//
+// WHY BATCHES AND NOT `splitting: true`. Splitting flattens the curve
+// beautifully (233 entries → 311 MB, measured) but esbuild does not preserve
+// cross-chunk evaluation order, and harness.ts's DOM install MUST run before
+// any `../src/*` module body ("IMPORT ORDER IS LOAD-BEARING", its words) — a
+// split build fails ~90 % of the suite with module-scope DOM reads. Batching
+// instead exploits the fact that without splitting each entry's bundle is
+// byte-identical no matter which other entries share the build call: the
+// output is EXACTLY what one big call produces, only the service's peak is
+// bounded by one batch (233 entries in batches of 8 → 671 MB max across 30
+// batches, measured; +~30 s build wall, which the machine gets back many
+// times over by not swapping). `esbuild.stop()` between batches restarts the
+// service so each batch starts from a fresh Go heap — and after the LAST
+// batch it also stops the service from otherwise sitting on its peak working
+// set for the entire test phase.
+//
+// GOMEMLIMIT is a backstop, not the fix: the service is a Go process, and
+// this soft heap cap makes its GC work hard near the cap instead of growing
+// without bound if a single batch ever regresses the numbers above.
+const BUILD_BATCH = 8
+if (!process.env.GOMEMLIMIT) process.env.GOMEMLIMIT = '1GiB'
+if (!prebuilt) {
+  for (let i = 0; i < entries.length; i += BUILD_BATCH) {
+    await esbuild.build({
+      entryPoints: entries.slice(i, i + BUILD_BATCH),
+      outdir: out,
+      bundle: true,
+      format: 'esm',
+      platform: 'node',
+      target: 'node22',
+      jsx: 'automatic',
+      sourcemap: 'inline',
+      outExtension: { '.js': '.mjs' },
+      logLevel: 'warning',
+      // jsdom is a real node package with native-ish internals — never bundle it
+      // The temp run has a private junction to dependencies beside its bundles.
+      // Keep jsdom external because its native-ish internals do not bundle safely.
+      external: ['jsdom', 'node:*'],
+      define: {
+        'process.env.NODE_ENV': '"development"',
+        // the bundle runs from node_modules/.orgtree-tests, so a suite that reads
+        // the sources cannot find them from import.meta.url — hand it the path
+        __SRC_DIR__: JSON.stringify(path.join(HERE, '..', 'src')),
+      },
+    })
+    await esbuild.stop()
+  }
+}
 
 // ⚠ PER-TEST TIMEOUT — THE RUNNER BOUNDS THE DAMAGE, BECAUSE THE TESTS CANNOT
 // (D-177). node's default is NO timeout at all: a child spawned by `--test`
