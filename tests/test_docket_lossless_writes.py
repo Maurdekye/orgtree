@@ -52,6 +52,20 @@ WHAT THIS SUITE PINS:
       sha — and name the fault, without revealing whether an item exists.
   §8  The write paths hold no `[:N]` slice at all (the scan that would have
       caught every one of the reports above).
+  §9  THE CAP AUDIT: every bounded field's limit is checked against its own
+      field's brief, each row states which of the two answers it got, and the
+      one limit that is DERIVED from another (`blocked_reason` must hold a
+      whole `attention_reason` plus the dismissal wrapper) is pinned against
+      the wrapper the product actually writes.
+  §10 The dismissal notice quotes the reason it is ruling on.
+
+§9 exists because refusing instead of slicing only fixes the SILENT half. A
+field whose card asks for three substantive things and caps the answer at 500
+characters is incoherent at any boundary behaviour, and that pair is what
+twelve agents actually reported. The audit of 2026-09-16 raised the three
+state-reason fields to fit their briefs and deliberately left the handles,
+refs and progress entries alone; `workfields.ROLES` records which answer each
+row got, and §9 is what stops a new row being added without one.
 
 The description half of the same requirement is
 `tests/test_work_description_complete.py`; this suite does not repeat it.
@@ -109,6 +123,20 @@ def fixture():
                               "Solution: these assertions.",
                     acceptance=["notes survive"])
     return org, org.d["work_items"][-1]["slug"]
+
+
+def over(field, by=40):
+    """A value that is over `field`'s limit — READ FROM THE CONTRACT.
+
+    ⚠ NEVER a literal. These fixtures used to spell the over-length value as
+    `"z" * 900`, which is "over the limit" only for as long as the limit stays
+    where it was. The 2026-09-16 cap audit raised `blocked_reason` and that
+    test went green while asserting nothing: 900 characters is a perfectly
+    legal blocked reason now, so `assertRaises` was waiting for a refusal that
+    correctly never came. A suite that hardcodes the number it is auditing
+    stops being a check the first time the number is right to change.
+    """
+    return "z" * (workfields.limit_of(field) + by)
 
 
 def item(org, wid):
@@ -270,7 +298,7 @@ class AtomicRefusal(unittest.TestCase):
         before = self._snapshot(org, wid)
         with self.assertRaises(LedgerError):
             org.work_update("owner-a", wid, ["a"], [], status="blocked",
-                            blocked_reason="z" * 900)
+                            blocked_reason=over("blocked_reason"))
         self.assertEqual(self._snapshot(org, wid), before)
 
     def test_s2d_an_overlong_title_leaves_the_old_one_standing(self):
@@ -278,7 +306,7 @@ class AtomicRefusal(unittest.TestCase):
         before = self._snapshot(org, wid)
         with self.assertRaises(LedgerError):
             org.work_update("owner-a", wid, ["a"], [], status="in_progress",
-                            title="t" * 400)
+                            title=over("title"))
         self.assertEqual(self._snapshot(org, wid), before)
 
     def test_s2e_an_overlong_list_entry_refuses_the_whole_update(self):
@@ -286,8 +314,8 @@ class AtomicRefusal(unittest.TestCase):
         before = self._snapshot(org, wid)
         with self.assertRaises(LedgerError) as cm:
             org.work_update("owner-a", wid,
-                            ["fine", "d" * 700, "also fine"], ["next"],
-                            status="in_progress")
+                            ["fine", over("done_so_far"), "also fine"],
+                            ["next"], status="in_progress")
         self.assertEqual(self._snapshot(org, wid), before)
         # and it says WHICH entry: a list of forty is not searchable by eye
         self.assertIn("entry 2 of 3", str(cm.exception))
@@ -296,7 +324,7 @@ class AtomicRefusal(unittest.TestCase):
         org, _ = fixture()
         n = len(org.d["work_items"])
         with self.assertRaises(LedgerError):
-            org.work_create("owner-a", "t" * 300,
+            org.work_create("owner-a", over("title"),
                             objective="Problem. Solution.")
         self.assertEqual(len(org.d["work_items"]), n,
                          "a refused create left an item on the docket")
@@ -304,7 +332,8 @@ class AtomicRefusal(unittest.TestCase):
     def test_s2g_an_overlong_evidence_ref_adds_no_evidence_row(self):
         org, wid = fixture()
         with self.assertRaises(LedgerError):
-            org.work_evidence("owner-a", wid, "file", "p" * 900, "note")
+            org.work_evidence("owner-a", wid, "file",
+                              over("evidence_ref"), "note")
         self.assertEqual(item(org, wid).get("evidence") or [], [])
 
 
@@ -585,6 +614,189 @@ class NoSlicesLeft(unittest.TestCase):
             if "[:_" in code or re.search(r"str\(note\)\[:", code):
                 self.fail(f"events_render:{i} cuts a note outside `excerpt`: "
                           f"{line.strip()}")
+
+
+class CapAudit(unittest.TestCase):
+    """§9 — every cap is audited against its own field's brief.
+
+    Refusing instead of slicing fixes the SILENT half of the defect. This is
+    the loud half: a field whose tool card asks for three substantive things
+    and caps the answer at 500 characters is incoherent whatever it does at
+    the boundary, and the agent still cannot write the answer the card asked
+    for. Twelve agents hit exactly that on `attention_reason`; one of them
+    spent four round trips shaving 183, 48, 10 and then 4 characters off one
+    sentence, re-sending a 4,000-character payload each time.
+
+    So the audit gave every bounded field one of two answers — the limit rose
+    to fit the brief, or the brief was already what the limit enforces — and
+    these assertions are what stops a later row being added without one.
+    """
+
+    #: the exact wrapper the dismissal route puts around an attention reason,
+    #: measured here rather than guessed: "attention flag dismissed by the
+    #: user (" + reason + ")".
+    DISMISSAL_WRAPPER = 39
+
+    def test_s9_every_bounded_field_states_which_answer_the_audit_gave(self):
+        """A new cap cannot be added without saying what it is for."""
+        self.assertEqual(sorted(workfields.LIMITS), sorted(workfields.ROLES),
+                         "a bounded field was added or removed without an "
+                         "audited role beside it — say whether its limit is "
+                         "the brief (HANDLE/ENTRY/REF) or holds the brief "
+                         "(EXPLAINS)")
+        known = {workfields.HANDLE, workfields.ENTRY, workfields.REF,
+                 workfields.EXPLAINS, workfields.RETIRED}
+        for field, role in workfields.ROLES.items():
+            self.assertIn(role, known, f"{field} has an unknown audited role")
+
+    def test_s9b_a_field_asked_to_explain_can_hold_an_explanation(self):
+        """The rows the audit RAISED. Each brief asks for three or more
+        substantive things, so each limit holds three or more of them."""
+        explains = [f for f, r in workfields.ROLES.items()
+                    if r == workfields.EXPLAINS]
+        self.assertEqual(sorted(explains),
+                         ["attention_reason", "blocked_reason",
+                          "dropped_reason"])
+        floor = 3 * workfields.ROOM_PER_THING
+        for field in explains:
+            self.assertGreaterEqual(
+                workfields.limit_of(field), floor,
+                f"`{field}`'s brief asks for several substantive things but "
+                f"its limit holds fewer than three")
+
+    def test_s9c_the_fields_whose_limit_IS_the_brief_were_not_raised(self):
+        """The audit is not "raise everything". A title is a handle and a
+        progress entry is one scannable thing; widening those would fight the
+        brief rather than serve it, so they were deliberately left alone."""
+        for field, role in workfields.ROLES.items():
+            if role in (workfields.HANDLE, workfields.ENTRY, workfields.REF):
+                self.assertLessEqual(
+                    workfields.limit_of(field), workfields.ROOM_PER_THING,
+                    f"`{field}` is a {role} but is now sized like a field "
+                    f"that has to carry an explanation")
+
+    def test_s9d_attention_reason_holds_the_three_things_its_card_asks_for(self):
+        """End to end, in the shape an agent actually writes: the card asks
+        for what was asked against what was built, the decision added beyond
+        the spec, and the confirmation wanted. A real one of those is stored
+        whole and comes back whole."""
+        org, wid = fixture()
+        reason = (
+            "ASKED vs BUILT: the ticket asked for the assignment mail to stop "
+            "cutting the description; it now carries a marked excerpt naming "
+            "the full length and the `get` that returns the rest, and the "
+            "stored description is untouched. " * 2
+            + "DECISION BEYOND SPEC: the cap audit raised three state-reason "
+              "limits rather than shrinking their briefs, because the briefs "
+              "are what the user reads to know what they are approving. " * 2
+            + "CONFIRMATION WANTED: that raising these caps is the answer you "
+              "want, rather than shortening the three questions the card asks.")
+        self.assertGreater(len(reason), 500,
+                           "the fixture must exceed the limit this replaced")
+        org.work_update("owner-a", wid, ["a"], [], attention=True,
+                        attention_reason=reason)
+        self.assertEqual(item(org, wid)["manual_attention"]["reason"], reason)
+        self.assertEqual(
+            org.work_get("owner-a", wid)["manual_attention"]["reason"],
+            reason, "the projection cut what storage kept")
+
+    def test_s9e_the_composed_blocked_reason_fits_its_own_documented_cap(self):
+        """THE ONE DERIVED LIMIT. The dismissal writes `blocked_reason` out of
+        a whole `attention_reason` plus a wrapper. It is written entire — the
+        inner value was already bounded — but the outer field's documented cap
+        would be a number the product itself writes past unless it holds both.
+        """
+        workfields.assert_composition_fits(
+            "blocked_reason", "attention_reason", self.DISMISSAL_WRAPPER)
+
+    def test_s9f_the_wrapper_this_suite_assumes_is_the_wrapper_it_writes(self):
+        """...and the 39 above is measured, not guessed. If the dismissal
+        sentence is ever reworded, this fails rather than letting §9e assert
+        against a wrapper that no longer exists."""
+        org, wid = fixture()
+        org.work_update("owner-a", wid, ["a"], [], attention=True,
+                        attention_reason="RSN")
+        org.work_dismiss_attention(wid, item(org, wid)["manual_attention_rev"])
+        composed = item(org, wid)["blocked_reason"]
+        self.assertIn("RSN", composed)
+        self.assertEqual(len(composed) - len("RSN"), self.DISMISSAL_WRAPPER,
+                         "the dismissal wrapper changed length — re-measure "
+                         "DISMISSAL_WRAPPER so §9e keeps testing something")
+
+    def test_s9g_a_maximal_reason_survives_the_dismissal_whole(self):
+        """The composition at its worst case: a reason at exactly the limit,
+        dismissed, stored entire and still inside `blocked_reason`'s cap."""
+        org, wid = fixture()
+        limit = workfields.limit_of("attention_reason")
+        reason = "Decision beyond spec: " + "w" * (limit - 23) + "."
+        self.assertEqual(len(reason), limit)
+        org.work_update("owner-a", wid, ["a"], [], attention=True,
+                        attention_reason=reason)
+        org.work_dismiss_attention(wid, item(org, wid)["manual_attention_rev"])
+        composed = item(org, wid)["blocked_reason"]
+        self.assertIn(reason, composed, "the dismissal cut the reason")
+        self.assertLessEqual(len(composed),
+                             workfields.limit_of("blocked_reason"),
+                             "the product wrote past its own documented cap")
+
+    def test_s9h_the_tool_card_advertises_the_audited_number(self):
+        """One contract, not two. The card is generated from `LIMITS`, so an
+        agent counting against the card counts against the product."""
+        for field in ("attention_reason", "blocked_reason", "dropped_reason",
+                      "title", "done_so_far"):
+            self.assertIn(str(workfields.limit_of(field)),
+                          mcptool._cap(field),
+                          f"the tool card for {field} quotes a stale limit")
+
+    def test_s9i_the_advice_names_a_field_that_has_no_limit(self):
+        """A refusal that only says "too long" leaves the caller to invent a
+        home for the text it just had rejected — so every row's advice points
+        at somewhere lossless, and `LOSSLESS` is where those names live."""
+        for field, (_limit, advice) in workfields.LIMITS.items():
+            if workfields.role_of(field) == workfields.RETIRED:
+                continue
+            self.assertTrue(
+                any(name in advice for name in workfields.LOSSLESS)
+                or "no limit" in advice,
+                f"{field}'s advice does not say where the long form goes")
+
+
+class DismissalNotice(unittest.TestCase):
+    """§10 — the dismissal notice names the sentence that was dismissed.
+
+    A regression caught by §6d: the notice was reworded to carry only "the
+    user chose to say nothing" and the reason went with it. That is the same
+    loss as a slice, at full size — an agent holding two raised flags, or one
+    it has since amended, cannot tell which sentence it is now being told not
+    to re-raise.
+    """
+
+    def test_s10_the_notice_quotes_the_reason_and_the_rule_it_invokes(self):
+        org, wid = fixture()
+        reason = "Beyond spec: chose to raise the caps rather than shrink the briefs."
+        org.work_update("owner-a", wid, ["a"], [], attention=True,
+                        attention_reason=reason)
+        r = org.work_dismiss_attention(
+            wid, item(org, wid)["manual_attention_rev"])
+        body = events.render_agent(events.mint(
+            "decision.attention_dismissed", {"kind": "user", "id": USER},
+            org.work_item_ref(item(org, wid)), reason=str(r["reason"]),
+            pending_questions=0, dismissed_by=USER))
+        self.assertIn(reason, body, "the agent cannot tell which sentence "
+                                    "the user dismissed")
+        self.assertIn("re-raise", body, "the notice invokes the do-not-re-raise "
+                                        "rule without quoting what it binds")
+        # ...and it still says what a dismissal is NOT
+        self.assertIn("not approval", body)
+
+    def test_s10b_a_maximal_reason_reaches_the_notice_uncut(self):
+        org, wid = fixture()
+        reason = "R" * workfields.limit_of("attention_reason")
+        body = events.render_agent(events.mint(
+            "decision.attention_dismissed", {"kind": "user", "id": USER},
+            org.work_item_ref(item(org, wid)), reason=reason,
+            pending_questions=0, dismissed_by=USER))
+        self.assertIn(reason, body)
 
 
 if __name__ == "__main__":
