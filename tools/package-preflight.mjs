@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import { execFileSync } from 'node:child_process'
-import { assertNoUpdateFixture, assertPackageInputsPresent, assertReleaseProvenance } from './preflight-lib.mjs'
+import { assertMailhubSubmodule, assertNoUpdateFixture, assertPackageInputsPresent, assertReleaseProvenance } from './preflight-lib.mjs'
 import { assertRuntimeLayout } from './runtime-layout.mjs'
 
 assertPackageInputsPresent()
@@ -20,3 +20,7 @@ assertReleaseProvenance(info,
   execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
   execFileSync('git', ['status', '--porcelain', '--untracked-files=normal'], { encoding: 'utf8' }))
 console.log('Release source and build hashes verified:', info.commit)
+assertMailhubSubmodule(info,
+  execFileSync('git', ['submodule', 'status', '--', 'engine/mailhub'], { encoding: 'utf8' }),
+  execFileSync('git', ['-C', 'engine/mailhub', 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim())
+console.log('orgtree-mailhub submodule present, clean, and pinned:', info.mailhubCommit)

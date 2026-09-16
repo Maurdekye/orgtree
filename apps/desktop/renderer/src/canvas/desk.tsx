@@ -7,6 +7,7 @@ import { ReplyPreview, ReplySourceProvider } from './replypreview'
 import { indexReplySources, ReplySourceContent } from './replysource'
 import { copyToClipboard, useContextMenu } from './contextmenu'
 import { foldKeysOf, FoldProvider, sysFoldKey, thoughtFoldKey, toolFoldKey, useFold, useFoldState } from './foldstate'
+import { useChangedState } from '../changedstate'
 import { messageCopyText, toolCallCopyText, toolResultCopyText } from './copytext'
 import type { MouseEvent as ReplyMouseEvent } from 'react'
 import { discardAllRecoverableDrafts, discardRecoverableDraft, readAttachments, recoverableDrafts, storeAttachments } from '../draftstore'
@@ -60,6 +61,7 @@ import { InboxView, RetiredFold } from './mail'
 import { AskCard } from './asks'
 import { AgentDocketView, actionableAssignedCount, agentItems } from './docket'
 import { AgentGalleryView } from './gallery'
+import { PanelCorner } from './panelcorner'
 import { PresentationCard } from './docs'
 import { buildNodeFacts } from './docket'
 import { AgentDirectoryProvider, AgentName, agentFactsSig, useAgentDirectory } from './identity'
@@ -1920,14 +1922,14 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   // scrolled up stays free until they come back down. 40px of slack keeps it
   // from unsticking on a stray pixel.
   const stickRef = useRef(true)
-  const [showJump, setShowJump] = useState(false)
+  const [showJump, setShowJump] = useChangedState(false)
   const nearBottom = () => {
     const el = scroller.current
     return !el || el.scrollHeight - el.scrollTop - el.clientHeight < 40
   }
   const setStuck = (v: boolean) => {
     stickRef.current = v
-    setShowJump((s) => (s === !v ? s : !v))   // only re-render on a real flip
+    setShowJump(!v)   // only on a real flip — useChangedState, not an updater
   }
   // ⚠ THE AUTOSCROLL IS HELD WHILE A CONTEXT MENU IS OPEN ON THIS DESK.
   // (user spec 2026-09-12: a menu raised on a transcript event must survive
@@ -2077,7 +2079,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   }, [chat])
   const userSeqs = useMemo(() => new Set(userTurns.map((u) => u.seq)), [userTurns])
   const userRowEls = useRef(new Map<number, HTMLDivElement>())
-  const [pinSeq, setPinSeq] = useState<number | null>(null)
+  const [pinSeq, setPinSeq] = useChangedState<number | null>(null)
   // The chip's text is clamped to three lines and faded where it is cut.
   // Whether it IS cut is a measurement, never a guess: the same label wraps
   // to one line in a wide panel and to five in a narrow one, and a fade over
@@ -2089,7 +2091,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   // can never move the box the observer is watching.
   const pinRef = useRef<HTMLButtonElement | null>(null)
   const pinTextRef = useRef<HTMLSpanElement | null>(null)
-  const [pinClip, setPinClip] = useState(false)
+  const [pinClip, setPinClip] = useChangedState(false)
   // rect-based, not offsetTop: the row's offsetParent is not reliably the
   // scroller. Only a row fully above the scrollport can be the target — a
   // reader who scrolled UP past every user turn has them all BELOW, and a
@@ -2111,10 +2113,17 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
         if (u && t && t.getBoundingClientRect().bottom < top) { v = u.seq; break }
       }
     }
-    setPinSeq((s) => (s === v ? s : v))   // only re-render on a real flip
+    // ⚠ AND "ONLY ON A REAL FLIP" IS THE HOOK'S JOB, NOT AN UPDATER'S. This
+    // used to be `setPinSeq((s) => (s === v ? s : v))`, which stops the
+    // RE-RENDER and not the DISPATCH: while the agent is mid-turn there is
+    // always other work pending, React's eager bailout is refused, and a
+    // no-op scheduled from an effect with no dependency list re-runs that
+    // effect, which schedules again — fifty rounds and the desk is gone
+    // (user crash 2026-09-15, React #185). See src/changedstate.ts.
+    setPinSeq(v)
     const t = pinTextRef.current
     const cut = !!t && t.scrollHeight - t.clientHeight > 1
-    setPinClip((c) => (c === cut ? c : cut))
+    setPinClip(cut)
   }
   // ⚠ A RESIZE IS NOT A RENDER. The switchboard lays its panels out with flex
   // (`.eye-panel { flex: 1 }`), so opening or closing ONE tab re-widths every
@@ -2350,18 +2359,34 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   // that gets re-keyed mid-stream and remounts therefore keeps its folds.
   // canvas/foldstate.tsx carries the whole argument.
   //
-  // Pruned against what this render actually drew, so a message that has
+  // Pruned against what the PAYLOAD still carries, so a message that has
   // genuinely left the transcript leaves nothing behind. Skipped while the
   // transcript is empty: a first load and a failed poll both look like "no
   // rows", and neither is the operator collapsing anything.
+  //
+  // ⚠ CENSUSED FROM THE RAW LISTS, THE SAME ONES `indexReplySources` READS.
+  // It used to walk the deduplicated `viewMessages`/`viewLive` and the
+  // `askAnswerRow`-filtered `pendMail` — the rows this desk DRAWS as its own
+  // transcript. But a row that is deduplicated away, or suppressed as a
+  // pending bubble because the question panel represents it, is still
+  // QUOTABLE: `indexReplySources` is handed the raw lists, and a reply-source
+  // quote renders a real fold (canvas/replysource.tsx). So the two disagreed
+  // about which keys exist, and a fold caught in that disagreement was the
+  // infinite render loop in foldstate.tsx's header. The census is a sweep of
+  // what the payload still holds, not a list of what this desk drew, and
+  // keeping a key one poll too long costs nothing — sweeping one that is still
+  // on screen cost the operator their desk.
   // what the growAnchor gate compares against — see growAnchor's note. Set
   // during render so the layout effect, which runs after it, reads THIS
   // render's oldest row while the anchor still holds the one it was taken at.
   oldestKeyRef.current = oldestRowKey(viewMessages)
-  const liveFoldKeys = foldKeysOf(viewMessages, viewLive, pendMail, pending)
+  const liveFoldKeys = foldKeysOf(chat?.messages ?? [], live_feed, rawPendMail, pending)
   const pruneFolds = folds.prune
   useEffect(() => {
-    if (viewMessages.length || viewLive.length || pendMail.length || pending.length) pruneFolds(liveFoldKeys)
+    // the same lists the census is taken from, or the guard and the sweep
+    // would be answering different questions
+    if ((chat?.messages.length ?? 0) || live_feed.length || rawPendMail.length
+      || pending.length) pruneFolds(liveFoldKeys)
   })
   // ── THE RIGHT-CLICKED EVENT STAYS LIT ──────────────────────────────────
   // No dependency list on purpose: this runs after EVERY render, because a
@@ -2430,7 +2455,12 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
           : r.command ? 'command sent'
             : r.steering ? 'steering in mid-task'
               : r.frozen ? 'frozen — mail waits for ▶ resume'
-                : r.deferred ? 'deferred — delivers at rehire'
+                // ⚠ NOT "delivers at rehire". Nothing schedules a rehire, so
+                // that chip promised a delivery the engine cannot make — the
+                // same over-promise the ledger's own archived-recipient
+                // warning is written to avoid. The mail IS durable; what is
+                // conditional is the reader.
+                : r.deferred ? 'retired — queued, waits for a rehire'
                   : (r.queued ?? 0) > 0 ? `queued (${r.queued} ahead)` : 'delivering')
         if (r.warnings?.length) toast(r.warnings)
         // A command is not correspondence — it never enters pending_mail — so
@@ -3170,7 +3200,11 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
               // than defaulting open on "not user".
               : <RefMdBody className="md" world={deskRefs.world} onOpen={deskRefs.onOpen}
                   html={md(row.event_id === convo.draftEventId && draft ? draft : row.text,
-                    fileBase(slug, node.id), row.role === 'assistant')} />}
+                    fileBase(slug, node.id), row.role === 'assistant',
+                    // live only when this row IS the growing draft; a settled
+                    // transient row is ordinary text and belongs in the
+                    // ordinary cache
+                    row.event_id === convo.draftEventId && !!draft)} />}
           </div>)}
           {thinkingMark && <div className="reply-event"
             data-reply-event={convo.thinkingEventId ?? ''} data-reply-quote={convo.thinkingReplyQuote} onContextMenu={e => openReply(e, { event_id: convo.thinkingEventId })}>{(thinking
@@ -3185,7 +3219,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
           {draftMark && <div className="reply-event" data-reply-event={convo.draftEventId ?? ''} data-reply-quote={convo.draftReplyQuote}
             onContextMenu={e => openReply(e, { event_id: convo.draftEventId })}><RefMdBody className="msg assistant live md draft"
             world={deskRefs.world} onOpen={deskRefs.onOpen}
-            html={md(draft, fileBase(slug, node.id), true)} /></div>}
+            html={md(draft, fileBase(slug, node.id), true, true)} /></div>}
           {/* D-29: the turn has begun but the CLI has not produced anything
               yet — process launch, hooks, `init`, roughly six seconds during
               which the panel showed nothing but a spinner in the chrome. This
@@ -3262,16 +3296,28 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
           token live in the message above and inert in the docket below — one
           desk, two answers. It is handed the world whole and overrides only
           what an ITEM click does, because it holds the rows itself. */}
-      {view === 'docket' && <AgentDocketView slug={slug} nid={node.id}
-        mine={myWork} facts={workFacts} toast={toast} onFocusAgent={onJump}
-        showArchived={showArchivedDocket}
-        onShowArchived={setShowArchivedDocket}
-        refs={deskRefs}
-        onChanged={() => setWorkBump((n) => n + 1)} />}
+      {/* ⚠ THE CORNER IS A WRAPPER HERE, NOT A PROP ON THE VIEW. Each of these
+          three views is ALSO the body of its own modal (AgentDocketModal,
+          AgentGalleryModal, NodeInboxModal), and that modal's title bar already
+          carries a pin and a pop-out. Mounting the corner inside the view would
+          put a second set of both in every one of those windows. It belongs to
+          the DESK TAB, so the desk tab is where it is mounted. */}
+      {view === 'docket' && <div className="desk-tabpanel">
+        <PanelCorner kind="agent-docket" slug={slug} nid={node.id} />
+        <AgentDocketView slug={slug} nid={node.id}
+          mine={myWork} facts={workFacts} toast={toast} onFocusAgent={onJump}
+          showArchived={showArchivedDocket}
+          onShowArchived={setShowArchivedDocket}
+          refs={deskRefs}
+          onChanged={() => setWorkBump((n) => n + 1)} />
+      </div>}
       {view === 'presented' && (
-        <AgentGalleryView slug={slug} nid={node.id} node={node} toast={toast}
-          onFocusAgent={onJump} refs={deskRefs}
-          onChanged={() => refresh(true)} />
+        <div className="desk-tabpanel">
+          <PanelCorner kind="agent-gallery" slug={slug} nid={node.id} />
+          <AgentGalleryView slug={slug} nid={node.id} node={node} toast={toast}
+            onFocusAgent={onJump} refs={deskRefs}
+            onChanged={() => refresh(true)} />
+        </div>
       )}
       {/* the mailbox is a name surface too (user request 2026-09-05: the inbox
           was named explicitly). `onJump` is the SAME callback NavChip and the
@@ -3280,16 +3326,19 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
           omit the control rather than draw a dead one. `hasAgent` still decides
           WHICH names route; `tierOf` is a separate fact, so a real agent whose
           model is unknown navigates without a chip. */}
-      {view === 'inbox' && <InboxView slug={slug} nid={node.id} tier={node.tier}
-        toast={toast}
-        tierOf={(id) => map.get(id)?.tier}
-        hasAgent={(id) => map.has(id)}
-        refs={deskRefs}
-        onFocusAgent={onJump}
-        onRetract={(m) => retractMail(slug, node.id, m.id)
-          .then(() => refresh(true))
-          // rethrow: InboxView's optimistic hide rolls back on rejection
-          .catch((e: Error) => { toast([`error: ${e.message}`]); throw e })} />}
+      {view === 'inbox' && <div className="desk-tabpanel">
+        <PanelCorner kind="node-inbox" slug={slug} nid={node.id} />
+        <InboxView slug={slug} nid={node.id} tier={node.tier}
+          toast={toast}
+          tierOf={(id) => map.get(id)?.tier}
+          hasAgent={(id) => map.has(id)}
+          refs={deskRefs}
+          onFocusAgent={onJump}
+          onRetract={(m) => retractMail(slug, node.id, m.id)
+            .then(() => refresh(true))
+            // rethrow: InboxView's optimistic hide rolls back on rejection
+            .catch((e: Error) => { toast([`error: ${e.message}`]); throw e })} />
+      </div>}
       {/* F-04/F-05: the ask card — pinned above the composer while the ask is
           open ("a question answering ui should appear on the agent"), AND —
           message-visibility invariant, user 2026-09-10, superseding the

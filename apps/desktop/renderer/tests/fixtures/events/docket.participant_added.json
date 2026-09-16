@@ -17,7 +17,8 @@
     "engine_authored": false,
     "added_by": "docket.participant_added·added_by",
     "owner": "docket.participant_added·owner",
-    "objective": "docket.participant_added·objective"
+    "objective": "docket.participant_added·objective",
+    "objective_notice": "docket.participant_added·objective_notice"
   },
   "public": {
     "v": 1,
@@ -34,7 +35,8 @@
     },
     "added_by": "docket.participant_added·added_by",
     "owner": "docket.participant_added·owner",
-    "objective": "docket.participant_added·objective"
+    "objective": "docket.participant_added·objective",
+    "objective_notice": "docket.participant_added·objective_notice"
   },
-  "body": "[DOCKET PARTICIPATION · docket.participant_added·object.slug \"docket.participant_added·object.title\"] You are now a PARTICIPANT on this docket item — not its assignment. The item is owned by docket.participant_added·owner; you may read it, update it, add evidence and attach questions, and the user's replies addressed to you on it arrive as item-linked mail. Added by docket.participant_added·added_by.\nDescription: docket.participant_added·objective\nRead it with orgtree_work get slug=docket.participant_added·object.slug when your work touches it; no reply is expected to this notice."
+  "body": "[DOCKET PARTICIPATION · docket.participant_added·object.slug \"docket.participant_added·object.title\"] You are now a PARTICIPANT on this docket item — not its assignment. The item is owned by docket.participant_added·owner; you may read it, update it, add evidence and attach questions, and the user's replies addressed to you on it arrive as item-linked mail. Added by docket.participant_added·added_by.\nDescription: docket.participant_added·objective_notice\ndocket.participant_added·objective\nRead it with orgtree_work get slug=docket.participant_added·object.slug when your work touches it; no reply is expected to this notice."
 }

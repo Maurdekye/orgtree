@@ -427,6 +427,24 @@ export async function advance(ms: number, step = 250): Promise<void> {
   await act(async () => { await flush(3) })
 }
 
+/** Let the store's per-frame live-text flush land.
+ *
+ *  Streamed deltas and thoughts do not publish one notification per token any
+ *  more — they accumulate on the entry and publish once per painted frame
+ *  (`queueLive` in convo.ts), because a notification per token was costing
+ *  80–336 KB of allocation each. So a test that ingests a delta and then
+ *  asserts on the draft or on the DOM has to let that frame pass first.
+ *
+ *  ⚠ REAL CLOCK ONLY. Under `useFakeClock()` nothing advances by itself:
+ *  call `advance(20)` there instead, which drives the mocked timers. */
+export async function settleLive(): Promise<void> {
+  const { act } = await import('react')
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 25))
+    await flush(3)
+  })
+}
+
 /** run store mutations (ingest*, addPending, …) where React can see them */
 export async function inAct(fn: () => void | Promise<void>): Promise<void> {
   const { act } = await import('react')

@@ -20,7 +20,8 @@
     "relation": "report",
     "by": "lifecycle.cheap_compacted·by",
     "predecessor": "lifecycle.cheap_compacted·predecessor",
-    "team_note": "lifecycle.cheap_compacted·team_note"
+    "team_note": "lifecycle.cheap_compacted·team_note",
+    "request_note": "lifecycle.cheap_compacted·request_note"
   },
   "public": {
     "v": 1,
@@ -40,7 +41,8 @@
     "relation": "report",
     "by": "lifecycle.cheap_compacted·by",
     "predecessor": "lifecycle.cheap_compacted·predecessor",
-    "team_note": "lifecycle.cheap_compacted·team_note"
+    "team_note": "lifecycle.cheap_compacted·team_note",
+    "request_note": "lifecycle.cheap_compacted·request_note"
   },
   "body": "Your report \"lifecycle.cheap_compacted·node\" was cheap-compacted by lifecycle.cheap_compacted·by: same seat and team, fresh session — its prior self is consultable as \"lifecycle.cheap_compacted·predecessor\"."
 }

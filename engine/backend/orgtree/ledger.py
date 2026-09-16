@@ -276,6 +276,39 @@ TOOL_KEYS: Final = ("bash", "web", "edit", "subagents")   # the built-in tool sw
 # existing three keep their order and nothing stored re-ranks.
 PM_LEVELS: Final = ("plan", "default", "acceptEdits", "bypassPermissions")
 
+#: D-232 SEAT-SCOPED FIELDS ON A SUBTREE PROMOTION. User ruling 2026-09-15,
+#: verbatim: "T inherits all of A's positional grants, A retains as much as
+#: pragmatic (besides grant)", clarified in the next breath as "besides credit
+#: grant, i mean".
+#:
+#: So the promoted target INHERITS the caller's positional grants — folders,
+#: tool switches, org visibility and permission mode — and the demoted caller
+#: RETAINS every one of its own. This is a raise, not a trade: nothing is
+#: taken from anybody. It is also the only rule under which no agent anywhere
+#: is clamped down by the move, because capability sets are ⊆ downward (№30 +
+#: D-021 + D-102) and the target's were already ⊆ the caller's — so lifting
+#: the target to the caller's level lets the caller and its whole retained
+#: team keep exactly what they held.
+#:
+#: The TEAM CHARTER is excluded, by a follow-up ruling the same day. A charter
+#: is a single value, so "inherit" would have meant OVERWRITING the standing
+#: instruction the target had been binding its own team with — and under this
+#: verb the target brings that team up with it, so the overwrite would have
+#: landed on a team that never changed hands. The user's words: "leave it
+#: untouched, dont change; make sure the new leader is aware that they should
+#: update their team charter manually / the old leader should set the new
+#: ones tesm charter before performing the subjugation". Both agents keep
+#: their own, and the operation SAYS SO to both of them rather than leaving
+#: the new leader to discover it — see `_promotion_seat_policy` and the
+#: `promoted` rendering of `lifecycle.subtree_promoted`.
+#:
+#: The CREDIT GRANT is excluded by the first ruling, and there was nothing for
+#: a policy to do with it anyway: the §4.5 credit path inside `_move` re-seats
+#: funding mechanically and budget-neutrally, so every node's `free` comes out
+#: of the promotion exactly as it went in.
+_PROMOTION_SEAT_FIELDS: Final = ("add_dirs", "tools", "org_visibility",
+                                 "permission_mode")
+
 #: ⚠ CHARTERS ARE NOT LENGTH-LIMITED. User ruling 2026-09-04, verbatim:
 #: "uncap it." There is no maximum, no refusal and no truncation — a charter
 #: is stored exactly as written, however long.
@@ -454,6 +487,20 @@ def now() -> str:
     # AFTER new "…:00.123Z" ones — harmless across the format transition.)
     d = datetime.now(timezone.utc)
     return d.strftime("%Y-%m-%dT%H:%M:%S.") + f"{d.microsecond // 1000:03d}Z"
+
+
+#: this backend process's boot stamp in `now()` format, memoised for
+#: `Ledger._boot_at` (see `node_ask`'s per-process linger bound)
+_BOOT_AT: str | None = None
+
+
+def _reset_boot_at_for_tests() -> None:
+    """Forget the memoised boot stamp AND the one `restart_wake` holds, so a
+    test can pose as a later process and re-read it. Paired with
+    `restart_wake._reset_boot_build_info_for_tests`, which is what a test
+    injects the fake stamp through."""
+    global _BOOT_AT
+    _BOOT_AT = None
 
 
 # kind flags that are QUALIFIERS on a provider-scoped freeze (a usage limit,
@@ -2338,9 +2385,37 @@ class Org:
                     "operation_id": ue["operation_id"],
                     "warnings": warnings}
 
+        # ⭐ NOT A TARGET AT ALL. `node()`'s generic "no such node: 'x'" is the
+        # right answer for a lookup and the WRONG one for a send: it reads as
+        # a naming complaint, and a sender that skims it can walk away
+        # believing the mail went somewhere. Nothing was stored, nothing is
+        # queued and no rehire or unhalt will ever produce a reader — say
+        # THAT, in the same sentence, so the failed send cannot be mistaken
+        # for the deferred one below (which really is durable).
+        #
+        # ⚠ It names ONLY the address the sender itself supplied and
+        # enumerates nothing: "no agent by that name" must not become a way
+        # to probe an org's membership. `_resolve_recipient(outward=True)`
+        # has already had its chance at @org:/@mcp:/@net:, so by here the
+        # name is neither a node here nor a resolvable outside party.
+        if to not in self.nodes:
+            raise LedgerError(
+                f"NOT DELIVERED — there is no agent named {to!r} in this "
+                f"organization, and the name did not resolve to an outside "
+                f"address either. NOTHING WAS QUEUED and nobody will ever "
+                f"read it: this is a failed send, not a deferred one. Check "
+                f"the name with orgtree_chart (include_archived=true also "
+                f"lists retired agents), or address an outside party with an "
+                f"explicit @org: / @mcp: / @net: prefix.")
         target = self.node(to)
         if target["state"] == "unrecoverable":
-            raise LedgerError(f"{to} is unrecoverable — it cannot receive mail")
+            # A REFUSAL, not a deferral: unlike an archived node there is no
+            # rehire that makes this one readable, so the sentence must not
+            # borrow the "waits in its inbox" shape from the branch below.
+            raise LedgerError(
+                f"NOT DELIVERED — {to} is unrecoverable (its session cannot "
+                f"be restored), so it cannot receive mail and NOTHING WAS "
+                f"QUEUED. Send this to a live agent instead.")
         deferred = target["state"] != "live"
         if deferred:
             # user ruling: archived agents still RECEIVE mail — it is saved in
@@ -2508,6 +2583,14 @@ class Org:
                          message_id=entry["id"], recipient=to,
                          sender=sender, delivery="mailbox")
         return {"delivered": to, "id": entry["id"], "deferred": deferred,
+                # the recipient's lifecycle state AT THE MOMENT THIS WAS
+                # STORED, so the caller can say WHY a send deferred without
+                # re-reading the node (and without inventing a reason). Kept
+                # separate from `deferred`, which stays a bool: the desk and
+                # the killswitch suite both read that flag, and widening it to
+                # a state string would make them depend on this branch's
+                # vocabulary.
+                "recipient_state": target["state"],
                 "operation_id": entry["operation_id"],
                 "warnings": warnings}
 
@@ -4006,9 +4089,22 @@ class Org:
         in-place shape has neither problem, so BOTH are gone: reports keep
         their superior, correspondents keep their address.
 
-        The seat's open request batch is MOOTED: the successor session never
-        asked, and an answer arriving to it would read as someone else's
-        mail (same reasoning as retire's mooting)."""
+        The seat's open request batch SURVIVES (user ruling 2026-09-16:
+        "maintain asked questions through cheap compaction, but answering
+        them still should trigger it"). It used to be mooted here on
+        retire's reasoning — the successor never asked, so an answer would
+        read as someone else's mail — but retire removes the party who could
+        ever act on the answer, and this does not: the SEAT is the same one,
+        with the same id, mailbox and work, and the answer lands on the
+        agent that still owes the work the question was asked for. Mooting
+        it made the automatic cache-protective compaction the one thing that
+        could take a standing card off the user's screen without the user or
+        the asking agent doing it, which the 2026-08-06 ruling reserves to
+        those two hands — and it forced the destructive gate to refuse for
+        exactly the agents it exists for (a question asked, an answer hours
+        later, a cold cache). The successor is TOLD what it inherited rather
+        than left to be surprised by an answer to a question it has no
+        memory of posing."""
         self._require_authority(actor, nid)
         n = self.node(nid)
         if n["state"] != "live":
@@ -4018,26 +4114,34 @@ class Org:
             raise LedgerError(
                 f"{nid} still owns open background tasks — cheap compaction "
                 "would replace the only session observing their outcome")
+        standing = self._open_request_kinds(nid)
         pred_id, old_sid = self._archive_session_in_place(nid)
-        self._moot_asks(nid, "the asking session was cheap-compacted — the "
-                             "successor starts fresh and never posed it")
-        # …and the same reasoning one door down: the predecessor's unread
-        # notice backlog is a diff the successor has no baseline for
+        # The unread NOTICE backlog is still folded: a notice is a diff, and
+        # the successor has no baseline for one. A standing REQUEST is not a
+        # diff — it is an unfinished exchange with the user — so it stays.
         folded = self._fold_notices(nid)
         kids = self.children(nid)
         team = (f" Your team ({', '.join(kids)}) is UNCHANGED and reports "
                 f"to you — they remember you; you do not remember them, so "
                 f"read the transcript before directing them." if kids else "")
+        request = (f" You inherit a STANDING REQUEST your predecessor posed "
+                   f"to the user ({', '.join(standing)}), still open and "
+                   f"still on the user's screen: the answer will arrive as "
+                   f"mail addressed to you. Read the transcript for what it "
+                   f"was asked for before you act on it, and do not withdraw "
+                   f"or replace it merely because you do not remember posing "
+                   f"it." if standing else "")
         def _cheap(relation: str) -> dict[str, Any]:
             return _mint("lifecycle.cheap_compacted", actor_of(actor), self.node_ref(nid),
                          node=nid, relation=relation, by=actor, predecessor=str(pred_id),
-                         team_note=(team or None))
+                         team_note=(team or None), request_note=(request or None))
         self._notify_ev([nid], _cheap("self"))
         self._notify_ev([p for p in [n["parent"]] if p is not None and p != actor],
                         _cheap("report"))
         self._log("cheap_compact", actor,
                   {"node": nid, "bearer": pred_id, "old_session": old_sid,
-                   "notices_folded": folded, "transfer": "fresh"},
+                   "notices_folded": folded, "transfer": "fresh",
+                   "requests_kept": standing},
                   [])
         return {"node": nid, "bearer": pred_id, "old_session": old_sid,
                 "warnings": []}
@@ -4924,31 +5028,250 @@ class Org:
 
     # ------------------------------------------- seat exchange & move batches
     def subjugate(self, actor: str, nid: str, target: str) -> dict[str, Any]:
-        """D-224 ①: the SELF-SUBJUGATION verb — `nid` exchanges seats with a
-        live descendant `target` (swap_seats' semantics, plus the contract
-        that the pair is commander-and-subordinate). The flagship workflow:
-        hire a replacement, subjugate to it, hand over, then self-retire
-        beneath it under the normal leaf-only rule (№26)."""
+        """D-232 (user spec 2026-09-15): the SELF-SUBJUGATION verb is a SUBTREE
+        PROMOTION, not a seat swap. `target` — a live descendant of `nid` —
+        rises into `nid`'s former place CARRYING ITS OWN TEAM, and `nid` drops
+        in beneath it as a direct report, keeping whatever is left of its own
+        subtree once the target's branch has been detached.
+
+        This REPLACES the old swap semantics, under which the two agents
+        exchanged teams and the target was severed from the organization it
+        had built. The general pairwise `swap_seats` is untouched and still
+        means exactly what it always meant.
+
+        The flagship workflow is unchanged in shape: hire a replacement,
+        self-subjugate to it, hand over, then self-retire beneath it under
+        the normal leaf-only rule (№26)."""
+        out = self.promote_subtree(actor, nid, target, _op="subjugate")
+        if actor == nid:
+            out["next_step"] = (
+                f'You now report to "{target}". For a hand-over retirement: '
+                f"transfer any loose ends, then orgtree_retire yourself — "
+                f"self-retire requires you to be a leaf (№26).")
+        return out
+
+    def promote_subtree(self, actor: str, nid: str, target: str,
+                        _op: str = "promote_subtree") -> dict[str, Any]:
+        """D-232: promote `target` (with its whole subtree) into `nid`'s seat
+        and demote `nid` beneath it.
+
+        ┌ BEFORE ──────────────┐        ┌ AFTER ───────────────┐
+        │ P                    │        │ P                    │
+        │ └ A (nid)            │        │ └ T (target)         │
+        │   ├ X                │   ⇒    │   ├ t1  t2  (kept)   │
+        │   └ M                │        │   └ A (nid)          │
+        │     └ T (target)     │        │       ├ X            │
+        │       ├ t1  └ t2     │        │       └ M            │
+        └──────────────────────┘        └──────────────────────┘
+
+        WHY IT IS EXACTLY TWO RE-PARENTS, IN THIS ORDER. Detaching T upward
+        first makes it a sibling of A; only then does A descend under it.
+        Each half is an ordinary §4.5 move whose own intermediate state is a
+        well-formed tree — T's subtree travels with T, A's remainder travels
+        with A, every parent pointer resolves, no node is duplicated or lost,
+        and no cycle is constructible because T has already left A's subtree
+        before A is sent into T's. Doing it the other way round (A down
+        first) would close a real cycle for the length of one statement, and
+        a corrupt tree that is repaired a microsecond later is still a
+        corrupt tree that a crash can make permanent.
+
+        ATOMICITY (§2b) IS PROVEN, NOT ASSERTED, AND IN TWO LAYERS. Every
+        refusal this verb can produce — authority, liveness, descendancy,
+        lineage bearers, the top-level rule, the depth and children caps,
+        D-014's top-grant cap, the credit-chain consistency check — is raised
+        before the first parent pointer is written. Behind that, the whole
+        mutation runs under a deep snapshot of `self.d`: if any leg raises
+        anyway, the snapshot is rebound and the caller is told plainly that
+        nothing was applied. Nothing between the two legs can yield to
+        another reader — the ledger mutates synchronously under the store
+        lock — so the interior state is not observable even in principle.
+
+        IDENTITY IS UNTOUCHED. This verb re-parents; it never re-creates. Both
+        agents keep their own node id, session, charter, mailbox, history,
+        watchdogs, external handles and docket ownership, because none of
+        those live on the seat. Authorization is recomputed from the new
+        ancestry by `is_ancestor` on every check (§7.1), so `nid` loses
+        command of the target's branch the instant the pointers move, and
+        `_sweep_audiences` retires every standing grant the old shape had
+        justified.
+        """
+        # ---------------------------------------------------------- validate
+        # Nothing below this banner mutates until the snapshot is taken.
         self._require_authority(actor, nid, allow_self=True)
         if target == nid:
-            raise LedgerError("subjugation needs a second party — name one "
+            raise LedgerError("a promotion needs a second party — name one "
                               "of the seat's live subordinates as the target")
         self.node(target)
         if target not in self.descendants(nid):
             raise LedgerError(
                 f'"{target}" is not a live descendant of "{nid}" — '
-                f"subjugation reaches only into that seat's own subtree; for "
+                f"promotion reaches only into that seat's own subtree; for "
                 f"two unrelated agents use the pairwise swap (D-224)")
-        out = self.swap_seats(actor, nid, target, _op="subjugate",
-                              _self_subjugation=actor == nid)
-        if actor == nid:
-            new_sup = self.node(nid)["parent"]
-            disp = f'"{new_sup}"' if new_sup else "the top level"
-            out["next_step"] = (
-                f"You now report to {disp}. For a hand-over retirement: "
-                f"transfer any loose ends, then orgtree_retire yourself — "
-                f"self-retire requires you to be a leaf (№26).")
-        return out
+        self._require_live(nid)
+        self._require_live(target)
+        n_a, n_t = self.node(nid), self.node(target)
+        p_a = n_a["parent"]
+
+        # §8.5: a lineage stack shares its successor's slot, so it is dragged
+        # along by any reseating. Both parties must be free of one, for the
+        # same reason `swap_seats` demands it.
+        for who_ in (nid, target):
+            succ = self.nodes[who_].get("successor")
+            if succ and succ in self.nodes:
+                raise LedgerError(
+                    f'{who_} is a lineage bearer of "{succ}" — the stack '
+                    f'shares its successor\'s slot (§8.5) and holds no seat '
+                    f'of its own to promote')
+            live_b = [k for k in self.lineage_stack(who_)
+                      if self.nodes[k]["state"] != "archived"]
+            if live_b:
+                raise LedgerError(
+                    f"{who_} has live lineage bearer(s) {live_b} under "
+                    f"consultation — retire them first; a stack follows its "
+                    f"owner through the promotion (§8.5)")
+
+        # The caller may hand over its OWN top seat to its live descendant
+        # (user ruling 2026-09-05, carried forward): that is a voluntary
+        # stand-down, not a raise, because the agent doing it ends up BELOW
+        # where it started. Any other route to the top level is user-only
+        # (§7.4). The marker is derived here from the actor, never read from
+        # API arguments, so nothing external can request it.
+        voluntary = actor == nid
+        if p_a is None and actor_kind(actor) not in ("user", "system") \
+                and not voluntary:
+            raise LedgerError(
+                "only the user reseats the top level (§7.4) — ask the user "
+                "to perform this promotion, or have the top-level agent "
+                "itself hand the seat over")
+        if p_a is None:
+            # D-014: the promotion may not seat an over-cap grant at top level
+            self._check_top_grant(n_t["grant"], "this promotion")
+        elif self.nodes[p_a]["state"] == "archived":
+            raise LedgerError(
+                f'"{target}" would report to "{p_a}", which is archived — a '
+                f"live agent may not hang under an archived one")
+
+        before = {nid: p_a, target: n_t["parent"]}
+        kept_by_target = self.descendants(target, live_only=False)
+        warnings: list[str] = []
+
+        # ------------------------------------------------------------ mutate
+        # ⚠ THE SNAPSHOT IS TAKEN BEFORE THE FIRST WRITE OF ANY KIND, and the
+        # seat redistribution counts as one. Taking it after would leave a
+        # refused promotion holding a silently re-scoped pair — a partial
+        # mutation of precisely the sort this verb promises cannot happen.
+        snap = copy.deepcopy(self.d)
+        try:
+            # Seat-scoped capacity is settled BEFORE the moves, so that the
+            # containment sweeps inside `_move` see the intended end state
+            # rather than clamping against a scope about to change anyway.
+            warnings += self._promotion_seat_policy(nid, target)
+            # leg 1 — the target and its whole subtree rise to the caller's
+            # former slot; leg 2 — the caller and its remainder descend.
+            warnings += self._move("promote", actor, target, p_a,
+                                   _authorized=True, _quiet=True)["warnings"]
+            warnings += self._move("demote", actor, nid, target,
+                                   _authorized=True, _quiet=True)["warnings"]
+        except LedgerError as e:
+            self.d = snap      # `nodes` is a property over d — rebound too
+            raise LedgerError(
+                f'promotion refused: {e} — nothing was applied; "{nid}" and '
+                f'"{target}" are exactly where they were')
+
+        # ------------------------------------------------------------ notify
+        kids_a = [k for k in self.children(nid) if k != target]
+        peers = self._peers_of(p_a, target)
+        p_t_old = before[target]
+
+        def _pr(role: str, node: str) -> dict[str, Any]:
+            return _mint("lifecycle.subtree_promoted", actor_of(actor),
+                         self.node_ref(node), promoted=target, demoted=nid,
+                         role=role, by=actor, reports_to_after=p_a,
+                         subtree=len(kept_by_target))
+        self._notify_ev([p for p in [p_a] if p != actor], _pr("new_parent", target))
+        self._notify_ev([p for p in peers if p != actor and p != nid],
+                        _pr("peer", target))
+        if p_t_old is not None and p_t_old != nid:
+            self._notify_ev([p for p in [p_t_old] if p != actor],
+                            _pr("former_parent", target))
+        self._notify_ev([k for k in kids_a if k != actor], _pr("caller_child", nid))
+        self._notify_ev([k for k in self.children(target)
+                         if k != actor and k != nid], _pr("target_child", target))
+        self._notify_ev([p for p in [target] if p != actor], _pr("promoted", target))
+        self._notify_ev([p for p in [nid] if p != actor], _pr("demoted", nid))
+        self._log(_op, actor,
+                  {"promoted": target, "demoted": nid,
+                   "promoted_from": p_t_old, "promoted_to": p_a,
+                   "demoted_to": target,
+                   "subtree": len(kept_by_target)}, warnings)
+        return {
+            "promoted": target, "demoted": nid,
+            "parent": p_a or "top level",
+            "before": {k: (v or "top level") for k, v in before.items()},
+            "after": {target: p_a or "top level", nid: target},
+            "subtree_kept": len(kept_by_target),
+            "retained_by_caller": len(self.descendants(nid, live_only=False)),
+            "warnings": warnings,
+        }
+
+    def _promotion_seat_policy(self, nid: str, target: str) -> list[str]:
+        """D-232: the promoted target INHERITS the caller's positional grants;
+        the demoted caller RETAINS all of its own (user ruling 2026-09-15 —
+        see `_PROMOTION_SEAT_FIELDS` for the wording and the reasoning).
+
+        This is a RAISE, not a trade. `_scope_raises` is the same disclosure
+        every other scope-moving verb owes: a seat deliberately hired narrow
+        can come back from a promotion holding `bypassPermissions` and the
+        caller's folders, and arriving in silence is how nobody notices.
+
+        Why a raise is the only rule that costs nobody anything: capability
+        sets are ⊆ downward and `_sweep_dirs` re-derives that after every
+        move, so the promoted agent must end up holding at least what the
+        demoted one holds or the demoted one — AND ITS ENTIRE RETAINED TEAM —
+        is clamped down to fit. The target's sets were already ⊆ the caller's,
+        so lifting the target to the caller's level both satisfies the
+        invariant and leaves every existing holder untouched.
+
+        THE TEAM CHARTER IS THE ONE THING THAT DOES NOT MOVE (user ruling
+        2026-09-15, second pass: "leave it untouched, dont change"). Both
+        agents keep their own. A charter is a single value, so inheriting one
+        would have meant OVERWRITING the standing instruction the target had
+        been binding its own team with — and this verb brings that team up
+        WITH the target, so the overwrite would have landed on a team that
+        never changed hands. Instead the operation tells both parties, in the
+        same breath, that the new leader's team charter is now its own to
+        write: the caller gets the warning below, and the target's own
+        `lifecycle.subtree_promoted` notification says it outright.
+
+        `ui_order` rides the seat, so the org chart does not reshuffle around
+        a promotion. The credit grant is not touched here at all — `_move`
+        re-seats funding on its own, budget-neutrally.
+        """
+        n_a, n_t = self.node(nid), self.node(target)
+        sa, st = n_a["scope"], n_t["scope"]
+        n_a["ui_order"], n_t["ui_order"] = n_t["ui_order"], n_a["ui_order"]
+        gains = self._scope_raises(st, sa)
+        for key in _PROMOTION_SEAT_FIELDS:
+            if key in sa:
+                st[key] = copy.deepcopy(sa[key])
+        warnings: list[str] = []
+        # ⚠ Said to the CALLER even when the target already has one, because
+        # the charter it has is the one it wrote for the team it is bringing
+        # up — not for the position it is taking over. The cheapest moment to
+        # set the new leader's charter is BEFORE the promotion, so the advice
+        # names that explicitly rather than only offering the repair.
+        warnings.append(
+            f'"{target}" keeps its own team charter — a promotion does not '
+            f"hand over the one you were binding your team with. If the seat "
+            f"it is taking needs a standing instruction, set it with "
+            f"orgtree_retool (ideally BEFORE the promotion); otherwise "
+            f'"{target}" writes its own.')
+        if gains:
+            warnings.append(
+                f'"{target}" took the promoted seat\'s scope, which GRANTS IT '
+                + "; ".join(gains)
+                + " — retool it if that is more than you meant to give.")
+        return warnings
 
     def swap_seats(self, actor: str, a: str, b: str,
                    _op: str = "swap_seats", *,
@@ -5526,15 +5849,35 @@ class Org:
                 "warnings": warnings}
 
     def _move(self, op: str, actor: str, nid: str,
-              new_parent: str | None) -> dict[str, Any]:
+              new_parent: str | None, *,
+              _authorized: bool = False,
+              _quiet: bool = False) -> dict[str, Any]:
         """§4.5 LCA credit path. Release P_old→L and acquire L→P_new cancel hop by hop,
-        so every node's free is unchanged — budget-neutral, cannot fail on credits."""
-        self._require_authority(actor, nid)
+        so every node's free is unchanged — budget-neutral, cannot fail on credits.
+
+        ⚠ `_authorized` skips the three §7.1 AUTHORITY checks and NOTHING else.
+        It exists for `promote_subtree`, whose whole point is a step the
+        downward-only rule cannot express on its own: an agent ceding its own
+        seat hands its descendant a slot ABOVE itself, so it is briefly acting
+        on its own parent's level and on itself. That caller states the full
+        authority contract in one place before it calls here, and every
+        STRUCTURAL invariant below — the cycle guard, the depth and children
+        caps, the §8.5 lineage-stack rules, the archived-destination rule and
+        the credit pre-checks — still runs unconditionally. A private keyword
+        is never read from API arguments, so no caller can ask for it.
+
+        `_quiet` suppresses this method's own notifications and log row so a
+        composite verb can emit ONE coherent event family instead of narrating
+        each internal leg. The mutation is identical either way.
+        """
+        if not _authorized:
+            self._require_authority(actor, nid)
         n = self.node(nid)
         p_old = n["parent"]
         if new_parent is not None:
             self._require_live(new_parent)
-            self._require_authority(actor, new_parent, allow_self=True)
+            if not _authorized:
+                self._require_authority(actor, new_parent, allow_self=True)
             # ⚠ The guard must cover EVERY node this move reparents, and that is
             # not just `nid`'s subtree: the loop near the end of this method
             # reparents the whole LINEAGE STACK to `new_parent` too (§8.5, the
@@ -5553,7 +5896,7 @@ class Org:
                 forbidden |= set(self.descendants(m, live_only=False))
             if new_parent in forbidden:
                 raise LedgerError("target is inside the moved subtree — cycle (§4.5)")
-        if p_old is not None:
+        if p_old is not None and not _authorized:
             self._require_authority(actor, p_old, allow_self=True)
 
         # №34 runaway insurance binds REORGANIZATION too (user ruling
@@ -5660,6 +6003,11 @@ class Org:
             return _mint("lifecycle.moved", actor_of(actor), self.node_ref(nid), node=nid,
                          from_parent=p_old, to_parent=new_parent, role=role, by=actor,
                          tail=(tail or None))
+        if _quiet:
+            # the composite verb narrates the whole transformation itself; a
+            # per-leg "you were moved" would describe an interior step that
+            # was never the committed result
+            return {"warnings": warnings}
         self._notify_ev([p for p in [p_old] if p != actor], _mv("old_parent"))
         self._notify_ev([p for p in prior_peers if p != actor], _mv("old_peer"))
         self._notify_ev([p for p in [new_parent] if p != actor], _mv("new_parent"))
@@ -7594,7 +7942,7 @@ class Org:
     #: from a rename to the node standing under that name now
     _NAME_BINDING_OPS: frozenset[str] = frozenset((
         "hire", "rename", "delete", "insert_parent",
-        "swap_seats", "subjugate",           # a seat swap moves agents between
+        "swap_seats",                        # a seat swap moves agents between
                                              # node keys (swap_seats logs `_op`)
         "recover_lost_generation", "drop_phantom_generation",
     ))
@@ -7606,6 +7954,10 @@ class Org:
         # a node, so the names stay bound to the same records. A retire with
         # live reports becomes one, so this is the ordinary path, not an edge.
         "dissolve",
+        # D-232: `subjugate` USED to be a seat swap and belonged above. A
+        # subtree promotion only re-parents — every node keeps its own key,
+        # exactly as `move`/`move_batch` do — so it keeps names bound.
+        "subjugate", "promote_subtree",
         "retire", "rehire", "reseed", "unrecoverable", "move_batch",
         "reallocate", "set_scope", "switch_model", "switch_queued",
         "switch_queue_cancelled", "switch_queue_dropped", "unstick",
@@ -8852,6 +9204,25 @@ class Org:
                       ("target", target), ("reason", (reason or "").strip()[:200] or None),
                       ("deadline_minutes", deadline_minutes)) if v}, [])
 
+    def _open_request_kinds(self, nid: str) -> list[str]:
+        """Labels for every request of `nid`'s the user has not resolved.
+
+        The read half of `_moot_asks`, over the same three lists and the same
+        live statuses — so a kind that can be mooted can never be a kind this
+        fails to name. Used where a request SURVIVES a lifecycle change and
+        the inheriting session has to be told it holds one.
+        """
+        out: list[str] = []
+        for key, live, label in (("asks", "open", "question"),
+                                 ("credit_requests", "pending",
+                                  "credit request"),
+                                 ("scope_requests", "pending",
+                                  "scope request")):
+            for row in self.d.get(key, []):
+                if row.get("node") == nid and row.get("status") == live:
+                    out.append(f"{label} {row.get('id')}")
+        return out
+
     def _moot_asks(self, nid: str, why: str) -> None:
         """The asker leaving the org moots its active request (redteam gap
         2026-08-06 on the manual-only ruling: retirement removes the party
@@ -9003,9 +9374,73 @@ class Org:
         best = max(pool, key=stamp)
         cutoff = (datetime.now(timezone.utc)
                   - timedelta(minutes=15)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        # THE LINGER IS PER BACKEND PROCESS, and the second bound is not a
+        # refinement of the first — it is the one that makes the window mean
+        # what it says. The window exists for ONE job: to cover the handoff of
+        # an answer this process just posted, from the submit until the mail
+        # renders in the transcript (message-visibility invariant, user
+        # 2026-09-10 13:22Z). `resolved_at` is persisted, so the 15 minutes
+        # alone outlive the process — and a backend restart changes the
+        # `x-orgtree-instance` header, which reloads the page (D-60,
+        # tests/restart.test.ts). The desk's record that the answer was
+        # already shown is in-page memory (`answerSeenTranscript`, a useRef in
+        # desk.tsx), so the reload destroys it and the fresh page can only
+        # re-derive the fact from the transcript window it loaded — which
+        # after a restart is the NEW CLI session's rows, without the
+        # pre-restart answer mail. The card therefore re-pinned at FULL SIZE
+        # and sat there for the rest of the 15 minutes (user report
+        # 2026-09-16, 2.1.6-beta.1: "the last asked question is stuck as an
+        # 'answered' annotation and doesn't go away").
+        #
+        # The desk cannot fix this itself: a fresh mount with an answered card
+        # and the answer nowhere on screen is the SAME payload as the live
+        # race askhandoff.test.tsx §3 exists to protect, where the panel must
+        # stand in. Only this side knows which process posted the answer.
+        #
+        # ⚠ AND NOTHING GOES INVISIBLE WHEN THE CARD GOES. The desk suppresses
+        # the answer's own pending bubble only while it is drawing this card
+        # (`askAnswerRow` returns false with no card), so an answer still
+        # genuinely queued at restart comes back as a queued bubble instead —
+        # visible exactly once either way. The resolved card itself is never
+        # erased: it keeps its place in the user's inbox through `tree.asks`,
+        # which does not consult this window at all.
+        boot_at = self._boot_at()
+        if boot_at and boot_at > cutoff:
+            cutoff = boot_at
         if (best.get("resolved_at") or best["at"]) < cutoff:
             return None
         return best
+
+    @staticmethod
+    def _boot_at() -> str:
+        """When THIS backend process started, in the stamp format `node_ask`'s
+        cutoff compares. Empty when it cannot be read — which degrades to the
+        old wall-clock-only window rather than hiding a card, because a
+        missing boot stamp is not evidence of a restart.
+
+        Memoised here as well as in `restart_wake`: `node_ask` runs once per
+        node per tree payload, and the source returns a fresh dict copy every
+        call. `_reset_boot_at_for_tests` clears both."""
+        global _BOOT_AT
+        if _BOOT_AT is not None:
+            return _BOOT_AT
+        try:
+            from . import restart_wake
+            started = str(restart_wake.get_boot_build_info().get("started_at") or "")
+        except Exception:                                        # noqa: BLE001
+            return ""
+        # `now_iso()` is `datetime.isoformat()` — "…T10:27:05.813123+00:00",
+        # neither the `Z` nor the millisecond width `now()` writes. Normalise
+        # to `now()`'s exact shape so the comparison is plain string order,
+        # and round DOWN to `.000Z`: `.000Z` sorts before every millisecond
+        # stamp in the same second AND before a legacy second-resolution
+        # "…:05Z" ("." < "Z"), so an answer resolved inside the boot second is
+        # KEPT. The one-second slack is deliberately on the side of showing a
+        # card that is a second too old rather than hiding one that is live.
+        if len(started) < 19:
+            return ""
+        _BOOT_AT = started[:19] + ".000Z"
+        return _BOOT_AT
 
     def fable_filter_hit(self, nid: str, detail: str) -> str:
         """A Fable content filter flagged this node's message mid-turn (user
@@ -10214,11 +10649,29 @@ class Org:
     WORK_HISTORY_MAX: Final = 100
     WORK_LIST_ENTRY_MAX: Final = 40          # entries per docket list
     # THE SCOPE RECORD (W03): every version of the description and every
-    # decision, append-only. Capped BY REFUSAL like evidence — never by
-    # truncation and never by folding, because the whole reason this list is
-    # not `history` is that history's fold would eventually summarise away the
-    # before/after pair it exists to keep.
+    # decision, append-only — never truncated and never folded, because the
+    # whole reason this list is not `history` is that history's fold would
+    # eventually summarise away the before/after pair it exists to keep.
+    #
+    # ⚠ THIS BOUNDS THE LIVE WINDOW, NOT THE RECORD (W09). It used to be a cap
+    # BY REFUSAL, and that froze items dead: every description change and every
+    # ruling appends a row, so at the cap `objective`, `objective_append` and
+    # `decision` were all refused at once — and the refusal's own advice
+    # ("consolidate the settled rulings into the description") is itself a
+    # scope append, so an agent following the instruction it was given got the
+    # same error a second time. There was no path out from inside the tool.
+    # Past the cap the OLDEST rows now ROLL OVER into `scope_archive`, which is
+    # uncapped. That is neither truncation nor folding: each row keeps its own
+    # `seq`, its own text and its own supersession pointers, byte for byte, and
+    # the complete record reads as archive-then-live in one unbroken sequence.
+    # Raising the number instead would only have moved the day this happens.
     WORK_SCOPE_MAX: Final = 100
+    # Stamped onto an item by every scope append this build performs. Its
+    # ABSENCE on an item already at the cap is the only evidence that the item
+    # passed through the frozen window of the refusing build — see
+    # `_work_objective_notice`, which is how such an item declares that its
+    # description is no longer the complete scope.
+    WORK_SCOPE_GUARD: Final = 2
     # the attention reason, which now has to hold requested-against-delivered,
     # the extra, and the confirmation wanted (user 2026-09-05).
     # ⚠ READ FROM THE SHARED CONTRACT, not restated: `workfields.LIMITS` is
@@ -11205,7 +11658,7 @@ class Org:
         return out
 
     def _work_view(self, it: WorkItem, physically: bool, viewer: str,
-                   now_ts: float) -> dict[str, Any]:
+                   now_ts: float, *, scope_archive: bool = True) -> dict[str, Any]:
         """The wire shape (evidence/docket-wire-contract-v3.md).
 
         ⚠ AN UNREADABLE DEPENDENCY IS NOW ANONYMOUS. It used to come back as
@@ -11246,12 +11699,29 @@ class Org:
             # files attached TO the item (user feature 2026-09-10) — records
             # only; the bytes are served by the attachments GET route
             "attachments": list(it.get("attachments") or []),
+            # ⚠ IS THE DESCRIPTION ABOVE THE WHOLE STORY? (W09) Served right
+            # beside `objective` and derived on read, because the reader who
+            # needs this never attempts a write — they just read. `None` when
+            # the description IS the complete scope, which is the normal case
+            # and is what gives the other two values their meaning.
+            "objective_notice": self._work_objective_notice(it),
             # THE SCOPE RECORD (W03): every version of the description, with
             # its complete before and after, and every decision — in order,
             # with supersession. Served WHOLE to a viewer that may read the
             # item, exactly like `evidence`: the objective above is the
             # authoritative current scope, and this is how it got there.
+            # This is the LIVE WINDOW; `scope_archive` holds the rows that
+            # rolled out of it, unchanged, and the two concatenated in that
+            # order are the complete record.
             "scope": list(it.get("scope") or []),
+            # ⚠ WHOLE ON A SINGLE READ, SUMMARISED IN A LIST. `work_get` serves
+            # every archived row — the record is not readable otherwise, and
+            # "nothing is erased" is worth nothing if nothing can read it. A
+            # docket LIST serves every readable item at once and refreshes on a
+            # timer, so it carries the summary and points at `get`.
+            **({"scope_archive": list(it.get("scope_archive") or [])}
+               if scope_archive else {}),
+            "scope_archive_summary": self._work_scope_archive_summary(it),
             # W08 artifacts: immutable, and `named` ones are filtered BY THE
             # SAME DISCLOSURE RULE as `dependencies` — a viewer with no grant
             # learns that an artifact exists and nothing about it, because the
@@ -11337,8 +11807,8 @@ class Org:
         """
         omitted: dict[str, int] = {}
         out = dict(full)
-        for field in ("history", "scope", "evidence", "attachments",
-                      "dismissals", "attention_sources"):
+        for field in ("history", "scope", "scope_archive", "evidence",
+                      "attachments", "dismissals", "attention_sources"):
             value = full.get(field)
             if isinstance(value, list):
                 if field == "history":
@@ -11356,10 +11826,15 @@ class Org:
         # Preserve the scope requested when the item was created/updated as a
         # stable, named group.  The same values also remain at their original
         # top-level keys for clients that consume the full work shape.
+        # ⚠ `objective_notice` TRAVELS WITH `objective`, HERE TOO (W09). This
+        # group is the description as a compact reader meets it; a compact
+        # projection that carried the description without the sentence saying
+        # it may not be the whole of it would reintroduce the exact silence
+        # the notice exists to break.
         out["requested_scope"] = {
             key: full.get(key) for key in
-            ("kind", "title", "objective", "acceptance", "dependencies",
-             "parent", "parent_visible", "participants")
+            ("kind", "title", "objective", "objective_notice", "acceptance",
+             "dependencies", "parent", "parent_visible", "participants")
         }
 
         delivery = full.get("delivery")
@@ -11711,7 +12186,13 @@ class Org:
                          + [(i, True) for i in self._work_archive()]):
             if not self._work_can_read(viewer, it):
                 continue
-            v = self._work_view(it, phys, viewer, now_ts)
+            # the rolled-over rows are summarised here and served whole by
+            # `work_get` — a list refreshes on a timer and carries every
+            # readable item, which is the one place an uncapped record cannot
+            # ride along. `objective_notice` still travels, because the point
+            # of the notice is that a reader meets it wherever they meet the
+            # description.
+            v = self._work_view(it, phys, viewer, now_ts, scope_archive=False)
             if compact:
                 v = self._work_compact_view(v)
             if v["archived"]:
@@ -11789,29 +12270,103 @@ class Org:
     # why. Append-only: `_work_scope_append` is the ONLY writer, and the only
     # field it ever puts on an already-stored row is the `superseded_by`
     # back-pointer — never text.
-    def _work_scope_room(self, it: WorkItem, adding: int = 1) -> None:
-        """Refuse a scope append that would pass the cap — BEFORE the caller
-        mutates anything. Capped by refusal, never by truncation and never by
-        folding: this list exists precisely because `history`'s fold would
-        eventually summarise away the before/after pair it keeps."""
-        have = len(it.get("scope") or [])
-        if have + adding > self.WORK_SCOPE_MAX:
+    def _work_scope_room(self, it: WorkItem, adding: int = 1, *,
+                         relief: bool = True) -> None:
+        """Make room for `adding` more scope rows — BEFORE the caller mutates
+        anything, so a failure here lands before any other part of the call has
+        written something.
+
+        ⚠ THIS NO LONGER REFUSES (W09), AND THAT IS THE WHOLE FIX. It used to,
+        and the refusal was a dead end rather than a limit: `objective`,
+        `objective_append` and `decision` all pass through this one gate, so at
+        the cap an item's authoritative scope became permanently unwritable and
+        the remedy the error text named was itself refused. Past the cap the
+        oldest rows now roll over into `scope_archive` instead.
+
+        NOTHING IS TRUNCATED AND NOTHING IS FOLDED — the guarantee this list
+        exists for is intact. A rolled-over row keeps its `seq`, its `at`, its
+        `by`, its full `before`/`after` or `text` and its supersession
+        pointers, unmodified; `_work_scope_seq` and `_work_scope_last` read
+        across the boundary, so a later row can still supersede an archived one
+        and the archived one still gains its back-pointer. The only thing that
+        changes is which list a row sits in, and `objective_notice` says so
+        beside the description rather than leaving a reader to find out.
+
+        `relief=False` is the pre-W09 behaviour, kept executable so the dead
+        end can be reproduced rather than only described. Nothing in the
+        product passes it.
+        """
+        rows = cast("list[WorkScopeRecord]", it.setdefault("scope", []))
+        room = max(0, self.WORK_SCOPE_MAX - max(1, int(adding)))
+        if len(rows) <= room:
+            return
+        if not relief:
+            have = len(rows)
             raise LedgerError(
                 f"this item already holds {have} scope record(s) (cap "
                 f"{self.WORK_SCOPE_MAX}) and nothing here is ever truncated or "
                 f"folded. Consolidate the settled rulings into the description "
                 f"(`objective`), which has no limit, or attach the long-form "
                 f"record as `evidence`")
+        self._work_scope_rollover(it, keep=room)
+
+    def _work_scope_rollover(self, it: WorkItem, *, keep: int) -> None:
+        """Move the oldest scope rows into the uncapped `scope_archive`.
+
+        A MOVE, NOT A SUMMARY. The rows are the same objects with the same
+        contents; `scope_archive` is append-only for the same reason `scope`
+        is, and the two together are the complete record in `seq` order.
+
+        AND IT IS WHERE A LEGACY FREEZE IS CAUGHT. An item that reached the cap
+        under the refusing build has no `scope_guard` stamp, because only a
+        scope append made by this build writes one. Such an item sat in a
+        window during which every description change and every ruling on it was
+        refused — so whatever was decided then was never recorded here, and no
+        later write can recover it. That fact stops being derivable the instant
+        this rollover drops the row count below the cap, so it is written down
+        once, here, and read back by `_work_objective_notice`.
+        """
+        rows = cast("list[WorkScopeRecord]", it.get("scope") or [])
+        move = len(rows) - max(0, int(keep))
+        if move <= 0:
+            return
+        if not it.get("scope_guard") and not it.get("scope_frozen"):
+            it["scope_frozen"] = {
+                "at": now(), "rows": len(rows), "cap": self.WORK_SCOPE_MAX,
+                "note": ("this item stood at the scope cap under a build that "
+                         "REFUSED every description change and every ruling. "
+                         "Anything decided during that window was not recorded "
+                         "on this item and cannot be recovered from it — the "
+                         "description below is therefore not guaranteed to be "
+                         "the complete scope. Look for it in `evidence`, in "
+                         "the item's mail, or ask whoever ruled it")}
+        arch = cast("list[WorkScopeRecord]",
+                    it.setdefault("scope_archive", []))
+        arch.extend(rows[:move])
+        it["scope"] = rows[move:]
+
+    @staticmethod
+    def _work_scope_all(it: WorkItem) -> list[WorkScopeRecord]:
+        """THE COMPLETE RECORD, oldest first: archive then live window.
+
+        ⚠ EVERY READER OF THE SCOPE RECORD GOES THROUGH HERE, not through
+        `it["scope"]`. A rollover moves rows without changing them, so a lookup
+        that only searched the live window would start reporting that a row it
+        had already handed out no longer exists — which is the append-only
+        guarantee failing at the reader rather than at the writer.
+        """
+        return (cast("list[WorkScopeRecord]", it.get("scope_archive") or [])
+                + cast("list[WorkScopeRecord]", it.get("scope") or []))
 
     def _work_scope_seq(self, it: WorkItem, seq: int) -> WorkScopeRecord | None:
-        for row in it.get("scope") or []:
+        for row in self._work_scope_all(it):
             if int(row.get("seq") or 0) == int(seq):
                 return row
         return None
 
     def _work_scope_last(self, it: WorkItem, kind: str) -> WorkScopeRecord | None:
         """The newest not-yet-superseded row of `kind`, or None."""
-        for row in reversed(it.get("scope") or []):
+        for row in reversed(self._work_scope_all(it)):
             if str(row.get("kind")) == kind and row.get("superseded_by") is None:
                 return row
         return None
@@ -11832,6 +12387,11 @@ class Org:
         rows = cast("list[WorkScopeRecord]", it.setdefault("scope", []))
         seq = int(it.get("scope_seq") or 0) + 1
         it["scope_seq"] = seq
+        # ⚠ THE STAMP THAT TELLS A FROZEN ITEM FROM A HEALTHY ONE. An item that
+        # reaches the cap carrying this was filled by a build that rolls over;
+        # one that reaches it WITHOUT was filled by the build that refused, and
+        # `_work_scope_rollover` records the freeze on its behalf.
+        it["scope_guard"] = self.WORK_SCOPE_GUARD
         row: WorkScopeRecord = {"seq": seq, "at": now(),
                                 "by": self._work_actor(actor), "kind": kind}
         if before is not None:
@@ -11853,6 +12413,118 @@ class Org:
                 prior["superseded_by"] = seq
         rows.append(row)
         return row
+
+    def _work_scope_archive_summary(self, it: WorkItem) -> dict[str, Any]:
+        """What rolled over, as a small block a list row can afford to carry.
+
+        Never a substitute for the rows: `work_get` serves `scope_archive`
+        whole. This exists so a docket LIST — which serves every readable item
+        at once — can say that more of the record exists without shipping all
+        of it on every five-second poll."""
+        arch = cast("list[WorkScopeRecord]", it.get("scope_archive") or [])
+        if not arch:
+            return {"count": 0, "first_seq": None, "last_seq": None,
+                    "first_at": None, "last_at": None}
+        return {"count": len(arch),
+                "first_seq": int(arch[0].get("seq") or 0),
+                "last_seq": int(arch[-1].get("seq") or 0),
+                "first_at": arch[0].get("at"), "last_at": arch[-1].get("at")}
+
+    def _work_objective_notice(self, it: WorkItem) -> dict[str, Any] | None:
+        """⚠ THE SECOND HALF OF W09, AND THE HARDER ONE: an item whose
+        description has stopped being the complete scope must say so WHERE THE
+        DESCRIPTION IS READ.
+
+        The standing rule is that `objective` is the item's authoritative
+        standalone scope — a reader with only the description must be able to
+        build the right thing. A frozen item broke that rule in silence: it
+        still rendered a description, which had simply stopped containing
+        anything ruled after the cap was reached, and nothing distinguished it
+        from a complete one. A refusal at the moment of writing does not help
+        the next reader at all; they never attempt a write, they just read.
+
+        So it is served beside `objective`, in `get`, in `list` and in the
+        compact projection, and it is DERIVED ON READ rather than stored — a
+        stored badge that nothing clears is the defect the charter names.
+        (`scope_frozen` is stored, but that is a record of a closed window,
+        not a badge: it stops being derivable the moment the rollover drops the
+        row count, so it is written once and never recomputed.)
+
+        Two kinds, and they do not mean the same thing:
+
+          `incomplete`  — content was LOST. This item stood at the cap under
+                          the build that refused scope writes, so rulings made
+                          then were never recorded here and no later write
+                          recovers them. The description may not be the whole
+                          specification.
+          `rolled_over` — nothing was lost. The description is current and
+                          authoritative; some of the record of HOW it got
+                          there has moved to `scope_archive`, and the reader is
+                          told where to find it.
+
+        `None` — and this is what makes the other two mean anything — when the
+        description is the complete scope and the whole record sits in front of
+        the reader.
+        """
+        frozen = it.get("scope_frozen")
+        live = len(cast("list[Any]", it.get("scope") or []))
+        arch = len(cast("list[Any]", it.get("scope_archive") or []))
+        if not frozen and not it.get("scope_guard") and live >= self.WORK_SCOPE_MAX:
+            # AN ITEM STILL SITTING IN THE FROZEN WINDOW. No append has been
+            # made to it by this build, so nothing has yet had the chance to
+            # write `scope_frozen` — and a reader arriving now is exactly the
+            # reader who must not mistake this description for a whole one.
+            frozen = {"at": None, "rows": live, "cap": self.WORK_SCOPE_MAX,
+                      "note": ("this item is standing at the scope cap and was "
+                               "last written by a build that REFUSED every "
+                               "description change and every ruling. Anything "
+                               "decided during that window was not recorded "
+                               "here")}
+        if frozen:
+            return {
+                "kind": "incomplete",
+                "headline": ("This description is NOT the complete scope of "
+                             "this item."),
+                "detail": str(frozen.get("note") or ""),
+                "at": frozen.get("at"),
+                "rows": int(frozen.get("rows") or 0),
+                "archived": arch,
+            }
+        if arch:
+            return {
+                "kind": "rolled_over",
+                "headline": ("This description is the complete current scope; "
+                             "part of the record of how it got there has "
+                             "rolled over."),
+                "detail": (f"{arch} earlier scope record(s) — description "
+                           f"versions and rulings — moved to `scope_archive` "
+                           f"to keep the live window at {self.WORK_SCOPE_MAX}. "
+                           f"Nothing was truncated, folded or erased: read "
+                           f"them with `orgtree_work get`, which serves "
+                           f"`scope_archive` whole."),
+                "at": None,
+                "rows": live,
+                "archived": arch,
+            }
+        return None
+
+    def _work_notice_line(self, it: WorkItem) -> str | None:
+        """`objective_notice` as ONE LINE, for the mails that carry the
+        description — assignment, review request, participation.
+
+        The organization that hit this said the quiet part exactly: "the next
+        agent to pick the item up reads the description first and has no reason
+        to look further". This mail IS that first reading. An excerpt marker is
+        not a substitute — it says there is more of this description, not that
+        there is scope which is not in this description at all.
+
+        None when the description is the complete scope, which renders nothing
+        and leaves every already-frozen mail body unchanged."""
+        n = self._work_objective_notice(it)
+        if not n:
+            return None
+        mark = "⚠ " if n.get("kind") == "incomplete" else ""
+        return f"{mark}{n.get('headline')} {n.get('detail')}"
 
     def _work_status_at(self, it: WorkItem) -> str:
         """WHEN THIS ITEM LAST ACTUALLY CHANGED STATE.
@@ -13035,6 +13707,7 @@ class Org:
                      owner=own, previous_owner=(str(prev) if prev else None),
                      assigner=actor, status=str(it.get("status") or "open"),
                      objective=str(it.get("objective") or ""),
+                     objective_notice=self._work_notice_line(it),
                      done_so_far=[str(x) for x in (it.get("done_so_far") or [])],
                      working_on_next=[str(x) for x in (it.get("working_on_next") or [])],
                      acceptance=[str(x) for x in (it.get("acceptance") or [])]))
@@ -13234,6 +13907,7 @@ class Org:
                      reviewer=want, requested_by=actor,
                      owner=str(self._work_actor_node(it.get("owner")) or ""),
                      objective=str(it.get("objective") or ""),
+                     objective_notice=self._work_notice_line(it),
                      done_so_far=[str(x) for x in (it.get("done_so_far") or [])],
                      acceptance=[str(x) for x in (it.get("acceptance") or [])],
                      revision=int(it.get("rev") or 0), candidate=candidate))
@@ -13407,7 +14081,8 @@ class Org:
                     ev=_mint("docket.participant_added", actor_of(actor),
                              self.work_item_ref(it), added_by=actor,
                              owner=str(owner or ""),
-                             objective=str(it.get("objective") or "")))
+                             objective=str(it.get("objective") or ""),
+                             objective_notice=self._work_notice_line(it)))
             except LedgerError as e:
                 refused.append({"node": pid, "reason": str(e)})
                 continue
@@ -14962,8 +15637,9 @@ class Org:
                         {"set_rev": int(cur["set_rev"]), "from": frm})
         self._log("work_dismiss", USER, {"item": wid,
                                          "set_rev": int(cur["set_rev"])}, [])
-        notify = self._work_actor_node(it.get("last_updater")) \
-            or self._work_actor_node(it.get("owner"))
+        # The explicit no-comment notice belongs to the assigned agent, not
+        # the person who most recently edited the item.
+        notify = self._work_actor_node(it.get("owner"))
         return {"dismissed": wid, "rev": it["rev"], "status": "blocked",
                 "pending_questions": len(self._work_questions(wid)),
                 "notify": notify if notify in self.nodes else None,

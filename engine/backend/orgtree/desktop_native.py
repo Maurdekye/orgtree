@@ -331,6 +331,42 @@ def native_session_path(org: Any, nid: str, *, inventory: NativeInventory | None
         return None
     path = root / expected
     _plain(path)
+    if path.is_file():
+        return str(path)
+    # THE RECORD IS STILL TRUE; THE FILE HAS MOVED. Returning None here used
+    # to freeze the seat outright — `_native_session_hold_reason` turns a
+    # missing file into a hold, and a hold refuses the send path AND
+    # `maildrain.recover`, so the agent stops taking turns and stops
+    # receiving mail while its conversation sits intact somewhere else in
+    # the same imports tree. The inventory is keyed by session id and is
+    # already the trusted answer to "where does this session live" for every
+    # other reader, so ask it rather than declaring the session lost.
+    #
+    # This does NOT loosen any identity check: every guard above still had to
+    # pass, and `_native_inventory` drops duplicate session ids into
+    # `conflicts` rather than picking one, so a moved file is only adopted
+    # when exactly one file in the whole tree answers to this id.
+    return _relocated_native_session(node["session_id"], inventory=inventory)
+
+
+def _relocated_native_session(sid: str, *, inventory: NativeInventory | None = None) -> str | None:
+    """Where this session's file actually is now, or None if nothing in the
+    imports tree answers to it. Never raises: a walk that cannot complete
+    means "not relocated", which leaves the caller's existing hold in place."""
+    from .desktop_import import _plain
+    try:
+        found, _ = (inventory.read() if inventory is not None
+                    else _native_inventory())
+    except (ValueError, OSError):
+        return None
+    moved = found.get(sid)
+    if not moved:
+        return None
+    path = Path(moved)
+    try:
+        _plain(path)
+    except (ValueError, OSError):
+        return None
     return str(path) if path.is_file() else None
 
 

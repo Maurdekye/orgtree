@@ -97,10 +97,7 @@ def seeded():
     print(json.dumps({"askId": ask_org.d['asks'][-1]['id']}), flush=True)
     token = agentauth.child_env("auth-fixture", "caller")["ORGTREE_AGENT_TOKEN"]
     print(json.dumps({"fixtureToken":token, "staleToken":stale}), flush=True)
-    import os
-    os.environ['ORGTREE_V2_HUB_TOKEN'] = 'owner-control'
     safe = supervisor.clean_env()
-    assert 'ORGTREE_V2_HUB_TOKEN' not in safe
     assert 'ORGTREE_V2_TOKEN' not in safe
     assert safe['ORGTREE_PORT'] == str(result[3])
     print(json.dumps({'guardEnv': {k:v for k,v in safe.items() if k in
@@ -331,9 +328,8 @@ class EngineHTTPTests(unittest.TestCase):
         with urllib.request.urlopen(request, timeout=10) as response:
             self.assertIn(b'UI positive control', response.read())
         for path, field in (('/api/desktop/status','activeAgents'),
-                            ('/api/desktop/hub','enabled'),
-                            # installation-wide grants, reachable with no org open
-                            ('/api/desktop/hub/peers','peers'),
+                            # the bundled-hub hosting surface (orgtree-mailhub)
+                            ('/api/desktop/hub','port'),
                             ('/api/desktop/notifications','notices')):
             status, body = self.request(path, operator=True)
             self.assertEqual(status,200,(path,body))

@@ -218,14 +218,22 @@ LEAVES: Final[dict[str, dict[str, Any]]] = {
         assigner=F("str", B, True), status=F(_STATUS, B, True),
         objective=F("str", B, True), done_so_far=F("[str]", B, True),
         working_on_next=F("[str]", B, True),
-        acceptance=F("[str]", B, True)),
+        acceptance=F("[str]", B, True),
+        # W09: one sentence saying the description above may not be the whole
+        # scope, rendered immediately before it. Null — and absent on an
+        # historical fixture — means it IS the whole scope, and renders
+        # nothing, so every existing body is unchanged.
+        objective_notice=F("str?", B, True)),
     # ---- family review
     "docket.review_requested": leaf(
         "review", "WorkItemRef",
         reviewer=F("str", B, True, _YOU), requested_by=F("str", B, True),
         owner=F("str", B, True), objective=F("str", B, True),
         done_so_far=F("[str]", B, True), acceptance=F("[str]", B, True),
-        revision=F("int", B, True), candidate=F("str?", B, True)),
+        revision=F("int", B, True), candidate=F("str?", B, True),
+        # W09 — see docket.assigned. A reviewer reads the description to judge
+        # the work against it, so they need this as much as the owner does.
+        objective_notice=F("str?", B, True)),
     "docket.review_changes": leaf(
         "review", "WorkItemRef", reviewer=F("str", B, True), owner=F("str", B, True, _YOU),
         note=F("str?", B, True), relayed=F("bool", B, True)),
@@ -311,7 +319,8 @@ LEAVES: Final[dict[str, dict[str, Any]]] = {
                                       relation=F("L[self|report]", B, True),
                                       by=F("str", B, True, "not named in the self text"),
                                       predecessor=F("str", B, True),
-                                      team_note=F("str?", B, True, _VARIANT)),
+                                      team_note=F("str?", B, True, _VARIANT),
+                                      request_note=F("str?", B, True, _VARIANT)),
     "lifecycle.reseeded": leaf("lifecycle", "NodeRef", node=F("str", B, True, _YOU),
                                relation=F("L[self|report]", B, True), by=F("str", B, True),
                                predecessor=F("str", B, True, "absent in the self text")),
@@ -348,6 +357,13 @@ LEAVES: Final[dict[str, dict[str, Any]]] = {
         nested=F("bool", B, True), by=F("str", B, True, "not named in every variant"),
         reports_to_after=F("str?", B, True), grant_after=F("str?", B, True),
         audience_note=F("str?", B, True)),
+    "lifecycle.subtree_promoted": leaf(
+        "lifecycle", "NodeRef",
+        promoted=F("str", B, True, _VARIANT), demoted=F("str", B, True, _VARIANT),
+        role=F("L[new_parent|peer|former_parent|caller_child|target_child"
+               "|promoted|demoted]", B, True),
+        by=F("str", B, True), reports_to_after=F("str?", B, True),
+        subtree=F("int", B, True)),
     "lifecycle.moved": leaf("lifecycle", "NodeRef", node=F("str", B, True, _YOU),
                             from_parent=F("str?", B, True, _VARIANT), to_parent=F("str?", B, True, _VARIANT),
                             role=F("L[old_parent|old_peer|new_parent|new_peer|self]", B, True),
@@ -442,7 +458,11 @@ LEAVES: Final[dict[str, dict[str, Any]]] = {
     # ---- family context_change
     "docket.participant_added": leaf("context_change", "WorkItemRef",
                                      added_by=F("str", B, True), owner=F("str", B, True),
-                                     objective=F("str", B, True)),
+                                     objective=F("str", B, True),
+                                     # W09 — see docket.assigned. This mail
+                                     # carries the description too, so it
+                                     # carries the warning about it too.
+                                     objective_notice=F("str?", B, True)),
     "context.deep_reach": leaf("context_change", "NodeRef", node=F("str", B, True),
                                gist=F("str", B, True), kind=F("L[message|command]", B, True)),
     "context.notice_digest": leaf("context_change", None,
@@ -463,8 +483,20 @@ LEAVES: Final[dict[str, dict[str, Any]]] = {
     "context.drive_mail_pointer": leaf(
         "context_change", "NodeRef", text=F("str", M, False),
         reason=F("L[" + "|".join(DRIVE_MAIL_POINTER_REASONS) + "]?", M, False)),
+    # Minted by `supervisor._restart_replay` when a turn the shutdown killed is
+    # re-sent on the next boot. `text` is the instruction the AGENT reads —
+    # imperative, addressed to it, model_only as it always was.
+    #
+    # ⚠ `summary` is why this leaf is no longer human-hidden (user report
+    # 2026-09-16). The replay hands the agent the whole enveloped turn again,
+    # and the desk drew NOTHING for it: a reader watched an old mail envelope
+    # reappear with no account of itself, which is the half of that report that
+    # is worst for a person and cheapest to answer. One `both` field is all it
+    # takes — `human_hidden_variants` is derived from dispositions, so the card
+    # turns on by declaring a human field, never by naming the variant.
     "context.drive_restart_interrupted": leaf("context_change", "BuildRef",
-                                              text=F("str", M, False)),
+                                              text=F("str", M, False),
+                                              summary=F("str", B, True)),
     "context.drive_restart_wake": leaf("context_change", "BuildRef", text=F("str", M, False),
                                        reason=F("str?", M, False),
                                        armed_by_pid=F("int?", M, False),

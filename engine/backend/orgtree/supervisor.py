@@ -4236,7 +4236,7 @@ def clean_env() -> dict[str, str]:
     # and whether the HOST is reachable off loopback is not the agent's
     # business — strip it here rather than let it ride into every turn.
     env.pop("ORGTREE_EXPOSE_ADMIN", None)
-    for secret in ("ORGTREE_V2_TOKEN", "ORGTREE_V2_HUB_TOKEN", "ORGTREE_AGENT_TOKEN", "ORGTREE_BASE"):
+    for secret in ("ORGTREE_V2_TOKEN", "ORGTREE_AGENT_TOKEN", "ORGTREE_BASE"):
         env.pop(secret, None)
     # §9.5 (redteam finding 2026-08-05, measured): a HOST-level Anthropic key
     # silently switched EVERY keyless org — kiosks included — off the
@@ -4314,7 +4314,7 @@ def env_overrides(slug: str, nid: str) -> dict[str, str]:
         ks = str(k)
         if ks.startswith(("ANTHROPIC_", "ORGTREE_AGENT_PARENT_", "ORGTREE_AGENT_LEGACY_")) or ks == "CLAUDE_CODE_OAUTH_TOKEN" or ks in {
                 "ORGTREE_BASE", "ORGTREE_PORT", "ORGTREE_DATA", "ORGTREE_AGENT_TOKEN",
-                "ORGTREE_V2_TOKEN", "ORGTREE_V2_HUB_TOKEN", "ORGTREE_ORG", "ORGTREE_NODE"}:
+                "ORGTREE_V2_TOKEN", "ORGTREE_ORG", "ORGTREE_NODE"}:
             continue
         out[ks] = str(v)
     return out
@@ -8747,7 +8747,8 @@ def _mail_segments(mail: list[MailEntry]) -> list[dict[str, Any]]:
 def _segments_for(mail: list[MailEntry] | None, pending: list[NoticeEntry] | None,
                   text: str | None, *, drive: Mapping[str, Any] | None = None,
                   owned: list[dict[str, Any]] | None = None,
-                  view: str | None = None
+                  view: str | None = None,
+                  carried: list[dict[str, Any]] | None = None
                   ) -> list[dict[str, Any]]:
     """The typed composition of an envelope, in the order the agent text carries it
     (design §6): notices, mail, then the drive nudge — as a typed `drive` segment
@@ -8771,7 +8772,19 @@ def _segments_for(mail: list[MailEntry] | None, pending: list[NoticeEntry] | Non
     covers the other enveloped carrier (a steer leftover) but keys on journal
     tokens, which a replay carrier has none of.
     `view=None` = no projection was composed, text stands as its own tail;
-    `view=""` = a deliberately empty projection, so there is no tail at all."""
+    `view=""` = a deliberately empty projection, so there is no tail at all.
+
+    `carried` (restart-replay completeness, user report 2026-09-16): the typed
+    composition a REPLAY carrier brings with it — the segments of the very turn
+    being resumed, frozen on the node's `inflight` marker beside the text and
+    the projection. It takes the tail's place for the same reason `owned` does,
+    and the two are deliberately separate: `owned` keys on live journal tokens,
+    which a replay carrier has none of (its batch was confirmed delivered
+    before the backend died). Without this the tail fell through to the `view`
+    branch below — and a replay's `view` is ITSELF a `[MAIL — …]` envelope, so
+    the desk printed the whole thing as the agent's words. `None` means the
+    carrier brought none (an older marker, or a composition too large to
+    freeze) and the text/view fallback stands, exactly as it did before."""
     segs: list[dict[str, Any]] = []
     if pending:
         segs.append({"kind": "notices", "rows": [events.journal_row(n) for n in pending]})
@@ -8779,6 +8792,8 @@ def _segments_for(mail: list[MailEntry] | None, pending: list[NoticeEntry] | Non
         segs.extend(_mail_segments(mail))
     if owned is not None:
         segs.extend(owned)
+    elif carried is not None:
+        segs.extend(carried)
     elif drive is not None:
         segs.append({"kind": "drive", "event": events.encode_ev(drive), "text": text or ""})
     else:
@@ -8830,6 +8845,126 @@ def _owned_segments(org: Org, nid: str, toks: Iterable[str] | None
             return None
         out.extend(row["segments"])
     return out
+
+
+#: What a resumed agent is told, verbatim, when the shutdown killed its turn.
+#: A CONSTANT rather than a literal at the send site because two other places
+#: now have to recognise it exactly: the nesting collapse below, and the test
+#: that proves the collapse works. Matching it by pattern would be a guess.
+RESTART_REPLAY_PREAMBLE: Final = (
+    "[ORGTREE RESTART] orgtree shut down while you were mid-turn and is back "
+    "up. The message that drove your interrupted turn is repeated below — you "
+    "may have already completed part of it; check your recent work and "
+    "CONTINUE from where you left off (do not redo finished steps).")
+
+#: The same fact as a sentence for a PERSON reading the desk. The agent's line
+#: above is an instruction addressed to the agent; this is an account of why a
+#: block of text the reader has already seen is on screen again.
+RESTART_REPLAY_SUMMARY: Final = (
+    "orgtree restarted while this agent was mid-turn. The message that drove "
+    "the interrupted turn is repeated below so it can continue.")
+
+#: Ceiling on the frozen composition a replay may carry back, in serialised
+#: bytes. Past it the marker keeps text and view only and the replay falls back
+#: to the plain-text tail — worse-looking, but the org document is not the
+#: place to park an unbounded blob, and `text` has been capped at 8000 chars
+#: for the same reason since it existed.
+INFLIGHT_SEGMENTS_MAX_BYTES: Final = 256 * 1024
+
+
+def _boot_build() -> dict[str, Any]:
+    """The running build, for the replay's typed BuildRef. Imported locally:
+    `restart_wake` imports this module, so a top-level import is a cycle."""
+    try:
+        from . import restart_wake                          # noqa: PLC0415
+        return restart_wake.get_boot_build_info()
+    except Exception:                                        # noqa: BLE001
+        # Never let a build-identity read stop a turn being resumed. The
+        # unknown values below are the same ones `restart_wake` itself emits
+        # when the identity cannot be resolved, so the notice reads honestly
+        # rather than confidently.
+        return {"commit": "unknown", "commit_short": "unknown", "dirty": False,
+                "backend_pid": os.getpid(), "provenance": "unknown"}
+
+
+def _freezable_segments(segments: Any) -> list[dict[str, Any]] | None:
+    """The composition of a turn, if it is small enough to park on the node.
+
+    None on anything this cannot honestly store — not a list, unserialisable,
+    or over the cap. Every None lands the replay on the text fallback, which is
+    what every replay did before the marker carried segments at all."""
+    if not isinstance(segments, list) or not segments:
+        return None
+    try:
+        if len(json.dumps(segments, ensure_ascii=False).encode("utf-8")) \
+                > INFLIGHT_SEGMENTS_MAX_BYTES:
+            return None
+    except (TypeError, ValueError):
+        return None
+    return segments
+
+
+def _restart_replay(inf: Mapping[str, Any], build: Mapping[str, Any]
+                    ) -> tuple[str, str, list[dict[str, Any]] | None]:
+    """What to re-send for a turn the shutdown killed: (text, view, segments).
+
+    ⚠ THE DEFECT THIS EXISTS FOR (user report 2026-09-16, "every time i restart
+    orgtree the agents get this long unformatted block"). The replay used to be
+    three lines at the dispatch site: preamble + the frozen text, with the
+    frozen `view` beside it. That shape has two faults and both are visible in
+    the specimen the user photographed.
+
+    THE ENVELOPE AS PROSE. A replay carrier brought a projection and nothing
+    else, so `_segments_for` fell through to its `view` branch and filed the
+    whole thing as one `text` segment. A replay's projection is ITSELF a
+    `[MAIL — …] … [END MAIL]` block, and the desk renders a text segment
+    through `md()` — so orgtree's internal envelope markup was printed as the
+    agent's own words. The turn's typed composition had been thrown away at the
+    freeze, and it is the only thing that could have drawn the cards. Now the
+    marker keeps it and it comes back here.
+
+    THE STACKING. The text this returns is itself frozen if the NEXT restart
+    interrupts the resumed turn, so before this the preamble — and the entire
+    envelope under it — accumulated once per restart. Both halves are collapsed
+    below: the text drops a preamble it already carries, and the composition
+    drops a restart card it already carries. That is the "wall of raw text
+    repeated once per restart", and it is why the collapse is not cosmetic.
+
+    ⚠ NOTHING IS TAKEN AWAY FROM THE AGENT. `text` still opens with the
+    instruction and still carries the frozen turn entire — its envelope, the
+    build identity, the commit, the ancestry hint. Only the human-facing
+    composition changes.
+
+    A marker with no usable composition (an older build wrote it; it was too
+    large to freeze) answers None for `segments` and the caller composes the
+    text fallback exactly as it always did.
+    """
+    text = str(inf.get("text") or "")
+    # ⚠ EXACT, NOT A PATTERN. Only a preamble this build itself wrote is
+    # dropped; anything else is somebody's content and is left alone.
+    if text.startswith(RESTART_REPLAY_PREAMBLE + "\n\n"):
+        text = text[len(RESTART_REPLAY_PREAMBLE) + 2:]
+    view = str(inf.get("view") or "") if "view" in inf else str(inf.get("text") or "")
+    carried = _freezable_segments(inf.get("segments"))
+    if carried is None:
+        return RESTART_REPLAY_PREAMBLE + "\n\n" + text, view, None
+    # the same collapse on the human side: a `drive` segment minted by an
+    # EARLIER replay is this one's predecessor, not part of the turn
+    kept = [s for s in carried
+            if not (isinstance(s, dict) and s.get("kind") == "drive"
+                    and str((s.get("event") or {}).get("variant") or "")
+                    == "context.drive_restart_interrupted")]
+    drive = events.mint(
+        "context.drive_restart_interrupted", _SYSTEM_ACTOR,
+        {"kind": "build", "commit": str(build.get("commit") or "unknown"),
+         "short": str(build.get("commit_short") or "unknown"),
+         "dirty": bool(build.get("dirty")),
+         "pid": int(build.get("backend_pid") or os.getpid()),
+         "provenance": str(build.get("provenance") or "unknown")},
+        text=RESTART_REPLAY_PREAMBLE, summary=RESTART_REPLAY_SUMMARY)
+    segments = [{"kind": "drive", "event": events.encode_ev(drive),
+                 "text": RESTART_REPLAY_PREAMBLE}] + kept
+    return RESTART_REPLAY_PREAMBLE + "\n\n" + text, view, segments
 
 
 def delivering_mail(org: Org, nid: str,
@@ -9421,7 +9556,8 @@ def _envelope(slug: str, nid: str, text: str,
               spans_out: list[list[dict[str, Any]]] | None = None,
               segments_out: list[list[dict[str, Any]]] | None = None,
               ping: bool = False, ping_reason: str | None = None,
-              owned_toks: Iterable[str] | None = None, mail_ids=None
+              owned_toks: Iterable[str] | None = None, mail_ids=None,
+              carried: list[dict[str, Any]] | None = None
               ) -> tuple[str, str | None, list[dict[str, Any]]]:
     """Drain notices + mail atomically and prepend them (№27 envelope, §7.4).
 
@@ -9433,6 +9569,10 @@ def _envelope(slug: str, nid: str, text: str,
     `base_view`: the human projection of `text`, and the tail of both the view
     string and the typed composition — see the invariant on `_segments_for`.
     Load-bearing for an already-enveloped `text`.
+
+    `carried`: the typed composition a REPLAY carrier brings (its frozen
+    `inflight` segments) — see `_segments_for`. It is only a statement about
+    what the text is MADE OF; the bytes handed to the model are untouched.
 
     `owned_toks`: the journal tokens the carrier ALREADY holds (a steer carrier
     folded into the queue: `text` is its enveloped text). Its composition is
@@ -9477,11 +9617,12 @@ def _envelope(slug: str, nid: str, text: str,
         drive = (_ping_drive(org, nid, text, ping_reason)
                  if ping and not held else None)
         segments = _segments_for(mail, pending, text, drive=drive, owned=owned,
-                                 view=base_view)
+                                 view=base_view, carried=carried)
         if pending or mail:
             tok = _journal_drain(org, nid, mail, pending, via, drive=drive,
                                  segments=(_segments_for(mail, pending, None)
-                                           if owned is not None else segments))
+                                           if owned is not None or carried is not None
+                                           else segments))
             store.save_org(org)
     if segments_out is not None:
         segments_out.append(segments)
@@ -10922,7 +11063,32 @@ def _auto_cheap_context_ready(n: NodeDoc | dict[str, Any],
                               cfg: dict[str, float],
                               models: Mapping[str, Any] | None = None
                               ) -> tuple[bool, str]:
-    """Destructive-action guard: real, sufficiently large, non-fresh context."""
+    """Destructive-action guard: real, sufficiently large, non-fresh context.
+
+    ⚠ THIS ASKS ABOUT THE SESSION, NOT ABOUT THE AGENT'S MOOD. It used to
+    refuse a node whose `last_status` said "blocked", and that guard was
+    exactly backwards at the only site that can act on it. A turn start POPS
+    `last_status` into `prev_status` (see the pop beside the `inflight`
+    marker), and the pop runs AFTER the admission gate — so at the gate
+    `last_status` is always the PREVIOUS turn's self-report, while a turn is
+    being admitted right now. "Durably blocked" is therefore false by
+    construction there, and the refusal landed on precisely the agents the
+    policy exists for: the one that asked the user a question, reported
+    blocked, sat idle past its cache TTL and came back cold on the answer.
+    Measured live 2026-09-16T06:02:20Z on `answer-crash` — 52% of a 1M window,
+    `expired_known_entry`, every other guard clear, no compaction, because it
+    had said "blocked" seven hours earlier.
+
+    ⚠ NOTHING HERE ASKS ABOUT AN OPEN USER REQUEST EITHER, and that is also
+    deliberate. A standing question used to be destroyed by compaction (it
+    mooted the seat's request batch), which made an unanswered card a real
+    reason to hold the gate. The user ruled otherwise on 2026-09-16 —
+    "maintain asked questions through cheap compaction, but answering them
+    still should trigger it" — so `cheap_compact` now carries the request
+    across to the successor, and there is nothing left for this gate to
+    protect. Reintroducing the check here would re-break the answer wake,
+    which is the very case the ruling is about.
+    """
     if n.get("state") not in (None, "live"):
         return False, "the agent is not live"
     if n.get("frozen") or n.get("limit_locked") or n.get("remote_controlled"):
@@ -10935,10 +11101,6 @@ def _auto_cheap_context_ready(n: NodeDoc | dict[str, Any],
         return False, "the successor context is new or only estimated"
     if n.get("bearer_state"):
         return False, "knowledge-bearer sessions are never auto-compacted"
-    last_status = n.get("last_status")
-    if (isinstance(last_status, dict)
-            and last_status.get("status") == "blocked"):
-        return False, "the agent is durably blocked"
     try:
         ratio = float(occ) / float(cw)
     except (TypeError, ValueError, ZeroDivisionError, OverflowError):
@@ -16974,6 +17136,10 @@ def _run_one_turn_recorded(slug: str, nid: str,
     # the composer needs "brought none" apart from "brought an empty one";
     # `turn_view` flattens both to "" (invariant: `_segments_for`)
     carrier_view: str | None = _carrier_projection(text)
+    # the typed composition an already-composed carrier brought (a restart
+    # replay). `None` = brought none, and the text/view tail stands.
+    carrier_segs: list[dict[str, Any]] | None = (
+        _freezable_segments(text.get("segs")) if isinstance(text, dict) else None)
     carrier_mail_ids = text.get('mail_ids') if isinstance(text, dict) else None
     if isinstance(text, dict):
         is_cmd = bool(text.get("cmd"))
@@ -17322,7 +17488,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
                               and not toks else None)
                 view_segments = None if is_cmd else _segments_for(
                     mail, pending, text if isinstance(text, str) else None,
-                    drive=turn_drive, owned=owned, view=carrier_view)
+                    drive=turn_drive, owned=owned, view=carrier_view,
+                    carried=carrier_segs)
                 if pending or mail:
                     # journal the batch: if the CLI never launches (bad
                     # binary, Docker down, timeout) the drained mail would
@@ -17334,6 +17501,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                                   drive=turn_drive,
                                                   segments=(_segments_for(mail, pending, None)
                                                             if owned is not None
+                                                            or carrier_segs is not None
                                                             else view_segments)))
                     store.save_org(org)
             if cache_forecast_event is not None:
@@ -17408,6 +17576,17 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     # replay honestly is dropped, not degraded (review)
                     inf: InflightInfo = {"at": now_iso(), "text": text[-8000:]}
                     inf["view"] = turn_view[-8000:]
+                    # …and WHAT IT IS MADE OF, so a restart that kills this
+                    # turn can replay it as cards rather than as the raw
+                    # envelope (`_restart_replay`). Frozen only when it fits;
+                    # absent means the replay uses the text tail, as it always
+                    # did. `text`/`view` above are cut to their last 8000 chars
+                    # and the composition is not, so the two can disagree about
+                    # a very long turn — the segments are the more complete
+                    # account and the one the desk reads.
+                    _fseg = _freezable_segments(view_segments)
+                    if _fseg is not None:
+                        inf["segments"] = _fseg
                     if is_cmd:
                         inf["cmd"] = True
                     if cache_attempt is not None:
@@ -18845,6 +19024,10 @@ def _run_one_turn_recorded(slug: str, nid: str,
                             nping = _carrier_is_ping(nxt)
                             nmail_ids = nxt.get('mail_ids') if isinstance(nxt, dict) else None
                             nping_reason = _carrier_ping_reason(nxt)
+                            # a replay carrier folded into the queue keeps its
+                            # frozen composition here too (`_segments_for`)
+                            ncarried = (_freezable_segments(nxt.get("segs"))
+                                        if isinstance(nxt, dict) else None)
                             ntoks, nimgs, ncmd, nusage_org = [], [], False, None
                             nview = ""
                             # a slash command and a bare carrier both compose
@@ -18875,7 +19058,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                     spans_out=nspans_out, segments_out=nseg_out,
                                     ping=nping and not ntoks,
                                     ping_reason=nping_reason,
-                                    owned_toks=ntoks, mail_ids=nmail_ids)
+                                    owned_toks=ntoks, mail_ids=nmail_ids,
+                                    carried=ncarried)
                                 nview = nviews[0] if nviews else nview
                                 nspans = nspans_out[0] if nspans_out else []
                                 nsegs = nseg_out[0] if nseg_out else None
@@ -18941,6 +19125,11 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                         ninf: InflightInfo = {
                                             "at": now_iso(), "text": nxt[-8000:]}
                                         ninf["view"] = nview[-8000:]
+                                        # the boundary feed's half of the same
+                                        # freeze — see the turn-start site
+                                        _nfseg = _freezable_segments(nsegs)
+                                        if _nfseg is not None:
+                                            ninf["segments"] = _nfseg
                                         if ncmd:
                                             ninf["cmd"] = True
                                         if not ncmd:
@@ -23735,6 +23924,7 @@ def send_message(slug: str, nid: str, text: str,
                  view: str | None = None,
                  sender: str = "",
                  ping_reason: str | None = None,
+                 segments: list[dict[str, Any]] | None = None,
                  _inventory: NativeInventory | None = None) -> dict[str, Any]:
     """The send door. `check_ping_reason` runs FIRST and outside halt admission:
     a reason the event table cannot type must be refused at the call, before
@@ -23744,7 +23934,7 @@ def send_message(slug: str, nid: str, text: str,
     recipient's turn. See `check_ping_reason` and `_ping_drive`."""
     check_ping_reason(ping_reason)
     return _admit_message(slug, nid, text, command, wake, mail_ping, idle_only,
-                          view, sender, ping_reason, _inventory)
+                          view, sender, ping_reason, segments, _inventory)
 
 
 @halt.admission
@@ -23755,6 +23945,7 @@ def _admit_message(slug: str, nid: str, text: str,
                    view: str | None = None,
                    sender: str = "",
                    ping_reason: str | None = None,
+                   segments: list[dict[str, Any]] | None = None,
                    _inventory: NativeInventory | None = None) -> dict[str, Any]:
     """Drive a node with a nudge; returns immediately. EVERY substantive message
     — user and agent alike — is MAIL (user ruling: the direct-message channel
@@ -23801,10 +23992,21 @@ def _admit_message(slug: str, nid: str, text: str,
     pointer) which have nobody to report back to. It is stamped on the
     carrier, never inferred later — `start_steer_late_watchdog` mails this
     agent, and a guess would mail the wrong one.
+
+    `segments` is the typed composition an ALREADY-COMPOSED text brings with it
+    — today exactly the interrupted-turn replay, whose segments were frozen on
+    the node when the shutdown killed the turn. It rides the carrier as `segs`
+    and reaches the composer as its `carried` argument. It says what the text
+    is MADE OF and never changes the bytes the agent receives; omitted, the
+    text/view fallback stands exactly as before.
     """
     # A fleet replay may reuse its admission snapshot. _run_turn performs a
     # fresh native hold check before executing, including on another thread.
     st = state(slug, nid)
+    # ⚠ only ever spread into the DICT carrier shape. The bare-string shape is
+    # "no projection was composed", and a caller that brought a composition has
+    # by definition composed one — so the two cannot coincide.
+    _segs: dict[str, Any] = {"segs": segments} if segments else {}
     # a FROZEN node runs nothing: mail stays safe in its mailbox (not drained)
     # until the org-wide ▶ resume. Both freeze kinds land here — the usage
     # limit and, since 2026-08-06, the connection backoff, which reuses the
@@ -23887,9 +24089,9 @@ def _admit_message(slug: str, nid: str, text: str,
         with _state_lock:
             st['busy'] = True
         _start_turn_worker(slug, nid,
-            _mark_ping({"text": text, "view": view or ""}, ping_reason,
+            _mark_ping({"text": text, "view": view or "", **_segs}, ping_reason,
                        mail_ids=send_mail_ids)
-            if mail_ping else {"text": text, "view": view or ""})
+            if mail_ping else {"text": text, "view": view or "", **_segs})
         return {"accepted": True, "queued": 0, "idle_only": True}
     with _state_lock:
         maybe_steer = st["busy"] and st.get("responding")
@@ -23943,7 +24145,7 @@ def _admit_message(slug: str, nid: str, text: str,
                 return {"accepted": True, "queued": 0,
                         "parked": True, "process_control": True}
             queued: str | dict[str, Any] = (
-                {"text": text, "view": view or ""}
+                {"text": text, "view": view or "", **_segs}
                 if view is not None and isinstance(text, str) else text)
             st["queue"].append(_mark_ping(queued, ping_reason, mail_ids=send_mail_ids)
                                if mail_ping else queued)
@@ -23959,7 +24161,7 @@ def _admit_message(slug: str, nid: str, text: str,
             # — the iterative drain must not wedge on a long queue, and
             # ordinary mail is how that queue gets long enough to test.
             queued: str | dict[str, Any] = (
-                {"text": text, "view": view or ""}
+                {"text": text, "view": view or "", **_segs}
                 if view is not None and isinstance(text, str) else text)
             st["queue"].append(_mark_ping(queued, ping_reason, mail_ids=send_mail_ids)
                                if mail_ping else queued)
@@ -23980,7 +24182,7 @@ def _admit_message(slug: str, nid: str, text: str,
     # can drop it if the box is emptied between here and the launch (reconcile
     # re-driving mail a concurrent turn has already taken is the live case)
     start_carrier: str | dict[str, Any] = (
-        {"text": text, "view": view or ""}
+        {"text": text, "view": view or "", **_segs}
         if view is not None and isinstance(text, str) else text)
     _start_turn_worker(slug, nid, _mark_ping(start_carrier, ping_reason,
                                           mail_ids=send_mail_ids)
@@ -28109,7 +28311,8 @@ def _dur(secs: float) -> str:
     return f"{int(secs // 60)}m{int(secs % 60):02d}s"
 
 
-def delivery_note(slug: str, nid: str, r: Mapping[str, Any]) -> str:
+def delivery_note(slug: str, nid: str, r: Mapping[str, Any],
+                  kind: str = "message") -> str:
     """WHAT ACTUALLY HAPPENED TO A SEND — one sentence, for the sender (D-236).
 
     `send_message` has always returned the carrier it chose (`steering`,
@@ -28123,13 +28326,31 @@ def delivery_note(slug: str, nid: str, r: Mapping[str, Any]) -> str:
     A queued carrier is not a process handoff or a read receipt. Managed
     long calls can yield; opaque tools wait for the next supported boundary.
     Neither path interrupts or repeats a tool merely to deliver mail.
+
+    ⭐ AN UNAVAILABLE TARGET HAS THREE DIFFERENT ANSWERS, NOT ONE. Halted,
+    retired and not-a-node fail in ways a sender must act on differently, and
+    collapsing them into one "could not deliver" is the defect this function
+    exists to prevent. Halted and retired are ACCEPTED-BUT-DEFERRED: the mail
+    is already durable in the recipient's mailbox and the note says which
+    single event (an unhalt, a rehire) would produce a reader. Not-a-node is a
+    REFUSAL and never reaches here at all — `post_mail` raises before anything
+    is stored, so there is no carrier to describe.
+
+    `kind` picks the noun and, for a deferred recipient, the promise: a rehire
+    DRIVES boxed mail, and a notice never starts a turn, so the same archived
+    node owes the two senders different answers.
     """
+    noun = "notice" if kind == "notice" else "message"
     if r.get("deferred") == "halted":
-        return (f"NOT delivered: {nid} is halted; mail is preserved unread "
-                "until explicit orgtree_unhalt.")
+        return (f"QUEUED, NOT READ: {nid} is halted. The {noun} is stored "
+                f"durably in {nid}'s mailbox and nothing will read it until "
+                f"somebody calls orgtree_unhalt on {nid} — this is a deferred "
+                f"delivery, not a failed one.")
     if r.get("deferred") == "killswitch":
-        return (f"NOT delivered: {nid}'s org is halted by the killswitch; "
-                "mail is preserved unread until the user releases it.")
+        return (f"QUEUED, NOT READ: {nid}'s org is halted by the killswitch. "
+                f"The {noun} is stored durably in {nid}'s mailbox and nothing "
+                f"will read it until the user releases the latch — this is a "
+                f"deferred delivery, not a failed one.")
     if r.get("frozen"):
         return (f"NOT delivered: {nid} is frozen (usage limit or connection "
                 f"backoff). The mail is safe in its mailbox and is read when "
@@ -28141,8 +28362,26 @@ def delivery_note(slug: str, nid: str, r: Mapping[str, Any]) -> str:
         return (f"NOT delivered: {nid} is under remote control (the user is "
                 f"driving that session). The mail waits in its mailbox.")
     if r.get("deferred"):
-        return (f"NOT delivered: {nid} is {r['deferred']}. The mail waits in "
-                f"its inbox and nothing reads it until somebody rehires it.")
+        # the recipient is not live — `archived` is the retired agent the
+        # ticket calls out. ⚠ THE PROMISE IS CONDITIONAL AND MUST STAY THAT
+        # WAY (the same bound `post_mail`'s warning states): nothing schedules
+        # a rehire, so "queued FOR a possible rehire" is the true claim and
+        # "will be read when it is rehired" is not.
+        state = str(r["deferred"])
+        state = "retired" if state == "archived" else state
+        if noun == "notice":
+            return (f"QUEUED, NOT READ: {nid} is {state}. The notice is "
+                    f"stored durably in {nid}'s mailbox for a possible future "
+                    f"rehire — and a rehire ALONE still will not deliver it, "
+                    f"because a notice never starts a turn, so it waits for "
+                    f"the first turn {nid} runs for some other reason. "
+                    f"Nothing schedules any of that: if no rehire is "
+                    f"intended, treat this as undelivered.")
+        return (f"QUEUED, NOT READ: {nid} is {state}. The message is stored "
+                f"durably in {nid}'s mailbox and is delivered if and when "
+                f"somebody rehires {nid}. Nothing schedules a rehire: if none "
+                f"is intended, treat this as undelivered and send it to a "
+                f"live agent.")
     if r.get("already_delivered"):
         return f"no new delivery — {nid}'s mailbox was already drained; this is not a read receipt."
     if r.get("steering"):
@@ -30469,15 +30708,9 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
             if observer:
                 observer(nid,'before')
             try:
-                recovery_result = send_message(slug, nid,
-                         "[ORGTREE RESTART] orgtree shut down while you were mid-turn "
-                         "and is back up. The message that drove your interrupted "
-                         "turn is repeated below — you may have already completed "
-                         "part of it; check your recent work and CONTINUE from where "
-                         "you left off (do not redo finished steps).\n\n"
-                         + (inf.get("text") or ""),
-                         view=(str(inf.get("view") or "") if "view" in inf
-                               else str(inf.get("text") or "")),
+                _rtext, _rview, _rsegs = _restart_replay(inf, _boot_build())
+                recovery_result = send_message(slug, nid, _rtext,
+                         view=_rview, segments=_rsegs,
                          _inventory=inventory)
             except Exception:
                 if observer:

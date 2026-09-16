@@ -72,9 +72,18 @@ def _desc(ev: _R) -> str:
     text = str(ev.get("objective") or "")
     if not text:
         return "(none recorded)"
-    return workfields.excerpt(
+    body = workfields.excerpt(
         text, _DESC_EXCERPT, what="description",
         how=f"orgtree_work get slug={_obj(ev).get('slug')} before acting on it")
+    # ⚠ W09 — BEFORE THE TEXT, NOT AFTER IT. An item whose description has
+    # stopped being the complete scope must say so wherever the description is
+    # read, and this mail is exactly where the next agent to pick the item up
+    # reads it. An excerpt that announces itself is not enough on its own: it
+    # says "there is more of this description", not "there is scope that is not
+    # in this description at all". Absent or null — the normal case — adds
+    # nothing, so a body written before this existed is unchanged.
+    notice = ev.get("objective_notice")
+    return f"{str(notice).strip()}\n{body}" if notice else body
 
 
 def _note(ev: _R, what: str) -> str:
@@ -217,14 +226,11 @@ def _r_participant(ev: _R) -> str:
 @renderer("decision.attention_dismissed")
 def _r_attention(ev: _R) -> str:
     o = _obj(ev)
-    # ⚠ QUOTED WHOLE. The contract bounds the reason on the way in (500), so
-    # the old `[:200]` could only ever cut the very sentence the agent is
-    # being told not to re-raise — leaving it unable to tell which part of it
-    # the user actually rejected.
-    return (f"[DOCKET · {o['slug']}] The user DISMISSED your attention flag "
-            f"(\"{str(ev['reason'])}\") — the item is now BLOCKED. Do not "
-            f"re-raise the same reason without material new information; "
-            f"{ev['pending_questions']} question(s) on the item are still pending.")
+    # This notice is deliberately limited to the user's observation and lack
+    # of comment; it must not be interpreted as feedback on the work.
+    return (f"[DOCKET · {o['slug']}] The user saw your attention flag and "
+            "chose to say nothing. This is not approval, rejection, or "
+            "substantive feedback.")
 
 
 @renderer("status.report")
@@ -565,7 +571,7 @@ def _r_cheap(ev: _R) -> str:
                 f'transcript.jsonl beside it; Grep/Read the parts you need instead of '
                 f'reading it whole. You may also orgtree_rehire "{pred}" as your own '
                 f'subordinate to interrogate it directly, and retire it again when '
-                f'done.{ev.get("team_note") or ""}')
+                f'done.{ev.get("team_note") or ""}{ev.get("request_note") or ""}')
     by = str(ev["by"])
     who = "the user" if by == USER else "the system (auto)" if by == "@system" else by
     return (f'Your report "{ev["node"]}" was cheap-compacted by {who}: same seat and '
@@ -712,6 +718,47 @@ def _r_swapped(ev: _R) -> str:
     return (f'{who} seated you in "{a}"\'s place: you now report to {disp_s}, lead its '
             f'former team, and hold the seat\'s grant ({ev["grant_after"]}) and scope; '
             f'your identity, charter and mailbox are unchanged.{aud}')
+
+
+@renderer("lifecycle.subtree_promoted")
+def _r_subtree_promoted(ev: _R) -> str:
+    t, a, role, by = ev["promoted"], ev["demoted"], ev["role"], str(ev["by"])
+    who = _who_cap(by)
+    disp = ev.get("reports_to_after")
+    disp_s = f'"{disp}"' if disp else "the top level"
+    n = int(ev.get("subtree") or 0)
+    team = (f" It brought its own team ({n} node(s)) with it."
+            if n else " It has no reports of its own yet.")
+    if role == "new_parent":
+        return (f'"{a}" stepped down: "{t}" now holds its place and reports to '
+                f'you, keeping its own team.{team} "{a}" now reports to "{t}".')
+    if role == "peer":
+        return (f'"{t}" was promoted into "{a}"\'s place beside you, keeping '
+                f'its own team. "{a}" now reports to "{t}".')
+    if role == "former_parent":
+        return (f'Your report "{t}" was promoted out of your team, up to '
+                f'{disp_s}, and took its own suborganization with it.')
+    if role == "caller_child":
+        return (f'"{t}" was promoted above your superior "{a}". You still '
+                f'report to "{a}", with your own team, grant and scope '
+                f'unchanged — "{a}" now reports to "{t}".')
+    if role == "target_child":
+        return (f'Your superior "{t}" was promoted to {disp_s} and you moved '
+                f'up with it — you still report to "{t}", with your own team, '
+                f'grant and scope unchanged.')
+    if role == "promoted":
+        return (f'{who} promoted you into "{a}"\'s place: you now report to '
+                f'{disp_s} and KEEP YOUR OWN TEAM.{team} "{a}" now reports to '
+                f'you, keeping the rest of its own reports. Your identity, '
+                f'session, charter and mailbox are unchanged. YOUR TEAM '
+                f'CHARTER IS YOURS TO WRITE: a promotion does not hand you '
+                f'the one "{a}" was binding its team with, so if the seat you '
+                f'have taken needs a standing instruction, set it yourself '
+                f'with orgtree_retool on your own id.')
+    return (f'You stepped down: "{t}" now holds your former place under '
+            f'{disp_s}, with its own team, and you report to it. You keep the '
+            f'rest of your own reports, and your identity, session, charter '
+            f'and mailbox are unchanged.')
 
 
 @renderer("lifecycle.moved")

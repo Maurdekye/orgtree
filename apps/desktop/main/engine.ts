@@ -53,7 +53,21 @@ import { maintenanceRequest, type MaintenanceRequest } from './maintenance'
 import { orgActivityRows, type OrgActivityRow } from './traylist'
 
 export interface EngineOptions { python: string; directory: string; dataRoot: string; forbiddenRoot: string; uiDirectory: string; timeoutMs?: number }
-export interface RuntimeStats { activeAgents: number; totalAgents: number; idle: boolean; maintenance?: MaintenanceRequest }
+/** The bundled mail hub's live state, as /api/desktop/status reports it —
+ *  feeds the tray's right-click status line (user requirement 2026-09-15). */
+export interface MailhubStats { running: boolean; healthy: boolean; port: number; exposed: boolean; error?: string }
+export interface RuntimeStats { activeAgents: number; totalAgents: number; idle: boolean; mailhub?: MailhubStats; maintenance?: MaintenanceRequest }
+
+/** Tolerant parse: a malformed hub summary drops the FIELD, never the whole
+ *  stats payload — the agent counts still matter when the hub is broken. */
+export function mailhubStats(value: unknown): MailhubStats | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const raw = value as Record<string, unknown>
+  if (typeof raw.running !== 'boolean' || typeof raw.healthy !== 'boolean'
+    || !Number.isInteger(raw.port) || typeof raw.exposed !== 'boolean') return undefined
+  return { running: raw.running, healthy: raw.healthy, port: raw.port as number, exposed: raw.exposed,
+    ...(typeof raw.error === 'string' && raw.error ? { error: raw.error } : {}) }
+}
 
 /** One fresh managed child, or an authenticated attachment to the boot
  *  host's engine. Never discovers or attaches by a bare .port file: attaching
@@ -518,7 +532,9 @@ export class Engine extends EventEmitter {
       const value = await r.json() as RuntimeStats
       if (!Number.isInteger(value.activeAgents) || !Number.isInteger(value.totalAgents) || value.activeAgents < 0 || value.totalAgents < value.activeAgents || typeof value.idle !== 'boolean' || (value.idle && value.activeAgents > 0)) return null
       const maintenance = maintenanceRequest(value.maintenance)
-      return { activeAgents: value.activeAgents, totalAgents: value.totalAgents, idle: value.idle, ...(maintenance ? { maintenance } : {}) }
+      const mailhub = mailhubStats((value as unknown as Record<string, unknown>).mailhub)
+      return { activeAgents: value.activeAgents, totalAgents: value.totalAgents, idle: value.idle,
+        ...(mailhub ? { mailhub } : {}), ...(maintenance ? { maintenance } : {}) }
     } catch { return null }
   }
 
@@ -572,6 +588,76 @@ export class Engine extends EventEmitter {
     }
   }
 
+  /** Whether a tray-requested restart is between its first phase and its
+   *  last. Reported so the menu can say "Restarting engine..." instead of
+   *  offering the action again. */
+  get restartInProgress(): boolean { return this.restarting !== undefined }
+  private restarting?: Promise<void>
+
+  /** THE RESTART. Composed entirely from the phases that already exist —
+   *  `stop()` asks and then kills, `stoppedConfirmed()` observes the exit,
+   *  the guardian's root lock proves the TREE let go — and then the ordinary
+   *  `start()`. Nothing here spawns a process itself.
+   *
+   *  ⚠ ONE AT A TIME. A second caller joins the attempt already running and
+   *  gets its outcome; it never begins a second one. Two engines spawned over
+   *  one data root is the failure this guard exists to make impossible, and
+   *  the tray entry is a menu item a frustrated user will click repeatedly.
+   *  The slot is released either way, so a restart that FAILED can be retried
+   *  — an entry that could only be used once would strand the user exactly
+   *  where this feature is supposed to rescue them. */
+  async restart(options: EngineOptions): Promise<void> {
+    if (this.restarting) return this.restarting
+    const attempt = this.runRestart(options)
+    this.restarting = attempt
+    try { await attempt } finally { this.restarting = undefined }
+  }
+
+  private async runRestart(options: EngineOptions): Promise<void> {
+    // An attached boot-host engine is not this window's to stop — the same
+    // refusal `stop()` makes, for the same reason. `recoverAttached()` on the
+    // poll is what brings that one back.
+    if (!this.managed) throw new Error('The engine is running in the background outside Orgtree, so Orgtree cannot restart it. Restart the background engine from its own task controls.')
+    await this.stop()
+    // `stop()` RESOLVING IS NOT DEATH — it returns right after kill(), which
+    // only requests termination. Refusing here is the honest outcome: a
+    // second engine started over a first that may still be alive is worse
+    // than a restart that says it could not happen.
+    if (!await this.stoppedConfirmed(QUIT_DEADLINES.releaseMs)) {
+      throw new Error('The engine did not confirm that it stopped, and Orgtree will not start a second one while the first may still be running. Try again, or quit and reopen Orgtree.')
+    }
+    if (!await this.rootReleased(options)) {
+      throw new Error('The engine process exited but its tree has not released the data root - the guardian lock is still held or could not be read. Orgtree will not start a second engine over it. Quit and reopen Orgtree to recover.')
+    }
+    // Only NOW is the slot `start()` guards free: the exit is observed and
+    // the root is released. `stopping` returns to false so that a LATER
+    // unexpected exit is reported as one, rather than wearing the message
+    // that belongs to this deliberate stop.
+    this.child = undefined
+    this.endpoint = ''
+    this.stopping = false
+    // `start()` sets 'ready' only when the engine's own ready line is parsed,
+    // and rejects (leaving 'unavailable' and its reason) when it does not
+    // arrive. The caller therefore learns the truth either way.
+    await this.start(options)
+  }
+
+  /** Whether the managed data root has been let go, by the same write-probe
+   *  on the guardian's lock that the quit path and the failed-spawn cleanup
+   *  use. The lock FILE survives release, so an absent file means no tree
+   *  ever took this root. An unreadable configuration is not judged here:
+   *  `start()` is about to reject with the authoritative reason. */
+  private async rootReleased(options: EngineOptions): Promise<boolean> {
+    let lockFile = ''
+    try {
+      const root = validateDataRoot(options.dataRoot, options.forbiddenRoot)
+      if (!fs.existsSync(root)) return true
+      lockFile = path.join(fs.realpathSync.native(root), '.desktop-engine.lock')
+    } catch { return true }
+    if (!fs.existsSync(lockFile)) return true
+    return (await this.awaitAttachedRelease('', '', lockFile, QUIT_DEADLINES.provenMs)).released
+  }
+
   async stop(): Promise<void> {
     // An attached boot-host engine outlives this window by design; only the
     // host (or the operator's task controls) stops it.
@@ -586,4 +672,44 @@ export class Engine extends EventEmitter {
     await new Promise<void>(resolve => { const timer = setTimeout(resolve, 5000); child.once('exit', () => { clearTimeout(timer); resolve() }) })
     if (child.exitCode === null) child.kill()
   }
+}
+
+/** The tray's restart row, as a value. One definition, read by the menu, by
+ *  the refresh that runs while the menu is OPEN, and by the tests, so the
+ *  three cannot drift - the same arrangement `trayUpdateState` already has
+ *  for the update rows.
+ *
+ *  ⚠ THE ROW NEVER CLAIMS THE ENGINE IS BACK. It is driven by `status`,
+ *  which reaches 'ready' only when the engine's own ready line is parsed, so
+ *  the row (and the grey/coloured tray icon beside it) can only follow the
+ *  engine rather than the click. A restart that FAILED leaves 'unavailable',
+ *  which is visible here for exactly that reason: the entry must still be
+ *  there, and usable again, at the moment the user has just been told it did
+ *  not work.
+ *
+ *  HIDDEN WHILE THE ENGINE RUNS (user ruling 2026-09-15). Of hidden, greyed
+ *  out and a live restart-a-healthy-engine action, the user chose hidden: a
+ *  running engine has agents under it, and a mis-click that ends them is not
+ *  undoable. */
+export function trayEngineState(status: EngineStatus, restarting: boolean, blocked: boolean) {
+  const down = status.state === 'stopped' || status.state === 'unavailable'
+  return {
+    label: restarting ? 'Restarting engine...' : 'Restart engine',
+    // 'starting' is deliberately absent: at boot there is nothing yet to
+    // restart. A restart in flight keeps the row visible through its own
+    // 'starting' phase, so the action the user took does not flicker away.
+    visible: down || restarting,
+    enabled: down && !restarting && !blocked,
+  }
+}
+
+export function refreshTrayEngineMenu(menu: { getMenuItemById(id: string): {
+  label: string; enabled: boolean; visible: boolean
+} | null }, status: EngineStatus, restarting: boolean, blocked: boolean): void {
+  const view = trayEngineState(status, restarting, blocked)
+  const item = menu.getMenuItemById('engine-restart')
+  if (!item) return
+  item.label = view.label
+  item.visible = view.visible
+  item.enabled = view.enabled
 }

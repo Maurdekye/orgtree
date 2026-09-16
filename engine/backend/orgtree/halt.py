@@ -218,7 +218,8 @@ def admission(fn):
     @wraps(fn)
     def guarded(slug, nid, text, *args, **kwargs):
         options = dict(zip(("command", "wake", "mail_ping", "idle_only", "view",
-                            "sender", "ping_reason", "_inventory"), args))
+                            "sender", "ping_reason", "segments", "_inventory"),
+                           args))
         options.update(kwargs)
         with store.DOC_LOCK:
             n = _node(slug, nid)
@@ -229,6 +230,12 @@ def admission(fn):
                 if options.get("wake", True) and not options.get("idle_only"):
                     org = store.load_org(slug)
                     c = {"text": text, "view": options.get("view") or ""}
+                    # a replay's frozen composition is retained WITH it: an
+                    # unhalt that handed back the text and dropped the segments
+                    # would put the raw envelope back on the desk, which is the
+                    # defect this field exists to close (2026-09-16)
+                    if options.get("segments"):
+                        c["segs"] = options["segments"]
                     if options.get("command"):
                         c.update(cmd=True, view=text)
                     if options.get("mail_ping"):

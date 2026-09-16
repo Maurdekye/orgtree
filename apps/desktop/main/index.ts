@@ -1,11 +1,11 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, powerMonitor, screen, session, shell, Tray } from 'electron'
+import { app, BrowserWindow, crashReporter, dialog, ipcMain, Menu, nativeImage, Notification, powerMonitor, screen, session, shell, Tray } from 'electron'
 import path from 'node:path'
 import os from 'node:os'
 import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { execFile, spawn as spawnProcess } from 'node:child_process'
 import { autoUpdater } from 'electron-updater'
-import { Engine, ENGINE_REFUSED, INSTALLER_UPGRADE_STOP_BUDGET_MS, QUIT_STOP_BUDGET_MS, type RuntimeStats } from './engine'
+import { Engine, ENGINE_REFUSED, INSTALLER_UPGRADE_STOP_BUDGET_MS, QUIT_STOP_BUDGET_MS, refreshTrayEngineMenu, type EngineOptions, type RuntimeStats } from './engine'
 import { Preferences } from './preferences'
 import { WindowPlacement } from './window-placement'
 import { configureTaskbar } from './taskbar'
@@ -27,6 +27,8 @@ import { asLoginProvider, cancelProviderLogin, getProviderLoginStatus, startProv
 import { popupBounds, trayListHtml, trayNavigationSlug } from './traylist'
 import type { VisualTheme, PresetVisualTheme } from '../../../packages/contracts/visual-theme'
 import { hasInstallerUpgradeRequest } from './installer-upgrade'
+import { attachChildProcessFailureHandler, attachRendererFailureHandlers, crashReportDialog, crashReportFolder, CRASH_REPORTER_OPTIONS, RecoveryBudget } from './process-failure'
+import type { ProcessFailureStage } from './process-failure'
 
 // Who this process is — installed release, installed DEV-channel build (see
 // docs/dev-builds.md), or unpackaged development — is decided in one place
@@ -53,6 +55,20 @@ const updateFeed = privateFeedDecision({ requested: process.env[UPDATE_FEED_ENV]
 const updatesSupported = identity.updatesSupported && updateFeed.kind !== 'refused'
 // Isolated development/test profiles never touch the operator's installed data.
 if (!app.isPackaged && process.env.ORGTREE_V2_PROFILE) app.setPath('userData', validateDataRoot(process.env.ORGTREE_V2_PROFILE, path.join(os.homedir(), 'orgtree')))
+// ⚠ MINIDUMPS, LOCALLY, AND NOTHING SENT ANYWHERE. Electron's crash reporter
+// was never started, so a renderer or GPU process dying produced no dump at
+// all — Crashpad was not running, and there was no `Crashpad` directory beside
+// the app's data to look in. It starts HERE, before app.whenReady() (Crashpad
+// must already be running when the processes it catches are created) and after
+// the userData redirection above, so a development profile's dumps land inside
+// that profile rather than in the operator's installed data.
+//
+// See CRASH_REPORTER_OPTIONS: uploadToServer is false and no submitURL exists,
+// so dumps are written to userData\Crashpad and never leave this machine.
+const crashReporterStarted = (() => {
+  try { crashReporter.start({ ...CRASH_REPORTER_OPTIONS, productName: identity.name }); return true }
+  catch (error) { console.warn('Crash reporter could not start', error); return false }
+})()
 const installerUpgradeRequested = hasInstallerUpgradeRequest(process.argv)
 const single = app.requestSingleInstanceLock()
 if (!single) app.quit()
@@ -98,7 +114,47 @@ else {
   updateLog.record('startup', process.argv.includes('--updated') ? 'relaunched by the updater'
     : process.argv.includes('--background') ? 'started in the background by startup registration'
     : 'started directly')
+  // ------------------------------------------------ process-failure recording
+  // Every line a dying Chromium process leaves behind goes through here, so
+  // the renderer, GPU and utility paths cannot drift apart in how they record.
+  const recordProcessFailure = (stage: ProcessFailureStage, detail: string) => {
+    try { updateLog.record(stage, detail) } catch { /* diagnostics never break the thing they describe */ }
+    // Also to stderr, which a development run and `npm start` show immediately.
+    console.warn(`[${stage}] ${detail}`)
+  }
+  // Where the dumps are and whether they travel, written once per run so the
+  // answer is in the same file as the failures rather than only in the source.
+  // ⚠ `getUploadToServer()` is ASKED, not assumed. The whole no-upload claim
+  // rests on one flag, and a line that reads the live value is the difference
+  // between a promise in a comment and a fact in the record.
+  recordProcessFailure('crash-reporter', crashReporterStarted
+    ? `minidumps in ${app.getPath('crashDumps')}; uploadToServer=${crashReporter.getUploadToServer()} (nothing is sent)`
+    : 'crash reporter did NOT start; no minidumps will be written')
+  // GPU, utility and zygote processes. Chromium restarts these itself, so
+  // there is nothing to recover — but they died in silence too.
+  attachChildProcessFailureHandler(app, { record: recordProcessFailure })
+  /** The ONE way a crash report leaves this folder, and it is a person
+   *  pressing a tray entry. Nothing schedules this, nothing calls it from the
+   *  failure handlers, and it makes no network request of any kind: the user
+   *  is shown what a dump contains and then, if they say so, the folder is
+   *  opened in Explorer. Reading the count is a directory listing, done on the
+   *  click rather than on every tray rebuild. */
+  const showCrashReports = async () => {
+    const dumps = app.getPath('crashDumps')
+    let folder = dumps, count = 0
+    try {
+      folder = crashReportFolder(dumps, path.join, target => fs.existsSync(target))
+      count = fs.readdirSync(folder).filter(name => name.endsWith('.dmp')).length
+    } catch { /* no crash reports yet: the dialog says so and offers the folder anyway */ }
+    const { response } = await dialog.showMessageBox({ type: 'info', ...crashReportDialog(folder, count) })
+    if (response === 0) { try { fs.mkdirSync(folder, { recursive: true }) } catch { /* opening it is best-effort */ }; void shell.openPath(folder) }
+  }
   let stats: RuntimeStats | null = null, poll: NodeJS.Timeout | undefined
+  /** The options the engine was started with, mirrored out of the boot block
+   *  so the tray's restart entry can hand the SAME ones back to the engine.
+   *  Undefined until boot has composed them, and the entry stays disabled
+   *  until then - there is nothing to restart before the first start. */
+  let engineRestartOptions: EngineOptions | undefined
   // The renderer owns provider discovery. This ephemeral value mirrors its
   // effective theme for native tray/taskbar/window icons and is never persisted.
   let effectiveTheme: VisualTheme | undefined
@@ -263,12 +319,41 @@ else {
       automatic.enabled = canInstallUnattended()
     }
   }
+  /** Whether anything else is already taking the engine down or the app with
+   *  it. A restart offered during a quit, an update install or an installer
+   *  upgrade would fight the very shutdown those paths are performing. */
+  const engineRestartBlocked = () => !engineRestartOptions || quitting || updateApplying || installerUpgradeShutdown
+  const refreshTrayEngine = () => {
+    if (trayMenu) refreshTrayEngineMenu(trayMenu, engine.status, engine.restartInProgress, engineRestartBlocked())
+  }
+  /** THE ONE WAY A RESTART IS STARTED, and it starts no process of its own:
+   *  `Engine.restart` stops, proves the stop, and goes back through the same
+   *  `start()` the application boots with.
+   *
+   *  Nothing here reports success. The engine's own 'status' event rebuilds
+   *  the tray when the engine says it is ready, so the icon, the tooltip and
+   *  this row follow the engine rather than the click. Only FAILURE is
+   *  announced, by the same dialog convention a failed update install uses -
+   *  a restart that silently did nothing would leave the user unable to tell
+   *  which of the two happened, and the next thing they do depends on it. */
+  const restartEngine = async () => {
+    const options = engineRestartOptions
+    if (!options || engineRestartBlocked() || engine.restartInProgress) return
+    const attempt = engine.restart(options)
+    refreshTrayEngine()   // in flight from here: the row says so and stops accepting clicks
+    try { await attempt }
+    catch (error) {
+      await dialog.showMessageBox({ type: 'error', message: 'Orgtree could not restart its engine.',
+        detail: error instanceof Error ? error.message : 'Unknown restart error' })
+    }
+    finally { rebuildTray() }
+  }
   const rebuildTray = () => {
     const image = runtimeIcon()
     tray?.setImage(image)
     for (const window of BrowserWindow.getAllWindows()) window.setIcon(image)
     if (!tray) return
-    if (trayMenuOpen) { refreshTrayUpdates(); return }
+    if (trayMenuOpen) { refreshTrayUpdates(); refreshTrayEngine(); return }
     const prefs = preferences.get()
     tray.setToolTip(`Orgtree - ${label()}`)
     // Without update support (dev-channel install, unpackaged development)
@@ -284,8 +369,21 @@ else {
         click: item => setPreferences({ automaticUpdates: item.checked }) },
       { id: 'update-check', label: 'Check for updates', click: () => { void checkForUpdates().catch(() => {}) } },
     ] : [{ label: 'Updates are disabled in this development build', enabled: false }]
+    // The mail hub's running status, on the right-click menu (user
+    // requirement 2026-09-15). One honest line from the last stats poll:
+    // running (with its port, and whether it is exposed beyond this
+    // computer), stopped, or the start error the hosting panel shows.
+    const hub = stats?.mailhub
+    const hubLabel = !hub ? 'Mail hub: status unavailable'
+      : hub.error ? 'Mail hub: not running - see App settings > Mail hub'
+        : hub.running && hub.healthy
+          ? `Mail hub: running - port ${hub.port}${hub.exposed ? ' (network)' : ''}`
+          : hub.running ? `Mail hub: starting on port ${hub.port}...`
+            : 'Mail hub: stopped'
     trayMenu = Menu.buildFromTemplate([
       ...updateRows,
+      { type: 'separator' },
+      { id: 'mailhub-status', label: hubLabel, enabled: false },
       { type: 'separator' },
       { label: 'Start at login', type: 'checkbox', checked: prefs.startAtLogin, click: item => setPreferences({ startAtLogin: item.checked }) },
       { label: 'Exit on close', type: 'checkbox', checked: prefs.exitOnClose, click: item => setPreferences({ exitOnClose: item.checked }) },
@@ -296,11 +394,20 @@ else {
           checked: prefs[key], enabled: prefs.notificationsEnabled, click: (item: Electron.MenuItem) => setPreferences({ [key]: item.checked }) })),
       ] },
       { label: 'Harness setup', submenu: detectHarnesses().map(h => ({ label: `${h.id}: ${h.detected ? 'detected' : 'not detected'} - official setup`, click: () => { void shell.openExternal(h.url) } })) },
-      { type: 'separator' }, { label: 'Quit Orgtree', click: () => app.quit() },
+      // Crash reports are collected locally and never uploaded; this is the
+      // only way to get at one, and it is the user's own deliberate act.
+      { id: 'crash-reports', label: 'Crash reports...', click: () => { void showCrashReports().catch(() => {}) } },
+      { type: 'separator' },
+      // Hidden while the engine runs (user ruling 2026-09-15), so this group
+      // is ordinarily just Quit and the menu keeps the shape it has today.
+      { id: 'engine-restart', label: 'Restart engine', visible: false, enabled: false,
+        click: () => { void restartEngine() } },
+      { label: 'Quit Orgtree', click: () => app.quit() },
     ])
     trayMenu.on('menu-will-show', () => { trayMenuOpen = true })
     trayMenu.on('menu-will-close', () => { trayMenuOpen = false })
     refreshTrayUpdates()
+    refreshTrayEngine()
     tray.setContextMenu(trayMenu)
   }
   const handle = (channel: string, handler: (...args: unknown[]) => unknown) => ipcMain.handle(channel, (event, ...args: unknown[]) => { assertNativeSender(event, main, engine.origin); return handler(...args) })
@@ -1169,6 +1276,9 @@ else {
         dataRoot: process.env.ORGTREE_V2_DATA ?? path.join(app.getPath('userData'), 'data'),
         forbiddenRoot: process.env.ORGTREE_DATA || path.join(os.homedir(), 'orgtree'),
         uiDirectory: app.isPackaged ? path.join(process.resourcesPath, 'ui') : path.join(app.getAppPath(), 'dist', 'renderer') }
+      // The tray's restart entry restarts THIS engine, with the runtime,
+      // data root and UI directory it was started with - never a set of its own.
+      engineRestartOptions = engineOptions
       // A boot-host engine (operator's scheduled task) publishes a verified
       // attach descriptor; adopt it instead of racing it for the root lock.
       if (!await engine.attach(engineOptions)) {
@@ -1238,7 +1348,28 @@ else {
         const action = closeAction(preferences.get().exitOnClose, quitting, otherViews)
         if (action !== 'close') { event.preventDefault(); if (action === 'hide') main?.hide(); else app.quit() }
       })
-      main.webContents.on('render-process-gone', () => { void dialog.showMessageBox({ type: 'error', message: 'The Orgtree window stopped responding.', detail: 'The engine is still running. Restart Orgtree to restore the interface.' }) })
+      // ⚠ THE WINDOW IS RECOVERED, NOT REPORTED AS UNRECOVERABLE. The old
+      // handler took no argument — discarding details.reason and
+      // details.exitCode, the only two values that say what killed it — and
+      // told the user to restart the whole application. That advice was worse
+      // than unnecessary: the dialog itself asserts the engine is still
+      // running, and it is. Only the window is gone, so reloading it restores
+      // the interface in a few seconds without touching the engine, the agents
+      // or the user's place, exactly as the recoverAttached path below already
+      // does. The reload is bounded (RecoveryBudget) and falls back to this
+      // same dialog, now carrying the diagnosis, when the bound is reached.
+      attachRendererFailureHandlers(main.webContents, {
+        record: recordProcessFailure,
+        reload: () => { if (main && !main.isDestroyed()) main.webContents.reload() },
+        // Out of band deliberately: the surface that would normally tell the
+        // user something happened is the renderer, and the renderer just died.
+        announce: (title, body) => { try { if (Notification.isSupported()) new Notification({ title, body }).show() } catch { /* a missed toast must not break the recovery */ } },
+        giveUp: detail => { void dialog.showMessageBox({ type: 'error', message: 'The Orgtree window stopped responding.',
+          detail: `Orgtree reloaded the window automatically but it keeps failing (${detail}).`
+            + '\n\nThe engine is still running. Restart Orgtree to restore the interface.'
+            + '\n\nThe full record is in update-log.json beside Orgtree\'s data.' }) },
+        suspended: () => quitting || installerUpgradeShutdown,
+      }, new RecoveryBudget())
       await main.loadURL(engine.origin + '/')
       engineReady = true
       if (installerUpgradePending) void requestInstallerUpgradeShutdown()

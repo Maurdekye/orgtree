@@ -37,7 +37,7 @@ function put(root, relative, content) {
   return file
 }
 
-const PTH = 'python313.zip\r\n.\r\nLib/site-packages\r\n../backend\r\n../../\r\nimport site\r\n'
+const PTH = 'python313.zip\r\n.\r\nLib/site-packages\r\n../backend\r\n../mailhub\r\n../../\r\nimport site\r\n'
 const MANIFEST = JSON.stringify({
   python: '3.13.15',
   dependencies: [
@@ -104,6 +104,20 @@ test('a gutted site-packages cannot pass on the strength of loose interpreter fi
     fs.rmSync(path.join(runtime, 'Lib', 'site-packages', 'fastapi-0.141.1.dist-info'), { recursive: true })
     assert.throws(() => assertRuntimeLayout(runtime, { label: 'runtime' }),
       /missing fastapi-0\.141\.1\.dist-info/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the exact 2.1.6-beta.0 ._pth — no ../mailhub entry, so the hub child cannot import itself — is refused by name', () => {
+  const root = fixtureRoot()
+  try {
+    const runtime = correctRuntime(root)
+    // The literal ._pth 2.1.6-beta.0 shipped: everything else correct, only
+    // the mail hub entry missing. The installed hub failed at startup with
+    // ModuleNotFoundError: No module named 'mailhub'.
+    put(root, 'engine/runtime/python313._pth', 'python313.zip\r\n.\r\nLib/site-packages\r\n../backend\r\n../../\r\nimport site\r\n')
+    assert.throws(() => assertRuntimeLayout(runtime, { label: 'runtime' }), /does not name \.\.\/mailhub/)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

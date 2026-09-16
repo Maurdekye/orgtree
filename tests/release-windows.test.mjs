@@ -241,7 +241,7 @@ test('candidate orchestration builds, stages, verifies, and writes the handoff w
     ]) put(root, relative, Buffer.from(relative))
     // The prerequisites now include the COMPLETE runtime layout, so the
     // fixture carries a real-shaped one rather than placeholder bytes.
-    put(root, 'engine/runtime/python313._pth', Buffer.from('python313.zip\r\n.\r\nLib/site-packages\r\n../backend\r\n../../\r\nimport site\r\n'))
+    put(root, 'engine/runtime/python313._pth', Buffer.from('python313.zip\r\n.\r\nLib/site-packages\r\n../backend\r\n../mailhub\r\n../../\r\nimport site\r\n'))
     put(root, 'engine/runtime/runtime-manifest.json', Buffer.from(JSON.stringify({
       python: '3.13.15', dependencies: [{ name: 'fastapi', version: '0.141.1' }],
     })))

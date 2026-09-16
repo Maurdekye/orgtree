@@ -36,6 +36,38 @@
 // drops everything else, so a message that genuinely left the transcript
 // leaves nothing behind. It is a no-op when nothing needs dropping, so it can
 // be called from an effect on every render without looping.
+//
+// ⚠ AND A MOUNTED FOLD HOLDS ITS OWN KEYS AGAINST THAT SWEEP. This is the part
+// that stops the sweep and the unifier fighting, and it is worth reading before
+// touching either of them.
+//
+// THE BUG IT FIXES (measured, `tests/foldloopprobe.test.tsx`): `prune` only
+// ever REMOVES keys and the desk calls it from an effect with no dependency
+// list, i.e. after EVERY render. `alias` only ever ADDS them, and re-runs
+// whenever the store's identity changes — which is every time anything opens or
+// closes. Each was written as the sole authority on which keys exist, so a fold
+// whose keys were only PARTIALLY in `prune`'s census never settled: prune
+// deleted the key alias had just restored, alias restored the key prune had
+// just deleted, for as many rounds as React would allow. React stops that at 50
+// with error #185; the desk it stops is the operator's whole agent panel.
+//
+// Neither effect could win that argument by being more careful, because they
+// were arguing about different things: `prune`'s census is an ENUMERATION of
+// the payload (`foldKeysOf`), and what is on screen is not always what the
+// enumeration walked — reply-source quotes (canvas/replysource.tsx) render real
+// folds from rows the census never sees, and the desk feeds the census its
+// deduplicated and filtered lists while `indexReplySources` gets the raw ones.
+//
+// So the authority moved to the thing that cannot be wrong about it: a fold
+// that is MOUNTED claims its own keys (`claim`/`release`), and `prune` keeps
+// any key that is claimed. Now every key `alias` can add is a key `prune` must
+// keep — alias only ever unifies a fold's OWN keys, and that fold is mounted,
+// so it holds them. The oscillation is not damped, it is impossible.
+//
+// THE CENSUS IS STILL NEEDED, and not as a belt to this brace. A row that is
+// re-keyed mid-stream UNMOUNTS and remounts, and during that gap nothing claims
+// its keys — which is the very bug this file was written for. `foldKeysOf`
+// covers the gap; claims cover what the census cannot see. Keep both.
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ChatMessage, LiveRowPayload, ToolChip } from '../types'
@@ -47,6 +79,15 @@ export interface FoldStore {
   open: ReadonlySet<string>
   toggle(key: string | readonly string[]): void
   alias(keys: readonly string[]): void
+  /** a mounting fold registers its keys; the returned release drops them.
+   *
+   *  ⚠ STABLE IDENTITIES, deliberately. `store` is rebuilt whenever `open`
+   *  changes, so an effect keyed on the store re-runs constantly — that is
+   *  exactly what made `alias` a perpetual combatant. These two never change
+   *  identity, so the claim effect runs once per key set and not once per
+   *  keystroke elsewhere on the desk. */
+  claim(keys: readonly string[]): void
+  release(keys: readonly string[]): void
 }
 
 const FoldContext = createContext<FoldStore | null>(null)
@@ -169,6 +210,20 @@ export function useFold(key: string | readonly string[] | undefined): [boolean, 
     if (keys.length) store?.toggle(keys)
   }, [store, keys])
 
+  // ⚠ WHILE THIS FOLD IS MOUNTED, ITS KEYS ARE NOT THE PRUNER'S TO DROP.
+  // See the header: the census `prune` measures against is an enumeration of
+  // the payload, and a rendered fold is not always in it (a reply-source quote
+  // never is). Claiming is what makes `prune` and `alias` agree by
+  // construction instead of by luck. `claim`/`release` keep their identity
+  // across store changes on purpose, so this runs once per key set.
+  const claim = store?.claim
+  const release = store?.release
+  useEffect(() => {
+    if (!claim || !release || !keys.length) return
+    claim(keys)
+    return () => release(keys)
+  }, [keys, claim, release])
+
   useEffect(() => {
     if (keys.length > 1 && store) {
       store.alias(keys)
@@ -182,8 +237,10 @@ export function useFold(key: string | readonly string[] | undefined): [boolean, 
 
 export interface FoldState {
   store: FoldStore
-  /** drop every open key that is not in `live` — no-op when there is nothing
-   *  to drop, so an effect may call it on every render */
+  /** drop every open key that is neither in `live` nor claimed by a fold that
+   *  is currently mounted — no-op when there is nothing to drop, so an effect
+   *  may call it on every render. The claim half is load-bearing: without it
+   *  this fights `alias` forever (see the header). */
   prune(live: ReadonlySet<string>): void
 }
 
@@ -214,15 +271,38 @@ export function useFoldState(): FoldState {
     for (const k of valid) next.add(k)
     return next
   }), [])
+  // WHO IS HOLDING WHICH KEY, refcounted because two rows legitimately share
+  // one (a pending ghost and its settled twin both answer to `op:`). Not React
+  // state: it is written from mount/unmount effects and read by `prune` in the
+  // same commit, and a state update there would be a render to decide what to
+  // render.
+  const [claims] = useState(() => new Map<string, number>())
+  const claim = useCallback((keys: readonly string[]) => {
+    for (const k of keys) claims.set(k, (claims.get(k) ?? 0) + 1)
+  }, [claims])
+  const release = useCallback((keys: readonly string[]) => {
+    for (const k of keys) {
+      const left = (claims.get(k) ?? 0) - 1
+      if (left > 0) claims.set(k, left)
+      else claims.delete(k)
+    }
+  }, [claims])
+  // ⚠ A KEY SURVIVES IF IT IS IN THE PAYLOAD **OR** SOMETHING ON SCREEN HOLDS
+  // IT. Dropping the second half is what made this an infinite loop (header).
+  // It also silently shut folds that were perfectly visible — a mail quoted as
+  // a reply source refused to stay open, because the census had never heard of
+  // it. Both are the same missing clause.
   const prune = useCallback((live: ReadonlySet<string>) => setOpen((prev) => {
     if (!prev.size) return prev
+    const keep = (k: string) => live.has(k) || claims.has(k)
     let stale = false
-    for (const k of prev) if (!live.has(k)) { stale = true; break }
+    for (const k of prev) if (!keep(k)) { stale = true; break }
     if (!stale) return prev                       // the common case: no render
     const next = new Set<string>()
-    for (const k of prev) if (live.has(k)) next.add(k)
+    for (const k of prev) if (keep(k)) next.add(k)
     return next
-  }), [])
-  const store = useMemo<FoldStore>(() => ({ open, toggle, alias }), [open, toggle, alias])
+  }), [claims])
+  const store = useMemo<FoldStore>(() => ({ open, toggle, alias, claim, release }),
+    [open, toggle, alias, claim, release])
   return { store, prune }
 }

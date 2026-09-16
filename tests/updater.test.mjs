@@ -768,7 +768,11 @@ test('tray handles failed, unavailable, current and invalid progress states hone
   assert.match(main, /report: status => \{[\s\S]*?broadcast\(\{ type: 'update'[\s\S]*?refreshTrayUpdates\(\)/)
   // a download - first or replacement - means nothing on disk is installable
   assert.match(main, /if \(status\.state === 'downloading'\) downloaded = false/)
-  assert.match(main, /if \(trayMenuOpen\) \{ refreshTrayUpdates\(\); return \}/)
+  // An OPEN menu refreshes in place rather than being rebuilt. The engine's
+  // restart row joined that same path (tray-restart, 2026-09-15), so this
+  // asserts the update refresh still leads and still returns - not that it is
+  // the only refresh on the line.
+  assert.match(main, /if \(trayMenuOpen\) \{ refreshTrayUpdates\(\);[^}]*return \}/)
 })
 
 

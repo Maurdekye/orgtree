@@ -29,7 +29,7 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 're
 import { useSurfaceDocument } from '../popout'
 import { md } from './shared'
 import { RefMdBody } from './refmd'
-import { foldAt, NO_FOLD } from './foldlines'
+import { measureInto, NO_FOLD } from './foldlines'
 import type { RefWorld, ResolvedRef } from './reflinks'
 import type { MentionIndex } from './workrefs'
 
@@ -65,7 +65,14 @@ export function DocketDescription({ text, slug, world, onOpen, index, onPick }: 
     // ⚠ MEASURED FROM THE RENDERED BODY, NOT THE SOURCE. Counting `\n` in the
     // markdown would answer a different question — a wrapped line is a line
     // to the reader, and one written line can be several of them.
-    const measure = () => setMeasure(foldAt(body, DESC_FOLD_LINES))
+    // ⚠ THROUGH `measureInto`, WHICH COMPARES BEFORE IT STORES. This wrote
+    // `foldAt`'s result straight into state, and `foldAt` builds a fresh
+    // object every call — so every measurement read as a change and
+    // re-rendered a description that had not moved (measured: ten resizes,
+    // ten commits). The docket pane is resizable, sits on a zoomable canvas
+    // and re-measures on window resize, so that was not a rare path; and
+    // re-measuring walks every text node of a spec that has no length limit.
+    const measure = () => setMeasure(measureInto(body, DESC_FOLD_LINES))
     measure()
     // the docket pane is resizable and lives on a zoomable canvas, so the
     // answer changes without the text changing

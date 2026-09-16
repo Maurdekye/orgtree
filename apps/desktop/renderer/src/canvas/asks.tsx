@@ -17,17 +17,26 @@
 import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import type { AskInfo, AskQuestion, AskTab, ToastFn } from '../types'
-import { answerAsk, creditDecide, resolveBatch } from '../api'
+import { answerAsk, creditDecide, fileBase, resolveBatch } from '../api'
 import { CreditBar } from './cards'
 import { CloseIcon, WarnIcon } from '../icons'
 import { isMobile } from '../mobile'
 import { useQuestionVisibility } from '../notification-visibility'
+import { md } from './shared'
 
 /** Each card owns its inputs, so a deterministic id keeps the visible label
  * associated with the active tab without depending on payload text. */
 const freeResponseId = (tab: number) => `ask-free-response-${tab}`
 
 const OTHER = '\0other'          // sentinel — no label can collide with it
+
+/** Option labels are inline by card design, but still use md() for parsing
+ * and sanitization. Unwrap marked's paragraph container so the legacy bold
+ * label element remains valid and its row text/layout stay unchanged. */
+const inlineMd = (text: string, base: string) => {
+  const html = md(text, base).__html
+  return { __html: html.replace(/^<p>([\s\S]*?)<\/p>\s*$/, '$1') }
+}
 
 /** ctrl+enter (⌘+enter on mac) — submits the card the user is working in.
  *  Live cards carry tabIndex=-1, so any click inside (an option row, the
@@ -272,7 +281,8 @@ function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
         </div>
       )}
       {t.kind === 'question' && (<>
-        <div className="ask-q"><b>{t.question}</b></div>
+        <div className="ask-q md" dangerouslySetInnerHTML={md(t.question,
+          fileBase(slug, ask.node))} />
         <div className="ask-rows">
           {opts.map((o) => (
             <button key={o.label} type="button" disabled={busy}
@@ -281,8 +291,11 @@ function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
               <span className={'ask-dot' + (t.multi ? ' sqr' : '')
                 + (d.q.sel.includes(o.label) ? ' on' : '')} />
               <span className="ask-row-body">
-                <b>{o.label}</b>
-                {o.description && <span className="dim">{o.description}</span>}
+                <b className="ask-option-label" dangerouslySetInnerHTML={inlineMd(
+                  o.label, fileBase(slug, ask.node))} />
+                {o.description && <span className="dim ask-option-description"
+                  dangerouslySetInnerHTML={inlineMd(o.description,
+                    fileBase(slug, ask.node))} />}
               </span>
             </button>
           ))}
@@ -527,7 +540,8 @@ function QuestionAsk({ ask, slug, toast }: {
           ))}
         </div>
       )}
-      <div className="ask-q"><b>{q.question}</b></div>
+      <div className="ask-q md" dangerouslySetInnerHTML={md(q.question,
+        fileBase(slug, ask.node))} />
       <div className="ask-rows">
         {opts.map((o) => (
           <button key={o.label} type="button" disabled={busy}
@@ -536,8 +550,11 @@ function QuestionAsk({ ask, slug, toast }: {
             <span className={'ask-dot' + (q.multi ? ' sqr' : '')
               + (d.sel.includes(o.label) ? ' on' : '')} />
             <span className="ask-row-body">
-              <b>{o.label}</b>
-              {o.description && <span className="dim">{o.description}</span>}
+              <b className="ask-option-label" dangerouslySetInnerHTML={inlineMd(
+                o.label, fileBase(slug, ask.node))} />
+              {o.description && <span className="dim ask-option-description"
+                dangerouslySetInnerHTML={inlineMd(o.description,
+                  fileBase(slug, ask.node))} />}
             </span>
           </button>
         ))}

@@ -1529,6 +1529,16 @@
           "items": {
             "type": "string"
           }
+        },
+        "objective_notice": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -1544,7 +1554,8 @@
         "objective",
         "done_so_far",
         "working_on_next",
-        "acceptance"
+        "acceptance",
+        "objective_notice"
       ],
       "additionalProperties": false
     },
@@ -1602,6 +1613,16 @@
               "type": "null"
             }
           ]
+        },
+        "objective_notice": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -1617,7 +1638,8 @@
         "done_so_far",
         "acceptance",
         "revision",
-        "candidate"
+        "candidate",
+        "objective_notice"
       ],
       "additionalProperties": false
     },
@@ -2818,6 +2840,16 @@
               "type": "null"
             }
           ]
+        },
+        "request_note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -2830,7 +2862,8 @@
         "relation",
         "by",
         "predecessor",
-        "team_note"
+        "team_note",
+        "request_note"
       ],
       "additionalProperties": false
     },
@@ -3400,6 +3433,73 @@
         "reports_to_after",
         "grant_after",
         "audience_note"
+      ],
+      "additionalProperties": false
+    },
+    "LifecycleSubtreePromoted": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "variant": {
+          "const": "lifecycle.subtree_promoted"
+        },
+        "actor": {
+          "$ref": "#/$defs/Actor"
+        },
+        "engine_authored": {
+          "type": "boolean"
+        },
+        "object": {
+          "$ref": "#/$defs/NodeRef"
+        },
+        "promoted": {
+          "type": "string"
+        },
+        "demoted": {
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "new_parent",
+            "peer",
+            "former_parent",
+            "caller_child",
+            "target_child",
+            "promoted",
+            "demoted"
+          ]
+        },
+        "by": {
+          "type": "string"
+        },
+        "reports_to_after": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "subtree": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "v",
+        "variant",
+        "actor",
+        "engine_authored",
+        "object",
+        "promoted",
+        "demoted",
+        "role",
+        "by",
+        "reports_to_after",
+        "subtree"
       ],
       "additionalProperties": false
     },
@@ -4839,6 +4939,16 @@
         },
         "objective": {
           "type": "string"
+        },
+        "objective_notice": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -4849,7 +4959,8 @@
         "object",
         "added_by",
         "owner",
-        "objective"
+        "objective",
+        "objective_notice"
       ],
       "additionalProperties": false
     },
@@ -5202,6 +5313,9 @@
         },
         "text": {
           "type": "string"
+        },
+        "summary": {
+          "type": "string"
         }
       },
       "required": [
@@ -5210,7 +5324,8 @@
         "actor",
         "engine_authored",
         "object",
-        "text"
+        "text",
+        "summary"
       ],
       "additionalProperties": false
     },
@@ -5420,6 +5535,9 @@
         },
         {
           "$ref": "#/$defs/LifecycleSeatSwapped"
+        },
+        {
+          "$ref": "#/$defs/LifecycleSubtreePromoted"
         },
         {
           "$ref": "#/$defs/LifecycleMoved"
@@ -6752,6 +6870,16 @@
           "items": {
             "type": "string"
           }
+        },
+        "objective_notice": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -6767,7 +6895,8 @@
         "objective",
         "done_so_far",
         "working_on_next",
-        "acceptance"
+        "acceptance",
+        "objective_notice"
       ],
       "additionalProperties": false
     },
@@ -6825,6 +6954,16 @@
               "type": "null"
             }
           ]
+        },
+        "objective_notice": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -6840,7 +6979,8 @@
         "done_so_far",
         "acceptance",
         "revision",
-        "candidate"
+        "candidate",
+        "objective_notice"
       ],
       "additionalProperties": false
     },
@@ -8025,6 +8165,16 @@
               "type": "null"
             }
           ]
+        },
+        "request_note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -8037,7 +8187,8 @@
         "relation",
         "by",
         "predecessor",
-        "team_note"
+        "team_note",
+        "request_note"
       ],
       "additionalProperties": false
     },
@@ -8603,6 +8754,73 @@
         "reports_to_after",
         "grant_after",
         "audience_note"
+      ],
+      "additionalProperties": false
+    },
+    "PublicLifecycleSubtreePromoted": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "variant": {
+          "const": "lifecycle.subtree_promoted"
+        },
+        "projection": {
+          "const": "public"
+        },
+        "actor": {
+          "$ref": "#/$defs/PublicActor"
+        },
+        "object": {
+          "$ref": "#/$defs/PublicNodeRef"
+        },
+        "promoted": {
+          "type": "string"
+        },
+        "demoted": {
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "new_parent",
+            "peer",
+            "former_parent",
+            "caller_child",
+            "target_child",
+            "promoted",
+            "demoted"
+          ]
+        },
+        "by": {
+          "type": "string"
+        },
+        "reports_to_after": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "subtree": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "v",
+        "variant",
+        "projection",
+        "actor",
+        "object",
+        "promoted",
+        "demoted",
+        "role",
+        "by",
+        "reports_to_after",
+        "subtree"
       ],
       "additionalProperties": false
     },
@@ -10027,6 +10245,16 @@
         },
         "objective": {
           "type": "string"
+        },
+        "objective_notice": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -10037,7 +10265,8 @@
         "object",
         "added_by",
         "owner",
-        "objective"
+        "objective",
+        "objective_notice"
       ],
       "additionalProperties": false
     },
@@ -10312,6 +10541,9 @@
         },
         "object": {
           "$ref": "#/$defs/PublicBuildRef"
+        },
+        "summary": {
+          "type": "string"
         }
       },
       "required": [
@@ -10319,7 +10551,8 @@
         "variant",
         "projection",
         "actor",
-        "object"
+        "object",
+        "summary"
       ],
       "additionalProperties": false
     },
@@ -10496,6 +10729,9 @@
         },
         {
           "$ref": "#/$defs/PublicLifecycleSeatSwapped"
+        },
+        {
+          "$ref": "#/$defs/PublicLifecycleSubtreePromoted"
         },
         {
           "$ref": "#/$defs/PublicLifecycleMoved"

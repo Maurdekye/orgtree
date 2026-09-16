@@ -970,6 +970,10 @@ convoTest('§5.2 a delayed pre-rename response cannot overwrite the renamed or r
     await inAct(() => {
       ingestStream(SL, { node: ND, kind: 'thinking', text: 'still thinking', t: Date.now() })
     })
+    // live text publishes once per frame (queueLive in convo.ts). Let it reach
+    // the view before the rename, which is what this test needs on screen to
+    // then prove the stale response cannot retire it.
+    await advance(20)
     void refreshConvo(SL, ND, { force: true })
     await flush()
 
@@ -1350,6 +1354,11 @@ convoTest('committed steer occupies its transcript position before response delt
   assert.equal(d.now().chat!.pending_mail.length,0)
   assert.equal(d.now().chat!.messages.filter(r=>r.row_id==='steer:one').length,1)
   await inAct(()=>ingestStream(SL,{node:ND,kind:'delta',text:'answer after acceptance',t:Date.now()}))
+  // live text publishes once per frame now (see queueLive in convo.ts), so the
+  // draft is one frame away rather than immediate. What this test is about is
+  // the steer row's position and its survival of a stale fetch; the draft here
+  // is the scaffolding that gives it something to survive against.
+  await advance(20)
   assert.equal(d.now().draft,'answer after acceptance')
   await poll(SL,ND)
   assert.equal(d.now().chat!.messages.filter(r=>r.row_id==='steer:one').length,1,'a stale payload cannot remove the committed row')

@@ -825,6 +825,17 @@ button.badge.audience-fold.alert {
   top: -26px;
   left: 50%;
   transform: translateX(-50%);
+  /* The collapsed hire arrow remains above the retired-list annotation (z 2),
+     but the revealed name must paint over that arrow.  Keep this elevation on
+     the revealed group only so the resting tier token's depth is unchanged. */
+  z-index: 4;
+}
+/* Keep the resting model token clear of the provider rail. The larger token
+   is intentionally limited to the unhovered state: the hover presentation
+   remains the existing centered token and reveal geometry. */
+.sq.mini:not(:hover) .sq-far-tier { left: 10px; }
+.sq.mini:not(:hover) .sq-far-tier .tier {
+  width: 33px; height: 33px; font-size: 16.5px;
 }
 .sq.mini:hover .sq-far-scaler,
 .sq.mini:focus-within .sq-far-scaler,
@@ -2400,6 +2411,13 @@ button.cc-name:hover {
 .ask-dot.sqr.on { box-shadow: inset 0 0 0 6px var(--accent); }
 .ask-row-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .ask-row-body .dim { font-size: 11.5px; line-height: 1.35; }
+/* Ask prose uses the shared sanitized Markdown pipeline. Keep option labels
+   visually equivalent to the former bold text while allowing their authored
+   Markdown structure; descriptions retain the existing dim treatment. */
+.ask-option-label { font-weight: 700; }
+.ask-option-label p, .ask-option-description p { margin: 0; }
+.ask-option-description { font-size: 11.5px; line-height: 1.35; }
+.ask-q.md { white-space: normal; }
 .ask-free-response { display: flex; flex-direction: column; gap: 4px; padding: 4px 7px; }
 .ask-free-response label { color: var(--ink-strong); font-weight: 600; }
 .ask-free-response-input { max-width: 100%; }
@@ -2691,6 +2709,102 @@ button.cc-name:hover {
   border-radius: 8px; padding: 0 5px;
 }
 .mailer-read { flex: 1; min-width: 0; overflow-y: auto; padding: 10px 14px; }
+
+/* ------------------------------------------- the list as an overlay panel
+   A narrow modal has no room for a list beside a reading pane, so below the
+   threshold `CollapsibleMailer` measures on the `.mailer` box itself (these
+   surfaces pin, resize and pop out, so a viewport media query would be
+   answering a different question) the list leaves the layout and becomes an
+   overlay opened from the rail at the top-left — the canvas org drawer's
+   idiom, scoped to one modal instead of the screen.
+
+   ⚠ `display: contents` IS THE WHOLE TRICK. Wide, the wrapper is not a box at
+   all: `.mailer-list` stays the flex item it has always been, so every rule
+   written against it — the docket's 52%, the gallery's third, the mobile
+   sheet — still lands exactly where it did. The list element is therefore
+   never re-parented and never unmounted, which is what carries its scroll
+   position, its selection and how far it has paged through the collapse. */
+.mailer-listwrap { display: contents; }
+.mailer.narrow-list {
+  position: relative;
+  /* the rail's width, published so the panel and the veil can start where it
+     ends instead of three hand-copied numbers drifting apart */
+  --listrail: 34px;
+}
+.mailer.narrow-list > .mailer-listwrap {
+  display: block; position: absolute; top: 0; bottom: 0; z-index: 3;
+  left: var(--listrail);
+  width: min(300px, calc(100% - var(--listrail) - 40px));
+  background: var(--bg); border-right: 1px solid var(--line-soft);
+  box-shadow: 8px 0 30px rgba(0, 0, 0, .5);
+  /* parked behind the rail, shadow and all; `.mailer`'s own `overflow:
+     hidden` clips what is left.
+     ⚠ AN ANIMATION ON THE OPEN STATE, NOT A TRANSITION on the element — the
+     canvas drawer's own idiom, and here it is also the only thing that works:
+     the wrapper enters this rule from `display: contents`, where it had no
+     box at all, and a transition declared across that change leaves Chromium
+     rendering the identity transform instead of this one (measured, not
+     guessed — the panel simply sat on top of the reading pane). */
+  transform: translateX(calc(-100% - var(--listrail) - 2px));
+  outline: none;
+}
+.mailer.narrow-list.narrow-list-open > .mailer-listwrap {
+  transform: none; animation: mailerlistslide .18s ease-out;
+}
+@keyframes mailerlistslide {
+  from { transform: translateX(calc(-100% - var(--listrail) - 2px)); }
+}
+/* the list fills the panel it is now in, whatever width its own rules asked
+   for while it was a column */
+.mailer.narrow-list > .mailer-listwrap > .mailer-list {
+  width: 100%; max-width: none; min-width: 0; height: 100%;
+  border-right: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mailer.narrow-list.narrow-list-open > .mailer-listwrap { animation: none; }
+}
+/* THE CONTROL. A rail rather than a floating button: it holds its own column,
+   so it can never sit on top of what the reading pane is showing, and the
+   panel slides out beside it rather than under it. */
+.mailer-listrail {
+  flex: none; width: var(--listrail);
+  display: flex; flex-direction: column; align-items: center;
+  padding: 6px 0; gap: 6px;
+  border-right: 1px solid var(--line-soft); background: var(--panel-2);
+  position: relative; z-index: 5;
+}
+/* ⚠ SIZED FROM THE RAIL, NOT FROM A PADDING GUESS — and it has to be, because
+   a padding guess is exactly what failed here. This button used to ask for
+   `padding: 3px 5px`, which fits 34px comfortably, and that declaration NEVER
+   APPLIED ANYWHERE: the rail only exists inside a collapsible `.mailer`, every
+   collapsible `.mailer` is in a modal panel, and `.settings .iconbtn` (two
+   classes, further down the file) outranks it with `padding: 7px 11px`. The
+   result was a 40px button centred in a 34px rail — 3px proud of the panel's
+   rounded edge on each side, which is what the user photographed on
+   2.1.6-beta.4 (their shot: a collapsed inbox, hover red, the box crossing the
+   corner).
+
+   So the rail's width stops being something the button is trusted to fit
+   inside and becomes the thing the button is DERIVED FROM. `--listrail` is
+   already published on `.mailer.narrow-list` for exactly this reason — the
+   panel and the veil both start where it ends — and this is the third reader
+   of that one number. Whatever ambient rule sets padding or font-size next,
+   the box stays `--listrail` minus its margins, so this cannot come back.
+   The `.mailer.narrow-list` scope is not specificity for its own sake: it is
+   the only place this button is ever rendered (canvas/narrowlist.tsx), so the
+   selector now says where it lives and outranks `.settings .iconbtn` as a
+   consequence rather than as a trick. */
+.mailer.narrow-list .mailer-listtoggle {
+  box-sizing: border-box;
+  width: calc(var(--listrail) - 8px); height: calc(var(--listrail) - 8px);
+  padding: 0; font-size: 15px; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.mailer-listtoggle.on { background: var(--panel); color: var(--ink-strong); }
+.mailer-listveil {
+  position: absolute; top: 0; bottom: 0; right: 0; left: var(--listrail);
+  z-index: 2; background: rgba(0, 0, 0, .45);
+}
 .mailer-head {
   display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline;
   font-family: var(--mono); font-size: 11px; color: var(--ink);
@@ -3029,6 +3143,11 @@ button.stackbadge:hover { border-color: var(--accent); color: var(--agent-accent
    menu is open. It closes on leaving the card or crossing to another edge
    (cards.tsx: expandedHireEdge), and the card drops again with it. */
 .sq.mini:hover:has(> .hsof.is-expanded) { z-index: 6; }
+/* The compact arrow is between the retired-list desk annotation (z 2) and the
+   far-zoom hover name (z 4). Once clicked, its menu intentionally takes the
+   top of this local stack (z 5). Ordinary hire strips keep their existing z 3
+   layer and therefore retain their unrelated canvas relationships. */
+.sq.mini > .hsof.hire-compact.is-expanded { z-index: 5; }
 /* F-03 coworker chips: vertical columns riding the card's edges — same hover
    gate and counter-scaling as the bottom row, anchored 1px inside the border
    for the same contiguous-hover reason */
@@ -3814,9 +3933,9 @@ main.solo { width: 100%; }
 .docket-dismiss:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); }
 .docket-pane-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .docket-pane-head b { font-size: 13.5px; min-width: 0; overflow-wrap: break-word; }
-.docket-pane-head .docket-dismiss { flex-shrink: 0; }
 .docket-pane-sub { font-size: 12px; margin: 2px 0 10px; }
 .docket-pane-sub-attn { color: var(--agent-accent-text, var(--accent)); }
+.docket-attention-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .docket-list { margin: 0 0 12px; }
 .docket-list-heading {
   font-size: 10.5px; font-weight: 700; letter-spacing: .04em;
@@ -4111,6 +4230,24 @@ span.ref-chip.ref-chip {
    remaining requirement (user 2026-09-12). It is FULL MARKDOWN and has no
    length limit, so it is also the one field on this pane that folds. */
 .docket-desc { margin: 0 0 12px; }
+/* ⚠ "THIS DESCRIPTION IS NOT THE WHOLE SCOPE" (W09) — the sentence sits ABOVE
+   the description body, because the reader it protects reads the description
+   first and has no reason to look anywhere else. Two weights, and they are
+   deliberately not the same: `incomplete` says content was LOST and is the
+   warning colour; `rolled_over` says nothing was lost and is a quiet pointer
+   at the archived record, so it must not read as an error. */
+.docket-desc-notice {
+  margin: 0 0 10px; padding: 8px 10px; border-radius: 6px;
+  font-size: 12px; line-height: 1.45;
+  border: 1px solid var(--line, #2a2e36); background: rgba(255, 255, 255, .03);
+}
+.docket-desc-notice.incomplete {
+  border-color: var(--warn, #e5c07b);
+  background: color-mix(in srgb, var(--warn, #e5c07b) 12%, transparent);
+}
+.docket-desc-notice-head { font-weight: 600; }
+.docket-desc-notice.incomplete .docket-desc-notice-head { color: var(--warn, #e5c07b); }
+.docket-desc-notice-detail { margin-top: 3px; opacity: .8; }
 .docket-desc-body { white-space: pre-wrap; font-size: 12.5px; line-height: 1.5; }
 /* ⚠ MARKDOWN DECIDES ITS OWN WRAPPING. `pre-wrap` above is for the plain-text
    surfaces; a rendered description already carries its line breaks as <br>
@@ -4144,7 +4281,6 @@ span.ref-chip.ref-chip {
 .docket-desc-toggle.docket-desc-toggle:focus-visible {
   outline: 1px solid var(--accent); outline-offset: 1px;
 }
-.docket-modal .mailrow .docket-dismiss { margin-left: auto; flex-shrink: 0; }
 .docket-modal button.cc-name, .mailer-head button.cc-name {
   font-size: inherit; font-family: var(--mono); color: inherit; display: inline;
 }
@@ -4187,15 +4323,67 @@ span.ref-chip.ref-chip {
    top-left corner of an empty box */
 .docket-agent > .pad { padding: 12px 10px; line-height: 1.5; }
 
-/* the agent presentations view on the desk shares the docket panel's narrow-column
-   split and overflow clipping */
+/* the agent presentations view on the desk shares the docket panel's overflow
+   clipping.
+
+   ⚠ IT NO LONGER SHARES THE DOCKET'S 52% SPLIT (user report 2026-09-16: "the
+   left side list panel is too wide and the right side content panel is too
+   narrow"). That number was borrowed from `.docket-agent` above, where it is
+   measured and load-bearing — a docket row is an item NAME that has to be read
+   IN THE LIST, so the list is the wide half on purpose. A presentation row is a
+   title you click to open a DOCUMENT, and the document is the half that has to
+   be readable. Borrowing the docket's proportion put a 200px column of prose
+   next to a 230px column of titles.
+
+   The proportion is now the one this view's own popped-out/pinned panel already
+   uses — see `.settings.gallery-modal .mailer-list` near the end of this file,
+   "collection modals reserve at least two thirds for the selected document".
+   That rule is the primitive, so the DESK view is added to its selector rather
+   than given a second copy of its number: the two cannot drift, and the desk
+   tab and its own modal now read as one component family, which is what they
+   always were in markup (`.gallery-modal` is on both). */
 .msgs.gallery-agent {
   overflow: hidden; gap: 0; padding: 6px;
 }
-.gallery-agent .mailer-list { width: 52%; max-width: none; }
 .gallery-agent .mailer-read { padding: 8px 10px; }
 .gallery-agent > .pad { padding: 12px 10px; line-height: 1.5; }
 .gallery-agent .desk-presented-head { padding: 0 4px 4px; }
+
+/* ---------------------------------------- the desk tab's pin/popout/modal corner
+   (user request 2026-09-16, extended the same day to the docket and inbox tabs)
+
+   One wrapper per tab body, so the cluster has a corner to sit in. It mirrors
+   `.msgs-wrap` — which is the chat tab's own wrapper — with the flex column
+   added, because the inbox's `.mailwrap` is a flex ITEM and would otherwise
+   collapse to its content height. */
+.desk-tabpanel {
+  position: relative; flex: 1; min-height: 0;
+  display: flex; flex-direction: column;
+}
+.desk-tabpanel > .mailwrap, .desk-tabpanel > .msgs { flex: 1; min-height: 0; }
+/* ABOVE the panel, never in its flow: an extra row would cost the reading pane
+   height on a desk that has little to spare, and these three buttons are chrome
+   for the panel rather than part of what it lists. */
+.panel-corner {
+  position: absolute; top: 0; right: 2px; z-index: 4;
+  display: flex; align-items: center; gap: 1px;
+}
+/* sized and coloured as `.modalpin-btn`, which is the same three affordances in
+   a pinned window's title bar — one look for one action */
+.panel-corner-btn {
+  background: none; border: none; padding: 2px; display: inline-flex;
+  color: var(--dim); font-size: 14px; cursor: pointer; border-radius: 3px;
+  flex: none; line-height: 1;
+}
+.panel-corner-btn:hover { color: var(--ink-strong); background: var(--panel); }
+.panel-corner-btn[aria-pressed="true"] { color: var(--agent-accent-text, var(--accent)); }
+/* ⚠ ROOM RESERVED IN EACH TAB'S OWN TOP ROW. The cluster floats, so without
+   this it would sit on top of whatever that row ends in — and two of the three
+   end flush right: the docket's filter checkboxes are `justify-content:
+   flex-end`, and the gallery caption wraps to the panel's right edge. */
+.desk-tabpanel > .gallery-agent .desk-presented-head,
+.desk-tabpanel > .docket-agent > .docket-filterbar,
+.desk-tabpanel > .mailwrap > .mail-folders { padding-right: 72px; }
 
 /* vibrant orange badge WITHOUT the mail bell's pulse animation — the
    2026-08-04 ruling keeps the glow/pulse to that one bell alone */
@@ -7253,8 +7441,13 @@ html.mobile .popout-button { display: none; }
 .presentation-chat-card {display:flex; align-items:center; gap:10px; padding:14px 18px; margin:8px 0; max-width:100%; text-align:left; white-space:normal; border:1px solid var(--border); border-radius:8px;}
 .presentation-chat-card svg {flex:none; font-size:24px;}
 
-/* Collection modals reserve at least two thirds for the selected document. */
-.settings.gallery-modal .mailer-list { width: 33.333333%; max-width: 33.333333%; min-width: 0; flex: 0 0 33.333333%; }
+/* Collection modals reserve at least two thirds for the selected document.
+   THE AGENT DESK'S PRESENTED TAB IS THE SAME COLLECTION (user report
+   2026-09-16 — it had inherited the docket's deliberately list-heavy 52% and
+   was unreadable). It joins this selector instead of restating the fraction,
+   so there is exactly one place the gallery's split is decided. */
+.settings.gallery-modal .mailer-list,
+.gallery-agent .mailer-list { width: 33.333333%; max-width: 33.333333%; min-width: 0; flex: 0 0 33.333333%; }
 
 /* Provider-local secondary account management. */
 .provider-accounts:empty{display:none}

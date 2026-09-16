@@ -1,0 +1,3 @@
+[submodule "engine/mailhub"]
+	path = engine/mailhub
+	url = https://github.com/Maurdekye/orgtree-mailhub.git

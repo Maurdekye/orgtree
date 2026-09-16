@@ -387,8 +387,13 @@ class EverySitePassesTheProjection(unittest.TestCase):
         for old, new in (
             ('carrier_view: str | None = _carrier_projection(text)',
              'carrier_view: str | None = _carrier_projection(text) or None'),
-            ('drive=turn_drive, owned=owned, view=carrier_view)',
-             'drive=turn_drive, owned=owned, view=carrier_view or None)'),
+            # ⚠ NO CLOSING PAREN. The call gained a `carried=` argument after
+            # this one (restart-replay composition, 2026-09-16), so `view=` is
+            # no longer last and a fixture anchored on the paren silently had
+            # nothing to doctor — which makes this control pass by doing
+            # nothing. Anchored on the comma it survives the next argument too.
+            ('drive=turn_drive, owned=owned, view=carrier_view,',
+             'drive=turn_drive, owned=owned, view=carrier_view or None,'),
         ):
             doctored = body.replace(old, new)
             self.assertNotEqual(doctored, body, 'nothing to doctor for %r' % old[:40])

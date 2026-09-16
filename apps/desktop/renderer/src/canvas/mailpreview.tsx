@@ -3,7 +3,7 @@ import { useId, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { RefWorld, ResolvedRef } from './reflinks'
 import { RefMdBody } from './refmd'
-import { foldAt, NO_FOLD, sameFold } from './foldlines'
+import { measureInto, NO_FOLD } from './foldlines'
 import { useFold } from './foldstate'
 
 /** Received mail folds at five rendered lines. The measurement itself is
@@ -50,13 +50,13 @@ export function ReceivedMailBody({ html, world, onOpen, foldKey, children }: {
   useLayoutEffect(() => {
     const body = content.current?.firstElementChild as HTMLElement | null
     if (!body) return
-    const measure = () => setMeasure(prev => {
-      const next = foldAt(body, MAIL_FOLD_LINES)
-      // an unchanged answer must not be a state change: `foldAt` returns a new
-      // object every call, so assigning it blindly re-rendered the row for
-      // nothing every time anything asked for a measurement
-      return sameFold(prev, next) ? prev : next
-    })
+    // an unchanged answer must not be a state change: `foldAt` returns a new
+    // object every call, so assigning it blindly re-rendered the row for
+    // nothing every time anything asked for a measurement. `measureInto` owns
+    // that comparison for both fold surfaces — this one used to do it inline
+    // and the docket description forgot to, which is precisely why it is no
+    // longer something a call site can forget.
+    const measure = () => setMeasure(measureInto(body, MAIL_FOLD_LINES))
     measure()
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
     observer?.observe(body)

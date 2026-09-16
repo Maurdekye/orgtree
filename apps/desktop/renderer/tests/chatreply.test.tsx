@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
+import { FakeServer, flush, inAct, installFetch, mountView, settleLive } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { DeskChat } from '../src/canvas/desk'
@@ -34,6 +34,7 @@ test('polled sealed thinking is an indicator and durable handover preserves repe
     assert.equal(thought.classList.contains('assistant'), false)
     assert.doesNotMatch(thought.textContent!, /Thinking\.\.\./)
     await inAct(() => { ingestStream('org', { node: 'writer', kind: 'delta', text: 'Same final reply', event_id: 'draft-1', t: Date.now() }) })
+    await settleLive()
     assert.ok(view.el.querySelector('[data-reply-event="draft-1"]'))
     server.messages = [
       { role: 'user', text: 'Delivered prompt', seq: 0, event_id: 'prompt-1' },
@@ -233,9 +234,11 @@ test('server transient events survive refresh and streamed draft IDs survive dur
     await inAct(() => { item.click() })
     assert.equal(readReply(draftKey('org', 'writer', 2))?.eventId, 'transient-error')
     await inAct(() => { ingestStream('org', { node: 'writer', kind: 'delta', text: 'Hello', event_id: 'streamed', t: Date.now() }) })
+    await settleLive()
     item = await replyOn(v.el.querySelector('[data-reply-event="streamed"]')!)
     await inAct(() => { item.click() })
     await inAct(() => { ingestStream('org', { node: 'writer', kind: 'delta', text: ' again', event_id: 'streamed', t: Date.now() }) })
+    await settleLive()
     assert.equal(v.el.querySelector('[data-reply-event="streamed"]')!.textContent!.trim(), 'Hello again')
     assert.equal(readReply(draftKey('org', 'writer', 2))?.eventId, 'streamed')
     server.busy = false; server.messages = [{ role: 'assistant', seq: 1, text: 'Hello again', event_id: 'streamed' }]
@@ -254,9 +257,11 @@ test('new immutable stream snapshot IDs do not discard preceding text or rewrite
   try {
     await inAct(async () => { await refreshConvo('org', 'writer'); await flush(5) })
     await inAct(() => { ingestStream('org', { node: 'writer', kind: 'delta', text: 'First ', event_id: 'revision-one', reply_quote: 'Exact first snapshot', t: Date.now() }) })
+    await settleLive()
     const item = await replyOn(v.el.querySelector('[data-reply-event="revision-one"]')!)
     await inAct(() => { item.click() })
     await inAct(() => { ingestStream('org', { node: 'writer', kind: 'delta', text: 'second', event_id: 'revision-two', t: Date.now() }) })
+    await settleLive()
     assert.equal(v.el.querySelector('[data-reply-event="revision-two"]')!.textContent!.trim(), 'First second')
     assert.equal(readReply(draftKey('org', 'writer', 2))?.eventId, 'revision-one')
     assert.equal(readReply(draftKey('org', 'writer', 2))?.quote, 'Exact first snapshot')
@@ -277,6 +282,7 @@ test('opening mid-stream preserves the polled prefix and newer websocket source 
     await inAct(async () => { await refreshConvo('org', 'writer'); await flush(5) })
     assert.ok(v.el.querySelector('[data-reply-event="polled"]'), 'polled snapshot is initially visible')
     await inAct(() => { ingestStream('org', { node: 'writer', kind: 'delta', text: 'continued', event_id: 'newer', reply_quote: 'Existing continued', t: Date.now() }) })
+    await settleLive()
     const current = v.el.querySelector('[data-reply-event="newer"]')!
     assert.ok(current, 'newer stream source replaces the stale polled revision')
     assert.equal(current.textContent!.trim(), 'Existing continued')

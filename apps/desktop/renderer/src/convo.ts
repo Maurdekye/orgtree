@@ -306,6 +306,21 @@ interface Entry {
    *  otherwise pays one full `read_chat` per node per event burst with nobody
    *  looking (the poll was mount-gated; the event path wasn't). */
   dirty: boolean
+  /** THE LIVE TEXT THIS ENTRY HAS RECEIVED BUT NOT YET PUBLISHED.
+   *
+   *  Deltas and thinking used to patch the store once per token, and a patch
+   *  is a re-render of every desk watching the node. MEASURED on this host
+   *  (`tools/run-alloc-probe.mjs`): the string work a token does here is
+   *  3.6 KB, and the re-render it triggers is 80–336 KB — so the token path is
+   *  about one percent of what a token actually costs and the render is the
+   *  other ninety-nine. Tokens therefore accumulate here and publish ONCE per
+   *  painted frame (see `queueLive`).
+   *
+   *  null = nothing buffered. Anything that is not live text flushes this
+   *  first, so ordering against durable rows is exactly what it was. */
+  live: Partial<Convo> | null
+  liveRaf: number | null
+  liveTimer: ReturnType<typeof setTimeout> | null
 }
 
 const M = new Map<string, Entry>()
@@ -328,6 +343,11 @@ export function renameConvo(slug: string, from: string, to: string): void {
   // subscription will arm the same Entry under its canonical key.
   if (old.poll) { clearTimeout(old.poll); old.poll = null }
   if (old.nudge) { clearTimeout(old.nudge); old.nudge = null }
+  // carry buffered tokens across the move without notifying — it is the same
+  // conversation either side of a rename, so the words the agent had already
+  // streamed must survive it, but see `adoptLive` for why publishing them
+  // here is what would lose the whole conversation.
+  adoptLive(old)
   stopClock(old)
   old.inflight = false
   old.requestSerial++
@@ -344,6 +364,7 @@ export function renameConvo(slug: string, from: string, to: string): void {
     }
     if (replaced.poll) { clearTimeout(replaced.poll); replaced.poll = null }
     if (replaced.nudge) { clearTimeout(replaced.nudge); replaced.nudge = null }
+    cancelLive(replaced)
     stopClock(replaced)
   }
   old.ownerKey = newKey
@@ -359,6 +380,7 @@ export function dropConvo(slug: string, nid: string): void {
   if (!old) return
   if (old.poll) { clearTimeout(old.poll); old.poll = null }
   if (old.nudge) { clearTimeout(old.nudge); old.nudge = null }
+  cancelLive(old)
   stopClock(old)
   old.inflight = false
   old.requestSerial++
@@ -370,6 +392,7 @@ function entry(k: string): Entry {
   if (!e) {
     e = { assistantRows: new Map(), assistantNative: new Set(), committedRows: new Map(), ownerKey: k, ownerVersion: 0, s: BLANK, subs: new Set(), thinkT0: 0, clock: null, nudge: null,
           textSeen: 0, epochBoot: null,
+          live: null, liveRaf: null, liveTimer: null,
           staleDraft: false, staleThink: false, staleAt: 0, streamAt: 0,
           poll: null, inflight: false, requestSerial: 0, inflightAt: 0, fetchedAt: 0,
           installed: 0, dirty: false, pageSerial: 0 }
@@ -393,6 +416,87 @@ function patchEntry(e: Entry, p: Partial<Convo>, ownerVersion = e.ownerVersion):
 
 function patch(k: string, p: Partial<Convo>): void {
   patchEntry(entry(k), p)
+}
+
+// ------------------------------------------------------------- live text
+/** One flush per painted frame, and the fallback's period is one frame too:
+ *  whichever timing source is alive wins, and at 60 Hz they are the same
+ *  16 ms, so the fallback costs nothing when it is not needed. */
+const LIVE_FLUSH_MS = 16
+
+/** PUBLISH THE BUFFERED TOKENS. Safe to call at any time, including on an
+ *  entry that has since been renamed or dropped — `patchEntry` refuses a
+ *  write whose Entry no longer owns its key. */
+function flushLive(e: Entry): void {
+  if (e.liveRaf !== null) { cancelAnimationFrame(e.liveRaf); e.liveRaf = null }
+  if (e.liveTimer) { clearTimeout(e.liveTimer); e.liveTimer = null }
+  const p = e.live
+  if (!p) return
+  e.live = null
+  patchEntry(e, p)
+}
+
+/** Discard the buffer unpublished — for a node that is going away or whose
+ *  content is being reset. Publishing there would write a dead node's words
+ *  into a view that has moved on. */
+function cancelLive(e: Entry): void {
+  if (e.liveRaf !== null) { cancelAnimationFrame(e.liveRaf); e.liveRaf = null }
+  if (e.liveTimer) { clearTimeout(e.liveTimer); e.liveTimer = null }
+  e.live = null
+}
+
+/** KEEP THE WORDS, DO NOT NOTIFY — for a rename.
+ *
+ *  A rename is the one case where publishing normally is wrong. The Entry is
+ *  about to move to a new key and the views watching the old one remount,
+ *  because their React key follows the node id. `patchEntry` notifies
+ *  synchronously but React re-reads on its own schedule, so a notification
+ *  fired here lands AFTER the move: the view re-runs `useConvo(slug, oldId)`,
+ *  finds the fresh blank Entry that now sits under the old key, and blanks
+ *  itself — the renamed desk loses the conversation it just had (convo §5.2).
+ *  So the buffered text is merged into the snapshot and the notification is
+ *  left to whatever re-renders the view next, which a rename always does. */
+function adoptLive(e: Entry): void {
+  if (e.liveRaf !== null) { cancelAnimationFrame(e.liveRaf); e.liveRaf = null }
+  if (e.liveTimer) { clearTimeout(e.liveTimer); e.liveTimer = null }
+  if (!e.live) return
+  e.s = { ...e.s, ...e.live }
+  e.live = null
+}
+
+/** Buffer live text and schedule the flush.
+ *
+ *  ⚠ TWO TIMERS, RACED, FIRST ONE WINS — and that is not belt and braces, it
+ *  is the only way this stays live in the window the user is actually looking
+ *  at. `requestAnimationFrame` stops when ITS window is occluded or
+ *  minimised, and a pinned desk pops out into a second native window that can
+ *  be visible while the opener is not: rAF alone would freeze the popout's
+ *  stream. Chromium throttles background timers the other way, to about 1 Hz,
+ *  so a timer alone would make a backgrounded-but-watched surface chunky.
+ *  Either source firing publishes, so the stream stalls only when both are
+ *  asleep — a surface that is neither painting nor timing, and has nothing on
+ *  screen to be late for. */
+function queueLive(e: Entry, p: Partial<Convo>): void {
+  e.live = e.live ? { ...e.live, ...p } : p
+  if (e.liveRaf !== null || e.liveTimer) return
+  const owner = e.ownerVersion
+  const fire = () => { if (e.ownerVersion === owner) flushLive(e); else {
+    e.live = null; e.liveRaf = null; e.liveTimer = null } }
+  e.liveRaf = requestAnimationFrame(fire)
+  e.liveTimer = setTimeout(fire, LIVE_FLUSH_MS)
+}
+
+/** What the next token must build on: the buffer if one is waiting, the
+ *  store if not. Reading `e.s` alone would drop every token still in the
+ *  buffer and the draft would visibly rewind. */
+function liveBase(e: Entry, field: 'draft' | 'thinking', stale: boolean): string {
+  if (stale) return ''
+  const pending = e.live?.[field]
+  return typeof pending === 'string' ? pending : (e.s[field] ?? '')
+}
+
+function liveField<K extends keyof Convo>(e: Entry, field: K): Convo[K] {
+  return (e.live && field in e.live ? e.live[field] : e.s[field]) as Convo[K]
 }
 
 /** The reader LEFT HISTORY — back at the live tail (re-stuck scroll, the
@@ -1097,6 +1201,13 @@ export function markBusy(slug: string, nid: string): void {
 export function ingestStream(slug: string, ev: StreamEvent): void {
   const k = key(slug, ev.node)
   const e = entry(k)
+  // ⚠ ANYTHING THAT IS NOT LIVE TEXT PUBLISHES THE BUFFER FIRST. The
+  // supersession rules below all read and write `e.s` — `staleDraft`, the
+  // epoch counters, the snapshot that blanks the draft — and they must see
+  // every token that has arrived, in the order it arrived. Flushing here
+  // keeps the ordering against durable rows exactly what it was before
+  // tokens were buffered at all; only the number of notifications changed.
+  if (ev.kind !== 'delta' && ev.kind !== 'thinking') flushLive(e)
   if (isAssistantSnapshot(ev.assistant_row)) {
     const row = ev.assistant_row
     if (e.s.chat?.assistant_scope && e.s.chat.assistant_scope !== row.assistant_scope) {
@@ -1167,23 +1278,23 @@ export function ingestStream(slug: string, ev: StreamEvent): void {
     e.streamAt = Date.now()
     if (!e.thinkT0) { e.thinkT0 = Date.now(); startClock(k, e); patch(k, { thinkSecs: 0 }) }
     // a fresh thought must not continue a superseded one
-    const base = e.staleThink ? '' : e.s.thinking
-    const eventId = ev.event_id ?? (e.staleThink ? undefined : e.s.thinkingEventId)
+    const base = liveBase(e, 'thinking', e.staleThink)
+    const eventId = ev.event_id ?? (e.staleThink ? undefined : liveField(e, 'thinkingEventId'))
     e.staleThink = false
-    patch(k, { thinking: (base + ev.text).slice(-2000), thinkingEventId: eventId, thinkingReplyQuote: ev.reply_quote })
+    queueLive(e, { thinking: (base + ev.text).slice(-2000), thinkingEventId: eventId, thinkingReplyQuote: ev.reply_quote })
     return
   }
   if (ev.kind === 'delta') {
     e.streamAt = Date.now()
-    const base = e.staleDraft ? '' : e.s.draft
+    const base = liveBase(e, 'draft', e.staleDraft)
     // a draft that is STARTING (nothing on screen, or what was there has been
     // superseded) records the epoch it began in — everything the server marks
     // durable from here on supersedes it. A draft that is merely GROWING keeps
     // its original baseline, or each new token would move the goalposts and
     // the draft could never be retired by state at all.
-    const eventId = ev.event_id ?? (e.staleDraft ? undefined : e.s.draftEventId)
+    const eventId = ev.event_id ?? (e.staleDraft ? undefined : liveField(e, 'draftEventId'))
     e.staleDraft = false
-    patch(k, { draft: (base + ev.text).slice(-12000), draftEventId: eventId, draftReplyQuote: ev.reply_quote })
+    queueLive(e, { draft: (base + ev.text).slice(-12000), draftEventId: eventId, draftReplyQuote: ev.reply_quote })
     return
   }
   // A durable row landed (text / tool / sticky output): the thinking phase is
@@ -1228,6 +1339,9 @@ function nudge(slug: string, nid: string): void {
 export function ingestPulse(slug: string, ev: PulseEvent): void {
   const k = key(slug, ev.node)
   const e = entry(k)
+  // same rule as ingestStream: a pulse decides what is stale, so it must see
+  // every token that arrived before it
+  flushLive(e)
   if (ev.event === 'turn_done') {
     // the live tail is cleared server-side (sticky rows survive there); here
     // only the sub-second scaffolding needs resetting — and by the same rule as
@@ -1308,6 +1422,9 @@ export function resetConvos(): void {
     // Entries with subscribers ARE the new org's; their poll stands.
     if (e.poll && !e.subs.size) { clearTimeout(e.poll); e.poll = null }
     if (e.nudge) { clearTimeout(e.nudge); e.nudge = null }
+    // the conversation being discarded owns these tokens; they must not land
+    // in whatever this entry is reused for
+    cancelLive(e)
     e.thinkT0 = 0
     e.staleDraft = false
     e.staleThink = false

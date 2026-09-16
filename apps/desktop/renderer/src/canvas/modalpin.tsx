@@ -369,6 +369,65 @@ export const toggleOrRaiseModal = (kind: string, open: boolean,
   if (action === 'raise') raisePinnedModal(kind, org)
   else set(action === 'open')
 }
+// ------------------------------------------- driving a surface from OUTSIDE it
+/**
+ * A pin or a pop-out asked for by a control that is NOT inside the surface it
+ * acts on — the desk tab's corner buttons, which stand where the surface is
+ * not.
+ *
+ * ⚠ THE POINT IS THAT NEITHER ACTION CAN BE PERFORMED FROM OUT HERE. Pinning
+ * measures the panel's own box (`toggle` below reads `panelRef`), and popping
+ * out is `MovableSurface.open`, which owns the window. A caller that wanted to
+ * "just pin it" from the desk would have to invent a rect and a window opener —
+ * a second implementation of both, drifting from the title bar's buttons the
+ * first time either changes. So the request travels instead: the caller opens
+ * the surface and leaves a note, and the surface performs its OWN action.
+ *
+ * Deferred by one microtask when the surface is not mounted yet, exactly as
+ * `Desks.requestPopout` already defers a desk's pop-out (canvas/deskhosts.tsx)
+ * — the surface has to exist before it can be asked to move.
+ *
+ * Both actions are IDEMPOTENT rather than toggles: an already-pinned surface
+ * asked to pin stays pinned. The corner button reads the live state itself and
+ * asks for the direction it wants, so "pin" never means "unpin" because a poll
+ * landed between the press and the mount.
+ */
+export type SurfaceRequest = 'pin' | 'popout'
+type SurfaceActor = (request: SurfaceRequest) => void
+const surfaceActors = new Map<string, SurfaceActor>()
+const pendingSurfaceRequests = new Map<string, SurfaceRequest>()
+
+/** ask the modal surface for `kind` to pin or pop ITSELF out. Runs at once if
+ *  that surface is already mounted; otherwise waits for it to mount, which is
+ *  what makes "open it and pin it" one press. */
+export const requestSurfaceAction = (kind: string, org: string | null,
+  request: SurfaceRequest): void => {
+  const key = modalPinKey(kind, org)
+  const actor = surfaceActors.get(key)
+  if (actor) { actor(request); return }
+  pendingSurfaceRequests.set(key, request)
+}
+
+/** the surface's side of the channel: register while mounted, and take
+ *  whatever was left for it. Exported for PinFrame and for tests. */
+export const claimSurfaceRequests = (kind: string, org: string | null,
+  actor: SurfaceActor): (() => void) => {
+  const key = modalPinKey(kind, org)
+  surfaceActors.set(key, actor)
+  const queued = pendingSurfaceRequests.get(key)
+  if (queued !== undefined) {
+    pendingSurfaceRequests.delete(key)
+    // the surface is mounting as this runs; let the commit finish first
+    queueMicrotask(() => actor(queued))
+  }
+  return () => { if (surfaceActors.get(key) === actor) surfaceActors.delete(key) }
+}
+
+/** drop every queued request — for tests, and for a surface that never came */
+export const forgetSurfaceRequests = (): void => {
+  pendingSurfaceRequests.clear(); surfaceActors.clear()
+}
+
 /** geometry commits ONCE per gesture, at pointer-up, like an agent window */
 export const commitModalRect = (kind: string, rect: PinRect, org: string | null = null): void => {
   const min = modalMinDimensions(kind)
@@ -647,6 +706,24 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
     }
   }
   const closeSurface = () => { forgetModalOpen(kind, orgScope); close() }
+
+  // ⚠ THE SURFACE PERFORMS ITS OWN PIN AND ITS OWN POP-OUT, always. A corner
+  // button on the agent desk asks for one (requestSurfaceAction above); what
+  // runs here is the very `toggle` the title bar's push-pin runs and the very
+  // `surface.open` PopoutButton calls, so an outside request can never diverge
+  // from the buttons a pace away from it. Idempotent in both directions: a
+  // request to pin an already-pinned window, or to pop out a window already
+  // popped out, is nothing rather than its opposite.
+  const actLatest = useRef<SurfaceActor>(() => {})
+  actLatest.current = (request: SurfaceRequest) => {
+    if (request === 'pin') { if (!pinned) toggle() }
+    else if (!detached) surface?.open()
+  }
+  useEffect(() => {
+    if (!pinnable || orgScope === null) return
+    return claimSurfaceRequests(kind, orgScope, (r) => actLatest.current(r))
+  }, [pinnable, orgScope, kind])
+
   // THE BAR'S CONTEXT MENU (contextmenu.tsx, 2026-09-07): the three controls
   // the bar already carries — pin/unpin, the pop-out (surface.open/redock,
   // exactly what PopoutButton calls), close — by name. State-dependent

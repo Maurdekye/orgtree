@@ -2097,6 +2097,14 @@ export interface SendMessageResult extends Partial<TypedReplyReceipt> {
   immediate?: boolean
   /** delivered mid-task via the steering hook (supervisor.py:1643) */
   steering?: boolean
+  /** supervisor.delivery_note — one sentence saying what actually happened to
+   *  this send. For an unavailable target (halted, retired) it says the mail
+   *  is durably queued and which single event would produce a reader; a
+   *  target that is no node at all never reaches here (post_mail refuses). */
+  delivery?: string
+  /** the recipient's lifecycle state when the mail was stored: 'live' |
+   *  'archived'. What makes a deferral explainable without re-reading it. */
+  recipient_state?: string
   warnings?: string[]
   [k: string]: unknown
 }
@@ -2319,6 +2327,42 @@ export interface WorkFinding {
     note?: string }[]
 }
 
+/** IS THE DESCRIPTION THE WHOLE STORY? (ledger `_work_objective_notice`)
+ *
+ *  The docket's standing rule is that `objective` is the item's authoritative
+ *  standalone scope. An item at the old scope-record cap broke that rule in
+ *  SILENCE: every description change and every ruling was refused, so the
+ *  description stopped containing anything decided afterwards — and it still
+ *  rendered as an ordinary, complete description. A refusal at the moment of
+ *  writing helps nobody here, because the reader who is misled never attempts
+ *  a write; they just read.
+ *
+ *  So this is served beside `objective` and rendered beside it. Null — the
+ *  normal case, and what gives the other two meaning — is "the description IS
+ *  the complete scope, and the whole record is in front of you".
+ *
+ *  Optional on the wire: an older backend does not send it. */
+export interface WorkObjectiveNotice {
+  /** `incomplete` = content was LOST: this item stood at the cap under a
+   *  build that refused scope writes, so what was ruled then was never
+   *  recorded on it and no later write recovers it.
+   *  `rolled_over` = nothing was lost: the description is current and
+   *  authoritative, and part of the record of how it got there moved to the
+   *  uncapped `scope_archive`. The two are NOT interchangeable — one is a
+   *  warning about the specification, the other is a pointer to history. */
+  kind: 'incomplete' | 'rolled_over'
+  /** one sentence, already written for a reader of the description */
+  headline: string
+  /** what was lost or where the rest is, in prose */
+  detail: string
+  /** when the freeze was recorded; null while the item is still in it, and
+   *  null on `rolled_over` */
+  at: string | null
+  /** rows in the live window, and rows moved out of it */
+  rows: number
+  archived: number
+}
+
 export interface WorkItem {
   /** THE ONLY IDENTIFIER (user 2026-09-05: "uniquely and solely identifiable
    *  by their readable slugs, no more ids of any sort"). Derived from the
@@ -2334,6 +2378,11 @@ export interface WorkItem {
   kind: 'code' | 'non-code'
   title: string
   objective: string
+  /** whether the description above can be trusted as the complete scope, and
+   *  what to read if it cannot. Rendered INSIDE the DESCRIPTION section, above
+   *  the body — a warning anywhere else is a warning the reader of the
+   *  description does not meet. */
+  objective_notice?: WorkObjectiveNotice | null
   /** backlogged | open | in_progress | blocked | review | deploy_ready |
    *  done | superseded | dropped. `backlogged` = not yet approached or
    *  approved: served in its own group behind its own toggle and never

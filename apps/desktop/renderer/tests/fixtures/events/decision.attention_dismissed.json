@@ -35,5 +35,5 @@
     "reason": "decision.attention_dismissed·reason",
     "pending_questions": 3
   },
-  "body": "[DOCKET · decision.attention_dismissed·object.slug] The user DISMISSED your attention flag (\"decision.attention_dismissed·reason\") — the item is now BLOCKED. Do not re-raise the same reason without material new information; 3 question(s) on the item are still pending."
+  "body": "[DOCKET · decision.attention_dismissed·object.slug] The user saw your attention flag and chose to say nothing. This is not approval, rejection, or substantive feedback."
 }

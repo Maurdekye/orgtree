@@ -1884,10 +1884,6 @@ function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
         onSelect: () => { void copyToClipboard(row, ref).then((ok) =>
           toast?.([ok ? `copied the reference ${ref}` : 'could not copy — clipboard unavailable'])) } })
     }
-    if (canDismiss) {
-      entries.push('sep', { label: 'Dismiss attention flag', onSelect: () => onDismiss(item),
-        title: 'clear this manually-raised flag' })
-    }
     return entries
   }
   return (
@@ -1982,12 +1978,6 @@ function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
             <ActorName actor={item.reviewer} facts={facts}
               onFocusAgent={onFocusAgent} close={close} />
           </span>
-        )}
-        {canDismiss && (
-          <button className="badge docket-dismiss" title="clear this manually-raised flag"
-            onClick={(e) => { e.stopPropagation(); onDismiss(item) }}>
-            Dismiss
-          </button>
         )}
       </div>
     </div>
@@ -2432,11 +2422,6 @@ function DocketPane({ slug, item, toast, asksById, onDismiss, close, onFocusAgen
         <b>{item.title || '(untitled)'}</b>
         <span className="spacer" />
         
-        {canDismiss && (
-          <button className="badge docket-dismiss" onClick={() => onDismiss(item)}>
-            Dismiss
-          </button>
-        )}
       </div>
       <div className={'dim docket-pane-sub' + (attention ? ' docket-pane-sub-attn' : '')}>
         <span className={'docket-status status-' + item.status + (attention ? ' attention' : '')}
@@ -2488,6 +2473,28 @@ function DocketPane({ slug, item, toast, asksById, onDismiss, close, onFocusAgen
           may be arbitrarily long, so it gets its own component: the rest of
           the pane's prose is short, single-paragraph and stays `RefProse`. */}
       <DocketSection title="DESCRIPTION">
+        {/* ⚠ ABOVE THE DESCRIPTION, NOT BESIDE THE PANE (W09). An item whose
+            description has stopped being the complete scope used to say so
+            nowhere: it rendered like any other. The reader this protects is
+            the one who opens the item, reads the first thing in the pane and
+            starts building — so the sentence has to be the thing they read
+            first, before the text it is a warning about. `incomplete` means
+            content was lost and is a warning; `rolled_over` means nothing was
+            lost and is a pointer. Absent on an older backend, and null
+            whenever the description IS the whole scope. */}
+        {item.objective_notice && (
+          <div className={'docket-desc-notice ' + item.objective_notice.kind}
+               role={item.objective_notice.kind === 'incomplete'
+                       ? 'alert' : undefined}>
+            <div className="docket-desc-notice-head">
+              {item.objective_notice.kind === 'incomplete' ? '⚠ ' : ''}
+              {item.objective_notice.headline}
+            </div>
+            <div className="docket-desc-notice-detail">
+              {item.objective_notice.detail}
+            </div>
+          </div>
+        )}
         {item.objective
           ? <DocketDescription text={item.objective} slug={slug}
               world={refWorld} onOpen={onOpenRef}
@@ -2527,10 +2534,18 @@ function DocketPane({ slug, item, toast, asksById, onDismiss, close, onFocusAgen
       {manualAttn && (
         <DocketSection title="MANUAL ATTENTION">
           <div className="docket-attention-box">
-            <div className="docket-question-head">
-            Manual attention from{' '}
-            <ActorName actor={manualAttn.by} facts={facts}
-              onFocusAgent={onFocusAgent} close={close} />
+            <div className="docket-question-head docket-attention-head">
+              <span>Manual attention from{' '}
+                <ActorName actor={manualAttn.by} facts={facts}
+                  onFocusAgent={onFocusAgent} close={close} />
+              </span>
+              {canDismiss && (
+                <button type="button" className="badge docket-dismiss"
+                  title="clear this manually-raised flag"
+                  onClick={() => onDismiss(item)}>
+                  Dismiss with no comment
+                </button>
+              )}
             </div>
           {/* the reason is written as several lines; a plain <div> ran them together */}
           <div className="docket-attention-body">

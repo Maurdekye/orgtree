@@ -49,6 +49,28 @@ export function sameFold(a: FoldMeasure, b: FoldMeasure): boolean {
   return a.limit === b.limit && a.lines === b.lines
 }
 
+/** THE ONLY WAY TO STORE A MEASUREMENT. `setMeasure(measureInto(body, lines))`.
+ *
+ *  ⚠ THIS EXISTS BECAUSE REMEMBERING TO COMPARE IS NOT A PLAN. Both callers do
+ *  the same thing — measure on a resize and keep the answer in state — and for
+ *  a while only one of them compared first. The other wrote `foldAt`'s fresh
+ *  object straight into state, so every measurement read as a change and
+ *  re-rendered a description that had not moved (measured: ten resizes, ten
+ *  commits). The guard is one line and the omission is invisible at the call
+ *  site, which is the combination that comes back. So the comparison lives
+ *  HERE, inside the updater, where a caller cannot leave it out.
+ *
+ *  Returns a React state updater rather than a value, deliberately: the
+ *  comparison needs the PREVIOUS measurement, and reading that from a closure
+ *  would reintroduce the stale-capture bug this shape avoids. */
+export function measureInto(body: HTMLElement, maxLines: number):
+(prev: FoldMeasure) => FoldMeasure {
+  return (prev) => {
+    const next = foldAt(body, maxLines)
+    return sameFold(prev, next) ? prev : next
+  }
+}
+
 /** Measure `body` and, if it runs past `maxLines`, say where to clip it. */
 export function foldAt(body: HTMLElement, maxLines: number): FoldMeasure {
   const box = body.getBoundingClientRect()

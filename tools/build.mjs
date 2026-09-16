@@ -48,14 +48,20 @@ fs.mkdirSync('dist/renderer/assets', { recursive: true })
 fs.copyFileSync('apps/desktop/assets/orgtree-eye.svg', 'dist/renderer/assets/orgtree-eye.svg')
 
 const hash = file => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')
-let commit = null, dirty = null
+let commit = null, dirty = null, mailhubCommit = null
 try {
   commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
   dirty = !!execFileSync('git', ['status', '--porcelain', '--untracked-files=normal'], { encoding: 'utf8' }).trim()
 } catch { /* Development source archives can build; release preflight requires provenance. */ }
+try {
+  // release provenance records BOTH repositories: this one and the exact
+  // orgtree-mailhub revision the pinned submodule ships (mail-hub ticket)
+  mailhubCommit = execFileSync('git', ['-C', 'engine/mailhub', 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+} catch { /* preflight fails the package when the submodule is absent. */ }
 const files = ['dist/main/index.cjs', 'dist/preload/index.cjs', 'dist/renderer/index.html',
   ...fs.readdirSync('dist/renderer/assets').map(name => 'dist/renderer/assets/' + name),
-  'engine/launch.py', 'engine/runtime/python.exe', 'engine/runtime/python313._pth', 'engine/runtime/runtime-manifest.json']
+  'engine/launch.py', 'engine/mailhub/mailhub/app.py', 'engine/mailhub/mailhub/serve.py',
+  'engine/runtime/python.exe', 'engine/runtime/python313._pth', 'engine/runtime/runtime-manifest.json']
 // Every build starts as the release channel; `npm run package:dev` rewrites
 // this file with channel 'dev' and a commit-stamped version before packing.
 // Rebuilding always resets it, so a development stamp cannot leak forward into
@@ -65,6 +71,6 @@ const files = ['dist/main/index.cjs', 'dist/preload/index.cjs', 'dist/renderer/i
 // artifact says so about itself and so the release preflight can refuse to
 // package one; nothing at runtime reads it.
 fs.writeFileSync('dist/build-info.json', JSON.stringify({ version: JSON.parse(fs.readFileSync('package.json', 'utf8')).version,
-  channel: 'release', commit, dirty, builtAt: new Date().toISOString(),
+  channel: 'release', commit, dirty, mailhubCommit, builtAt: new Date().toISOString(),
   ...(updateFixture ? { updateFixture: true } : {}),
   sha256: Object.fromEntries(files.filter(file => fs.existsSync(file)).map(file => [file, hash(file)])) }, null, 2) + '\n')

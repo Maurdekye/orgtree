@@ -23,6 +23,19 @@ import type {
   ServingAccount, ToolGrant, TreeNode, TreePayload,
 } from '../types'
 
+// DOMPurify exports an already-bound instance in the browser, but exports its
+// factory when this module is evaluated before a DOM exists (as in the
+// renderer test bundle, and in a few preload/import paths). Resolve that
+// distinction at use time so every caller can safely share md().
+const sanitizeMarkdown = (html: string): string => {
+  const candidate = DOMPurify as unknown as {
+    sanitize?: (value: string) => string
+  } & ((window: Window) => { sanitize(value: string): string })
+  return typeof candidate.sanitize === 'function'
+    ? candidate.sanitize(html)
+    : candidate(window).sanitize(html)
+}
+
 // One display alphabet for every provider-backed tier. Keeping the Codex rows
 // out of this shared map made every generic card/header caller fall through to
 // `?` even though the hire sheet had a separate Codex-only map.
@@ -1765,6 +1778,22 @@ export const activeDocCount = (roots: DocCountNode[] | null | undefined): number
 // №21: cached by text identity — every streamed token used to re-parse the
 // ENTIRE visible transcript (~8 Hz × every message × every open panel)
 const _mdCache = new Map<string, { __html: string }>()
+/** THE LIVE TEXT'S OWN CACHE, and the reason it is separate from `_mdCache`.
+ *
+ *  A streaming draft is a NEW STRING on every flush, so it is a new key every
+ *  time: a miss, a parse, an insert AND an eviction. Sharing the 800-entry LRU
+ *  with settled transcript rows meant a stream of a few hundred tokens evicted
+ *  every row on screen, and the next render re-parsed the whole transcript
+ *  from source — the stream paying for itself twice over and the transcript
+ *  paying for the stream.
+ *
+ *  Four entries is enough for what live text needs a cache FOR: one desk's
+ *  draft and thought, re-rendered several times for the same text by a
+ *  composer keystroke or a sibling's update. It is not trying to remember a
+ *  draft from a minute ago — that text is gone, replaced by the durable row,
+ *  and a hit on it would never come. */
+const _mdLive = new Map<string, { __html: string }>()
+const MD_LIVE_MAX = 4
 // №16: outside code fences and inline code, a bare <Token> parses as an HTML
 // tag — DOMPurify then strips it and keeps only the inner text, so
 // `Sync<float3>` silently became `Sync` and changed the sentence's meaning.
@@ -2071,7 +2100,12 @@ if (typeof document !== 'undefined') {
  *  content anywhere else in the key can ever cross it — the property no
  *  longer depends on the NUL-free assumption at all. */
 export const md = (text: string | null | undefined,
-                   imgBase?: string, agentHtmlResponse?: boolean): { __html: string } => {
+                   imgBase?: string, agentHtmlResponse?: boolean,
+                   /** this text is LIVE — a streaming draft or thought, a
+                    *  different string on every flush. The HTML produced is
+                    *  identical either way; only which cache holds it changes.
+                    *  See `_mdLive`: live text must not evict the transcript. */
+                   live?: boolean): { __html: string } => {
   // assignment 19: server-written prose carries its timestamps as canonical
   // instants in `⟦t:…⟧` tokens, and this is where they become the user's
   // local time. Doing it here rather than at each call site means every
@@ -2093,23 +2127,28 @@ export const md = (text: string | null | undefined,
   // input unchanged when there is no token, which is almost every string.
   const local = localizeStamps(text ?? '')
   const key = (agentHtmlResponse ? '1' : '0') + '\u0000' + (imgBase ?? '') + '\u0000' + local
-  let hit = _mdCache.get(key)
+  // A live string may already be in the settled cache — the same text arrives
+  // again as a durable row a moment later — so a hit is taken from EITHER
+  // side. Only the INSERT is separated, which is the half that does the harm.
+  const store = live ? _mdLive : _mdCache
+  const max = live ? MD_LIVE_MAX : 800
+  let hit = store.get(key) ?? (live ? _mdCache.get(key) : undefined)
   if (hit === undefined) {
-    hit = { __html: wrapCodeBlocks(DOMPurify.sanitize(
+    hit = { __html: wrapCodeBlocks(sanitizeMarkdown(
       marked.parse(escapeAngles(local),
         { gfm: true, breaks: true, async: false })), imgBase, agentHtmlResponse) }
     // LRU eviction, not clear-all (perf-redesign 2026-09-12): a long
     // expanded chat plus mail previews cycles past the bound, and the old
     // wholesale clear re-parsed EVERYTHING visible on the next paint.
     // Map iterates in insertion order, so the first key is the oldest.
-    if (_mdCache.size > 800) {
-      const oldest = _mdCache.keys().next()
-      if (!oldest.done) _mdCache.delete(oldest.value)
+    if (store.size > max) {
+      const oldest = store.keys().next()
+      if (!oldest.done) store.delete(oldest.value)
     }
-    _mdCache.set(key, hit)
+    store.set(key, hit)
   } else {
-    _mdCache.delete(key)          // re-insert: a hit is recent again
-    _mdCache.set(key, hit)
+    store.delete(key)             // re-insert: a hit is recent again
+    store.set(key, hit)
   }
   return hit
 }

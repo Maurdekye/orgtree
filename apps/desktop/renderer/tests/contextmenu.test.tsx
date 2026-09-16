@@ -702,7 +702,7 @@ uiTest('§B4 ticket row: right-click does not select; Copy slug copies the exact
   await pick('Open owner (agent1)')
   assert.deepEqual(focused, ['agent1']); assert.equal(closed, 1, 'closes first, as the actor line does')
   await rightClick(flagged)
-  assert.ok(labels().includes('Dismiss attention flag'), JSON.stringify(labels()))
+  assert.ok(!labels().includes('Dismiss attention flag'), JSON.stringify(labels()))
   assert.ok(!labels().includes('Hide 1 sub-item'))
 })
 

@@ -1933,19 +1933,34 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "orgtree_self_subjugate",
         "description": (
-            "Step down: swap SEATS with one of your own live subordinates "
-            "(any depth). It takes your place — your superior, your reports, "
-            "your grant, your team charter and your folder/tool scope stay "
-            "with the seat — and you take its place, keeping your identity, "
-            "session, charter and mailbox. Same-tier swaps move no credits; "
-            "a non-direct target keeps you a standing audience with it. THE "
-            "HAND-OVER PATTERN: hire a replacement (same tier, your full "
-            "scope, a successor charter), self-subjugate to it, transfer "
-            "loose ends, then orgtree_retire yourself (self-retire needs "
-            "you to be a leaf). A top-level agent may voluntarily hand its "
-            "OWN seat to its live descendant through this tool. Ordinary "
-            "top-level swaps remain user-only; this cannot raise you or "
-            "replace another chain's coordinator."),
+            "Step down by PROMOTING one of your own live subordinates (any "
+            "depth) over you. This is NOT a seat swap: the target rises into "
+            "your former place under your former superior AND KEEPS ITS OWN "
+            "TEAM — its existing reports at every depth come up with it, and "
+            "it is never handed your reports as a replacement set. You then "
+            "become its direct report, keeping whatever is left of your own "
+            "subtree once its branch has been lifted out. Unrelated branches "
+            "and the chain between you are left intact. Both of you keep "
+            "your identity, session, charter, mailbox, history and docket "
+            "ownership; funding re-seats itself and nobody's free credit "
+            "changes. The target inherits your folders, tools, visibility and "
+            "permission mode so nothing in your retained team gets clamped — "
+            "but NOT your team charter: both of you keep your own, so if the "
+            "seat it is taking needs a standing instruction, set the target's "
+            "team charter with orgtree_retool BEFORE you promote it (the "
+            "target is also told to write its own). Authority is re-derived "
+            "from the new ancestry, so your "
+            "command of the promoted branch ends at once. The whole "
+            "transformation is atomic — on any refusal (bad target, cycle, "
+            "archived or halted party, depth/report caps, insufficient "
+            "authority) nothing at all is applied. THE HAND-OVER PATTERN: "
+            "hire a replacement, self-subjugate to it, transfer loose ends, "
+            "then orgtree_retire yourself (self-retire needs you to be a "
+            "leaf). A top-level agent may voluntarily hand its OWN seat to "
+            "its live descendant this way. Ordinary top-level reseating "
+            "remains user-only; this cannot raise you or reach another "
+            "chain. For a plain two-agent seat exchange use orgtree_swap, "
+            "which is unchanged."),
         "inputSchema": {"type": "object",
                         "properties": {"target": {"type": "string"}},
                         "required": ["target"]},
