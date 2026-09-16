@@ -471,8 +471,20 @@ LEAVES: Final[dict[str, dict[str, Any]]] = {
     "context.drive_mail_pointer": leaf(
         "context_change", "NodeRef", text=F("str", M, False),
         reason=F("L[" + "|".join(DRIVE_MAIL_POINTER_REASONS) + "]?", M, False)),
+    # Minted by `supervisor._restart_replay` when a turn the shutdown killed is
+    # re-sent on the next boot. `text` is the instruction the AGENT reads —
+    # imperative, addressed to it, model_only as it always was.
+    #
+    # ⚠ `summary` is why this leaf is no longer human-hidden (user report
+    # 2026-09-16). The replay hands the agent the whole enveloped turn again,
+    # and the desk drew NOTHING for it: a reader watched an old mail envelope
+    # reappear with no account of itself, which is the half of that report that
+    # is worst for a person and cheapest to answer. One `both` field is all it
+    # takes — `human_hidden_variants` is derived from dispositions, so the card
+    # turns on by declaring a human field, never by naming the variant.
     "context.drive_restart_interrupted": leaf("context_change", "BuildRef",
-                                              text=F("str", M, False)),
+                                              text=F("str", M, False),
+                                              summary=F("str", B, True)),
     "context.drive_restart_wake": leaf("context_change", "BuildRef", text=F("str", M, False),
                                        reason=F("str?", M, False),
                                        armed_by_pid=F("int?", M, False),
