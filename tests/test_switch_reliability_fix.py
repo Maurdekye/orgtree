@@ -331,6 +331,113 @@ class SessionReboundNarration(unittest.TestCase):
                         "replay, not turns that ran")
         self.assertIn("account move", rebound[-1]["text"])
 
+    def test_google_account_move_via_switch_takes_a_session_boundary(self):
+        # C: finish_switch_binding used to be openai-only, so a Gemini
+        # account move riding a model switch took NO session boundary —
+        # diverging from assign_account, the one writer, which archives on
+        # openai|google alike. Google forbids secondary selection outright,
+        # so the reachable move is bound → primary.
+        slug = "e-google-boundary"
+        org = ledger.Org.create(slug)
+        org.hire(ledger.USER, None, "pro", 0, "worker")
+        n = org.node("worker")
+        n["account"] = "google-legacy-binding"
+        n.pop("session_unrun", None)   # a session that actually RAN
+        old_sid = n["session_id"]
+
+        out = supervisor.finish_switch_binding(org, slug, "worker",
+                                               "primary", "USER")
+
+        fresh = org.node("worker")
+        self.assertNotIn("account", fresh)
+        self.assertTrue(fresh.get("account_primary"))
+        self.assertNotEqual(fresh["session_id"], old_sid,
+                            "a google account move is a session boundary, "
+                            "same as assign_account")
+        self.assertFalse(out.get("unparked"))
+
+    def test_switch_account_choice_clears_account_park(self):
+        # C: SH-2 parity — a real account landing WITH the switch clears an
+        # account park in the same transaction, exactly as assign_account does
+        a1 = self._account("parked-target")
+        slug = "e-switch-unpark"
+        org = ledger.Org.create(slug)
+        org.hire(ledger.USER, None, "astra", 0, "worker")
+        n = org.node("worker")
+        n["account"] = "missing:openai"
+        n["frozen"] = {"at": "2026-09-14T00:00:00Z", "limit": True,
+                       "cause": "account"}
+
+        out = supervisor.finish_switch_binding(org, slug, "worker",
+                                               a1["id"], "USER")
+
+        self.assertTrue(out.get("unparked"))
+        fresh = org.node("worker")
+        self.assertEqual(fresh["account"], a1["id"])
+        self.assertNotIn("frozen", fresh)
+
+
+class DurableInflightGuardsRebind(unittest.TestCase):
+    """F: the seat's durable inflight marker refuses a bare rebind — the
+    in-memory busy gate dies with the process, the marker does not."""
+
+    def setUp(self):
+        path = registry.registry_path()
+        if os.path.exists(path):
+            os.unlink(path)
+
+    def _account(self, label):
+        row = registry.create_account(
+            "claude", label,
+            {"kind": "managed",
+             "path": os.path.join(_ROOT, f"claude-inflight-{label}")})
+        registry.set_auth(row["id"], "authenticated")
+        return registry.get_account(row["id"])
+
+    def test_bare_rebind_refuses_on_a_recorded_inflight_turn(self):
+        source, target = self._account("src"), self._account("tgt")
+        slug = "f-inflight-refuse"
+        org = ledger.Org.create(slug)
+        org.hire(ledger.USER, None, "opus", 0, "worker")
+        n = org.node("worker")
+        n["account"] = source["id"]
+        n["inflight"] = {"at": "2026-09-16T00:00:00Z", "text": "mid-turn work"}
+        st = supervisor.state(slug, "worker")
+        st.update(busy=False, responding=False, queue=[])   # process died
+        store.save_org(org)
+
+        with self.assertRaises(RuntimeError) as ctx:
+            supervisor.assign_account(slug, "worker", target["id"],
+                                      actor="USER")
+        self.assertIn("in-flight", str(ctx.exception))
+        fresh = store.load_org(slug).node("worker")
+        self.assertEqual(fresh["account"], source["id"], "nothing half-applied")
+        self.assertIn("inflight", fresh)
+
+    def test_recovery_path_still_proceeds_over_a_stale_marker(self):
+        # allow_frozen (what /continue-on and auto-fallback pass) owns the
+        # release and the replay, so the marker must not wall the recovery
+        source, target = self._account("src2"), self._account("tgt2")
+        slug = "f-inflight-recovery"
+        org = ledger.Org.create(slug)
+        org.hire(ledger.USER, None, "opus", 0, "worker")
+        n = org.node("worker")
+        n["account"] = source["id"]
+        n["inflight"] = {"at": "2026-09-16T00:00:00Z", "text": "mid-turn work"}
+        st = supervisor.state(slug, "worker")
+        st.update(busy=False, responding=False, queue=[])
+        store.save_org(org)
+
+        out = supervisor.assign_account(slug, "worker", target["id"],
+                                        actor="USER", allow_frozen=True)
+        self.assertEqual(store.load_org(slug).node("worker")["account"],
+                         target["id"])
+        self.assertEqual(out["previous_account"], source["id"])
+
+class NonCrossedNarrationHonesty(unittest.TestCase):
+    """E: the same-provider switch notice no longer claims blanket context
+    intactness."""
+
     def test_non_crossed_switch_narration_is_honest_about_the_cache(self):
         org = ledger.Org.create("e-narration")
         org.hire(ledger.USER, None, "opus", 0, "worker")

@@ -10852,9 +10852,14 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                     busy=bool(a.get("node") and supervisor.state(
                         body.org, str(a.get("node")))["busy"]))
                 if not result.get("queued") and not result.get("cancelled"):
-                    supervisor.finish_switch_binding(
+                    _fsb = supervisor.finish_switch_binding(
                         org, body.org, str(a.get("node") or ""), _sw_acct,
                         body.node)
+                    if _fsb.get("unparked"):
+                        # C (2026-09-16): the switch's account choice cleared
+                        # an account park — same wake as the rebind door (SH-2),
+                        # driven after the save below
+                        account_unpark = str(a.get("node") or "")
                 if result.get("old_session"):
                     # a crossing archived the old session as a bearer — the
                     # transcript copy into the seat's scratch rides the same
@@ -12782,6 +12787,7 @@ def _org_op_locked(slug: str, body: Op, allow_raise: bool = False) -> dict[str, 
     # raise_ceiling = not public and (kiosk.auto_raise or the explicit ask)
     rc = allow_raise and (bool((org.d.get("kiosk") or {}).get("auto_raise"))
                           or body.raise_ceiling)
+    _op_unpark: str | None = None   # a node the switch's account choice un-parked (C)
     try:
         if body.op == "hire":
             if body.tier is None or body.name is None:
@@ -12942,8 +12948,13 @@ def _org_op_locked(slug: str, body: Op, allow_raise: bool = False) -> dict[str, 
                 busy=bool(body.node
                           and supervisor.state(slug, body.node)["busy"]))
             if not result.get("queued") and not result.get("cancelled"):
-                supervisor.finish_switch_binding(
+                _fsb = supervisor.finish_switch_binding(
                     org, slug, cast(str, body.node), _sw_acct, body.actor)
+                if _fsb.get("unparked"):
+                    # C (2026-09-16): the switch's account choice cleared an
+                    # account park — same wake as the rebind door (SH-2),
+                    # driven after the save at the end of this function
+                    _op_unpark = cast(str, body.node)
             if result.get("old_session"):
                 # a crossing archived the old session as a bearer — the
                 # transcript copy rides the same save window as for
@@ -12973,6 +12984,10 @@ def _org_op_locked(slug: str, body: Op, allow_raise: bool = False) -> dict[str, 
         raise HTTPException(422, str(e))
     store.save_org(org)
     hub_changed(slug)
+    if _op_unpark is not None:
+        # the doc is saved now — wake the un-parked node (SH-2, one sender
+        # shared with the rebind doors)
+        supervisor.drive_account_unpark(slug, _op_unpark)
     return result
 
 

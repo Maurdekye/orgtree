@@ -12857,19 +12857,31 @@ def check_switch_account(org: Org, slug: str, nid: str, tier: str,
 
 
 def finish_switch_binding(org: Org, slug: str, nid: str,
-                          account: str | None, actor: str) -> None:
+                          account: str | None, actor: str) -> dict[str, Any]:
     """The rebind half of an ATOMIC switch+rebind, on the caller's doc under
     the caller's save window (both doors after an immediate apply; the
-    boundary apply for a queued one)."""
+    boundary apply for a queued one).
+
+    C (2026-09-16): this used to be a DIVERGENT copy of `assign_account`'s
+    session-boundary logic — openai-only where the one writer says
+    openai|google (so a Gemini account move via switch_model took NO session
+    boundary), no `follow_session` on the fresh-uuid branch (an imported
+    seat's native-continuity binding went permanently adrift), no antigravity
+    handle pops, and no account-park clear. Aligned field-for-field with
+    `assign_account`; keep the two in step. Returns a small disclosure —
+    `{"unparked": bool}` — so a caller that saves can drive the unpark wake
+    after its save (mirroring the `assign_account` doors)."""
     if not account or nid not in org.nodes:
-        return
+        return {}
     node = org.node(nid)
     selection = registry.validate_selection(slug, str(node.get("model") or ""), account)
     account = selection["id"]
     previous = str(node.get("account") or "")
     _rebound_pred: str | None = None
     if previous != account and (
-            providers.provider_of(str(node.get("model") or "")) == "openai"
+            selection["provider"] in ("openai", "google")
+            or providers.provider_of(str(node.get("model") or ""))
+            in ("openai", "google")
             or bool(node.get("codex_thread"))):
         if bool(node.get("codex_thread")) or not node.get("session_unrun"):
             pred_id, old_sid = org._archive_session_in_place(nid)
@@ -12881,8 +12893,16 @@ def finish_switch_binding(org: Org, slug: str, nid: str,
             node = org.node(nid)
             _rebound_pred = str(pred_id)
         else:
-            node["session_id"] = str(uuid.uuid4())
+            fresh = str(uuid.uuid4())
+            # the seat keeps its generation, so a retired import binding is
+            # still describing THIS seat — move it with the session (same as
+            # assign_account)
+            from .desktop_native import follow_session
+            follow_session(node, fresh)
+            node["session_id"] = fresh
             node["session_unrun"] = True
+        node.pop("antigravity_conversation", None)
+        node.pop("antigravity_account", None)
         node.pop("codex_thread", None)
         node.pop("codex_account", None)
         node.pop("codex_usage_total", None)
@@ -12893,6 +12913,16 @@ def finish_switch_binding(org: Org, slug: str, nid: str,
     else:
         node.pop("account", None)
         node["account_primary"] = True
+    # state-audit SH-2 parity with assign_account: an account-park stops
+    # describing anything once a real selection lands with the switch —
+    # cleared in the SAME transaction so the park and the binding cannot
+    # disagree; the caller that owns the save drives the wake after it.
+    unparked = False
+    _apark = node.get("frozen")
+    if isinstance(_apark, dict) and _apark.get("cause") == "account":
+        node.pop("frozen", None)
+        node.pop("parked_run", None)
+        unparked = True
     if _rebound_pred:
         # E (2026-09-16): the `model_switched` notice for a NON-crossed switch
         # tells the node its conversation carries over — the archive above
@@ -12911,6 +12941,7 @@ def finish_switch_binding(org: Org, slug: str, nid: str,
     org._log("account_assign", actor,
              {"account": selection["name"], "previous_account": previous or None,
               "via": "switch_model"}, [])
+    return {**({"unparked": True} if unparked else {})}
 
 
 #: The accurate wake for a node whose stale provider freeze a crossing
@@ -13094,8 +13125,14 @@ def _apply_pending_switch_locked(o2: Org, slug: str, nid: str,
     if wake is not None and r.get("resume_stale_freeze"):
         wake.extend(str(x) for x in r["resume_stale_freeze"])
     if not r.get("dropped"):
-        finish_switch_binding(o2, slug, nid, _p_acct,
-                              str(_pend.get("by") or "USER"))
+        _fsb = finish_switch_binding(o2, slug, nid, _p_acct,
+                                     str(_pend.get("by") or "USER"))
+        if _fsb.get("unparked"):
+            # near-unreachable (a queued switch means the node was BUSY, and a
+            # parked node runs no turns), but the park is cleared in-doc and
+            # said out loud rather than silently; any later mail drives it
+            print(f"[orgtree] {slug}/{nid}: queued switch's account choice "
+                  f"cleared an account park (node wakes on its next mail)")
     if r.get("old_session"):
         export_predecessor_transcript(o2, nid,
                                       old_sid=cast(str, r["old_session"]),
@@ -13727,6 +13764,21 @@ def assign_account(slug: str, nid: str, account_id: str, *,
             raise RuntimeError(
                 "sandboxed orgs are container-managed — accounts do not "
                 "apply (declared exemption, design D2a)")
+        # F (2026-09-16): the in-memory busy gate above dies with the process,
+        # but the seat's durable `inflight` marker survives a backend death
+        # mid-turn — and the startup reconcile deliberately skips FROZEN nodes
+        # when replaying it. A bare rebind through that window would repoint a
+        # session that still owes a turn. Refused like the busy gate (the
+        # ledger's switch_model already reads this marker for the same
+        # reason); recovery paths (allow_frozen) proceed — they own the
+        # release and the replay of exactly that interrupted work.
+        if node.get("inflight") and not allow_frozen:
+            raise RuntimeError(
+                f"{nid} has an in-flight turn recorded (possibly interrupted "
+                f"by a backend restart) — reassignment is a session boundary "
+                f"and never repoints a session that still owes a turn; retry "
+                f"when the turn ends or has been reconciled, or recover a "
+                f"frozen seat with `/continue-on` / `orgtree_unstick`")
         # Frozen-node policy (see docstring). Distinguish the kinds explicitly,
         # then refuse a bare rebind on a usage-limit freeze BEFORE any mutation
         # — nothing below has run, so the node is untouched. `_auth_freeze` is
