@@ -8377,6 +8377,51 @@ def _arg_opt_int(a: dict[str, Any], key: str) -> int | None:
             f"{key} must be a whole number of minutes (got {v!r})") from None
 
 
+def _agent_read_access(org: Org, reader: str, target: str) -> dict[str, Any]:
+    """MAY `reader` READ `target`'s working material (scratch + transcript)?
+
+    Returns the DISCLOSURE of why it may — always a dict, served back on the
+    tool result so the access is never silent — or raises `LedgerError` with
+    the one refusal both tools share.
+
+    TWO ROUTES, and only two (W-ISR):
+
+    * THE CHART, unchanged: yourself and your descendants, at any depth. This
+      is still the general rule and it still governs everything below.
+    * THE SHARED WORK ITEM: you are currently listed on an OPEN docket item —
+      as its holder, one of its participants, or its named reviewer — and
+      `target` held that same item before you. Scoped by the ITEM, not by the
+      chart, so an inherited ticket stops starting from nothing while holding
+      item X still says exactly nothing about an earlier holder's work on
+      item Y.
+
+    Peers are NOT readable in general, and deliberately so: the fifteen reports
+    behind this asked for the material of the agent that worked THEIR ticket,
+    not for a general peer read, and the narrow rule is the defensible one."""
+    if target == reader:
+        return {"via": "self"}
+    if org.is_ancestor(reader, target):
+        return {"via": "chart",
+                "note": f"{target} is your descendant — the ordinary "
+                        f"downward read (§7.6)"}
+    grant = org.work_item_read_grant(reader, target)
+    if grant is not None:
+        return grant
+    raise LedgerError(
+        f"read access is strictly DOWNWARD (§7.6) — you may read yourself and "
+        f"your descendants, and nobody else, EXCEPT through a shared docket "
+        f"item: if you are currently listed on an OPEN item (its holder, a "
+        f"participant, or its named reviewer) that {target or 'that agent'} "
+        f"held BEFORE you, its scratch and transcript are readable to you on "
+        f"the strength of that item. Neither applies here. Three things end "
+        f"that route and each is deliberate: the item closing or archiving, "
+        f"you no longer being listed on it, and the target being its CURRENT "
+        f"holder rather than a previous one. `orgtree_work get` "
+        f"shows an item's `holders` — the agents that have held it, current "
+        f"one last — and every row but that last one is readable to you while "
+        f"you are listed on the item.")
+
+
 def _arg_int(a: dict[str, Any], key: str, default: int) -> int:
     """`args` is a free-form dict off the wire — an LLM fills it, so a string
     or a float lands there routinely. A bare `int(a.get(k) or d)` turned
@@ -9822,9 +9867,7 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                 return _agent_send_file(org, body.node, a)
             if body.tool == "orgtree_read_transcript":
                 target = a.get("node", "")
-                if target != body.node and not org.is_ancestor(body.node, target):
-                    raise LedgerError("read access is strictly DOWNWARD (§7.6) — you "
-                                      "may read yourself and your descendants only")
+                access = _agent_read_access(org, body.node, target)
                 # no pending bubble in THIS payload, so read_chat must not
                 # hold a fresh unprojected event back for one — an agent
                 # reading its report inside the grace would get the newest
@@ -9840,6 +9883,11 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                                             hold_back=False)
                 msgs = chat["messages"][-last:]
                 return {"node": target, "busy": chat["busy"],
+                        # WHY you may read this (W-ISR). Always present: an
+                        # item-scoped read names the item that granted it, so
+                        # the reader knows the access came from the shared
+                        # ticket and not from the chart.
+                        "access": access,
                         "occupancy": chat["occupancy"],
                         # an agent reading its report's fill deserves to know
                         # when the number is a post-compaction estimate rather
@@ -9849,8 +9897,7 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                                       "text": (m.get("text") or "")[:1200],
                                       "tools": m.get("tools", [])} for m in msgs]}
             target = a.get("node", "")
-            if target != body.node and not org.is_ancestor(body.node, target):
-                raise LedgerError("read access is strictly DOWNWARD (§7.6)")
+            access = _agent_read_access(org, body.node, target)
             base = os.path.realpath(supervisor.scratch_dir(body.org, target))
             rel = _no_nul(str(a.get("path") or "")).strip().lstrip("/\\")
             full = os.path.realpath(os.path.join(base, rel))
@@ -9858,12 +9905,14 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
             if full != base and not full.startswith(base + os.sep):
                 raise LedgerError("path escapes the scratch space")
             if os.path.isdir(full):
-                return {"dir": rel or ".", "entries": sorted(os.listdir(full))[:200]}
+                return {"dir": rel or ".", "access": access,
+                        "entries": sorted(os.listdir(full))[:200]}
             if os.path.isfile(full):
-                return {"file": rel,
+                return {"file": rel, "access": access,
                         "content": open(full, encoding="utf-8",
                                         errors="replace").read()[:20000]}
-            return {"error": f"no such path in {target}'s scratch: {rel!r}"}
+            return {"error": f"no such path in {target}'s scratch: {rel!r}",
+                    "access": access}
         except LedgerError as e:
             raise HTTPException(422, str(e))
     if body.tool == "orgtree_work" \
