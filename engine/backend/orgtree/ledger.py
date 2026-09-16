@@ -11221,6 +11221,191 @@ class Org:
             or actor in (it.get("participants") or []) \
             or actor == self._work_actor_node(it.get("reviewer"))
 
+    # ---- THE HOLDER ROSTER, and the item-scoped read it authorizes (W-ISR).
+    #
+    # THE PROBLEM IT SOLVES. `orgtree_read_scratch` and `orgtree_read_transcript`
+    # are downward-only, which is the right rule for the CHART and the wrong one
+    # for how work actually moves: when a ticket is reassigned, the previous
+    # implementer is usually an archived PEER, so the agent that inherits the
+    # ticket cannot read one word of what the last agent on it learned. Fifteen
+    # agents reported it. The grant here is scoped BY THE ITEM, never by the
+    # chart and never to peers generally — holding item X says nothing at all
+    # about what an earlier holder of item Y wrote.
+    #
+    # WHY A STORED ROSTER AND NOT THE ASSIGN TRAIL. `history` is a WINDOW: past
+    # WORK_HISTORY_MAX its oldest rows fold into a single count-and-span row
+    # (`_work_hist`). An authorization decision may not rest on a record that
+    # forgets. So every change of owner appends here, and this list — not the
+    # history — is what `work_item_read_grant` reads.
+
+    def _work_holder_row(self, node: str, actor: str) -> dict[str, Any]:
+        """One roster row: the holder reference plus when it acquired the item
+        and who handed it over. `_work_holder` (not `_work_actor`) because a
+        roster row names an AGENT — a seat mint id, so a later hire that wears
+        a recycled name is not mistaken for the agent that did the work."""
+        ref = self._work_holder(node)
+        base = dict(ref) if isinstance(ref, dict) else {"node": str(node)}
+        return {**base, "from": now(), "by": actor}
+
+    def _work_holders_append(self, it: WorkItem, node: str, actor: str) -> None:
+        """Record `node` as this item's holder from now. Idempotent against the
+        LAST row only: re-assigning an item to the agent that already holds it
+        adds nothing, while an item that bounces A -> B -> A keeps all three
+        rows, because those are three genuinely different stretches of work."""
+        own = str(node or "").strip()
+        if not own or own == USER:
+            return
+        roster = cast("list[dict[str, Any]]", it.setdefault("holders", []))
+        if not roster:
+            # SEED an item that predates the field, at the first write rather
+            # than at a read. Everything the derivation can still recover is
+            # carried over — including its `derived` flags, because a row
+            # recovered from folded history is not the same evidence as one
+            # written at the assignment, and promoting it to look like one
+            # would be inventing certainty the record never had.
+            roster.extend(self._work_holders(it))
+        if roster and self._work_actor_node(roster[-1]) == own:
+            return
+        roster.append(self._work_holder_row(own, actor))
+
+    def _work_holders(self, it: WorkItem) -> list[dict[str, Any]]:
+        """The roster, oldest first, READ-ONLY — never written back.
+
+        For an item created after the field existed this is exactly what was
+        stored. For an OLDER item there is nothing stored, so a best-effort
+        roster is derived from whatever `assign` rows history still retains,
+        with the current owner appended last. That derivation is explicitly
+        LOSSY where history has already folded, and it is labelled `derived`
+        so a reader can tell the difference; it is never persisted, because a
+        read path that writes is a read path that races another agent's turn."""
+        stored = it.get("holders")
+        if isinstance(stored, list) and stored:
+            return [dict(cast("dict[str, Any]", r)) for r in stored
+                    if isinstance(r, dict) and self._work_actor_node(r)]
+        out: list[dict[str, Any]] = []
+
+        def _add(ref: Any, at: str, by: Any) -> None:
+            nid = self._work_actor_node(ref)
+            if not nid or (out and self._work_actor_node(out[-1]) == nid):
+                return
+            out.append({**cast("dict[str, Any]", ref), "from": at,
+                        "by": by, "derived": True})
+
+        for row in it.get("history") or []:
+            if not isinstance(row, dict) or row.get("op") != "assign":
+                continue
+            if not out:
+                _add(row.get("from"), str(it.get("at") or ""),
+                     it.get("created_by"))
+            _add(row.get("to"), str(row.get("at") or ""), row.get("by"))
+        _add(it.get("owner"), str(it.get("updated_at") or ""),
+             it.get("last_updater"))
+        return out
+
+    # ---- WHO MAY READ, AS THE USER RULED IT (2026-09-16).
+    #
+    # Both halves of this were the user's call, not the implementer's, and both
+    # were asked before either was built:
+    #
+    # WHO — "HOLDER + PARTICIPANTS". Everyone LISTED on the item: the assigned
+    # holder, the collaborators in `participants`, and the named reviewer
+    # (which carries participant-grade rights everywhere else in the docket).
+    # Not holder-only. This is the half that fixes the ticket's second reported
+    # pattern — two agents on one file, who are usually listed together on one
+    # item rather than holding it in sequence, and who otherwise write the same
+    # fix twice because prose is all they can exchange.
+    #
+    # SURVIVAL — "ACCESS ENDS WITH THE ITEM", the narrowest of the three
+    # options offered, and taken deliberately: the read is lost the moment the
+    # agent stops being listed — reassigned away, removed from `participants`,
+    # or holding the item when it closes and archives. The user's words were
+    # "build that; do not soften it because it seems awkward", so the awkward
+    # consequence is stated rather than smoothed: A CLOSED ITEM'S HISTORY IS
+    # NOT READABLE AFTERWARDS, not even by the agent that just finished it.
+    #
+    # The two together reduce to ONE SENTENCE, which is the whole rule:
+    #   the agents who may read an item's earlier holders are exactly the
+    #   agents currently listed on that item, while that item is open.
+    # Membership is therefore evaluated AT CALL TIME and never cached — under
+    # this ruling the answer changes the moment membership changes, so a
+    # remembered grant would be a stale one.
+    #
+    # ⚠ THE ITEM ARCHIVING AND THE TARGET BEING ARCHIVED ARE DIFFERENT THINGS
+    # and only one of them ends the read. An archived ITEM grants nothing to
+    # anyone. An archived TARGET is read normally — that is the common case
+    # the whole ticket exists for, since an item is usually reassigned only
+    # after its previous holder was retired.
+
+    def _work_read_standing(self, it: WorkItem, who: str) -> str | None:
+        """What `who` is LISTED as on this item right now — "holder",
+        "reviewer", "participant", or None if it is not listed at all.
+
+        Current membership only. Having held the item, or having been a
+        participant on it, is not standing: those are things that WERE true."""
+        if self._work_actor_node(it.get("owner")) == who:
+            return "holder"
+        if self._work_actor_node(it.get("reviewer")) == who:
+            return "reviewer"
+        if who in (it.get("participants") or []):
+            return "participant"
+        return None
+
+    def work_item_read_grant(self, reader: str, target: str
+                             ) -> dict[str, Any] | None:
+        """Does a SHARED WORK ITEM let `reader` read `target`'s scratch and
+        transcript? Returns the granting item's disclosure, or None.
+
+        `reader` must be currently listed on an OPEN item — its holder, one of
+        its participants, or its named reviewer — and `target` must be a holder
+        of that same item from before the reader's own stretch of it. See the
+        block above for the user ruling this implements.
+
+        What grants nothing, and each of these is tested: being a peer; being
+        a superior who is not listed; holding a DIFFERENT item that `target`
+        once held; having held this item and lost it; being listed on it after
+        it archived. The user never reads or is read here — the user has
+        neither a scratch space nor a transcript this could be about."""
+        who = str(reader or "").strip()
+        whom = str(target or "").strip()
+        if not who or not whom or who == whom or USER in (who, whom):
+            return None
+        for it in self._work_active():
+            # `_work_active()`, NOT `_work_all()`: the archive is excluded at
+            # the loop rather than filtered inside it, because "the read ends
+            # when the item closes" is not a detail of the match — a closed
+            # item is not a source of access at all.
+            standing = self._work_read_standing(it, who)
+            if standing is None:
+                continue
+            # PREVIOUS holders only — the roster minus its last row, which is
+            # the stretch being worked NOW. Both the ticket and the ruling say
+            # "previous holders", and the current one is not that: reading the
+            # live transcript of whoever holds the item is a wider thing than
+            # "do not lose what the last agent learned", and it is not what was
+            # asked for. So the cut is the same for everybody — a holder reads
+            # what came before its own stretch, and a participant or reviewer,
+            # which holds no stretch at all, reads exactly the same rows.
+            roster = self._work_holders(it)[:-1]
+            row = next((r for r in reversed(roster)
+                        if self._work_actor_node(r) == whom), None)
+            if row is None:
+                continue
+            return {"via": "item", "item": str(it.get("slug") or ""),
+                    "title": str(it.get("title") or ""),
+                    "standing": standing,
+                    "held_from": str(row.get("from") or "") or None,
+                    "derived": bool(row.get("derived")),
+                    "note": (f"item-scoped read: you are currently listed on "
+                             f"{it.get('slug')!r} as its {standing}, and "
+                             f"{whom} held that item before you, so its "
+                             f"working notes on THAT item are readable to "
+                             f"you. This grants nothing about {whom}'s work on "
+                             f"any other item and nothing about any other "
+                             f"agent, and it ends when you stop being listed "
+                             f"on the item or the item closes.")}
+        return None
+        return None
+
     def _work_can_accept(self, actor: str, it: WorkItem) -> bool:
         """Everyone with read standing on the item (user ruling 2026-09-10
         13:47: ANY ticket participant may change its state in any manner,
@@ -11848,6 +12033,13 @@ class Org:
             # changing the implementation owner or where user replies go.
             "next_action": ({"node": next_actor, "role": next_role}
                              if next_actor else None),
+            # WHO HAS HELD THIS ITEM, oldest first, current holder last
+            # (W-ISR). Served on the item because it is also the item's
+            # statement of who the current holder may read: the last row may
+            # read the working notes of every row above it, and of nobody
+            # else. A coordinator reading the item therefore sees the access
+            # rather than having to infer it from the chart.
+            "holders": self._work_holders(it),
             # files attached TO the item (user feature 2026-09-10) — records
             # only; the bytes are served by the attachments GET route
             "attachments": list(it.get("attachments") or []),
@@ -13267,6 +13459,11 @@ class Org:
         # would. Refusing here leaves nothing stranded on the list.
         self._work_state_info(it, None, {"blocked_reason": blocked_reason,
                                          "waiting_reason": waiting_reason})
+        # the roster opens with whoever the item was created onto — creation is
+        # the first stretch of ownership, and an item that is never reassigned
+        # still has to say who holds it
+        if own:
+            self._work_holders_append(it, own, actor)
         active.append(it)
         # the title WHOLE: it is a bounded field (200), so there is nothing to
         # save by logging 60 characters of it, and a log row holding a
@@ -14278,6 +14475,13 @@ class Org:
         # here; the other callers reach it for the first time.
         self._work_assign_dest_check(actor, own)
         frm = it.get("owner")
+        # ⚠ THE ROSTER IS APPENDED HERE, beside the owner field, because this
+        # is the ONE place the assignment moves. It is what `work_item_read_
+        # grant` reads, and unlike `history` it never folds (W-ISR). It runs
+        # BEFORE `owner` is overwritten on purpose: on an item that predates
+        # the field the seeding read derives the roster from the item as it
+        # stands, and "as it stands" has to still mean the OUTGOING holder.
+        self._work_holders_append(it, own, actor)
         it["owner"] = cast(WorkActor, self._work_holder(own))
         # Assignment starts work that was explicitly left in the backlog.
         # Keep every other status untouched: assignment is ownership, not a
@@ -14316,7 +14520,23 @@ class Org:
                           f'\"{str(it.get("title") or "")[:80]}\"]\n'
                           f"This item was reassigned to {own}. You are no "
                           "longer its implementation owner; the assignment "
-                          "and user-reply route now belong to that agent.")
+                          "and user-reply route now belong to that agent.\n"
+                          # W-ISR: the item-scoped read is DISCLOSED to the
+                          # agent whose material it makes readable, at the
+                          # moment it becomes readable — the access is a
+                          # standing rule of the org, not something for the
+                          # outgoing holder to discover by accident.
+                          f"Because you held this item, the agents now listed "
+                          f"on it — {own}, plus any participants and its named "
+                          f"reviewer — may read your scratch folder and your "
+                          f"transcript through orgtree_read_scratch / "
+                          f"orgtree_read_transcript, so that what you learned "
+                          f"here is not lost with the handover. That access is "
+                          f"scoped to THIS item: it says nothing about your "
+                          f"work on any other item, it does not make you "
+                          f"readable to anyone not listed here, and it ends "
+                          f"for each of them when they stop being listed or "
+                          f"when this item closes and archives.")
                 self.post_mail(SYSTEM, previous, notice, "notice",
                                typed=True, grant_reply_audience=False)
                 out["previous_owner_notified"] = previous

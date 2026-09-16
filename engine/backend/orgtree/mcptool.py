@@ -2186,9 +2186,24 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "orgtree_read_transcript",
-        "description": ("Read a report's conversation transcript (read access is "
-                        "strictly DOWNWARD: yourself and your descendants only — you "
-                        "can never read peers or superiors)."),
+        "description": ("Read an agent's conversation transcript. Access is "
+                        "DOWNWARD — yourself and your descendants at any depth, "
+                        "never a superior and never a peer in general — plus ONE "
+                        "item-scoped exception: while you are LISTED on an open "
+                        "docket item (its holder, one of its `participants`, or "
+                        "its named reviewer) you may read the transcript of any "
+                        "agent that held THAT SAME item BEFORE you, wherever it "
+                        "sits in the chart and whether or not it has been "
+                        "archived — so an inherited ticket does not start from "
+                        "nothing. Scoped by the item: holding item X grants "
+                        "nothing about an earlier holder's work on item Y. The "
+                        "route ends when you stop being listed, when the item "
+                        "closes and archives, and it never reaches the item's "
+                        "CURRENT holder. `orgtree_work get` shows an item's "
+                        "`holders` (current one last); every row but that last "
+                        "one is readable to you. The result says under `access` "
+                        "which route allowed the read, and an item-scoped read "
+                        "names the item and your standing on it."),
         "inputSchema": {"type": "object",
                         "properties": {"node": {"type": "string"},
                                        "last": {"type": "integer", "minimum": 1,
@@ -2198,8 +2213,22 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "orgtree_read_scratch",
-        "description": ("Browse or read a descendant's scratch space (downward-only). "
-                        "Omit path to list the root; pass a file path to read it."),
+        "description": ("Browse or read an agent's scratch space. Same access "
+                        "rule as orgtree_read_transcript: DOWNWARD (yourself and "
+                        "your descendants), plus the item-scoped exception — "
+                        "while you are LISTED on an open docket item (holder, "
+                        "participant, or named reviewer) you may read the scratch "
+                        "of any agent that held that same item before you, "
+                        "archived ones included, which is how you reach the "
+                        "breadcrumbs.md of the agent that worked your ticket "
+                        "before you. It grants nothing about that agent's work on "
+                        "any other item, an unrelated peer stays unreadable, and "
+                        "it ends when you stop being listed or the item closes. "
+                        "`orgtree_work get` shows an item's `holders`, current "
+                        "one last; every row but that last one is readable to "
+                        "you. Omit path to list the root; pass a file path to "
+                        "read it. The result says under `access` which route "
+                        "allowed the read."),
         "inputSchema": {"type": "object",
                         "properties": {"node": {"type": "string"},
                                        "path": {"type": "string"}},

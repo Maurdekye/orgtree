@@ -891,6 +891,20 @@ class WorkItem(TypedDict):
     review_packet: NotRequired[dict[str, Any] | None]
     review_packets: NotRequired[list[dict[str, Any]]]
     history: list[dict[str, Any]]   # {at, by, field, from, to}; oldest fold into ONE {kind: "folded", ...} row past the cap
+    # ---- THE HOLDER ROSTER (W-ISR). Append-only, one row per stretch of
+    # ownership, oldest first: {node, generation, born?, from, by}. It exists
+    # because `history` is a WINDOW — past Org.WORK_HISTORY_MAX the oldest rows
+    # fold into one count-and-span row — so the assign trail is NOT a durable
+    # answer to "who has held this item", and item-scoped reads
+    # (`Org.work_item_read_grant`) are an authorization decision that may not
+    # rest on a lossy record. The current owner is the LAST row.
+    #
+    # Absent on items written before the field existed; those derive a
+    # best-effort roster from whatever history survives plus the current owner,
+    # and are NEVER back-filled on read — a read that writes is a read that
+    # races. Absent and empty both mean "nothing recorded", and neither is
+    # evidence that the item had no earlier holder.
+    holders: NotRequired[list[dict[str, Any]]]
     superseded_by: str | None
 
 
