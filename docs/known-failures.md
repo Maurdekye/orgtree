@@ -40,6 +40,30 @@ The exit code is 0 if and only if the first two lists are empty. That makes
 node tools/test-baseline.mjs compare && echo "nothing new is broken"
 ```
 
+Here is a real one. A deliberate regression was introduced into
+`tests/icon-assets.test.mjs` on a checkout that also carries the two known root
+failures, and `compare` was run once:
+
+```text
+baseline: FRESH — recorded 2026-09-16T17:39:28.511Z (17 minutes ago)
+          at commit e2cb7d08d1 (this is HEAD)
+
+── node-root ──
+   622/635 passed, 3 failed
+
+   NEW FAILURES (yours): 1
+     ✗ tests/icon-assets.test.mjs :: the overseer eye source is orange and transparent outside the silhouette
+         The input did not match the regular expression /viewBox="0 0 999 999"/. Input:
+   PRE-EXISTING (not yours): 2
+     · tests/attach.test.mjs :: the real trust check accepts an owner-exclusive file (positive control)
+     · tests/private-update-feed.test.mjs :: §23 ⚠ WEB INSTALLERS ARE REFUSED BEFORE ANY DOWNLOAD, by the library's own gate
+
+VERDICT: 1 failure(s) this baseline does not account for. Read them above.
+```
+
+Three failures on screen, one of them the agent's. No second worktree, no second
+run of the suite, and an exit code of 1 that a script can act on.
+
 If you have already run the suite for another reason, do not run it again:
 
 ```text

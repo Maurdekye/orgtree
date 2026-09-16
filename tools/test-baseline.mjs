@@ -321,12 +321,12 @@ function humanAge(hours) {
   return `${(hours / 24).toFixed(1)} days`
 }
 
-function printAge(age) {
+function printAge(age, say = console.log) {
   const mark = age.verdict === 'fresh' ? 'FRESH' : age.verdict === 'drifted' ? 'DRIFTED' : 'STALE'
-  console.log(`baseline: ${mark} — recorded ${age.recorded_at ?? '(no timestamp)'} (${age.age_human} ago)`)
-  console.log(`          at commit ${short(age.baseline_commit)}${age.same_commit ? ' (this is HEAD)' : `, HEAD is ${short(age.head_commit)}`}`)
-  for (const reason of age.reasons) console.log(`  ! ${reason}`)
-  for (const note of age.notes ?? []) console.log(`  · ${note}`)
+  say(`baseline: ${mark} — recorded ${age.recorded_at ?? '(no timestamp)'} (${age.age_human} ago)`)
+  say(`          at commit ${short(age.baseline_commit)}${age.same_commit ? ' (this is HEAD)' : `, HEAD is ${short(age.head_commit)}`}`)
+  for (const reason of age.reasons) say(`  ! ${reason}`)
+  for (const note of age.notes ?? []) say(`  · ${note}`)
 }
 
 function short(sha) {
@@ -614,11 +614,18 @@ function writeJson(file, value) {
   fs.writeFileSync(file, JSON.stringify(value, null, 2) + '\n', 'utf8')
 }
 
-function loadBaseline() {
-  const baseline = readJson(BASELINE_PATH, null)
+/** `--baseline <path>` lets a check run against a baseline from elsewhere — a
+ *  peer's machine, an older commit, or a fixture in a test. */
+function baselinePath(args) {
+  return args?.baseline ? path.resolve(args.baseline) : BASELINE_PATH
+}
+
+function loadBaseline(args) {
+  const file = baselinePath(args)
+  const baseline = readJson(file, null)
   if (!baseline) return null
   if (baseline.schema !== BASELINE_SCHEMA) {
-    throw new Error(`${relative(BASELINE_PATH)} has schema ${baseline.schema}, expected ${BASELINE_SCHEMA}`)
+    throw new Error(`${relative(file)} has schema ${baseline.schema}, expected ${BASELINE_SCHEMA}`)
   }
   return baseline
 }
@@ -637,7 +644,7 @@ async function cmdRecord(args) {
   const suiteNames = args.suite ? [args.suite] : Object.keys(SUITES)
   const concurrency = Number(args.concurrency ?? 4)
   const timeout = Number(args.timeout ?? 120_000)
-  const previous = (() => { try { return loadBaseline() } catch { return null } })()
+  const previous = (() => { try { return loadBaseline(args) } catch { return null } })()
   const provenance = gitProvenance()
 
   if (!provenance.measured_tree_clean && !args.force) {
@@ -750,13 +757,16 @@ async function cmdRun(args) {
 }
 
 async function cmdCompare(args) {
-  const baseline = loadBaseline()
+  const baseline = loadBaseline(args)
   if (!baseline) {
-    console.error(`no baseline at ${relative(BASELINE_PATH)}. Record one: node tools/test-baseline.mjs record`)
+    console.error(`no baseline at ${relative(baselinePath(args))}. Record one: node tools/test-baseline.mjs record`)
     return 2
   }
+  // With --json, stdout carries the report and nothing else: a caller that has
+  // to find JSON inside prose is a caller that will eventually mis-parse it.
+  const say = args.json ? (...parts) => console.error(...parts) : (...parts) => process.stdout.write(parts.join(' ') + '\n')
   const age = ageOf(baseline)
-  printAge(age)
+  printAge(age, say)
 
   const maxAge = args.maxAgeDays === undefined ? null : Number(args.maxAgeDays)
   if (maxAge !== null && age.age_hours !== null && age.age_hours > maxAge * 24) {
@@ -767,7 +777,7 @@ async function cmdCompare(args) {
     console.error('\nrefusing: --require-fresh and the baseline has drifted (reasons above).')
     return 2
   }
-  console.log('')
+  say('')
 
   // Either replay a saved run or run the suites here, once.
   const suiteNames = args.suite ? [args.suite] : Object.keys(baseline.suites ?? {})
@@ -780,7 +790,7 @@ async function cmdCompare(args) {
       if (!entry) continue
       runs[suiteName] = { outcomes: entry.outcomes, counts: entry.counts, duration_ms: entry.duration_ms }
     }
-    console.log(`compared against saved run ${args.results} (${saved.ran_at}, commit ${short(saved.commit)}) — nothing was re-run.\n`)
+    say(`compared against saved run ${args.results} (${saved.ran_at}, commit ${short(saved.commit)}) — nothing was re-run.\n`)
   } else {
     const concurrency = Number(args.concurrency ?? baseline.machine?.concurrency ?? 4)
     const timeout = Number(args.timeout ?? 120_000)
@@ -802,10 +812,10 @@ async function cmdCompare(args) {
     if (!runResult) continue
     const known = baselineFailures(baseline, suiteName)
     if (!known) {
-      console.log(`── ${suiteName} ──`)
-      console.log(`   NOT IN THE BASELINE. Every failure here is counted against you, because`)
-      console.log(`   there is no record saying otherwise. Re-record: node tools/test-baseline.mjs record`)
-      console.log('')
+      say(`── ${suiteName} ──`)
+      say(`   NOT IN THE BASELINE. Every failure here is counted against you, because`)
+      say(`   there is no record saying otherwise. Re-record: node tools/test-baseline.mjs record`)
+      say('')
       newFailures += runResult.outcomes.filter(o => o.kind !== 'aggregate' && o.status === 'failed').length
       continue
     }
@@ -847,48 +857,48 @@ async function cmdCompare(args) {
       baseline_tests_absent_from_this_run: disappeared.map(f => f.id),
     }
 
-    console.log(`── ${suiteName} ──`)
-    console.log(`   ${runResult.counts.passed}/${runResult.counts.tests} passed, ${runResult.counts.failed} failed`)
-    console.log('')
-    console.log(`   NEW FAILURES (yours): ${regressions.length}`)
-    for (const f of regressions) console.log(`     ✗ ${f.file} :: ${f.test}\n         ${f.error}`)
+    say(`── ${suiteName} ──`)
+    say(`   ${runResult.counts.passed}/${runResult.counts.tests} passed, ${runResult.counts.failed} failed`)
+    say('')
+    say(`   NEW FAILURES (yours): ${regressions.length}`)
+    for (const f of regressions) say(`     ✗ ${f.file} :: ${f.test}\n         ${f.error}`)
     if (unclassifiable.length) {
-      console.log(`   FAILURES THE BASELINE CANNOT ACQUIT (test not in baseline — new or renamed): ${unclassifiable.length}`)
-      for (const f of unclassifiable) console.log(`     ? ${f.file} :: ${f.test}\n         ${f.error}`)
+      say(`   FAILURES THE BASELINE CANNOT ACQUIT (test not in baseline — new or renamed): ${unclassifiable.length}`)
+      for (const f of unclassifiable) say(`     ? ${f.file} :: ${f.test}\n         ${f.error}`)
     }
-    console.log(`   PRE-EXISTING (not yours): ${preExisting.length}`)
+    say(`   PRE-EXISTING (not yours): ${preExisting.length}`)
     for (const f of preExisting) {
       const flags = [f.baseline_stability === 'flaky' ? 'FLAKY in baseline' : null, f.error_changed ? 'error text differs' : null].filter(Boolean)
-      console.log(`     · ${f.file} :: ${f.test}${flags.length ? `  [${flags.join('; ')}]` : ''}`)
-      if (f.baseline_note) console.log(`         note: ${f.baseline_note}`)
+      say(`     · ${f.file} :: ${f.test}${flags.length ? `  [${flags.join('; ')}]` : ''}`)
+      if (f.baseline_note) say(`         note: ${f.baseline_note}`)
     }
     if (fixed.length) {
-      console.log(`   FIXED since the baseline: ${fixed.length}`)
-      for (const f of fixed) console.log(`     ✓ ${f.file} :: ${f.test}`)
+      say(`   FIXED since the baseline: ${fixed.length}`)
+      for (const f of fixed) say(`     ✓ ${f.file} :: ${f.test}`)
     }
     if (disappeared.length) {
-      console.log(`   IN THE BASELINE BUT NOT IN THIS RUN: ${disappeared.length} (renamed, removed, or not selected)`)
-      for (const id of report.suites[suiteName].baseline_tests_absent_from_this_run) console.log(`     – ${id}`)
+      say(`   IN THE BASELINE BUT NOT IN THIS RUN: ${disappeared.length} (renamed, removed, or not selected)`)
+      for (const id of report.suites[suiteName].baseline_tests_absent_from_this_run) say(`     – ${id}`)
     }
-    console.log('')
+    say('')
   }
 
   if (args.json) console.log(JSON.stringify(report, null, 2))
   if (newFailures === 0) {
-    console.log('VERDICT: no new failures. Every failure in this run was already failing in the baseline.')
-    if (age.verdict !== 'fresh') console.log('         (read the drift warnings above before quoting this as proof.)')
+    say('VERDICT: no new failures. Every failure in this run was already failing in the baseline.')
+    if (age.verdict !== 'fresh') say('         (read the drift warnings above before quoting this as proof.)')
   } else {
-    console.log(`VERDICT: ${newFailures} failure(s) this baseline does not account for. Read them above.`)
+    say(`VERDICT: ${newFailures} failure(s) this baseline does not account for. Read them above.`)
   }
-  console.log('\nTo hand a pre-existing failure to whoever owns it — without taking it on yourself:')
-  console.log('  node tools/test-baseline.mjs handover --test "<id>" --to <agent> --summary "..."')
+  say('\nTo hand a pre-existing failure to whoever owns it — without taking it on yourself:')
+  say('  node tools/test-baseline.mjs handover --test "<id>" --to <agent> --summary "..."')
   return newFailures === 0 ? 0 : 1
 }
 
 function cmdShow(args) {
-  const baseline = loadBaseline()
+  const baseline = loadBaseline(args)
   if (!baseline) {
-    console.error(`no baseline at ${relative(BASELINE_PATH)}. Record one: node tools/test-baseline.mjs record`)
+    console.error(`no baseline at ${relative(baselinePath(args))}. Record one: node tools/test-baseline.mjs record`)
     return 2
   }
   const age = ageOf(baseline)
@@ -930,10 +940,14 @@ function cmdShow(args) {
 // record lives here, in the repository, beside the baseline — and carries
 // `claimed: false` as a structural field the tool will not let you set.
 
-function loadHandovers() {
-  const ledger = readJson(HANDOVER_PATH, null)
+function handoverPath(args) {
+  return args?.ledger ? path.resolve(args.ledger) : HANDOVER_PATH
+}
+
+function loadHandovers(args) {
+  const ledger = readJson(handoverPath(args), null)
   if (!ledger) return { schema: HANDOVER_SCHEMA, handovers: [] }
-  if (ledger.schema !== HANDOVER_SCHEMA) throw new Error(`${relative(HANDOVER_PATH)} has schema ${ledger.schema}`)
+  if (ledger.schema !== HANDOVER_SCHEMA) throw new Error(`${relative(handoverPath(args))} has schema ${ledger.schema}`)
   return ledger
 }
 
@@ -945,7 +959,7 @@ function cmdHandover(args) {
   }
   if (!args.test) { console.error('handover needs --test "<id or substring>"'); return 2 }
 
-  const baseline = loadBaseline()
+  const baseline = loadBaseline(args)
   if (!baseline) { console.error('no baseline to hand over from; record one first.'); return 2 }
 
   const all = Object.entries(baseline.suites ?? {}).flatMap(([suite, s]) => s.failures.map(f => ({ ...f, suite })))
@@ -963,7 +977,7 @@ function cmdHandover(args) {
     return 2
   }
 
-  const ledger = loadHandovers()
+  const ledger = loadHandovers(args)
   const seqStart = ledger.handovers.reduce((n, h) => Math.max(n, h.seq), 0)
   const created = []
   matches.forEach((match, index) => {
@@ -999,7 +1013,7 @@ function cmdHandover(args) {
   })
 
   if (!created.length) return 1
-  writeJson(HANDOVER_PATH, ledger)
+  writeJson(handoverPath(args), ledger)
   console.error(`[baseline] recorded ${created.length} handover(s) in ${relative(HANDOVER_PATH)}\n`)
 
   for (const entry of created) {
@@ -1042,7 +1056,7 @@ function handoverMessage(entry) {
 }
 
 function cmdHandovers(args) {
-  const ledger = loadHandovers()
+  const ledger = loadHandovers(args)
   if (args.json) { console.log(JSON.stringify(ledger, null, 2)); return 0 }
   if (!ledger.handovers.length) { console.log('no handovers recorded.'); return 0 }
   for (const h of ledger.handovers) {
@@ -1057,7 +1071,7 @@ function cmdHandovers(args) {
 }
 
 function cmdResolve(args) {
-  const ledger = loadHandovers()
+  const ledger = loadHandovers(args)
   const entry = ledger.handovers.find(h => String(h.seq) === String(args.seq))
   if (!entry) { console.error(`no handover #${args.seq}`); return 2 }
   const status = args.status ?? 'closed'
@@ -1066,7 +1080,7 @@ function cmdResolve(args) {
   }
   entry.status = status
   entry.resolution = { at: new Date().toISOString(), by: args.by ?? process.env.ORGTREE_AGENT ?? '(unidentified)', note: args.note ?? null }
-  writeJson(HANDOVER_PATH, ledger)
+  writeJson(handoverPath(args), ledger)
   console.log(`#${entry.seq} → ${status}`)
   return 0
 }
@@ -1111,6 +1125,8 @@ common flags
   --max-age-days <n>       compare: refuse if the baseline is older than this
   --require-fresh          compare: refuse unless the baseline shows no drift at all
   --by <agent>             record/handover: who is doing this
+  --baseline <file>        read the baseline from here instead of docs/test-baseline.json
+  --ledger <file>          read/write the handover ledger here instead of docs/test-handovers.json
 `
 
 // An exception thrown inside a stream listener would otherwise kill the process
