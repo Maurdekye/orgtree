@@ -2000,7 +2000,12 @@ function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
  * selected, matching the existing docket category-fold convention. */
 function DocketSection({ title, children }: { title: string; children: ReactNode }) {
   const id = useId()
-  const [collapsed, setCollapsed] = useState(false)
+  // Acceptance and verification are audit context, not the reader's first
+  // answer.  They must start closed on every newly mounted ticket pane, even
+  // when another section remains open by default.  The state is still local
+  // so the reader can expand either section for the current visit.
+  const startsCollapsed = title === 'ACCEPTANCE CONDITIONS' || title === 'VERIFICATION'
+  const [collapsed, setCollapsed] = useState(startsCollapsed)
   return (
     <section className={(title === 'DESCRIPTION' || title === 'BLOCKED BECAUSE'
       || title.startsWith('BLOCKED BECAUSE') || title === 'WAITING FOR'

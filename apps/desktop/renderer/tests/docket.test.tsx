@@ -1461,6 +1461,40 @@ uiTest('§28 the detail pane leads with the description, and says so when there 
     /predates the rule/, 'an older item without one says so rather than showing blank')
 })
 
+uiTest('acceptance conditions and verification start closed on every ticket visit', async (mount) => {
+  const item = mkItem({ title: 'Audited ticket', acceptance: [{ text: 'the check is visible', checked: null }],
+    findings: [{ id: 'F1', seq: 1, at: '2026-09-05T09:00:00.000Z', by: 'agent1',
+      title: 'sample finding', disposition: 'open', decisions: [] }],
+    findings_summary: { total: 1, by_disposition: { open: 1 }, open: ['F1'] } })
+  mockWorkItems([item])
+  const { el } = await mount(docketModal())
+  await flush()
+  const row = rows(el)[0]!
+  await inAct(() => row.click())
+  await flush()
+
+  const section = (title: string) => [...(pane(el)?.querySelectorAll<HTMLElement>('.docket-detail-section') ?? [])]
+    .find((s) => s.querySelector('h4')?.textContent === title)!
+  const toggleState = (title: string) => section(title).querySelector<HTMLButtonElement>('.docket-detail-toggle')!
+    .getAttribute('aria-expanded')
+  assert.equal(toggleState('ACCEPTANCE CONDITIONS'), 'false')
+  assert.equal(toggleState('VERIFICATION'), 'false')
+  assert.equal(toggleState('DONE SO FAR'), 'true', 'other sections keep their open default')
+
+  await inAct(() => section('ACCEPTANCE CONDITIONS').querySelector<HTMLButtonElement>('.docket-detail-toggle')!.click())
+  await flush()
+  assert.equal(toggleState('ACCEPTANCE CONDITIONS'), 'true', 'the reader can still expand acceptance')
+
+  // Closing and reopening the same ticket mounts a fresh pane. The expanded
+  // posture from the previous visit must not leak into the next one.
+  await inAct(() => row.click())
+  await flush()
+  await inAct(() => row.click())
+  await flush()
+  assert.equal(toggleState('ACCEPTANCE CONDITIONS'), 'false')
+  assert.equal(toggleState('VERIFICATION'), 'false')
+})
+
 uiTest('§29 the panel never re-sorts what the server ordered', async (mount) => {
   // deliberately NOT in recency order, and tied on docket_at: a component that
   // sorted for itself would disagree with the server, and two orderings of the
