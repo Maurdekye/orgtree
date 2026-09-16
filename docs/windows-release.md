@@ -302,6 +302,22 @@ that is gone. That holds whether the child was started before the recording or
 after it. A seed is only a seed: it is never itself reported as holding the
 installation unless a scan actually observed it.
 
+A process id is not an identity, though, and both of those jobs used to assume it
+was. Windows writes a process's parent id once, at creation, and never revises
+it, so an orphan goes on naming a number that its parent released long ago — and
+when the engine is later given that number, a closure over parent ids alone walks
+straight from the installation into unrelated processes. 2.1.6-beta.1 refused an
+upgrade that way, naming eight Windows processes that had nothing to do with
+Orgtree. The same assumption ran the other way in the recorded-tree check: an id
+that Windows had handed to something else still answered "alive". Both are
+settled by creation time, which cannot be argued with — a process cannot be the
+child of something that did not exist yet, and a process holding an id since
+before the recording is not the process that was recorded. Neither test weakens
+anything: a parent id is only rejected when the impossibility is established, a
+recorded process is only cleared when this reading positively shows a different
+process holding its id, and an unreadable creation time on either side leaves the
+process exactly where it was — in the tree, holding the upgrade.
+
 The installer still does not force-kill a process. A timeout, a
 path-verification failure, a tree that cannot be enumerated, or a tree that does
 not go quiet leaves the installation untouched and offers `Retry` or `Cancel`.
