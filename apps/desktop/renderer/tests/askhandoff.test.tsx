@@ -12,7 +12,9 @@
 //   bubble     = .pendrow card for the answer's mail id
 //   transcript = .typed-input .turn-mail row with that mail id
 // and their sum must be exactly 1 at each settled state (0 panels only after
-// the transcript shows the row).
+// the transcript shows the row). §7 checks the same sum from the other side:
+// with no card served at all — what the backend does after a restart, since
+// 2026-09-16 — the queued answer must fall back to its own bubble.
 //
 // Run:  cd frontend && node tests/run.mjs askhandoff
 
@@ -202,4 +204,42 @@ domTest('§6 an unrelated pending mail still renders as a bubble beside the pinn
     const other = [...el.querySelectorAll('.pendrow')]
       .filter(b => (b.textContent ?? '').includes('unrelated words'))
     assert.equal(other.length, 1, 'the unrelated message keeps its own bubble')
+  })
+
+domTest('§7 with no card served, the answer is a bubble — the restart fix costs no visibility',
+  async ({ ND, s, mount }) => {
+    // The counterpart to the per-process linger bound added to
+    // `ledger.node_ask` (user report 2026-09-16: an answered card came back at
+    // full size after a restart and blocked the chat). After a restart the
+    // backend stops serving the resolved card, which is what a session that
+    // was never restarted looks like once its answer has been handed off.
+    //
+    // ⚠ THE RISK THAT CHANGE CARRIES, measured here rather than reasoned
+    // about. This desk suppresses the answer's own pending bubble ONLY while
+    // it is drawing the card (`askAnswerRow` returns false with no `ask`), so
+    // if the backend withdraws the card while the answer is still queued, the
+    // suppression must lift in the same breath. It does — but "must" is the
+    // word that belongs in a test, because the sum this file counts at every
+    // other step would go to ZERO if it ever stopped being true.
+    //
+    // ⚠ NOT counted through `counts().bubble`, and the reason is worth saying
+    // once: that helper looks for the literal body text, and an answer row is
+    // a TYPED `answer.ask` event, so the desk draws the event's rendering
+    // ("Question answered … Proceed? … yes") and never the raw `body` string.
+    // Reusing the helper here would have read 0 and called the hole proven
+    // shut. The row is counted structurally instead, and then read for the
+    // answer it is supposed to be carrying.
+    s.pending_mail.push(answerRow(ND))
+    await refreshConvo(SL, ND)
+    const el = await mount(deskEl(node(ND, null)))       // ← no card served
+    await flush()
+    const rows = [...el.querySelectorAll('.pendrow')]
+    assert.equal(rows.length, 1,
+      `exactly one representation, not zero and not two (${JSON.stringify(
+        rows.map(r => (r.textContent ?? '').slice(0, 60)))})`)
+    assert.equal(el.querySelectorAll('.askcard').length, 0, 'and no card')
+    const text = rows[0]!.textContent ?? ''
+    assert.match(text, /Question answered/, 'the row says the question was answered')
+    assert.match(text, /Proceed\?/, 'it carries the question')
+    assert.match(text, /yes/, 'and the answer the user chose')
   })
