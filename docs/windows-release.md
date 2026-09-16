@@ -17,7 +17,12 @@ available before the command starts:
 - A provisioned app-local Windows runtime under `engine/runtime/`. The embedded
   runtime must include `python.exe`, `python313.zip`, `python313._pth`,
   `runtime-manifest.json`, and the complete dependency set under
-  `Lib/site-packages` (the location `python313._pth` names). Provision it with
+  `Lib/site-packages` (the location `python313._pth` names). The `._pth` must
+  also name `../backend` and `../mailhub`: a `._pth` interpreter ignores
+  `PYTHONPATH`, so those entries are the only way the packaged engine and the
+  bundled mail hub are importable — 2.1.6-beta.0 shipped a mail hub that could
+  not start because `../mailhub` was missing, and the preflight now refuses
+  such a runtime. Provision it with
   `npm run runtime:provision`, or stage an already-provisioned runtime into
   this private worktree with
   `npm run runtime:stage -- --from <provisioned-checkout>`. Do not copy the

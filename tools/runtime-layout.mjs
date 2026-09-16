@@ -73,6 +73,10 @@ function requireFile(file, label) {
  *  - the interpreter, stdlib zip, `._pth` and manifest exist;
  *  - `python313._pth` still names `Lib/site-packages` (the configured
  *    package location every other check is anchored to);
+ *  - `python313._pth` names `../mailhub`: a `._pth` interpreter ignores
+ *    PYTHONPATH, so this entry is the only way the bundled mail hub's
+ *    child processes can import their own package (2.1.6-beta.0 shipped
+ *    a hub that could not start because this line was missing);
  *  - there is NO stray `site-packages` directly under the runtime — that is
  *    the exact RC4 mis-staging and it is refused by name, not merely by the
  *    absence of the right folder;
@@ -94,6 +98,11 @@ export function assertRuntimeLayout(runtimeDir, { label = 'runtime' } = {}) {
   const pthLines = fs.readFileSync(pthFile, 'utf8').split(/\r?\n/).map(line => line.trim())
   if (!pthLines.includes('Lib/site-packages')) {
     fail(`${label} python313._pth no longer names Lib/site-packages; the layout contract moved without this check`)
+  }
+  if (!pthLines.includes('../mailhub')) {
+    fail(`${label} python313._pth does not name ../mailhub — the embedded interpreter ignores PYTHONPATH, so `
+      + 'without this entry the bundled mail hub cannot be imported by its child processes '
+      + "(the 2.1.6-beta.0 \"No module named 'mailhub'\" startup failure)")
   }
 
   const stray = path.join(runtimeDir, 'site-packages')
