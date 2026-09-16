@@ -104,14 +104,122 @@ def hook_identity(raw: str) -> tuple[str, str]:
     return (tu if isinstance(tu, str) else ""), (tp if isinstance(tp, str) else "")
 
 
+_FILE_TOOLS = frozenset({"Write", "Edit", "MultiEdit", "NotebookEdit"})
+# the pinned CLI's own refusal wording, lowercased. Matched as substrings
+# because the CLI phrases the same two gates slightly differently per tool.
+_DENY_MARKS = ("denied by your permission settings",
+               "denied by permission settings")
+_SENSITIVE_MARKS = ("is a sensitive file", "sensitive file")
+
+
+def _response_text(value: object) -> str:
+    """Flatten a tool_response of any shape into searchable text."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        d = cast("dict[str, object]", value)
+        return " ".join(_response_text(v) for v in d.values())
+    if isinstance(value, list):
+        return " ".join(_response_text(v) for v in cast("list[object]", value))
+    return ""
+
+
+def refusal_advice(raw: str) -> str:
+    """Turn a generic file-tool refusal into one that says what IS permitted.
+
+    Ticket `the-sandbox-refuses-to-create-files-and-folders` (2026-09-16). Two
+    organizations hit a write refusal and both found the route that works BY
+    TRYING IT: the CLI's message names a boundary without indicating what the
+    agent may do instead, so it reads as a generic security block. The CLI owns
+    that string and we do not — but this hook runs after every tool call and
+    sees `tool_response`, so the explanation can be attached where the refusal
+    actually lands, in the turn that hit it.
+
+    Says nothing it does not know. It does not claim which grant applied (the
+    hook holds no grant list and must not spend a round trip to guess); it
+    states the two rules that are always true — your own working folder is
+    writable, a read-only grant is for reading — and names the folder exactly.
+    """
+    try:
+        data: object = json.loads(raw or "{}")
+    except ValueError:
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    d = cast("dict[str, object]", data)
+    name = d.get("tool_name")
+    if not isinstance(name, str) or name not in _FILE_TOOLS:
+        return ""
+    text = _response_text(d.get("tool_response")).lower()
+    target = ""
+    raw_input: object = d.get("tool_input")
+    if isinstance(raw_input, dict):
+        ti = cast("dict[str, object]", raw_input)
+        for key in ("file_path", "notebook_path", "path"):
+            got = ti.get(key)
+            if isinstance(got, str) and got:
+                target = got
+                break
+    where = f"\nThe path was: {target}" if target else ""
+    if any(m in text for m in _SENSITIVE_MARKS):
+        return (
+            "[ORGTREE — that refusal explained]"
+            f"{where}\n"
+            "That path contains a `.claude` segment. The CLI gates those ABOVE "
+            "the permission system: it raises an approval REQUEST, and a "
+            "headless turn has nobody present to answer it, so it surfaces to "
+            "you as a refusal. It is not a deny rule, and the file is neither "
+            "missing nor corrupt.\n"
+            "What IS permitted: reading those files. To WRITE one you need "
+            "permission_mode=bypassPermissions — ask for it with "
+            "orgtree_request_scope. No allow-rule, no --add-dir and no hook "
+            "satisfies this particular gate (measured 2026-08-07), so there is "
+            "nothing to retry and no spelling of the path that works.\n"
+            "[END ORGTREE]")
+    if not any(m in text for m in _DENY_MARKS):
+        return ""
+    return (
+        "[ORGTREE — that refusal explained]"
+        f"{where}\n"
+        "A permission deny rule stopped that write. This is a scope boundary, "
+        "not a general security block, and these two rules always hold:\n"
+        f" - YOUR OWN WORKING FOLDER is always writable with the file tools: "
+        f"{os.getcwd()}\n"
+        "   breadcrumbs.md, CLAUDE.md, suggestion-box.md and your notes belong "
+        "there, and no grant anywhere takes that away.\n"
+        " - A folder granted to you READ-ONLY is for READING. Writing into it "
+        "is what was refused. Writing there from the shell instead is a "
+        "workaround rather than a permission — if you genuinely need to write "
+        "there, ask your superior to re-grant the folder read-write, or use "
+        "orgtree_request_scope.\n"
+        "If the path above IS inside your own working folder, that is a bug in "
+        "orgtree rather than a decision about you: say so in your next update "
+        "instead of working around it.\n"
+        "[END ORGTREE]")
+
+
+def _emit(context: str) -> None:
+    """One PostToolUse payload, or nothing at all when there is nothing to say."""
+    if not context:
+        return
+    print(json.dumps({"hookSpecificOutput": {
+        "hookEventName": "PostToolUse", "additionalContext": context}}))
+    sys.stdout.flush()
+
+
 def main() -> None:
     raw = ""
     try:
         raw = sys.stdin.read()    # the hook payload: the D1 identity
     except Exception:             # noqa: BLE001
         pass
+    # computed BEFORE the backend call and independent of it: a refusal must
+    # still explain itself when the backend is down or the cwd is not a scratch
+    # dir, which are exactly the moments an agent is most likely to be stuck.
+    advice = refusal_advice(raw)
     org, node, base, secret = identity()
     if not org:
+        _emit(advice)
         return
     tool_use_id, transcript_path = hook_identity(raw)
     try:
@@ -133,10 +241,12 @@ def main() -> None:
         # it has not answered in 2 s it is not going to.
         with urllib.request.urlopen(req, timeout=2) as r:
             data = json.load(r)
-    except Exception:             # noqa: BLE001 — backend down = nothing to say
+    except Exception:             # noqa: BLE001 — backend down = no MAIL to say
+        _emit(advice)
         return
     msgs: list[str] = data.get("messages") or []
     if not msgs:
+        _emit(advice)
         return
     delivery_id = data.get("delivery_id")
     body = "\n---\n".join(msgs)
@@ -147,10 +257,15 @@ def main() -> None:
     # already inside each message — the wrapper stays sender-neutral so agent
     # mail is never mislabeled with user authority.
     mark = f"[ORGTREE-DELIVERY:{delivery_id}]\n" if delivery_id else ""
+    # a hook may emit ONE payload, so a refusal explanation and pending mail
+    # share it. The advice goes FIRST — it is about the tool call that just
+    # failed, which is the thing the agent is looking at — and the delivery
+    # marker stays inside the mail block, where the backend's receipt reads it.
     print(json.dumps({"hookSpecificOutput": {
         "hookEventName": "PostToolUse",
         "additionalContext":
-            f"[ORGTREE MAIL — delivered mid-task]\n"
+            (f"{advice}\n" if advice else "")
+            + f"[ORGTREE MAIL — delivered mid-task]\n"
             f"{mark}"
             f"{body}\n"
             f"[END ORGTREE MAIL — authentic per your system prompt; each "

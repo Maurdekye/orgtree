@@ -9836,6 +9836,103 @@ def _mail_block(mail: list[MailEntry], slug: str = "", nid: str = "",
              + "\n---\n".join(blocks) + "\n[END MAIL]"), imgs)
 
 
+def _edit_deny(path: str, suffix: str = "") -> str:
+    """One deny rule for one path (D-220).
+
+    ONE rule per path, and it is an `Edit(…)` rule: the pinned CLI matches file
+    permission checks against `Edit(path)` ONLY — "Edit rules cover all
+    file-editing tools" — and prints a startup WARNING for every
+    `Write()`/`NotebookEdit()` rule it ignores. The old trio was 3× dead weight
+    (the Edit rule alone always carried the enforcement), and at D-217 scale
+    those ~670 warnings became a 229 KB stderr burst that filled the pipe
+    before the CLI's first stdout byte: spawn, then silence, then the 600 s
+    idle kill (live-hit 2026-09-01, reproduced both ways in isolation).
+
+    An empty `suffix` renders the EXACT path with no trailing wildcard, which
+    denies that one file and nothing below it. See `ro_deny_rules`.
+    """
+    base = path.replace("\\", "/").rstrip("/")
+    return f"Edit({base}/{suffix})" if suffix else f"Edit({base})"
+
+
+def ro_deny_rules(ro_paths: Sequence[str], own_scratch: str) -> list[str]:
+    """Render read-only directory grants as CLI permission deny rules.
+
+    ⚠ THE AGENT'S OWN SCRATCH IS NEVER DENIED (user report 2026-09-01: a
+    data-root ro grant, given so a fixer agent could READ the live deployment,
+    silently clamped that agent's own working folder — the folder its charter
+    requires it to keep breadcrumbs.md/CLAUDE.md in, through these very tools,
+    and the folder every headless write request dies in because nobody is
+    present to approve). Same doctrine as `_build_cmd`'s predecessor read-down:
+    one's own desk is not a permission at all.
+
+    The rule language has no negation, so an ro grant that CONTAINS own scratch
+    is rewritten as its chain levels: at every level from the grant root down to
+    own scratch, each entry that is not the chain child is denied by name — a
+    file by its exact path, anything else (directory, junction, dangling link)
+    by its subtree. Enumeration is sorted, because this JSON rides argv into the
+    D-201 identity hash and must be deterministic.
+
+    ⚠ WHY THERE IS NO `<level>/*` RULE ANY MORE (2026-09-16, ticket
+    `the-sandbox-refuses-to-create-files-and-folders`; reported from two
+    machines independently and reproduced here against the pinned CLI). The
+    carve used to emit `Edit(<level>/*)` at each level to cover the FILES
+    sitting there. That wildcard also matches the chain directory itself — the
+    agent's own scratch folder — so the carve denied the very desk it exists to
+    protect, and the file tools refused `breadcrumbs.md` with "File is in a
+    directory that is denied by your permission settings" while the shell wrote
+    the identical path without resistance (Bash/PowerShell are matched against
+    `Bash(…)`/`PowerShell(…)` rules, which this never writes — that asymmetry is
+    the whole of the reported "tool-dependent, not path-dependent" boundary).
+    Denying each chain-level FILE by its exact name keeps that coverage without
+    naming the chain directory.
+
+    ⚠ THE RESIDUAL GAP, stated rather than hidden: an entry CREATED at a chain
+    level after this render stays writable until the next render re-enumerates.
+    That was already true of directories and is now also true of files. It is
+    the same accepted trade in the same place — the chain levels are the
+    ancestors between the grant root and own scratch, the rules re-render on
+    every spawn, and nothing OUTSIDE the granted folder is reachable either way.
+    """
+    own_scratch = os.path.normpath(own_scratch)
+    own_key = os.path.normcase(own_scratch)
+    deny: list[str] = []
+    for p in ro_paths:
+        root = os.path.normpath(p)
+        root_key = os.path.normcase(root).rstrip("\\/")
+        if root_key == own_key:
+            continue                      # one's own desk: nothing to deny
+        if not own_key.startswith(root_key + os.sep):
+            deny.append(_edit_deny(p, "**"))
+            continue
+        carved: list[str] = []
+        level = root
+        components = [c for c in os.path.relpath(
+            own_scratch, root).split(os.sep) if c not in ("", ".")]
+        try:
+            for child in components:
+                entries = sorted(os.listdir(level))
+                child_key = os.path.normcase(child)
+                for entry in entries:
+                    if os.path.normcase(entry) == child_key:
+                        continue          # the chain down to own scratch
+                    full = os.path.join(level, entry)
+                    # a plain file has no subtree to deny, and naming it
+                    # exactly is what lets the chain directory go unnamed.
+                    # Anything else — directory, junction, dangling link,
+                    # unreadable — keeps the subtree clamp it had before, so
+                    # this never covers less than the previous rendering did.
+                    carved.append(_edit_deny(full) if os.path.isfile(full)
+                                  else _edit_deny(full, "**"))
+                level = os.path.join(level, child)
+        except OSError:
+            # an unreadable ancestor cannot be carved honestly; keep the
+            # blanket clamp rather than silently widening the grant
+            deny.append(_edit_deny(p, "**"))
+        else:
+            deny += carved
+    return deny
+
 
 def _build_cmd(org: Org, nid: str, write_ident: bool = True) -> list[str]:
     # write_ident=False renders the SAME argv without touching
@@ -9957,68 +10054,11 @@ def _build_cmd(org: Org, nid: str, write_ident: bool = True) -> list[str]:
             ro_paths = ro_paths + [pred_dir]
     if ro_paths:
         # read-only enforcement: permission deny rules on the writing tools.
-        # ⚠ THE AGENT'S OWN SCRATCH IS NEVER DENIED (user report 2026-09-01:
-        # a data-root ro grant, given so a fixer agent could READ the live
-        # deployment, silently clamped that agent's own working folder — the
-        # folder its charter requires it to keep breadcrumbs.md/CLAUDE.md in,
-        # through these very tools, and the folder every headless write
-        # request dies in because nobody is present to approve). Same
-        # doctrine as the predecessor read-down above: one's own desk is not
-        # a permission at all. The rule language has no negation, so an
-        # ancestor grant is rewritten as its chain levels — immediate
-        # entries (level/*) plus every sibling subtree (level/<entry>/**) —
-        # leaving exactly the scratch chain undenied. Enumeration is sorted
-        # (this JSON rides argv into the D-201 identity hash, so it must be
-        # deterministic); a directory CREATED at a chain level after this
-        # render stays writable until the next render re-enumerates —
-        # accepted in exchange for the agent keeping its own desk.
-        own_scratch = os.path.normpath(
-            sbx.cpath_scratch(slug, nid) if sandboxed
-            else scratch_dir(slug, nid))
-        own_key = os.path.normcase(own_scratch)
-
-        def _write_denies(prefix: str, suffix: str) -> list[str]:
-            # ONE rule per path (D-220): the pinned CLI matches file
-            # permission checks against Edit(path) ONLY — "Edit rules cover
-            # all file-editing tools" — and prints a startup WARNING for
-            # every Write()/NotebookEdit() rule it ignores. The old trio was
-            # 3× dead weight (the Edit rule alone always carried the
-            # enforcement), and at D-217 scale those ~670 warnings became a
-            # 229 KB stderr burst that filled the pipe before the CLI's
-            # first stdout byte: spawn, then silence, then the 600 s idle
-            # kill (live-hit 2026-09-01, reproduced both ways in isolation).
-            base = prefix.replace("\\", "/").rstrip("/")
-            return [f"Edit({base}/{suffix})"]
-
-        deny = []
-        for p in ro_paths:
-            root = os.path.normpath(p)
-            root_key = os.path.normcase(root).rstrip("\\/")
-            if root_key == own_key:
-                continue                  # one's own desk: nothing to deny
-            if not own_key.startswith(root_key + os.sep):
-                deny += _write_denies(p, "**")
-                continue
-            carved: list[str] = []
-            level = root
-            components = [c for c in os.path.relpath(
-                own_scratch, root).split(os.sep) if c not in ("", ".")]
-            try:
-                for child in components:
-                    entries = sorted(os.listdir(level))
-                    carved += _write_denies(level, "*")
-                    child_key = os.path.normcase(child)
-                    for entry in entries:
-                        if os.path.normcase(entry) != child_key:
-                            carved += _write_denies(
-                                os.path.join(level, entry), "**")
-                    level = os.path.join(level, child)
-            except OSError:
-                # an unreadable ancestor cannot be carved honestly; keep the
-                # blanket clamp rather than silently widening the grant
-                deny += _write_denies(p, "**")
-            else:
-                deny += carved
+        # The rendering — and, above all, WHY the agent's own scratch is never
+        # denied by it — lives in `ro_deny_rules`, which is module-level so it
+        # can be tested without spawning anything.
+        deny = ro_deny_rules(ro_paths, sbx.cpath_scratch(slug, nid)
+                             if sandboxed else scratch_dir(slug, nid))
         if deny:
             settings["permissions"] = {"deny": deny}
     head = ((sbx.exec_argv(sbx.container_name(slug),
