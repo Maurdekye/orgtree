@@ -8257,12 +8257,34 @@ def identity_prompt(org: Org, nid: str, include_archived: bool = False, *,
             helper = next((r for r in named
                            if os.path.exists(os.path.join(r, "tools",
                                                           "worktree.py"))), "")
+            # ⚠ AND IT IS NOT A WAY AROUND THE DENIAL (2026-09-16, corrected by
+            # `worktree-setup`, which owns the helper, against the landed
+            # code). `plan_add` builds a plain
+            # `["git","-C",root,"worktree","add",...]` and `add` executes it,
+            # so on a codex seat the helper hits the SAME `.git` write and the
+            # SAME deny. Recommending it immediately after explaining the
+            # denial is precisely where an agent infers it is the quiet route,
+            # runs it unescalated, eats the denial anyway and concludes the
+            # advice was wrong — so the escalation sentence has to cover the
+            # helper in the same breath, not only raw git.
+            # Nor does `add` GATE on dependencies: it raises only if git failed
+            # or the destination is not a directory, then reports `ready` plus
+            # a `next` telling you to install them there. "checks they resolve
+            # before reporting success" claimed a gate that does not exist, and
+            # the whole value of this command is that its output can be
+            # trusted. `verify` alone runs no subprocess at all — it walks the
+            # chain with lstat and never follows a link — so it is the one
+            # subcommand that needs no escalation.
             helper_line = (
                 f"That repository ships a helper that places the worktree "
-                f"correctly and checks its dependencies resolve before "
-                f"reporting success — `python tools/worktree.py add <name>` "
-                f"from `{helper}`, with `remove` and `verify` alongside it; "
-                f"prefer it over composing the raw command yourself. "
+                f"where dependencies resolve and tells you whether they "
+                f"actually did — `python tools/worktree.py add <name>` from "
+                f"`{helper}`, with `remove` and `verify` alongside it. Prefer "
+                f"it over composing the raw command yourself. ⚠ It runs `git "
+                f"worktree add` internally, so it is NOT a way around the "
+                f"denial above and needs the same elevated retry on the first "
+                f"attempt; only `verify` is read-only and needs no escalation "
+                f"at all. "
                 if helper else "")
             tool_line += (
                 "Sandbox: your shell runs in an OS sandbox, and a write it "

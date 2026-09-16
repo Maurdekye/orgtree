@@ -250,6 +250,35 @@ class CodexPromptNamesTheWall(unittest.TestCase):
         text = flat(self.prompt())
         self.assertIn("tools/worktree.py add", text)
 
+    def test_s2_12_the_helper_is_NOT_sold_as_a_way_around_the_denial(self):
+        # ⚠ THE CORRECTION worktree-setup CAUGHT, and it is the one way this
+        # paragraph could actively mislead. `plan_add` builds a plain
+        # `git worktree add` and `add` executes it, so the helper hits the
+        # SAME deny. Recommending it right after explaining the denial is
+        # exactly where an agent infers it is the quiet route, runs it
+        # unescalated, eats the denial anyway, and concludes the advice was
+        # wrong. The escalation must cover the helper in the same breath.
+        (self.repo / "tools").mkdir()
+        (self.repo / "tools" / "worktree.py").write_text("# helper\n")
+        text = flat(self.prompt())
+        self.assertIn("tools/worktree.py add", text)
+        self.assertIn("not a way around the denial", text)
+        self.assertIn("runs `git worktree add` internally", text)
+        # and `verify` is the one subcommand that genuinely needs nothing
+        self.assertIn("only `verify` is read-only", text)
+
+    def test_s2_13_the_helper_is_not_claimed_to_GATE_on_dependencies(self):
+        # `add` raises only if git failed or the destination is not a
+        # directory; it then REPORTS `ready`. The old wording ("checks its
+        # dependencies resolve before reporting success") claimed a gate that
+        # does not exist, and the value of the command is that its output can
+        # be trusted literally.
+        (self.repo / "tools").mkdir()
+        (self.repo / "tools" / "worktree.py").write_text("# helper\n")
+        text = flat(self.prompt())
+        self.assertNotIn("before reporting success", text)
+        self.assertIn("tells you whether they actually did", text)
+
     def test_s2_11_the_helper_script_is_NOT_named_when_it_is_absent(self):
         # ⚠ THE REASON THIS LINE WAS HELD BACK ONCE ALREADY. A seat holding
         # some other checkout has no such script; naming it would send the
