@@ -835,7 +835,7 @@ button.badge.audience-fold.alert {
    remains the existing centered token and reveal geometry. */
 .sq.mini:not(:hover) .sq-far-tier { left: 10px; }
 .sq.mini:not(:hover) .sq-far-tier .tier {
-  width: 33px; height: 33px; font-size: 13.5px;
+  width: 33px; height: 33px; font-size: 16.5px;
 }
 .sq.mini:hover .sq-far-scaler,
 .sq.mini:focus-within .sq-far-scaler,
