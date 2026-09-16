@@ -524,8 +524,14 @@ test('§23 ⚠ WEB INSTALLERS ARE REFUSED BEFORE ANY DOWNLOAD, by the library\'s
   // The shipped NsisUpdater throws ERR_UPDATER_WEB_INSTALLER_DISABLED before it
   // downloads anything when this flag is set — asserted against the real
   // installed library so this is not a claim about a version we imagined.
+  // ⚠ RESOLVED, NOT JOINED. A bare 'node_modules/...' path is resolved against
+  // process.cwd(), and a linked worktree carries no node_modules of its own —
+  // it resolves UPWARD to the shared tree at the repo root, which a path join
+  // never reaches. This is the same idiom lifetime-wiring.test.mjs and the
+  // disruptive probes already use, and it is what makes this assertion run in
+  // the environment where all the work actually happens.
   const source = fs.readFileSync(
-    'node_modules/electron-updater/out/NsisUpdater.js', 'utf8')
+    require_.resolve('electron-updater/out/NsisUpdater.js'), 'utf8')
   assert.match(source, /isWebInstaller && downloadUpdateOptions\.disableWebInstaller/,
     'the library must still gate web installers on this flag')
   assert.match(source, /ERR_UPDATER_WEB_INSTALLER_DISABLED/)

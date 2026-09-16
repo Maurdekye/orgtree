@@ -295,6 +295,30 @@ def _probe_interpreter(path: Path) -> Interpreter:
     )
 
 
+def bundled_runtime_candidates(repo_root: Path) -> list[Path]:
+    """Bundled interpreters at ``repo_root`` and at each directory above it.
+
+    ⚠ THE UPWARD WALK IS THE POINT, and it is the same rule Node applies to
+    ``node_modules``. ``engine/runtime`` is gitignored, so it exists in the main
+    checkout and in NO linked worktree. Looking only beside ``repo_root`` meant
+    that running these modules from a worktree silently fell through to the
+    system interpreter, which this runner launches with ``-I``; isolated mode
+    drops user site-packages, so every module that imports the engine died at
+    ``import typing_extensions`` with an error that says nothing about
+    interpreters. Since the team's worktrees live under the repository root, the
+    checkout that owns the runtime is always an ancestor — so walk up and find
+    it, exactly as the dependency rule already does for Node.
+    """
+    candidates = []
+    current = _canonical(repo_root)
+    while True:
+        candidates.append(current / "engine" / "runtime" / "python.exe")
+        parent = current.parent
+        if parent == current:
+            return candidates
+        current = parent
+
+
 def select_interpreter(repo_root: Path, requested: str | None = None) -> Interpreter:
     """Select an explicit supported system or bundled interpreter."""
     candidates: list[Path] = []
@@ -312,7 +336,7 @@ def select_interpreter(repo_root: Path, requested: str | None = None) -> Interpr
         configured = os.environ.get("ORGTREE_V2_PYTHON")
         if configured:
             candidates.append(Path(configured))
-        candidates.append(repo_root / "engine" / "runtime" / "python.exe")
+        candidates.extend(bundled_runtime_candidates(repo_root))
         candidates.append(Path(sys.executable))
         found = shutil.which("python")
         if found:

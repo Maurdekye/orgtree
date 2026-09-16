@@ -15,6 +15,12 @@ import os
 from pathlib import Path
 import re
 import secrets
+# ⚠ _entry_kind() calls stat.S_ISDIR. Without this import it raised NameError
+# on every path that existed and was not a link — the directory branch was
+# simply unreachable. No caller happened to take that branch, so nothing
+# reported it until the worktree-setup gate started classifying real
+# directories. Keep the import with the use.
+import stat
 import subprocess
 import threading
 import time
@@ -313,15 +319,53 @@ def worktree_inventory(repo: dict[str, Any], *, owners: dict[str, str] | None = 
             "active": sum(bool(r["active"]) for r in visible)}
 
 
+def dependency_resolution(path: str, *, directory: str = "node_modules") -> dict[str, Any]:
+    """Report where a checkout's dependencies come from, without following links.
+
+    Node resolves a bare specifier by walking the directory chain upward, so a
+    worktree placed under the repository root reaches the shared tree at the
+    root and needs nothing of its own. This reports that fact so callers can
+    see it rather than be told it — and flags a ``node_modules`` that is itself
+    a link, because that is the shape that shares one dependency tree between
+    two checkouts.
+    """
+    start = os.path.normcase(os.path.abspath(path))
+    current, searched = start, []
+    while True:
+        candidate = os.path.join(current, directory)
+        kind = _entry_kind(candidate)
+        searched.append({"path": candidate, "kind": kind})
+        if kind != "missing":
+            linked = kind in {"symlink", "reparse"}
+            return {"checkout": start, "resolves": True, "resolved": candidate,
+                    "kind": kind, "linked": linked, "searched": searched,
+                    "own": os.path.normcase(os.path.dirname(candidate)) == start}
+        parent = os.path.dirname(current)
+        if parent == current:
+            return {"checkout": start, "resolves": False, "resolved": None,
+                    "kind": "missing", "linked": False, "searched": searched, "own": False}
+        current = parent
+
+
 def worktree_setup(repo: dict[str, Any], path: str, *, package_manager: str | None = None,
-                   dependency_source: str | None = None, apply: bool = False) -> dict[str, Any]:
-    """Return an explicit dependency setup plan for a registered checkout."""
+                   dependency_source: str | None = None, apply: bool = False,
+                   accept_shared_dependencies: bool = False) -> dict[str, Any]:
+    """Return an explicit dependency setup plan for a registered checkout.
+
+    ⚠ ``dependency_source`` is the junction route and it is GATED, for the same
+    reason ``tools/worktree.py`` gates it: a worktree that already resolves
+    ``node_modules`` upward gains nothing from a link and loses its privacy,
+    and a link inside a worktree is a door that ``git worktree remove --force``
+    deletes through. Linking is refused outright when upward resolution works,
+    and otherwise requires an explicit opt-in.
+    """
     path = os.path.normcase(os.path.abspath(path))
     if _entry_kind(path) != "directory":
         raise GitError("Fresh worktree setup requires a real directory")
     info = identify(path)
     if info["common"] != repo["common"]:
         raise GitError("Worktree belongs to another repository")
+    resolution = dependency_resolution(path)
     lockfile = next((name for name in ("package-lock.json", "npm-shrinkwrap.json",
                                        "yarn.lock", "pnpm-lock.yaml")
                      if os.path.isfile(os.path.join(path, name))), None)
@@ -331,6 +375,20 @@ def worktree_setup(repo: dict[str, Any], path: str, *, package_manager: str | No
         raise GitError("Unsupported package manager")
     dependency_link = None
     if dependency_source:
+        if resolution["resolves"] and not resolution["linked"]:
+            raise GitError(
+                "Refusing to link node_modules: this checkout already resolves it upward to "
+                f"{resolution['resolved']}, so its suites run as they stand. A junction would "
+                "share one dependency tree between two checkouts, which lets one test run "
+                "delete another's bundles and lets a forced remove delete through the link."
+            )
+        if not accept_shared_dependencies:
+            raise GitError(
+                "Refusing to link node_modules without an explicit opt-in. Place the worktree "
+                "under the repository root (.worktrees/<name>), where node_modules resolves "
+                "upward and no link is needed, or install dependencies into this checkout. "
+                "Linking makes the checkout non-private."
+            )
         source = os.path.normcase(os.path.abspath(dependency_source))
         destination = os.path.join(path, "node_modules")
         if _entry_kind(source) != "directory":
@@ -361,7 +419,10 @@ def worktree_setup(repo: dict[str, Any], path: str, *, package_manager: str | No
         command = [manager, "install", "--frozen-lockfile"] if lockfile else [manager, "install"]
     answer = {"worktree": path, "package_manager": manager, "lockfile": lockfile,
             "command": command, "ready": bool(command), "git_metadata_write": False,
-            "note": "Execute explicitly after review; setup never writes repository metadata."}
+            "dependencies": resolution,
+            "note": ("Dependencies already resolve upward; no install and no link are needed."
+                     if resolution["resolves"] and not resolution["linked"] else
+                     "Execute explicitly after review; setup never writes repository metadata.")}
     if dependency_link is not None:
         answer["dependency_link"] = dependency_link
     return answer

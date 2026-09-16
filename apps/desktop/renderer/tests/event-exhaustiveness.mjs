@@ -2,11 +2,21 @@
 import path from 'node:path'
 import os from 'node:os'
 import { fileURLToPath } from 'node:url'
+import { createRequire } from 'node:module'
 import { spawnSync } from 'node:child_process'
 import assert from 'node:assert/strict'
 const frontend = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const temp = mkdtempSync(path.join(os.tmpdir(), 'orgtree-event-exhaustive-'))
-const tsc = path.join(frontend, 'node_modules/typescript/bin/tsc')
+// ⚠ RESOLVED, NOT JOINED. `frontend/node_modules` happens to exist in the main
+// checkout and does not exist in a linked worktree, which carries only tracked
+// files and resolves bare specifiers UPWARD to the shared tree at the repo
+// root. Joining the path finds nothing there; resolving walks the same chain
+// Node itself walks and works in both places. Anchored on package.json — the
+// one subpath every package exports — because `typescript/bin/tsc` is not in
+// TypeScript's own `exports` map and resolving it directly throws
+// ERR_PACKAGE_PATH_NOT_EXPORTED. Same idiom run.mjs uses for esbuild.
+const tsc = path.join(
+  path.dirname(createRequire(import.meta.url).resolve('typescript/package.json')), 'bin/tsc')
 function compile() {
   const run = spawnSync(process.execPath, [tsc, '--noEmit', '-p', temp], { encoding: 'utf8', timeout: 60000 })
   if (run.error) throw run.error
