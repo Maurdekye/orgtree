@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
+import type { ProcessFailureStage } from './process-failure'
 
 export type UpdateState = 'idle' | 'checking' | 'downloading' | 'pending-idle' | 'up-to-date' | 'unavailable' | 'failed'
 /** `recheck` is the outcome of a check that ran WHILE an update was already
@@ -110,6 +111,15 @@ export type UpdateStage =
    *  It is what connects an upgrade that closed the app to whatever started it
    *  again, which no log recorded before. */
   | 'startup'
+  /** A Chromium process under this app went away, wedged, or was recovered —
+   *  see process-failure.ts. These share this log rather than getting one of
+   *  their own for the reason the comment on UpdateLog gives: it is already the
+   *  durable, sanitised, rotating record that exists because "the 2.0.3
+   *  failures left no trace at all", and a renderer being killed is the same
+   *  problem. Every reader of this log is a `.some()` or an `entries[0]` over
+   *  update stages, so foreign entries interleaved between them change no
+   *  update decision. */
+  | ProcessFailureStage
 
 export interface UpdateLogEntry { at: string; stage: UpdateStage; detail?: string; from?: string; to?: string }
 
