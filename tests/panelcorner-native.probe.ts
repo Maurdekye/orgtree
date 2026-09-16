@@ -435,9 +435,154 @@ app.whenReady().then(async () => {
       `${tab}'s cluster does not eat the panel at 430px (${narrow.corner.w} of ${narrow.panel.w})`)
   }
 
-  evidence.pass = true
+  // ─────────────────────────────── COLLAPSED (user defect report 2026-09-16)
+  //
+  // THE CASE THIS PROBE WAS MISSING. It measured the corner at the desk's
+  // authored 900px box and again at 430px, and both were right — but neither
+  // is the state the reporter photographed. Below `NARROW_MAILER_WIDTH` (560px)
+  // these panels stop drawing a list column at all: `CollapsibleMailer` swaps
+  // it for a 34px RAIL with one toggle in it (canvas/narrowlist.tsx), and that
+  // is a third layout, not a narrower second one. The reported fault lives
+  // there — a button wider than the rail it is centred in, hanging over the
+  // panel's rounded edge.
+  //
+  // Reached the way the user reached it: pin the surface from the desk corner,
+  // then drag its edge in. `window.__resizePin` is the resize gesture's own
+  // commit call, so this is a real pinned window at a real dragged-to width.
+  const COLLAPSED_W = 380
+  const collapsedProbe = `(()=>{
+    const win=document.querySelector('.modalpin-win'); if(!win) return {win:null}
+    const r=(el)=>{ if(!el) return null; const b=el.getBoundingClientRect()
+      return {x:+b.x.toFixed(1),y:+b.y.toFixed(1),w:+b.width.toFixed(1),h:+b.height.toFixed(1),
+              right:+b.right.toFixed(1),bottom:+b.bottom.toFixed(1)} }
+    const m=win.querySelector('.mailer')
+    const rail=win.querySelector('.mailer-listrail')
+    const tog=win.querySelector('.mailer-listtoggle')
+    const over=(child,parent)=>{ if(!child||!parent) return null
+      const c=child.getBoundingClientRect(), p=parent.getBoundingClientRect()
+      return {left:+(p.left-c.left).toFixed(1), right:+(c.right-p.right).toFixed(1),
+              top:+(p.top-c.top).toFixed(1), bottom:+(c.bottom-p.bottom).toFixed(1)} }
+    return {
+      win:r(win), mailer:r(m), rail:r(rail), toggle:r(tog),
+      narrow: !!(m && m.classList.contains('narrow-list')),
+      open: !!(m && m.classList.contains('narrow-list-open')),
+      railWidthVar: m ? getComputedStyle(m).getPropertyValue('--listrail').trim() : null,
+      togglePadding: tog ? getComputedStyle(tog).padding : null,
+      // THE ASSERTION'S RAW MATERIAL, in px, positive = hanging over that edge
+      overflowsRail: over(tog, rail),
+      overflowsWindow: over(tog, win),
+      listwrap: r(win.querySelector('.mailer-listwrap')),
+      rows: win.querySelectorAll('.mailrow, .desk-presented-card').length,
+    }})()`
+
+  // ⚠ SOFT MODE exists to photograph the fault. With ORGTREE_PANELCORNER_BEFORE
+  // set, the collapsed checks REPORT instead of throwing, so a run against the
+  // broken build still produces the "before" captures and a complete
+  // evidence.json instead of dying on the first assertion. It is never set by
+  // the normal run, and `evidence.collapsedSoft` records when it was.
+  const soft = !!process.env.ORGTREE_PANELCORNER_BEFORE
+  evidence.collapsedSoft = soft
+  const failures: string[] = []
+  const check = (ok: boolean, msg: string) => {
+    if (ok) return
+    failures.push(msg)
+    if (!soft) throw new assert.AssertionError({ message: msg })
+    console.log('SOFT FAIL:', msg)
+  }
+
+  evidence.collapsed = {}
+  for (const [kind, tab, ready, shot, collapses] of [
+    ['node-inbox', 'inbox', `document.querySelectorAll('.mailrow').length>0`, '15-collapsed-inbox', true],
+    ['agent-gallery', 'presented', `document.querySelectorAll('.desk-presented-card').length>0`, '16-collapsed-presented', true],
+    // the docket's modal does NOT mount CollapsibleMailer (canvas/agentdocket.tsx
+    // via docket.tsx — only gallery.tsx and mail.tsx do), so it has no rail and
+    // no collapsed state to get wrong. Measured rather than argued.
+    ['agent-docket', 'docket', `document.querySelectorAll('.mailrow, .docket-row').length>0`, '17-collapsed-docket', false],
+  ] as const) {
+    await js(`window.__closeAll();true`); await settle(300)
+    await js(`window.__deskWidth(900);true`); await settle(300)
+    await openTab(tab, ready)
+    await clickCorner(0)                       // pin: opens the surface and pins it
+    await waitFor(`!!document.querySelector('.modalpin-win')`, `the pinned ${kind}`)
+    await settle(300)
+    await js(`window.__resizePin(${JSON.stringify(kind)},{x:24,y:24,w:${COLLAPSED_W},h:560});true`)
+    await settle(500)
+    const shut = await js(collapsedProbe)
+    await screenshot(win, shot)
+    // ...and again with the list panel pulled out, because the rail's toggle is
+    // also the control that opens it and a fix that clipped it would show here
+    let out: any = null
+    if (collapses) {
+      await js(`(()=>{const t=document.querySelector('.modalpin-win .mailer-listtoggle'); if(t) t.click(); return true})()`)
+      await settle(400)
+      out = await js(collapsedProbe)
+      await screenshot(win, shot + '-open')
+    }
+    evidence.collapsed[kind] = { shut, open: out, width: COLLAPSED_W }
+
+    check(!!shut.win, `${kind} pinned to a window at ${COLLAPSED_W}px`)
+    check(shut.mailer ? shut.mailer.w <= 560 : true,
+      `${kind}'s panel really is under the collapse threshold, got ${shut.mailer?.w}px`)
+    check(shut.narrow === collapses,
+      `${kind} ${collapses ? 'collapses' : 'does not collapse'} at ${COLLAPSED_W}px, got narrow=${shut.narrow}`)
+    if (!collapses) continue
+
+    // THE DEFECT, STATED AS A NUMBER. `overflowsRail.right` is how far the
+    // toggle's box hangs past the rail's right edge — which is the panel's own
+    // edge in the reporter's screenshot, rounded corner and all.
+    check(!!shut.toggle && !!shut.rail, `${kind}'s collapsed rail draws its toggle`)
+    for (const [state, m] of [['closed', shut], ['open', out]] as const) {
+      if (!m?.toggle) continue
+      for (const edge of ['left', 'right', 'top', 'bottom'] as const) {
+        check(m.overflowsRail[edge] <= 0.5,
+          `${kind}'s collapsed toggle hangs ${m.overflowsRail[edge]}px past the ${edge} of its `
+          + `${m.rail.w}px rail (${state}); toggle ${m.toggle.w}x${m.toggle.h}, padding ${m.togglePadding}`)
+        check(m.overflowsWindow[edge] <= 0.5,
+          `${kind}'s collapsed toggle hangs ${m.overflowsWindow[edge]}px past the ${edge} of the `
+          + `pinned panel (${state})`)
+      }
+    }
+    // it must still be a usable target, not merely a contained one
+    check(shut.toggle.w >= 18 && shut.toggle.h >= 18,
+      `${kind}'s collapsed toggle stays clickable, got ${shut.toggle.w}x${shut.toggle.h}`)
+    check(out?.open === true, `${kind}'s collapsed toggle still opens the list panel`)
+    // unpin, so the next surface starts from the same place
+    await js(`(()=>{const t=document.querySelector('.modalpin-win .mailer-listtoggle'); if(t) t.click(); return true})()`)
+    await settle(300)
+  }
+  await js(`window.__closeAll();true`); await settle(300)
+  for (const kind of ['node-inbox', 'agent-gallery', 'agent-docket']) {
+    await js(`(()=>{const p=JSON.parse(localStorage.getItem('orgtree-modal-pins')||'{}')
+      for(const k of Object.keys(p)) if(k.includes(${JSON.stringify(kind)})) delete p[k]
+      localStorage.setItem('orgtree-modal-pins',JSON.stringify(p)); return true})()`)
+  }
+
+  // ── AND THE DESK TAB AT THE SMALLEST BOX IT CAN BE PUT IN. A pinned desk
+  // clamps at PIN_MIN_W = 320px (canvas/pins.ts), so that — not 430 — is the
+  // narrowest the three-button cluster ever has to fit, and the corner must
+  // still be inside the panel there.
+  await js(`window.__deskWidth(320);true`); await settle(500)
+  evidence.tiny = {}
+  for (const [tab, ready, shot] of [
+    ['presented', `document.querySelectorAll('.desk-presented-card').length>0`, '18-tiny-presented'],
+    ['docket', `document.querySelectorAll('.mailrow, .docket-row').length>0`, '19-tiny-docket'],
+    ['inbox', `document.querySelectorAll('.mailrow').length>0`, '20-tiny-inbox'],
+  ] as const) {
+    await openTab(tab, ready)
+    const tiny = await js(probe)
+    evidence.tiny[tab] = tiny
+    await screenshot(win, shot)
+    check(tiny.buttons.length === 3, `${tab} keeps all three buttons at 320px`)
+    check(tiny.cornerInsidePanel === true, `${tab}'s cluster stays inside the panel at 320px`)
+    check(tiny.corner.x >= tiny.panel.x - 0.5,
+      `${tab}'s cluster does not hang off the left of a 320px panel`)
+  }
+  await js(`window.__deskWidth(900);true`); await settle(300)
+
+  evidence.collapsedFailures = failures
+  evidence.pass = failures.length === 0
   evidence.shots = fs.readdirSync(shots).filter((f) => f.endsWith('.png')).sort()
   fs.writeFileSync(path.join(shots, 'evidence.json'), JSON.stringify(evidence, null, 2))
-  console.log(JSON.stringify({ pass: true, shots: evidence.shots, dir: shots }, null, 2))
-  win.destroy(); server.close(); app.exit(0)
+  console.log(JSON.stringify({ pass: evidence.pass, failures, shots: evidence.shots, dir: shots }, null, 2))
+  win.destroy(); server.close(); app.exit(evidence.pass ? 0 : 1)
 }).catch((e) => { console.error(e); server?.close(); app.exit(1) })
