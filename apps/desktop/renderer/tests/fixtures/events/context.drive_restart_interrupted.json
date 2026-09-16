@@ -17,7 +17,8 @@
       "provenance": "source"
     },
     "engine_authored": true,
-    "text": "context.drive_restart_interrupted·text"
+    "text": "context.drive_restart_interrupted·text",
+    "summary": "context.drive_restart_interrupted·summary"
   },
   "public": {
     "v": 1,
@@ -34,7 +35,8 @@
       "dirty": false,
       "pid": 3,
       "provenance": "source"
-    }
+    },
+    "summary": "context.drive_restart_interrupted·summary"
   },
   "body": "context.drive_restart_interrupted·text"
 }

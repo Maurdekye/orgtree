@@ -5280,6 +5280,9 @@
         },
         "text": {
           "type": "string"
+        },
+        "summary": {
+          "type": "string"
         }
       },
       "required": [
@@ -5288,7 +5291,8 @@
         "actor",
         "engine_authored",
         "object",
-        "text"
+        "text",
+        "summary"
       ],
       "additionalProperties": false
     },
@@ -10471,6 +10475,9 @@
         },
         "object": {
           "$ref": "#/$defs/PublicBuildRef"
+        },
+        "summary": {
+          "type": "string"
         }
       },
       "required": [
@@ -10478,7 +10485,8 @@
         "variant",
         "projection",
         "actor",
-        "object"
+        "object",
+        "summary"
       ],
       "additionalProperties": false
     },
