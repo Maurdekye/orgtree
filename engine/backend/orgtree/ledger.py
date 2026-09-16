@@ -14772,7 +14772,8 @@ class Org:
                            result: Any = None,
                            gate: Any = None,
                            blocked_count: Any = None,
-                           composition: Any = None) -> dict[str, Any]:
+                           composition: Any = None,
+                           errors: list[str] | None = None) -> dict[str, Any]:
         """Validate ONE evidence element and build its row. Raises rather than
         writing, so a batch can validate every element before any of them
         lands. `where` names the element's position for a batch refusal.
@@ -14803,68 +14804,97 @@ class Org:
         """
         from . import workevidence           # noqa: PLC0415
         if kind not in self.WORK_EVIDENCE_KINDS:
-            raise LedgerError(f"evidence kind must be one of "
-                              f"{'|'.join(self.WORK_EVIDENCE_KINDS)}{where}")
+            msg = (f"evidence kind must be one of "
+                   f"{'|'.join(self.WORK_EVIDENCE_KINDS)}")
+            if errors is not None:
+                errors.append(msg)
+            else:
+                raise LedgerError(f"{msg}{where}")
+        r: str | None = None
         try:
             r = workfields.bounded("ref", ref)
+            if not r:
+                msg = "evidence needs a ref (path, url, sha, log name)"
+                if errors is not None:
+                    errors.append(msg)
+                else:
+                    raise LedgerError(f"{msg}{where}")
         except workfields.FieldLimitError as e:
-            raise LedgerError(f"{e}{where}") from None
-        if not r:
-            raise LedgerError(f"evidence needs a ref (path, url, sha, log "
-                              f"name){where}")
+            if errors is not None:
+                errors.append(str(e))
+            else:
+                raise LedgerError(f"{e}{where}") from None
         row: dict[str, Any] = {
             "at": now(), "by": self._work_actor(actor), "kind": kind,
-            "ref": r,
+            "ref": r or "",
             **({"note": _prose(note)} if note else {}),
         }
         # W09: metadata is optional for legacy rows, but complete and
         # internally consistent once a classification is supplied.
+        meta_errs: list[str] = []
         try:
             meta = workevidence.validate_acceptance_evidence(
                 classification=classification, execution=execution,
                 result=result, artifact=artifact,
                 runner=runner, gate=gate, blocked_count=blocked_count,
-                composition=composition)
+                composition=composition, errors=meta_errs)
         except workevidence.ReceiptError as e:
-            raise LedgerError(f"{e}{where}") from None
+            meta_errs.append(str(e))
+            meta = {}
+        if meta_errs:
+            if errors is not None:
+                errors.extend(meta_errs)
+            else:
+                raise LedgerError(f"{'; '.join(meta_errs)}{where}")
         row.update(meta)
         if execution is not None:
             ex = str(execution).strip()
             if ex not in workevidence.EXECUTION:
-                raise LedgerError(
+                msg = (
                     f"execution must be one of "
                     f"{'|'.join(workevidence.EXECUTION)} — "
                     + "; ".join(f"{k}: {v}" for k, v in
                                 workevidence.EXECUTION_MEANS.items())
-                    + f". You sent {workfields.echo(execution)}{where}")
-            row["execution"] = ex
-            row["execution_means"] = workevidence.EXECUTION_MEANS[ex]
+                    + f". You sent {workfields.echo(execution)}")
+                if errors is not None:
+                    errors.append(msg)
+                else:
+                    raise LedgerError(f"{msg}{where}")
+            else:
+                row["execution"] = ex
+                row["execution_means"] = workevidence.EXECUTION_MEANS[ex]
         if receipt is not None:
             if not isinstance(receipt, dict):
-                raise LedgerError(
+                msg = (
                     "receipt must be the object built by the verification "
                     "receipt tooling (schema "
                     f"{workevidence.SCHEMA}), not free text — the point of it "
                     "is that a reader can check the fields, and prose cannot "
-                    f"be checked{where}")
-            rc = cast("dict[str, Any]", receipt)
-            if str(rc.get("schema") or "") != workevidence.SCHEMA:
-                raise LedgerError(
-                    f"receipt schema must be {workevidence.SCHEMA}; this one "
-                    f"says {workfields.echo(rc.get('schema'))}. A receipt is "
-                    f"only evidence while its shape is known{where}")
-            if str(rc.get("result") or "") not in workevidence.RESULTS:
-                raise LedgerError(
-                    f"receipt.result must be one of "
-                    f"{'|'.join(workevidence.RESULTS)}{where}")
-            # ⚠ STORED EXACTLY AS BUILT, AND NEVER REFRESHED. A receipt is a
-            # record of an observation at a moment; the READ path compares it
-            # against the tree now and discloses the difference
-            # (`workevidence.disclose`, called by the API route — git stays out
-            # of the ledger so it stays out of DOC_LOCK). Rewriting a receipt to
-            # match the present is how a pre-edit passing log became an
-            # all-green claim.
-            row["receipt"] = rc
+                    "be checked")
+                if errors is not None:
+                    errors.append(msg)
+                else:
+                    raise LedgerError(f"{msg}{where}")
+            else:
+                rc = cast("dict[str, Any]", receipt)
+                if str(rc.get("schema") or "") != workevidence.SCHEMA:
+                    msg = (
+                        f"receipt schema must be {workevidence.SCHEMA}; this one "
+                        f"says {workfields.echo(rc.get('schema'))}. A receipt is "
+                        f"only evidence while its shape is known")
+                    if errors is not None:
+                        errors.append(msg)
+                    else:
+                        raise LedgerError(f"{msg}{where}")
+                if str(rc.get("result") or "") not in workevidence.RESULTS:
+                    msg = (
+                        f"receipt.result must be one of "
+                        f"{'|'.join(workevidence.RESULTS)}")
+                    if errors is not None:
+                        errors.append(msg)
+                    else:
+                        raise LedgerError(f"{msg}{where}")
+                row["receipt"] = rc
         return row
 
     def work_evidence(self, actor: str, wid: str, kind: str, ref: str,
@@ -14911,23 +14941,36 @@ class Org:
                     "`items`, not both — in a batch each element carries its "
                     "own `execution` and `receipt`")
             batch = self._work_batch_arg(items, "items")
+            all_errors: list[str] = []
             for i, el in enumerate(batch):
-                rows.append(self._work_evidence_row(
+                el_errors: list[str] = []
+                r = self._work_evidence_row(
                     actor, str(el.get("kind") or "note"), el.get("ref"),
-                    el.get("note"), f" (items[{i}], of {len(batch)})",
+                    el.get("note"),
                     execution=el.get("execution"), receipt=el.get("receipt"),
                     classification=el.get("classification"),
                     artifact=el.get("artifact"), runner=el.get("runner"),
                     result=el.get("result"), gate=el.get("gate"),
                     blocked_count=el.get("blocked_count"),
-                    composition=el.get("composition")))
+                    composition=el.get("composition"),
+                    errors=el_errors)
+                for err in el_errors:
+                    all_errors.append(f"items[{i}]: {err}")
+                rows.append(r)
+            if all_errors:
+                raise LedgerError("; ".join(all_errors))
         else:
-            rows.append(self._work_evidence_row(
+            single_errors: list[str] = []
+            row = self._work_evidence_row(
                 actor, kind, ref, note,
                 execution=execution, receipt=receipt,
                 classification=classification, artifact=artifact,
                 runner=runner, result=result, gate=gate,
-                blocked_count=blocked_count, composition=composition))
+                blocked_count=blocked_count, composition=composition,
+                errors=single_errors)
+            if single_errors:
+                raise LedgerError("; ".join(single_errors))
+            rows.append(row)
         ev = cast("list[dict[str, Any]]", it.setdefault("evidence", []))
         if len(ev) + len(rows) > self.WORK_EVIDENCE_MAX:
             raise LedgerError(
@@ -14970,10 +15013,13 @@ class Org:
             raise LedgerError(
                 f"`{name}` is empty — a batch of nothing is not a call. Omit "
                 f"it to use the single form")
+        errs: list[str] = []
         for i, el in enumerate(out):
             if not isinstance(el, dict):
-                raise LedgerError(f"`{name}`[{i}] must be an object, not "
-                                  f"{type(el).__name__}")
+                errs.append(f"`{name}`[{i}] must be an object, not "
+                            f"{type(el).__name__}")
+        if errs:
+            raise LedgerError("; ".join(errs))
         return cast("list[dict[str, Any]]", out)
 
     def work_decision(self, actor: str, wid: str, text: str,
@@ -15499,36 +15545,59 @@ class Org:
                         artifact: Any = None, runner: Any = None,
                         execution: Any = None, result: Any = None,
                         gate: Any = None, blocked_count: Any = None,
-                        composition: Any = None
-                        ) -> tuple[int, dict[str, Any]]:
+                        composition: Any = None,
+                        errors: list[str] | None = None
+                        ) -> tuple[int | None, dict[str, Any]]:
         """Validate ONE acceptance check and build its record. Raises rather
         than writing, so a batch validates everything before anything lands."""
+        i: int | None = None
         try:
             i = int(index)
+            if not 0 <= i < len(acc):
+                msg = f"acceptance index {i} out of range (0..{len(acc) - 1})"
+                if errors is not None:
+                    errors.append(msg)
+                else:
+                    raise LedgerError(f"{msg}{where}")
+                i = None
         except (TypeError, ValueError):
-            raise LedgerError(f"acceptance `index` must be an integer "
-                              f"(0-based){where}") from None
-        if not 0 <= i < len(acc):
-            raise LedgerError(f"acceptance index {i} out of range "
-                              f"(0..{len(acc) - 1}){where}")
+            msg = "acceptance `index` must be an integer (0-based)"
+            if errors is not None:
+                errors.append(msg)
+            else:
+                raise LedgerError(f"{msg}{where}") from None
+        r: str | None = None
         try:
             r = workfields.bounded("evidence_ref", evidence_ref)
+            if not r:
+                msg = "checking a condition needs an evidence_ref"
+                if errors is not None:
+                    errors.append(msg)
+                else:
+                    raise LedgerError(f"{msg}{where}")
         except workfields.FieldLimitError as e:
-            raise LedgerError(f"{e}{where}") from None
-        if not r:
-            raise LedgerError(f"checking a condition needs an "
-                              f"evidence_ref{where}")
+            if errors is not None:
+                errors.append(str(e))
+            else:
+                raise LedgerError(f"{e}{where}") from None
         from . import workevidence           # noqa: PLC0415
+        meta_errs: list[str] = []
         try:
             meta = workevidence.validate_acceptance_evidence(
                 classification=classification, execution=execution,
                 result=result, artifact=artifact,
                 runner=runner, gate=gate, blocked_count=blocked_count,
-                composition=composition)
+                composition=composition, errors=meta_errs)
         except workevidence.ReceiptError as e:
-            raise LedgerError(f"{e}{where}") from None
+            meta_errs.append(str(e))
+            meta = {}
+        if meta_errs:
+            if errors is not None:
+                errors.extend(meta_errs)
+            else:
+                raise LedgerError(f"{'; '.join(meta_errs)}{where}")
         return i, {"at": now(), "by": self._work_actor(actor),
-                   "evidence_ref": r,
+                   "evidence_ref": r or "",
                    "note": (_prose(note) if note else None),
                    **meta}   # lossless
 
@@ -15572,29 +15641,44 @@ class Org:
                     "batch of them in `checks`, not both")
             batch = self._work_batch_arg(checks, "checks")
             seen: set[int] = set()
+            all_errors: list[str] = []
             for n, el in enumerate(batch):
+                el_errors: list[str] = []
                 i, rec = self._work_check_one(
                     actor, acc, el.get("index"), el.get("evidence_ref"),
-                    el.get("note"), f" (checks[{n}], of {len(batch)})",
+                    el.get("note"),
                     classification=el.get("classification"),
                     artifact=el.get("artifact"), runner=el.get("runner"),
                     execution=el.get("execution"), result=el.get("result"),
                     gate=el.get("gate"), blocked_count=el.get("blocked_count"),
-                    composition=el.get("composition"))
-                if i in seen:
-                    raise LedgerError(
-                        f"checks[{n}] marks acceptance index {i} again — one "
-                        f"batch may not check the same condition twice, since "
-                        f"only one of the two evidence refs could survive. "
-                        f"NOTHING WAS WRITTEN")
-                seen.add(i)
-                done.append((i, rec))
+                    composition=el.get("composition"),
+                    errors=el_errors)
+                if i is not None:
+                    if i in seen:
+                        el_errors.append(
+                            f"marks acceptance index {i} again — one batch may not "
+                            f"check the same condition twice, since only one of the "
+                            f"two evidence refs could survive")
+                    else:
+                        seen.add(i)
+                for err in el_errors:
+                    all_errors.append(f"checks[{n}]: {err}")
+                if i is not None and not el_errors:
+                    done.append((i, rec))
+            if all_errors:
+                raise LedgerError("; ".join(all_errors))
         else:
-            done.append(self._work_check_one(
+            single_errors: list[str] = []
+            i, rec = self._work_check_one(
                 actor, acc, index, evidence_ref, note,
                 classification=classification, artifact=artifact, runner=runner,
                 execution=execution, result=result, gate=gate,
-                blocked_count=blocked_count, composition=composition))
+                blocked_count=blocked_count, composition=composition,
+                errors=single_errors)
+            if single_errors:
+                raise LedgerError("; ".join(single_errors))
+            assert i is not None
+            done.append((i, rec))
         for i, rec in done:
             # W09: preserve every observation; `checked` remains the latest
             # projection for old readers, while history is never overwritten.

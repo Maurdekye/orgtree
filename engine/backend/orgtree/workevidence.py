@@ -177,7 +177,8 @@ def validate_acceptance_evidence(*, classification: Any = None,
                                  runner: Any = None,
                                  gate: Any = None,
                                  blocked_count: Any = None,
-                                 composition: Any = None) -> dict[str, Any]:
+                                 composition: Any = None,
+                                 errors: list[str] | None = None) -> dict[str, Any]:
     """Validate the metadata attached to a durable acceptance check.
 
     All fields are optional for legacy checks.  Once ``classification`` is
@@ -186,6 +187,10 @@ def validate_acceptance_evidence(*, classification: Any = None,
     are refused before the ledger mutates.  ``gate`` and ``blocked_count``
     stay together so an expected blocked-request control cannot be confused
     with an application crash.
+
+    When ``errors`` is provided as a list, every missing or invalid field is
+    appended to it so the caller can report all faults at once across an
+    entire batch.
     """
     # W08 already permits an execution-only evidence row.  ``execution`` is
     # therefore not, by itself, W20 metadata: keeping it in this predicate
@@ -196,64 +201,118 @@ def validate_acceptance_evidence(*, classification: Any = None,
         composition))
     if not present:
         return {}
+
+    errs: list[str] = []
+
+    cls: str | None = None
     if classification is None or str(classification).strip() not in ACCEPTANCE_CLASSES:
-        raise ReceiptError(
+        errs.append(
             "acceptance classification must be one of "
             + "|".join(ACCEPTANCE_CLASSES)
             + "; it is required when acceptance evidence metadata is supplied")
-    cls = str(classification).strip()
+    else:
+        cls = str(classification).strip()
+
+    ex: str | None = None
     if execution is None or str(execution).strip() not in EXECUTION:
-        raise ReceiptError("acceptance evidence needs execution: "
-                           + "|".join(EXECUTION))
-    ex = str(execution).strip()
-    def text(name: str, value: Any) -> str:
-        s = str(value or "").strip()
-        if not s:
-            raise ReceiptError(f"acceptance evidence needs {name}")
-        return s
-    art = text("artifact", artifact)
-    run = text("runner", runner)
+        errs.append("acceptance evidence needs execution: "
+                    + "|".join(EXECUTION))
+    else:
+        ex = str(execution).strip()
+
+    art: str | None = None
+    art_str = str(artifact or "").strip()
+    if not art_str:
+        errs.append("acceptance evidence needs artifact")
+    else:
+        art = art_str
+
+    run: str | None = None
+    run_str = str(runner or "").strip()
+    if not run_str:
+        errs.append("acceptance evidence needs runner")
+    else:
+        run = run_str
+
+    res: str | None = None
     if result is None or str(result).strip() not in RESULTS:
-        raise ReceiptError("acceptance evidence result must be one of "
-                           + "|".join(RESULTS))
-    res = str(result).strip()
+        errs.append("acceptance evidence result must be one of "
+                    + "|".join(RESULTS))
+    else:
+        res = str(result).strip()
+
     expected: dict[str, str] = {
         "met": "passed",
         "not_exercised": "not_executed",
         "known_negative": "expected_negative",
     }
-    if cls in expected and res != expected[cls]:
-        raise ReceiptError(f"acceptance classification {cls!r} requires "
-                           f"result {expected[cls]!r}, not {res!r}")
-    if cls == "environment_limited" and res not in ("crashed", "failed", "not_executed"):
-        raise ReceiptError("environment_limited acceptance evidence requires "
-                           "result crashed, failed, or not_executed")
+    if cls and res:
+        if cls in expected and res != expected[cls]:
+            errs.append(f"acceptance classification {cls!r} requires "
+                        f"result {expected[cls]!r}, not {res!r}")
+        if cls == "environment_limited" and res not in ("crashed", "failed", "not_executed"):
+            errs.append("environment_limited acceptance evidence requires "
+                        "result crashed, failed, or not_executed")
+
     if cls == "known_negative" and ex == "source_inspection":
-        raise ReceiptError("known_negative acceptance evidence must be an "
-                           "executed or reported control, not source_inspection")
+        errs.append("known_negative acceptance evidence must be an "
+                    "executed or reported control, not source_inspection")
+
     if (gate is None) != (blocked_count is None):
-        raise ReceiptError("gate and blocked_count must be supplied together")
+        errs.append("gate and blocked_count must be supplied together")
     if cls == "known_negative" and gate is None:
-        raise ReceiptError("known_negative acceptance evidence needs the exact "
-                           "gate and blocked_count")
+        errs.append("known_negative acceptance evidence needs the exact "
+                    "gate and blocked_count")
+
+    gate_val: str | None = None
+    if gate is not None:
+        g = str(gate or "").strip()
+        if not g:
+            errs.append("acceptance evidence needs gate")
+        else:
+            gate_val = g
+
+    count_val: int | None = None
+    if blocked_count is not None:
+        if isinstance(blocked_count, bool):
+            errs.append("blocked_count must be a non-negative integer")
+        else:
+            try:
+                count = int(blocked_count)
+                if count < 0 or str(count) != str(blocked_count).strip():
+                    errs.append("blocked_count must be a non-negative integer")
+                else:
+                    count_val = count
+            except (TypeError, ValueError, OverflowError):
+                errs.append("blocked_count must be a non-negative integer")
+
+    comp_val: str | None = None
+    if composition is not None:
+        c = str(composition or "").strip()
+        if not c:
+            errs.append("acceptance evidence needs composition")
+        else:
+            comp_val = c
+
+    if errs:
+        if errors is not None:
+            errors.extend(errs)
+        else:
+            raise ReceiptError("; ".join(errs))
+        return {}
+
+    assert cls is not None and ex is not None and art is not None and run is not None and res is not None
     out: dict[str, Any] = {
         "classification": cls, "artifact": art, "runner": run,
         "execution": ex, "execution_means": EXECUTION_MEANS[ex],
         "result": res, "classification_means": ACCEPTANCE_CLASS_MEANS[cls],
     }
-    if gate is not None:
-        out["gate"] = text("gate", gate)
-        if isinstance(blocked_count, bool):
-            raise ReceiptError("blocked_count must be a non-negative integer")
-        try:
-            count = int(blocked_count)
-        except (TypeError, ValueError, OverflowError):
-            raise ReceiptError("blocked_count must be a non-negative integer") from None
-        if count < 0 or str(count) != str(blocked_count).strip():
-            raise ReceiptError("blocked_count must be a non-negative integer")
-        out["blocked_count"] = count
-    if composition is not None:
-        out["composition"] = text("composition", composition)
+    if gate_val is not None:
+        out["gate"] = gate_val
+    if count_val is not None:
+        out["blocked_count"] = count_val
+    if comp_val is not None:
+        out["composition"] = comp_val
     return out
 
 #: WHAT CAME BACK. Five members, because collapsing any two of them is how a
