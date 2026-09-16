@@ -7,6 +7,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { locateEngineRuntime } from './runtime-layout.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
 const source = fs.readFileSync(path.join(root, 'build/installer.nsh'), 'utf8')
@@ -270,16 +271,9 @@ const dispatchEnv = { ...process.env, TEMP: dispatchTemp, TMP: dispatchTemp }
 // This junction is a throwaway inside the harness temp directory. It is not a
 // node_modules link: nothing installs through it, and it is removed with the
 // temp tree.
-const runtimeSource = (() => {
-  const candidates = [
-    process.env.ORGTREE_ENGINE_RUNTIME,
-    path.join(root, 'engine', 'runtime'),
-  ].filter(Boolean)
-  for (const candidate of candidates) {
-    if (fs.existsSync(path.join(candidate, 'pythonw.exe'))) return candidate
-  }
-  return null
-})()
+// Located by walking UPWARD: engine/runtime is gitignored, so a linked worktree
+// has none of its own and a plain join made this harness INERT there.
+const runtimeSource = locateEngineRuntime(root, { marker: 'pythonw.exe' })
 if (!runtimeSource) {
   throw new Error('INERT: no provisioned engine runtime (engine/runtime/pythonw.exe); set ORGTREE_ENGINE_RUNTIME')
 }

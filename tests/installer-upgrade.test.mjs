@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { spawn, spawnSync } from 'node:child_process'
+import { locateEngineRuntime } from '../tools/runtime-layout.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
 const installer = fs.readFileSync(path.join(root, 'build/installer.nsh'), 'utf8')
@@ -55,13 +56,10 @@ function systemPath(nsisPath) {
 // located rather than assumed). Everything that depends on it SKIPS with a
 // reason when it is absent — a missing runtime is an environment limit, not a
 // silent pass.
-const engineRuntime = (() => {
-  const candidates = [process.env.ORGTREE_ENGINE_RUNTIME, path.join(root, 'engine', 'runtime')].filter(Boolean)
-  for (const candidate of candidates) {
-    if (fs.existsSync(path.join(candidate, 'pythonw.exe'))) return candidate
-  }
-  return null
-})()
+// Located by walking UPWARD, not joined onto this checkout: a linked worktree
+// carries no engine/runtime of its own, so a plain join made every case below
+// skip for every agent working under the worktree rule.
+const engineRuntime = locateEngineRuntime(root, { marker: 'pythonw.exe' })
 
 // Resolves whatever build/installer.nsh names as the relaunch host onto a file
 // this checkout can actually read.

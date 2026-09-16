@@ -29,6 +29,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
+import { locateEngineRuntime } from './runtime-layout.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
 const source = fs.readFileSync(path.join(root, 'build/installer.nsh'), 'utf8')
@@ -40,9 +41,9 @@ const compilerPath = path.resolve(compiler)
 
 if (!fs.existsSync(compilerPath)) throw new Error('INERT: NSIS compiler unavailable; set ORGTREE_MAKENSIS')
 
-const engineRuntime = [process.env.ORGTREE_ENGINE_RUNTIME, path.join(root, 'engine', 'runtime')]
-  .filter(Boolean)
-  .find(candidate => fs.existsSync(path.join(candidate, 'pythonw.exe')))
+// Located by walking UPWARD: engine/runtime is gitignored, so a linked worktree
+// has none of its own and a plain join made the cross-process cases skip there.
+const engineRuntime = locateEngineRuntime(root, { marker: 'pythonw.exe' })
 
 function nsisFunction(name) {
   // The functions live INSIDE customFinishPage, so both the header and the

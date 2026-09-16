@@ -29,6 +29,39 @@ export const REPRESENTATIVE_RUNTIME_IMPORTS = [
   'fastapi', 'pydantic', 'uvicorn', 'starlette', 'websockets', 'httpx', 'PIL', 'psutil',
 ]
 
+/** Find the provisioned `engine/runtime`, searching UPWARD from `startDir`.
+ *
+ *  ⚠ THE UPWARD WALK IS THE POINT, and it is the same rule Node applies to
+ *  `node_modules`. `engine/runtime` is gitignored, so it exists in the main
+ *  checkout and in NO linked worktree. Every caller used to look only beside
+ *  its own checkout, so from a worktree the runtime was simply "absent" and ten
+ *  installer and runtime tests skipped themselves — quietly, in the environment
+ *  where all the work actually happens. A reasoned skip is better than a silent
+ *  pass, but ten tests that never run for any agent are still no coverage.
+ *  Since this team's worktrees live under the repository root, the checkout
+ *  that owns the runtime is always an ancestor.
+ *
+ *  `ORGTREE_ENGINE_RUNTIME` still wins when set, and `marker` is the file whose
+ *  presence proves a real provisioned runtime rather than an empty directory —
+ *  callers differ on whether they need `python.exe` or `pythonw.exe`.
+ *  Returns null when nothing qualifies, so callers keep skipping with a reason.
+ */
+export function locateEngineRuntime(startDir, { marker = 'python.exe' } = {}) {
+  const candidates = []
+  if (process.env.ORGTREE_ENGINE_RUNTIME) candidates.push(process.env.ORGTREE_ENGINE_RUNTIME)
+  let current = path.resolve(startDir)
+  for (;;) {
+    candidates.push(path.join(current, 'engine', 'runtime'))
+    const parent = path.dirname(current)
+    if (parent === current) break
+    current = parent
+  }
+  for (const candidate of candidates) {
+    if (fs.existsSync(path.join(candidate, marker))) return candidate
+  }
+  return null
+}
+
 export class RuntimeLayoutError extends Error {
   constructor(message) {
     super(message)

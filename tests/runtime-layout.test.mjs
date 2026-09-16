@@ -18,6 +18,7 @@ import path from 'node:path'
 import {
   assertRuntimeImports,
   assertRuntimeLayout,
+  locateEngineRuntime,
   normalizeDistName,
   REPRESENTATIVE_RUNTIME_IMPORTS,
   runtimeTreeDigest,
@@ -197,9 +198,13 @@ test('the embedded interpreter imports the representative backend dependencies f
   // PYTHON* environment. Runs wherever a provisioned runtime exists — which
   // includes every release build worktree, where the release-verification
   // source gate executes this file.
-  const runtime = path.join(repoRoot, 'engine', 'runtime')
-  if (!fs.existsSync(path.join(runtime, 'python.exe'))) {
-    t.skip('no provisioned engine/runtime in this checkout; the release worktree runs this for real')
+  // Located by walking UPWARD, not joined onto this checkout. engine/runtime is
+  // gitignored, so a linked worktree has none of its own and this probe used to
+  // skip for every agent working under the worktree rule — the one environment
+  // where it would have caught something.
+  const runtime = locateEngineRuntime(repoRoot)
+  if (!runtime) {
+    t.skip('no provisioned engine/runtime in this checkout or above it; the release worktree runs this for real')
     return
   }
   assertRuntimeLayout(runtime, { label: 'provisioned runtime' })
