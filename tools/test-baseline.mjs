@@ -1097,8 +1097,14 @@ function cmdShow(args) {
     if (suite.granularity === 'module') {
       console.log('   reports per MODULE, not per test — one verdict covers every case in the file')
     }
-    if (suite.recorded_at && suite.recorded_at !== baseline.recorded_at) {
-      console.log(`   ! measured ${suite.recorded_at} at ${short(suite.commit)} — OLDER than the rest of this baseline`)
+    // Only shout when this suite is MEANINGFULLY older than the file as a
+    // whole. The suites of a single `record` are milliseconds apart, and a
+    // warning that fires every time is a warning nobody reads.
+    const lag = suite.recorded_at && baseline.recorded_at
+      ? Date.parse(baseline.recorded_at) - Date.parse(suite.recorded_at)
+      : 0
+    if (lag > 60_000) {
+      console.log(`   ! CARRIED FORWARD, not re-measured: last run ${suite.recorded_at} at ${short(suite.commit)}, ${humanAge(lag / 3_600_000)} older than the rest of this baseline`)
     }
     if (suite.partial) console.log(`   ! ${suite.partial.warning} (filter: ${suite.partial.filter})`)
     if (suite.truncated) console.log(`   ! ${suite.truncation_note}`)
