@@ -82,10 +82,13 @@ current turn has not replaced it yet. An agent that asked a question, reported
 blocked, went quiet past its cache lifetime and then woke on the answer was
 never compacted.
 
-The decision is now made on the session rather than on a status word. It waits
-while a request you have not resolved is still standing, because compacting an
-agent discards its open question, and it compacts once that request is
-resolved.
+The decision is now made on the session rather than on a status word.
+
+A question an agent has asked you also survives being compacted. Compaction
+used to discard the agent's open request, which meant a question could vanish
+off your screen without you or the agent closing it; the question now carries
+across to the replacement session, and the replacement is told it inherited
+one. Answering still wakes the agent and still lets it compact.
 
 ## Known limitations
 
