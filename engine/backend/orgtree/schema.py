@@ -848,8 +848,28 @@ class WorkItem(TypedDict):
     # beside it, never a competing second source of truth.
     # Absent on items written before the field existed; absent and empty mean
     # the same thing (nothing has been recorded), and neither is back-filled.
+    # ⚠ THE LIVE WINDOW, capped at Org.WORK_SCOPE_MAX. Past that the oldest
+    # rows ROLL OVER into `scope_archive` (W09) — a move, not a fold: each row
+    # keeps its seq, its text and its supersession pointers untouched, and
+    # `scope_archive + scope` in that order is the complete record. The cap
+    # used to refuse instead, which froze the item's description permanently
+    # unwritable because every description change and every ruling appends
+    # here. Read the record through `Org._work_scope_all`, never through this
+    # field alone.
     scope: NotRequired[list[WorkScopeRecord]]
+    #: rows that rolled out of the live window, oldest first. UNCAPPED: this is
+    #: what makes the cap above a window rather than a dead end.
+    scope_archive: NotRequired[list[WorkScopeRecord]]
     scope_seq: NotRequired[int]     # monotonic; mints the next row's `seq`
+    #: stamped by every scope append this build makes (Org.WORK_SCOPE_GUARD).
+    #: Its ABSENCE on an item at the cap is the only evidence that the item
+    #: passed through the refusing build's frozen window.
+    scope_guard: NotRequired[int]
+    #: written ONCE, when a rollover finds an item that was frozen by the old
+    #: build: {at, rows, cap, note}. A record of a closed window, not a badge —
+    #: the fact stops being derivable the moment the rollover drops the row
+    #: count, and it is what `objective_notice` reports as `incomplete`.
+    scope_frozen: NotRequired[dict[str, Any] | None]
     delivery: dict[str, WorkStage | None] | None   # keys = workitems.STAGES
     accepted: dict[str, Any] | None  # {at, by, note, via} — completion record: work_accept, a reviewer approval, or a done set through work_update (any collaborator, user 2026-09-10)
     # Nonterminal review state is separate from accepted completion. A

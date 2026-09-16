@@ -10649,11 +10649,29 @@ class Org:
     WORK_HISTORY_MAX: Final = 100
     WORK_LIST_ENTRY_MAX: Final = 40          # entries per docket list
     # THE SCOPE RECORD (W03): every version of the description and every
-    # decision, append-only. Capped BY REFUSAL like evidence — never by
-    # truncation and never by folding, because the whole reason this list is
-    # not `history` is that history's fold would eventually summarise away the
-    # before/after pair it exists to keep.
+    # decision, append-only — never truncated and never folded, because the
+    # whole reason this list is not `history` is that history's fold would
+    # eventually summarise away the before/after pair it exists to keep.
+    #
+    # ⚠ THIS BOUNDS THE LIVE WINDOW, NOT THE RECORD (W09). It used to be a cap
+    # BY REFUSAL, and that froze items dead: every description change and every
+    # ruling appends a row, so at the cap `objective`, `objective_append` and
+    # `decision` were all refused at once — and the refusal's own advice
+    # ("consolidate the settled rulings into the description") is itself a
+    # scope append, so an agent following the instruction it was given got the
+    # same error a second time. There was no path out from inside the tool.
+    # Past the cap the OLDEST rows now ROLL OVER into `scope_archive`, which is
+    # uncapped. That is neither truncation nor folding: each row keeps its own
+    # `seq`, its own text and its own supersession pointers, byte for byte, and
+    # the complete record reads as archive-then-live in one unbroken sequence.
+    # Raising the number instead would only have moved the day this happens.
     WORK_SCOPE_MAX: Final = 100
+    # Stamped onto an item by every scope append this build performs. Its
+    # ABSENCE on an item already at the cap is the only evidence that the item
+    # passed through the frozen window of the refusing build — see
+    # `_work_objective_notice`, which is how such an item declares that its
+    # description is no longer the complete scope.
+    WORK_SCOPE_GUARD: Final = 2
     # the attention reason, which now has to hold requested-against-delivered,
     # the extra, and the confirmation wanted (user 2026-09-05).
     # ⚠ READ FROM THE SHARED CONTRACT, not restated: `workfields.LIMITS` is
@@ -11640,7 +11658,7 @@ class Org:
         return out
 
     def _work_view(self, it: WorkItem, physically: bool, viewer: str,
-                   now_ts: float) -> dict[str, Any]:
+                   now_ts: float, *, scope_archive: bool = True) -> dict[str, Any]:
         """The wire shape (evidence/docket-wire-contract-v3.md).
 
         ⚠ AN UNREADABLE DEPENDENCY IS NOW ANONYMOUS. It used to come back as
@@ -11681,12 +11699,29 @@ class Org:
             # files attached TO the item (user feature 2026-09-10) — records
             # only; the bytes are served by the attachments GET route
             "attachments": list(it.get("attachments") or []),
+            # ⚠ IS THE DESCRIPTION ABOVE THE WHOLE STORY? (W09) Served right
+            # beside `objective` and derived on read, because the reader who
+            # needs this never attempts a write — they just read. `None` when
+            # the description IS the complete scope, which is the normal case
+            # and is what gives the other two values their meaning.
+            "objective_notice": self._work_objective_notice(it),
             # THE SCOPE RECORD (W03): every version of the description, with
             # its complete before and after, and every decision — in order,
             # with supersession. Served WHOLE to a viewer that may read the
             # item, exactly like `evidence`: the objective above is the
             # authoritative current scope, and this is how it got there.
+            # This is the LIVE WINDOW; `scope_archive` holds the rows that
+            # rolled out of it, unchanged, and the two concatenated in that
+            # order are the complete record.
             "scope": list(it.get("scope") or []),
+            # ⚠ WHOLE ON A SINGLE READ, SUMMARISED IN A LIST. `work_get` serves
+            # every archived row — the record is not readable otherwise, and
+            # "nothing is erased" is worth nothing if nothing can read it. A
+            # docket LIST serves every readable item at once and refreshes on a
+            # timer, so it carries the summary and points at `get`.
+            **({"scope_archive": list(it.get("scope_archive") or [])}
+               if scope_archive else {}),
+            "scope_archive_summary": self._work_scope_archive_summary(it),
             # W08 artifacts: immutable, and `named` ones are filtered BY THE
             # SAME DISCLOSURE RULE as `dependencies` — a viewer with no grant
             # learns that an artifact exists and nothing about it, because the
@@ -11772,8 +11807,8 @@ class Org:
         """
         omitted: dict[str, int] = {}
         out = dict(full)
-        for field in ("history", "scope", "evidence", "attachments",
-                      "dismissals", "attention_sources"):
+        for field in ("history", "scope", "scope_archive", "evidence",
+                      "attachments", "dismissals", "attention_sources"):
             value = full.get(field)
             if isinstance(value, list):
                 if field == "history":
@@ -11791,10 +11826,15 @@ class Org:
         # Preserve the scope requested when the item was created/updated as a
         # stable, named group.  The same values also remain at their original
         # top-level keys for clients that consume the full work shape.
+        # ⚠ `objective_notice` TRAVELS WITH `objective`, HERE TOO (W09). This
+        # group is the description as a compact reader meets it; a compact
+        # projection that carried the description without the sentence saying
+        # it may not be the whole of it would reintroduce the exact silence
+        # the notice exists to break.
         out["requested_scope"] = {
             key: full.get(key) for key in
-            ("kind", "title", "objective", "acceptance", "dependencies",
-             "parent", "parent_visible", "participants")
+            ("kind", "title", "objective", "objective_notice", "acceptance",
+             "dependencies", "parent", "parent_visible", "participants")
         }
 
         delivery = full.get("delivery")
@@ -12146,7 +12186,13 @@ class Org:
                          + [(i, True) for i in self._work_archive()]):
             if not self._work_can_read(viewer, it):
                 continue
-            v = self._work_view(it, phys, viewer, now_ts)
+            # the rolled-over rows are summarised here and served whole by
+            # `work_get` — a list refreshes on a timer and carries every
+            # readable item, which is the one place an uncapped record cannot
+            # ride along. `objective_notice` still travels, because the point
+            # of the notice is that a reader meets it wherever they meet the
+            # description.
+            v = self._work_view(it, phys, viewer, now_ts, scope_archive=False)
             if compact:
                 v = self._work_compact_view(v)
             if v["archived"]:
@@ -12224,29 +12270,103 @@ class Org:
     # why. Append-only: `_work_scope_append` is the ONLY writer, and the only
     # field it ever puts on an already-stored row is the `superseded_by`
     # back-pointer — never text.
-    def _work_scope_room(self, it: WorkItem, adding: int = 1) -> None:
-        """Refuse a scope append that would pass the cap — BEFORE the caller
-        mutates anything. Capped by refusal, never by truncation and never by
-        folding: this list exists precisely because `history`'s fold would
-        eventually summarise away the before/after pair it keeps."""
-        have = len(it.get("scope") or [])
-        if have + adding > self.WORK_SCOPE_MAX:
+    def _work_scope_room(self, it: WorkItem, adding: int = 1, *,
+                         relief: bool = True) -> None:
+        """Make room for `adding` more scope rows — BEFORE the caller mutates
+        anything, so a failure here lands before any other part of the call has
+        written something.
+
+        ⚠ THIS NO LONGER REFUSES (W09), AND THAT IS THE WHOLE FIX. It used to,
+        and the refusal was a dead end rather than a limit: `objective`,
+        `objective_append` and `decision` all pass through this one gate, so at
+        the cap an item's authoritative scope became permanently unwritable and
+        the remedy the error text named was itself refused. Past the cap the
+        oldest rows now roll over into `scope_archive` instead.
+
+        NOTHING IS TRUNCATED AND NOTHING IS FOLDED — the guarantee this list
+        exists for is intact. A rolled-over row keeps its `seq`, its `at`, its
+        `by`, its full `before`/`after` or `text` and its supersession
+        pointers, unmodified; `_work_scope_seq` and `_work_scope_last` read
+        across the boundary, so a later row can still supersede an archived one
+        and the archived one still gains its back-pointer. The only thing that
+        changes is which list a row sits in, and `objective_notice` says so
+        beside the description rather than leaving a reader to find out.
+
+        `relief=False` is the pre-W09 behaviour, kept executable so the dead
+        end can be reproduced rather than only described. Nothing in the
+        product passes it.
+        """
+        rows = cast("list[WorkScopeRecord]", it.setdefault("scope", []))
+        room = max(0, self.WORK_SCOPE_MAX - max(1, int(adding)))
+        if len(rows) <= room:
+            return
+        if not relief:
+            have = len(rows)
             raise LedgerError(
                 f"this item already holds {have} scope record(s) (cap "
                 f"{self.WORK_SCOPE_MAX}) and nothing here is ever truncated or "
                 f"folded. Consolidate the settled rulings into the description "
                 f"(`objective`), which has no limit, or attach the long-form "
                 f"record as `evidence`")
+        self._work_scope_rollover(it, keep=room)
+
+    def _work_scope_rollover(self, it: WorkItem, *, keep: int) -> None:
+        """Move the oldest scope rows into the uncapped `scope_archive`.
+
+        A MOVE, NOT A SUMMARY. The rows are the same objects with the same
+        contents; `scope_archive` is append-only for the same reason `scope`
+        is, and the two together are the complete record in `seq` order.
+
+        AND IT IS WHERE A LEGACY FREEZE IS CAUGHT. An item that reached the cap
+        under the refusing build has no `scope_guard` stamp, because only a
+        scope append made by this build writes one. Such an item sat in a
+        window during which every description change and every ruling on it was
+        refused — so whatever was decided then was never recorded here, and no
+        later write can recover it. That fact stops being derivable the instant
+        this rollover drops the row count below the cap, so it is written down
+        once, here, and read back by `_work_objective_notice`.
+        """
+        rows = cast("list[WorkScopeRecord]", it.get("scope") or [])
+        move = len(rows) - max(0, int(keep))
+        if move <= 0:
+            return
+        if not it.get("scope_guard") and not it.get("scope_frozen"):
+            it["scope_frozen"] = {
+                "at": now(), "rows": len(rows), "cap": self.WORK_SCOPE_MAX,
+                "note": ("this item stood at the scope cap under a build that "
+                         "REFUSED every description change and every ruling. "
+                         "Anything decided during that window was not recorded "
+                         "on this item and cannot be recovered from it — the "
+                         "description below is therefore not guaranteed to be "
+                         "the complete scope. Look for it in `evidence`, in "
+                         "the item's mail, or ask whoever ruled it")}
+        arch = cast("list[WorkScopeRecord]",
+                    it.setdefault("scope_archive", []))
+        arch.extend(rows[:move])
+        it["scope"] = rows[move:]
+
+    @staticmethod
+    def _work_scope_all(it: WorkItem) -> list[WorkScopeRecord]:
+        """THE COMPLETE RECORD, oldest first: archive then live window.
+
+        ⚠ EVERY READER OF THE SCOPE RECORD GOES THROUGH HERE, not through
+        `it["scope"]`. A rollover moves rows without changing them, so a lookup
+        that only searched the live window would start reporting that a row it
+        had already handed out no longer exists — which is the append-only
+        guarantee failing at the reader rather than at the writer.
+        """
+        return (cast("list[WorkScopeRecord]", it.get("scope_archive") or [])
+                + cast("list[WorkScopeRecord]", it.get("scope") or []))
 
     def _work_scope_seq(self, it: WorkItem, seq: int) -> WorkScopeRecord | None:
-        for row in it.get("scope") or []:
+        for row in self._work_scope_all(it):
             if int(row.get("seq") or 0) == int(seq):
                 return row
         return None
 
     def _work_scope_last(self, it: WorkItem, kind: str) -> WorkScopeRecord | None:
         """The newest not-yet-superseded row of `kind`, or None."""
-        for row in reversed(it.get("scope") or []):
+        for row in reversed(self._work_scope_all(it)):
             if str(row.get("kind")) == kind and row.get("superseded_by") is None:
                 return row
         return None
@@ -12267,6 +12387,11 @@ class Org:
         rows = cast("list[WorkScopeRecord]", it.setdefault("scope", []))
         seq = int(it.get("scope_seq") or 0) + 1
         it["scope_seq"] = seq
+        # ⚠ THE STAMP THAT TELLS A FROZEN ITEM FROM A HEALTHY ONE. An item that
+        # reaches the cap carrying this was filled by a build that rolls over;
+        # one that reaches it WITHOUT was filled by the build that refused, and
+        # `_work_scope_rollover` records the freeze on its behalf.
+        it["scope_guard"] = self.WORK_SCOPE_GUARD
         row: WorkScopeRecord = {"seq": seq, "at": now(),
                                 "by": self._work_actor(actor), "kind": kind}
         if before is not None:
@@ -12288,6 +12413,118 @@ class Org:
                 prior["superseded_by"] = seq
         rows.append(row)
         return row
+
+    def _work_scope_archive_summary(self, it: WorkItem) -> dict[str, Any]:
+        """What rolled over, as a small block a list row can afford to carry.
+
+        Never a substitute for the rows: `work_get` serves `scope_archive`
+        whole. This exists so a docket LIST — which serves every readable item
+        at once — can say that more of the record exists without shipping all
+        of it on every five-second poll."""
+        arch = cast("list[WorkScopeRecord]", it.get("scope_archive") or [])
+        if not arch:
+            return {"count": 0, "first_seq": None, "last_seq": None,
+                    "first_at": None, "last_at": None}
+        return {"count": len(arch),
+                "first_seq": int(arch[0].get("seq") or 0),
+                "last_seq": int(arch[-1].get("seq") or 0),
+                "first_at": arch[0].get("at"), "last_at": arch[-1].get("at")}
+
+    def _work_objective_notice(self, it: WorkItem) -> dict[str, Any] | None:
+        """⚠ THE SECOND HALF OF W09, AND THE HARDER ONE: an item whose
+        description has stopped being the complete scope must say so WHERE THE
+        DESCRIPTION IS READ.
+
+        The standing rule is that `objective` is the item's authoritative
+        standalone scope — a reader with only the description must be able to
+        build the right thing. A frozen item broke that rule in silence: it
+        still rendered a description, which had simply stopped containing
+        anything ruled after the cap was reached, and nothing distinguished it
+        from a complete one. A refusal at the moment of writing does not help
+        the next reader at all; they never attempt a write, they just read.
+
+        So it is served beside `objective`, in `get`, in `list` and in the
+        compact projection, and it is DERIVED ON READ rather than stored — a
+        stored badge that nothing clears is the defect the charter names.
+        (`scope_frozen` is stored, but that is a record of a closed window,
+        not a badge: it stops being derivable the moment the rollover drops the
+        row count, so it is written once and never recomputed.)
+
+        Two kinds, and they do not mean the same thing:
+
+          `incomplete`  — content was LOST. This item stood at the cap under
+                          the build that refused scope writes, so rulings made
+                          then were never recorded here and no later write
+                          recovers them. The description may not be the whole
+                          specification.
+          `rolled_over` — nothing was lost. The description is current and
+                          authoritative; some of the record of HOW it got
+                          there has moved to `scope_archive`, and the reader is
+                          told where to find it.
+
+        `None` — and this is what makes the other two mean anything — when the
+        description is the complete scope and the whole record sits in front of
+        the reader.
+        """
+        frozen = it.get("scope_frozen")
+        live = len(cast("list[Any]", it.get("scope") or []))
+        arch = len(cast("list[Any]", it.get("scope_archive") or []))
+        if not frozen and not it.get("scope_guard") and live >= self.WORK_SCOPE_MAX:
+            # AN ITEM STILL SITTING IN THE FROZEN WINDOW. No append has been
+            # made to it by this build, so nothing has yet had the chance to
+            # write `scope_frozen` — and a reader arriving now is exactly the
+            # reader who must not mistake this description for a whole one.
+            frozen = {"at": None, "rows": live, "cap": self.WORK_SCOPE_MAX,
+                      "note": ("this item is standing at the scope cap and was "
+                               "last written by a build that REFUSED every "
+                               "description change and every ruling. Anything "
+                               "decided during that window was not recorded "
+                               "here")}
+        if frozen:
+            return {
+                "kind": "incomplete",
+                "headline": ("This description is NOT the complete scope of "
+                             "this item."),
+                "detail": str(frozen.get("note") or ""),
+                "at": frozen.get("at"),
+                "rows": int(frozen.get("rows") or 0),
+                "archived": arch,
+            }
+        if arch:
+            return {
+                "kind": "rolled_over",
+                "headline": ("This description is the complete current scope; "
+                             "part of the record of how it got there has "
+                             "rolled over."),
+                "detail": (f"{arch} earlier scope record(s) — description "
+                           f"versions and rulings — moved to `scope_archive` "
+                           f"to keep the live window at {self.WORK_SCOPE_MAX}. "
+                           f"Nothing was truncated, folded or erased: read "
+                           f"them with `orgtree_work get`, which serves "
+                           f"`scope_archive` whole."),
+                "at": None,
+                "rows": live,
+                "archived": arch,
+            }
+        return None
+
+    def _work_notice_line(self, it: WorkItem) -> str | None:
+        """`objective_notice` as ONE LINE, for the mails that carry the
+        description — assignment, review request, participation.
+
+        The organization that hit this said the quiet part exactly: "the next
+        agent to pick the item up reads the description first and has no reason
+        to look further". This mail IS that first reading. An excerpt marker is
+        not a substitute — it says there is more of this description, not that
+        there is scope which is not in this description at all.
+
+        None when the description is the complete scope, which renders nothing
+        and leaves every already-frozen mail body unchanged."""
+        n = self._work_objective_notice(it)
+        if not n:
+            return None
+        mark = "⚠ " if n.get("kind") == "incomplete" else ""
+        return f"{mark}{n.get('headline')} {n.get('detail')}"
 
     def _work_status_at(self, it: WorkItem) -> str:
         """WHEN THIS ITEM LAST ACTUALLY CHANGED STATE.
@@ -13470,6 +13707,7 @@ class Org:
                      owner=own, previous_owner=(str(prev) if prev else None),
                      assigner=actor, status=str(it.get("status") or "open"),
                      objective=str(it.get("objective") or ""),
+                     objective_notice=self._work_notice_line(it),
                      done_so_far=[str(x) for x in (it.get("done_so_far") or [])],
                      working_on_next=[str(x) for x in (it.get("working_on_next") or [])],
                      acceptance=[str(x) for x in (it.get("acceptance") or [])]))
@@ -13669,6 +13907,7 @@ class Org:
                      reviewer=want, requested_by=actor,
                      owner=str(self._work_actor_node(it.get("owner")) or ""),
                      objective=str(it.get("objective") or ""),
+                     objective_notice=self._work_notice_line(it),
                      done_so_far=[str(x) for x in (it.get("done_so_far") or [])],
                      acceptance=[str(x) for x in (it.get("acceptance") or [])],
                      revision=int(it.get("rev") or 0), candidate=candidate))
@@ -13842,7 +14081,8 @@ class Org:
                     ev=_mint("docket.participant_added", actor_of(actor),
                              self.work_item_ref(it), added_by=actor,
                              owner=str(owner or ""),
-                             objective=str(it.get("objective") or "")))
+                             objective=str(it.get("objective") or ""),
+                             objective_notice=self._work_notice_line(it)))
             except LedgerError as e:
                 refused.append({"node": pid, "reason": str(e)})
                 continue

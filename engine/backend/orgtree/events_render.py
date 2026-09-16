@@ -72,9 +72,18 @@ def _desc(ev: _R) -> str:
     text = str(ev.get("objective") or "")
     if not text:
         return "(none recorded)"
-    return workfields.excerpt(
+    body = workfields.excerpt(
         text, _DESC_EXCERPT, what="description",
         how=f"orgtree_work get slug={_obj(ev).get('slug')} before acting on it")
+    # ⚠ W09 — BEFORE THE TEXT, NOT AFTER IT. An item whose description has
+    # stopped being the complete scope must say so wherever the description is
+    # read, and this mail is exactly where the next agent to pick the item up
+    # reads it. An excerpt that announces itself is not enough on its own: it
+    # says "there is more of this description", not "there is scope that is not
+    # in this description at all". Absent or null — the normal case — adds
+    # nothing, so a body written before this existed is unchanged.
+    notice = ev.get("objective_notice")
+    return f"{str(notice).strip()}\n{body}" if notice else body
 
 
 def _note(ev: _R, what: str) -> str:

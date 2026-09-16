@@ -2468,6 +2468,28 @@ function DocketPane({ slug, item, toast, asksById, onDismiss, close, onFocusAgen
           may be arbitrarily long, so it gets its own component: the rest of
           the pane's prose is short, single-paragraph and stays `RefProse`. */}
       <DocketSection title="DESCRIPTION">
+        {/* ⚠ ABOVE THE DESCRIPTION, NOT BESIDE THE PANE (W09). An item whose
+            description has stopped being the complete scope used to say so
+            nowhere: it rendered like any other. The reader this protects is
+            the one who opens the item, reads the first thing in the pane and
+            starts building — so the sentence has to be the thing they read
+            first, before the text it is a warning about. `incomplete` means
+            content was lost and is a warning; `rolled_over` means nothing was
+            lost and is a pointer. Absent on an older backend, and null
+            whenever the description IS the whole scope. */}
+        {item.objective_notice && (
+          <div className={'docket-desc-notice ' + item.objective_notice.kind}
+               role={item.objective_notice.kind === 'incomplete'
+                       ? 'alert' : undefined}>
+            <div className="docket-desc-notice-head">
+              {item.objective_notice.kind === 'incomplete' ? '⚠ ' : ''}
+              {item.objective_notice.headline}
+            </div>
+            <div className="docket-desc-notice-detail">
+              {item.objective_notice.detail}
+            </div>
+          </div>
+        )}
         {item.objective
           ? <DocketDescription text={item.objective} slug={slug}
               world={refWorld} onOpen={onOpenRef}

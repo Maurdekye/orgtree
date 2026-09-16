@@ -216,7 +216,20 @@ class ObjectiveIsVersioned(unittest.TestCase):
         with self.assertRaises(LedgerError):
             org.work_update("peer-b", wid, ["x"], [], objective_append="more")
 
-    def test_the_scope_cap_refuses_and_never_truncates_or_folds(self):
+    def test_the_scope_cap_rolls_over_and_never_truncates_or_folds(self):
+        """⚠ THIS TEST USED TO ASSERT A REFUSAL, and the refusal was the bug
+        (W09). The cap is on ONE gate that `objective`, `objective_append` and
+        `decision` all pass through, so refusing at it left the item's
+        authoritative scope permanently unwritable — and the remedy the error
+        text named, consolidating into `objective`, was itself one of the three
+        refused routes. The whole record is now kept and the LIVE WINDOW is
+        what the cap bounds: past it the oldest rows move, unchanged, into the
+        uncapped `scope_archive`.
+
+        What has NOT changed, and is what this test still exists to pin: no row
+        is truncated, summarised or erased, ever. See
+        `tests/test_work_scope_cap_relief.py` for the whole contract.
+        """
         org, wid = fixture()
         it = item(org, wid)
         it["scope"] = [{"seq": i + 1, "at": "t", "by": "owner-a",
@@ -224,11 +237,26 @@ class ObjectiveIsVersioned(unittest.TestCase):
                         "supersedes": None, "superseded_by": None}
                        for i in range(ledger.Org.WORK_SCOPE_MAX)]
         it["scope_seq"] = ledger.Org.WORK_SCOPE_MAX
-        before = snapshot(it)
-        with self.assertRaises(LedgerError) as cm:
-            upd(org, wid, objective=OBJ_2)
-        self.assertIn(str(ledger.Org.WORK_SCOPE_MAX), str(cm.exception))
-        self.assertEqual(snapshot(item(org, wid)), before)
+        before = [dict(r) for r in it["scope"]]
+
+        upd(org, wid, objective=OBJ_2)
+
+        it = item(org, wid)
+        self.assertEqual(it["objective"], OBJ_2, "the description stayed frozen")
+        self.assertLessEqual(len(it["scope"]), ledger.Org.WORK_SCOPE_MAX)
+        whole = list(it.get("scope_archive") or []) + list(it["scope"])
+        self.assertEqual(len(whole), ledger.Org.WORK_SCOPE_MAX + 1)
+        # every original row is still there, byte for byte
+        kept = {int(r["seq"]): r for r in whole}
+        for row in before:
+            self.assertEqual(kept[int(row["seq"])]["text"], row["text"])
+            self.assertEqual(kept[int(row["seq"])]["at"], row["at"])
+        # this fixture is shaped like an item from the refusing build — no
+        # `scope_guard` — so the relief also records that it was frozen, and
+        # the item now says so where its description is read
+        self.assertTrue(it.get("scope_frozen"))
+        notice = org.work_get("owner-a", wid)["objective_notice"]
+        self.assertEqual(notice["kind"], "incomplete")
 
 
 # ----------------------------------------------------------------- §2 append

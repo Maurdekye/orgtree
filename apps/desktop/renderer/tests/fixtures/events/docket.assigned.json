@@ -28,7 +28,8 @@
     ],
     "acceptance": [
       "docket.assigned·acceptance[0]"
-    ]
+    ],
+    "objective_notice": "docket.assigned·objective_notice"
   },
   "public": {
     "v": 1,
@@ -56,7 +57,8 @@
     ],
     "acceptance": [
       "docket.assigned·acceptance[0]"
-    ]
+    ],
+    "objective_notice": "docket.assigned·objective_notice"
   },
-  "body": "[DOCKET ASSIGNMENT · docket.assigned·object.slug \"docket.assigned·object.title\"] You are now the ASSIGNMENT on this docket item — that is OWNERSHIP: you hold its management rights, the user's replies on it come to you, and you are who the docket names as responsible.\nAssigned by docket.assigned·assigner (previously docket.assigned·previous_owner).\nDescription: docket.assigned·objective\nLatest status — done so far: docket.assigned·done_so_far[0]\nWorking on / next: docket.assigned·working_on_next[0]\nAcceptance conditions: docket.assigned·acceptance[0]\nRead it in full with orgtree_work get slug=docket.assigned·object.slug, and `update` it at the next meaningful boundary — your update is what the user reads."
+  "body": "[DOCKET ASSIGNMENT · docket.assigned·object.slug \"docket.assigned·object.title\"] You are now the ASSIGNMENT on this docket item — that is OWNERSHIP: you hold its management rights, the user's replies on it come to you, and you are who the docket names as responsible.\nAssigned by docket.assigned·assigner (previously docket.assigned·previous_owner).\nDescription: docket.assigned·objective_notice\ndocket.assigned·objective\nLatest status — done so far: docket.assigned·done_so_far[0]\nWorking on / next: docket.assigned·working_on_next[0]\nAcceptance conditions: docket.assigned·acceptance[0]\nRead it in full with orgtree_work get slug=docket.assigned·object.slug, and `update` it at the next meaningful boundary — your update is what the user reads."
 }
