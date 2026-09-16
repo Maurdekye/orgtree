@@ -44,7 +44,7 @@ import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { run as runNodeTests } from 'node:test'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -83,6 +83,8 @@ const DEFAULT_MAX_AGE_DAYS = 7
 // point here, and registering it would put a number in the baseline that
 // nothing can be compared against.
 
+const RENDERER_TESTS = path.join(REPO, 'apps', 'desktop', 'renderer', 'tests')
+
 const SUITES = {
   'node-root': {
     title: 'Root/main-process suite',
@@ -94,7 +96,16 @@ const SUITES = {
       { what: 'tests/disruptive/*.test.mjs', why: 'separate `npm run test:disruptive` target; not part of `npm test`' },
       { what: 'tests/*.test.ps1', why: 'PowerShell boot/installer probes; not run by any node runner' },
       { what: 'tools/test-*.mjs', why: 'Electron/native probes needing a display and a built app' },
-      { what: 'apps/desktop/renderer/tests', why: 'the renderer runner reports no machine-readable per-test result; see docs/known-failures.md' },
+    ],
+  },
+  renderer: {
+    title: 'Renderer suite',
+    description: 'apps/desktop/renderer/tests/run.mjs — esbuild-bundled jsdom suites over the real renderer',
+    command: 'node apps/desktop/renderer/tests/run.mjs',
+    kind: 'spawn-ndjson',
+    files: () => listFiles(RENDERER_TESTS, name => /\.test\.tsx?$/.test(name)),
+    excluded: [
+      { what: 'probe scripts (*_probe.py, *-probe.tsx, *.probe.ts)', why: 'driven by hand or by a native probe runner, not by run.mjs' },
     ],
   },
 }
@@ -326,12 +337,135 @@ function short(sha) {
  * assertion shows up two or three times. Those aggregates are kept but marked
  * `aggregate: true`; only leaves are counted as failures.
  */
-async function runSuite(suiteName, { files, filter, concurrency, timeout, onProgress }) {
+async function runSuite(suiteName, options) {
   const suite = SUITES[suiteName]
   if (!suite) throw new Error(`unknown suite: ${suiteName}`)
-  let targets = files ?? suite.files()
-  if (filter) targets = targets.filter(f => relative(f).includes(filter))
-  if (!targets.length) throw new Error(`suite ${suiteName} matched no files${filter ? ` for filter "${filter}"` : ''}`)
+  let targets = options.files ?? suite.files()
+  if (options.filter) targets = targets.filter(f => relative(f).includes(options.filter))
+  if (!targets.length) throw new Error(`suite ${suiteName} matched no files${options.filter ? ` for filter "${options.filter}"` : ''}`)
+  return suite.kind === 'spawn-ndjson'
+    ? runSpawnedSuite(suiteName, targets, options)
+    : runNodeTestSuite(suiteName, targets, options)
+}
+
+/**
+ * Run a suite whose own runner reports only an exit code.
+ *
+ * The runner is spawned unchanged — it owns the Job Object that bounds memory
+ * and wall clock, and re-implementing that here to get structured results would
+ * trade a reporting problem for a machine-wide one. Per-test outcomes come back
+ * through tools/test-baseline-reporter.mjs, which node loads into every process
+ * in the tree via NODE_OPTIONS.
+ */
+async function runSpawnedSuite(suiteName, targets, { concurrency, timeout }) {
+  const started = Date.now()
+  const ndjsonDir = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-baseline-'))
+  const reporter = pathToFileURL(path.join(HERE, 'test-baseline-reporter.mjs')).href
+  const all = SUITES[suiteName].files().map(relative)
+  const selected = targets.map(relative)
+  const partial = selected.length < all.length
+
+  // ⚠ The runner's own default run limit is 300 s and this suite measured 274 s
+  // of test time on the machine the baseline was first taken on — about ten per
+  // cent of headroom. On a loaded machine that limit fires, batches are dropped,
+  // and the files that never ran would be recorded as though they had passed.
+  // A baseline is exactly the run that must not be silently truncated, so give
+  // it real headroom and record the override as part of the environment.
+  const runLimitMs = String(Number(process.env.ORGTREE_TEST_RUN_TIMEOUT_MS) || 900_000)
+  const overrides = {
+    ORGTREE_TEST_CONCURRENCY: String(concurrency ?? 4),
+    ORGTREE_TEST_RUN_TIMEOUT_MS: runLimitMs,
+  }
+  const env = {
+    ...process.env,
+    ...overrides,
+    ORGTREE_BASELINE_NDJSON_DIR: ndjsonDir,
+    NODE_OPTIONS: [process.env.NODE_OPTIONS, `--test-reporter=${reporter}`, '--test-reporter-destination=stdout']
+      .filter(Boolean).join(' '),
+  }
+  // The runner takes bare filename filters, and applies them twice — once to
+  // the `.tsx` sources and again to the bundled `.mjs`. Only the extensionless
+  // stem matches both. Passing the failing files back as filters is what makes
+  // the confirmation pass cheap.
+  const stems = selected.map(f => path.basename(f).replace(/\.tsx?$/, ''))
+  const args = [path.join(RENDERER_TESTS, 'run.mjs'), ...(partial ? stems : [])]
+
+  const spawned = spawnSync(process.execPath, args, {
+    cwd: REPO, env, encoding: 'utf8', windowsHide: true, maxBuffer: 64 * 1024 * 1024,
+  })
+  const stdout = spawned.stdout ?? ''
+  const stderr = spawned.stderr ?? ''
+
+  // The runner bounds the whole run at ORGTREE_TEST_RUN_TIMEOUT_MS and reports
+  // 124 when it hits it, having dropped every batch that did not start. A
+  // baseline built from a truncated run would read as if the dropped files had
+  // passed, so this is surfaced rather than swallowed.
+  const truncated = spawned.status === 124 || /RUN LIMIT|hit the run limit/.test(stderr + stdout)
+
+  const outcomes = new Map()
+  for (const name of fs.existsSync(ndjsonDir) ? fs.readdirSync(ndjsonDir) : []) {
+    if (!name.endsWith('.ndjson')) continue
+    for (const line of fs.readFileSync(path.join(ndjsonDir, name), 'utf8').split('\n')) {
+      if (!line.trim()) continue
+      let row
+      try { row = JSON.parse(line) } catch { continue }
+      const file = rendererSource(row.file)
+      const id = testId(suiteName, file, row.name)
+      const aggregate = row.failure_type === 'subtestsFailed'
+      const message = row.passed ? null : firstLine(row.error ?? '')
+      outcomes.set(id, {
+        id,
+        suite: suiteName,
+        file,
+        test: row.name,
+        status: row.skip ? 'skipped' : row.todo ? 'todo' : row.passed ? 'passed' : 'failed',
+        kind: aggregate ? 'aggregate' : 'leaf',
+        failure_type: row.failure_type,
+        error: message,
+        error_digest: message ? digest(message) : null,
+        duration_ms: Math.round(row.duration_ms ?? 0),
+      })
+    }
+  }
+  fs.rmSync(ndjsonDir, { recursive: true, force: true })
+
+  if (!outcomes.size) {
+    throw new Error(
+      `${suiteName}: the runner exited ${spawned.status} but recorded no test results.\n` +
+      `Usually the reporter did not load. Last runner output:\n${(stderr || stdout).slice(-2000)}`,
+    )
+  }
+
+  return {
+    suite: suiteName,
+    runner: SUITES[suiteName].command,
+    duration_ms: Date.now() - started,
+    files: selected,
+    env_overrides: overrides,
+    exit_status: spawned.status,
+    truncated: truncated || null,
+    truncation_note: truncated
+      ? 'The runner hit its own run limit and dropped batches. Files that never ran are NOT passing — they are unmeasured. Raise ORGTREE_TEST_RUN_TIMEOUT_MS and record again.'
+      : null,
+    outcomes: [...outcomes.values()].sort((a, b) => a.id.localeCompare(b.id)),
+  }
+}
+
+/**
+ * Map a bundled test back to its source. The renderer runner esbuilds
+ * `foo.test.tsx` to `<tmp>/bundles/foo.test.mjs`, so only the basename survives.
+ */
+function rendererSource(bundled) {
+  if (!bundled) return '(unknown file)'
+  const base = path.basename(bundled).replace(/\.mjs$/, '')
+  for (const extension of ['.tsx', '.ts']) {
+    const candidate = path.join(RENDERER_TESTS, base + extension)
+    if (fs.existsSync(candidate)) return relative(candidate)
+  }
+  return relative(bundled) ?? bundled
+}
+
+async function runNodeTestSuite(suiteName, targets, { concurrency, timeout, onProgress }) {
 
   const started = Date.now()
   const outcomes = new Map()
@@ -537,6 +671,11 @@ async function cmdRecord(args) {
       excluded: SUITES[suiteName].excluded,
       duration_ms: result.duration_ms,
       confirmation_pass: confirmation,
+      // A run the suite's own limits cut short measured fewer files than it
+      // looks like. Say so in the record, not only on the console.
+      truncated: result.truncated ?? null,
+      truncation_note: result.truncation_note ?? null,
+      env_overrides: result.env_overrides ?? null,
       counts,
       failing_files: [...new Set(failures.map(f => f.file))].sort(),
       failures: failures.map(f => ({
@@ -743,6 +882,7 @@ function cmdShow(args) {
     console.log(`── ${name} — ${suite.title}`)
     console.log(`   ${suite.runner}`)
     if (suite.partial) console.log(`   ! ${suite.partial.warning} (filter: ${suite.partial.filter})`)
+    if (suite.truncated) console.log(`   ! ${suite.truncation_note}`)
     console.log(`   ${suite.counts.passed}/${suite.counts.tests} passed · ${suite.counts.failed} known failures across ${suite.failing_files.length} file(s) · ${(suite.duration_ms / 1000).toFixed(0)}s`)
     for (const file of suite.failing_files) {
       console.log(`   ${file}`)
