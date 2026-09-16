@@ -1,20 +1,20 @@
 {
   "schema": "orgtree.test-baseline/v1",
-  "recorded_at": "2026-09-16T17:39:28.511Z",
+  "recorded_at": "2026-09-16T18:06:18.090Z",
   "recorded_by": "test-baseline",
   "max_age_days": 7,
-  "commit": "e2cb7d08d166134c54534f64441d8dc14ff0db54",
-  "commit_subject": "Document the baseline and add its npm scripts",
-  "commit_at": "2026-09-16T20:30:53+03:00",
+  "commit": "a5aac6dd0fa31db0d349e53e9e665d1e6a94b2df",
+  "commit_subject": "Record the baseline, the handover ledger, and tests for the classifier",
+  "commit_at": "2026-09-16T20:59:44+03:00",
   "branch": "test-baseline/known-failures",
   "tree_clean": true,
   "measured_tree_clean": true,
   "trees": {
-    "tests": "5523fb84c4efcb4878fa6cc39c59be2b8c261a3d",
-    "engine": "cc92eb0ff9f2739435715d131bd21a3e2aa2648c",
-    "apps": "31530db092638f91c83423e835e29014b1f4d89f",
+    "tests": "3268f4ec2ef002cc55ff16185170e81f39369831",
+    "engine": "f7c9b3dc6d5d7238885300b85d4423c94dcdde10",
+    "apps": "4b0bf82f5120615fd9154fc1e48dc725a6a7ed8f",
     "packages": "b350edea30b2990435b54b4fe014cc173517029e",
-    "tools": "6f60056b05a93fb3b84091b481c5a19f03b93ab5",
+    "tools": "8999cdf056bb7db7a4566203ebd51aae4f86251e",
     "package.json": "fdd485e21d2f015270d5517af7349977b712d6e8"
   },
   "machine": {
@@ -45,21 +45,21 @@
           "why": "Electron/native probes needing a display and a built app"
         }
       ],
-      "duration_ms": 89807,
+      "duration_ms": 85331,
       "confirmation_pass": {
         "files": [
           "tests/attach.test.mjs",
           "tests/private-update-feed.test.mjs"
         ],
-        "duration_ms": 44564
+        "duration_ms": 41786
       },
       "truncated": null,
       "truncation_note": null,
       "env_overrides": null,
       "counts": {
-        "files": 47,
-        "tests": 622,
-        "passed": 610,
+        "files": 48,
+        "tests": 635,
+        "passed": 623,
         "failed": 2,
         "skipped": 10
       },
@@ -439,6 +439,19 @@
         "node-root::tests/taskbarattention.test.mjs::identities are validated at the boundary",
         "node-root::tests/taskbarattention.test.mjs::resolving one of several requests neither clears nor restarts the pulse",
         "node-root::tests/taskbarattention.test.mjs::the window the user is already looking at is never flashed, and can pulse once they leave it",
+        "node-root::tests/test-baseline.test.mjs::--max-age-days refuses an old baseline instead of quietly trusting it",
+        "node-root::tests/test-baseline.test.mjs::a failure in a test the baseline never saw is counted against the agent, not excused",
+        "node-root::tests/test-baseline.test.mjs::a handover cannot be recorded for a failure the baseline does not know about",
+        "node-root::tests/test-baseline.test.mjs::a handover records the failure as explicitly not claimed, and refuses to claim it",
+        "node-root::tests/test-baseline.test.mjs::a known failure missing from the run is named, not silently treated as fixed",
+        "node-root::tests/test-baseline.test.mjs::a known failure that now passes is reported as fixed",
+        "node-root::tests/test-baseline.test.mjs::a newly broken test that the baseline saw passing is a NEW failure and exits 1",
+        "node-root::tests/test-baseline.test.mjs::a pre-existing failure is not counted against the agent, and the run still exits clean",
+        "node-root::tests/test-baseline.test.mjs::a pre-existing failure whose error text changed is flagged rather than waved through",
+        "node-root::tests/test-baseline.test.mjs::a suite the baseline has never measured cannot acquit anything in it",
+        "node-root::tests/test-baseline.test.mjs::the baseline reports its own age and provenance before any verdict",
+        "node-root::tests/test-baseline.test.mjs::the same failure is not handed over twice by accident",
+        "node-root::tests/test-baseline.test.mjs::the two are separated in the SAME run — that is the whole job",
         "node-root::tests/themes.test.mjs::Display persists only appearance, honors broadcasts over stale load, and reports save failure",
         "node-root::tests/themes.test.mjs::fresh theme follows installed-provider priority without persisting a provisional fallback",
         "node-root::tests/themes.test.mjs::mounted ThemeSetting keeps a choice made before provider detection resolves",
@@ -725,12 +738,12 @@
           "why": "driven by hand or by a native probe runner, not by run.mjs"
         }
       ],
-      "duration_ms": 365200,
+      "duration_ms": 233273,
       "confirmation_pass": {
         "files": [
           "apps/desktop/renderer/tests/presentfocus.test.tsx"
         ],
-        "duration_ms": 5114
+        "duration_ms": 9983
       },
       "truncated": null,
       "truncation_note": null,
