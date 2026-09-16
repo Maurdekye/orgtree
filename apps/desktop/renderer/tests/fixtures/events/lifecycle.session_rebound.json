@@ -1,0 +1,40 @@
+{
+  "variant": "lifecycle.session_rebound",
+  "family": "lifecycle",
+  "private": {
+    "v": 1,
+    "variant": "lifecycle.session_rebound",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.session_rebound·actor"
+    },
+    "object": {
+      "kind": "node",
+      "org": "lifecycle.session_rebound·object.org",
+      "id": "lifecycle.session_rebound·object.id",
+      "name": "lifecycle.session_rebound·object.name",
+      "generation": 3
+    },
+    "engine_authored": false,
+    "node": "lifecycle.session_rebound·node",
+    "predecessor": "lifecycle.session_rebound·predecessor"
+  },
+  "public": {
+    "v": 1,
+    "variant": "lifecycle.session_rebound",
+    "projection": "public",
+    "actor": {
+      "kind": "agent",
+      "id": "lifecycle.session_rebound·actor"
+    },
+    "object": {
+      "kind": "node",
+      "id": "lifecycle.session_rebound·object.id",
+      "name": "lifecycle.session_rebound·object.name",
+      "generation": 3
+    },
+    "node": "lifecycle.session_rebound·node",
+    "predecessor": "lifecycle.session_rebound·predecessor"
+  },
+  "body": "The ACCOUNT move that rode along with your model switch could not carry your session: on your lane a provider account change archives the session and starts a fresh one, so your conversation does NOT carry over even though the provider did not change. If your context shows earlier turns, that is retained REPLAY text, not turns that ran — verify anything it claims before building on it. Your predecessor is archived as \"lifecycle.session_rebound·predecessor\" — its full transcript is at transcript.jsonl beside your breadcrumbs.md, and your scratch files, breadcrumbs and mail are untouched. New account plus fresh session is also a fresh provider cache namespace, so this turn is a cold open — that cost comes from the account move, not from any local restart."
+}

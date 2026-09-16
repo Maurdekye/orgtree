@@ -3395,6 +3395,42 @@
       ],
       "additionalProperties": false
     },
+    "LifecycleSessionRebound": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "variant": {
+          "const": "lifecycle.session_rebound"
+        },
+        "actor": {
+          "$ref": "#/$defs/Actor"
+        },
+        "engine_authored": {
+          "type": "boolean"
+        },
+        "object": {
+          "$ref": "#/$defs/NodeRef"
+        },
+        "node": {
+          "type": "string"
+        },
+        "predecessor": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "v",
+        "variant",
+        "actor",
+        "engine_authored",
+        "object",
+        "node",
+        "predecessor"
+      ],
+      "additionalProperties": false
+    },
     "LifecycleSwitchQueued": {
       "type": "object",
       "properties": {
@@ -5709,6 +5745,9 @@
         },
         {
           "$ref": "#/$defs/LifecycleModelSwitched"
+        },
+        {
+          "$ref": "#/$defs/LifecycleSessionRebound"
         },
         {
           "$ref": "#/$defs/LifecycleSwitchQueued"
@@ -8902,6 +8941,42 @@
       ],
       "additionalProperties": false
     },
+    "PublicLifecycleSessionRebound": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "variant": {
+          "const": "lifecycle.session_rebound"
+        },
+        "projection": {
+          "const": "public"
+        },
+        "actor": {
+          "$ref": "#/$defs/PublicActor"
+        },
+        "object": {
+          "$ref": "#/$defs/PublicNodeRef"
+        },
+        "node": {
+          "type": "string"
+        },
+        "predecessor": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "v",
+        "variant",
+        "projection",
+        "actor",
+        "object",
+        "node",
+        "predecessor"
+      ],
+      "additionalProperties": false
+    },
     "PublicLifecycleSwitchQueued": {
       "type": "object",
       "properties": {
@@ -11089,6 +11164,9 @@
         },
         {
           "$ref": "#/$defs/PublicLifecycleModelSwitched"
+        },
+        {
+          "$ref": "#/$defs/PublicLifecycleSessionRebound"
         },
         {
           "$ref": "#/$defs/PublicLifecycleSwitchQueued"

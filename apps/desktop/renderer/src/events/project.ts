@@ -80,6 +80,7 @@ export function projectEvent(event: KnownEvent): EventView {
     case "lifecycle.bearer_exhausted": return layout(event, "History exhausted", [["bearer", "Bearer", "context"]])
     case "lifecycle.handoff_record": return layout(event, "Handoff recorded", [["generation", "Generation", "context"]])
     case "lifecycle.model_switched": return layout(event, "Model changed", [["node", "Node", "context"], ["relation", "Relation", "context"], ["old", "Before", "header"], ["new", "After", "header"], ["seat_old", "Seat old", "context"], ["seat_new", "Seat new", "context"], ["by", "By", "header"], ["queued", "Queued", "context"], ["crossed", "Crossed", "context"], ["old_provider", "Old provider", "context"], ["new_provider", "New provider", "context"], ["predecessor", "Predecessor", "context"]])
+    case "lifecycle.session_rebound": return layout(event, "Session restarted by account move", [["node", "Node", "context"], ["predecessor", "Predecessor", "context"]])
     case "lifecycle.switch_queued": return layout(event, "Model change queued", [["node", "Node", "context"], ["old", "Before", "context"], ["new", "After", "context"], ["by", "By", "context"]])
     case "lifecycle.switch_cancelled": return layout(event, "Model change cancelled", [["node", "Node", "context"], ["target", "Target", "context"], ["by", "By", "context"]])
     case "lifecycle.switch_dropped": return layout(event, "Queued model change dropped", [["node", "Agent", "header"], ["target", "Requested model", "header"], ["kept", "Retained model", "header"], ["reason", "Reason", "body"]])
