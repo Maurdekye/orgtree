@@ -173,6 +173,46 @@ test('a failure in a test the baseline never saw is counted against the agent, n
   assert.equal(status, 1, 'a failure the baseline cannot acquit must still fail the gate')
 })
 
+test('a test that failed and then passed on re-run here is called flaky, not a regression', async t => {
+  // The alternative — counting it as a regression — makes the gate cry wolf on
+  // every flaky file in the tree, and a gate that cries wolf gets ignored.
+  // This is an observation, not a guess: the confirmation pass watched it pass.
+  const flakyOutcome = { ...outcome('solid', 'failed', 'intermittent'), stability: 'flaky', retry_status: 'passed' }
+  const { status, report, human } = runFixture(t, {
+    baseline: baselineFixture(),
+    outcomes: [flakyOutcome, outcome('also-solid', 'passed')],
+  })
+  assert.equal(report.new_failures.length, 0)
+  assert.deepEqual(report.flaky_failures.map(f => f.test), ['solid'])
+  assert.equal(status, 0, 'a test that passes on re-run is not a deterministic regression')
+  assert.match(human, /FLAKY HERE/)
+  // …but it must never be silent. A verdict of "nothing new" that hid a flaky
+  // failure would be exactly the dishonest report this tool exists to prevent.
+  assert.match(human, /failed and then passed on re-run here/)
+})
+
+test('--strict-flaky counts that same failure against the agent', async t => {
+  const flakyOutcome = { ...outcome('solid', 'failed', 'intermittent'), stability: 'flaky', retry_status: 'passed' }
+  const { status, report } = runFixture(t, {
+    baseline: baselineFixture(),
+    outcomes: [flakyOutcome],
+    args: ['--strict-flaky'],
+  })
+  assert.deepEqual(report.flaky_failures.map(f => f.test), ['solid'])
+  assert.equal(status, 1)
+})
+
+test('a known-flaky test that passes this time is not credited as a fix', async t => {
+  const baseline = baselineFixture()
+  baseline.suites['node-root'].failures = [{ ...failure('old-broken'), stability: 'flaky' }]
+  const { report } = runFixture(t, {
+    baseline,
+    outcomes: [outcome('old-broken', 'passed')],
+  })
+  assert.equal(report.fixed_since_baseline.length, 1)
+  assert.equal(report.fixed_since_baseline[0].likely_flakiness_not_a_fix, true)
+})
+
 test('a known failure that now passes is reported as fixed', async t => {
   const { status, report } = runFixture(t, {
     baseline: baselineFixture(),

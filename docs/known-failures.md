@@ -30,6 +30,7 @@ node tools/test-baseline.mjs compare
 | --- | --- |
 | **NEW FAILURES (yours)** | The test exists in the baseline and was passing there. It fails here. This is a regression and it is yours. |
 | **FAILURES THE BASELINE CANNOT ACQUIT** | The test is not in the baseline at all — usually your branch added or renamed it. The baseline has no opinion, so it is counted against you. |
+| **FLAKY HERE** | It failed, and then passed when `compare` re-ran it in this same checkout. See below. |
 | **PRE-EXISTING (not yours)** | Already failing at the baseline commit. Not caused by you. See *Handing one over*, below. |
 | **FIXED since the baseline** | Failing in the baseline, passing here. Say so in your report; it is real work. |
 
@@ -63,6 +64,33 @@ VERDICT: 1 failure(s) this baseline does not account for. Read them above.
 
 Three failures on screen, one of them the agent's. No second worktree, no second
 run of the suite, and an exit code of 1 that a script can act on.
+
+### Flaky failures are named, not counted
+
+`compare` re-runs the files that failed, so it often watches a test fail and
+then pass, minutes apart, in the same checkout. That is an observation, not a
+guess, and a test that passes on re-run is not a deterministic regression. Those
+go in their own list:
+
+```text
+   FLAKY HERE — failed, then passed on re-run in this checkout: 1 (not counted against you)
+     ~ apps/desktop/renderer/tests/presentfocus.test.tsx :: §5 a presentation already in a window is revealed…
+```
+
+They do not fail the gate, because a gate that cries wolf on every flaky file in
+the tree is a gate people learn to ignore. They are never silent either: the
+`VERDICT` line says how many there were and tells you not to quote it without
+them. `--strict-flaky` counts them against you — use it when you suspect your
+change is what *made* a test flaky, which is a real defect.
+
+The same care runs the other way. A known-flaky failure that happens to pass
+this time is reported as fixed with `[was FLAKY in the baseline — probably
+flakiness, not a fix]` attached, because handing an agent a credit it did not
+earn is the same dishonesty pointed the other way.
+
+`apps/desktop/renderer/tests/presentfocus.test.tsx` is the live example: across
+four recorded runs it alternated which of its `§5` and `§6` cases failed, and
+passed both on retry every time.
 
 If you have already run the suite for another reason, do not run it again:
 

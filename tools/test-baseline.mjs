@@ -827,6 +827,7 @@ async function cmdCompare(args) {
     const preExisting = []
     const regressions = []
     const unclassifiable = []
+    const flaky = []
     for (const outcome of failedNow) {
       if (known.has(outcome.id)) {
         const before = known.get(outcome.id)
@@ -836,6 +837,14 @@ async function cmdCompare(args) {
           baseline_stability: before.stability,
           error_changed: before.error_digest !== outcome.error_digest,
         })
+      } else if (outcome.stability === 'flaky') {
+        // THIS RUN watched it fail and then pass, in this checkout, minutes
+        // apart. That is an observation, not an inference, and a test that
+        // passes on re-run is not a deterministic regression — calling it one
+        // would make the gate cry wolf on every flaky file in the tree. It is
+        // still reported, loudly and separately, because a change that MAKES a
+        // test flaky is a real defect; --strict-flaky fails the gate on it.
+        flaky.push(outcome)
       } else if (!knownIds.has(outcome.id)) {
         // The baseline never saw this test. Usually your branch added it; it
         // could also be a rename. Either way the baseline cannot acquit it.
@@ -844,14 +853,19 @@ async function cmdCompare(args) {
         regressions.push(outcome)
       }
     }
-    const fixed = [...known.values()].filter(f => !failedNowIds.has(f.id) && leaves.some(o => o.id === f.id))
+    const fixed = [...known.values()]
+      .filter(f => !failedNowIds.has(f.id) && leaves.some(o => o.id === f.id))
+      // A flaky failure that happens to pass this time is not a fix, and
+      // reporting it as one hands the agent a credit it did not earn.
+      .map(f => ({ ...f, likely_flakiness_not_a_fix: f.stability === 'flaky' }))
     const disappeared = [...known.values()].filter(f => !leaves.some(o => o.id === f.id))
 
-    newFailures += regressions.length + unclassifiable.length
+    newFailures += regressions.length + unclassifiable.length + (args.strictFlaky ? flaky.length : 0)
     report.suites[suiteName] = {
       counts: runResult.counts,
       new_failures: regressions,
       unclassifiable_failures: unclassifiable,
+      flaky_failures: flaky,
       pre_existing_failures: preExisting,
       fixed_since_baseline: fixed,
       baseline_tests_absent_from_this_run: disappeared.map(f => f.id),
@@ -866,6 +880,10 @@ async function cmdCompare(args) {
       say(`   FAILURES THE BASELINE CANNOT ACQUIT (test not in baseline — new or renamed): ${unclassifiable.length}`)
       for (const f of unclassifiable) say(`     ? ${f.file} :: ${f.test}\n         ${f.error}`)
     }
+    if (flaky.length) {
+      say(`   FLAKY HERE — failed, then passed on re-run in this checkout: ${flaky.length}${args.strictFlaky ? ' (counted against you: --strict-flaky)' : ' (not counted against you)'}`)
+      for (const f of flaky) say(`     ~ ${f.file} :: ${f.test}\n         ${f.error}`)
+    }
     say(`   PRE-EXISTING (not yours): ${preExisting.length}`)
     for (const f of preExisting) {
       const flags = [f.baseline_stability === 'flaky' ? 'FLAKY in baseline' : null, f.error_changed ? 'error text differs' : null].filter(Boolean)
@@ -874,7 +892,9 @@ async function cmdCompare(args) {
     }
     if (fixed.length) {
       say(`   FIXED since the baseline: ${fixed.length}`)
-      for (const f of fixed) say(`     ✓ ${f.file} :: ${f.test}`)
+      for (const f of fixed) {
+        say(`     ✓ ${f.file} :: ${f.test}${f.likely_flakiness_not_a_fix ? '  [was FLAKY in the baseline — probably flakiness, not a fix]' : ''}`)
+      }
     }
     if (disappeared.length) {
       say(`   IN THE BASELINE BUT NOT IN THIS RUN: ${disappeared.length} (renamed, removed, or not selected)`)
@@ -884,8 +904,13 @@ async function cmdCompare(args) {
   }
 
   if (args.json) console.log(JSON.stringify(report, null, 2))
+  const flakyTotal = Object.values(report.suites).reduce((n, s) => n + (s.flaky_failures?.length ?? 0), 0)
   if (newFailures === 0) {
     say('VERDICT: no new failures. Every failure in this run was already failing in the baseline.')
+    if (flakyTotal && !args.strictFlaky) {
+      say(`         ${flakyTotal} test(s) failed and then passed on re-run here. Not counted as regressions,`)
+      say('         but they are named above — do not quote this verdict without them.')
+    }
     if (age.verdict !== 'fresh') say('         (read the drift warnings above before quoting this as proof.)')
   } else {
     say(`VERDICT: ${newFailures} failure(s) this baseline does not account for. Read them above.`)
@@ -1096,7 +1121,7 @@ function parseArgs(argv) {
     if (!token.startsWith('--')) { args._.push(token); continue }
     const [flag, inline] = token.slice(2).split('=', 2)
     const key = flag.replace(/-([a-z])/g, (_, c) => c.toUpperCase())
-    const boolean = ['json', 'force', 'claim', 'claimed', 'all', 'again', 'open', 'requireFresh', 'allowBranch']
+    const boolean = ['json', 'force', 'claim', 'claimed', 'all', 'again', 'open', 'requireFresh', 'allowBranch', 'strictFlaky']
     if (flag === 'no-confirm') { args.confirm = false; continue }
     if (boolean.includes(key)) { args[key] = inline === undefined ? true : inline !== 'false'; continue }
     args[key] = inline ?? argv[++i]
@@ -1124,6 +1149,7 @@ common flags
   --json                   machine-readable output
   --max-age-days <n>       compare: refuse if the baseline is older than this
   --require-fresh          compare: refuse unless the baseline shows no drift at all
+  --strict-flaky           compare: count a test that failed then passed on re-run as a regression
   --by <agent>             record/handover: who is doing this
   --baseline <file>        read the baseline from here instead of docs/test-baseline.json
   --ledger <file>          read/write the handover ledger here instead of docs/test-handovers.json
