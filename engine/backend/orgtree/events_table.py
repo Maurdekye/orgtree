@@ -233,7 +233,29 @@ LEAVES: Final[dict[str, dict[str, Any]]] = {
         revision=F("int", B, True), candidate=F("str?", B, True),
         # W09 — see docket.assigned. A reviewer reads the description to judge
         # the work against it, so they need this as much as the owner does.
-        objective_notice=F("str?", B, True)),
+        objective_notice=F("str?", B, True),
+        # Same field, same meaning, as on review_changes/review_approved: the
+        # namer could not address the reviewer under §7.2, so the docket
+        # carried the notice. Reachable since the REVIEW SEAT let an owner name
+        # a granted peer in another branch of the org.
+        relayed=F("bool", B, True)),
+    # THE REVIEW SEAT. An owner may name only itself, its subtree or its own
+    # superior as reviewer, so a PEER reviewer has to be granted the seat by
+    # the agent above them both. `requested` is the owner's ask, addressed to
+    # that agent; `decided` is the answer, addressed back to the owner.
+    "docket.review_seat_requested": leaf(
+        "review", "WorkItemRef",
+        reviewer=F("str", B, True), requested_by=F("str", B, True),
+        owner=F("str", B, True), grantor=F("str", B, True, _YOU),
+        note=F("str?", B, True)),
+    "docket.review_seat_decided": leaf(
+        "review", "WorkItemRef",
+        reviewer=F("str", B, True), owner=F("str", B, True, _YOU),
+        decided_by=F("str", B, True),
+        decision=F("L[granted|revoked|declined]", B, True),
+        # True only when the grant also handed the seat over on the spot,
+        # which it does exactly when the item was already at status review.
+        seated=F("bool", B, True), note=F("str?", B, True)),
     "docket.review_changes": leaf(
         "review", "WorkItemRef", reviewer=F("str", B, True), owner=F("str", B, True, _YOU),
         note=F("str?", B, True), relayed=F("bool", B, True)),

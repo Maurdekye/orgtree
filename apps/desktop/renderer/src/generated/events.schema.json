@@ -1623,6 +1623,9 @@
               "type": "null"
             }
           ]
+        },
+        "relayed": {
+          "type": "boolean"
         }
       },
       "required": [
@@ -1639,7 +1642,126 @@
         "acceptance",
         "revision",
         "candidate",
-        "objective_notice"
+        "objective_notice",
+        "relayed"
+      ],
+      "additionalProperties": false
+    },
+    "DocketReviewSeatRequested": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "variant": {
+          "const": "docket.review_seat_requested"
+        },
+        "actor": {
+          "$ref": "#/$defs/Actor"
+        },
+        "engine_authored": {
+          "type": "boolean"
+        },
+        "object": {
+          "$ref": "#/$defs/WorkItemRef"
+        },
+        "reviewer": {
+          "type": "string"
+        },
+        "requested_by": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "grantor": {
+          "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "v",
+        "variant",
+        "actor",
+        "engine_authored",
+        "object",
+        "reviewer",
+        "requested_by",
+        "owner",
+        "grantor",
+        "note"
+      ],
+      "additionalProperties": false
+    },
+    "DocketReviewSeatDecided": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "variant": {
+          "const": "docket.review_seat_decided"
+        },
+        "actor": {
+          "$ref": "#/$defs/Actor"
+        },
+        "engine_authored": {
+          "type": "boolean"
+        },
+        "object": {
+          "$ref": "#/$defs/WorkItemRef"
+        },
+        "reviewer": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "decided_by": {
+          "type": "string"
+        },
+        "decision": {
+          "enum": [
+            "granted",
+            "revoked",
+            "declined"
+          ]
+        },
+        "seated": {
+          "type": "boolean"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "v",
+        "variant",
+        "actor",
+        "engine_authored",
+        "object",
+        "reviewer",
+        "owner",
+        "decided_by",
+        "decision",
+        "seated",
+        "note"
       ],
       "additionalProperties": false
     },
@@ -5481,6 +5603,12 @@
           "$ref": "#/$defs/DocketReviewRequested"
         },
         {
+          "$ref": "#/$defs/DocketReviewSeatRequested"
+        },
+        {
+          "$ref": "#/$defs/DocketReviewSeatDecided"
+        },
+        {
           "$ref": "#/$defs/DocketReviewChanges"
         },
         {
@@ -7022,6 +7150,9 @@
               "type": "null"
             }
           ]
+        },
+        "relayed": {
+          "type": "boolean"
         }
       },
       "required": [
@@ -7038,7 +7169,126 @@
         "acceptance",
         "revision",
         "candidate",
-        "objective_notice"
+        "objective_notice",
+        "relayed"
+      ],
+      "additionalProperties": false
+    },
+    "PublicDocketReviewSeatRequested": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "variant": {
+          "const": "docket.review_seat_requested"
+        },
+        "projection": {
+          "const": "public"
+        },
+        "actor": {
+          "$ref": "#/$defs/PublicActor"
+        },
+        "object": {
+          "$ref": "#/$defs/PublicWorkItemRef"
+        },
+        "reviewer": {
+          "type": "string"
+        },
+        "requested_by": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "grantor": {
+          "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "v",
+        "variant",
+        "projection",
+        "actor",
+        "object",
+        "reviewer",
+        "requested_by",
+        "owner",
+        "grantor",
+        "note"
+      ],
+      "additionalProperties": false
+    },
+    "PublicDocketReviewSeatDecided": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "variant": {
+          "const": "docket.review_seat_decided"
+        },
+        "projection": {
+          "const": "public"
+        },
+        "actor": {
+          "$ref": "#/$defs/PublicActor"
+        },
+        "object": {
+          "$ref": "#/$defs/PublicWorkItemRef"
+        },
+        "reviewer": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "decided_by": {
+          "type": "string"
+        },
+        "decision": {
+          "enum": [
+            "granted",
+            "revoked",
+            "declined"
+          ]
+        },
+        "seated": {
+          "type": "boolean"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "v",
+        "variant",
+        "projection",
+        "actor",
+        "object",
+        "reviewer",
+        "owner",
+        "decided_by",
+        "decision",
+        "seated",
+        "note"
       ],
       "additionalProperties": false
     },
@@ -10731,6 +10981,12 @@
         },
         {
           "$ref": "#/$defs/PublicDocketReviewRequested"
+        },
+        {
+          "$ref": "#/$defs/PublicDocketReviewSeatRequested"
+        },
+        {
+          "$ref": "#/$defs/PublicDocketReviewSeatDecided"
         },
         {
           "$ref": "#/$defs/PublicDocketReviewChanges"

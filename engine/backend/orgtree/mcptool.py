@@ -539,6 +539,20 @@ TOOLS: list[dict[str, Any]] = [
             "reviewer is named by the update that enters status review "
             "(`reviewer`), may never be the owner, and gets read + evidence + "
             "that one decision — never ownership. "
+            "⚠ YOU MAY ONLY NAME yourself, an agent in your subtree, or your "
+            "own superior. TO HAVE A PEER REVIEW YOUR WORK, ASK: "
+            "`review_request` (slug + reviewer + note) sends the ask to the "
+            "nearest agent who is both above that peer and owner-level on the "
+            "item, and grants nothing by itself; `review_grant` (reviewer + "
+            "slug, or items for a batch) is THAT agent's answer and writes the "
+            "REVIEW SEAT; `review_revoke` takes a seat back or turns an ask "
+            "down. A seat may be granted while the item is still in progress, "
+            "so you enter review naming the agent that actually reviews and "
+            "the record never names one who did not. ⚠ A SEAT COVERS ONE ENTRY "
+            "INTO REVIEW (user ruling 2026-09-16): naming the peer SPENDS it, "
+            "so if they come back with `changes` and you want them to look "
+            "again, you ask for a fresh grant. An agent with no seat and no "
+            "other standing still cannot be named. "
             "A FINISHED ITEM CAN STILL RECORD WHAT HAPPENED AFTER IT WAS "
             "FINISHED — `addendum`. On every ticket that is completed at "
             "approval and lands afterwards, the two lists the user reads "
@@ -591,7 +605,8 @@ TOOLS: list[dict[str, Any]] = [
                            "assign", "handoff",
                            "review", "verdict", "candidate_verdict",
                            "integration_verdict", "review_verdict",
-                           "review_grant", "review_grants",
+                           "review_request", "review_grant", "review_grants",
+                           "review_revoke",
                            "participants", "evidence",
                                     "decision",
                                     "receipt", "rangediff", "receipts",
@@ -612,7 +627,7 @@ TOOLS: list[dict[str, Any]] = [
                 "owner": {"type": "string", "description": "create/assign: owner node (you or a subordinate) · update: the explicit assignment — name the CURRENT owner to keep an item where it is when you update somebody else's"},
                 "target": {"type": "string", "description": "handoff: the current owner's immediate superior; omitted means that superior (or the user for a top-level owner)"},
                 "reason": {"type": "string", "description": "handoff: why the owner needs an upward handoff; this sends a request and does not change assignment"},
-                "reviewer": {"type": "string", "description": "update entering status review: the agent that will check this work. Required there, never the owner. The named reviewer holds read, evidence, the review decision and (user 2026-09-10) the same full state control a participant has — but its status updates do not claim ownership; only an explicit owner=<itself> takes the item, which empties the review seat"},
+                "reviewer": {"type": "string", "description": "update entering status review: the agent that will check this work. Required there, never the owner. The named reviewer holds read, evidence, the review decision and (user 2026-09-10) the same full state control a participant has — but its status updates do not claim ownership; only an explicit owner=<itself> takes the item, which empties the review seat. ⚠ YOU MAY NAME ONLY yourself, an agent in your subtree, or your own superior — a PEER needs the REVIEW SEAT first: `review_request` asks the nearest agent above you both for it, `review_grant` is their answer, and the seat it writes covers ONE entry into review — naming the peer spends it, so a recheck after a `changes` verdict needs a fresh grant (user ruling 2026-09-16). Also names the reviewer for review_request/review_grant/review_revoke"},
                 "decision": {"type": "string", "enum": ["approve", "approve_stage", "changes"],
                              "description": "review: `approve` completes the item — use it when the work is APPROVED AND LANDED; `approve_stage` approves one exact commit (pass `candidate`) WITHOUT completing the item, which is what you want whenever the code is not on main yet — the item goes to `approved`, stays with its owner, records the sha, and is completed only after the landing; `changes` returns it to its owner as in_progress (put what you want changed in `note`). Reach for `approve_stage` by default at review time: approval normally happens before the rebase and the push, and `approve` there makes the docket read Done for code the product does not contain"},
                 # ⚠ `candidate` IS DEFINED ONCE, further down, and it describes
@@ -652,7 +667,7 @@ TOOLS: list[dict[str, Any]] = [
                 "stage": {"type": "string",
                           "description": "claim/verify: implemented|committed|pushed|deployed|in_build"},
                 "ref": {"type": "string", "description": "claim: lowercase hex sha, 7-40 lowercase hex characters, nothing else accepted (a refusal echoes what you sent, exactly, and names the character at fault) · evidence: path/url/sha/log." + _cap("ref") + " Prose goes in `note`."},
-                "note": {"type": "string", "description": "claim/evidence/check/accept/review: free text - the durable record of what was checked, asked for or left standing. addendum: REQUIRED — what happened after the item was closed (the landing, the correction), kept on the item as the reason its finished summary changed." + _NOCAP},
+                "note": {"type": "string", "description": "claim/evidence/check/accept/review: free text - the durable record of what was checked, asked for or left standing. · review_request: why you want this peer to review it · review_grant/review_revoke: the granting agent's reason, kept on the seat. addendum: REQUIRED — what happened after the item was closed (the landing, the correction), kept on the item as the reason its finished summary changed." + _NOCAP},
                 "index": {"type": "integer", "description": "check: acceptance condition index (0-based). REQUIRED for a single check (and in each element of `checks`)"},
                 "evidence_ref": {"type": "string", "description": "check: what shows the condition is met (path/url/sha/log). REQUIRED for check." + _cap("evidence_ref") + " Prose goes in `note`."},
                 "classification": {"type": "string", "enum": ["met", "not_exercised", "environment_limited", "known_negative"],
@@ -668,7 +683,7 @@ TOOLS: list[dict[str, Any]] = [
                 "checks": {"type": "array", "items": {"type": "object"},
                            "description": "check: a BATCH — [{index, evidence_ref, classification, artifact, runner, execution, result, gate, blocked_count, composition, note}] — instead of one index. ATOMIC: every element is validated before any is written, and any refused batch reports every missing or invalid field across every element at once with its element index. The whole valid batch writes ONE history row so it reads as a single completion event rather than four. When classification is supplied in an element, artifact, runner, and execution are REQUIRED in that element. Cannot be combined with single-check fields, and the same index twice in one batch is refused"},
                 "items": {"type": "array", "items": {"type": "object"},
-                          "description": "evidence: a BATCH — [{kind, ref, note, execution}] — instead of one row. ATOMIC: every element is validated and the cap is measured against the whole batch before anything is written, and it writes ONE history row. Each element may carry its own `execution`, so a batch that records a candidate sha beside the run that proved it does not lose how each one was reached. Cannot be combined with kind/ref/note. A `receipt` is never accepted here or on the single row — use the `receipt` action, which has the backend capture it"},
+                          "description": "review_grant: the items to grant the seat on — a list of slugs, or omit it and pass `slug` for one. The whole group is validated before any seat is written. · evidence: a BATCH — [{kind, ref, note, execution}] — instead of one row. ATOMIC: every element is validated and the cap is measured against the whole batch before anything is written, and it writes ONE history row. Each element may carry its own `execution`, so a batch that records a candidate sha beside the run that proved it does not lose how each one was reached. Cannot be combined with kind/ref/note. A `receipt` is never accepted here or on the single row — use the `receipt` action, which has the backend capture it"},
                 "text": {"type": "string", "description": "decision: the ruling, trade-off or agreed constraint being recorded — what was decided, and enough of why that the next reader does not re-argue it." + _NOCAP},
                 "supersedes": {"type": "integer", "description": "decision: the `seq` of an earlier scope record this ruling replaces. The superseded row keeps its own text forever and gains only a back-pointer, so the record shows both what was ruled and that it was later replaced"},
                 "expected_rev": {"type": "integer", "description": "update/evidence/receipt and every other mutating action: COMPARE-AND-SET. The item `rev` you composed this call against. If somebody has written to the item since, the whole call is refused before any mutation and the refusal names both revisions — nothing partial is ever left behind. Optional for a whole-list update; REQUIRED with keep_done/keep_next/done_append/next_append, because a keep or an append is a statement about a list you have READ; and worth passing whenever you built something from a read — a receipt, a disposition — that must not land on a different item state"},
