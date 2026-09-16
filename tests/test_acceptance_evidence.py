@@ -47,7 +47,13 @@ class AcceptanceEvidenceTests(unittest.TestCase):
         self.assertEqual(check["checked"]["result"], "expected_negative")
         self.assertEqual(check["checked"]["gate"], "agent-token")
         self.assertEqual(check["checked"]["blocked_count"], 3)
-        self.assertEqual(len(check["check_history"]), 1)
+        # W10: the newest row IS `checked`, byte for byte, so it is served
+        # once. The true total is `check_history_count` and the fold names
+        # where the surviving copy is.
+        self.assertEqual(check["check_history_count"], 1)
+        self.assertEqual(check["check_history"], [])
+        self.assertEqual(check["check_history_newest_same_as"],
+                         "acceptance[0].checked")
         # The control is an explicit, successful negative test (W08's green
         # expected_negative result), so it may satisfy this condition; the
         # separate accept call is still required.
@@ -133,8 +139,13 @@ class AcceptanceEvidenceTests(unittest.TestCase):
                             artifact="installer.nsi", composition="installer")
         check = self.org.work_get("owner", self.wid)["acceptance"][0]
         self.assertEqual(check["checked"]["classification"], "environment_limited")
-        self.assertEqual([h["classification"] for h in check["check_history"]],
+        # W10: `check_history` + `checked` is the complete record; the newest
+        # row is served once, as `checked`, and `check_history_count` counts
+        # every observation including it.
+        self.assertEqual([h["classification"] for h in check["check_history"]]
+                         + [check["checked"]["classification"]],
                          ["met", "environment_limited"])
+        self.assertEqual(check["check_history_count"], 2)
         with self.assertRaises(LedgerError):
             self.org.work_accept("owner", self.wid)
 
@@ -144,7 +155,7 @@ class AcceptanceEvidenceTests(unittest.TestCase):
                             classification="met", **base)
         self.org.work_accept("owner", self.wid)
         self.assertEqual(self.org.work_get("owner", self.wid)["status"], "done")
-        self.assertEqual(len(self.org.work_get("owner", self.wid)["acceptance"][0]["check_history"]), 3)
+        self.assertEqual(self.org.work_get("owner", self.wid)["acceptance"][0]["check_history_count"], 3)
 
 
 if __name__ == "__main__":

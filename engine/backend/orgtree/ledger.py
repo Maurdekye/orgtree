@@ -11686,6 +11686,110 @@ class Org:
             out[stage] = row
         return out
 
+    # ---- payload size: deduplication and projections (W10)
+    #
+    # ⚠ THE DOCKET USED TO SERVE THE RECORD TWICE AGAINST ITSELF. Sixteen
+    # agents reported `get`/`list` payloads they could not read — 52 KB to
+    # 594,877 characters, all on one line — and the largest single contributor
+    # was not a large record but a duplicated one: `checked` is a byte-identical
+    # copy of `check_history[-1]`, `review_packet` of `review_packets[-1]`, the
+    # newest `scope` row's `after` of `objective`, and the compact projection's
+    # `requested_scope.objective` of `objective` again. On a worked item those
+    # copies were a third of the payload.
+    #
+    # SO A DUPLICATE IS SERVED ONCE AND THE SECOND SITE POINTS AT THE FIRST.
+    # Nothing is dropped and nothing is silent: the site that lost its copy
+    # gains a `*_same_as` field naming the field that kept it, a `*_count`
+    # saying how many rows the collection really has, and the item carries a
+    # `folded` summary at the HEAD of the payload — the head being the half a
+    # truncating reader actually sees.
+
+    #: How a folded duplicate names the field that kept the only copy.
+    _WORK_SAME_AS_HOW: Final = (
+        "byte-identical to the field named in `same_as`, in this same "
+        "payload; it is served once, not dropped")
+
+    @staticmethod
+    def _work_fold_dup(rows: Any, current: Any) -> tuple[list[Any], bool, int]:
+        """`rows` with its newest entry removed when that entry is a
+        byte-identical copy of `current`. Returns (rows, folded, total)."""
+        out = list(rows or [])
+        total = len(out)
+        if out and current is not None and out[-1] == current:
+            return out[:-1], True, total
+        return out, False, total
+
+    def _work_acceptance_view(self, it: WorkItem,
+                              folded: list[dict[str, Any]]) -> list[Any]:
+        """`acceptance`, with each condition's duplicated newest check folded.
+
+        `checked` IS `check_history[-1]` whenever a condition has ever been
+        checked, and a check note has no length limit — so an item with six
+        conditions carrying long notes served every one of those notes twice.
+        The surviving copy is `checked`, because that is the field every
+        existing reader already consults for the current state."""
+        out: list[Any] = []
+        for i, cond in enumerate(it.get("acceptance") or []):
+            if not isinstance(cond, dict):
+                out.append(cond)
+                continue
+            src = cast("dict[str, Any]", cond)
+            row = dict(src)
+            hist, dup, total = self._work_fold_dup(
+                src.get("check_history"), src.get("checked"))
+            row["check_history"] = hist
+            row["check_history_count"] = total
+            if dup:
+                row["check_history_newest_same_as"] = f"acceptance[{i}].checked"
+                folded.append({"at": f"acceptance[{i}].check_history[-1]",
+                               "same_as": f"acceptance[{i}].checked"})
+            out.append(row)
+        return out
+
+    def _work_packets_view(self, it: WorkItem,
+                           folded: list[dict[str, Any]]) -> dict[str, Any]:
+        """`review_packets`, with the newest folded into `review_packet`.
+
+        Same shape as the acceptance duplication and the same resolution: a
+        review packet's `note` has no length limit, and the current packet was
+        served whole in both fields."""
+        rows, dup, total = self._work_fold_dup(it.get("review_packets"),
+                                               it.get("review_packet"))
+        out: dict[str, Any] = {"review_packets": rows,
+                               "review_packets_count": total}
+        if dup:
+            out["review_packets_newest_same_as"] = "review_packet"
+            folded.append({"at": "review_packets[-1]",
+                           "same_as": "review_packet"})
+        return out
+
+    def _work_scope_view(self, it: WorkItem,
+                         folded: list[dict[str, Any]]) -> list[Any]:
+        """The live scope window, with the newest description row's `after`
+        folded into `objective`.
+
+        A scope row keeps the complete BEFORE and AFTER of a description
+        change, and the newest AFTER is by definition the current description
+        — so a long objective rode along twice on every read. Only that one
+        row is folded: every other before/after in the record is text no other
+        field holds, and stays verbatim."""
+        rows = list(it.get("scope") or [])
+        cur = it.get("objective")
+        for n in range(len(rows) - 1, -1, -1):
+            row = rows[n]
+            if not isinstance(row, dict) or row.get("kind") != "objective":
+                continue
+            if cur is not None and row.get("after") == cur:
+                red = dict(cast("dict[str, Any]", row))
+                red["after"] = None
+                red["after_same_as"] = "objective"
+                red["after_chars"] = len(str(cur))
+                rows[n] = red
+                folded.append({"at": f"scope[{n}].after",
+                               "same_as": "objective"})
+            break                      # only the newest description row
+        return rows
+
     def _work_view(self, it: WorkItem, physically: bool, viewer: str,
                    now_ts: float, *, scope_archive: bool = True) -> dict[str, Any]:
         """The wire shape (evidence/docket-wire-contract-v3.md).
@@ -11696,7 +11800,14 @@ class Org:
         that slot would disclose the title of an item the viewer is not
         allowed to read. The viewer still learns that a dependency exists and
         that it is not theirs to see; it no longer learns what it is called
-        (user ruling on slug-only identity + Astra 2026-09-05)."""
+        (user ruling on slug-only identity + Astra 2026-09-05).
+
+        ⚠ BYTE-IDENTICAL DUPLICATES ARE SERVED ONCE (W10). See the fold
+        helpers above: the second site names the first in `same_as` and the
+        `folded` list at the head of the payload lists every one of them, so
+        a reader who only got the first kilobyte still learns what happened
+        and where the surviving copy is."""
+        folded: list[dict[str, Any]] = []
         cur, ostate = self._work_owner_state(it)
         sources = self._work_attention(it)
         next_actor, next_role = self._work_next_recipient(it)
@@ -11712,15 +11823,27 @@ class Org:
                              "title": d["title"], "status": d["status"]})
             else:
                 deps.append({"visible": False})
+        acceptance = self._work_acceptance_view(it, folded)
+        packets = self._work_packets_view(it, folded)
+        scope_rows = self._work_scope_view(it, folded)
         return {
             "slug": it.get("slug"),
+            # ⚠ FIRST, DELIBERATELY. A payload that outruns its reader is read
+            # from the front, so what the payload DID to itself is stated
+            # before the bulk it did it to. `folded` is [] on an item with no
+            # duplicates, which is the normal case and is what gives a
+            # non-empty one its meaning.
+            "folded": folded,
+            "folded_how": self._WORK_SAME_AS_HOW if folded else None,
             **{k: it.get(k) for k in (
                 "rev", "kind", "title", "objective", "status",
                 "owner", "reviewer", "created_by", "at", "updated_at", "done_so_far",
                 "working_on_next", "docket_at", "last_updater",
-                "manual_attention", "acceptance", "evidence",
+                "manual_attention", "evidence",
                 "accepted", "candidate_verdict", "candidate_verdicts",
-                "review_packet", "review_packets")},
+                "review_packet")},
+            "acceptance": acceptance,
+            **packets,
             # Derived on read: this names who owes the next action without
             # changing the implementation owner or where user replies go.
             "next_action": ({"node": next_actor, "role": next_role}
@@ -11749,7 +11872,7 @@ class Org:
             # This is the LIVE WINDOW; `scope_archive` holds the rows that
             # rolled out of it, unchanged, and the two concatenated in that
             # order are the complete record.
-            "scope": list(it.get("scope") or []),
+            "scope": scope_rows,
             # ⚠ WHOLE ON A SINGLE READ, SUMMARISED IN A LIST. `work_get` serves
             # every archived row — the record is not readable otherwise, and
             # "nothing is erased" is worth nothing if nothing can read it. A
@@ -11867,11 +11990,33 @@ class Org:
         # projection that carried the description without the sentence saying
         # it may not be the whole of it would reintroduce the exact silence
         # the notice exists to break.
-        out["requested_scope"] = {
-            key: full.get(key) for key in
-            ("kind", "title", "objective", "objective_notice", "acceptance",
-             "dependencies", "parent", "parent_visible", "participants")
-        }
+        #
+        # ⚠ AND IT IS A GROUPING, NOT A SECOND COPY (W10). `objective` and
+        # `acceptance` are the two unbounded members, and this group used to
+        # serve both of them a second time in full — which is why several
+        # agents reported that `compact: true` did not help: the compact
+        # payload carried two whole descriptions. Every member that is
+        # byte-identical to its top-level field is now served as a pointer at
+        # that field, and the pointer names it; the small members (kind, title,
+        # the pointers) stay verbatim because a pointer would cost more than
+        # the value.
+        requested: dict[str, Any] = {}
+        folded_here: list[dict[str, Any]] = []
+        for key in ("kind", "title", "objective", "objective_notice",
+                    "acceptance", "dependencies", "parent", "parent_visible",
+                    "participants"):
+            value = full.get(key)
+            if key in ("objective", "acceptance") and value is not None:
+                requested[key] = None
+                requested[f"{key}_same_as"] = key
+                folded_here.append({"at": f"requested_scope.{key}",
+                                    "same_as": key})
+                continue
+            requested[key] = value
+        out["requested_scope"] = requested
+        if folded_here:
+            out["folded"] = list(full.get("folded") or []) + folded_here
+            out["folded_how"] = Org._WORK_SAME_AS_HOW
 
         delivery = full.get("delivery")
         candidate: dict[str, Any] | None = None
@@ -11899,9 +12044,178 @@ class Org:
                 1 for row in delivery.values() if isinstance(row, dict))
         out["compact"] = True
         out["omissions"] = omitted
+        # ⚠ A COUNT SAYS WHAT IS MISSING; IT DOES NOT SAY HOW TO GET IT. The
+        # counts were already the right pattern and are kept exactly as they
+        # were; this sentence is the other half a reader needs, and it names
+        # the ONE call that returns the omitted collections whole.
+        out["omissions_how"] = (
+            "the collections counted in `omissions` were omitted by the "
+            "`compact` projection, not dropped: read them whole with "
+            "`orgtree_work get slug=<name>` (projection=full, the default for "
+            "`get`), or ask for just the ones you want with "
+            "fields=[...]") if omitted else None
         for field, count in omitted.items():
             out[f"omitted_{field}_count"] = count
+        return Org._work_header_first(out)
+
+    #: Served FIRST in every item payload, in this order. A payload that
+    #: outruns its reader is read from the front, so identity and the
+    #: disclosures about the payload itself go there — a reader that got only
+    #: the first kilobyte still learns which item this is, what projection it
+    #: asked for, what was folded and what was left out.
+    _WORK_HEADER: Final = ("slug", "ref", "rev", "title", "status",
+                           "projection", "compact", "omissions",
+                           "omissions_how", "omitted_fields",
+                           "folded", "folded_how")
+
+    #: List-level keys a row may hand up when every row agrees on the value.
+    _WORK_HOISTABLE: Final = ("projection", "compact", "omitted_fields",
+                              "omissions_how", "folded_how")
+
+    @staticmethod
+    def _work_hoist_shared(rows: list[dict[str, Any]]) -> dict[str, Any]:
+        """Lift the per-row declarations every row agrees on to the list, and
+        remove them from the rows. Rows are mutated in place."""
+        if not rows:
+            return {}
+        out: dict[str, Any] = {}
+        for key in Org._WORK_HOISTABLE:
+            if not all(key in r for r in rows):
+                continue
+            first = rows[0][key]
+            if any(r[key] != first for r in rows[1:]):
+                continue
+            out[key] = first
+            for r in rows:
+                del r[key]
         return out
+
+    @staticmethod
+    def _work_header_first(view: dict[str, Any]) -> dict[str, Any]:
+        """`view` with the header keys hoisted to the front, order preserved
+        for everything else. JSON object order is not semantic, but it is
+        exactly what a truncating reader sees."""
+        out = {k: view[k] for k in Org._WORK_HEADER if k in view}
+        out.update({k: v for k, v in view.items() if k not in out})
+        return out
+
+    #: THE THREE NAMED PROJECTIONS. `full` is the whole wire shape; `compact`
+    #: drops the history-heavy collections and keeps the description; `summary`
+    #: is identity and state only — who holds it, what state it is in, whether
+    #: it wants attention — which is the answer to "what is on my plate", the
+    #: single most common docket call and the one that was costing 200 KB.
+    WORK_PROJECTIONS: Final = ("full", "compact", "summary")
+
+    #: `summary`. Every one of these is bounded or tiny; not one of them is an
+    #: unbounded prose field or a growing collection, which is the property
+    #: that makes a summary list stay the same size as the docket ages.
+    WORK_SUMMARY_FIELDS: Final = (
+        "slug", "ref", "rev", "kind", "title", "status", "legacy_status",
+        "owner", "owner_current", "owner_state", "reviewer", "next_action",
+        "at", "updated_at", "docket_at", "status_at", "archived",
+        "effective_attention", "manual_attention", "blocked_reason",
+        "dropped_reason", "parent", "parent_visible", "participants",
+        "candidate", "objective_notice")
+
+    #: Kept by a `fields` selector whatever it asks for. ONE field, and it is
+    #: identity: a docket row nobody can name is not a row, and every other
+    #: call in the tool takes this name as its argument.
+    WORK_FIELDS_ALWAYS: Final = ("slug",)
+
+    @staticmethod
+    def _work_fields_arg(fields: Any) -> list[str] | None:
+        """The caller's `fields`, normalised. None when it asked for none.
+
+        Accepts a list or a comma/space-separated string, because an LLM
+        writes `"slug,title,status"` about as often as it writes the list."""
+        if fields is None:
+            return None
+        if isinstance(fields, str):
+            raw = [p for p in re.split(r"[,\s]+", fields) if p]
+        elif isinstance(fields, (list, tuple)):
+            raw = [str(p).strip() for p in cast("list[Any]", fields)
+                   if str(p).strip()]
+        else:
+            raise LedgerError(
+                f"fields must be a list of field names or a comma-separated "
+                f"string, not {type(cast('object', fields)).__name__}")
+        return raw or None
+
+    @staticmethod
+    def _work_select(view: dict[str, Any], fields: list[str],
+                     source: str) -> dict[str, Any]:
+        """`view` narrowed to `fields`, with the omission declared.
+
+        ⚠ AN UNKNOWN NAME IS REFUSED, NOT IGNORED. Serving a payload that
+        silently lacks the field the caller asked for — because they typed
+        `state` for `status` — is the same failure this whole package exists
+        to end, one field smaller."""
+        wanted = list(dict.fromkeys(list(Org.WORK_FIELDS_ALWAYS) + fields))
+        unknown = [f for f in wanted if f not in view]
+        if unknown:
+            raise LedgerError(
+                f"fields names {', '.join(sorted(unknown))}, which "
+                f"{'is not a field' if len(unknown) == 1 else 'are not fields'}"
+                f" of a docket item. The readable fields are: "
+                f"{', '.join(sorted(view))}. NOTHING WAS RETURNED rather than "
+                f"a payload quietly missing what you asked for")
+        out = {k: view[k] for k in wanted}
+        left = sorted(k for k in view if k not in out)
+        out["omitted_fields"] = left
+        out["omissions_how"] = (
+            f"{len(left)} field(s) were omitted because `fields` did not ask "
+            f"for them — nothing was dropped from the record. Name them in "
+            f"`fields`, or call `orgtree_work {source}` without `fields` for "
+            f"the whole item. `slug` is always served (and the backend stamps "
+            f"`ref` beside it): that is the item's identity, and every other "
+            f"call in the tool takes it as its argument")
+        return Org._work_header_first(out)
+
+    def _work_project(self, view: dict[str, Any], projection: str,
+                      fields: list[str] | None, source: str) -> dict[str, Any]:
+        """One item view, narrowed by `fields` if the caller named any, and
+        otherwise by the named projection.
+
+        ⚠ `fields` SELECTS FROM THE WHOLE ITEM, never from the projection. A
+        caller that asks for `objective` gets the objective; it must not
+        depend on whether some other argument happened to be set to a
+        projection that drops it, because that is a payload silently missing
+        what was asked for — the failure this package exists to end."""
+        if projection not in self.WORK_PROJECTIONS:
+            raise LedgerError(
+                f"projection must be one of "
+                f"{', '.join(self.WORK_PROJECTIONS)} (got {projection!r})")
+        if fields:
+            base = dict(view)
+            # `candidate` is derived rather than stored, and it is exactly the
+            # kind of field a `fields` caller asks for by name.
+            base["candidate"] = self._work_compact_view(dict(view)).get(
+                "candidate")
+            return self._work_select(base, fields, source)
+        out = dict(view)
+        if projection == "compact":
+            out = self._work_compact_view(out)
+        elif projection == "summary":
+            out = self._work_compact_view(out)
+            keep = [f for f in self.WORK_SUMMARY_FIELDS if f in out]
+            kept = {k: out[k] for k in keep}
+            # ⚠ NAMED AGAINST THE WHOLE ITEM, not against the compact view
+            # this was built from. A reader asking "what is not here?" wants
+            # `objective`, `evidence`, `history` — the fields of the record —
+            # not `omitted_evidence_count`, which is the name of a disclosure
+            # about a field rather than the field.
+            dropped = sorted(k for k in view if k not in kept)
+            kept["omitted_fields"] = dropped
+            kept["omissions_how"] = (
+                f"the `summary` projection serves identity and state only, so "
+                f"{len(dropped)} field(s) — the description, acceptance, "
+                f"evidence, scope, history and the rest — are not in this "
+                f"payload. Nothing was dropped from the record: read one item "
+                f"whole with `orgtree_work get slug=<name>`, or ask for exactly "
+                f"what you want with fields=[...]")
+            out = kept
+        out["projection"] = projection
+        return self._work_header_first(out)
 
     #: history-row fields that NAME ANOTHER WORK ITEM, PER OPERATION. Since
     #: the name is derived from the title, each one is a disclosure and is
@@ -12203,7 +12517,9 @@ class Org:
     def work_list(self, viewer: str, include_archived: bool = False,
                   now_ts: float | None = None,
                   include_backlogged: bool = False,
-                  compact: bool = False) -> dict[str, Any]:
+                  compact: bool = False,
+                  projection: str | None = None,
+                  fields: Any = None) -> dict[str, Any]:
         """Every item the viewer may read, split into THREE disjoint groups —
         the main list, the derived archive, and the derived backlog — newest
         docket update first within each. Counts are over the viewer's READABLE
@@ -12213,8 +12529,25 @@ class Org:
         Ordering is TOTAL, not merely "newest first": ties on `docket_at`
         break on the item id, so two items stamped in the same clock tick come
         back in the same order on every poll instead of shuffling under the
-        user's cursor between two five-second refreshes."""
+        user's cursor between two five-second refreshes.
+
+        ⚠ `groups` IS SERVED BEFORE THE ITEMS, ALWAYS (W10). The archive and
+        the backlog are separate top-level keys, and a caller that iterates
+        `items` sees neither — which is how a coordinator read four items off a
+        docket holding twelve and concluded `include_backlogged` was broken. It
+        was not: the eight rows were served, at the END of a 200 KB single-line
+        payload, behind a key nothing in the readable head mentioned. `groups`
+        states every group's size, whether this call included it, and the
+        argument that includes it, at the front, whether or not it was asked
+        for.
+
+        ⚠ AND A DEFAULT IS A CHOICE. This function still defaults to `full`,
+        because the desktop Work panel and the supervisor read it and neither
+        is size-constrained. The AGENT-facing tool defaults to `summary` — see
+        `api._work_read_call`."""
         now_ts = _time.time() if now_ts is None else now_ts
+        sel = self._work_fields_arg(fields)
+        proj = projection or ("compact" if compact else "full")
         items: list[dict[str, Any]] = []
         arch: list[dict[str, Any]] = []
         back: list[dict[str, Any]] = []
@@ -12228,9 +12561,11 @@ class Org:
             # ride along. `objective_notice` still travels, because the point
             # of the notice is that a reader meets it wherever they meet the
             # description.
+            # ⚠ GROUPED, SORTED AND COUNTED ON THE FULL VIEW, PROJECTED AFTER.
+            # Which group a row belongs to and where it sorts are answers the
+            # projection may have narrowed away; deciding them first is what
+            # keeps `fields=["slug"]` from changing which items come back.
             v = self._work_view(it, phys, viewer, now_ts, scope_archive=False)
-            if compact:
-                v = self._work_compact_view(v)
             if v["archived"]:
                 arch.append(v)
             elif self._work_backlogged(it):
@@ -12261,22 +12596,66 @@ class Org:
                           if v["status"] not in self.WORK_UNCOUNTED),   # v: served (mapped) status
             "archived": len(arch),
             "backlogged": len(back)})
-        out: dict[str, Any] = {"items": items, "counts": counts, "now": now()}
-        if compact:
+        groups = {
+            "items": {"count": len(items), "included": True,
+                      "how": "served in `items`"},
+            "archived": {
+                "count": len(arch), "included": bool(include_archived),
+                "how": ("served in `archived`" if include_archived else
+                        "NOT in this payload — pass include_archived=true to "
+                        "`orgtree_work list` and they are served in `archived`")},
+            "backlogged": {
+                "count": len(back), "included": bool(include_backlogged),
+                "how": ("served in `backlogged`" if include_backlogged else
+                        "NOT in this payload — pass include_backlogged=true to "
+                        "`orgtree_work list` and they are served in "
+                        "`backlogged`")},
+        }
+        proj_items = [self._work_project(v, proj, sel, "list") for v in items]
+        proj_arch = [self._work_project(v, proj, sel, "list") for v in arch]
+        proj_back = [self._work_project(v, proj, sel, "list") for v in back]
+        # ⚠ THE OMISSION IS DECLARED ONCE, NOT ONCE PER ROW. Every row of one
+        # list was narrowed by the same projection, so the sentence saying so
+        # and the list of field names it left out are identical on all of them
+        # — and repeated per row they were 600 bytes each, which is a
+        # disclosure that makes the payload it is apologising for bigger. The
+        # per-row facts (`omissions` counts, `folded` sites) stay on the row,
+        # because those DO differ between items.
+        shared = self._work_hoist_shared(proj_items + proj_arch + proj_back)
+        out: dict[str, Any] = {
+            "projection": proj,
+            "fields": sel,
+            "counts": counts,
+            **shared,
+            # ⚠ BEFORE `items`. See the docstring: this is the line that says
+            # the other groups exist and names the argument that serves them.
+            "groups": groups,
+            "items": proj_items,
+            "now": now(),
+        }
+        if compact or proj == "compact":
             out["compact"] = True
         if include_archived:
-            out["archived"] = arch
+            out["archived"] = proj_arch
         if include_backlogged:
-            out["backlogged"] = back
+            out["backlogged"] = proj_back
         return out
 
     def work_get(self, viewer: str, wid: str,
                  now_ts: float | None = None,
-                 compact: bool = False) -> dict[str, Any]:
+                 compact: bool = False,
+                 projection: str | None = None,
+                 fields: Any = None) -> dict[str, Any]:
+        """One item. `full` by default — `get` is the call the charter tells an
+        agent to make before it starts, and the description is the whole point
+        of it — with `compact`, `summary` and an explicit `fields` selector
+        available for a caller that wants less."""
         it, phys = self._work_get_for(viewer, wid)
+        sel = self._work_fields_arg(fields)
+        proj = projection or ("compact" if compact else "full")
         view = self._work_view(it, phys, viewer,
                                _time.time() if now_ts is None else now_ts)
-        return self._work_compact_view(view) if compact else view
+        return self._work_project(view, proj, sel, "get")
 
     # ---- mutation plumbing
     def _work_hist(self, it: WorkItem, actor: str, op: str,

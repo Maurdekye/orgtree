@@ -38,7 +38,19 @@ class CompactAuthorizedReads(unittest.TestCase):
         self.assertEqual(compact["status"], full["status"])
         self.assertEqual(compact["questions"], full["questions"])
         self.assertEqual(compact["acceptance"], full["acceptance"])
-        self.assertEqual(compact["requested_scope"]["objective"], full["objective"])
+        # W10: `requested_scope` is a GROUPING, not a second copy. The two
+        # unbounded members point at the top-level field that kept the only
+        # copy, and the pointer names it — a compact projection that carried
+        # two whole descriptions was why `compact: true` did not help.
+        self.assertIsNone(compact["requested_scope"]["objective"])
+        self.assertEqual(compact["requested_scope"]["objective_same_as"],
+                         "objective")
+        self.assertEqual(compact["objective"], full["objective"])
+        self.assertIsNone(compact["requested_scope"]["acceptance"])
+        self.assertEqual(compact["requested_scope"]["acceptance_same_as"],
+                         "acceptance")
+        self.assertIn({"at": "requested_scope.objective",
+                       "same_as": "objective"}, compact["folded"])
         self.assertIsNone(compact["candidate"])
         self.assertNotIn("history", compact)
         self.assertEqual(compact["omitted_history_count"], len(full["history"]))

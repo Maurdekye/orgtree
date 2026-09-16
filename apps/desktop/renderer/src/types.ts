@@ -2503,8 +2503,16 @@ export interface WorkItem {
   /** manual_attention != null OR questions.length > 0 */
   effective_attention: boolean
   attention_sources: ('manual' | 'question')[]
+  /** ⚠ `checked` AND `check_history` TOGETHER ARE THE RECORD (W10). The
+   *  newest observation is byte-identical to `checked`, so the backend serves
+   *  it once — `check_history` holds the EARLIER rows, `check_history_count`
+   *  counts every observation including the current one, and
+   *  `check_history_newest_same_as` names the field that kept it. Use the
+   *  count, never `check_history.length`, to say how many checks there were. */
   acceptance: { text: string; checked: null | WorkAcceptanceCheck
-    check_history?: WorkAcceptanceCheck[] }[]
+    check_history?: WorkAcceptanceCheck[]
+    check_history_count?: number
+    check_history_newest_same_as?: string }[]
   /** ⚠ AN UNREADABLE DEPENDENCY IS ANONYMOUS. It used to arrive as
    *  `{id, visible:false}` — safe, because an opaque id carried no title.
    *  The name is DERIVED from the title, so it is withheld entirely from a

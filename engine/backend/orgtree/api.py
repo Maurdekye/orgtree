@@ -6554,14 +6554,36 @@ def _sent_refs(org_slug: str, rows: list[Any], *, public: bool = False) -> list[
     return rows
 
 
+def _work_projection(a: dict[str, Any], default: str) -> str:
+    """The `projection` argument, or the agent-facing default for this action.
+
+    ⚠ `compact: true` STILL MEANS THE COMPACT PROJECTION. Several agents have
+    that argument written down; it keeps working and it beats the default,
+    because a caller that asked for something specific must get it rather than
+    a default that happens to be smaller."""
+    p = str(a.get("projection") or "").strip().lower()
+    if p:
+        return p
+    if _arg_flag(a, "compact"):
+        return "compact"
+    return default
+
+
 def _work_refs(org_slug: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Stamp every listed item with its own reference. A LIST is where a
     reader most often needs one — the user asked to link EXISTING work, not
     only work that was just created."""
     for group in ("items", "archived", "backlogged"):
-        for it in payload.get(group) or []:
+        rows = payload.get(group)
+        if not isinstance(rows, list):
+            continue
+        for n, it in enumerate(rows):
             if isinstance(it, dict) and it.get("slug"):
-                it["ref"] = refs.item(org_slug, str(it["slug"]))
+                # beside `slug`, not appended: `ref` is identity, and identity
+                # belongs in the head of the payload (ledger W10)
+                rows[n] = {"slug": it["slug"],
+                           "ref": refs.item(org_slug, str(it["slug"])),
+                           **{k: v for k, v in it.items() if k != "slug"}}
     return payload
 
 
@@ -6894,14 +6916,33 @@ def _work_read_call(body: AgentCall, a: dict[str, Any]) -> dict[str, Any]:
         # they have to stamp their own. An agent reading the docket is the
         # caller most likely to need a reference it can paste.
         if act == "list":
+            # ⚠ THE AGENT-FACING LIST DEFAULTS TO `summary`, AND THAT IS A
+            # DELIBERATE BEHAVIOUR CHANGE (W10). "What is on my plate" is the
+            # single most common docket call and it was returning every field
+            # of every item — 200 KB of description, acceptance notes, evidence
+            # and scope history for a question answered by a name, a status and
+            # an owner. Sixteen agents reported list/get payloads they could not
+            # read. The old shape is one argument away (projection=full) and the
+            # payload says so in `omissions_how`; the HTTP routes the desktop
+            # Work panel uses are NOT changed, because they render the panel and
+            # are not size-constrained.
             return _work_refs(body.org, org.work_list(
                 body.node,
                 include_archived=_arg_flag(a, "include_archived"),
                 include_backlogged=_arg_flag(a, "include_backlogged"),
-                compact=_arg_flag(a, "compact")))
+                compact=_arg_flag(a, "compact"),
+                projection=_work_projection(a, "summary"),
+                fields=a.get("fields")))
         it = org.work_get(body.node, _work_ref(a),
-                          compact=_arg_flag(a, "compact"))
-        it["ref"] = refs.item(body.org, str(it["slug"]))
+                          compact=_arg_flag(a, "compact"),
+                          projection=_work_projection(a, "full"),
+                          fields=a.get("fields"))
+        # hoisted to the front with the rest of the header (ledger W10): a
+        # reference sitting behind 160 KB of payload is a reference nobody
+        # reaches
+        it = {"slug": it.get("slug"),
+              "ref": refs.item(body.org, str(it["slug"])),
+              **{k: v for k, v in it.items() if k != "slug"}}
         return {"item": it}
     except LedgerError as e:
         raise HTTPException(422, str(e))
@@ -8279,7 +8320,12 @@ _ARG_STRS = ("node", "to", "from", "target", "grantee", "parent", "new_parent",
              # D-224's topology verbs. `moves` is deliberately ABSENT for the
              # same reason as `audiences` — it is a list, and the move branch
              # type-checks it itself.
-             "a", "b", "hire_type")
+             "a", "b", "hire_type",
+             # W10's docket projection selector. `fields` is deliberately
+             # ABSENT for the same reason as `audiences` and `moves`: it is a
+             # list (or a comma-separated string), and the ledger normalises
+             # and type-checks it itself.
+             "projection")
 
 
 def _norm_args(a: dict[str, Any]) -> dict[str, Any]:

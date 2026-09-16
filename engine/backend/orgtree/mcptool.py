@@ -405,8 +405,11 @@ TOOLS: list[dict[str, Any]] = [
             "work, read by the user in a Work panel. Items survive "
             "retirement, compaction and reassignment. Actions: `list` (the "
             "items you may read; include_archived for finished ones, "
-            "include_backlogged for ones nobody has started), `get` "
-            "(one item in full, or compact when explicitly requested), `create` (title, REQUIRED objective, kind "
+            "include_backlogged for ones nobody has started — each of those "
+            "arrives in its OWN key, never mixed into `items`, and the "
+            "`groups` block at the head of the payload states every group's "
+            "size and the argument that serves it), `get` "
+            "(one item in full, or narrowed with projection/fields), `create` (title, REQUIRED objective, kind "
             "code|non-code, owner = you or a subordinate, participants, "
             "acceptance conditions, optional first done_so_far/"
             "working_on_next). `objective` is the item's DESCRIPTION and may "
@@ -598,9 +601,11 @@ TOOLS: list[dict[str, Any]] = [
                                     "archive", "supersede", "move",
                                     "delete"]},
                 "slug": {"type": "string", "description": "the work item's readable name, e.g. git-review-workspace (every action but list/create). Items have no other identifier"},
-                "include_archived": {"type": "boolean", "description": "list: include archived items"},
-                "include_backlogged": {"type": "boolean", "description": "list: include backlogged (not yet started) items"},
-                "compact": {"type": "boolean", "description": "list/get: opt into the compact authorized projection. It keeps identity, owner/reviewer, status/revision, questions, candidate and requested scope fields; omitted history-heavy fields are labeled with counts. Full reads remain the default"},
+                "include_archived": {"type": "boolean", "description": "list: include archived items. They come back in the `archived` key, NOT mixed into `items`; the `groups` block at the head of every list says how many there are whether or not you asked for them"},
+                "include_backlogged": {"type": "boolean", "description": "list: include backlogged (not yet started) items. They come back in the `backlogged` key, NOT mixed into `items` — a caller that iterates `items` alone will not see them however this flag is set, which is exactly how a docket of twelve read as four. The `groups` block at the head of every list states the backlog's size and this argument"},
+                "projection": {"type": "string", "description": "list/get: how much of each item to serve — `summary` (identity and state only: name, title, status, owner, reviewer, next actor, attention, blocked reason), `compact` (adds the description and acceptance, drops history/evidence/scope) or `full` (everything). `list` DEFAULTS TO summary and `get` to full, because a list answers 'what is on my plate' and a get answers 'what does this ticket say'. Whatever a projection leaves out it declares, with the call that returns it, in `omissions_how` — nothing is dropped from the record"},
+                "fields": {"type": "array", "items": {"type": "string"}, "description": "list/get: serve ONLY these fields of each item (a comma-separated string works too). Selects from the WHOLE item regardless of `projection`, so fields=['slug','title','status','owner'] answers the coordinator's usual question in a few hundred bytes. `slug` is always included — it is the item's identity and every other call takes it as its argument — and `omitted_fields` names everything left out. An unknown field name REFUSES the call and lists the real ones rather than serving a payload quietly missing what you asked for"},
+                "compact": {"type": "boolean", "description": "list/get: shorthand for projection=compact. Kept because agents have it written down; `projection` is the fuller control"},
                 "title": {"type": "string", "description": "create/update: short concrete title." + _cap("title")},
                 "objective": {"type": "string", "description": "create (REQUIRED) / update: the item's description, its authoritative standalone scope — first paragraph: the PROBLEM faced, then the proposed solution; every later paragraph: all remaining specifications, requirements, defaults, exclusions, edge cases and rulings. Full Markdown, no length limit, never truncated: it is stored entire and returned entire by `get` (a notification may carry a marked excerpt of it, which says so and says how long the whole is)"},
                 "kind": {"type": "string", "description": "create: code|non-code · evidence: note|link|file|commit|log"},

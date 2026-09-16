@@ -2114,7 +2114,10 @@ function DocketAcceptance({ item }: { item: WorkItem }) {
         {item.acceptance.map((a, i) => {
           const c = a.checked
           const cls = c?.classification
-          const history = a.check_history ?? []
+          // W10: the newest row is served once, as `checked` — so the number
+          // of observations is the backend's count, not the length of the
+          // earlier-rows list.
+          const checks = a.check_history_count ?? (a.check_history?.length ?? 0)
           return <li key={i} className={'docket-acceptance-item' + (cls === 'met' ? ' is-met' : '')}>
             <div>{a.text}</div>
             {c
@@ -2126,7 +2129,7 @@ function DocketAcceptance({ item }: { item: WorkItem }) {
                   {c.execution && <span> · {c.execution}</span>}
                   {c.gate && <span> · gate: {c.gate} ({c.blocked_count ?? 0} blocked)</span>}
                   {c.composition && <span> · composition: {c.composition}</span>}
-                  {history.length > 1 && <span> · {history.length} checks retained</span>}
+                  {checks > 1 && <span> · {checks} checks retained</span>}
                 </div>
               : <div className="dim docket-list-empty">not checked</div>}
           </li>
