@@ -246,9 +246,21 @@ def _r_attention(ev: _R) -> str:
     o = _obj(ev)
     # This notice is deliberately limited to the user's observation and lack
     # of comment; it must not be interpreted as feedback on the work.
-    return (f"[DOCKET · {o['slug']}] The user saw your attention flag and "
-            "chose to say nothing. This is not approval, rejection, or "
-            "substantive feedback.")
+    #
+    # ⚠ THE REASON IS QUOTED WHOLE, and it is the AGENT'S OWN sentence, not
+    # the user's — saying nothing is exactly what a dismissal is. It is here
+    # because an agent holding two raised flags, or one raised long enough to
+    # have been amended, cannot otherwise tell WHICH sentence was dismissed,
+    # and the standing rule it is about to be held to is "do not re-raise the
+    # same reason". A notice that withholds the reason makes that rule
+    # unfollowable. The contract bounds the value on the way in, so there is
+    # nothing here to cut: the earlier `[:200]` could only ever have taken the
+    # tail off the very sentence being ruled on, and dropping it altogether is
+    # the same loss at full size.
+    return (f"[DOCKET · {o['slug']}] The user saw your attention flag "
+            f"(\"{workfields.prose(ev['reason'])}\") and chose to say nothing. "
+            "This is not approval, rejection, or substantive feedback. Do not "
+            "re-raise that same reason without material new information.")
 
 
 @renderer("status.report")
