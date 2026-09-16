@@ -98,6 +98,68 @@ def _nearest_git(path: str) -> str | None:
     return None
 
 
+#: providers whose CLI ships its own OS sandbox that denies `.git` writes
+#: independently of anything orgtree grants.  Kept as a name set rather than
+#: imported from `providers` so this module stays a pure adapter with no
+#: dependency on the launcher; `supervisor` passes the provider name in.
+_DOT_GIT_SANDBOX_PROVIDERS = frozenset({"openai", "codex"})
+
+
+def _dot_git_note(requested: str, git_root: str | None, operation: str,
+                  provider: str | None, allowed: bool) -> dict[str, Any] | None:
+    """Explain the `.git` denial this diagnostic would otherwise contradict.
+
+    ⚠ THE BUG THIS FIXES IS A DIAGNOSTIC THAT DISAGREES WITH REALITY. The
+    caller asks "why was my write to `<repo>/.git/...` refused?", every orgtree
+    layer correctly answers "it wasn't, that path is inside a read-write
+    grant", and the report comes back `allowed: true` — contradicting the
+    'Permission denied' the agent is holding in its hand. Twenty agents met
+    this on `git worktree add`; the report told them nothing was wrong, so the
+    boundary stayed something you could only find by hitting it.
+
+    ⚠ AND IT DELIBERATELY DOES NOT FLIP `allowed`. The write genuinely IS
+    within scope: `supervisor._codex_leg._approve` AUTO-ACCEPTS the elevated
+    retry for any write-enabled codex seat, so the operation succeeds on the
+    second attempt without anyone's permission being widened. Reporting it as
+    refused would tell an entitled agent it has no right to a write it does
+    have, which is the same class of mistake in the opposite direction — an
+    agent that believes a wall is real stops and reports itself blocked one
+    retry away from done. So this is an ADVISORY attached beside the decision,
+    never a component of it.
+
+    Returns ``None`` when there is nothing to say: a non-write operation, a
+    target outside any repository, a provider whose CLI has no such sandbox,
+    or a request orgtree itself already refuses (there the real reason is the
+    grant, and adding a second explanation would bury it).
+    """
+    if operation != "write" or not git_root or not allowed:
+        return None
+    if str(provider or "").lower() not in _DOT_GIT_SANDBOX_PROVIDERS:
+        return None
+    marker = os.path.join(git_root, ".git")
+    # only speak up for a target that is actually inside `.git`; an ordinary
+    # source file in the same repo is not touched by the sweep, and saying so
+    # there would train the reader to ignore the note where it matters.
+    if not (_lexically_under(requested, marker)
+            or _lexical(requested) == _lexical(marker)):
+        return None
+    return {
+        "status": "advisory",
+        "path": marker,
+        "permission": "elevated retry (codex `with_escalated_permissions`)",
+        "auto_approved": True,
+        "reason": (
+            f"this path is inside {marker}, which the codex CLI's own OS "
+            f"sandbox denies for every repository that already existed when "
+            f"the turn started. It is not an orgtree restriction and not a "
+            f"limit of the grant, which is read-write. The first attempt will "
+            f"fail with 'Permission denied'; retry the same command asking for "
+            f"elevated permission and orgtree approves it automatically for "
+            f"this seat. Creating or removing a git worktree writes here, so "
+            f"ask for the elevated retry on the first attempt."),
+    }
+
+
 def _grant_for(path: str, scratch: str, grants: Iterable[Any]) -> dict[str, Any]:
     """Resolve the most-specific explicit grant; scratch is an effective root."""
     target = _norm(path)
@@ -230,6 +292,8 @@ def diagnose_target(
         code = "path_escape"
     else:
         code = "org_grant_missing_or_read_only"
+    git_root = _nearest_git(requested)
+    dot_git = _dot_git_note(requested, git_root, operation, provider, allowed)
     return {
         "target": {"requested": requested, "absolute": absolute, "resolved": resolved,
                     "exists": os.path.exists(requested), "kind": _entry_kind(requested),
@@ -241,10 +305,16 @@ def diagnose_target(
         "provider": {"name": provider, **provider_limit},
         "sandbox": {"enabled": bool(sandboxed), **sandbox_limit},
         "tool": tool_limit,
-        "git": {"root": _nearest_git(requested), "owner": git_owner,
-                "owner_source": "explicit" if git_owner else "unknown"},
+        "git": {"root": git_root, "owner": git_owner,
+                "owner_source": "explicit" if git_owner else "unknown",
+                "dot_git_write": dot_git},
         "decision": {"allowed": allowed, "reason_code": code,
-                      "reasons": reasons or (["request is within the effective scope"] if allowed else [])},
+                      "reasons": reasons or (["request is within the effective scope"] if allowed else []),
+                      # the advisory rides the decision too, because a caller
+                      # that reads only `decision` is exactly the caller that
+                      # would otherwise act on `allowed: true` and be denied
+                      # by the OS a moment later
+                      **({"advisories": [dot_git["reason"]]} if dot_git else {})},
     }
 
 

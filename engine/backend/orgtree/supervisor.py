@@ -7939,6 +7939,62 @@ ACCOUNT_LANE_DOCTRINE = (
     "forth. ")
 
 
+#: how many repository paths the codex `.git` sentence will name before it
+#: stops listing them. The point of naming a path is that the agent can act on
+#: it in one step; a seat holding a dozen repos gets a sentence nobody reads,
+#: so the list is bounded and the remainder is COUNTED rather than dropped —
+#: silently truncating it would read as "these are all of them".
+_CODEX_GIT_NAMED_MAX = 3
+
+
+def codex_denied_git_roots(dirs: Iterable[Mapping[str, Any]]) -> list[str]:
+    """The granted repositories whose `.git` the codex OS sandbox will deny.
+
+    ⚠ THIS NAMES A BOUNDARY ORGTREE DOES NOT OWN AND CANNOT MOVE. codex-cli
+    writes an explicit DENY on every `.git` that already exists under a
+    writable root at turn setup (measured; see the block in `identity_prompt`
+    where this is used). The literal `/.git` is hardcoded in the codex binary
+    beside its own `read`/`write`/`deny` access values, and the only
+    `[sandbox_workspace_write]` keys that binary carries are `writable_roots`,
+    `network_access`, `exclude_slash_tmp` and `exclude_tmpdir_env_var` — there
+    is no git knob to turn off, and the sandbox field on the wire is a bare
+    three-value enum. So this function exists to make the wall PREDICTABLE, not
+    to remove it.
+
+    Only `rw` grants are considered. A read-only grant's `.git` is denied too,
+    but that seat is told a different and stricter thing (its escalation is
+    refused, not approved), so naming the path there would invite exactly the
+    retry that branch exists to prevent.
+
+    Returns repository ROOTS — the directory containing `.git`, not the `.git`
+    path itself — because that is what the agent passes to `git -C`. A grant
+    that IS a repo root answers itself; a grant nested inside a repo walks up
+    to the root it actually lives in, which is the case that matters for a
+    scratch-folder grant sitting inside a checkout. Deduplicated and sorted so
+    the identity prompt renders the same bytes every turn for an unchanged
+    agent (D-181): an unstable ordering here would re-prefix the system prompt
+    on every turn and cost the seat its provider cache.
+    """
+    roots: set[str] = set()
+    for d in dirs or []:
+        if d.get("mode") != "rw":
+            continue
+        raw = str(d.get("path") or "")
+        if not raw:
+            continue
+        # walk up to the nearest `.git` marker, exactly as the sandbox sweep
+        # sees it: a worktree's `.git` is a FILE, not a directory, so both
+        # kinds count. No Git process is run — this is a path question, and
+        # `identity_prompt` is on the per-turn path.
+        current = os.path.normpath(os.path.abspath(raw))
+        while current and current != os.path.dirname(current):
+            if os.path.exists(os.path.join(current, ".git")):
+                roots.add(current)
+                break
+            current = os.path.dirname(current)
+    return sorted(roots)
+
+
 def identity_prompt(org: Org, nid: str, include_archived: bool = False, *,
                     include_standing_charter: bool = True) -> str:
     """№29: the STABLE identity — who this agent is, who it answers to, what it
@@ -8166,18 +8222,49 @@ def identity_prompt(org: Org, nid: str, include_archived: bool = False, *,
         # the reserve agent above, one layer up. So each seat is told what is
         # true FOR IT — see `_codex_may_write`.
         if _codex_may_write(sc):
+            # ⚠ `git worktree add` WAS MISSING FROM THIS LIST AND IT IS THE
+            # ONE THAT COST MOST (2026-09-16). Twenty agents hit this wall on
+            # `git worktree add` — the FIRST thing the standing charter tells
+            # them to do — and the sentence above named `add`/`commit`/
+            # `update-ref`/`merge` instead, so the step they were actually
+            # running read as unlisted and therefore as a real refusal. One
+            # agent raised it on three separate tickets. Naming the verb is
+            # most of the fix; the rest is naming the PATH, because the
+            # complaint was never "I was denied", it was "I was refused
+            # generically and had to discover the boundary by hitting it".
+            named = codex_denied_git_roots(dirs)
+            if named:
+                shown = named[:_CODEX_GIT_NAMED_MAX]
+                rest = len(named) - len(shown)
+                where = (", ".join(f"`{p}`" for p in shown)
+                         + (f" (and {rest} more granted "
+                            f"{'repository' if rest == 1 else 'repositories'})"
+                            if rest else ""))
+                git_where = (f"In YOUR scope that means the `.git` of "
+                             f"{where}. ")
+            else:
+                git_where = ""
             tool_line += (
                 "Sandbox: your shell runs in an OS sandbox, and a write it "
                 "blocks is reported to you as a plain 'Permission denied' — "
                 "including writes inside your OWN working directory: an "
                 "existing repository's `.git` folder is blocked, so `git "
-                "add`, `git commit`, `git update-ref` and `git merge` all hit "
-                "it. If the write is one your grants ENTITLE you to make, "
-                "that is not a refusal: ask to retry the command with "
-                "elevated permission and it will be approved. If it is a path "
-                "you were never granted, the denial is real and stands — do "
-                "not go looking for another way around it, raise it "
-                "instead. ")
+                "add`, `git commit`, `git update-ref`, `git merge`, `git "
+                "worktree add` and `git worktree remove` all hit it. "
+                + git_where +
+                "This is codex's own OS sandbox, not an orgtree rule and not "
+                "a limit of your grant: it denies every `.git` that already "
+                "existed when your turn started, whatever your scope says. If "
+                "the write is one your grants ENTITLE you to make, that is "
+                "not a refusal: ask to retry the command with elevated "
+                "permission and it will be approved — approval for this seat "
+                "is automatic, so this costs a round trip and nothing else. "
+                "⚠ CREATING A WORKTREE IS THE COMMON CASE and the standing "
+                "charter makes it your first step, so expect the denial and "
+                "ask for the elevated retry on the FIRST attempt rather than "
+                "after a failure. If it is a path you were never granted, the "
+                "denial is real and stands — do not go looking for another "
+                "way around it, raise it instead. ")
         else:
             tool_line += (
                 "Sandbox: this is a READ-ONLY seat, and that is enforced, not "
