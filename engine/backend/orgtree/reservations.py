@@ -88,12 +88,31 @@ def _sha(value: Any, name: str) -> str:
 
 
 def _rows(d: dict[str, Any], create: bool = False) -> list[dict[str, Any]]:
+    """The reservation records, or an empty store.
+
+    An ABSENT ``reservations`` key is an EMPTY store, not a damaged one, and
+    the difference matters more than it looks.  Until 2.1.7 every read action
+    (list, landing, overlap, invalidate) fell through the ``create`` branch
+    with ``raw`` still ``None`` and reported "reservation records are
+    malformed" — so an org that had simply never taken a reservation was told
+    its store was corrupt.  `list` is the first thing anyone runs, so that was
+    the first thing anyone saw, and five agents independently concluded the
+    tool was unusable and went back to coordinating landings by mail.  Nothing
+    was ever wrong with the data; there was no data.
+
+    A non-list value is still a genuine defect and still refuses, and now says
+    what it actually found so the next reader is not sent the same way.
+    """
     raw = d.get("reservations")
-    if raw is None and create:
+    if raw is None:
+        if not create:
+            return []
         raw = []
         d["reservations"] = raw
     if not isinstance(raw, list):
-        raise ReservationError("reservation records are malformed")
+        raise ReservationError(
+            "reservation records are malformed: expected a list, found "
+            f"{type(raw).__name__}")
     return cast("list[dict[str, Any]]", raw)
 
 
@@ -103,8 +122,78 @@ def _safe(row: Mapping[str, Any]) -> dict[str, Any]:
              "paths", "state", "created_at", "updated_at", "expires_at",
              "heartbeat_at", "release_receipt", "successor",
              "integration_receipt", "landed_at", "recovered_by",
-             "stale_reason")
+             "recovered_reason", "stale_reason")
     return {k: row[k] for k in names if k in row}
+
+
+#: The contention view.  A reservation on a SHARED resource is inherently a
+#: public claim: you cannot serialize access to something without telling the
+#: other claimants that it is taken, and a refusal that will not say who holds
+#: the slot sends the loser back to asking around by mail.  This projection
+#: carries the holder and the lease facts a contender needs in order to wait
+#: for the right thing — and nothing else.  Deliberately absent: `paths` and
+#: `item` (which describe the holder's private work), and every receipt and
+#: integration key (which are capabilities, not status).
+_CONTENTION_NAMES = ("id", "owner", "resource", "candidate", "base", "state",
+                     "created_at", "updated_at", "expires_at", "heartbeat_at")
+
+
+def _contention(row: Mapping[str, Any]) -> dict[str, Any]:
+    out = {k: row[k] for k in _CONTENTION_NAMES if k in row}
+    out["view"] = "contention"
+    return out
+
+
+def _owner_live(row: Mapping[str, Any],
+                node_exists: Callable[[str], bool] | None) -> bool:
+    """Whether this row's holder is still a live agent.
+
+    With no way to ask, assume live: absence of proof that a holder is gone is
+    never proof that it is gone, and this answer gates a takeover.
+    """
+    if node_exists is None:
+        return True
+    return bool(node_exists(str(row.get("owner") or "")))
+
+
+def _recoverable(row: Mapping[str, Any], now_ts: float, stale_s: float,
+                 node_exists: Callable[[str], bool] | None) -> bool:
+    """Whether a held row may be taken over by someone else.
+
+    Two independent ways for a holder to have stopped: its lease ran out, or
+    it is no longer a live agent (retired, dissolved, or dead).  Either one
+    opens the door — waiting out a full lease for an agent the org already
+    knows is gone is how a slot gets stranded — but a QUIET HEARTBEAT is
+    required in both cases.  Retirement interrupts a running turn and a tool
+    call already in flight can still finish and touch disk, so "no longer
+    live" is not by itself proof that nothing is being pushed right now; the
+    heartbeat is.
+    """
+    if _active_heartbeat(row, now_ts, stale_s):
+        return False
+    return _expired(row, now_ts) or not _owner_live(row, node_exists)
+
+
+def _held_by(row: Mapping[str, Any], resource: str, now_ts: float,
+             suffix: str = "") -> str:
+    """The refusal a losing contender reads: who holds it, and until when."""
+    holder = str(row.get("owner") or "?")
+    if not _expired(row, now_ts):
+        why = "is already reserved by an active operation"
+    else:
+        # An expired lease with a live heartbeat is still an active
+        # operation — say which of the two guards actually fired, because
+        # "wait for the lease" and "wait for the holder to go quiet" are
+        # different waits.
+        why = ("lease expired but its heartbeat is active, so it is still an "
+               "active operation and recovery cannot steal it")
+    return (f"{resource} {why}{suffix}: held by {holder} since "
+            f"{row.get('created_at')} (reservation {row.get('id')}, base "
+            f"{row.get('base')}, candidate {row.get('candidate')}, lease "
+            f"expires {row.get('expires_at')}, last heartbeat "
+            f"{row.get('heartbeat_at')}). Wait for {holder} to release it, or "
+            f"recover it once its lease has expired and its heartbeat is "
+            f"quiet.")
 
 
 def _find(rows: list[dict[str, Any]], rid: str) -> dict[str, Any]:
@@ -221,8 +310,24 @@ def execute(d: dict[str, Any], actor: str, args: Mapping[str, Any],
                     _mark_scope_stale(old, expected_candidate, expected_base, ts)
                     if old.get("state") != before:
                         stale.append(str(old.get("id") or ""))
-        out = [_safe(r) for r in rows if (not resource or r.get("resource") == resource)
-               and _visible(r, actor, item_reader)]
+        # Scope-staling above stays gated on full visibility: naming a
+        # resource lets you SEE a claim on it, never mutate somebody else's
+        # row.  Only the projection below is widened.
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            if resource and r.get("resource") != resource:
+                continue
+            if _visible(r, actor, item_reader):
+                out.append(_safe(r))
+            elif resource and r.get("state") == HELD:
+                # You asked about one named resource and something is holding
+                # it right now.  That claim is against you, so you get to see
+                # whose it is and when it runs out — this is the whole point
+                # of a lease being a mechanism rather than a convention.
+                # Requiring the explicit `resource` keeps an unfiltered list
+                # from becoming an org-wide directory of private reservations,
+                # and HELD-only keeps it to claims that still bind anyone.
+                out.append(_contention(r))
         return {"reservations": out, "count": len(out), "stale": stale}
 
     if action == "landing":
@@ -262,28 +367,29 @@ def execute(d: dict[str, Any], actor: str, args: Mapping[str, Any],
         for old in rows:
             if old.get("resource") != resource or old.get("state") not in (HELD,):
                 continue
-            if not _same_scope(old, candidate, base):
-                # A changed candidate/base invalidates a grant, but it does
-                # not authorize a competing operation to steal a still-live
-                # owner.  First prove the old operation is expired *and* its
-                # heartbeat is stale; otherwise leave it untouched and
-                # refuse the acquisition.
-                old_stale = float(old.get("stale_s") or stale_s)
-                if not _expired(old, ts) or _active_heartbeat(
-                        old, ts, old_stale):
-                    raise ReservationError(
-                        "resource is reserved by an active operation; changed "
-                        "candidate or base cannot steal it")
+            same = _same_scope(old, candidate, base)
+            if same and not _expired(old, ts) and \
+                    str(old.get("owner") or "") == actor:
+                return {"reservation": _safe(old), "replayed": True}
+            # A changed candidate/base invalidates a grant, but it does not
+            # authorize a competing operation to steal a still-live owner, and
+            # neither does an expired lease on its own.  Prove the holder has
+            # stopped first; otherwise leave the row untouched and refuse,
+            # naming the holder so the loser knows who to wait for instead of
+            # going back to asking around.
+            old_stale = float(old.get("stale_s") or stale_s)
+            if not _recoverable(old, ts, old_stale, node_exists):
+                raise ReservationError(_held_by(
+                    old, resource, ts,
+                    "" if same else "; a changed candidate or base cannot "
+                    "steal it either"))
+            if not same:
                 _mark_scope_stale(old, candidate, base, ts)
                 continue
-            if not _expired(old, ts):
-                if str(old.get("owner") or "") == actor:
-                    return {"reservation": _safe(old), "replayed": True}
-                raise ReservationError("resource is already reserved by an active operation")
-            if _active_heartbeat(old, ts, stale_s):
-                raise ReservationError("resource lease expired but its heartbeat is active; recovery cannot steal it")
             old["state"] = RECOVERED
             old["recovered_by"] = actor
+            old["recovered_reason"] = ("lease_expired" if _expired(old, ts)
+                                       else "owner_not_live")
             old["updated_at"] = _stamp(ts)
             old["updated_ts"] = ts
         rid = _id("res")
@@ -327,8 +433,22 @@ def execute(d: dict[str, Any], actor: str, args: Mapping[str, Any],
 
     rid = _text(args.get("reservation"), "reservation", 80)
     row = _find(rows, rid)
-    _authorize(row, actor, item_reader,
-               owner_only=action in {"renew", "release", "land"})
+    seen = _visible(row, actor, item_reader)
+    if action == "recover" and row.get("state") == HELD:
+        # Recovery is guarded by STATE, not by acquaintance.  It already
+        # requires a quiet heartbeat plus either an expired lease or a holder
+        # that is no longer live, and `acquire` performs exactly this recovery
+        # inline with no visibility check at all — so gating the explicit,
+        # auditable route on item visibility only blocked the contender who
+        # most needs it (two agents queueing for `main` share no docket item)
+        # while leaving the implicit route wide open.  A HELD claim on a shared
+        # resource is public by nature; whoever is contending for that resource
+        # may clear a dead one.  A non-acquainted caller still sees only the
+        # contention projection of the result, never paths or the item.
+        pass
+    else:
+        _authorize(row, actor, item_reader,
+                   owner_only=action in {"renew", "release", "land"})
 
     if action == "invalidate":
         candidate = _sha(args.get("candidate"), "candidate")
@@ -365,15 +485,23 @@ def execute(d: dict[str, Any], actor: str, args: Mapping[str, Any],
         # caller to supply a shorter threshold would let it steal an expired
         # lease while the owner's recorded heartbeat is still active.
         stale_s = float(row.get("stale_s") or DEFAULT_STALE_S)
-        if not _expired(row, ts):
-            raise ReservationError("reservation is still leased; recovery cannot steal an active operation")
         if _active_heartbeat(row, ts, stale_s):
             raise ReservationError("reservation heartbeat is active; recovery cannot steal an active operation")
+        # A holder the org knows is gone does not get to keep the slot for the
+        # rest of its lease.  This is not a forced break: nobody judges whether
+        # a LIVE agent looks stuck, and the quiet heartbeat above is still
+        # required, so an in-flight push is never interrupted.
+        live = _owner_live(row, node_exists)
+        if not _expired(row, ts) and live:
+            raise ReservationError("reservation is still leased; recovery cannot steal an active operation")
         row["state"] = RECOVERED
         row["recovered_by"] = actor
+        row["recovered_reason"] = ("lease_expired" if _expired(row, ts)
+                                   else "owner_not_live")
         row["updated_ts"] = ts
         row["updated_at"] = _stamp(ts)
-        return {"reservation": _safe(row), "recovered": True}
+        return {"reservation": _safe(row) if seen else _contention(row),
+                "recovered": True}
 
     if action == "release":
         if row.get("state") not in (HELD,):

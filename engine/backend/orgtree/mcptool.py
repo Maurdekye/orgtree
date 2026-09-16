@@ -1097,7 +1097,20 @@ TOOLS: list[dict[str, Any]] = [
             "list and landing. Reservations are operator-authorized and "
             "bounded; paths are declarations only and never grant file access. "
             "Use an integration_key to make retries idempotent. A release "
-            "may notify one authorized successor."),
+            "may notify one authorized successor. "
+            "THIS IS THE LANDING SLOT: to serialize merges onto a shared "
+            "branch, `acquire` resource='main' with `base` = the commit you "
+            "rebased onto and `candidate` = the commit you intend to land. "
+            "One holder at a time; a second agent is refused and told who "
+            "holds it and until when. `list` with that `resource` shows the "
+            "current holder to ANY agent without asking anyone. Renew while "
+            "you work, `land` when the merge is pushed, and `release` when "
+            "you are done — naming a `successor` wakes the next agent. A "
+            "holder that dies does not strand the slot: once its heartbeat "
+            "is quiet, another agent may recover it, immediately if the "
+            "holder is no longer live and otherwise once its lease expires. "
+            "No coordinator is involved in any of this. An empty store is "
+            "empty, not broken."),
         "inputSchema": {
             "type": "object",
             "properties": {
