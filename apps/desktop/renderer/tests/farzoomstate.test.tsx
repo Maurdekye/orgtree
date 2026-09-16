@@ -185,7 +185,7 @@ test('§7 unhovered model token is spaced from the provider rail and enlarged wi
   const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
   assert.match(css, /\.sq\.mini:not\(:hover\)\s+\.sq-far-tier\s*\{[^}]*left:\s*10px/s,
     'unhovered far-zoom token is offset from the left rail')
-  assert.match(css, /\.sq\.mini:not\(:hover\)\s+\.sq-far-tier\s+\.tier\s*\{[^}]*width:\s*33px[^}]*height:\s*33px/s,
+  assert.match(css, /\.sq\.mini:not\(:hover\)\s+\.sq-far-tier\s+\.tier\s*\{[^}]*width:\s*33px[^}]*height:\s*33px[^}]*font-size:\s*16\.5px/s,
     'unhovered model token is about 50% larger')
   assert.match(css, /\.sq\.mini:hover\s+\.sq-far-tier\s*,\s*\n\.sq\.mini:focus-within\s+\.sq-far-tier\s*,\s*\n\.sq\.mini:focus-visible\s+\.sq-far-tier\s*\{[^}]*left:\s*50%/s,
     'hovered token keeps its existing centered position')
