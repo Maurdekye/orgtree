@@ -21496,6 +21496,32 @@ _abandon_drove: dict[str, float] = {}
 STOPPED_REPORT_DRIVE_WINDOW = 120.0
 _stopped_drove: dict[str, float] = {}
 
+#: The mail kind a STOPPED-WORK announcement uses when it has no superior to
+#: tell and must reach the USER instead.
+#:
+#: ⚠ IT MUST NOT BE "notice", and that is the whole point of this constant.
+#: `Org.to_user_inbox` routes `kind == "notice"` straight past `user_inbox` —
+#: which IS the unread set — into the archive, deliberately, because a notice
+#: is passive by construction and never had business claiming unread status.
+#: Correct for a notice; wrong for these. A top-level agent that has STOPPED is
+#: the same stopped work that now WAKES an agent superior (228a594), and a
+#: top-level agent's superior is the user: for them the equivalent of a wake is
+#: an unread badge. Delivered pre-read it is the same failure in different
+#: clothes — they find out when they happen to look, which is exactly what went
+#: wrong in the 2026-09-17 21:19 incident.
+#:
+#: `decision` rather than some new kind, because this mailbox already has the
+#: precedent and the renderer already honours it: `policy.weekly_limit` and
+#: `policy.fable_flagged` — a Fable limit exhausted, agents halted or whole
+#: subtrees dissolved — are `decision` from @system, and `isSystemNotice` in
+#: the renderer excludes exactly those from the de-emphasise-and-collapse path
+#: as "the mail they most need to see". A stopped agent belongs in that group,
+#: not folded in with the FYIs.
+#:
+#: NOT urgent. An unread badge is what this needs; the urgent flag pulses the
+#: inbox and stays lit, and it only keeps working while it stays rare.
+STOPPED_WORK_KIND: Final[str] = "decision"
+
 
 def _wake_superior(slug: str, nid: str, sup: str, text: str, what: str) -> bool:
     """Wake a superior because one of its reports has STOPPED.
@@ -21614,7 +21640,7 @@ def _turn_abandoned(slug: str, nid: str, door: str, err: str) -> bool:
                                   cause="terminal", audience="user",
                                   attempts=None, classified=None, door=door, err=err)
                 org.to_user_inbox({
-                    "id": uuid_hex8(), "from": SYSTEM, "kind": "notice",
+                    "id": uuid_hex8(), "from": SYSTEM, "kind": STOPPED_WORK_KIND,
                     "at": now_iso(), "body": events.render_agent(uev)}, uev)
             store.save_org(org)
         mail_spark(slug, "@system", nid)
@@ -21770,7 +21796,7 @@ def _retry_exhausted(slug: str, nid: str, run: int, err: str,
                                   cause="repeated", audience="user",
                                   attempts=int(run), classified=kind, door=None, err=err)
                 org.to_user_inbox({
-                    "id": uuid_hex8(), "from": SYSTEM, "kind": "notice",
+                    "id": uuid_hex8(), "from": SYSTEM, "kind": STOPPED_WORK_KIND,
                     "at": now_iso(), "body": events.render_agent(uev)}, uev)
             store.save_org(org)
         # ⚠ name who was ACTUALLY told. This said "agent and superior told"
@@ -21971,7 +21997,7 @@ def _parked_announce(slug: str, nid: str, kind: str, lane: str) -> bool:
                 sup = ""
                 uev = _ev("user")
                 org.to_user_inbox({
-                    "id": uuid_hex8(), "from": SYSTEM, "kind": "notice",
+                    "id": uuid_hex8(), "from": SYSTEM, "kind": STOPPED_WORK_KIND,
                     "at": now_iso(), "body": events.render_agent(uev)}, uev)
             store.save_org(org)
         if sup:
@@ -22123,7 +22149,7 @@ def _limit_announce(slug: str, nid: str, lane: str,
                 sup = ""
                 uev = _ev("user")
                 org.to_user_inbox({
-                    "id": uuid_hex8(), "from": SYSTEM, "kind": "notice",
+                    "id": uuid_hex8(), "from": SYSTEM, "kind": STOPPED_WORK_KIND,
                     "at": now_iso(), "body": events.render_agent(uev)}, uev)
                 told = True
             store.save_org(org)
@@ -31369,7 +31395,7 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
                     cause="terminal", audience="user",
                     attempts=None, classified=None, door=_udoor, err="")
                 org.to_user_inbox({
-                    "id": uuid_hex8(), "from": SYSTEM, "kind": "notice",
+                    "id": uuid_hex8(), "from": SYSTEM, "kind": STOPPED_WORK_KIND,
                     "at": now_iso(), "body": events.render_agent(_uev)}, _uev)
         if marked or healed:
             store.save_org(org)

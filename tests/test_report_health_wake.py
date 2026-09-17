@@ -293,20 +293,115 @@ class NoSuperiorTests(_Base):
         self.assertTrue(told, "the user must still be told")
         self.assertEqual(self.drives, [],
                          "orgtree cannot drive a person, and must not try")
-        d = store.load_org(self.slug).d
-        # ⚠ IT LANDS ALREADY READ, and that is worth knowing rather than
-        # assuming. `to_user_inbox` routes kind="notice" straight past
-        # `user_inbox` — which IS the unread set — into `user_mail_log`, on the
-        # rule that a notice is passive by construction. So a top-level report
-        # freezing produces NO unread badge for the user. Pinned as the CURRENT
-        # behaviour, not endorsed as correct: raised with coordinator-opus,
-        # because whether the user should see an unread mark here is a product
-        # decision and not mine to make.
-        self.assertEqual(d.get("user_inbox") or [], [],
-                         "current behaviour: a notice is not in the unread set")
-        log = d.get("user_mail_log") or []
-        self.assertTrue(log, "but it must be in the user's mail log")
-        self.assertIn("out of provider capacity", log[-1]["body"])
+        # ⚠ THIS ASSERTION WAS REVERSED ON PURPOSE. When 228a594 landed it
+        # pinned the opposite — `user_inbox` EMPTY — as "current behaviour, not
+        # endorsed as correct", because `to_user_inbox` routes kind="notice"
+        # straight past the unread set and that was a product decision to
+        # escalate rather than take. It was escalated, and the answer was to
+        # fix it; see `UserUnreadTests` below for the rule now in force.
+        self.assertTrue(store.load_org(self.slug).d.get("user_inbox"),
+                        "a stopped top-level agent must reach the user UNREAD")
+
+
+class UserUnreadTests(_Base):
+    """A TOP-LEVEL agent's stopped work must reach the user UNREAD.
+
+    228a594 made a stopped report WAKE its agent superior. A top-level agent's
+    superior is the USER, and orgtree cannot drive a person — so the equivalent
+    of a wake is an unread badge. Delivered pre-read it is the same failure in
+    different clothes: the user finds out when they happen to look, which is
+    exactly what went wrong in the incident that prompted all of this.
+
+    ⚠ THE MECHANISM IS `Org.to_user_inbox`'S EXISTING ONE AND IS NOT TOUCHED.
+    `user_inbox` IS the unread set — the read endpoint's whole job is moving
+    entries out of it into `user_mail_log` — and `kind == "notice"` is routed
+    past it deliberately. That rule is correct and its docstring warns in terms
+    that getting the predicate wrong HIDES REAL MAIL. So the defect was never
+    the router: it was these call sites classifying stopped work as a passive
+    notice. Only the kind at the call site changed.
+    """
+
+    def _top_level(self):
+        with store.DOC_LOCK:
+            org = store.load_org(self.slug)
+            org.node(self.nid)["parent"] = None
+            store.save_org(org)
+
+    def _inbox(self):
+        return store.load_org(self.slug).d.get("user_inbox") or []
+
+    def _only_unread(self):
+        """The one unread entry, asserted to exist before it is indexed.
+
+        Bare `self._inbox()[0]` raised IndexError against the pre-fix engine,
+        which is a real failure but a poor signal: a stack trace ending in
+        IndexError reads like a broken test rather than the absent behaviour it
+        actually demonstrates. This fails on the claim instead."""
+        inbox = self._inbox()
+        self.assertEqual(len(inbox), 1,
+                         "the stopped-work entry must be in the UNREAD set")
+        return inbox[0]
+
+    def test_a_usage_limit_reaches_the_user_unread(self):
+        self._top_level()
+        self.freeze(until_ts=time.time() + 3600)
+
+        sup._limit_announce(self.slug, self.nid, "Claude · opus")
+
+        inbox = self._inbox()
+        self.assertEqual(len(inbox), 1, "it must be in the UNREAD set")
+        self.assertIn("out of provider capacity", inbox[0]["body"])
+
+    def test_a_parked_agent_reaches_the_user_unread(self):
+        self._top_level()
+        self.freeze(until_ts=None, error="401 rejected", cause="auth")
+
+        sup._parked_announce(self.slug, self.nid, "auth", "Claude · opus")
+
+        self.assertEqual(len(self._inbox()), 1)
+
+    def test_the_unread_entry_is_not_marked_urgent(self):
+        """⚠ EXPLICITLY OUT OF SCOPE and pinned so nobody adds it later. The
+        urgent flag pulses the user's inbox and keeps it lit; it is for
+        attention required RIGHT NOW and only works while it stays rare. An
+        unread badge is what this needs."""
+        self._top_level()
+        self.freeze(until_ts=time.time() + 3600)
+
+        sup._limit_announce(self.slug, self.nid, "Claude · opus")
+
+        self.assertFalse(self._only_unread().get("urgent"),
+                         "must not pulse the inbox")
+
+    def test_it_uses_the_kind_the_mailbox_already_honours(self):
+        """Not a second notion of unread: `decision` is the kind this mailbox
+        already uses for a Fable limit exhausted or agents halted, and which
+        the renderer's `isSystemNotice` already excludes from the
+        de-emphasise-and-collapse path as the mail most needing to be seen."""
+        self._top_level()
+        self.freeze(until_ts=time.time() + 3600)
+
+        sup._limit_announce(self.slug, self.nid, "Claude · opus")
+
+        self.assertEqual(self._only_unread()["kind"], "decision")
+        self.assertNotEqual(self._only_unread()["kind"], "notice")
+
+    def test_an_informational_notice_still_arrives_read(self):
+        """⚠ NEGATIVE CONTROL, and the judgement this ticket turns on. The
+        router must NOT have been widened: a genuine notice still bypasses the
+        unread set. If this fails, the fix was applied to the mechanism instead
+        of to the call sites and every FYI in orgtree now nags the user."""
+        with store.DOC_LOCK:
+            org = store.load_org(self.slug)
+            org.to_user_inbox({"id": "deadbeef", "from": "@system",
+                               "kind": "notice", "at": "2026-09-17T22:00:00Z",
+                               "body": "an ordinary FYI"})
+            store.save_org(org)
+
+        self.assertEqual(self._inbox(), [],
+                         "a notice must still arrive already read")
+        log = store.load_org(self.slug).d.get("user_mail_log") or []
+        self.assertEqual(log[-1]["body"], "an ordinary FYI")
 
 
 if __name__ == "__main__":
