@@ -1862,12 +1862,6 @@ button.cc-name:hover {
   border-left: 3px dashed color-mix(in srgb, var(--dim) 55%, var(--line));
   padding-left: 7px;
 }
-.turn-mail.notice-bubble,
-.msg.user.notice-bubble,
-.notice-bubble {
-  border: 1.5px dotted var(--accent) !important;
-  padding-left: 9px;
-}
 .turn-mail.from-user { border-color: color-mix(in srgb, var(--accent) 26%, var(--line-soft)); }
 .turn-mail-head {
   display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 7px;

@@ -141,7 +141,7 @@ export function MailMessage({ row, profile, slug, nid, world, onOpen, actor,
   const isNotice = row.kind === 'notice'
     || (decoded.kind === 'known' && decoded.event.variant === 'ordinary.notice')
   return <section
-        {...surface} className={'turn-mail ' + surface.className + (isNotice ? ' passive notice-bubble' : '')} data-mail-id={annotation ? undefined : row.id ?? undefined}>
+        {...surface} className={'turn-mail ' + surface.className + (isNotice ? ' passive' : '')} data-mail-id={annotation ? undefined : row.id ?? undefined}>
         <header className="turn-mail-head event-head">{card(row, false, "header")}<time>{fmtFull(row.at)}</time>
           {decoded.kind !== 'known' && !ordinaryLegacy && <>
             {/* label-subordinate-messages-and-link-their-sender: an untyped

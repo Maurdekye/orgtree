@@ -220,7 +220,7 @@ test('sending when armed sends notice: true, disarms toggle, marks ghost as noti
   }
 })
 
-test('fallback vs notice border: only actual notice wears notice-bubble dotted border', () => {
+test('fallback vs notice styling: only actual notice wears passive notice class', () => {
   // Test MailMessage with actual notice
   const noticeRow = {
     id: 'm1',
@@ -246,7 +246,7 @@ test('fallback vs notice border: only actual notice wears notice-bubble dotted b
     slug: 'org',
     nid: 'agent-a',
   })
-  assert.ok(noticeEl.props.className.includes('notice-bubble'), 'notice has notice-bubble class')
+  assert.ok(noticeEl.props.className.includes('passive'), 'notice has passive class')
 
   // Render ordinary message
   const messageEl = MailMessage({
@@ -255,7 +255,7 @@ test('fallback vs notice border: only actual notice wears notice-bubble dotted b
     slug: 'org',
     nid: 'agent-a',
   })
-  assert.equal(messageEl.props.className.includes('notice-bubble'), false, 'ordinary message does NOT have notice-bubble class')
+  assert.equal(messageEl.props.className.includes('passive'), false, 'ordinary message does NOT have passive class')
 })
 
 test('bindPendingMail clears notice state on fallback', () => {
