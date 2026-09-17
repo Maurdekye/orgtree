@@ -3918,7 +3918,19 @@ export const pendTag = (m: PendingMail): string =>
 
 /** Pending mail uses the same full-width card as the settled transcript.
  * Delivery status occupies its own line below the card (user 2026-09-10);
- * only the retract control remains in the card metadata. */
+ * only the retract control remains in the card metadata.
+ * ⚠ NO `notice-bubble` ON THIS WRAPPER (user 2026-09-17: "when a queued and
+ * unsent notice is sitting in the transcript, it has a double-border"). The
+ * kind marker belongs to the CARD and `MailMessage` already draws it from
+ * `row.kind === 'notice'`; a copy here put a second dotted frame around the
+ * card plus the receipt line, and `.notice-bubble`'s bare selector matches a
+ * wrapper just as happily as a card. The pending state is NOT what that outer
+ * frame was saying — pending is carried by `.pending-divider`, the `.pend-tag`
+ * receipt and the dim, none of which draw a border — so both frames said the
+ * same thing and only one of them was the card's. It read as a glitch because
+ * it was one: it is stage-independent (the class keyed off `kind`, never
+ * `stage`), so it doubled at every pendTag stage, and it vanished on delivery
+ * only because the wrapper does. */
 export function PendingMailRow({ m, slug, nid, world, onOpen, replyAvailable,
   onLocateReply, onContext, onRetract }: {
   m: PendingMail; slug: string; nid: string
@@ -3930,7 +3942,7 @@ export function PendingMailRow({ m, slug, nid, world, onOpen, replyAvailable,
 }) {
   return (
     <div data-reply-event={m.event_id} data-reply-quote={m.body}
-      onContextMenu={onContext} className={'pending pendrow' + (m.kind === 'notice' ? ' notice-bubble' : '')}>
+      onContextMenu={onContext} className="pending pendrow">
       <MailMessage row={m} profile={BASE ? 'public' : 'operator'} slug={slug} nid={nid}
         world={world} onOpen={onOpen} actor={id => <MailFrom from={id} />}
         replyAvailable={replyAvailable} onLocateReply={onLocateReply}
@@ -3970,10 +3982,16 @@ export function PendingGhostRow({ p, slug, nid, world, onOpen, replyAvailable,
   // measured by pendparity_probe.py. The card carries its own typography.
   // The reply excerpt travels INSIDE the card via the same reply_to wire a
   // settled row uses, not as a second block above it.
+  // ⚠ and no `notice-bubble` on this wrapper either, for the reason on
+  // PendingMailRow — the synthetic row below carries `kind: 'notice'`, so the
+  // card draws the kind marker itself. On a FAILED notice ghost the wrapper
+  // copy was worse than redundant: `.notice-bubble`'s `!important` border beat
+  // `.pending.failed`'s warn border-color, so the one card that had genuinely
+  // stopped waiting still wore the neutral notice edge.
   return (
     <div data-reply-event="" onContextMenu={onContext}
       className={'pending pendghost' + (p.failed
-        ? ' failed event-surface event-runtime_recovery' : '') + (p.notice ? ' notice-bubble' : '')}>
+        ? ' failed event-surface event-runtime_recovery' : '')}>
       <MailMessage
         row={{
           id: p.mailId ?? null,
