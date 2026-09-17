@@ -71,9 +71,15 @@ class WorkChipSlugTests(unittest.TestCase):
         store._POOL.close_all(self.org_slug)
 
     def call(self, action, **args):
-        """One real `orgtree_work` call, returning what the agent would see."""
+        """One real `orgtree_work` call, returning what the agent would see.
+
+        ⚠ `list` GETS NO `slug`. It never read one — a listing has no single
+        item — and sending it anyway is now refused rather than ignored, so
+        the helper stops sending what the action does not take.
+        """
+        named = {} if action == 'list' else {'slug': self.slug}
         body = api.AgentCall(org=self.org_slug, node=self.nid, tool='orgtree_work',
-                             args={'action': action, 'slug': self.slug, **args})
+                             args={'action': action, **named, **args})
         a = dict(body.args)
         if action in ('list', 'get', 'verify'):
             return api._work_read_call(body, a)

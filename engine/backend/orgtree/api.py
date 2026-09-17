@@ -6732,14 +6732,121 @@ _WORK_UPDATE_ARGS: frozenset[str] = frozenset({
     "review_note", "review_evidence", "review_candidate", "candidate",
 })
 
-#: Where a field an update does NOT write is actually written. A refusal that
+#: EVERY OTHER ACTION'S READ SET, on exactly the same terms. `update` was
+#: guarded first because that is where the defect was found (274fdb2); the
+#: audit that came with it showed the dispatch has the same shape everywhere —
+#: an action reads the arguments it NAMES, and the card offers all 77 of them
+#: to all 32 actions, so anything else was accepted, dropped, and on a
+#: mutating action still moved the revision.
+#:
+#: ⚠ EVERY NAME HERE IS ASSERTED AGAINST THE DISPATCH SOURCE by
+#: tests/test_docket_action_args.py, per action. A field the dispatch stops
+#: reading, or one added to the dispatch and forgotten here, fails the suite
+#: instead of misleading a person. That assertion is the durable half of this;
+#: the list itself is only today's answer.
+#:
+#: `action` is read on every action and `slug` on every action but `list` and
+#: `create` — both are added by `_work_allowed`, not repeated in each row.
+_WORK_ACTION_ARGS: dict[str, frozenset[str]] = {
+    # ---- reads (api._work_read_call and its helpers) ----------------------
+    "list": frozenset({"include_archived", "include_backlogged", "compact",
+                       "projection", "fields"}),
+    "get": frozenset({"compact", "projection", "fields"}),
+    "verify": frozenset({"stage"}),
+    "receipts": frozenset(),
+    "artifact_read": frozenset({"artifact"}),
+    "receipt": frozenset({"checkout", "logs", "command", "candidate",
+                          "execution", "result", "runner", "note", "base",
+                          "ref", "kind"}),
+    "rangediff": frozenset({"checkout", "old_base", "old_tip", "new_base",
+                            "new_tip", "note"}),
+    # ---- mutations (api._work_mutate_action) ------------------------------
+    "create": frozenset({"title", "objective", "kind", "owner", "participants",
+                         "acceptance", "dependencies", "done_so_far",
+                         "working_on_next", "status", "parent",
+                         "blocked_reason", "waiting_reason"}),
+    "update": _WORK_UPDATE_ARGS,
+    "addendum": frozenset({"note", "done_so_far", "working_on_next",
+                           "keep_done", "keep_next", "done_append",
+                           "next_append", "expected_rev"}),
+    "assign": frozenset({"owner"}),
+    "handoff": frozenset({"target", "reason"}),
+    "review": frozenset({"decision", "note", "candidate", "candidate_sha",
+                         "sha", "evidence"}),
+    "verdict": frozenset({"candidate", "candidate_sha", "sha", "decision",
+                          "verdict", "evidence", "note", "next_actor",
+                          "items"}),
+    "review_request": frozenset({"reviewer", "note"}),
+    "review_grant": frozenset({"reviewer", "items", "note"}),
+    "review_revoke": frozenset({"reviewer", "note"}),
+    "participants": frozenset({"add", "remove"}),
+    "evidence": frozenset({"items", "kind", "ref", "note", "execution",
+                           "classification", "artifact", "runner", "result",
+                           "gate", "blocked_count", "composition",
+                           "expected_rev"}),
+    "decision": frozenset({"text", "supersedes"}),
+    "artifact": frozenset({"path", "name", "scope", "note", "expected_rev",
+                           "grant_to"}),
+    "grant": frozenset({"artifact", "to", "note", "expected_rev"}),
+    "revoke": frozenset({"artifact", "to", "expected_rev"}),
+    "finding": frozenset({"title", "detail", "severity", "evidence_ref",
+                          "expected_rev"}),
+    "dispose": frozenset({"finding", "disposition", "note", "expected_rev"}),
+    "claim": frozenset({"stage", "ref", "note"}),
+    "check": frozenset({"checks", "index", "evidence_ref", "note",
+                        "classification", "artifact", "runner", "execution",
+                        "result", "gate", "blocked_count", "composition"}),
+    "accept": frozenset({"note"}),
+    "archive": frozenset(),
+    "move": frozenset({"parent"}),
+    "supersede": frozenset({"by"}),
+    "delete": frozenset({"note"}),
+}
+
+#: the further spellings the dispatch answers to, each resolved to the branch
+#: that actually serves it. An alias shares its target's read set exactly —
+#: they are the same `if act in (...)` branch.
+_WORK_ACTION_ALIASES: dict[str, str] = {
+    "handoff_request": "handoff",
+    "candidate_verdict": "verdict",
+    "integration_verdict": "verdict",
+    "review_verdict": "verdict",
+    "review_seat_request": "review_request",
+    "review_grants": "review_grant",
+    "review_seat_revoke": "review_revoke",
+}
+
+#: the actions that WRITE, as opposed to the ones that only read. A refused
+#: read never had a revision to move, so it must not claim one did not move.
+_WORK_READ_ONLY = frozenset({"list", "get", "verify", "receipts",
+                             "artifact_read"})
+
+#: ⚠ TEMPORARY, AND SHIPPING SEPARATELY ON PURPOSE. A field here is one the
+#: audit found dead but which this commit still accepts and drops, because
+#: refusing it is a bigger behaviour change than the rest of the guard and the
+#: coordinator wants it revertable on its own (ruling 2026-09-17).
+#:
+#: `expected_rev` is the whole of it. The tool card does not merely permit it
+#: on the actions that ignore it — it INSTRUCTS callers to pass it ("update/
+#: evidence/receipt and every other mutating action"), and eight actions
+#: honour it. So the refusal and the card correction must land together, in
+#: one commit, or every careful agent is refused for following the
+#: documentation. THIS SET IS EXPECTED TO BE EMPTY; emptying it is that
+#: commit, and reverting that commit restores this line.
+_WORK_GUARD_EXEMPT: frozenset[str] = frozenset({"expected_rev"})
+
+#: Where a field an action does NOT write is actually written. A refusal that
 #: only says "not here" leaves the caller to guess, which on a docket means
-#: guessing about a record people audit.
+#: guessing about a record people audit. Most rows are DERIVED from
+#: `_WORK_ACTION_ARGS` — the actions that do read the field — and cannot go
+#: stale; these are the ones where the mechanical answer would mislead.
 _WORK_UPDATE_ELSEWHERE: dict[str, str] = {
     "participants": "`action=participants` with `add`/`remove`",
     "dependencies": "set at creation only — record a dependency that arrives "
                     "later in the description (`objective`) or as a `decision`",
-    "kind": "set at creation only (code|non-code)",
+    "kind": "the item's kind is set at creation only (code|non-code); the "
+            "`kind` on `evidence` and `receipt` is the evidence row's kind, "
+            "which is a different field",
     "parent": "`action=move` with `parent` (an empty string returns the item "
               "to the top level)",
     "note": "the durable prose of an update is the description (`objective`), "
@@ -6764,6 +6871,75 @@ _WORK_UPDATE_ELSEWHERE: dict[str, str] = {
     "compact": "`action=get` or `action=list`",
 }
 
+#: per-(action, field) prose, for the handful where the answer depends on
+#: WHICH action was called. Keyed (action, field).
+_WORK_FIELD_HERE: dict[tuple[str, str], str] = {
+    ("list", "slug"): "`list` has no per-item argument — it serves the items "
+                      "you may read. To name one, use `action=get` with "
+                      "`slug`",
+    ("create", "slug"): "an item's name is MINTED FROM ITS `title` at "
+                        "creation and cannot be chosen; the name the call "
+                        "returns is the one every later action takes",
+    ("rangediff", "logs"): "`action=receipt` — a range-diff records the two "
+                           "git ranges it compared, not captured log files",
+    ("revoke", "note"): "`action=grant` keeps a note on the grant, and "
+                        "`action=review_revoke` keeps one on the seat; "
+                        "revoking an artifact grant records no reason",
+}
+
+
+def _work_expected_rev_route(act: str) -> str:
+    """Why `expected_rev` did nothing HERE, and where it does something.
+
+    The audit's one piece of genuinely dead schema. The card advertised it for
+    "update/evidence/receipt and every other mutating action" and the ledger
+    has the parameter on eight methods; on the other nineteen the argument was
+    read by nobody. That is the worst shape this defect takes, because the
+    whole purpose of the field is to make a call SAFE: a caller that passes it
+    believes it has compare-and-set protection, and had none.
+    """
+    writers = ", ".join(f"`action={x}`" for x in
+                        sorted(k for k, v in _WORK_ACTION_ARGS.items()
+                               if "expected_rev" in v))
+    if act in ("receipt", "rangediff"):
+        return (f"not needed here — `action={act}` does its OWN compare-and-"
+                f"set: it reads the item's rev under the lock, measures the "
+                f"tree with the lock released, and refuses with `stale` "
+                f"rather than writing to an item that moved. Elsewhere "
+                f"compare-and-set is honoured by {writers}")
+    return (f"compare-and-set is honoured by {writers}. `action={act}` has no "
+            f"compare-and-set at all, so passing it here bought NO protection "
+            f"— read the item and repeat the call if it matters")
+
+
+def _work_field_route(field: str, act: str) -> str:
+    """Where `field` IS read, written for somebody who just had it refused."""
+    if field == "expected_rev":
+        return _work_expected_rev_route(act)
+    here = _WORK_FIELD_HERE.get((act, field))
+    if here:
+        return here
+    curated = _WORK_UPDATE_ELSEWHERE.get(field)
+    if curated:
+        return curated
+    # DERIVED, so it cannot drift from the table above
+    writers = sorted(k for k, v in _WORK_ACTION_ARGS.items() if field in v)
+    if not writers:
+        return f"no `orgtree_work` action reads `{field}`"
+    return ", ".join(f"`action={w}`" for w in writers)
+
+
+def _work_allowed(act: str) -> frozenset[str] | None:
+    """Every argument `act` reads, or None if `act` is not an action at all
+    (the dispatch's own action-list refusal is the better message then)."""
+    canon = _WORK_ACTION_ALIASES.get(act, act)
+    allowed = _WORK_ACTION_ARGS.get(canon)
+    if allowed is None:
+        return None
+    # the envelope: `action` always, `slug` on every action that names an item
+    return allowed | {"action"} | (set() if canon in ("list", "create")
+                                   else {"slug"})
+
 
 def _work_refuse_unused(a: dict[str, Any], act: str) -> None:
     """An argument this action does not read is REFUSED, NOT IGNORED.
@@ -6779,26 +6955,47 @@ def _work_refuse_unused(a: dict[str, Any], act: str) -> None:
     A rev bump is a claim that something changed. Refusing here, before the
     ledger is entered, means a call carrying a field this action cannot write
     changes nothing at all: no field, no history row, no revision, no mail.
+
+    Applied to EVERY action now, not just `update`. 274fdb2 deliberately
+    scoped itself to the one action the defect was found on rather than widen
+    a guard across thirty-one others inside a bug fix; this is the widening it
+    named, done on its own ticket where the behaviour change is announced.
     """
-    if act != "update":
-        # scoped deliberately to the action the defect was found on. The same
-        # rule is worth having everywhere, but widening it silently in this
-        # change would turn a bug fix into a behaviour change across nineteen
-        # other actions at once.
-        return
-    unused = sorted(k for k in a if k not in _WORK_UPDATE_ARGS)
+    allowed = _work_allowed(act)
+    if allowed is None:
+        return                     # unknown action: let the dispatch say so
+    # ⚠ TWO FIELDS ALREADY HAVE A BETTER REFUSAL THAN "this action does not
+    # read it", and a generic guard placed in front of a specific one SHADOWS
+    # it. Both are delegated rather than duplicated, so the message a caller
+    # gets is the one written for its mistake.
+    if "id" in a:
+        # the retired identifier: `_work_ref` explains that items have one
+        # identity and it is the readable one
+        _work_ref(a)
+    if act == "evidence" and a.get("receipt") is not None:
+        # a caller-supplied fingerprint is the unverifiable claim the receipt
+        # package exists to replace — that refusal names the `receipt` action
+        # and what it captures, which "no action reads `receipt`" does not
+        _work_refuse_supplied_receipt([a], batch=False)
+    unused = sorted(k for k in a
+                    if k not in allowed and k not in _WORK_GUARD_EXEMPT)
     if not unused:
         return
-    lines = "; ".join(
-        f"`{k}` — {_WORK_UPDATE_ELSEWHERE.get(k, 'no action=update writes it')}"
-        for k in unused)
+    lines = "; ".join(f"`{k}` — {_work_field_route(k, act)}" for k in unused)
+    named = ", ".join("`" + k + "`" for k in unused)
+    if act in _WORK_READ_ONLY:
+        raise LedgerError(
+            f"action={act} does not read {named}, so the whole call was "
+            f"REFUSED rather than serving a result that quietly ignored it. "
+            f"Where each one is read: {lines}. (Send the call again without "
+            f"them.)")
     raise LedgerError(
-        f"action=update does not write "
-        f"{', '.join('`' + k + '`' for k in unused)}, so the whole call was "
+        f"action={act} does not write "
+        f"{named}, so the whole call was "
         f"REFUSED rather than reporting success for a change it would not have "
         f"made. NOTHING WAS WRITTEN — no field, no history row, and the "
         f"revision did not advance. Where each one is written: {lines}. "
-        f"(Send the update again without them; a revision that advances is a "
+        f"(Send the {act} again without them; a revision that advances is a "
         f"claim that something changed.)")
 
 
@@ -7005,6 +7202,12 @@ def _work_read_call(body: AgentCall, a: dict[str, Any]) -> dict[str, Any]:
     item's rev is unchanged (docs/work-items.md §locking)."""
     act = str(a.get("action") or "")
     try:
+        # ⚠ THE READ HALF OF THE SAME RULE. A read moves no revision, so the
+        # damage is smaller — but `list slug=...` reads as a filter and
+        # `rangediff logs=[...]` reads as attached evidence, and both were
+        # accepted and dropped. A refusal is information; a result that
+        # quietly ignored an argument is not.
+        _work_refuse_unused(a, act)
         if act in ("receipt", "rangediff"):
             try:
                 return _work_receipt_call(body, a, rangediff=(act == "rangediff"))
@@ -7107,6 +7310,12 @@ def _work_mutate_action(org: Org, nid: str, a: dict[str, Any],
     def _s(key: str) -> str | None:
         v = a.get(key)
         return None if v is None else str(v)
+    # ⚠ BEFORE EVERY BRANCH, AND BEFORE THE LEDGER. An argument this action
+    # does not read is refused here, so a call carrying one leaves the item
+    # byte-identical and its revision where it was. Each branch below reads the
+    # arguments it NAMES and nothing else; that is the whole of the defect and
+    # `_WORK_ACTION_ARGS` is the same list, asserted against this source.
+    _work_refuse_unused(a, act)
     if act == "create":
         return org.work_create(
             nid, str(a.get("title") or ""), str(a.get("objective") or ""),
@@ -7121,7 +7330,6 @@ def _work_mutate_action(org: Org, nid: str, a: dict[str, Any],
             blocked_reason=_s("blocked_reason"),
             waiting_reason=_s("waiting_reason"))
     if act == "update":
-        _work_refuse_unused(a, act)
         return org.work_update(
             nid, wid, a.get("done_so_far"), a.get("working_on_next"),
             status=_s("status"),
