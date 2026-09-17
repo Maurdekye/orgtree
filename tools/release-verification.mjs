@@ -18,7 +18,13 @@ const FULL = [
   ['full-renderer', ['npm', 'run', 'test:renderer']],
 ]
 const RELEASE = [
-  ['source', ['node', '--test', 'tests/release-windows.test.mjs', 'tests/runtime-layout.test.mjs']],
+  // `tests/release-verification.test.mjs` is in this list because the focused
+  // profile used to verify everything about a release EXCEPT the verifier that
+  // decides whether the release is verified. Changing this file classified as
+  // `release`, and the `release` profile did not run this file's own tests — so
+  // a change could break them and still be waved through green. That is exactly
+  // how the bare-`python` fix below reached `main` with a passing gate.
+  ['source', ['node', '--test', 'tests/release-windows.test.mjs', 'tests/runtime-layout.test.mjs', 'tests/release-verification.test.mjs']],
   // ⚠ NEVER run this gate as a bare `python -m unittest`. Orgtree spawns an
   // agent CLI with PYTHONPATH prepended by its own installed backend so the
   // child can import it, so a bare `python` resolves `import orgtree` to
@@ -47,6 +53,7 @@ const RELEASE_PATHS = [
   /^engine\/backend\/orgtree\/workevidence\.py$/,
   /^tests\/release-windows\.test\.mjs$/,
   /^tests\/runtime-layout\.test\.mjs$/,
+  /^tests\/release-verification\.test\.mjs$/,
   /^tests\/test_work_evidence_receipts\.py$/,
   /^docs\/windows-release\.md$/,
   RELEASE_NOTES_PATH,

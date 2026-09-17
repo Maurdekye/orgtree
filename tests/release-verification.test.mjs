@@ -256,5 +256,14 @@ test('verification runner captures hidden child options, commands, and measured 
   assert.equal(calls.length, 2)
   assert.equal(calls.every(call => call.options.windowsHide === true), true)
   assert.equal(calls.every(call => call.options.stdio === 'pipe'), true)
-  assert.deepEqual(calls.map(call => call.args[0]), ['--test', '-m'])
+  assert.deepEqual(calls.map(call => call.args[0]), ['--test', 'tools/run-python-verification.py'])
+  // ⚠ The receipt gate must NEVER be a bare `python -m unittest`. Orgtree
+  // prepends its own installed backend to PYTHONPATH when it spawns an agent
+  // CLI, so that form resolved `import orgtree` to the SHIPPED build and the
+  // gate verified the installed app instead of the release candidate — green,
+  // and wrong, for as long as it existed. The sanctioned runner launches with
+  // -I, which ignores PYTHONPATH. Pinned here so a "simplification" back to
+  // `-m unittest` fails a test instead of silently un-verifying every release.
+  assert.equal(calls.some(call => call.args.includes('unittest')), false,
+    'a release gate is running a bare `python -m unittest`; route it through tools/run-python-verification.py')
 })
