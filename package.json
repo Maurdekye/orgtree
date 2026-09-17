@@ -19,6 +19,9 @@
     "dev": "npm run build && electron .",
     "package:dir": "npm run build && node tools/package-preflight.mjs && electron-builder --dir",
     "package:win": "npm run build && node tools/package-preflight.mjs && electron-builder --win nsis",
+    "package:mac:dir": "npm run build && node tools/package-preflight.mjs && electron-builder --mac --dir",
+    "package:mac": "npm run build && node tools/package-preflight.mjs && electron-builder --mac",
+    "package:mac:x64": "npm run build && node tools/package-preflight.mjs && electron-builder --mac --x64",
     "release:windows": "node tools/release-windows.mjs",
     "verify:release": "node tools/release-verification.mjs",
     "package:dev": "npm run build && node tools/package-dev.mjs",
@@ -59,6 +62,8 @@
     "extraResources": [{ "from": "engine", "to": "engine", "filter": ["**/*", "!**/__pycache__/**"] }, { "from": "dist/renderer", "to": "ui" }, { "from": "dist/build-info.json", "to": "build-info.json" }, { "from": "apps/desktop/assets", "to": "runtime-icons", "filter": ["orgtree-eye*.ico"] }],
     "win": { "target": "nsis" },
     "nsis": { "oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true, "deleteAppDataOnUninstall": false, "createStartMenuShortcut": true, "shortcutName": "Orgtree", "menuCategory": "Orgtree", "include": "build/installer.nsh" },
+    "mac": { "identity": "-", "hardenedRuntime": false, "icon": "apps/desktop/assets/orgtree-eye.icns", "target": [{ "target": "dmg", "arch": ["arm64"] }, { "target": "zip", "arch": ["arm64"] }] },
+    "afterPack": "tools/sign-runtime-macos.mjs",
     "publish": [{ "provider": "github", "owner": "Maurdekye", "repo": "orgtree", "releaseType": "release" }]
   }
 }
