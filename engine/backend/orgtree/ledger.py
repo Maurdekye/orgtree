@@ -13345,6 +13345,93 @@ class Org:
         if actor != USER:
             self._require_live(actor)
 
+    @staticmethod
+    def _work_acceptance_render(texts: list[str]) -> str:
+        """The acceptance conditions as ONE lossless string, for a scope row.
+
+        A scope row keeps `before` and `after` as text, because the thing a
+        reader needs a year later is the wording, not a data structure. The
+        numbering is part of the rendering on purpose: renumbering IS one of
+        the changes a reader is looking for.
+        """
+        if not texts:
+            return "(no acceptance conditions)"
+        return "\n".join(f"{i + 1}. {t}" for i, t in enumerate(texts))
+
+    def _work_acceptance_change(self, it: WorkItem,
+                                acceptance: Any) -> dict[str, Any] | None:
+        """The acceptance rewrite this call asks for, decided BEFORE anything
+        is written. None when the submitted list is what is already stored.
+
+        ⚠ THIS IS THE FIX THE WHOLE TICKET IS ABOUT. `update` used to take
+        `acceptance`, report success, advance the revision and write nothing —
+        so two agents independently told people they had amended a ticket's
+        conditions when they had not, and neither could tell from the response.
+        Acceptance conditions are part of an item's authoritative scope, so
+        they are now written the same way the description is: versioned into
+        the append-only `scope` record with the complete before and after.
+
+        ⚠ CHECK STATE TRAVELS WITH THE TEXT, NOT WITH THE INDEX. Every check
+        lives inside its own condition (`checked`, `check_history`), so a
+        rewrite that reorders or renumbers cannot mis-attach one: a condition
+        whose text is byte-identical to a stored one carries its checks
+        forward, and a condition whose text CHANGED is cleared and must be
+        re-checked, because the evidence recorded against it was evidence for
+        different words. A cleared check is disclosed in the result and in the
+        history row — the one thing this defect taught is that a change nobody
+        is told about is worse than one that is refused.
+        """
+        if not isinstance(acceptance, (list, tuple)):
+            raise LedgerError(
+                "`acceptance` is a LIST of conditions, one testable sentence "
+                "each — not a paragraph. NOTHING WAS WRITTEN")
+        texts: list[str] = []
+        for i, raw in enumerate(cast("list[Any]", list(acceptance))):
+            if not str(raw or "").strip():
+                raise LedgerError(
+                    f"acceptance[{i}] is blank. A rewrite replaces the whole "
+                    f"list, so a blank entry would silently vanish from a "
+                    f"record people audit — send the condition, or leave it "
+                    f"out of the list. NOTHING WAS WRITTEN")
+            texts.append(_bounded("acceptance", raw))
+        if not texts:
+            raise LedgerError(
+                "the acceptance conditions may be REWRITTEN but not emptied — "
+                "an empty list would erase the item's whole contract with no "
+                "condition left to test it by. Send the conditions this item "
+                "should now carry. NOTHING WAS WRITTEN")
+        stored = cast("list[dict[str, Any]]", it.get("acceptance") or [])
+        was = [str(c.get("text") or "") for c in stored]
+        if was == texts:
+            return None                  # restating them verbatim changed nothing
+        # match by TEXT, consuming each stored condition at most once, so a
+        # list holding the same sentence twice cannot carry one check twice
+        unused = list(range(len(stored)))
+        conditions: list[dict[str, Any]] = []
+        kept = 0
+        for t in texts:
+            src = next((j for j in unused if was[j] == t), None)
+            if src is None:
+                conditions.append({"text": t, "checked": None,
+                                   "check_history": []})
+                continue
+            unused.remove(src)
+            carried = dict(stored[src])
+            carried["text"] = t
+            conditions.append(carried)
+            if carried.get("checked") is not None:
+                kept += 1
+        cleared = [{"was_index": j, "text": was[j],
+                    "checked": stored[j].get("checked")}
+                   for j in unused if stored[j].get("checked") is not None]
+        return {"conditions": conditions,
+                "before": self._work_acceptance_render(was),
+                "after": self._work_acceptance_render(texts),
+                "count_from": len(was), "count_to": len(texts),
+                "checks_kept": kept, "checks_cleared": cleared,
+                "dropped": [was[j] for j in unused],
+                "added": [t for t in texts if t not in was]}
+
     # ---- the verbs
     def work_create(self, actor: str, title: str, objective: str = "",
                     kind: str = "code", owner: str | None = None,
@@ -13602,6 +13689,7 @@ class Org:
                     attention_reason: str | None = None,
                     blocked_reason: str | None = None,
                     title: str | None = None, objective: str | None = None,
+                    acceptance: Any = None,
                     reopen: bool = False,
                     waiting_reason: str | None = None,
                     dropped_reason: str | None = None,
@@ -13657,6 +13745,13 @@ class Org:
         · `objective_append` — widen the description without re-typing it, and
           `objective` either way now VERSIONS into the append-only scope record
           instead of overwriting the old specification with no trace at all.
+        · `acceptance` — the conditions, rewritten whole and versioned into the
+          same scope record. It used to be ACCEPTED AND DROPPED here: the call
+          returned success, the revision advanced and nothing was written, so
+          two agents reported amendments that had not happened. A rewrite now
+          either lands or refuses the whole call; a condition whose text is
+          unchanged keeps its checks, one whose text changed is cleared and
+          said so in the result.
         · `keep_done`/`keep_next`/`done_append`/`next_append` — assemble the
           progress lists from the stored ones, revision-checked. What is
           STORED is still always the complete summary.
@@ -13805,7 +13900,7 @@ class Org:
         # not state — and handing it to a third party (below).
         if not pre_manage:
             if title is not None or objective is not None \
-                    or objective_append is not None:
+                    or objective_append is not None or acceptance is not None:
                 raise LedgerError("only the owner, the creator, their superiors "
                                   "or the user may retitle or re-scope an item")
         if attention is True and attention_amend:
@@ -13906,6 +14001,16 @@ class Org:
                 obj_change = None         # restating it verbatim changed nothing
             else:
                 self._work_scope_room(it)
+        # ---- THE ACCEPTANCE CONDITIONS, decided here for exactly the same
+        # reason and by the same rule: the whole rewrite is validated before
+        # the first mutation, so every refusal below leaves the item alone and
+        # leaves the revision where it was. A rev that advanced for a change
+        # that was not persisted is what made this defect invisible.
+        acc_change: dict[str, Any] | None = None
+        if acceptance is not None:
+            acc_change = self._work_acceptance_change(it, acceptance)
+            if acc_change is not None:
+                self._work_scope_room(it, adding=(2 if obj_change else 1))
         # ---- STATE INFORMATION, ASKED HERE FIRST. `_work_state_info` below is
         # still the authority and still runs — but it runs AFTER the status has
         # moved and, on a reopen, after the reopen row has been written, the
@@ -14147,6 +14252,30 @@ class Org:
             changes["objective"] = {"scope_seq": int(scope_row["seq"]),
                                     "mode": mode, "chars_from": len(before),
                                     "chars_to": len(after)}
+        acc_row: WorkScopeRecord | None = None
+        if acc_change is not None:
+            # ---- THE CONDITIONS ARE VERSIONED, NOT OVERWRITTEN, for the same
+            # reason the description is: they are the item's contract, and a
+            # rewrite that left no trace of the wording it replaced would be
+            # its own integrity problem. Room was made above, so this cannot
+            # raise here.
+            prior_acc = self._work_scope_last(it, "acceptance")
+            acc_row = self._work_scope_append(
+                it, actor, "acceptance", before=str(acc_change["before"]),
+                after=str(acc_change["after"]), mode="replace",
+                supersedes=(int(prior_acc["seq"]) if prior_acc else None))
+            it["acceptance"] = cast("list[Any]", acc_change["conditions"])
+            changes["acceptance"] = {
+                "scope_seq": int(acc_row["seq"]),
+                "from": int(acc_change["count_from"]),
+                "to": int(acc_change["count_to"]),
+                "checks_kept": int(acc_change["checks_kept"]),
+                # ⚠ COUNTED IN THE HISTORY, NOT ONLY IN THE RESPONSE. The
+                # response is read once, by the caller; the history is what a
+                # later reader has when it asks why a condition marked `met`
+                # is unchecked again.
+                "checks_cleared": len(cast("list[Any]",
+                                           acc_change["checks_cleared"]))}
         it["done_so_far"] = done
         it["working_on_next"] = nxt
         if review_packet_data is not None:
@@ -14265,6 +14394,41 @@ class Org:
                 # are reading was written by the backend, not by the caller"
                 "staffing_boundary": staffing_generated,
                 "scope_seq": (int(scope_row["seq"]) if scope_row else None),
+                # ⚠ WHAT THE CONDITIONS ACTUALLY BECAME. A caller that sent
+                # `acceptance` gets the stored list back, the scope row that
+                # versioned it, and — named one by one — every check this
+                # rewrite CLEARED, because the text it was recorded against no
+                # longer exists. A call that sent conditions identical to the
+                # stored ones says so rather than implying a write.
+                "acceptance": ([str(c.get("text") or "")
+                                for c in cast("list[dict[str, Any]]",
+                                              it.get("acceptance") or [])]
+                               if acceptance is not None else None),
+                "acceptance_change": ({
+                    "scope_seq": int(acc_row["seq"]) if acc_row else None,
+                    "from": acc_change["count_from"],
+                    "to": acc_change["count_to"],
+                    "added": acc_change["added"],
+                    "removed": acc_change["dropped"],
+                    "checks_kept": acc_change["checks_kept"],
+                    "checks_cleared": acc_change["checks_cleared"],
+                    "how": (
+                        f"the conditions were rewritten and versioned into the "
+                        f"scope record (seq {int(acc_row['seq']) if acc_row else 0}), "
+                        f"which keeps the complete before and after. "
+                        + (f"{len(cast('list[Any]', acc_change['checks_cleared']))} "
+                           f"recorded check(s) were CLEARED because the "
+                           f"condition text they were recorded against "
+                           f"changed — re-check those conditions before "
+                           f"completing the item."
+                           if acc_change["checks_cleared"] else
+                           "no recorded check was cleared."))}
+                    if acc_change else
+                    ({"unchanged": True,
+                      "how": "the conditions you sent are exactly what the "
+                             "item already holds, so nothing was written for "
+                             "them and no scope row was minted"}
+                     if acceptance is not None else None)),
                 "owner": it.get("owner"),
                 "reviewer": it.get("reviewer"),
                 "assigned_to": (str(tgt) if assigned else None),

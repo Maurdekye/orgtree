@@ -759,11 +759,14 @@ class WorkScopeRecord(TypedDict):
     seq: int                        # 1-based, monotonic per item (WorkItem.scope_seq)
     at: str
     by: WorkActor | str
-    kind: str                       # "objective" | "decision"
-    #: kind=objective: the COMPLETE text on each side, lossless (workfields.prose)
+    kind: str                       # "objective" | "acceptance" | "decision"
+    #: kind=objective/acceptance: the COMPLETE text on each side, lossless
+    #: (workfields.prose). An `acceptance` row renders the conditions as one
+    #: numbered list per side, because renumbering is one of the changes a
+    #: reader of this record is looking for.
     before: NotRequired[str]
     after: NotRequired[str]
-    mode: NotRequired[str]          # kind=objective: "replace" | "append"
+    mode: NotRequired[str]          # kind=objective: "replace" | "append"; kind=acceptance: "replace"
     #: kind=decision: the ruling, trade-off or agreed constraint, lossless
     text: NotRequired[str]
     #: the seq this row REPLACES. An objective row supersedes the previous

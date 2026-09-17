@@ -216,15 +216,29 @@ class StaffProgressOptional(unittest.TestCase):
     def test_s4b_the_ledger_kwarg_is_unreachable_from_orgtree_work(self):
         """`staffed_to` is not a caller argument. orgtree_work's dispatch names
         every parameter it forwards, and a client that puts the name in its
-        args is ignored rather than obeyed."""
+        args is REFUSED rather than obeyed.
+
+        ⚠ IT USED TO BE REFUSED BY ACCIDENT, and the accident is what this
+        assertion originally read. The name was dropped on the floor, so the
+        call arrived at the ledger as an update carrying no progress at all and
+        died on the both-empty rule — a refusal that never mentioned the
+        argument the client actually sent. Since the acceptance-field fix
+        (2026-09-17), `update` refuses any argument it does not consume and
+        names it: the bypass is still unreachable, and now the client is told
+        which of its arguments was the problem instead of being pointed at a
+        rule it did not break."""
         wid = self.item(done_so_far=['something'])
 
         with self.assertRaises(Exception) as ctx:
             self.call('orgtree_work', action='update', slug=wid,
                       staffed_to='manager')
 
-        self.assertIn('nothing the user can read',
-                      str(getattr(ctx.exception, 'detail', ctx.exception)))
+        msg = str(getattr(ctx.exception, 'detail', ctx.exception))
+        self.assertIn('staffed_to', msg)
+        self.assertIn('does not write', msg)
+        self.assertIn('NOTHING WAS WRITTEN', msg)
+        # and the item is untouched: the staffing bypass bought nothing
+        self.assertEqual(self.read(wid)['done_so_far'], ['something'])
         self.assertNotIn('staffed_to',
                          mcptool_schema('orgtree_work'))
         self.assertNotIn('staffed_to', mcptool_schema('orgtree_staff'))

@@ -6717,6 +6717,91 @@ def _work_refuse_supplied_receipt(rows: Any, *, batch: bool) -> None:
                 f"would assert exactly the thing a receipt exists to prove")
 
 
+#: EVERY ARGUMENT `action=update` ACTUALLY READS. Kept beside the dispatch
+#: branch that reads them, and asserted against it by the suite, because the
+#: defect this list exists to end was precisely a field that appeared on the
+#: tool card, looked like an update field, and was named nowhere in the call.
+_WORK_UPDATE_ARGS: frozenset[str] = frozenset({
+    "action", "slug",
+    "done_so_far", "working_on_next", "keep_done", "keep_next",
+    "done_append", "next_append",
+    "status", "blocked_reason", "waiting_reason", "dropped_reason",
+    "attention", "attention_reason", "attention_amend",
+    "title", "objective", "objective_append", "acceptance",
+    "reopen", "expected_rev", "owner", "reviewer",
+    "review_note", "review_evidence", "review_candidate", "candidate",
+})
+
+#: Where a field an update does NOT write is actually written. A refusal that
+#: only says "not here" leaves the caller to guess, which on a docket means
+#: guessing about a record people audit.
+_WORK_UPDATE_ELSEWHERE: dict[str, str] = {
+    "participants": "`action=participants` with `add`/`remove`",
+    "dependencies": "set at creation only — record a dependency that arrives "
+                    "later in the description (`objective`) or as a `decision`",
+    "kind": "set at creation only (code|non-code)",
+    "parent": "`action=move` with `parent` (an empty string returns the item "
+              "to the top level)",
+    "note": "the durable prose of an update is the description (`objective`), "
+            "a `decision`, or an `evidence` row — `note` belongs to "
+            "claim/evidence/check/accept/review",
+    "text": "`action=decision`, which records a ruling so it survives",
+    "index": "`action=check`",
+    "checks": "`action=check`",
+    "evidence_ref": "`action=check` or `action=evidence`",
+    "stage": "`action=claim`",
+    "ref": "`action=claim`",
+    "decision": "`action=review` (a reviewer's verdict) — an update moves the "
+                "status, it does not decide a review",
+    "by": "`action=supersede`",
+    "detail": "`action=finding`",
+    "severity": "`action=finding`",
+    "disposition": "`action=dispose`",
+    "finding": "`action=dispose`",
+    "path": "`action=artifact`",
+    "projection": "`action=get` or `action=list`",
+    "fields": "`action=get` or `action=list`",
+    "compact": "`action=get` or `action=list`",
+}
+
+
+def _work_refuse_unused(a: dict[str, Any], act: str) -> None:
+    """An argument this action does not read is REFUSED, NOT IGNORED.
+
+    ⚠ THE TICKET THIS IS: `update` took `acceptance`, returned success,
+    ADVANCED THE REVISION and wrote nothing. Two agents then reported, in good
+    faith, that they had amended a ticket's conditions; the response was
+    indistinguishable from a real write, and only reading the store afterwards
+    showed otherwise. `acceptance` is written now — and this is the other half,
+    so that the NEXT field to go missing from the dispatch is found by the
+    caller being told, instead of by somebody being misled by it.
+
+    A rev bump is a claim that something changed. Refusing here, before the
+    ledger is entered, means a call carrying a field this action cannot write
+    changes nothing at all: no field, no history row, no revision, no mail.
+    """
+    if act != "update":
+        # scoped deliberately to the action the defect was found on. The same
+        # rule is worth having everywhere, but widening it silently in this
+        # change would turn a bug fix into a behaviour change across nineteen
+        # other actions at once.
+        return
+    unused = sorted(k for k in a if k not in _WORK_UPDATE_ARGS)
+    if not unused:
+        return
+    lines = "; ".join(
+        f"`{k}` — {_WORK_UPDATE_ELSEWHERE.get(k, 'no action=update writes it')}"
+        for k in unused)
+    raise LedgerError(
+        f"action=update does not write "
+        f"{', '.join('`' + k + '`' for k in unused)}, so the whole call was "
+        f"REFUSED rather than reporting success for a change it would not have "
+        f"made. NOTHING WAS WRITTEN — no field, no history row, and the "
+        f"revision did not advance. Where each one is written: {lines}. "
+        f"(Send the update again without them; a revision that advances is a "
+        f"claim that something changed.)")
+
+
 def _work_checkout(org: Org, nid: str, a: dict[str, Any]) -> str:
     """The checkout a receipt is measured in: the agent's own worktree by
     default-free choice, and only ever a directory the node actually holds.
@@ -7036,6 +7121,7 @@ def _work_mutate_action(org: Org, nid: str, a: dict[str, Any],
             blocked_reason=_s("blocked_reason"),
             waiting_reason=_s("waiting_reason"))
     if act == "update":
+        _work_refuse_unused(a, act)
         return org.work_update(
             nid, wid, a.get("done_so_far"), a.get("working_on_next"),
             status=_s("status"),
@@ -7045,6 +7131,13 @@ def _work_mutate_action(org: Org, nid: str, a: dict[str, Any],
             waiting_reason=_s("waiting_reason"),
             dropped_reason=_s("dropped_reason"),
             title=_s("title"), objective=_s("objective"),
+            # ⚠ NAMED HERE, AND THAT IS THE BUG THIS FIXES. Every argument
+            # `update` honours is named in this call; `acceptance` was on the
+            # tool card and NOT named here, so it was read off the wire by
+            # nobody and dropped while the call reported success. Anything the
+            # dispatch does not name is now REFUSED by `_work_refuse_unused`
+            # rather than silently ignored — the two halves are one rule.
+            acceptance=_work_list_arg(a, "acceptance"),
             reopen=_arg_flag(a, "reopen"),
             # ---- W03, all optional; a call that omits them behaves exactly as
             # it did before. `expected_rev` is compare-and-set; the keep/append
@@ -9187,6 +9280,12 @@ def _staff_call(org: Org, slug: str, actor: str, a: dict[str, Any],
             title=(str(a["title"]) if a.get("title") is not None else None),
             objective=(str(a["objective"])
                        if a.get("objective") is not None else None),
+            # ⚠ NAMED HERE TOO. `acceptance` is stripped from the SEAT half by
+            # `_STAFF_WORK_ONLY` because it is a docket field — which meant a
+            # staffing that carried it dropped it exactly as `orgtree_work`
+            # update did, one call further along. It is written now, by the
+            # same ledger path and with the same versioning.
+            acceptance=_work_list_arg(a, "acceptance"),
             reopen=_arg_flag(a, "reopen"), owner=nid,
             # ⚠ THE STAFFING ITSELF IS THE SUBSTANTIVE UPDATE, and saying so
             # here is the whole of the fix. Without it a staffing that sent no
