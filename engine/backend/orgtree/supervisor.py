@@ -22665,6 +22665,12 @@ def _after_turn(slug: str, nid: str, org: Org, res: dict[str, Any],
             # needs no reset time to be right — an episode ends when the
             # agent RUNS, however early or late the window really lifted.
             n.pop("limit_run", None)
+            # …and the remembered WALL itself goes with that run, for exactly
+            # the reason stated above: the agent RAN, so whatever wall it was
+            # last held behind is over, and the next one is a new episode that
+            # must be honoured with its own full deadline rather than matched
+            # against a sentence from the episode that just ended.
+            _forget_wall(n)
             # …and any run of PARKED-INDEFINITELY freezes (`_parked_announce`).
             # An operator who replaces a rejected credential, resumes, and
             # watches the node get stuck again must be told again — otherwise
@@ -24782,6 +24788,51 @@ def interrupt_turn(slug: str, nid: str) -> dict[str, Any]:
         return _result(False, str(e))
 
 
+WALL_MEMORY = "last_wall"
+
+
+def _remember_wall(n: NodeDoc, fz: FrozenInfo) -> None:
+    """Keep this wall's evidence where the RELEASE cannot destroy it.
+
+    ⚠ WHY THIS EXISTS, measured live on `notice-toggle` 2026-09-17 13:43Z.
+    `resume_frozen` calls `n.pop("frozen", None)` the moment a freeze expires,
+    so the woken node re-hits its wall with an EMPTY freeze record. The prior
+    countdown and the deadline it produced were BOTH in that record, so the
+    restated sentence read as brand new and `classify_countdown` honoured it
+    again: the node re-anchored from 13:41:47Z to 16:37:19Z, another 2h53m47s,
+    exactly the slide the whole fix exists to stop.
+
+    The structural part is worse than one bad anchor. `stale` — same countdown,
+    its own deadline already past — is the ONLY branch that can un-stick a node
+    that is already wrongly frozen, and a deadline can only be in the past
+    AFTER a release. The release was erasing the evidence that branch reads, so
+    `stale` could never fire on a real node. Its unit tests passed because they
+    supplied the prior record by hand, which is a state that does not exist at
+    that point in the lifecycle.
+
+    Only a LIMIT freeze carrying a parsable countdown is worth remembering: an
+    auth park or an account park says nothing about when a wall lifts.
+    """
+    if not fz.get("limit"):
+        return
+    err = str(fz.get("error") or "")
+    until = fz.get("until_ts")
+    if not err or not isinstance(until, (int, float)):
+        return
+    n[WALL_MEMORY] = {"error": err, "until_ts": float(until)}
+
+
+def _forget_wall(n: NodeDoc) -> None:
+    """One turn that COMPLETED ends the episode, so the remembered wall stops
+    describing anything. Without this the memory would outlive its usefulness
+    and a genuinely new wall quoting the same countdown — providers reuse these
+    sentences verbatim — would be written off as a restatement of an episode
+    that ended days ago, and parked on the probe floor instead of its real
+    deadline. Called from the same place that pops `limit_run`, and for the
+    same reason: the lane let the agent through."""
+    n.pop(WALL_MEMORY, None)
+
+
 def _ensure_frozen(n: NodeDoc) -> FrozenInfo:
     """The freeze record, minted if absent. NOT setdefault: ledger's reseed and
     compact_split write `frozen: None` explicitly, and setdefault hands that
@@ -25024,8 +25075,20 @@ def freeze_provider_limit(slug: str, nid: str, blob: str,
             # `_looks_like_usage_limit` has already said "this is a wall", and
             # every branch here still freezes. The only question asked is
             # which deadline a sentence that has not changed may set.
+            # The surviving record first; then, when there is none because the
+            # node was RELEASED and `resume_frozen` popped it, the wall kept
+            # across that release. Without the fallback every post-release wall
+            # looks brand new and re-anchors — the measured `notice-toggle`
+            # failure — and the `stale` branch below can never be reached.
+            _prior_msg = str(fz.get("error") or "")
+            _prior_until = fz.get("until_ts")
+            if not _prior_msg:
+                _mem = o2.node(nid).get(WALL_MEMORY)
+                if isinstance(_mem, dict):
+                    _prior_msg = str(_mem.get("error") or "")
+                    _prior_until = _mem.get("until_ts")
             _cd_kind, _cd_ts = antigravity_limits.classify_countdown(
-                blob, str(fz.get("error") or ""), fz.get("until_ts"))
+                blob, _prior_msg, _prior_until)
             if _cd_kind == antigravity_limits.COUNTDOWN_REPEAT:
                 # one wall restated: keep the release time it first named
                 ts, src = cast("float", _cd_ts), "provider"
@@ -25877,6 +25940,12 @@ def resume_frozen(slug: str, only: Iterable[str] | None = None,
             # holds every condition; this is `org`'s node dict and the save
             # below is already coming.
             _issue_admit_once(n, fz, time.time())
+            # ⚠ ALSO BEFORE THE POP, and for a different reason than the admit
+            # above: this record is about to be deleted, and it is the only
+            # place the wall's countdown and the deadline it set are written
+            # down. A node woken here re-hits the same wall seconds later, and
+            # without this it cannot tell a RESTATED countdown from a new one.
+            _remember_wall(n, fz)
             n.pop("frozen", None)
             _texts, _ridx, _rpayload = _retry_replay(org, nid, fz)
             resumed.append((nid, _texts,

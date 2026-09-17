@@ -499,6 +499,19 @@ class NodeDoc(TypedDict):
     # net_fail_run — the count is CONSECUTIVE, and it is what stops a node
     # that keeps answering "usage limit reached" from waking itself forever.
     untrusted_limit_run: NotRequired[int]
+    # ⚠ THE WALL THE NODE LAST HIT, KEPT ACROSS ITS OWN RELEASE (measured
+    # regression, `notice-toggle` 2026-09-17 13:43Z). `resume_frozen` POPS
+    # `frozen` when a freeze expires, so by the time the woken node re-hits
+    # the same wall the record that would prove the countdown restated is
+    # already gone — every post-release wall read as brand new and
+    # re-anchored itself another 2h53m47s into the future. That made
+    # `classify_countdown`'s `stale` branch, which is the entire recovery
+    # path for a wrongly-frozen node, UNREACHABLE IN PRODUCTION while its
+    # unit tests passed on a hand-built prior record. This survives the pop
+    # so the evidence outlives the freeze. Cleared by any COMPLETED turn
+    # (`_forget_wall`): a turn that ran means the lane let the agent
+    # through, so the next wall is a NEW episode and gets its full deadline.
+    last_wall: NotRequired[dict[str, Any]]
     # cheap-compact marker (user feature 2026-08-17; narrowed by D-201/S1,
     # coordinator-ruled 2026-08-30): the CURRENT session was minted by
     # cheap_compact — it started EMPTY (no CLI summary), so the supervisor
