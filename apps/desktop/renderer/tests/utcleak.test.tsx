@@ -31,34 +31,79 @@ const forecast: CacheForecast = {
 
 test.afterEach(() => { setDisplayZone(null) })
 
-async function cacheTitle(zone: string): Promise<string> {
+async function cacheTitle(zone: string,
+  overrides: Partial<CacheForecast> = {}): Promise<string> {
   setDisplayZone(zone)
-  const view = await mountView(<CacheForecastMark forecast={forecast} />, (el) => el)
+  const view = await mountView(
+    <CacheForecastMark forecast={{ ...forecast, ...overrides }} />, (el) => el)
   try {
     return view.el.querySelector<HTMLElement>('.cache-forecast')?.getAttribute('aria-label') ?? ''
   } finally { await view.unmount() }
 }
 
-test('cache chip tooltip renders its two instants in the display zone, never as raw Z', async () => {
-  const local = await cacheTitle('Asia/Jerusalem')
-  assert.doesNotMatch(local, RAW_Z, `raw UTC instant survives in the tooltip:\n${local}`)
-  assert.match(local, /last authoritative inference receipt: 2026-09-05 09:45:34 GMT\+3/)
-  assert.match(local, /expires at: 2026-09-05 10:45:34 GMT\+3/)
-  // CONTROL: a UTC display zone must read differently — a formatter that
-  // ignored the zone would print the same text twice and this would not catch it
-  const utc = await cacheTitle('UTC')
-  assert.match(utc, /last authoritative inference receipt: 2026-09-05 06:45:34 UTC/)
-  assert.notEqual(utc, local)
+/** the fixture's `expires_at` is a fixed 2026-09-05 instant, so on any machine
+ *  running this after that date the badge is EXPIRED and never reaches the
+ *  ready branch. The ready branch is the one that still derives text from
+ *  `last_receipt_at`, so it is the one that could still leak a zone — this
+ *  keeps it live without touching the fixed receipt stamp it reads. */
+const LIVE = { expires_at: new Date(Date.now() + 3600_000).toISOString() }
+
+/* ⚠ THE CACHE CHIP NO LONGER PRINTS AN INSTANT AT ALL (user ruling
+   2026-09-17). The two tests below used to assert that its "last
+   authoritative inference receipt" and "expires at" lines rendered in the
+   display zone rather than as raw `Z`. The tooltip cut removed both lines —
+   and the eight others around them — leaving one short phrase and, when the
+   cache is ready, an ELAPSED DURATION ("receipt observed 4m ago"), which is
+   not an instant in any zone.
+
+   That satisfies the no-visible-UTC rule by having nothing to format, which
+   is a weaker proof than the one these tests used to give. So they are
+   REPLACED rather than deleted, by the stronger claim the new tooltip can
+   actually support: no instant of any kind, in any zone, reachable through
+   this surface. If an instant is ever put back, that is the moment the zone
+   question returns, and the first assertion here is what will say so. */
+test('cache chip tooltip shows no instant at all — nothing left to leak as UTC', async () => {
+  // BOTH BRANCHES, because only one of them reads a stamp. The READY branch
+  // turns `last_receipt_at` into an elapsed duration; the expired branch
+  // reads no stamp at all. A leak could only come from the first, so testing
+  // only the fixture's (long-expired) instant would prove nothing.
+  for (const [label, over] of [['ready', LIVE], ['expired', {}]] as const) {
+    const local = await cacheTitle('Asia/Jerusalem', over)
+    assert.doesNotMatch(local, RAW_Z, `${label}: raw UTC instant survives:\n${local}`)
+    // no FORMATTED instant either — not a date, not a zone
+    assert.doesNotMatch(local, /\d{4}-\d\d-\d\d/, `${label}: a date reappeared:\n${local}`)
+    assert.doesNotMatch(local, /GMT|UTC|[A-Z][a-z]+\/[A-Z]/, `${label}: a zone reappeared:\n${local}`)
+    // ⚠ A WALL-CLOCK CHECK HAS TO EXCLUDE THE COUNTDOWN. "expires in 59:58"
+    // is an h:mm:ss DURATION, user-specified (2026-09-02) and zone-free; it
+    // is the one `\d\d:\d\d` in this string that is not a time of day, so it
+    // is removed before the check rather than the check being dropped.
+    const withoutCountdown = local.replace(/, expires in [\d:]+$/, '')
+    assert.doesNotMatch(withoutCountdown, /\d\d:\d\d/,
+      `${label}: a wall-clock time reappeared:\n${local}`)
+    // ⚠ THE CONTROL, INVERTED. It used to require the two zones to read
+    // DIFFERENTLY, because text that read the same in both was the signature
+    // of an unformatted UTC stamp. With no instant left, reading the SAME in
+    // both zones is the correct result — and this is the assertion that fails
+    // the day an instant is reintroduced without going through `timefmt`.
+    const utc = await cacheTitle('UTC', over)
+    assert.equal(utc.replace(/, expires in [\d:]+$/, ''), withoutCountdown,
+      `${label}: the tooltip is zone-sensitive again — it carries an instant`)
+  }
+  // …and "how recently" is still answered, as an elapsed DURATION
+  assert.match(await cacheTitle('Asia/Jerusalem', LIVE), /receipt observed \d+[smhd] ago/)
 })
 
-test('cache chip tooltip keeps its "none" / "not authoritatively known" words for missing instants', async () => {
+test('cache chip tooltip needs no words for missing instants — it names none', async () => {
   setDisplayZone('Asia/Jerusalem')
   const view = await mountView(<CacheForecastMark
     forecast={{ ...forecast, last_receipt_at: null, expires_at: null } as unknown as CacheForecast} />, (el) => el)
   try {
     const title = view.el.querySelector<HTMLElement>('.cache-forecast')?.getAttribute('aria-label') ?? ''
-    assert.match(title, /last authoritative inference receipt: none/)
-    assert.match(title, /expires at: not authoritatively known/)
+    // the "none" / "not authoritatively known" placeholders existed because
+    // the tooltip had two instant SLOTS to fill. There are no slots now, so a
+    // ready forecast with no receipt stamp says the short phrase and stops —
+    // it must not print an empty observation clause or the word "none"
+    assert.equal(title, 'cache ready')
   } finally { await view.unmount() }
 })
 

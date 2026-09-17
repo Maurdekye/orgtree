@@ -130,6 +130,13 @@ test('§2c no field, no card — idle, single-account and unattributable alike',
   })
 
 test('idle Codex card identifies the configured account', async (t: TestContext) => {
+  // ⚠ WHAT THIS ASSERTS CHANGED WITH THE 2026-09-17 TOOLTIP CUT. It used to
+  // require the words "configured account" (and their absence for a live
+  // turn) in the detail panel, because the panel had a heading that named
+  // which of the two the card was. The panel is gone and the tooltip is the
+  // id and the email only, so `active` is no longer read at all — the card is
+  // still present and still names the account, which is the half of this test
+  // the user's requirement actually rested on.
   const account = serving({ id: 'openai-1', provider: 'openai', active: false })
   const view = await card(agent({
     busy: false, tier: 'luna', model_id: 'luna', account: 'openai-1',
@@ -139,10 +146,9 @@ test('idle Codex card identifies the configured account', async (t: TestContext)
   await flush()
   const badge = onCard(view.el)
   assert.ok(badge, 'no configured-account card on an idle Codex node')
-  const tip = view.el.querySelector('.serving-account-tip')!
-  assert.match(tip.textContent ?? '', /configured account/)
-  assert.doesNotMatch(tip.textContent ?? '', /serving this turn/)
-  assert.match(badge!.getAttribute('aria-label') ?? '', /configured account/)
+  assert.equal(badge!.textContent, 'openai-1')
+  assert.equal(badge!.getAttribute('title'), 'openai-1 · second@example.test')
+  assert.equal(badge!.getAttribute('aria-label'), 'openai-1 · second@example.test')
 })
 
 test('Codex cards render exact default, secondary, and API-key display tokens',
@@ -157,9 +163,11 @@ test('Codex cards render exact default, secondary, and API-key display tokens',
     const defaultBadge = onCard(defaultView.el)!
     assert.equal(defaultBadge.textContent, 'default')
     assert.doesNotMatch(defaultBadge.textContent ?? '', /openai\/|primary/)
-    assert.doesNotMatch(
-      defaultView.el.querySelector('.serving-account-tip')!.textContent ?? '',
-      /openai\/|primary/)
+    // the tooltip carries the DISPLAY token too, never the qualified id — the
+    // detail panel used to be the place this could leak, and now the `title`
+    // is, so the assertion moved with it rather than being dropped
+    assert.doesNotMatch(defaultBadge.getAttribute('title') ?? '', /openai\/|primary/)
+    assert.doesNotMatch(defaultBadge.getAttribute('aria-label') ?? '', /openai\/|primary/)
 
     const keyView = await card(agent({
       busy: true, tier: 'luna', model_id: 'luna',
@@ -317,66 +325,64 @@ test('the Desk header keeps the idle configured-account card', async (t: TestCon
   await flush()
   const badge = onDesk(view.el)
   assert.ok(badge, 'no configured-account card in the idle Desk header')
-  assert.match(badge!.getAttribute('aria-label') ?? '', /configured account/)
+  // the heading that said which of the two it was went with the detail panel
+  // (2026-09-17); the card's PRESENCE while idle is what this test is for
+  assert.equal(badge!.getAttribute('aria-label'), 'openai-1 · second@example.test')
 })
 
-/* ─── hover / focus detail, and what must never be in it ─────────────────── */
+/* ─── hover detail, and what must never be in it ─────────────────────────── */
 
-test('§2i the detail is a REAL element revealed on hover AND keyboard focus',
+test('§2i the detail is a plain title carrying the id and the email, and nothing else',
   async (t: TestContext) => {
-    // ⚠ WHY NOT `title`. A native tooltip is rendered by the browser on MOUSE
-    // HOVER ONLY — no engine shows one for a keyboard-focused element — so a
-    // `title` satisfies exactly half of "on hover or keyboard focus" while
-    // looking like it satisfies both. That was the first cut of this card and
-    // it is the defect this test exists to keep out.
+    // ⚠ THIS TEST WAS INVERTED ON 2026-09-17, BY THE USER, DELIBERATELY. It
+    // used to require the OPPOSITE: a real `.serving-account-tip` element
+    // revealed by CSS on `:hover` and `:focus-visible`, listing account,
+    // provider, label, email, sign-in and standing, and it asserted that the
+    // badge carried NO `title` at all. The user saw that six-row panel in the
+    // zoom view, said "remove everything else", and asked for an ordinary
+    // hover tooltip with the bare minimum — the id and the email. So the
+    // panel is gone and the assertions are its mirror image: there must be no
+    // detail element, there must be a `title`, and it must be exactly two
+    // fields. The keyboard half the panel existed to serve is now carried by
+    // `aria-label`, which is why it is asserted to be the same short string.
     const view = await mountView(
       <ServingAccountBadge account={serving()} />, (el) => el)
     t.after(() => view.unmount())
     await flush()
     const badge = view.el.querySelector<HTMLButtonElement>('.badge.serving-account')!
-    const tip = view.el.querySelector<HTMLElement>('.serving-account-tip')!
-    assert.ok(tip, 'no visible detail surface — a title attribute is not one')
-    assert.equal(badge.hasAttribute('title'), false,
-      'a native title would be a second, mouse-only tooltip beside the real one')
+    assert.equal(view.el.querySelector('.serving-account-tip'), null,
+      'the custom detail panel is back')
+    assert.equal(view.el.querySelector('.serving-account-wrap'), null,
+      'the panel is gone but its positioning wrapper was left behind')
 
-    // THE DETAIL IS IN THE DOM, as text, not in an attribute
-    const shown = tip.textContent ?? ''
-    assert.match(shown, /serving this turn/)
-    assert.match(shown, /account claude-4/)
-    assert.match(shown, /provider claude/)
-    assert.match(shown, /label claude-0/)
-    assert.match(shown, /second@example\.test/)
-    assert.match(shown, /sign-in authenticated/)
-    assert.match(shown, /standing ready/)
+    // EXACTLY THE ID AND THE EMAIL — asserted as equality, not a match, so a
+    // seventh field creeping back in fails rather than passing on a substring
+    assert.equal(badge.getAttribute('title'), 'claude-4 · second@example.test')
+    assert.equal(badge.getAttribute('aria-label'), 'claude-4 · second@example.test')
+    for (const gone of ['provider', 'claude-0', 'sign-in', 'authenticated',
+      'standing', 'serving this turn', 'configured account']) {
+      assert.doesNotMatch(badge.getAttribute('title') ?? '', new RegExp(gone),
+        `the tooltip still carries "${gone}"`)
+    }
 
-    // FOCUS REALLY LANDS ON IT — a <span> takes no tab stop, so a
-    // focus-revealed tip on one would be unreachable by keyboard
+    // FOCUS STILL LANDS ON IT. A native tooltip is mouse-only, so the tab stop
+    // is what keeps the `aria-label` reachable at all for a keyboard reader.
     assert.equal(badge.tagName, 'BUTTON')
     assert.equal(badge.type, 'button', 'a bare button submits enclosing forms')
     badge.focus()
     assert.equal(view.el.ownerDocument.activeElement, badge,
       'the card cannot take keyboard focus at all')
-    // …and the tip is the focused element's own sibling, which is what makes
-    // the `:focus-visible ~` selector below able to reach it
-    assert.equal(tip.previousElementSibling, badge)
 
-    // ⚠ THE REVEAL ITSELF IS CSS, AND JSDOM COMPUTES NEITHER :hover NOR
-    // :focus-visible — so the shipped stylesheet is the only place this can
-    // be proven. Both halves are required: hover alone was the original bug.
+    // ⚠ AND THE STYLESHEET NO LONGER REVEALS ANYTHING. jsdom computes neither
+    // :hover nor :focus-visible, so the shipped file is the only place the
+    // panel's removal can be proven; a rule left behind would be dead CSS
+    // waiting for the element to come back.
     const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
     const rule = css.match(/([^}]*)\{\s*opacity:\s*1;?\s*\}/g)
       ?.find((r) => r.includes('.serving-account-tip'))
-    assert.ok(rule, 'nothing in the stylesheet ever reveals the detail surface')
-    assert.match(rule!, /:hover[^{]*\.serving-account-tip/,
-      'the detail never appears on hover')
-    assert.match(rule!, /:focus-visible\s*~\s*\.serving-account-tip/,
-      'the detail never appears on KEYBOARD FOCUS — the half a title cannot do')
-
-    // the accessible label still carries the whole detail for assistive users,
-    // and the visible tip is hidden from them so it is not announced twice
-    assert.match(badge.getAttribute('aria-label') ?? '', /serving this turn/)
-    assert.match(badge.getAttribute('aria-label') ?? '', /second@example\.test/)
-    assert.equal(tip.getAttribute('aria-hidden'), 'true')
+    assert.equal(rule, undefined, 'the reveal rule outlived the element')
+    assert.doesNotMatch(css, /^\.serving-account-wrap\b/m,
+      'the wrapper rule outlived the element')
   })
 
 test('§2j absent details are omitted, never rendered as a guess', async (t: TestContext) => {
@@ -386,15 +392,17 @@ test('§2j absent details are omitted, never rendered as a guess', async (t: Tes
   t.after(() => view.unmount())
   await flush()
   const badge = view.el.querySelector<HTMLButtonElement>('.badge.serving-account')!
-  const shown = view.el.querySelector<HTMLElement>('.serving-account-tip')!.textContent ?? ''
-  assert.doesNotMatch(shown, /label/, 'an absent label was rendered anyway')
-  assert.doesNotMatch(shown, /undefined|null|unknown/)
-  // `unobserved` MEANS NOBODY HAS LOOKED, not that the account is gone — it
-  // still counts as available, and it must render as itself, never as ready
-  assert.match(shown, /sign-in unobserved/)
-  // A LIMITED ACCOUNT STILL SERVES — it is out of room this window, not gone.
-  // The card stays; the standing is a note on it.
-  assert.match(shown, /standing limited/)
+  // ⚠ NO EMAIL MEANS THE ID ALONE — not "claude-4 · ", not "unknown". The
+  // separator is part of the email's half of the string, so an absent address
+  // takes it with it. `label`, `sign-in` and `standing` are no longer shown
+  // anywhere (2026-09-17), so this only has the one field left to check.
+  assert.equal(badge.getAttribute('title'), 'claude-4')
+  assert.equal(badge.getAttribute('aria-label'), 'claude-4')
+  assert.doesNotMatch(badge.getAttribute('title') ?? '', /·|undefined|null|unknown/)
+  // `unobserved` MEANS NOBODY HAS LOOKED and a LIMITED ACCOUNT STILL SERVES —
+  // both are still rendered, as the CLASS they always chose, which is what
+  // colours the badge. That half of the contract did not move.
+  assert.ok(badge.classList.contains('auth-unobserved'))
   assert.ok(badge.classList.contains('state-limited'))
   assert.equal(badge.textContent, 'claude-4')
 })
@@ -412,12 +420,13 @@ test('§2k nothing credential-shaped can reach the card', async (t: TestContext)
   const view = await mountView(<ServingAccountBadge account={hostile} />, (el) => el)
   t.after(() => view.unmount())
   await flush()
-  // ⚠ THE WHOLE RENDERED SUBTREE, not just the button — the detail surface is
-  // a SIBLING of it, so reading `badge.outerHTML` would miss exactly the
-  // element the secrets would most likely land in.
+  // ⚠ THE WHOLE RENDERED SUBTREE, not just the button's text — the `title`
+  // and `aria-label` attributes are where a whitelist mistake would land now
+  // that the sibling detail panel is gone (2026-09-17), and `innerHTML`
+  // carries attributes as well as text.
   const all = view.el.innerHTML
   assert.ok(all.includes('claude-4'), 'the fixture rendered nothing to inspect')
-  assert.ok(all.includes('serving-account-tip'), 'the tip is not in the subtree read')
+  assert.ok(all.includes('title='), 'the tooltip is not in the subtree read')
   for (const secret of ['sk-ant-SECRET', 'AKIA-NOPE', 'tok', 'C:/profiles/x']) {
     assert.equal(all.includes(secret), false, `${secret} reached the DOM`)
   }
@@ -441,10 +450,10 @@ test('§2l card and desk render the SAME text and the SAME detail', async (t: Te
   assert.equal(a.textContent, b.textContent)
   assert.equal(a.className, b.className)
   assert.equal(a.getAttribute('aria-label'), b.getAttribute('aria-label'))
-  // the VISIBLE detail surface must agree too, not just the label
-  const tipOf = (el: Element) =>
-    el.parentElement!.querySelector('.serving-account-tip')!.textContent
-  assert.equal(tipOf(a), tipOf(b))
+  // the HOVER TOOLTIP must agree too, not just the label — it replaced the
+  // detail panel this line used to compare (2026-09-17)
+  assert.equal(a.getAttribute('title'), b.getAttribute('title'))
+  assert.equal(a.getAttribute('title'), 'openai-1 · codex@example.test')
 })
 
 /* ─── the cards it must not displace ─────────────────────────────────────── */

@@ -250,64 +250,47 @@ export function RouteBadge({ route }: { route?: CodexRouteInfo | null }) {
  *  locator for the same reason.
  *
  *  THE VISIBLE TEXT IS THE CANONICAL ACCOUNT ID and nothing else — the card
- *  is a glance answer to "which account is this turn on". The rest is
- *  revealed on hover or keyboard focus.
+ *  is a glance answer to "which account is this turn on". Hovering adds the
+ *  email, and that is the whole of the detail.
  *
- *  ⚠ THAT REVEAL IS A REAL ELEMENT, NOT A `title` ATTRIBUTE, and the
- *  difference is the requirement. A native tooltip is shown by the browser on
- *  MOUSE HOVER ONLY — no engine renders one for a keyboard-focused element —
- *  so `title` alone satisfies exactly half of "on hover or keyboard focus"
- *  while looking like it satisfies both. The detail therefore lives in a
- *  sibling `.serving-account-tip` that the stylesheet reveals on `:hover` AND
- *  `:focus-visible`, the same construction `.cbar-tip` and the edge-jump
- *  labels already use, and `servingaccount.test.tsx` asserts BOTH halves of
- *  that CSS selector against the shipped stylesheet.
+ *  ⚠ THE DETAIL IS AN ORDINARY `title` (user ruling 2026-09-17). It used to
+ *  be a custom `.serving-account-tip` panel listing account, provider, label,
+ *  email, sign-in and standing, revealed on `:hover` and `:focus-visible`;
+ *  the user asked for that panel gone and a normal hover tooltip carrying the
+ *  bare minimum — the id and the email — in its place. The panel, its CSS and
+ *  the four fields it alone carried are therefore removed rather than moved.
  *
- *  It is a `<button>` so keyboard focus can land on it at all — a `<span>`
- *  takes no tab stop, so a focus-revealed tip on one would be unreachable.
- *  `type="button"` and the stopped pointerdown keep it from submitting
- *  anything or swallowing the press that focuses the agent — the same two
- *  guards `ActionBadge` uses.
+ *  ⚠ ONE COMPONENT SERVES BOTH SURFACES. The card's badge row (cards.tsx) and
+ *  the desk header (below) mount this same component, so the plain `title`
+ *  here is the tooltip on both, and there is no second path to keep in step.
  *
- *  THE TIP IS `aria-hidden`, deliberately: its exact text is already the
- *  button's `aria-label`, so exposing both would announce the whole detail
- *  twice. Sighted keyboard users get the visible surface, assistive users get
- *  the label, and neither reads a credential — every field is whitelisted
- *  below and nothing else on the object is touched. */
+ *  A native tooltip is a MOUSE-HOVER surface — no engine renders one for a
+ *  keyboard-focused element — so the keyboard reader is served by the
+ *  `aria-label`, which now carries exactly the same short text. It stays a
+ *  `<button>` so focus can land on it at all; `type="button"` and the stopped
+ *  pointerdown keep it from submitting anything or swallowing the press that
+ *  focuses the agent — the same two guards `ActionBadge` uses. */
 export function ServingAccountBadge({ account }: { account?: ServingAccount | null }) {
   if (!account) return null
   const display = account.display || account.id
-  // ⚠ A WHITELIST, NOT A SERIALISATION. Only these fields are ever read off
-  // the object, so a field added to the payload later — or one that should
-  // never have been there — cannot reach the DOM through this component.
-  // Each part is omitted when the row does not carry it rather than rendered
-  // as "unknown": an absent address is not an observation, and `unobserved`
-  // auth already says so in its own words.
-  const parts = [
-    `account ${display}`,
-    `provider ${account.provider}`,
-    account.label ? `label ${account.label}` : '',
-    account.email ? `${account.email}` : '',
-    `sign-in ${account.auth}`,
-    `standing ${account.state}`,
-  ].filter(Boolean)
-  const active = account.active !== false
-  const detail = `${active ? 'serving this turn' : 'configured account'} — ${parts.join(' · ')}`
+  // ⚠ A WHITELIST, NOT A SERIALISATION. Only these two fields are ever read
+  // off the object, so a field added to the payload later — or one that
+  // should never have been there — cannot reach the DOM through this
+  // component. `auth` and `state` below choose a class name and never become
+  // text. The email is OMITTED when the row does not carry it rather than
+  // rendered as "unknown" or as a dangling separator: an absent address is
+  // not an observation.
+  const detail = account.email ? `${display} · ${account.email}` : display
   return (
-    <span className="serving-account-wrap">
-      <button type="button"
-        className={'badge serving-account auth-' + account.auth + ' state-' + account.state}
-        data-serving-account={display}
-        aria-label={detail}
-        onPointerDown={(e) => e.stopPropagation()}
-        onClick={(e) => e.stopPropagation()}>
-        {display}
-      </button>
-      <span className="serving-account-tip" role="presentation" aria-hidden="true">
-        <span className="sa-tip-head">{active ? 'serving this turn' : 'configured account'}</span>
-        {parts.map((p) => <span className="sa-tip-row" key={p}>{p}</span>)}
-      </span>
-    </span>
+    <button type="button"
+      className={'badge serving-account auth-' + account.auth + ' state-' + account.state}
+      data-serving-account={display}
+      title={detail}
+      aria-label={detail}
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}>
+      {display}
+    </button>
   )
 }
 
@@ -1033,52 +1016,97 @@ const readinessOf = (forecast: CacheForecast): Readiness =>
 const readinessCause = (forecast: CacheForecast): string =>
   readinessVerdict(forecast).cause
 
+/** ONE SHORT PHRASE PER READINESS CAUSE (user ruling 2026-09-17).
+ *
+ * This table mirrors `cachecontinuity.READINESS` key for key — every cause the
+ * backend can emit has a phrase here, so no state falls through to a vaguer
+ * one. Each entry is a COMPLETE standalone sentence fragment: it opens with
+ * what the badge is claiming ("cache ready", "cache not ready", "cache
+ * unknown", "no cache yet") and then says why in a few words, because it is
+ * read on its own with no heading above it.
+ *
+ * ⚠ THE OPENING WORDS MUST MATCH THE BADGE'S COLOUR. `cache unknown` belongs
+ * to the grey diagnostics and to nothing else: D-226 made grey an enumerated
+ * fault rather than an absence of opinion, and wording a red as "unknown"
+ * would put the two back together in the reader's head. */
+const CAUSE_PHRASE: Record<string, string> = {
+  // GREEN. The observational context ("observed 4m ago") is appended below
+  // rather than written in, because it is measured, not constant.
+  receipt_valid: 'cache ready',
+  receipt_valid_codex_estimate: 'cache ready (30-minute estimate)',
+  // NONE — there is no cache to have an opinion about. The badge renders
+  // nothing in these states; the phrases exist so a caller that reaches the
+  // text anyway is never handed a blank.
+  no_completed_fingerprint: 'no cache yet — no completed turn',
+  turn_in_flight: 'no verdict yet — a turn is running',
+  // RED. None of these except an elapsed entry is proof of a provider miss,
+  // so each says what is NOT ESTABLISHED and never predicts a miss.
+  history_unobserved: 'cache not ready — local history not observed',
+  no_positive_receipt: 'cache not ready — no cache receipt on this lane',
+  receipt_prefix_unobserved: "cache not ready — the receipt's prefix is unverified",
+  prefix_changed: 'cache not ready — the prefix changed',
+  receipt_expired: 'cache not ready — the entry expired',
+  lane_unobserved: 'cache not ready — this lane has not been observed yet',
+  legacy_forecast_unmigrated:
+    'cache not ready — this forecast predates the readiness check',
+  // GREY — an enumerated fault that stopped a verdict being formed at all.
+  unsupported_capability: 'cache unknown — this lane publishes no cache data',
+  receipt_timestamp_unreadable: 'cache unknown — the receipt timestamp is unreadable',
+  clock_anomaly: 'cache unknown — the receipt is stamped ahead of the clock',
+  internal_error: 'cache unknown — readiness could not be classified',
+}
+
+/** The badge's own words for a readiness, used only when a cause arrives that
+ *  `CAUSE_PHRASE` has never heard of. It must still say something honest —
+ *  the raw cause, read as words — rather than reaching for a paragraph. */
+const readinessHead = (readiness: Readiness): string =>
+  readiness === 'ready' ? 'cache ready'
+    : readiness === 'none' ? 'no cache yet'
+      : readiness === 'diagnostic' ? 'cache unknown' : 'cache not ready'
+
+/** ⚠ THE BARE MINIMUM, DELIBERATELY (user ruling 2026-09-17): "show only the
+ *  absolute bare minimum to the user needed to explain the card's current
+ *  state; no excessive explanatory text blurbs, just brief reasons for cache
+ *  unreadiness or a simple 'cache ready' message with simple observational
+ *  context."
+ *
+ *  What this returned before was ten lines — a compatibility sentence, the
+ *  machine-readable readiness triple, the backend's paragraph-long detail,
+ *  the reason, the changed components as a bulleted list, lane/source, the
+ *  receipt stamp, the derived TTL, the expiry instant and the pre-compaction
+ *  policy. All of it is gone. The cause, in a few words, is what survives.
+ *
+ *  ⚠ THE CHANGED COMPONENTS ARE THE EXCEPTION, and only for `prefix_changed`.
+ *  "The prefix changed" without saying WHICH part changed is the one brief
+ *  reason that does not actually explain the state, and the labels are
+ *  already safe to show (the backend sends component names, never values). */
 const cacheForecastTitle = (forecast: CacheForecast, midTurn = false): string => {
-  const ttl = typeof forecast.ttl_seconds === 'number'
-    ? forecast.ttl_seconds === 3600 ? '60 minutes (subscription authentication)'
-      : forecast.ttl_seconds === 1800 ? '30 minutes (Codex subscription estimate)'
-      : forecast.ttl_seconds === 300 ? '5 minutes (API-key inference)'
-        : `${forecast.ttl_seconds} seconds (derived from inference lane)`
-    : 'unavailable'
+  // Mid-turn the badge survives only for a claim the running turn cannot
+  // change (see CacheForecastMark), and that claim is conditional on missing
+  // the steer window — never a promise of a miss.
+  if (midTurn) {
+    return 'a turn is running — a message that steers into it is unaffected; '
+      + 'one that misses the steer window lands cold'
+  }
   const readiness = readinessOf(forecast)
-  const compatibility = readiness === 'ready'
-    ? 'compatibility-ready — a positive receipt for this exact prefix is still inside its window (provider hit not guaranteed)'
-    : readiness === 'not_ready'
-      ? 'NOT compatibility-ready — compatibility is not established for the next turn'
-      : readiness === 'none'
-        ? 'no cache established — no completed turn has been observed yet'
-        : `no verdict — ${readinessCause(forecast).replace(/_/g, ' ')}`
-  const changed = forecast.changed_inputs?.length
-    ? `changed components:\n${forecast.changed_inputs.map((v) => `• ${v}`).join('\n')}`
-    : 'changed components: none reported'
-  return [
-    // Mid-turn the badge survives only for a claim the running turn cannot
-    // change (see CacheForecastMark); say so, so the reader knows why this
-    // one is still here while the countdown and the rest are not.
-    midTurn ? 'a turn is running — the prefix has moved since it was sent: a message that '
-      + 'steers into this turn is unaffected; one that misses the steer window lands cold' : '',
-    `next-turn cache compatibility: ${compatibility}`,
-    // D-226: a grey badge must ALWAYS be able to say why it is grey, and the
-    // cause is machine-readable so a screenshot is still triage-able.
-    `readiness: ${readiness} (${readinessCause(forecast)})`,
-    // The server's detail when it sent one; the UI's account of a re-derived
-    // or unreadable verdict otherwise — a grey must never arrive unexplained.
-    readinessVerdict(forecast).detail,
-    `reason: ${forecast.reason || 'unavailable'}`,
-    changed,
-    `lane/source: ${forecast.lane || 'unknown'} / ${forecast.source || 'unknown'}`,
-    // Local time with the zone said out loud (user rule: no visible UTC). These
-    // two lines predate timefmt.ts and were the last raw `Z` instants a desk
-    // could show — found by LOOKING at the deployed build, 2026-09-05.
-    `last authoritative inference receipt: ${fmtFull(forecast.last_receipt_at) || 'none'}`,
-    `derived expiry: ${ttl}`,
-    `expires at: ${fmtFull(forecast.expires_at) || 'not authoritatively known'}`,
-    // The policy line describes a send that STARTS a turn. Mid-turn a send
-    // steers into the turn already running, so the line is vacuous there and
-    // is dropped rather than left to imply a cost that cannot occur.
-    forecast.precompact_reason && !midTurn
-      ? `pre-turn compaction: ${forecast.precompact_reason}` : '',
-  ].filter(Boolean).join('\n')
+  const cause = readinessCause(forecast)
+  const phrase = CAUSE_PHRASE[cause]
+    ?? `${readinessHead(readiness)} — ${cause.replace(/_/g, ' ')}`
+  if (readiness === 'ready') {
+    const seen = ago(forecast.last_receipt_at)
+    return seen ? `${phrase}, receipt observed ${seen} ago` : phrase
+  }
+  // ⚠ THE ONE TOKEN THAT SURVIVED THE CUT, and only on grey. D-226: "a grey
+  // badge must ALWAYS be able to say why it is grey, and the cause is
+  // machine-readable so a screenshot is still triage-able." A grey is an
+  // enumerated FAULT and it is rare; one word in brackets is what makes a
+  // screenshot of it actionable, and the prose beside it is what the user
+  // asked for. Red and green carry no token — they are ordinary states and
+  // their phrase is the whole explanation.
+  if (readiness === 'diagnostic') return `${phrase} (${cause})`
+  const changed = cause === 'prefix_changed' && forecast.changed_inputs?.length
+    ? ` (${forecast.changed_inputs.join(', ')})` : ''
+  return `${phrase}${changed}`
 }
 
 /** The one claim that survives on the badge while a turn is running.
@@ -1248,13 +1276,19 @@ export function CacheForecastMark({ forecast, busy }: {
   const body = steer ? '!'
     : compatible && live ? countdownText(left)
       : compatible ? '✓' : diagnostic ? '?' : '×'
+  // ⚠ ONE LINE, and the countdown is ONE CLAUSE of it (user ruling
+  // 2026-09-17). The middle branch is the LOCALLY OVERRULED GREEN: readiness
+  // is still `ready` because the backend has not re-polled, but the countdown
+  // has run out, so the forecast's own phrase would read "cache ready" under
+  // a red × — the exact contradiction the countdown exists to prevent. It
+  // borrows the expired cause's phrase, which is what the next poll will say.
+  // An already-red row with a stale expiry keeps its OWN cause instead.
   const title = steer
     ? cacheForecastTitle(forecast, true)
     : compatible && live
-      ? `${cacheForecastTitle(forecast)}\nexpires in ${countdownText(left)}`
-      : expired
-        ? `${cacheForecastTitle(forecast)}\nthe observed cache entry has passed `
-          + 'its derived expiry'
+      ? `${cacheForecastTitle(forecast)}, expires in ${countdownText(left)}`
+      : expired && readiness === 'ready'
+        ? CAUSE_PHRASE.receipt_expired
         : cacheForecastTitle(forecast)
   return <span className={`cache-forecast ${cls}`} title={title} aria-label={title}>
     <span aria-hidden="true">cache {body}</span>
