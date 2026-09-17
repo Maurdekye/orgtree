@@ -2063,6 +2063,49 @@ TOOLS: list[dict[str, Any]] = [
                         "required": ["node"]},
     },
     {
+        "name": "orgtree_continue_on",
+        "description": (
+            "Move a FROZEN descendant onto another provider account AND "
+            "release its freeze, in one act — the agent-side twin of the "
+            "user's `/continue-on`. This is the way to rescue a report that "
+            "hit a usage wall: `orgtree_retool account=` refuses a "
+            "limit-frozen target (moving the binding cannot clear a limit), "
+            "and `orgtree_unstick` alone restarts it on the SAME exhausted "
+            "account, where it is walled again within seconds. "
+            "THE TARGET'S CAPACITY IS CHECKED LIVE, against a forced provider "
+            "read rather than a cached bar: an account with no room refuses "
+            "the whole call and changes NOTHING, because a frozen agent is no "
+            "better off frozen somewhere else. "
+            "ORDER AND ATOMICITY: the account moves first and the freeze is "
+            "released only if that succeeded, so the replayed turn always "
+            "starts on the NEW account. A failed switch leaves the agent "
+            "exactly as it was. If the switch lands and the release does not, "
+            "you are told so plainly (`state: switched_not_resumed`) with the "
+            "retry that finishes it — it is never reported as a continuation. "
+            "AFTERWARDS the result's `agent` field says `running` or `idle`: "
+            "on the ordinary path it is RUNNING its replayed work and owes you "
+            "nothing, and any exit that leaves it idle says so and says a "
+            "message is still owed. "
+            "Downward only, at any depth — yourself, a peer and a superior are "
+            "refused, exactly as with orgtree_retool: an agent never chooses "
+            "the account it bills. No halt is needed, and none should be used."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "node": {"type": "string",
+                         "description": "the frozen descendant to move"},
+                "account": {
+                    "type": "string",
+                    "description": "the account id to continue it on — same "
+                                   "selectors orgtree_retool's `account` "
+                                   "takes. It must be a signed-in profile for "
+                                   "the same provider, not the one already "
+                                   "bound, and it must have room right now"},
+            },
+            "required": ["node", "account"],
+        },
+    },
+    {
         "name": "orgtree_halt",
         "description": (
             "Halt a descendant until explicit orgtree_unhalt. Abruptly kills "
@@ -2441,7 +2484,12 @@ def _desktop_relaunch_catalogue(
 # copies; the filesystem work still runs off the event loop.
 MANAGED_WAIT_TOOLS = frozenset({'orgtree_staff', 'orgtree_hire', 'orgtree_rehire',
                               'orgtree_retire', 'orgtree_dissolve', 'orgtree_cheap_compact',
-                              'orgtree_watchdog'})
+                              'orgtree_watchdog',
+                              # forces a live provider read of the TARGET
+                              # account before it moves anything — for Codex
+                              # that starts an app-server, which is exactly the
+                              # wait this path exists for
+                              'orgtree_continue_on'})
 
 
 def available_tools() -> list[dict[str, Any]]:

@@ -173,8 +173,11 @@ class FrozenRebindPolicy(unittest.TestCase):
 
         with self.assertRaises(RuntimeError) as ctx:
             self.supervisor.assign_account(slug, "worker", target["id"],
-                                           actor="USER")
-        # the refusal names the supported recovery path
+                                           actor=self.supervisor.USER)
+        # the refusal names the supported recovery path — and WHICH one
+        # depends on who asked (2026-09-17): the user's command for the user,
+        # the agent verb for an agent, because pointing an agent at a slash
+        # command it cannot run is what made it halt its own report instead
         self.assertIn("/continue-on", str(ctx.exception))
 
         # NOTHING half-applied: same account, same freeze, same session

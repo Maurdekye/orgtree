@@ -171,6 +171,11 @@ _COVERAGE_STATIC: dict[str, str] = {
     "orgtree_halt": PRE,             # owns durable hold + process termination
     "orgtree_unhalt": PRE,           # owns release + dispatch before receipt
     "orgtree_unstick": TX_POST,
+    # the switch and the release are TWO document transactions of its own, with
+    # a live provider read between them and the resume mail after them — none
+    # of that is the dispatch's shared transaction, and the switch is already
+    # durable by the time the receipt is written.
+    "orgtree_continue_on": PRE,
     # -- irreversible work BEFORE the transaction -------------------------
     # both wait for the target's turn boundary (`interrupt_before_archive`)
     # before the lock is taken.
@@ -280,6 +285,10 @@ _RESULT_FIELDS: dict[str, tuple[str, ...]] = {
     "orgtree_hire": ("node", "name", "tier", "grant", "started", "account"),
     "orgtree_rehire": ("node", "name", "tier", "started", "account"),
     "orgtree_retool": ("node", "started", "account"),
+    # `state` and `agent` are the two facts a lost answer would otherwise cost
+    # the caller: whether the release happened, and whether the agent is
+    # running or still owed a message.
+    "orgtree_continue_on": ("account", "switched", "resumed", "state", "agent"),
     "orgtree_retire": ("archived", "node"),
     "orgtree_dissolve": ("archived", "node"),
     "orgtree_reallocate": ("node", "delta", "grant"),

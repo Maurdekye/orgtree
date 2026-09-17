@@ -7774,11 +7774,22 @@ def _continue_lock(slug: str, nid: str) -> threading.Lock:
         return _continue_locks.setdefault((slug, nid), threading.Lock())
 
 
-@app.post("/api/orgs/{slug}/nodes/{nid}/continue-on")
-async def node_continue_on(slug: str, nid: str, body: ContinueOn) -> dict[str, Any]:
-    """⭐ CONTINUE A FROZEN AGENT ON ANOTHER ACCOUNT (user requirement
-    2026-09-14): move the binding to `account`, then release the freeze so the
-    held work goes on — one operator action, two steps, reported honestly.
+def _continue_on_account(slug: str, nid: str, account: str, *, actor: str,
+                         via: str, banner: str, retry_hint: str,
+                         sender: str | None = None) -> dict[str, Any]:
+    """⭐ CONTINUE A FROZEN AGENT ON ANOTHER ACCOUNT — THE ONE IMPLEMENTATION.
+
+    Both doors run this: the user's `/continue-on` route below, and the agent's
+    `orgtree_continue_on` verb in the tool dispatch (user ruling 2026-09-17
+    21:37 — "need the ability for you to switch accounts and unstick at the
+    same time, similar to how i can"). They differ in exactly three things,
+    which are the arguments: WHO is acting, what the released agent is TOLD,
+    and which retry to name if the release fails. Every gate, the order, and
+    the live capacity read are shared, because two copies of "may this move
+    happen" agree the day they are written and never again.
+
+    ⚠ AUTHORITY IS THE CALLER'S. The route is loopback-admin; the agent door
+    checks strict descent before it gets here. Nothing below re-derives it.
 
     ⚠ THE ORDER IS THE SAFETY PROPERTY. The switch happens first and the
     unstick only if it succeeded, because unsticking first would resume the
@@ -7789,16 +7800,21 @@ async def node_continue_on(slug: str, nid: str, body: ContinueOn) -> dict[str, A
     ⚠ AND THE SECOND STEP IS NOT ASSUMED. If the switch lands and the release
     fails, that is a REAL state — the agent is on the new account and still
     frozen — and it is reported as `switched_not_resumed` with the retry that
-    finishes it (`/unstick`), rather than being called a continuation. Nothing
-    here claims work resumed that has not.
+    finishes it, rather than being called a continuation. Nothing here claims
+    work resumed that has not.
+
+    ⚠ `agent` SAYS WHETHER IT IS RUNNING. Every exit carries "running" or
+    "idle", and an idle exit says in its own `status` that a message is still
+    owed. The caller never has to infer it from which fields came back.
 
     Eligibility is re-decided at THIS moment against a forced provider read,
     not against whatever the menu was showing: the payload's list is cache-only
     and a minute old at worst, and capacity is exactly the thing that moves.
     """
-    account = str(body.account or "").strip()
+    account = str(account or "").strip()
     lock = _continue_lock(slug, nid)
-    # A second click while the first is still moving is not a second move.
+    # A second click (or a second agent) while the first is still moving is
+    # not a second move.
     if not lock.acquire(blocking=False):
         raise HTTPException(409, f"{nid} is already being continued on another "
                                  f"account; that operation is still running")
@@ -7837,8 +7853,7 @@ async def node_continue_on(slug: str, nid: str, body: ContinueOn) -> dict[str, A
                      f"standing could not be established — nothing was changed")
         try:
             disclosure = supervisor.assign_account(
-                slug, nid, account, actor=USER, via="manual_continue",
-                allow_frozen=True)
+                slug, nid, account, actor=actor, via=via, allow_frozen=True)
         except (LedgerError, RuntimeError, ValueError, KeyError) as e:
             raise HTTPException(422, f"account switch failed, {nid} left frozen "
                                      f"and unchanged: {e}") from e
@@ -7847,42 +7862,82 @@ async def node_continue_on(slug: str, nid: str, body: ContinueOn) -> dict[str, A
         with store.DOC_LOCK:
             try:
                 org = store.load_org(slug)
-                released = org.unstick(USER, nid)
+                # the ACTOR, not USER: `unstuck.by` is the audit record of who
+                # released this seat, and an agent's rescue must not be filed
+                # under the user's name. The authority re-check it performs is
+                # the same strict-descent one the agent door already passed.
+                released = org.unstick(actor, nid)
                 store.save_org(org)
             except LedgerError as e:
-                await hub.changed(slug)
                 return {"switched": True, "resumed": False,
                         "state": "switched_not_resumed", "account": account,
                         "disclosure": disclosure,
                         "error": str(e),
-                        "retry": f"/api/orgs/{slug}/nodes/{nid}/unstick",
+                        "agent": "idle",
+                        "retry": retry_hint,
                         "status": f"{nid} is now on {account} but is STILL "
                                   f"FROZEN — releasing it failed ({e}). Its "
-                                  f"held work has not resumed; use unstick to "
-                                  f"finish the move."}
+                                  f"held work has not resumed and it is IDLE; "
+                                  f"use {retry_hint} to finish the move."}
+        # ⚠ WHETHER IT IS RUNNING IS READ, NOT ASSUMED. Releasing a freeze is
+        # not the only hold on a seat: a HALTED node (and the docket's own
+        # workaround halted one) takes the replay into its durable queue and
+        # answers `deferred`, so a turn does not start. Reporting "running"
+        # there would be the one thing this result must never get wrong.
+        held = ""
         if released.get("released"):
-            texts = cast("list[str]", released.get("resume_texts") or []) or [
-                f"(orgtree) The user moved you to account {account} and "
-                f"released your freeze — handle any mail above and continue "
-                f"from where you left off."]
+            texts = cast("list[str]", released.get("resume_texts") or []) or [banner]
             views = cast("list[str]", released.get("resume_views") or [])
             for i, t in enumerate(texts):
-                supervisor.send_message(slug, nid, t,
-                                        view=views[i] if i < len(views) else t)
+                r = supervisor.send_message(slug, nid, t, sender=sender,
+                                            view=views[i] if i < len(views) else t)
+                if isinstance(r, dict) and r.get("deferred") and not held:
+                    held = str(r.get("deferred"))
             supervisor.notify(slug, nid, "turn_started")
-        await hub.changed(slug)
+        running = bool(released.get("released")) and not held
         return {"switched": True, "resumed": bool(released.get("released")),
                 "state": "continued" if released.get("released")
                 else "switched_nothing_to_release",
                 "account": account, "disclosure": disclosure,
                 "released": released.get("released") or [],
                 "warnings": released.get("warnings") or [],
-                "status": (f"{nid} continues on {account}"
-                           if released.get("released") else
+                "agent": "running" if running else "idle",
+                **({"held": held} if held else {}),
+                "status": (f"{nid} continues on {account} — it is RUNNING its "
+                           f"replayed work now; no further message is needed"
+                           if running else
+                           f"{nid} is on {account} and its freeze is released, "
+                           f"but its turn was not admitted ({held}) — it is "
+                           f"IDLE and its replayed work is queued"
+                           if held else
                            f"{nid} is on {account}; there was no freeze left "
-                           f"to release")}
+                           f"to release, so it is IDLE — message it if you "
+                           f"want it to act")}
     finally:
         lock.release()
+
+
+@app.post("/api/orgs/{slug}/nodes/{nid}/continue-on")
+async def node_continue_on(slug: str, nid: str, body: ContinueOn) -> dict[str, Any]:
+    """⭐ CONTINUE A FROZEN AGENT ON ANOTHER ACCOUNT (user requirement
+    2026-09-14): move the binding to `account`, then release the freeze so the
+    held work goes on — one operator action, two steps, reported honestly.
+
+    ⚠ THE BODY MOVED TO `_continue_on_account`, which the agent verb
+    `orgtree_continue_on` also runs (user ruling 2026-09-17). Read it there:
+    the order, the live capacity read and the honest middle state are its
+    docstring, and this route now supplies only what is the USER's about this
+    call — the actor, the wording the released agent is told, and the retry
+    path to name if the release fails.
+    """
+    out = _continue_on_account(
+        slug, nid, body.account, actor=USER, via="manual_continue",
+        banner=(f"(orgtree) The user moved you to account "
+                f"{str(body.account or '').strip()} and released your freeze — "
+                f"handle any mail above and continue from where you left off."),
+        retry_hint=f"/api/orgs/{slug}/nodes/{nid}/unstick")
+    await hub.changed(slug)
+    return out
 
 
 @app.get("/api/orgs/{slug}/inbox")
@@ -10405,6 +10460,67 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                     store.save_org(org)
                     opreceipts.witness(store.DATA_ROOT, body.org,
                                       opreceipts.seq(cast("dict[str, Any]", org.d)))
+            return result
+    if body.tool == "orgtree_continue_on":
+        # ⭐ SWITCH A FROZEN REPORT'S ACCOUNT AND RELEASE IT IN ONE ACT (user
+        # ruling 2026-09-17 21:37). The agent-side twin of the user's
+        # `/continue-on`, and the SAME implementation — `_continue_on_account`.
+        #
+        # ⚠ WHY IT IS ITS OWN VERB RATHER THAN A FLAG ON orgtree_retool. The
+        # retool branch writes its account change INSIDE the shared dispatch
+        # transaction (`_account_selection`, below). This operation cannot live
+        # there: between its gate and its write it performs a LIVE provider read
+        # — for Codex that starts an app-server — and account_fallback's
+        # standing rule is that provider reads never happen under DOC_LOCK.
+        # Folding it into retool would therefore have meant a second code path
+        # wearing retool's name, one that could also refuse AFTER retool's scope
+        # fields had already applied: exactly the half-applied state this ticket
+        # exists to remove. So it runs out here beside halt/unhalt, which are
+        # out here for the same class of reason, and owns its own saves.
+        #
+        # AUTHORITY IS RETOOL'S, NOT unstick's: strictly downward, never
+        # yourself. An agent choosing which account it bills is the one thing
+        # neither its superiors nor the user ever delegated, and that rule does
+        # not loosen because the move also clears a freeze.
+        with _op_inflight(body):
+            _c_target = str(a.get("node") or "")
+            try:
+                with store.DOC_LOCK:
+                    org = store.load_org(body.org)
+                    org.node(_c_target)       # 422s a bogus target before it acts
+                    if _c_target == body.node:
+                        raise HTTPException(
+                            403, "you cannot choose your own account — a "
+                                 "node's billing is its supervisors' and the "
+                                 "user's decision, never its own, and that "
+                                 "does not change because the move would also "
+                                 "release your own freeze")
+                    org._require_authority(body.node, _c_target)
+                    org._require_live(_c_target)
+                    rcpt = _op_admit(org, body, a)
+                    if rcpt is not None and "replay" in rcpt:
+                        return cast("dict[str, Any]", rcpt["replay"])
+            except LedgerError as e:
+                raise HTTPException(422, str(e)) from e
+            _c_account = str(a.get("account") or "").strip()
+            result = _continue_on_account(
+                body.org, _c_target, _c_account, actor=body.node,
+                via="agent_continue", sender=body.node,
+                banner=(f"(orgtree) {body.node} moved you to account "
+                        f"{_c_account} and released your freeze — handle any "
+                        f"mail above and continue from where you left off."),
+                retry_hint="orgtree_unstick")
+            if rcpt is not None:
+                # the receipt is filed AFTER the move, in its own window, and
+                # its class says so: PRE, because the switch is already durable
+                # by now. A missing receipt for this verb is `unknown`, never
+                # "nothing happened".
+                with store.DOC_LOCK:
+                    org = store.load_org(body.org)
+                    _op_file(org, body, a, rcpt, result)
+                    store.save_org(org)
+                    opreceipts.witness(store.DATA_ROOT, body.org,
+                                       opreceipts.seq(cast("dict[str, Any]", org.d)))
             return result
     account_notify: str | None = None
     account_unpark: str | None = None   # a node an assignment just un-parked (SH-2)

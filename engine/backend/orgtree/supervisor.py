@@ -13814,6 +13814,20 @@ def _codex_tool_config(sc: Mapping[str, Any]) -> list[str]:
     return out
 
 
+def _continue_verb(actor: str) -> str:
+    """Name the switch-and-release path THIS caller can actually reach.
+
+    A refusal that points an agent at `/continue-on` points it at a command
+    only the user can run — which is how a coordinator came to halt its own
+    report just to move it (docket
+    `agents-cannot-switch-a-frozen-report-s-account-a`, 2026-09-17). The two
+    doors are the same operation, so the refusal names whichever one belongs
+    to whoever asked.
+    """
+    return ("`/continue-on <account>`" if actor == USER
+            else "`orgtree_continue_on` (node + account)")
+
+
 def assign_account(slug: str, nid: str, account_id: str, *,
                    actor: str,
                    org: Org | None = None, via: str = "manual",
@@ -13829,16 +13843,18 @@ def assign_account(slug: str, nid: str, account_id: str, *,
       * A MOVABLE USAGE-LIMIT freeze (`frozen.limit` and NOT an auth kind) is
         REFUSED for a bare rebind (`allow_frozen` False): moving the binding
         cannot clear a usage limit and would strand the node frozen on the new
-        account — the supported path is `/continue-on`, which switches AND
-        releases with a live capacity check on the target. The refusal is
-        raised BEFORE any mutation, so the node is left EXACTLY as it was.
+        account — the supported path is the switch-and-release operation
+        (`/continue-on` for the user, `orgtree_continue_on` for an agent),
+        which switches AND releases with a live capacity check on the
+        target. The refusal is raised BEFORE any mutation, so the node is
+        left EXACTLY as it was.
       * An AUTH/CREDENTIAL freeze (`frozen.cause` in ("auth","balance") or
         `frozen.untrusted`) is the opposite: it describes a DEAD credential, so
         rebinding to a valid account IS the fix — allowed, and thawed below
         (cleared in-transaction, woken after the save like the account-park).
-    Recovery paths — `/continue-on` and the automatic account fallback — pass
-    `allow_frozen=True` and own their own release, so neither the refusal nor
-    the auto-thaw ever applies to them.
+    Recovery paths — the two switch-and-release doors and the automatic
+    account fallback — pass `allow_frozen=True` and own their own release, so
+    neither the refusal nor the auto-thaw ever applies to them.
 
     The result is the full disclosure set (D2d, ruling 19:00Z): target
     account id+label, credential kind, BILLING MODE (subscription vs API
@@ -13892,7 +13908,8 @@ def assign_account(slug: str, nid: str, account_id: str, *,
                 f"by a backend restart) — reassignment is a session boundary "
                 f"and never repoints a session that still owes a turn; retry "
                 f"when the turn ends or has been reconciled, or recover a "
-                f"frozen seat with `/continue-on` / `orgtree_unstick`")
+                f"frozen seat with {_continue_verb(actor)} / "
+                f"`orgtree_unstick`")
         # Frozen-node policy (see docstring). Distinguish the kinds explicitly,
         # then refuse a bare rebind on a usage-limit freeze BEFORE any mutation
         # — nothing below has run, so the node is untouched. `_auth_freeze` is
@@ -13911,7 +13928,7 @@ def assign_account(slug: str, nid: str, account_id: str, *,
             raise RuntimeError(
                 f"{nid} is frozen by a usage limit — moving its account here "
                 f"cannot clear that and would leave it frozen on the new "
-                f"account. Use `/continue-on <account>`, which switches AND "
+                f"account. Use {_continue_verb(actor)}, which switches AND "
                 f"releases it with a live capacity check on the target, or "
                 f"`orgtree_unstick` to release it in place first.")
         tier = str(node.get("model") or "")
