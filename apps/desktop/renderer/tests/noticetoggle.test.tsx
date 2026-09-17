@@ -1,11 +1,15 @@
 import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { DeskChat } from '../src/canvas/desk'
 import type { CanvasNode } from '../src/canvas/shared'
 import { isNoticeArmed, setNoticeArmed, toggleNoticeArmed } from '../src/noticestore'
 import { addPending, bindPendingMail, resetConvos, useConvo } from '../src/convo'
 import { MailMessage } from '../src/events/segments'
+
+declare const __SRC_DIR__: string
 
 const agentA: CanvasNode = {
   id: 'agent-a', generation: 1, state: 'live', tier: 'haiku', children: [],
@@ -269,4 +273,48 @@ test('bindPendingMail clears notice state on fallback', () => {
   // If we bind again with notice: true
   const ghostId2 = addPending('org', 'agent-a', 'notice text', null, undefined, 'op-2', true)
   bindPendingMail('org', 'agent-a', ghostId2, { id: 'm-notice', accepted: true, notice: true })
+})
+
+test('notice edge tokens are shared between notice bubble and notice-mode composer', () => {
+  const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
+
+  // 1. Root defines shared tokens
+  assert.match(css, /--notice-edge-style:\s*dashed;/,
+    ':root must define --notice-edge-style as dashed')
+  assert.match(css, /--notice-edge-color:\s*color-mix\(in srgb,\s*var\(--dim\)\s*55%,\s*var\(--line\)\);/,
+    ':root must define --notice-edge-color referencing --dim and --line')
+
+  // 2. .turn-mail.passive uses the shared tokens
+  const passiveBlock = css.match(/\.turn-mail\.passive\s*\{([^}]+)\}/)?.[1] ?? ''
+  assert.ok(passiveBlock, '.turn-mail.passive rule exists')
+  assert.match(passiveBlock, /border-left:\s*3px\s+var\(--notice-edge-style\)\s+var\(--notice-edge-color\);/,
+    '.turn-mail.passive must source its border-left style and color from the shared tokens')
+
+  // 3. .cc-composer.notice-armed uses the shared tokens and maintains 1px border-width
+  const armedBlock = css.match(/\.cc-composer\.notice-armed\s*\{([^}]+)\}/)?.[1] ?? ''
+  assert.ok(armedBlock, '.cc-composer.notice-armed rule exists')
+  assert.match(armedBlock, /border-style:\s*var\(--notice-edge-style\);/,
+    '.cc-composer.notice-armed must source border-style from --notice-edge-style')
+  assert.match(armedBlock, /border-color:\s*var\(--notice-edge-color\);/,
+    '.cc-composer.notice-armed must source border-color from --notice-edge-color')
+  assert.match(armedBlock, /border-width:\s*1px;/,
+    '.cc-composer.notice-armed must be 1px to preserve composer sizing/padding without reflow')
+
+  // 4. .cc-composer.notice-armed:focus-within stays on the notice flair edge
+  const armedFocusBlock = css.match(/\.cc-composer\.notice-armed:focus-within\s*\{([^}]+)\}/)?.[1] ?? ''
+  assert.ok(armedFocusBlock, '.cc-composer.notice-armed:focus-within rule exists')
+  assert.match(armedFocusBlock, /border-color:\s*var\(--notice-edge-color\);/,
+    '.cc-composer.notice-armed:focus-within must not revert to --accent')
+
+  // 5. Non-notice composer borders are untouched
+  const composerBlock = css.match(/\.cc-composer\s*\{([^}]+)\}/)?.[1] ?? ''
+  assert.ok(composerBlock, '.cc-composer rule exists')
+  assert.match(composerBlock, /border:\s*1px\s+solid\s+var\(--line\);/,
+    '.cc-composer default border is unchanged (1px solid var(--line))')
+  assert.match(composerBlock, /padding:\s*7px\s+9px;/,
+    '.cc-composer padding is unchanged (7px 9px)')
+
+  const normalFocusBlock = css.match(/\.cc-composer:focus-within\s*\{([^}]+)\}/)?.[1] ?? ''
+  assert.match(normalFocusBlock, /border-color:\s*var\(--accent\);/,
+    '.cc-composer:focus-within default focus border is unchanged')
 })

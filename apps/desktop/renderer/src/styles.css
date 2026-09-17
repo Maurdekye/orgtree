@@ -60,6 +60,11 @@
      this line is a zero-pixel change that simply makes it themeable and stops
      the next edit from having to change the literal in fifteen places. */
   --warn: #e5c07b;
+  /* The notice flair edge (§9.3 / notice channel): a subtle dashed neutral
+     edge that marks passive context (notice mail cards in transcripts, and the
+     composer when armed in notice mode) without shouting over active turns. */
+  --notice-edge-style: dashed;
+  --notice-edge-color: color-mix(in srgb, var(--dim) 55%, var(--line));
   --work: #7cc0ff;          /* task-state "working" (sky). Deliberately NOT the
                                terracotta accent: the accent pulse means "a turn
                                is running right now"; this chip means "the task
@@ -1703,11 +1708,11 @@ button.cc-name:hover {
 }
 .cc-composer:focus-within { border-color: var(--accent); }
 .cc-composer.notice-armed {
-  border-style: dotted;
-  border-width: 1.5px;
-  border-color: var(--accent);
+  border-style: var(--notice-edge-style);
+  border-width: 1px;
+  border-color: var(--notice-edge-color);
 }
-.cc-composer.notice-armed:focus-within { border-color: var(--accent); }
+.cc-composer.notice-armed:focus-within { border-color: var(--notice-edge-color); }
 .cc-composer.off { opacity: .6; }
 .cc-composer textarea {
   flex: 1; min-width: 0;
@@ -1859,7 +1864,7 @@ button.cc-name:hover {
 }
 .turn-mail.passive {
   background: color-mix(in srgb, var(--panel) 72%, var(--input));
-  border-left: 3px dashed color-mix(in srgb, var(--dim) 55%, var(--line));
+  border-left: 3px var(--notice-edge-style) var(--notice-edge-color);
   padding-left: 7px;
 }
 .turn-mail.from-user { border-color: color-mix(in srgb, var(--accent) 26%, var(--line-soft)); }
