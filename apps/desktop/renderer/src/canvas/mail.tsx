@@ -692,7 +692,18 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
               </div>
             )}
             {replyable && (
-              <MailReplyBox target={party(cur)} slug={org} toast={toast}
+              /* ⚠ `org ?? refs?.world.org` — THE SAME RESOLUTION THE HEAD USES
+                 (line above, and the body's `imgBase`). `org` is an OPTIONAL
+                 prop, and the user's own inbox — the one MailList in the app
+                 that supplies `onReply`, so the only one that ever renders
+                 this box — omits it and passes `refs` instead. Read as bare
+                 `org` this handed the composer `undefined`, which is exactly
+                 what `attachable` gates on, so the user's paperclip was
+                 permanently grey (reported 2026-09-17; the dead gate itself
+                 predates the paperclip and shipped as a text button).
+                 NOT `?? ''` like the head: an absent org must stay ABSENT so
+                 the composer degrades the way its `slug?:` contract says. */
+              <MailReplyBox target={party(cur)} slug={org ?? refs?.world.org} toast={toast}
                 onSend={(text, attachments, notice) => onReply!(cur, text, attachments, notice)} />
             )}
           </>
