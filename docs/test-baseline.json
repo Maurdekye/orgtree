@@ -1,21 +1,21 @@
 {
   "schema": "orgtree.test-baseline/v1",
-  "recorded_at": "2026-09-16T22:19:15.571Z",
+  "recorded_at": "2026-09-17T11:33:31.397Z",
   "recorded_by": "test-baseline",
   "max_age_days": 7,
-  "commit": "b86b132ee5cfe661bf8c88ccd9c1c3745d0115c9",
-  "commit_subject": "Record the corrected baseline and hand over the Python failures",
-  "commit_at": "2026-09-17T01:05:43+03:00",
-  "branch": "test-baseline/known-failures",
+  "commit": "9557259f7733476529a942bdc812fde9bcf88b5c",
+  "commit_subject": "Root the ACL fixtures where their ancestors cannot be replaced",
+  "commit_at": "2026-09-17T14:32:30+03:00",
+  "branch": "test-baseline/attach-fixtures",
   "tree_clean": true,
   "measured_tree_clean": true,
   "trees": {
-    "tests": "3b7750270076fe621f3a4e45da4b58079dafc8dc",
-    "engine": "c8a6e5f3620f856eea99071c8574b7e2ce919c5c",
-    "apps": "3bf9b0e0e2ec2c51e2f10fd697d623100ca76745",
+    "tests": "e142d450b3546054a6d1a0b2195ace2ba92f84fa",
+    "engine": "4efa94b93ec53df541ee725a1d267f4e0f3b14ad",
+    "apps": "946dc4ac5ac4043977981e2fdd2b09fdc5a0762b",
     "packages": "b350edea30b2990435b54b4fe014cc173517029e",
-    "tools": "41dadd3d5d8c7d22cddd4b97a48da6275e5aa0d2",
-    "package.json": "fdd485e21d2f015270d5517af7349977b712d6e8"
+    "tools": "23769a3387bbc41dca25246b40f325a8dfa21616",
+    "package.json": "e7d7d83ecb4c2deb100e01925880621427cf1ed2"
   },
   "machine": {
     "host": "Pendragon",
@@ -31,15 +31,15 @@
       "description": "node's built-in runner over tests/*.test.mjs — the `npm test` set",
       "runner": "node --test tests/*.test.mjs",
       "granularity": "test",
-      "recorded_at": "2026-09-16T22:07:32.338Z",
-      "commit": "b86b132ee5cfe661bf8c88ccd9c1c3745d0115c9",
+      "recorded_at": "2026-09-17T11:33:31.396Z",
+      "commit": "9557259f7733476529a942bdc812fde9bcf88b5c",
       "trees": {
-        "tests": "3b7750270076fe621f3a4e45da4b58079dafc8dc",
-        "engine": "c8a6e5f3620f856eea99071c8574b7e2ce919c5c",
-        "apps": "3bf9b0e0e2ec2c51e2f10fd697d623100ca76745",
+        "tests": "e142d450b3546054a6d1a0b2195ace2ba92f84fa",
+        "engine": "4efa94b93ec53df541ee725a1d267f4e0f3b14ad",
+        "apps": "946dc4ac5ac4043977981e2fdd2b09fdc5a0762b",
         "packages": "b350edea30b2990435b54b4fe014cc173517029e",
-        "tools": "41dadd3d5d8c7d22cddd4b97a48da6275e5aa0d2",
-        "package.json": "fdd485e21d2f015270d5517af7349977b712d6e8"
+        "tools": "23769a3387bbc41dca25246b40f325a8dfa21616",
+        "package.json": "e7d7d83ecb4c2deb100e01925880621427cf1ed2"
       },
       "partial": null,
       "excluded": [
@@ -56,13 +56,8 @@
           "why": "Electron/native probes needing a display and a built app"
         }
       ],
-      "duration_ms": 54643,
-      "confirmation_pass": {
-        "files": [
-          "tests/attach.test.mjs"
-        ],
-        "duration_ms": 36727
-      },
+      "duration_ms": 55973,
+      "confirmation_pass": null,
       "truncated": null,
       "truncation_note": null,
       "files_that_produced_no_result": null,
@@ -70,25 +65,12 @@
       "counts": {
         "files": 48,
         "tests": 638,
-        "passed": 637,
-        "failed": 1,
+        "passed": 638,
+        "failed": 0,
         "skipped": 0
       },
-      "failing_files": [
-        "tests/attach.test.mjs"
-      ],
-      "failures": [
-        {
-          "id": "node-root::tests/attach.test.mjs::the real trust check accepts an owner-exclusive file (positive control)",
-          "file": "tests/attach.test.mjs",
-          "test": "the real trust check accepts an owner-exclusive file (positive control)",
-          "kind": "leaf",
-          "failure_type": "testCodeFailure",
-          "stability": "stable",
-          "error": "path replaceable via ancestor <repo>\\acl-fixtures-<rand>=S-1-5-32-545,S-1-5-11;<repo>=S-1-5-32-545,S-1-5-11;<checkout>\\.worktrees=S-1-5-32-545,S-1-5-11;<checkout>=S-1-5-32-545,S-1-5-11;E:\\Libraries\\De",
-          "error_digest": "0da759de674f"
-        }
-      ],
+      "failing_files": [],
+      "failures": [],
       "known_test_ids": [
         "node-root::tests/attach.test.mjs::a busy engine (probes fail, tree signals alive) is never declared dead",
         "node-root::tests/attach.test.mjs::a descriptor owned by someone else is rejected BEFORE the token is sent anywhere",
