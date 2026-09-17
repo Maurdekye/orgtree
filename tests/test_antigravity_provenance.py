@@ -241,6 +241,60 @@ class LiveDatabaseReadTests(ProvenanceTestCase):
                          "the boundary must be the row committed into the WAL")
 
 
+class ContentionTests(ProvenanceTestCase):
+    """What the live read does when it CANNOT have the database.
+
+    Recipe from freeze-provenance's probes, 2026-09-17: `locking_mode=EXCLUSIVE`
+    holds the file lock for the life of the competing connection, so the read
+    is refused deterministically — no timing, no flake. Under ordinary
+    checkpoint churn (1671 commits, 3342 checkpoints, a competitor in a
+    separate process) the reader never saw BUSY at all; this pins the branch
+    that ordinary churn therefore never exercises.
+    """
+
+    def _make_unreadable(self) -> None:
+        """Take the LIVE path — a sidecar is present — against a main file
+        that is not a database. No writer is held open, so nothing can serve
+        the read from a cache or from the WAL."""
+        self.store.close()
+        Path(str(self.store.path) + "-wal").write_bytes(b"")
+        self.store.path.write_bytes(b"this is not a database")
+
+    def test_an_unreadable_database_declines_instead_of_raising(self) -> None:
+        """⚠ It must fail SAFE: the correction simply does not happen, the
+        agent stays frozen, and nothing escapes onto the turn path. A read
+        that could not be taken must never manufacture a correction."""
+        self.store.seed_history()
+        self.assertIsNotNone(prov.capture(CID, self.store.env),
+                             "control: this fixture must be able to succeed, or "
+                             "the decline below proves nothing")
+        self._make_unreadable()
+
+        boundary = prov.capture(CID, self.store.env)
+
+        self.assertIsNone(boundary, "a failed read declines, it does not raise")
+
+    def test_the_failed_read_is_diagnosable(self) -> None:
+        """The second reason the capture predicate had to reach the record.
+
+        A read that FAILED used to land as a bare `no_boundary`, identical to
+        the benign majority, so it could never be told apart from "this
+        conversation has simply never hit a wall". freeze-provenance measured
+        the same thing from the other end: under a forced BUSY the old code
+        would have recorded exactly that indistinguishable `no_boundary`.
+        """
+        self.store.seed_history()
+        self._make_unreadable()
+        prov.capture(CID, self.store.env)
+
+        prov.reconcile(None, "a new question", CID, error_result(), [])
+
+        reason = self.records()[-1]["reason"]
+        self.assertTrue(reason.startswith("no_boundary_exception_"),
+                        "a failed read must name itself as a failure, not hide "
+                        "among the benign declines; got " + reason)
+
+
 class ReconcileTests(ProvenanceTestCase):
     """Whether a stale quota error is corrected, and whether a real one survives."""
 
