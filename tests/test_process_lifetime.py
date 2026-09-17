@@ -158,6 +158,16 @@ sys.stdin.readline()
         self.assert_stopped(ids)
         p.wait(timeout=8)
 
+    def test_teardown_spares_unrelated_process_in_inherited_group(self):
+        bystander = subprocess.Popen([sys.executable, '-c', 'import time;time.sleep(90)'])
+        self.processes.append(bystander)
+        self.assertTrue(alive(bystander.pid), 'positive control: bystander alive before teardown')
+        p, ids = self.start()
+        p.communicate('\n', timeout=8)
+        self.assertEqual(p.returncode, 0)
+        self.assert_stopped(ids)
+        self.assertTrue(alive(bystander.pid), 'guardian sweep must not reach a process outside its own group')
+
     def arm_fixture(self, change=None):
         """Fresh private module per probe: injected delays occur in the helper."""
         fixture = self.root / ('fixture-' + str(len(self.processes)))
