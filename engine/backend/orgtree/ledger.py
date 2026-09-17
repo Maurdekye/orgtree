@@ -16079,7 +16079,8 @@ class Org:
                    artifact: Any = None, runner: Any = None,
                    execution: Any = None, result: Any = None,
                    gate: Any = None, blocked_count: Any = None,
-                   composition: Any = None) -> dict[str, Any]:
+                   composition: Any = None,
+                   expected_rev: Any = None) -> dict[str, Any]:
         """Mark acceptance conditions checked — acceptance evidence, distinct
         from delivery stages and never inferred from them. One condition, or a
         BATCH through `checks`.
@@ -16093,6 +16094,15 @@ class Org:
         A repeated index inside one batch is refused rather than silently
         letting the last one win: two different evidence refs for the same
         condition means the caller believes something this call cannot honour.
+
+        ⚠ `expected_rev` IS COMPARE-AND-SET, AND IT IS REAL HERE. The card
+        used to promise it on every mutating action; 91454c5 established that
+        only eight honoured it and made the argument an honest refusal on the
+        rest. This is one of the two that earned the real thing instead: a
+        check writes the record that answers "is this item done, and on what
+        evidence", and two agents interleaving there can complete an item on
+        evidence gathered against a state that no longer stands. Optional, as
+        it is on `update` — requiring it would refuse every existing caller.
         """
         self._work_require_live_agent_or_user(actor)
         self._work_sweep()
@@ -16100,6 +16110,12 @@ class Org:
         if not self._work_can_manage(actor, it):
             raise LedgerError("checking an acceptance condition is an owner-level "
                               "act - a participant records `evidence` instead")
+        # COMPARE-AND-SET, FIRST OF ALL — `work_update`'s placement, and for
+        # its reason: a caller that names the revision it read is saying the
+        # whole call was composed against that state, so if the state moved
+        # there is nothing here worth validating, let alone writing. One
+        # implementation (`_work_expect_rev`), one wording.
+        self._work_expect_rev(it, expected_rev)
         acc = cast("list[Any]", it.get("acceptance") or [])
         done: list[tuple[int, dict[str, Any]]] = []
         if checks is not None:
@@ -16164,7 +16180,8 @@ class Org:
                 "indexes": idxs, "rev": it["rev"]}
 
     def work_accept(self, actor: str, wid: str,
-                    note: str | None = None) -> dict[str, Any]:
+                    note: str | None = None,
+                    expected_rev: Any = None) -> dict[str, Any]:
         """→ done. Anyone with standing on the item — owner and participants
         included since the user's 2026-09-10 13:47 ruling (any participant may
         change every state, completion included, without superior review).
@@ -16175,7 +16192,16 @@ class Org:
         BY AGENTS (user ruling 2026-09-05); an item that was only ever waiting
         on the user — blocked on a question, or holding an attention flag — is
         accepted from where it stands rather than being walked through an agent
-        check it never needed."""
+        check it never needed.
+
+        ⚠ `expected_rev` IS COMPARE-AND-SET, AND IT IS REAL HERE — the other
+        of the two actions that earned it (see `work_check`). Completion is
+        the one write whose mistakes stop being looked at, because a done item
+        stops being read; an accept composed against a revision that has since
+        moved is exactly the interleaving this refuses. Optional, as on
+        `update`. It guards THIS route only: a reviewer's `approve` reaches
+        `_work_accept_core` by its own path and takes no compare-and-set,
+        which is deliberate — widening CAS further is separate work."""
         self._work_require_live_agent_or_user(actor)
         self._work_sweep()
         it, _ = self._work_get_for(actor, wid)
@@ -16184,6 +16210,10 @@ class Org:
                 "acceptance belongs to the item's own people — its owner, "
                 "creator, their superiors, a listed participant, its named "
                 "reviewer, or the user")
+        # COMPARE-AND-SET before the completion guard and before any write, so
+        # a stale caller is told its read is stale rather than being answered
+        # about a state it was not looking at.
+        self._work_expect_rev(it, expected_rev)
         return self._work_accept_core(actor, it, note, "accept")
 
     def _work_accept_core(self, actor: str, it: WorkItem, note: str | None,

@@ -6795,8 +6795,9 @@ _WORK_ACTION_ARGS: dict[str, frozenset[str]] = {
     "claim": frozenset({"stage", "ref", "note"}),
     "check": frozenset({"checks", "index", "evidence_ref", "note",
                         "classification", "artifact", "runner", "execution",
-                        "result", "gate", "blocked_count", "composition"}),
-    "accept": frozenset({"note"}),
+                        "result", "gate", "blocked_count", "composition",
+                        "expected_rev"}),
+    "accept": frozenset({"note", "expected_rev"}),
     "archive": frozenset(),
     "move": frozenset({"parent"}),
     "supersede": frozenset({"by"}),
@@ -6889,10 +6890,16 @@ def _work_expected_rev_route(act: str) -> str:
 
     The audit's one piece of genuinely dead schema. The card advertised it for
     "update/evidence/receipt and every other mutating action" and the ledger
-    has the parameter on eight methods; on the other nineteen the argument was
+    had the parameter on eight methods; on the other nineteen the argument was
     read by nobody. That is the worst shape this defect takes, because the
     whole purpose of the field is to make a call SAFE: a caller that passes it
     believes it has compare-and-set protection, and had none.
+
+    TWO OF THE NINETEEN WERE GIVEN THE REAL THING RATHER THAN A REFUSAL:
+    `check` and `accept` write the acceptance record that decides whether an
+    item is complete, which is the one write whose mistakes stop being looked
+    at. They honour it now; seventeen still refuse it, and the list of
+    honouring actions below is DERIVED, so this sentence cannot outlive it.
     """
     writers = ", ".join(f"`action={x}`" for x in
                         sorted(k for k, v in _WORK_ACTION_ARGS.items()
@@ -7477,9 +7484,14 @@ def _work_mutate_action(org: Org, nid: str, a: dict[str, Any],
         except workitems.ShaError as e:
             raise LedgerError(str(e))
     if act == "check":
-        # same either/or care as `evidence`: absent stays absent on the batch
+        # same either/or care as `evidence`: absent stays absent on the batch.
+        # `expected_rev` is REAL compare-and-set on this action, and it reaches
+        # BOTH shapes — a batch is the call most likely to have been composed
+        # against a read, so exempting it would leave the guard off where it
+        # matters most.
         if a.get("checks") is not None:
-            return org.work_check(nid, wid, checks=a.get("checks"))
+            return org.work_check(nid, wid, checks=a.get("checks"),
+                                  expected_rev=a.get("expected_rev"))
         return org.work_check(nid, wid, _arg_int(a, "index", -1),
                               str(a.get("evidence_ref") or ""), _s("note"),
                               classification=_s("classification"),
@@ -7487,9 +7499,11 @@ def _work_mutate_action(org: Org, nid: str, a: dict[str, Any],
                               execution=_s("execution"), result=_s("result"),
                               gate=_s("gate"),
                               blocked_count=a.get("blocked_count"),
-                              composition=_s("composition"))
+                              composition=_s("composition"),
+                              expected_rev=a.get("expected_rev"))
     if act == "accept":
-        return org.work_accept(nid, wid, _s("note"))
+        return org.work_accept(nid, wid, _s("note"),
+                               expected_rev=a.get("expected_rev"))
     if act == "archive":
         return org.work_archive_now(nid, wid)
     if act == "move":

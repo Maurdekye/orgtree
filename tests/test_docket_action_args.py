@@ -15,11 +15,17 @@ action — followed by a revision bump that claimed something had changed.
 WHAT THE AUDIT FOUND (2026-09-17, against ded9ab4):
 
   * `expected_rev` was the one piece of genuinely dead schema. The card said
-    "update/evidence/receipt and every other mutating action"; it is read by
+    "update/evidence/receipt and every other mutating action"; it was read by
     eight, and nineteen actions — `receipt` among them, named on the card —
     read it not at all. That is the worst shape of this bug, because the
     field's whole purpose is to make a call SAFE: a caller passing it believed
     it had compare-and-set and had none. Refused now, and the card corrected.
+
+    ⚠ TWO OF THOSE NINETEEN LATER EARNED THE REAL THING instead of the
+    refusal, on their own ticket: `check` and `accept` write the acceptance
+    record that decides whether an item is complete, so they honour
+    `expected_rev` for real and ten actions now do. Seventeen still refuse it
+    — two of those (`receipt`, `rangediff`) because they do their own.
   * `slug` on `list` (reads as a filter) and on `create` (reads as choosing
     the new item's name; names are minted from `title`).
   * `note` on artifact `revoke`, while `grant` and `review_revoke` both keep
@@ -40,7 +46,9 @@ WHAT THIS SUITE PINS:
   §4  The refusal names the field AND the action that does write it.
   §5  `expected_rev` is refused everywhere it is dead, and the message
       distinguishes "redundant here" (receipt/rangediff, which do their own
-      compare-and-set) from "no protection at all" (the other seventeen).
+      compare-and-set) from "no protection at all" (the other fifteen).
+      `check` and `accept` are in NEITHER group any more — they honour it for
+      real, and tests/test_work_accept_check_cas.py pins that behaviour.
   §6  The read-shaped actions are guarded too, and say so differently: a read
       moves no revision, so it must not claim one did not move.
   §7  The tool card no longer advertises `expected_rev` for actions that drop
@@ -361,19 +369,24 @@ class ExpectedRevIsTheDeadSchema(unittest.TestCase):
     """§5 — the one advertised-but-unread argument, and its two refusals.
 
     The card said "update/evidence/receipt and every other mutating action".
-    Eight honour it; nineteen read it not at all. The card is corrected in this
-    same commit, and that pairing is the point: this field is not `acceptance`,
-    which nobody could use successfully. Agents are passing `expected_rev`
-    right now, correctly, BECAUSE THE CARD TELLS THEM TO — so a refusal that
-    arrived before the correction would reject every careful caller for
-    following the documentation.
+    Eight honoured it; nineteen read it not at all. The card is corrected in
+    this same commit, and that pairing is the point: this field is not
+    `acceptance`, which nobody could use successfully. Agents are passing
+    `expected_rev` right now, correctly, BECAUSE THE CARD TELLS THEM TO — so a
+    refusal that arrived before the correction would reject every careful
+    caller for following the documentation.
+
+    ⚠ `check` and `accept` LEFT THIS SET on their own later ticket: they were
+    given genuine compare-and-set instead of a refusal, so they are asserted
+    as HONOURING it here and exercised in test_work_accept_check_cas.py.
+    Seventeen still refuse.
     """
 
     def test_nothing_is_exempt_from_the_guard_any_more(self):
         self.assertEqual(api._WORK_GUARD_EXEMPT, frozenset())
 
     def test_it_is_refused_wherever_it_is_dead(self):
-        for act in ("check", "claim", "accept", "participants", "decision",
+        for act in ("claim", "participants", "decision",
                     "move", "assign", "supersede", "archive", "delete",
                     "review", "verdict", "create", "handoff", "receipt",
                     "rangediff", "review_request", "review_grant",
@@ -383,12 +396,12 @@ class ExpectedRevIsTheDeadSchema(unittest.TestCase):
                                          "expected_rev": 3}, act)
             self.assertIn("`expected_rev`", str(e.exception), act)
 
-    def test_exactly_eight_actions_honour_it(self):
+    def test_exactly_ten_actions_honour_it(self):
         honour = sorted(k for k, v in api._WORK_ACTION_ARGS.items()
                         if "expected_rev" in v)
-        self.assertEqual(honour, ["addendum", "artifact", "dispose",
-                                  "evidence", "finding", "grant", "revoke",
-                                  "update"])
+        self.assertEqual(honour, ["accept", "addendum", "artifact", "check",
+                                  "dispose", "evidence", "finding", "grant",
+                                  "revoke", "update"])
 
     def test_every_honouring_action_has_the_ledger_parameter(self):
         """The allow-list is not the claim — the ledger signature is."""
@@ -399,15 +412,16 @@ class ExpectedRevIsTheDeadSchema(unittest.TestCase):
                         ("dispose", "work_finding_dispose"),
                         ("artifact", "work_artifact_record"),
                         ("grant", "work_artifact_grant"),
-                        ("revoke", "work_artifact_revoke")):
+                        ("revoke", "work_artifact_revoke"),
+                        ("check", "work_check"),
+                        ("accept", "work_accept")):
             sig = inspect.signature(getattr(ledger.Org, fn))
             self.assertIn("expected_rev", sig.parameters, act)
 
     def test_no_other_action_has_it(self):
         """The measurement behind the audit: these ledger methods have no
         compare-and-set parameter at all, so the argument reached nothing."""
-        for act, fn in (("check", "work_check"), ("claim", "work_claim"),
-                        ("accept", "work_accept"),
+        for act, fn in (("claim", "work_claim"),
                         ("participants", "work_participants"),
                         ("decision", "work_decision"), ("move", "work_move"),
                         ("supersede", "work_supersede"),
@@ -431,15 +445,24 @@ class ExpectedRevIsTheDeadSchema(unittest.TestCase):
             self.assertIn("stale", route)
 
     def test_the_others_are_told_they_had_no_protection(self):
-        route = api._work_field_route("expected_rev", "check")
+        route = api._work_field_route("expected_rev", "claim")
         self.assertIn("NO protection", route)
         self.assertIn("action=update", route)
         self.assertIn("action=evidence", route)
 
+    def test_the_route_now_names_check_and_accept_as_writers(self):
+        """The refusal a dead action gives is DERIVED from the allow-list, so
+        the two that gained real compare-and-set appear in it without anybody
+        editing the sentence. If this ever fails, the derivation was replaced
+        by a hand-written list and the next change will go stale silently."""
+        route = api._work_field_route("expected_rev", "claim")
+        self.assertIn("action=check", route)
+        self.assertIn("action=accept", route)
+
     def test_a_refused_expected_rev_moves_nothing(self):
         org, slug = fixture()
         before = json.dumps(org.d, sort_keys=True, default=str)
-        for act in ("check", "accept", "claim", "decision", "participants"):
+        for act in ("claim", "decision", "participants"):
             with self.assertRaises(LedgerError):
                 api._work_mutate_action(org, "owner-a",
                                         {"action": act, "slug": slug,
