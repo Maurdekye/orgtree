@@ -692,6 +692,28 @@ class CleanupScanTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 worktree.apply_cleanup(worktree.cleanup_scan(str(root)))
 
+    def test_the_cli_defaults_match_the_api_defaults(self) -> None:
+        """⚠ A CLI default below the API default is an invisible undercount.
+
+        This shipped once: ``--limit`` defaulted to ``SCAN_LIMIT`` (the
+        per-worktree budget) while ``cleanup_scan`` defaults to
+        ``SCAN_ROOT_LIMIT`` (the whole-root one, 5x larger). The command
+        truncated a 572,301-entry root at 400,000 and reported 64 links where
+        the library call on the same root reported 82 - and the operator running
+        the cleanup is on the command line.
+        """
+        args = worktree.build_parser().parse_args(["cleanup-scan", "some-root"])
+        self.assertEqual(args.limit, worktree.SCAN_ROOT_LIMIT)
+        self.assertEqual(args.max_depth, worktree.DEFAULT_SCAN_DEPTH)
+        self.assertEqual(args.name, worktree.DEPENDENCY_DIR)
+        # `remove` scans ONE worktree and correctly keeps the smaller budget;
+        # the two must not be conflated in either direction.
+        removal = worktree.build_parser().parse_args(["remove", "some-worktree"])
+        self.assertFalse(removal.accept_unscanned)
+        # And the whole-root budget must actually be the larger of the two,
+        # otherwise the names are backwards and this test passes vacuously.
+        self.assertGreater(worktree.SCAN_ROOT_LIMIT, worktree.SCAN_LIMIT)
+
     def test_the_cli_wires_scan_and_apply_together(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

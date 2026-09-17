@@ -117,7 +117,16 @@ SCAN_LIMIT = 400000
 #: below a depth-4 bound, none of which a depth-4 scan would have reported while
 #: still printing ``complete: true``. A default that silently undercounts a
 #: cleanup is worse than a slow one.
-DEFAULT_SCAN_DEPTH = 12
+#:
+#: 12 was still not enough to make the live roots a census - it left 743
+#: directories undescended and ``census: false``, which is honest but is not the
+#: answer an operator running a cleanup needs. The walk never follows a reparse
+#: point, so it cannot cycle and depth is only a cost control; the entry BUDGET
+#: is the real bound and it reports itself. So this is set high enough that a
+#: real tree comes back exhaustive (measured: the full primary root is 572,301
+#: entries and 46 seconds at unbounded depth) and left as a backstop rather than
+#: a policy.
+DEFAULT_SCAN_DEPTH = 64
 
 #: Never descended into. Recorded instead, so the output still says they were
 #: there. A real ``node_modules`` would exhaust the entry budget on its own and
@@ -1047,7 +1056,13 @@ def apply_cleanup(preview: Mapping[str, Any], *, confirm: bool = False) -> dict[
     return result
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """Build the CLI, separately from running it.
+
+    Separate so the defaults are testable. A CLI default that disagrees with the
+    API default it shadows is invisible from either side on its own - you have
+    to compare them, and you cannot compare what you cannot construct.
+    """
     parser = argparse.ArgumentParser(
         description="create, verify and remove private worktrees safely")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1097,15 +1112,26 @@ def main(argv: list[str] | None = None) -> int:
     scan.add_argument("--name", default=DEPENDENCY_DIR,
                       help=f"only select links with this name (default {DEPENDENCY_DIR}); "
                            f"pass --name '' to consider every name")
+    # ⚠ SCAN_ROOT_LIMIT, not SCAN_LIMIT. These defaults must match the ones on
+    # ``cleanup_scan`` itself: this is the path an operator actually runs, and a
+    # CLI default below the API default makes the command truncate on a real
+    # root and emit a short plan while the library call on the same root returns
+    # a full one. That shipped once - the whole-root budget is 5x the
+    # per-worktree one, and borrowing the smaller number here cut a 572,301-entry
+    # scan off at 400,000 and reported 64 links where there are 82.
     scan.add_argument("--max-depth", type=int, default=DEFAULT_SCAN_DEPTH)
-    scan.add_argument("--limit", type=int, default=SCAN_LIMIT)
+    scan.add_argument("--limit", type=int, default=SCAN_ROOT_LIMIT)
     apply_ = sub.add_parser(
         "cleanup-apply",
         help="unlink the links a cleanup-scan plan selected, after re-validating each one")
     apply_.add_argument("plan", help="path to a plan written by cleanup-scan, or - for stdin")
     apply_.add_argument("--confirm", action="store_true",
                         help="required; without it nothing is unlinked")
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     try:
         return _dispatch(args)
     except ValueError as error:
