@@ -2348,6 +2348,15 @@ def _org_view(slug: str, request: Request,
                 "rerouted": _rt.get("rerouted"),
                 "served_pool": _rt.get("served_pool"),
                 "live": _live, "at": _rt.get("at"),
+                # ⚠ IS THIS TURN ON RESERVE — three-valued, and the ONLY
+                # field a surface may gate the reserve card on (user ruling
+                # 2026-09-16). null is "not established", which is NOT
+                # false: an unattributable reroute lands here, and a card
+                # shown on it would be claiming a lane nobody read. Sent
+                # beside `label` and from the same one definition, so the
+                # desk and the near-zoom card cannot disagree about when
+                # the card appears or re-derive the question from `tier`.
+                "on_reserve": codex_route.on_reserve(_rt_view),
                 "label": codex_route.route_label(_rt_view, live=_live)}
         else:
             node["codex_route"] = None

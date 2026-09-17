@@ -6108,9 +6108,13 @@ html.mobile .md table { display: block; overflow-x: auto; max-width: 100%; }
    actually ran on, on the header's second row beside "ran as". Luna's own
    tier colour, at full ink while the turn is LIVE on that pool and dimmed
    once it describes the last turn (the label then says "last: …" too, so
-   the state is never mistaken for a current one). `route-direct` is the
-   "reserve out" disclosure — same family, no ink, so it reads as news
-   rather than as a warning. */
+   the state is never mistaken for a current one).
+   ⚠ `route-reserve` IS THE ONLY CLASS THIS TOKEN CAN WEAR NOW (user ruling
+   2026-09-16: "only show a card when its on reserve"). `RouteBadge` renders
+   nothing at all for a luna on the plan pool, so the `route-direct` and
+   `route-unknown` rules below are unreachable; they are kept only so a
+   pre-existing bundle's markup does not lose its styling, and nothing
+   emits them. */
 .badge.route-reserve { color: color-mix(in srgb, var(--tier-luna) 70%, var(--dim));
   border-color: color-mix(in srgb, var(--tier-luna) 35%, transparent); white-space: nowrap; }
 .badge.route-reserve.live { color: var(--tier-luna);

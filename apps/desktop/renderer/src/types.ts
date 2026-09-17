@@ -1558,6 +1558,18 @@ export interface CodexRouteInfo {
   served_pool?: 'reserve' | 'plan' | null
   live: boolean
   at: string | null
+  /** IS THIS TURN ON THE RESERVE BUCKET (user ruling 2026-09-16: "dont show a
+   *  card on a luna when it isnt running on reserve; only show a card when
+   *  its on reserve"). THREE-VALUED, and the third value is the point:
+   *  `true` = it ran or is running on reserve, `false` = it ran on the plan
+   *  pool, `null` = NOT ESTABLISHED — an unattributable provider reroute, a
+   *  tier that does not route, or an older backend that never sent the
+   *  field. `null` IS NOT `false`: hiding on it is a deliberate refusal to
+   *  claim a lane, not a negative reading. The backend composes it
+   *  (`codex_route.on_reserve`) from the same record it composes `label`
+   *  from; no surface re-derives it, and nothing derives it from the tier —
+   *  deriving it from the tier is the bug this field was added to end. */
+  on_reserve?: boolean | null
   label: string | null
 }
 /** ⚠ `update_available` is a TRISTATE: `null` means "cannot tell" (no CLI, no

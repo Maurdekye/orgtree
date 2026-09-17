@@ -188,7 +188,11 @@ test('a busy Codex agent wears its card BESIDE the reserve badge, and a busy '
     route: 'reserve', pool: 'reserve', model: 'gpt-5.6', requested: 'gpt-5.6',
     reason: 'preference', selection: 'preflight', prefer: 'reserve',
     outcome: null, reported_model: null, live: true, at: null,
-    label: 'reserve',
+    // `on_reserve` is the backend's lane answer and the reserve card's one
+    // gate (user ruling 2026-09-16); true here because this fixture is a
+    // genuine reserve turn and the point of the test is that the account
+    // card sits BESIDE the reserve token rather than replacing it
+    on_reserve: true, label: 'reserve',
   } as CanvasNode['codex_route']
   const codex = await card(agent({
     id: 'luna-worker', busy: true, tier: 'luna', model_id: 'luna',
@@ -456,7 +460,7 @@ test('§2m the existing badges are all still there beside it', async (t: TestCon
     codex_route: { route: 'reserve', pool: 'reserve', model: 'gpt-reserve',
       requested: 'luna', reason: 'granted', selection: 'preflight',
       prefer: 'reserve', outcome: null, reported_model: null, live: true,
-      at: '2026-09-13T12:00:00Z', label: 'reserve' },
+      at: '2026-09-13T12:00:00Z', on_reserve: true, label: 'reserve' },
   })
   const view = await card(n, 'norm')
   t.after(() => view.unmount())

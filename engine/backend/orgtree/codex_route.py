@@ -793,47 +793,94 @@ def classify_failure(*, status: str | None, error: Any, snapshots: Any,
         usage_prose=usage_prose, served=served, now=now))
 
 
+def on_reserve(route: Route | None, rerouted: Any = "<record>") -> bool | None:
+    """IS THIS TURN ON THE RESERVE BUCKET — the ONE answer, and deliberately
+    THREE-VALUED (user ruling 2026-09-16: "dont show a card on a luna when it
+    isnt running on reserve; only show a card when its on reserve").
+
+    True   — the turn ran, or is running, on the reserve pool.
+    False  — it ran on the plan pool: reserve preference off, reserve
+             withdrawn, reserve spent, or the provider rerouted it off.
+    None   — NOT KNOWABLE, which is a third thing and not a quiet False.
+
+    ⚠ WHY THIS EXISTS AT ALL. Before it the wire carried `route`, `pool`,
+    `served_pool` and a prose `label`, and no reader could tell "not on
+    reserve" from "we have not established it": `served_pool` is None BOTH
+    when no reroute happened (read `route` instead) AND when the server
+    rerouted onto a model no pool is known for. One null, two facts. Every
+    surface then had to re-derive the question from three fields, and the
+    card that started this ticket was derived from the tier instead.
+
+    ⚠ A STALE BOARD DOES NOT MAKE THIS UNKNOWN, and getting that backwards
+    would hide the card on most healthy turns. `resolve` will pick reserve on
+    evidence it does not have — `reason` comes back `board-stale` or
+    `board-unknown` — because unknown never excludes and the turn is its own
+    probe. But a reserve route puts `gpt-reserve` on the wire, and sending
+    that model IS spending the reserve bucket. The staleness is in the
+    evidence that informed the CHOICE, never in which lane the turn went
+    down. So those turns answer True.
+
+    The one genuinely unknown lane is the unattributable reroute: the server
+    reported `model/rerouted` to an id `served_pool` cannot place, so where
+    it ran is not established and is not inferred.
+
+    `rerouted` is read off the record (the shape `_codex_route_stamp`
+    writes) unless passed, exactly as `route_label` does.
+    """
+    if not route or route.get("requested") != ROUTED_TIER:
+        return None                         # a tier that does not route
+    record = cast("dict[str, Any]", route)  # the stamp's superset shape
+    if not record.get("pool"):
+        # a receipt that does not name the pool it was sent to establishes
+        # nothing; `route` is not read as a stand-in for it, because the
+        # whole point of this function is not to infer the lane
+        return None
+    rr = record.get("rerouted") if rerouted == "<record>" else rerouted
+    served = served_pool(route, rr if isinstance(rr, dict) else None)
+    if served is None:
+        return None                         # rerouted somewhere unattributable
+    return served == RESERVE_POOL
+
+
 def route_label(route: Route | None, *, live: bool,
                 rerouted: Any = "<record>") -> str | None:
     """The header token text (user spec 2026-09-04: a token on the header's
     second row when Luna RUNS ON RESERVE; must reflect the actual route and
     must say when it describes the LAST turn rather than a live one).
 
-    Nothing (None) for tiers that do not route and for a direct Luna with no
-    reserve story to tell — the token carries news or it is absent.
+    ⚠ THE TOKEN IS A RESERVE CARD AND NOTHING ELSE (user ruling 2026-09-16:
+    "dont show a card on a luna when it isnt running on reserve; only show a
+    card when its on reserve"). `on_reserve` above is the gate, and anything
+    it does not answer True — a plan-pool turn, a reroute off reserve, a
+    reroute nobody can attribute, any tier that does not route — is None
+    here. The token carries the reserve news or it is absent.
 
-    ⚠ A KNOWN REROUTE CHANGES THE TOKEN (parent review 2026-09-05). The
-    token is about where the turn RAN, and when the server reported
-    `model/rerouted` the selected pool is not where it ran. `rerouted` is
-    read off the record (the shape `_codex_route_stamp` writes) unless
-    passed; a reroute onto the reserve model wears "reserve", one off
-    reserve onto the direct model wears "direct · rerouted off reserve",
-    and one onto a model this code does not know wears "rerouted · pool
-    unknown" — the destination is not inferred. The selected route stays
-    in the record beside it; the token never claims billing.
+    THIS USED TO SPEAK FOR THE OTHER CASES TOO and that was the bug. A luna
+    running direct because reserve was spent or withdrawn wore "direct ·
+    reserve out", and one the provider bounced off reserve wore "direct ·
+    rerouted off reserve" — both of them a reserve card on an agent that was
+    not on reserve, which is exactly what the user could not tell apart. An
+    unattributable reroute wore "rerouted · pool unknown", which is a card
+    built on a lane nobody established. All three are gone; the route record
+    still carries every one of those facts (`route`, `pool`, `served_pool`,
+    `reason`) for anything that wants to say so in its own words.
+
+    ⚠ A KNOWN REROUTE ONTO RESERVE STILL COUNTS (parent review 2026-09-05).
+    The token is about where the turn RAN, not where it was sent, so a turn
+    selected direct and rerouted onto the reserve model wears "reserve ·
+    rerouted" — `on_reserve` reads the destination for the same reason.
+
+    `live` is the whole distinction between "reserve" and "last: reserve":
+    a token that cannot tell a running turn from yesterday's is the
+    stale-state failure the 2026-09-04 spec names.
     """
-    if not route or route.get("requested") != ROUTED_TIER:
+    if on_reserve(route, rerouted) is not True:
         return None
     prefix = "" if live else "last: "
     record = cast("dict[str, Any]", route)      # the stamp's superset shape
     rr = record.get("rerouted") if rerouted == "<record>" else rerouted
-    if isinstance(rr, dict):
-        served = served_pool(route, rr)
-        if served is None:
-            return prefix + "rerouted · pool unknown"
-        if served == RESERVE_POOL:
-            return prefix + ("reserve · rerouted" if route.get("route") != "reserve"
-                             else "reserve")
-        if route.get("route") == "reserve":
-            return prefix + "direct · rerouted off reserve"
-        # sent direct, served direct (a reroute between direct models)
-    if route.get("route") == "reserve":
-        return prefix + "reserve"
-    reason = str(route.get("reason") or "")
-    if (reason.startswith("reserve-") or reason == "no-grant"
-            or reason.startswith("both-out:")):
-        # a luna that ran direct because reserve is spent, withdrawn or
-        # rejected it: disclosed, because reserve is out. A plan-first luna
-        # running direct by preference has nothing to disclose.
-        return prefix + "direct · reserve out"
-    return None
+    # sent direct, served reserve: say so, so "reserve" is never read as the
+    # pool that was chosen when it is the pool that answered
+    if isinstance(rr, dict) and route.get("route") != "reserve":
+        return prefix + "reserve · rerouted"
+    return prefix + "reserve"

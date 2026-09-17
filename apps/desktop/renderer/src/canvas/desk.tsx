@@ -176,36 +176,54 @@ export const subscribeAgeClock = (fn: () => void) => {
   }
 }
 
-/** The route token (item 12; user spec 2026-09-04) — shared by the desk's
- * meta row and the card's badge row so the two cannot word it differently.
- * Renders ONLY the backend's `label`: "reserve" while a luna turn is running
- * on the reserve pool, "direct · reserve out" while it runs direct because
- * reserve is spent/withdrawn, and the same with a "last: " prefix when it
- * describes the previous turn rather than a live one. A null label (every
- * other tier; a direct luna with nothing to disclose) renders nothing — the
- * token carries news or it is absent. The tooltip states the selected model
- * and, apart from it, what the provider reported back; neither is a claim
- * about which weights answered. */
+/** THE RESERVE CARD (item 12; user spec 2026-09-04, narrowed by the user
+ * 2026-09-16) — shared by the desk's meta row and the near-zoom card's badge
+ * row so the two cannot word it differently or disagree about when it shows.
+ *
+ * ⚠ IT APPEARS ONLY WHEN THE AGENT IS ACTUALLY ON RESERVE. The user's words:
+ * "dont show a card on a luna when it isnt running on reserve; only show a
+ * card when its on reserve". Being a Luna is NOT the condition — a Luna
+ * spends the normal weekly limit whenever its reserve preference is off,
+ * reserve is withdrawn, or reserve is spent, and the card used to stay up
+ * through all three wearing "direct · reserve out", asserting a lane the
+ * agent was not on. The backend now emits no label for those turns.
+ *
+ * ⚠ THIS COMPONENT DECIDES NOTHING, and must not start. `on_reserve` is the
+ * backend's own three-valued answer (`codex_route.on_reserve`) and the guard
+ * below is the whole rule: `true` shows, `false` and `null` show nothing.
+ * Re-deriving it here from `route`/`pool`/`served_pool` — or, worse, from the
+ * tier — would be a second definition to drift, and deriving it from the tier
+ * is precisely the bug that produced the wrong card.
+ *
+ * ⚠ `null` IS NOT `false` AND IS NOT ZERO. It means the lane was never
+ * established: the provider rerouted the turn onto a model no pool is known
+ * for, or the payload predates the field. Requiring `=== true` refuses to
+ * claim reserve on evidence nobody has, which is the same failure this change
+ * exists to end — a confident card built on a reading that was never taken.
+ * An absent field therefore hides rather than defaulting to shown.
+ *
+ * The text is the backend's `label`, rendered verbatim: "reserve" while the
+ * turn runs, "last: reserve" once it has ended, and "· rerouted" appended
+ * when the turn was sent direct and the provider served it on reserve. The
+ * tooltip states the selected model and, apart from it, what the provider
+ * reported back; neither is a claim about which weights answered. */
 export function RouteBadge({ route }: { route?: CodexRouteInfo | null }) {
-  if (!route?.label) return null
+  // the ONE gate — the backend's answer, not ours. `!== true` covers false
+  // (ran on the plan pool) and null/undefined (never established) alike.
+  if (!route?.label || route.on_reserve !== true) return null
   const reported = route.reported_model
     ? `; provider reported ${route.reported_model}`
     : '; provider reported nothing'
   // a KNOWN reroute: the server said it served another model than the one
-  // sent; the pool that ran is the destination's, or unknown — said so,
-  // never inferred (parent review 2026-09-05)
+  // sent. It is still on the board here only because it landed ON reserve;
+  // a reroute OFF reserve no longer reaches this component at all.
   const rerouted = route.rerouted
     ? `; the provider rerouted it to ${route.rerouted.toModel ?? '?'}`
       + (route.served_pool ? ` (the ${route.served_pool} pool)` : ' (no known pool)')
     : ''
   const when = route.live ? 'this turn' : `last turn${route.at ? ` (${ago(route.at)})` : ''}`
-  // the class names the pool that RAN when known, the selected one otherwise
-  const ran = route.rerouted
-    ? (route.served_pool === 'reserve' ? 'reserve'
-      : route.served_pool === 'plan' ? 'direct' : 'unknown')
-    : route.route
   return (
-    <span className={'badge route-' + ran + (route.live ? ' live' : '')}
+    <span className={'badge route-reserve' + (route.live ? ' live' : '')}
       data-route-live={route.live ? '1' : '0'}
       title={`${when} was sent as ${route.model} on the ${route.route} pool `
         + `(${route.reason}${route.selection === 'retry' ? ', after the other pool rejected it' : ''})`

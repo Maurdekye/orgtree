@@ -4,13 +4,22 @@
 // (on by default; off = weekly first, reserve second) that is set at hire
 // and editable later.
 //
+// ⚠ NARROWED 2026-09-16 (user: "dont show a card on a luna when it isnt
+// running on reserve; only show a card when its on reserve"). The token is a
+// RESERVE card and nothing else: a luna on the plan pool, one the provider
+// rerouted off reserve, and one whose lane was never established all render
+// NOTHING. `on_reserve` on the payload is the single gate — three-valued,
+// and the renderer requires `true`, so `false` and `null` alike show no
+// card. The renderer does not re-derive it from `route`/`pool`/`tier`;
+// deriving it from the tier is the bug that produced the wrong card.
+//
 // These are REAL DOM tests (parent review 2026-09-05: source assertions do
 // not prove a live render): the desk header is mounted, re-rendered on the
 // same root through the live → last transition, and read; the gear and the
 // draft modal are mounted and clicked, and the request they send is read.
 //
 // The label TEXT is the backend's (`codex_route.route_label`, pinned in
-// backend/tests/test_luna_reserve_route.py); the fixtures below carry the
+// tests/test_luna_reserve_card.py); the fixtures below carry the
 // exact strings it emits so the desk cannot be shown rendering something
 // the backend never sends.
 
@@ -34,7 +43,7 @@ function route(extra: Partial<CodexRouteInfo>): CodexRouteInfo {
     route: 'reserve', pool: 'reserve', model: 'gpt-reserve', requested: 'luna',
     reason: 'granted', selection: 'preflight', prefer: 'reserve', outcome: null,
     reported_model: 'gpt-reserve', live: true, at: '2026-09-05T02:00:00Z',
-    label: 'reserve', ...extra,
+    on_reserve: true, label: 'reserve', ...extra,
   }
 }
 
@@ -92,43 +101,98 @@ test('desk header row 2 wears the reserve token while the turn runs, then "last:
     assert.equal(after!.getAttribute('data-route-live'), '0')
     assert.match(after!.title, /last turn/)
 
-    // a direct luna running because reserve is out discloses it, and a
-    // KNOWN reroute off reserve names where it actually ran
+    // A KNOWN REROUTE ONTO RESERVE still wears the card — the token is
+    // about where the turn RAN, not where it was sent
     await view.render(desk(luna({ busy: true, codex_route: route({
-      route: 'direct', pool: 'plan', model: 'gpt-5.6-luna', reason: 'reserve-exhausted',
-      live: true, label: 'direct · reserve out' }) })))
+      route: 'direct', pool: 'plan', model: 'gpt-5.6-luna', live: true,
+      on_reserve: true, label: 'reserve · rerouted', served_pool: 'reserve',
+      rerouted: { fromModel: 'gpt-5.6-luna', toModel: 'gpt-reserve', reason: 'x' } }) })))
     await flush()
-    const direct = routeBadge(view.el)!
-    assert.equal(direct.textContent, 'direct · reserve out')
-    assert.ok(direct.classList.contains('route-direct'))
-    await view.render(desk(luna({ busy: true, codex_route: route({
-      live: true, label: 'direct · rerouted off reserve', served_pool: 'plan',
-      rerouted: { fromModel: 'gpt-reserve', toModel: 'gpt-5.6-luna', reason: 'x' } }) })))
-    await flush()
-    const rerouted = routeBadge(view.el)!
-    assert.equal(rerouted.textContent, 'direct · rerouted off reserve')
-    assert.ok(rerouted.classList.contains('route-direct'),
-      'a reroute onto the direct model must wear the pool that RAN, not the one selected')
-    assert.match(rerouted.title, /rerouted it to gpt-5\.6-luna \(the plan pool\)/)
-    await view.render(desk(luna({ busy: false, codex_route: route({
-      live: false, label: 'last: rerouted · pool unknown', served_pool: null,
-      rerouted: { fromModel: 'gpt-reserve', toModel: 'gpt-9-mystery', reason: 'x' } }) })))
-    await flush()
-    const unknown = routeBadge(view.el)!
-    assert.equal(unknown.textContent, 'last: rerouted · pool unknown')
-    assert.ok(unknown.classList.contains('route-unknown'))
-    assert.match(unknown.title, /no known pool/)
+    const onto = routeBadge(view.el)!
+    assert.equal(onto.textContent, 'reserve · rerouted')
+    assert.ok(onto.classList.contains('route-reserve'),
+      'a reroute ONTO reserve must wear the pool that RAN, not the one selected')
+    assert.match(onto.title, /rerouted it to gpt-reserve \(the reserve pool\)/)
+  })
 
-    // nothing to disclose (a plan-first luna on direct by preference; any
-    // other tier): no token at all
-    await view.render(desk(luna({ busy: false, codex_route: route({
-      route: 'direct', pool: 'plan', reason: 'preferred', prefer: 'plan',
-      live: false, label: null }) })))
-    await flush()
-    assert.equal(routeBadge(view.el), null, 'a null label must render no token')
-    await view.render(desk(luna({ busy: false, codex_route: null })))
+// ⚠ THE TICKET (user ruling 2026-09-16, docket
+// `only-show-the-reserve-card-on-a-luna-agent-when`): "dont show a card on a
+// luna when it isnt running on reserve; only show a card when its on
+// reserve". Being a Luna was never the condition — a Luna spends the normal
+// weekly limit whenever its reserve preference is off, the reserve lane is
+// unavailable, or reserve is spent — and the card used to stay up through all
+// of those, claiming a lane the agent was not on.
+//
+// Asserted at the RENDERER even though the backend already withholds the
+// label, because the renderer's guard is the one that must not drift: it is
+// what stops a future payload, a stale bundle or a hand-built fixture from
+// putting a reserve card on a non-reserve agent.
+test('the card is absent on every luna that is NOT on reserve, and on an unknown lane',
+  async (t: TestContext) => {
+    installFetch(new FakeServer())
+    const view = await mountView(desk(luna({ codex_route: null })), (el) => el)
+    t.after(() => view.unmount())
     await flush()
     assert.equal(routeBadge(view.el), null, 'no record, no token')
+
+    // every way a luna falls through to the normal weekly limit. The backend
+    // sends no label for these now; the payloads below carry the route facts
+    // it still sends, and `on_reserve: false` is its answer.
+    const offReserve: Partial<CodexRouteInfo>[] = [
+      // reserve spent
+      { route: 'direct', pool: 'plan', model: 'gpt-5.6-luna',
+        reason: 'reserve-exhausted' },
+      // the reserve lane is not granted on this account at all
+      { route: 'direct', pool: 'plan', model: 'gpt-5.6-luna', reason: 'no-grant' },
+      // the user turned the per-agent "Prefer reserve" box OFF
+      { route: 'direct', pool: 'plan', model: 'gpt-5.6-luna', reason: 'preferred',
+        prefer: 'plan' },
+      // an api-key login holds no reserve grant
+      { route: 'direct', pool: 'plan', model: 'gpt-5.6-luna', reason: 'login-kind' },
+      // both pools out: sent to the preferred one, still not on reserve
+      { route: 'direct', pool: 'plan', model: 'gpt-5.6-luna',
+        reason: 'both-out:reserve-exhausted,direct-exhausted' },
+      // the provider bounced the turn OFF reserve onto the direct model
+      { served_pool: 'plan',
+        rerouted: { fromModel: 'gpt-reserve', toModel: 'gpt-5.6-luna', reason: 'x' } },
+    ]
+    for (const r of offReserve) {
+      for (const live of [true, false]) {
+        await view.render(desk(luna({ busy: live, codex_route: route({
+          ...r, live, on_reserve: false, label: null }) })))
+        await flush()
+        assert.equal(routeBadge(view.el), null,
+          `a card survived on a luna that is not on reserve: ${r.reason ?? 'rerouted'} live=${live}`)
+      }
+    }
+
+    // ⚠ UNKNOWN IS NOT THE SAME AS "NOT ON RESERVE", AND IT IS NOT ZERO. The
+    // provider rerouted onto a model no pool is known for, so where the turn
+    // ran was never established. It hides — a card here would be a confident
+    // claim built on a reading nobody took, which is the same class of bug as
+    // the one this ticket fixes — but it hides on an explicit `null`, not by
+    // being mistaken for a negative reading.
+    await view.render(desk(luna({ busy: true, codex_route: route({
+      live: true, on_reserve: null, label: null, served_pool: null,
+      rerouted: { fromModel: 'gpt-reserve', toModel: 'gpt-9-mystery', reason: 'x' } }) })))
+    await flush()
+    assert.equal(routeBadge(view.el), null, 'an unestablished lane must show no card')
+
+    // and the renderer's own guard, independent of the backend: even handed a
+    // label it must not render one unless the lane answer is exactly `true`
+    for (const on of [false, null, undefined]) {
+      await view.render(desk(luna({ busy: true, codex_route: route({
+        live: true, on_reserve: on, label: 'reserve' }) })))
+      await flush()
+      assert.equal(routeBadge(view.el), null,
+        `the renderer rendered a reserve card on on_reserve=${String(on)}`)
+    }
+    // ...and that the same guard still lets a real reserve turn through, so
+    // the assertions above are not passing because nothing ever renders
+    await view.render(desk(luna({ busy: true, codex_route: route({ live: true }) })))
+    await flush()
+    assert.equal(routeBadge(view.el)?.textContent, 'reserve',
+      'the positive control stopped rendering — the checks above prove nothing')
   })
 
 // ------------------------------------------------------------ the checkbox
