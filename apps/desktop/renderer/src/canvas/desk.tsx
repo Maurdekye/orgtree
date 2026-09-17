@@ -3489,18 +3489,25 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
         cheapCompactOn={node.cheap_compact_on}
         cheapCompactOcc={node.cheap_compact_occ} contextRatio={contextRatio} />
       <div className={'cc-composer' + (canMail ? '' : ' off') + (noticeArmed ? ' notice-armed' : '')}>
-        <button className="cc-attach" disabled={!canMail}
-          title="attach a file — it lands in the agent's uploads/ folder"
-          onClick={() => fileRef.current?.click()}>
-          <FileIcon fontSize="inherit" /></button>
-        <button className={'cc-notice-toggle' + (noticeArmed ? ' armed' : '')}
-          type="button"
-          disabled={!canMail}
-          aria-label={noticeArmed ? 'Notice-send armed: next message arrives as a passive notice' : 'Notice-send: send next message as a passive notice'}
-          title={noticeArmed ? 'Notice-send armed: next message will arrive as a passive notice without waking recipient (Alt+N)' : 'Send next message as a passive notice without waking recipient (Alt+N)'}
-          onClick={() => toggleNoticeArmed()}>
-          {noticeArmed ? <NotificationsActiveIcon fontSize="inherit" /> : <NotificationsIcon fontSize="inherit" />}
-        </button>
+        {/* the notice toggle sits ABOVE the attach button, not beside it
+            (user 2026-09-17). One column, bottom-aligned by the composer's
+            align-items:flex-end, so the attach button stays exactly where it
+            always was on the composer's baseline and the toggle rides above
+            it. Moving the control only — its behaviour is untouched. */}
+        <div className="cc-btnstack">
+          <button className={'cc-notice-toggle' + (noticeArmed ? ' armed' : '')}
+            type="button"
+            disabled={!canMail}
+            aria-label={noticeArmed ? 'Notice-send armed: next message arrives as a passive notice' : 'Notice-send: send next message as a passive notice'}
+            title={noticeArmed ? 'Notice-send armed: next message will arrive as a passive notice without waking recipient (Alt+N)' : 'Send next message as a passive notice without waking recipient (Alt+N)'}
+            onClick={() => toggleNoticeArmed()}>
+            {noticeArmed ? <NotificationsActiveIcon fontSize="inherit" /> : <NotificationsIcon fontSize="inherit" />}
+          </button>
+          <button className="cc-attach" disabled={!canMail}
+            title="attach a file — it lands in the agent's uploads/ folder"
+            onClick={() => fileRef.current?.click()}>
+            <FileIcon fontSize="inherit" /></button>
+        </div>
         <input type="file" ref={fileRef} style={{ display: 'none' }} multiple
           onChange={(e) => {
             [...e.target.files!].forEach(attach)

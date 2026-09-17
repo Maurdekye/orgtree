@@ -1707,12 +1707,21 @@ button.cc-name:hover {
   padding: 7px 9px;
 }
 .cc-composer:focus-within { border-color: var(--accent); }
+/* Notice mode wears the notice flair's STYLE and the provider's COLOUR (user
+   2026-09-17: "make the outline on a notice enabled message box provider
+   colored still, not grey"). The dashed style stays on the shared
+   --notice-edge-style token so this edge can never drift from the notice mail
+   card's; only the colour is the composer's own, and it is `--accent`, which
+   `.desk-body.prov-*` already resolves to the desk's provider colour (and to
+   the org accent under agent-colors-organization). The transcript card keeps
+   the neutral --notice-edge-color: a passive card in the reading column must
+   not shout, an armed composer must. */
 .cc-composer.notice-armed {
   border-style: var(--notice-edge-style);
   border-width: 1px;
-  border-color: var(--notice-edge-color);
+  border-color: var(--accent);
 }
-.cc-composer.notice-armed:focus-within { border-color: var(--notice-edge-color); }
+.cc-composer.notice-armed:focus-within { border-color: var(--accent); }
 .cc-composer.off { opacity: .6; }
 .cc-composer textarea {
   flex: 1; min-width: 0;
@@ -5297,6 +5306,15 @@ svg.MuiSvgIcon-root {
 .rec-actor { color: var(--dim); margin-right: 8px; }
 .rec-warn { color: var(--work); font-size: 11px; padding-left: 14px; }
 
+/* the composer's left column: the notice toggle ABOVE the attach button
+   (user 2026-09-17), not beside it. `flex: none` and `align-items: center`
+   keep both circles at their own 24px — the column never stretches them —
+   and the composer's own `align-items: flex-end` lands the stack's BOTTOM on
+   the composer baseline, so the attach button does not move. */
+.cc-btnstack {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 4px; flex: none;
+}
 /* file attach in the composer — same 24px circle family as send, so the
    row's controls read as one aligned set (user design pass) */
 .cc-attach {

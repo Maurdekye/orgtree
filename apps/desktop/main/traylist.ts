@@ -68,10 +68,21 @@ export const AUTORENEW_SVG =
   '<path d="M12 6v3l4-4-4-4v3c-4.42 0-8 3.58-8 8 0 1.57.46 3.03 1.24 4.26L6.7 14.8c-.45-.83-.7-1.79-.7-2.8 0-3.31 2.69-6 6-6m6.76 1.74L17.3 9.2c.44.84.7 1.79.7 2.8 0 3.31-2.69 6-6 6v-3l-4 4 4 4v-3c4.42 0 8-3.58 8-8 0-1.57-.46-3.03-1.24-4.26"/>' +
   '</svg>'
 
-/** The popup's complete document. One CSS grid holds every cell and the rows
- *  are `display: contents`, so all three columns align ACROSS rows (a grid
- *  per row would size its own columns). The spinner cell exists in every row
- *  — the animation only when that org is active — so names start flush. */
+/** The popup's complete document. One CSS grid holds every row and each row
+ *  is a `subgrid`, so all three columns align ACROSS rows (an INDEPENDENT
+ *  grid per row would size its own columns) while the row itself is still a
+ *  single box. The spinner cell exists in every row — the animation only when
+ *  that org is active — so names start flush.
+ *
+ *  ⚠ THE ROW IS ONE BOX ON PURPOSE (user bug 2026-09-17). The rows used to be
+ *  `display: contents` and the highlight was painted on each CELL. Because
+ *  the grid centred its items instead of stretching them, the empty activity
+ *  cell of an idle org was only its own 10px of padding tall while the name
+ *  and count cells were the full 28px — so a highlighted row rendered as a
+ *  short stub block beside a tall one, the "two-section split" the user
+ *  reported. A subgridded row keeps the cross-row alignment the columns need
+ *  and gives the highlight ONE element to paint: one wide rounded rectangle
+ *  spanning activity, name and count, with no internal seam in any state. */
 export function trayListHtml(rows: OrgActivityRow[] | null, theme?: VisualTheme | string | null): string {
   const accent = themeAccent(theme)
   const body = rows === null
@@ -90,11 +101,12 @@ export function trayListHtml(rows: OrgActivityRow[] | null, theme?: VisualTheme 
     `:root{color-scheme:dark;--accent:${accent}}*{box-sizing:border-box;margin:0;padding:0}` +
     'html,body{background:#181818;color:#dedede;overflow-x:hidden}' +
     'body{font:13px \'Segoe UI\',system-ui,sans-serif;border:1px solid #333;padding:5px}' +
-    `.list{display:grid;grid-template-columns:18px minmax(0,1fr) max-content;align-items:center;line-height:${TRAY_ROW_H - 10}px}` +
-    '.row{display:contents;color:inherit;text-decoration:none;cursor:default}' +
-    '.row>span{padding:5px 5px;white-space:nowrap}' +
-    '.row:hover>span{background:color-mix(in srgb,var(--accent) 10%,transparent);color:#f0f0f0}' +
-    '.row:focus-visible>span{background:color-mix(in srgb,var(--accent) 15%,transparent);color:#fff;outline:none}' +
+    `.list{display:grid;grid-template-columns:18px minmax(0,1fr) max-content;line-height:${TRAY_ROW_H - 10}px}` +
+    '.row{display:grid;grid-column:1/-1;grid-template-columns:subgrid;align-items:center;' +
+    'border-radius:6px;padding:5px 0;color:inherit;text-decoration:none;cursor:default}' +
+    '.row>span{padding:0 5px;white-space:nowrap;min-width:0}' +
+    '.row:hover{background:color-mix(in srgb,var(--accent) 10%,transparent);color:#f0f0f0}' +
+    '.row:focus-visible{background:color-mix(in srgb,var(--accent) 15%,transparent);color:#fff;outline:none}' +
     '.name{overflow:hidden;text-overflow:ellipsis}' +
     '.ct{text-align:right;font-variant-numeric:tabular-nums;color:#9a9a9a}' +
     '.act{display:inline-flex;align-items:center;justify-content:center}' +
