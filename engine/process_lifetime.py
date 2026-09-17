@@ -10,8 +10,6 @@ import json
 import os
 from pathlib import Path
 import queue
-import select
-import signal
 import subprocess
 import sys
 import threading
@@ -27,6 +25,8 @@ def arm_process_lifetime(root: str | Path, parent_pid: int | None = None, *, tim
     cleanup. Do not kill the guardian to detach it; doing so kills its owned tree.
     """
     global _guardian
+    if os.name != "nt":
+        raise RuntimeError("process ownership is currently supported on Windows only; a native platform adapter is required")
     if timeout <= 0:
         raise ValueError("guardian timeout must be positive")
     if _guardian is not None:
@@ -38,10 +38,7 @@ def arm_process_lifetime(root: str | Path, parent_pid: int | None = None, *, tim
     if parent_pid is not None and (not isinstance(parent_pid, int) or parent_pid <= 0):
         raise RuntimeError("invalid desktop parent PID")
     # Only platform plumbing is inherited, never the desktop/provider credentials.
-    if os.name == "nt":
-        allowed = {"SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATH", "SYSTEMDRIVE", "COMSPEC"}
-    else:
-        allowed = {"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL"}
+    allowed = {"SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATH", "SYSTEMDRIVE", "COMSPEC"}
     env = {k: v for k, v in os.environ.items() if k.upper() in allowed}
     env["ORGTREE_DATA"] = str(candidate)
     args = [sys.executable, str(Path(__file__).resolve()), "--watch", str(candidate), str(os.getpid()), str(parent_pid or 0)]
@@ -235,137 +232,16 @@ class WindowsTree:
         self.handles = []
 
 
-def _alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    except OSError:
-        return False
-    # A SIGKILLed process becomes a zombie until its true parent reaps it via wait()/waitpid().
-    # The guardian is never that parent (it is engine's child, not the other way round), so
-    # os.kill(pid, 0) alone cannot tell "still running" from "exited, awaiting reap by someone
-    # else" here; treat a zombie as not alive so terminate() does not stall on a dead process.
-    try:
-        stat = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
-    except Exception:
-        stat = ""
-    return not stat.startswith("Z")
-
-
-class PosixTree:
-    """Guardian enumerates and sweeps by process group; POSIX has no Job Object."""
-    def __init__(self, engine_pid: int, parent_pid: int | None):
-        self.engine_pid = engine_pid
-        self.parent_pid = parent_pid
-        self.armed = False
-
-    def arm(self):
-        # POSIX ownership is by watch(), not membership: no separate assignment call.
-        self.armed = True
-
-    def wait(self):
-        kq = select.kqueue()
-        try:
-            idents = [self.engine_pid] + ([self.parent_pid] if self.parent_pid else [])
-            events = [
-                select.kevent(pid, filter=select.KQ_FILTER_PROC,
-                              flags=select.KQ_EV_ADD | select.KQ_EV_ONESHOT,
-                              fflags=select.KQ_NOTE_EXIT)
-                for pid in idents
-            ]
-            kq.control(events, 0, 0)
-            kq.control(None, 1)
-        finally:
-            kq.close()
-
-    def _live_descendants(self) -> set[int]:
-        # `ps -axo pid=,ppid=` alone is not enough: once engine_pid exits, its still-living
-        # children are immediately reparented by the kernel (ppid changes atomically with the
-        # parent's exit), so a ppid-only walk starting from a now-dead engine_pid finds nothing
-        # on the common normal-exit path. Descendants that inherited engine_pid's own process
-        # group (no start_new_session) keep that pgid across reparenting, so seed discovery
-        # with a direct pgid match too, then ppid-walk from there to also catch escaped groups
-        # nested under a still-known pid.
-        out = subprocess.run(["ps", "-axo", "pid=,ppid=,pgid="], capture_output=True, text=True, check=True).stdout
-        by_parent: dict[int, list[int]] = {}
-        pgid_of: dict[int, int] = {}
-        for line in out.splitlines():
-            parts = line.split()
-            if len(parts) != 3:
-                continue
-            pid, ppid, pgid = int(parts[0]), int(parts[1]), int(parts[2])
-            by_parent.setdefault(ppid, []).append(pid)
-            pgid_of[pid] = pgid
-        # Exclude engine_pid itself: its own ps row trivially satisfies "pgid == engine_pid"
-        # (it is its own group leader), and a zombie's row keeps matching this after it dies,
-        # bypassing the zombie-aware _alive() check callers rely on for the root pid.
-        found: set[int] = {pid for pid, pgid in pgid_of.items() if pgid == self.engine_pid} - {self.engine_pid}
-        frontier = [self.engine_pid] + list(found)
-        while frontier:
-            parent = frontier.pop()
-            for child in by_parent.get(parent, []):
-                if child not in found:
-                    found.add(child)
-                    frontier.append(child)
-        return found
-
-    def terminate(self, code=0, stalled=None):
-        guardian_pid = os.getpid()
-        deadline = time.monotonic() + 10
-        while True:
-            descendants = (self._live_descendants() | {self.engine_pid}) - {guardian_pid}
-            pgids: set[int] = set()
-            for pid in descendants:
-                try:
-                    pgids.add(os.getpgid(pid))
-                except ProcessLookupError:
-                    continue
-            for pgid in pgids:
-                try:
-                    os.killpg(pgid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-            for pid in descendants:
-                try:
-                    os.kill(pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-            remaining = self._live_descendants() - {guardian_pid}
-            if _alive(self.engine_pid):
-                remaining.add(self.engine_pid)
-            if not remaining:
-                return
-            if time.monotonic() >= deadline:
-                if stalled:
-                    stalled(len(remaining))
-                deadline = time.monotonic() + 10
-            time.sleep(0.02)
-
-    def close(self):
-        pass
-
-
 def watch(root: Path, engine: int, parent: int):
     lock = tree = None
     ready = False
-    def _on_terminate(signum, frame):
-        raise RuntimeError(f"guardian received signal {signum}")
     try:
         lock = RootLock(root)
         diagnostic = root / ".desktop-engine-status.json"
         diagnostic.unlink(missing_ok=True)
-        if os.name == "nt":
-            tree = WindowsTree(engine, parent)
-        else:
-            tree = PosixTree(engine, parent)
-            # Windows Job Objects cascade-kill members when the Job handle closes, i.e. when
-            # the guardian process itself dies; POSIX has no such automatic mechanism, so a
-            # direct kill of the guardian must be caught and routed through the same teardown
-            # path the except block below already uses for every other guardian failure.
-            signal.signal(signal.SIGTERM, _on_terminate)
+        if os.name != "nt":
+            raise RuntimeError("no native process ownership adapter for this platform")
+        tree = WindowsTree(engine, parent)
         print(json.dumps({"prepared": True, "guardian": os.getpid()}), flush=True)
         if sys.stdin.readline(16).strip() != "arm":
             raise RuntimeError("engine did not acknowledge guardian preparation")
@@ -378,11 +254,6 @@ def watch(root: Path, engine: int, parent: int):
                         "message": "Windows has not completed process termination; root lock remains held", "at": time.time()}), encoding="utf-8"))
         diagnostic.unlink(missing_ok=True)
     except Exception as exc:
-        if os.name != "nt":
-            # A direct kill of the guardian (or any stray re-delivery while the sweep below is
-            # already running) must not interrupt the sweep itself; ignore further SIGTERMs once
-            # teardown has begun so `tree.terminate()` always runs to completion.
-            signal.signal(signal.SIGTERM, signal.SIG_IGN)
         if tree and tree.armed:
             tree.terminate(70)
         if not ready:
