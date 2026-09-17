@@ -45,7 +45,7 @@ test('noticestore holds armed state, toggles, and notifies subscribers', () => {
   assert.equal(isNoticeArmed(), false)
 })
 
-test('desk composer renders notice toggle beside attach, toggles on click and Alt+N, and reflects notice-armed class', async () => {
+test('desk composer renders notice toggle ABOVE attach, toggles on click and Alt+N, and reflects notice-armed class', async () => {
   localStorage.clear()
   resetConvos()
   setNoticeArmed(false)
@@ -66,7 +66,16 @@ test('desk composer renders notice toggle beside attach, toggles on click and Al
     const toggleBtn = composer.querySelector('.cc-notice-toggle') as HTMLButtonElement
     assert.ok(attachBtn, 'attach button exists')
     assert.ok(toggleBtn, 'notice toggle button exists')
-    assert.equal(attachBtn.nextElementSibling, toggleBtn, 'notice toggle is placed immediately beside attach')
+    // ABOVE the attach button, not beside it (user 2026-09-17): both live in
+    // the composer's one-column button stack, toggle first, attach second —
+    // and the stack is the column, which is what puts one over the other.
+    const stack = composer.querySelector('.cc-btnstack') as HTMLElement
+    assert.ok(stack, 'the composer has a button stack')
+    assert.equal(toggleBtn.parentElement, stack, 'the notice toggle is in the stack')
+    assert.equal(attachBtn.parentElement, stack, 'the attach button is in the stack')
+    assert.equal(toggleBtn.nextElementSibling, attachBtn, 'the notice toggle comes before attach, so it renders above it')
+    assert.deepEqual([...stack.children].map(c => c.className.split(' ')[0]),
+      ['cc-notice-toggle', 'cc-attach'], 'the stack holds exactly those two controls, in that order')
     assert.equal(toggleBtn.classList.contains('armed'), false, 'button initially not armed')
 
     // Click to arm
@@ -275,7 +284,7 @@ test('bindPendingMail clears notice state on fallback', () => {
   bindPendingMail('org', 'agent-a', ghostId2, { id: 'm-notice', accepted: true, notice: true })
 })
 
-test('notice edge tokens are shared between notice bubble and notice-mode composer', () => {
+test('the notice edge STYLE is shared; only the composer takes the provider colour', () => {
   const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
 
   // 1. Root defines shared tokens
@@ -290,21 +299,27 @@ test('notice edge tokens are shared between notice bubble and notice-mode compos
   assert.match(passiveBlock, /border-left:\s*3px\s+var\(--notice-edge-style\)\s+var\(--notice-edge-color\);/,
     '.turn-mail.passive must source its border-left style and color from the shared tokens')
 
-  // 3. .cc-composer.notice-armed uses the shared tokens and maintains 1px border-width
+  // 3. .cc-composer.notice-armed keeps the SHARED STYLE and its 1px width, but
+  //    takes the PROVIDER COLOUR (user 2026-09-17: "provider colored still,
+  //    not grey"). --accent is what `.desk-body.prov-*` resolves to the desk's
+  //    provider colour, so the armed edge follows the provider automatically.
   const armedBlock = css.match(/\.cc-composer\.notice-armed\s*\{([^}]+)\}/)?.[1] ?? ''
   assert.ok(armedBlock, '.cc-composer.notice-armed rule exists')
   assert.match(armedBlock, /border-style:\s*var\(--notice-edge-style\);/,
     '.cc-composer.notice-armed must source border-style from --notice-edge-style')
-  assert.match(armedBlock, /border-color:\s*var\(--notice-edge-color\);/,
-    '.cc-composer.notice-armed must source border-color from --notice-edge-color')
+  assert.match(armedBlock, /border-color:\s*var\(--accent\);/,
+    '.cc-composer.notice-armed must be provider-coloured, not the neutral notice grey')
+  assert.doesNotMatch(armedBlock, /border-color:\s*var\(--notice-edge-color\);/,
+    '.cc-composer.notice-armed must NOT take the neutral --notice-edge-color')
   assert.match(armedBlock, /border-width:\s*1px;/,
     '.cc-composer.notice-armed must be 1px to preserve composer sizing/padding without reflow')
 
-  // 4. .cc-composer.notice-armed:focus-within stays on the notice flair edge
+  // 4. .cc-composer.notice-armed:focus-within keeps the same provider colour —
+  //    focusing must not change the armed edge at all
   const armedFocusBlock = css.match(/\.cc-composer\.notice-armed:focus-within\s*\{([^}]+)\}/)?.[1] ?? ''
   assert.ok(armedFocusBlock, '.cc-composer.notice-armed:focus-within rule exists')
-  assert.match(armedFocusBlock, /border-color:\s*var\(--notice-edge-color\);/,
-    '.cc-composer.notice-armed:focus-within must not revert to --accent')
+  assert.match(armedFocusBlock, /border-color:\s*var\(--accent\);/,
+    '.cc-composer.notice-armed:focus-within must keep the provider colour')
 
   // 5. Non-notice composer borders are untouched
   const composerBlock = css.match(/\.cc-composer\s*\{([^}]+)\}/)?.[1] ?? ''
