@@ -1701,6 +1701,10 @@ button.cc-name:hover {
   color: var(--bad); border-color: color-mix(in srgb, var(--bad) 68%, var(--line));
   background: color-mix(in srgb, var(--bad) 10%, transparent);
 }
+/* `align-items: flex-end` lands every CONTROL on the composer's bottom edge:
+   attach, notice toggle and send all share that baseline. The textarea opts
+   out of it — see `.cc-composer textarea` below — because a control sitting on
+   the baseline is right and TEXT sitting on it is not. */
 .cc-composer {
   display: flex; align-items: flex-end; gap: 8px; flex: none;
   border: 1px solid var(--line); border-radius: 8px; background: var(--input);
@@ -1723,8 +1727,25 @@ button.cc-name:hover {
 }
 .cc-composer.notice-armed:focus-within { border-color: var(--accent); }
 .cc-composer.off { opacity: .6; }
+/* TOP-ALIGNED, NOT RIDING THE BASELINE (user 2026-09-17: top-align the text
+   entry instead of centering it vertically).
+
+   Measured cause, not assumed: the composer is `align-items: flex-end`, and
+   since the notice toggle moved ABOVE the attach button the left column is
+   52px (24 + 4 + 24) while an ungrown `rows={2}` textarea is 39.19px. The
+   shorter item was therefore pushed to the bottom of the row, leaving 12.81px
+   of blank space above the first line of text. Once a draft grows the textarea
+   past 52px it becomes the tallest item and the gap vanishes by itself — which
+   is exactly why this read as text floating low rather than as a fixed offset.
+
+   `align-self: flex-start` opts THIS ITEM out of the container's flex-end, so
+   text starts at the composer's content top and grows downward. Nothing else
+   moves: the buttons keep the container's flex-end and stay on the baseline.
+   Deliberately NOT `stretch` — `grow()` writes an explicit inline height, and
+   stretch does nothing against a definite height, so the box would be aligned
+   one way before the first grow and another way after. */
 .cc-composer textarea {
-  flex: 1; min-width: 0;
+  flex: 1; min-width: 0; align-self: flex-start;
   border: none; background: none; padding: 0; resize: none;
   font-size: 14px; line-height: 1.4; font-family: inherit; color: var(--ink-strong);
 }
