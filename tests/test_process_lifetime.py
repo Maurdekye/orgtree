@@ -88,7 +88,8 @@ for _ in range(200):
     if leaf.exists():break
     time.sleep(.01)
 grandchild=json.loads(leaf.read_text())
-print(json.dumps({'engine':os.getpid(),'guard':guard,'child':child.pid,'grandchild':grandchild}),flush=True)
+escaped=subprocess.Popen([sys.executable,'-c','import time;time.sleep(90)'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=(os.name!='nt'))
+print(json.dumps({'engine':os.getpid(),'guard':guard,'child':child.pid,'grandchild':grandchild,'escaped_grandchild':escaped.pid}),flush=True)
 sys.stdin.readline()
 """, encoding='utf-8')
 
@@ -107,8 +108,9 @@ sys.stdin.readline()
             self.assertTrue(alive(pid), 'positive control: owned process exists')
         return p,ids
 
-    def assert_stopped(self, ids):
-        eventually(lambda: all(not alive(pid) for pid in ids.values()))
+    def assert_stopped(self, ids, exclude=()):
+        checked = {k: v for k, v in ids.items() if k not in exclude}
+        eventually(lambda: all(not alive(pid) for pid in checked.values()))
 
     def tearDown(self):
         for p in self.processes:
@@ -133,15 +135,25 @@ sys.stdin.readline()
         self.assertTrue(alive(ids['engine']), 'rejected duplicate never kills first engine')
         p.communicate('\n',timeout=8)
         self.assertEqual(p.returncode,0)
-        self.assert_stopped(ids)
+        # escaped_grandchild excluded: once engine exits before the guardian's sweep runs, the
+        # kernel has already reparented it away (ppid no longer points at engine_pid) with no
+        # remaining link back to engine in a `ps` snapshot (unlike child/grandchild, which stay
+        # in engine's own process group and so remain discoverable via the pgid-seed check).
+        # Sweeping it is only proven where the sweep runs while engine is still alive - see
+        # test_desktop_parent_exit_kills_owned_tree and
+        # test_teardown_sweeps_grandchild_in_escaped_process_group.
+        self.assert_stopped(ids, exclude=('escaped_grandchild',))
         newer,new_ids=self.start()
         newer.communicate('\n',timeout=8)
-        self.assert_stopped(new_ids)
+        self.assert_stopped(new_ids, exclude=('escaped_grandchild',))
 
     def test_engine_crash_cleans_child(self):
         p,ids=self.start()
         p.kill();p.wait(timeout=8)
-        self.assert_stopped(ids)
+        # escaped_grandchild excluded: engine dies (SIGKILL) before the guardian's sweep runs,
+        # so it is already reparented away by the time terminate() enumerates - see the comment
+        # in test_normal_exit_releases_tree_then_root.
+        self.assert_stopped(ids, exclude=('escaped_grandchild',))
 
     def test_guardian_crash_kills_owned_engine_and_child(self):
         p,ids=self.start()
@@ -165,8 +177,25 @@ sys.stdin.readline()
         p, ids = self.start()
         p.communicate('\n', timeout=8)
         self.assertEqual(p.returncode, 0)
-        self.assert_stopped(ids)
+        # escaped_grandchild excluded: see the comment in test_normal_exit_releases_tree_then_root.
+        self.assert_stopped(ids, exclude=('escaped_grandchild',))
         self.assertTrue(alive(bystander.pid), 'guardian sweep must not reach a process outside its own group')
+
+    def test_teardown_sweeps_grandchild_in_escaped_process_group(self):
+        # Trigger teardown via parent death (not engine exit): the engine is still alive when
+        # the guardian's sweep enumerates descendants, so the escaped-group grandchild's ppid
+        # still points at the engine and is discoverable via the ppid walk. Matches the shape
+        # of test_desktop_parent_exit_kills_owned_tree per RESEARCH.md Pitfall 2's warning signs.
+        parent = subprocess.Popen([sys.executable, '-c', 'import time;time.sleep(90)'],
+                                  creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+        self.processes.append(parent)
+        p, ids = self.start(parent.pid)
+        self.assertIn('escaped_grandchild', ids)
+        parent.kill(); parent.wait(timeout=8)
+        self.assert_stopped(ids)
+        self.assertFalse(alive(ids['escaped_grandchild']),
+                         'sweep must reach a descendant in its own escaped process group')
+        p.wait(timeout=8)
 
     def arm_fixture(self, change=None):
         """Fresh private module per probe: injected delays occur in the helper."""

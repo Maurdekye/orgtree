@@ -350,8 +350,6 @@ class LaunchRefusalTests(unittest.TestCase):
     distinguishable from a broken engine (redteam-opus F4)."""
 
     def test_locked_root_produces_structured_refusal(self):
-        if os.name != "nt":
-            raise unittest.SkipTest("guardian requires Windows")
         from engine.process_lifetime import RootLock
         repo = Path(__file__).resolve().parent.parent
         with tempfile.TemporaryDirectory() as temp:
@@ -378,8 +376,6 @@ class LaunchRefusalTests(unittest.TestCase):
         # NARROW refusal (root ruling): a broken parent PID is a real fault
         # and must fail fast without the structured line that triggers the
         # desktop's attach-retry loop.
-        if os.name != "nt":
-            raise unittest.SkipTest("guardian requires Windows")
         repo = Path(__file__).resolve().parent.parent
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
