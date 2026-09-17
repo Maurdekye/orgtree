@@ -33,29 +33,58 @@ app.whenReady().then(async () => {
   // anything below it ever ran.
   assert.equal(updateMenu.getMenuItemById('update-check')!.enabled, true)
 
-  // The engine row, through REAL Electron menu items - `visible` on a native
-  // MenuItem is the property the whole "hidden while the engine runs" ruling
-  // rests on, and a hand-written double cannot prove Electron accepts it.
+  // The engine row, through REAL Electron menu items - `visible` and `enabled`
+  // on a native MenuItem are the properties the whole rule rests on, and a
+  // hand-written double cannot prove Electron accepts them.
+  //
+  // USER RULING 2026-09-17, superseding 2026-09-15: the row is ALWAYS VISIBLE,
+  // in every engine state, and communicates availability by being enabled or
+  // greyed rather than by appearing and disappearing. It used to be hidden
+  // while the engine was healthy, which is the case the user most wants it in.
+  //
+  // The seed below is deliberately `visible: false`: it is the WORST case for
+  // the assertion that follows, since Electron must be seen to turn a hidden
+  // native item back on. (index.ts now seeds it `visible: true`; that seed is
+  // asserted at source level in tests/engine-restart.test.mjs.)
   const engineMenu = Menu.buildFromTemplate([
     { id: 'engine-restart', label: 'Restart engine', visible: false, enabled: false },
     { label: 'Quit Orgtree' },
   ])
   const restartItem = engineMenu.getMenuItemById('engine-restart')!
+  assert.equal(restartItem.visible, false, 'the native item really did start hidden')
   refreshTrayEngineMenu(engineMenu, { state: 'ready' }, false, false)
-  assert.equal(restartItem.visible, false, 'a running engine hides the restart row')
+  assert.equal(restartItem.visible, true, 'a HEALTHY engine still shows the restart row')
+  assert.equal(restartItem.enabled, true, 'and it is clickable — the case the user asked to reach')
+  assert.equal(restartItem.label, 'Restart engine')
   refreshTrayEngineMenu(engineMenu, { state: 'stopped', message: 'Engine exited.' }, false, false)
   assert.equal(restartItem.visible, true, 'a stopped engine shows the restart row')
   assert.equal(restartItem.enabled, true)
   assert.equal(restartItem.label, 'Restart engine')
+  refreshTrayEngineMenu(engineMenu, { state: 'starting' }, false, false)
+  assert.equal(restartItem.visible, true, 'boot shows the row too')
   refreshTrayEngineMenu(engineMenu, { state: 'starting' }, true, false)
   assert.equal(engineMenu.getMenuItemById('engine-restart'), restartItem, 'the row is refreshed in place')
   assert.equal(restartItem.visible, true, 'a restart in flight keeps its row on screen')
   assert.equal(restartItem.enabled, false, 'a restart in flight cannot be clicked again')
   assert.match(restartItem.label, /Restarting engine/)
+  // A quit, an update install or an installer upgrade greys it WITHOUT hiding
+  // it — including over a healthy engine, which is the new normal case.
+  refreshTrayEngineMenu(engineMenu, { state: 'ready' }, false, true)
+  assert.equal(restartItem.visible, true, 'a blocked shutdown greys the row in place')
+  assert.equal(restartItem.enabled, false)
   // A failed restart lands here, and must still offer the user a retry.
   refreshTrayEngineMenu(engineMenu, { state: 'unavailable', message: 'port in use' }, false, false)
   assert.equal(restartItem.visible, true)
   assert.equal(restartItem.enabled, true)
+  // The whole matrix through the NATIVE item: no state hides it, and
+  // enablement is exactly "a restart can be run".
+  for (const state of ['ready', 'starting', 'stopped', 'unavailable'] as const) {
+    for (const restarting of [true, false]) for (const blocked of [true, false]) {
+      refreshTrayEngineMenu(engineMenu, { state }, restarting, blocked)
+      assert.equal(restartItem.visible, true, `hidden at ${state}/${restarting}/${blocked}`)
+      assert.equal(restartItem.enabled, !restarting && !blocked, `wrong enablement at ${state}/${restarting}/${blocked}`)
+    }
+  }
 
   outsider = http.createServer((req, res) => { foreign.push(req.headers['x-orgtree-desktop-token'] as string | undefined); res.setHeader('Access-Control-Allow-Origin', '*'); res.end('outside') })
   await new Promise<void>(resolve => outsider.listen(0, '127.0.0.1', resolve))

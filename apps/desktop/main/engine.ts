@@ -679,27 +679,49 @@ export class Engine extends EventEmitter {
  *  three cannot drift - the same arrangement `trayUpdateState` already has
  *  for the update rows.
  *
- *  ⚠ THE ROW NEVER CLAIMS THE ENGINE IS BACK. It is driven by `status`,
- *  which reaches 'ready' only when the engine's own ready line is parsed, so
- *  the row (and the grey/coloured tray icon beside it) can only follow the
- *  engine rather than the click. A restart that FAILED leaves 'unavailable',
- *  which is visible here for exactly that reason: the entry must still be
- *  there, and usable again, at the moment the user has just been told it did
- *  not work.
+ *  ⚠ THE ROW NEVER CLAIMS THE ENGINE IS BACK. There is no argument here that
+ *  means "was clicked": the row goes back to its ordinary enabled state only
+ *  when `restarting` goes false, which happens when the ATTEMPT settles, and
+ *  the tray icon beside it follows the engine's own status event rather than
+ *  the click. A restart that FAILED leaves the engine 'unavailable' and leaves
+ *  this row exactly where it was — present and usable again — at the moment
+ *  the user has just been told it did not work.
  *
- *  HIDDEN WHILE THE ENGINE RUNS (user ruling 2026-09-15). Of hidden, greyed
- *  out and a live restart-a-healthy-engine action, the user chose hidden: a
- *  running engine has agents under it, and a mis-click that ends them is not
- *  undoable. */
-export function trayEngineState(status: EngineStatus, restarting: boolean, blocked: boolean) {
-  const down = status.state === 'stopped' || status.state === 'unavailable'
+ *  ALWAYS VISIBLE (user ruling 2026-09-17), SUPERSEDING 2026-09-15.
+ *
+ *  The earlier ruling asked for the opposite and its reasoning is kept here
+ *  rather than deleted, because the hazard it named did not go away: of
+ *  hidden, greyed out and a live restart-a-healthy-engine action, the user
+ *  chose HIDDEN on 2026-09-15, since a running engine has agents under it and
+ *  a mis-click that ends their turns is not undoable.
+ *
+ *  On 2026-09-17 the user reversed the VISIBILITY half of that: hiding the row
+ *  whenever the engine was healthy meant it could not be found in the normal
+ *  case, which is the case they usually want it in. So the row is now present
+ *  in every engine state and says what it can do through its ENABLED state
+ *  instead of through its presence. The mis-click hazard is unchanged and is
+ *  simply no longer answered by hiding; whether a healthy-engine restart
+ *  should also ask for confirmation is a separate open question, and nothing
+ *  here presumes an answer to it.
+ *
+ *  ⚠ `status` IS NO LONGER READ, and the parameter is kept deliberately. The
+ *  old rule turned on it; the new one does not, because what decides this row
+ *  is whether a restart can be RUN, and that is `restarting` and `blocked`
+ *  alone. It stays in the signature because it is the thing the row is about
+ *  and because every caller already has it — and because a rule that wants it
+ *  back (a confirmation step that only applies to a healthy engine, say) would
+ *  otherwise have to thread it through three call sites again. */
+export function trayEngineState(_status: EngineStatus, restarting: boolean, blocked: boolean) {
   return {
     label: restarting ? 'Restarting engine...' : 'Restart engine',
-    // 'starting' is deliberately absent: at boot there is nothing yet to
-    // restart. A restart in flight keeps the row visible through its own
-    // 'starting' phase, so the action the user took does not flicker away.
-    visible: down || restarting,
-    enabled: down && !restarting && !blocked,
+    // No state hides it — not boot, not a healthy engine, not a restart in
+    // flight, not a failed one.
+    visible: true,
+    // `blocked` already covers every case where a restart cannot be performed:
+    // no captured restart options yet (boot), a quit, an update install, or an
+    // installer-upgrade shutdown — see `engineRestartBlocked` in index.ts. A
+    // restart already in flight owns the row until its own attempt settles.
+    enabled: !restarting && !blocked,
   }
 }
 

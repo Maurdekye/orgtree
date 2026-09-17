@@ -398,9 +398,13 @@ else {
       // only way to get at one, and it is the user's own deliberate act.
       { id: 'crash-reports', label: 'Crash reports...', click: () => { void showCrashReports().catch(() => {}) } },
       { type: 'separator' },
-      // Hidden while the engine runs (user ruling 2026-09-15), so this group
-      // is ordinarily just Quit and the menu keeps the shape it has today.
-      { id: 'engine-restart', label: 'Restart engine', visible: false, enabled: false,
+      // ALWAYS VISIBLE (user ruling 2026-09-17, superseding the 2026-09-15
+      // hide-while-running rule) — see `trayEngineState`, which owns the whole
+      // rule. The SEED matters: `refreshTrayEngine()` runs immediately below,
+      // but a row seeded invisible would be invisible for the window between
+      // the two, and seeding it visible-but-disabled is also what the row
+      // genuinely is at that instant, before any engine options are captured.
+      { id: 'engine-restart', label: 'Restart engine', visible: true, enabled: false,
         click: () => { void restartEngine() } },
       { label: 'Quit Orgtree', click: () => app.quit() },
     ])
