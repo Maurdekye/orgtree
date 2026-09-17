@@ -11,6 +11,8 @@ import unittest
 from unittest.mock import patch
 from pathlib import Path
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("python_verification_runner", ROOT / "tools" / "run-python-verification.py")

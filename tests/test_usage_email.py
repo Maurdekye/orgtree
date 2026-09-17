@@ -23,6 +23,9 @@ _root = tempfile.TemporaryDirectory(prefix='v2-usage-email-')
 os.environ['ORGTREE_DATA'] = _root.name
 assert not Path(_root.name).resolve().is_relative_to((Path.home() / 'orgtree').resolve())
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine' / 'backend'))
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from orgtree import accounts, limits, subproxy   # noqa: E402
 
 

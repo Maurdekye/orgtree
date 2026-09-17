@@ -13,6 +13,9 @@ from types import SimpleNamespace
 _temp = tempfile.TemporaryDirectory(prefix="orgtree-recovery-barrier-")
 os.environ["ORGTREE_DATA"] = _temp.name
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine/backend"))
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from orgtree import startup
 
 

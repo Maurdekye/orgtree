@@ -9,6 +9,8 @@ import time
 import unittest
 
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 class AccountAssignTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

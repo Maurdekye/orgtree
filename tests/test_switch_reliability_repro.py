@@ -28,6 +28,9 @@ except Exception:
     pass
 _ROOT = tempfile.mkdtemp(prefix="orgtree-switch-repro-")
 os.environ["ORGTREE_DATA"] = _ROOT
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.backend.orgtree import ledger, registry, store, supervisor  # noqa: E402
 if not str(store.DATA_ROOT).lower().startswith(_ROOT.lower()):
     raise AssertionError(f"store bound outside fixture: {store.DATA_ROOT}")

@@ -8,6 +8,8 @@ import unittest
 _ROOT = tempfile.TemporaryDirectory(prefix="v2-turn-admission-")
 os.environ["ORGTREE_DATA"] = _ROOT.name
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from orgtree import store, supervisor, warmpool  # noqa: E402
 
 

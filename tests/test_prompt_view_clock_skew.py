@@ -18,6 +18,9 @@ os.environ['USERPROFILE'] = os.environ['HOME']
 Path(os.environ['ORGTREE_DATA']).mkdir(); Path(os.environ['HOME']).mkdir()
 os.environ['ORGTREE_V2_TOKEN'] = 'opus-skew-only'
 for k in ('ORGTREE_V1_ROOT','ORGTREE_V1_DATA_ROOT','ORGTREE_V2_PORT'): os.environ.pop(k, None)
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.launch import load_app
 load_app()
 from orgtree import store, ledger, supervisor as sup, chat_window, transcript_records as records

@@ -19,6 +19,9 @@ _ROOT = tempfile.TemporaryDirectory(prefix="orgtree-pipe-lifecycle-")
 os.environ["ORGTREE_DATA"] = _ROOT.name
 os.environ["ORGTREE_WARM"] = "0"
 os.environ["ORGTREE_TURNLOG"] = "1"
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from orgtree import ledger, store, supervisor as sup, warmpool
 
 _CHILD = r'''

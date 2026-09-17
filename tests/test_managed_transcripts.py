@@ -10,6 +10,9 @@ fixture=tempfile.TemporaryDirectory(prefix='orgtree-managed-transcripts-')
 os.environ['ORGTREE_DATA']=str(Path(fixture.name)/'data')
 os.environ['HOME']=str(Path(fixture.name)/'home')
 os.environ['USERPROFILE']=os.environ['HOME']
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.backend.orgtree import ledger,registry,store,supervisor as sup
 assert str(store.DATA_ROOT)==os.environ['ORGTREE_DATA']
 

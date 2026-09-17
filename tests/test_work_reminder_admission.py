@@ -6,6 +6,9 @@ from unittest import mock
 
 _data = tempfile.TemporaryDirectory(prefix="orgtree-reminder-admission-")
 os.environ["ORGTREE_DATA"] = _data.name
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.backend.orgtree import ledger, store, supervisor
 assert str(store.DATA_ROOT).lower().startswith(_data.name.lower())
 

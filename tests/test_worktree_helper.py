@@ -15,6 +15,9 @@ from tools import worktree
 # gitworkspace imports the persistence layer, which must never point focused
 # tests at the live installation data root.
 os.environ["ORGTREE_DATA"] = tempfile.mkdtemp(prefix="orgtree-w10-test-")
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.backend.orgtree import gitworkspace
 
 

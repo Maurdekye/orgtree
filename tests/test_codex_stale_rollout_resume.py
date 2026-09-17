@@ -12,6 +12,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.backend.orgtree import codexrun, desktop_import, desktop_native
 from engine.backend.orgtree.codexrun import (
     CodexRequestError, CodexResumeUnresolved, CodexTurn)

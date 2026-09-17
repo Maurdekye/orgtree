@@ -23,6 +23,8 @@ os.environ["HOME"] = _data.name
 os.environ["USERPROFILE"] = _data.name
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "engine", "backend"))
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from orgtree import ledger  # noqa: E402
 from orgtree.ledger import LedgerError, USER  # noqa: E402
 

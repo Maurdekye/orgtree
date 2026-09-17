@@ -29,6 +29,8 @@ PER_MINUTE_429 = ('API Error: 429 {"type":"error","error":{"type":'
 USAGE_WALL_NO_TIME = "Claude AI usage limit reached"
 
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 class ManagedResetSelectionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

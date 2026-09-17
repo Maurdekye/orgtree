@@ -7,6 +7,8 @@ from unittest.mock import patch
 import test_account_selection_contract as fx
 
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 class PrimarySelection(unittest.TestCase):
     @property
     def _seq(self):

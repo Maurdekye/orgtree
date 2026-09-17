@@ -8,6 +8,8 @@ import unittest
 os.environ["ORGTREE_DATA"] = tempfile.mkdtemp(prefix="assign-backlog-")
 os.environ["ORGTREE_V2_TOKEN"] = "assign-backlog-tests"
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.backend.orgtree import ledger
 
 

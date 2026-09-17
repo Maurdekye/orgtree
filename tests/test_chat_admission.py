@@ -13,6 +13,9 @@ _root = tempfile.TemporaryDirectory(prefix='v2-chat-admission-')
 os.environ.update(ORGTREE_DATA=_root.name, HOME=_root.name, USERPROFILE=_root.name)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine/backend'))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from orgtree import api, ledger, store, supervisor
 from engine.launch import TokenGate
 assert Path(store.DATA_ROOT).resolve() == Path(_root.name).resolve()

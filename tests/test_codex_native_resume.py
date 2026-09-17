@@ -1,6 +1,9 @@
 """Wire-only imported rollout control; no app server or provider is launched."""
 import unittest
 from unittest.mock import patch
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.backend.orgtree import codexrun
 from engine.backend.orgtree.codexrun import CodexTurn
 

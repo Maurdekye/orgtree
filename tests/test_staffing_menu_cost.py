@@ -33,6 +33,9 @@ from unittest.mock import patch
 
 _root = tempfile.TemporaryDirectory(prefix="staff-cost-", ignore_cleanup_errors=True)
 os.environ.update(ORGTREE_DATA=_root.name, ORGTREE_V2_TOKEN="staff-cost-tests")
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.launch import load_app
 app, *_ = load_app()
 from orgtree import api, appsettings, ledger, quickstaff, staffcache, store

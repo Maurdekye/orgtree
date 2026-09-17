@@ -22,6 +22,8 @@ _root = tempfile.TemporaryDirectory(prefix="gemini-tier-test-")
 os.environ["ORGTREE_DATA"] = _root.name
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine" / "backend"))
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from orgtree import accountusage, antigravity_limits, providers, registry, store  # noqa: E402
 
 

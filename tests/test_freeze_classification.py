@@ -33,6 +33,9 @@ _ROOT = tempfile.TemporaryDirectory(prefix="orgtree-freeze-classify-")
 os.environ["ORGTREE_DATA"] = _ROOT.name
 os.environ["ORGTREE_WARM"] = "0"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine" / "backend"))
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from orgtree import (accounts, antigravity_limits, ledger,  # noqa: E402
                      store, supervisor as sup, warmpool)
 

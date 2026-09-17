@@ -74,6 +74,9 @@ os.environ["HUB_NAME"] = "hub-a"
 
 import httpx                                                     # noqa: E402
 from mailhub import app as hubapp, db as hubdb                   # noqa: E402
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from orgtree import api, net, store, supervisor                  # noqa: E402
 from orgtree.ledger import LedgerError, USER                     # noqa: E402
 

@@ -5,6 +5,8 @@ import unittest
 from unittest.mock import patch
 
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 class AccountFallbackSettingsTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

@@ -31,6 +31,9 @@ from unittest.mock import patch
 
 _root = tempfile.TemporaryDirectory(prefix="qh-wake-", ignore_cleanup_errors=True)
 os.environ.update(ORGTREE_DATA=_root.name, ORGTREE_V2_TOKEN="qh-wake-tests")
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.launch import load_app
 app, *_ = load_app()
 from fastapi.testclient import TestClient

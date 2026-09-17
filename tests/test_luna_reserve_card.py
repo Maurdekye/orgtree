@@ -40,6 +40,8 @@ only for truthiness — a rule that answered `False` where it should answer
 """
 import unittest
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.backend.orgtree import codex_route as cr
 
 

@@ -8,6 +8,8 @@ import tempfile
 import time
 import unittest
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.startup_progress import parse_progress
 
 REPO = Path(__file__).resolve().parents[1]

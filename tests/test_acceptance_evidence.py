@@ -20,6 +20,8 @@ _DATA = tempfile.TemporaryDirectory(prefix="w09-evidence-")
 os.environ["ORGTREE_DATA"] = _DATA.name
 sys.path.insert(0, str(REPO / "engine" / "backend"))
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from orgtree import ledger  # noqa: E402
 from orgtree.ledger import LedgerError, USER  # noqa: E402
 

@@ -24,6 +24,15 @@ node tools/test-baseline.mjs show
 node tools/test-baseline.mjs compare
 ```
 
+> **A whole `compare` takes ~10 minutes and will outlive a single foreground
+> command on an agent harness.** Run it a suite at a time —
+> `compare --suite node-root` (~1.5 min), `--suite renderer` (~5 min),
+> `--suite python-backend` (~10 min) — or, for the Python suite, hand its files
+> to `tools/run-python-verification.py` in chunks with
+> `--baseline <ids from docs/test-baseline.json>` and read
+> `summary.unexpected_failures`. Do not background the whole run and walk away:
+> a run that was killed partway looks exactly like a run that finished clean.
+
 `compare` prints four lists and they are the whole point:
 
 | List | Meaning |
@@ -244,6 +253,50 @@ those tests any other way to check a baseline claim: without the isolated data
 root the results are garbage, and the measurement is not close. One module that
 passes cleanly under the runner reports **eighteen errors** when run bare with
 `python -m unittest`.
+
+### The modules now refuse a bare run, and say why
+
+That warning used to be advice you had to remember. It is now a mechanism.
+
+Your `PYTHONPATH` is `C:\Program Files\Orgtree\resources\engine\backend` — the
+**installed** desktop app. This is not a machine setting; the Machine and User
+scopes are empty. The installed engine spawns your CLI and prepends its own
+backend so the child can import it (`supervisor.py`, `warmpool.py`,
+`antigravity_session.py` — four sites). That injection is correct and agent
+spawning depends on it; **do not remove it**. Its unintended reach is that every
+command you then type inherits it, ahead of the checkout, so `import orgtree`
+resolves to the shipped build. The loud direction wasted several agent-hours: a failure was
+reported against `main`, investigated with the change reverted in a second
+checkout, and the comparison proved nothing because *both arms imported the same
+installed package*. The quiet direction is worse and is silent — a green run
+reported as a verified fix against a module that never contained the change.
+
+Every `tests/test_*.py` now carries one line:
+
+```python
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+```
+
+`tests/import_provenance.py` checks that `orgtree` and `engine` resolve under the
+checkout the test file itself lives in — the worktree you are in, not only the
+main checkout — and raises `ForeignImportError` naming the foreign path and the
+command to use instead. If you see it, you do not need to investigate; change the
+command:
+
+```text
+python tools/run-python-verification.py tests/test_x.py
+```
+
+The guard **refuses, it does not repair**. It will not quietly put the checkout
+on `sys.path` to make a bare run work, because a bare run that looks trustworthy
+is the defect, one step further along. Under the sanctioned runner — and so under
+`compare`, which goes through it — the check always passes and costs two
+`find_spec` calls once per module process.
+
+68 of the 178 modules already did `sys.path.insert(0, str(REPO / "engine" /
+"backend"))` before importing the engine, and those were never affected. The
+guard sits *after* that insert, so they keep working bare. The other 110 did not,
+and those were the silent ones.
 
 Everything else is listed in each suite's `excluded` array and reprinted by
 `show`, so the gap is stated rather than hidden:

@@ -17,6 +17,8 @@ import unittest
 import urllib.error
 import urllib.request
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 REPO = Path(__file__).resolve().parents[1]
 
 

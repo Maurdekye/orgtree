@@ -40,6 +40,8 @@ os.environ.update(ORGTREE_DATA=str(Path(_root) / "data"),
 Path(os.environ["ORGTREE_DATA"]).mkdir(parents=True)
 Path(os.environ["HOME"]).mkdir(parents=True)
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.backend.orgtree import ledger, store, supervisor  # noqa: E402
 
 NOW = time.time()

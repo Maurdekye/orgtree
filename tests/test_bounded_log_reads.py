@@ -19,6 +19,9 @@ os.environ['USERPROFILE'] = _root.name
 os.environ.pop('ORGTREE_AGENT_PARENT_DATA', None)
 os.environ.pop('ORGTREE_AGENT_LEGACY_DATA', None)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine/backend'))
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from orgtree import ledger, store   # noqa: E402
 
 

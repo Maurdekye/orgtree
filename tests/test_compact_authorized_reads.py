@@ -9,6 +9,8 @@ os.environ["ORGTREE_DATA"] = _data.name
 os.environ["HOME"] = _data.name
 os.environ["USERPROFILE"] = _data.name
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from orgtree import events, ledger
 
 

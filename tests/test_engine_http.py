@@ -11,6 +11,8 @@ import unittest
 import urllib.request
 import urllib.error
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 ROOT = Path(__file__).resolve().parents[1]
 CHILD = r'''
 import json, launch

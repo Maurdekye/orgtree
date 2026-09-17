@@ -27,6 +27,8 @@ os.environ["ORGTREE_STORE"] = "sqlite"
 os.environ["HOME"] = str(_TEST_ROOT)
 os.environ["USERPROFILE"] = str(_TEST_ROOT)
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.backend.orgtree import desktop_import as imp, store
 from engine.backend.orgtree.ledger import Org
 from fastapi import FastAPI

@@ -13,6 +13,9 @@ _temp = tempfile.TemporaryDirectory(prefix="orgtree-startup-budget-")
 ROOT = Path(_temp.name).resolve()
 os.environ["ORGTREE_DATA"] = str(ROOT)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine/backend"))
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from orgtree import desktop_import, desktop_native as native, store, supervisor
 from orgtree.fleet_walk import FleetWalkBudgetExceeded, fleet_walk_budget
 from tests.startup_fixture import seed

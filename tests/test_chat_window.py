@@ -14,6 +14,9 @@ os.environ['USERPROFILE']=os.environ['HOME']
 Path(os.environ['ORGTREE_DATA']).mkdir();Path(os.environ['HOME']).mkdir()
 os.environ['ORGTREE_V2_TOKEN']='window-test-only'
 for key in ('ORGTREE_V1_ROOT','ORGTREE_V1_DATA_ROOT','ORGTREE_V2_PORT'):os.environ.pop(key,None)
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.launch import load_app
 application=load_app()[0]
 from orgtree import store, ledger, supervisor as sup, chat_window

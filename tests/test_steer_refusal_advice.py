@@ -14,6 +14,9 @@ import unittest
 
 os.environ.setdefault(
     "ORGTREE_DATA", tempfile.mkdtemp(prefix="orgtree-steer-test-"))
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.backend.orgtree import steer
 
 

@@ -67,6 +67,8 @@ class LiveRootGuardTests(unittest.TestCase):
             _refuse_live_root(d)      # must not raise
 
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 class RefreshFailureStatusTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

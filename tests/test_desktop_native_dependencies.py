@@ -4,6 +4,9 @@ from pathlib import Path
 import uuid
 
 from tests import test_desktop_import as fixtures
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.backend.orgtree import desktop_native as native, desktop_import as imp
 from engine.backend.orgtree.desktop_native_claude_dependencies import copy_outputs
 

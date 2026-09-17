@@ -13,6 +13,9 @@ from unittest.mock import patch
 
 # This fixture module binds a throwaway root BEFORE importing storage.
 from tests.test_desktop_import import DesktopImportTests, fingerprint, imp, store
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.backend.orgtree import desktop_import_jobs as jobs
 from engine.launch import TokenGate
 from fastapi import FastAPI

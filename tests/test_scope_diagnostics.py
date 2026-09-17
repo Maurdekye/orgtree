@@ -11,6 +11,9 @@ from unittest import mock
 # The authoritative Git path adapter imports the persistence layer. Keep this
 # focused suite on disposable test storage rather than an installation root.
 os.environ["ORGTREE_DATA"] = tempfile.mkdtemp(prefix="orgtree-w11-test-")
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.backend.orgtree import scope_diagnostics as sd
 
 

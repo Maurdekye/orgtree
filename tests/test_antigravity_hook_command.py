@@ -104,6 +104,8 @@ def decision_of(proc):
         return None
 
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 class HookCommandTests(unittest.TestCase):
     """Everything here needs a real cmd.exe; elsewhere it DECLARES ITSELF
     INERT rather than passing quietly."""

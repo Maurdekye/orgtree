@@ -8,6 +8,8 @@ import unittest
 from unittest.mock import patch
 
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 class FakeClient:
     """Fake Codex AppServerClient simulating Account A and Account B rollouts."""
     instances = []

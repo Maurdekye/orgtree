@@ -7,6 +7,8 @@ import tempfile
 import unittest
 
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 class SpawnIdentityTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

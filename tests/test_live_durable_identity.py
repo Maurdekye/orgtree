@@ -40,6 +40,9 @@ os.environ['USERPROFILE'] = _root.name
 for _key in ('ORGTREE_V1_ROOT', 'ORGTREE_V1_DATA_ROOT', 'ORGTREE_V2_PORT'):
     os.environ.pop(_key, None)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine/backend'))
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from orgtree import ledger, store, supervisor  # noqa: E402
 
 DURABLE = 'The complete durable answer, every word of it, written out in full.'
