@@ -751,3 +751,80 @@ def invalidate() -> None:
     """Clear cached usage evidence; the next modal/warm pass re-fetches it."""
     with _lock:
         _clear_unlocked()
+
+
+#: What a wall message's stated countdown is worth, judged against the wall
+#: this node ALREADY has recorded. See `classify_countdown`.
+COUNTDOWN_FRESH: Final = "fresh"
+COUNTDOWN_REPEAT: Final = "repeat"
+COUNTDOWN_STALE: Final = "stale"
+COUNTDOWN_NONE: Final = "none"
+
+
+def classify_countdown(message: str, prior_message: str,
+                       prior_until_ts: float | None,
+                       now: float | None = None) -> tuple[str, float | None]:
+    """Is this wall message's ``Resets in ...`` countdown evidence about the
+    turn that just ran, or the SAME sentence said again? → ``(kind, until_ts)``
+
+    ⚠ THE PROBLEM THIS EXISTS FOR (user report 2026-09-17, `notice-toggle`).
+    `observe_wall` is `now + parsed_duration` and keeps no memory, so an
+    UNCHANGED countdown manufactures a NEW, LATER deadline every time it is
+    seen. Measured from this machine's own `failfix` records, the antigravity
+    CLI returned a byte-identical ``Resets in 2h53m47s`` (`reset_in_s: 10427`)
+    on FIVE separate turns spanning thirteen hours:
+
+        2026-09-16 18:54:08 → froze until 21:47:55
+        2026-09-16 22:16:00 ┐
+        2026-09-17 01:11:09 ├ same sentence, each re-anchored to ITS own `now`
+        2026-09-17 04:06:25 │
+        2026-09-17 07:52:27 ┘ → froze until 10:46:14
+
+    A live countdown DECREASES. This one did not, so it is not being computed
+    fresh for the turn that read it. The agent could therefore never leave the
+    frozen state by itself: every attempt re-read the same sentence and pushed
+    its own release another 2h53m47s out. Its account had ~10% of its 5-hour
+    window and ~22% of its weekly window used at the time.
+
+    ⚠ THE DISCRIMINATOR IS *WHEN THE EVIDENCE ARRIVED*, NEVER *HOW CONFIDENT
+    WE ARE THAT IT IS A LIMIT*. Nothing here asks whether the blob is a usage
+    limit — `_looks_like_usage_limit` decides that, it stays deliberately
+    broad, and this function is only reached once it has already said yes. A
+    real wall still freezes the agent in every branch below; what changes is
+    only which DEADLINE a restated sentence is allowed to set.
+
+    Three answers, and note that NONE of them is "do not freeze":
+
+      · ``fresh``  — the countdown differs from the one already recorded (or
+        there is nothing recorded). It is this turn's own evidence: honour it.
+      · ``repeat`` — same countdown, and the deadline it produced LAST time
+        has not passed yet. This is one wall being restated, so the node keeps
+        its ORIGINAL release time instead of sliding it forward. The agent
+        still waits out the wall it genuinely hit; it just cannot be made to
+        wait longer for having asked again.
+      · ``stale``  — same countdown, and its own previous deadline has already
+        expired. A countdown that did not advance past its own release cannot
+        be describing the present, so it may not set a deadline at all: the
+        caller is handed ``None`` and falls to the honest ~5-minute probe
+        floor. The turn STILL FREEZES — it really did fail — but on a horizon
+        short enough that the agent re-asks the provider soon and gets out by
+        itself if the wall is gone. That is the recovery path for a node
+        already wrongly frozen.
+
+    ⚠ RELATIVE COUNTDOWNS ONLY. An ABSOLUTE reset ("resets at 10:33 AM") does
+    not re-anchor — parsing it twice names the same instant — so it is
+    self-correcting and is deliberately left alone: both messages must parse
+    as a duration or the answer is ``none`` and the caller's existing ranking
+    stands untouched.
+    """
+    now = time.time() if now is None else now
+    secs = reset_in_seconds(message or "")
+    if secs is None:
+        return COUNTDOWN_NONE, None
+    prior = reset_in_seconds(prior_message or "")
+    if prior is None or prior != secs:
+        return COUNTDOWN_FRESH, now + secs
+    # Same sentence. Which side of its own deadline are we on?
+    if isinstance(prior_until_ts, (int, float)) and float(prior_until_ts) > now:
+        return COUNTDOWN_REPEAT, float(prior_until_ts)
+    return COUNTDOWN_STALE, None

@@ -20067,141 +20067,191 @@ def _run_one_turn_recorded(slug: str, nid: str,
                 # later be woken by capacity appearing; see auto_resume_ready.
                 _pool_dry: bool | None = None
                 if _limit_class and not handled:
-                    # what actually served this turn — stamped at spawn from
-                    # the resolved env; an unstamped turn ran ambient, which
-                    # is the primary lane
-                    _served = str(st.get("ran_as") or "") or accounts.PRIMARY
-                    _tier = (str(org.node(nid).get("model") or "")
-                             if nid in org.nodes else "")
-                    _trusted = not (agent_authored
-                                    and err_blob is synth_limit_txt)
-                    if _auth_fail:
+                    # ⚠ THE MARK IS AN OPTIMISATION; THE FREEZE IS THE SAFETY.
+                    # (user incident 2026-09-16, ~10 Claude agents.) Everything
+                    # in this block answers "where should the NEXT turn go" —
+                    # it records capacity marks and may re-drive. The block
+                    # BELOW is what actually parks the agent. They used to be
+                    # one unguarded sequence, so a mark that could not be
+                    # written took the freeze down with it:
+                    #
+                    #   `accounts.record_limit` → `accounts.save` RAISES
+                    #   'Multi-account registry writes are unavailable in
+                    #   desktop MVP' whenever ORGTREE_DESKTOP_MANAGED=1 — i.e.
+                    #   in the packaged desktop app, which is every real user.
+                    #
+                    # The raise escaped this block AND skipped the freeze, so a
+                    # Claude agent on the ambient `primary` lane (no registry
+                    # row ⇒ this legacy branch) hit its session limit and got
+                    # NO `frozen` record, NO reset time, NO `resume_texts`, and
+                    # a stale `last_status` still claiming it was working. The
+                    # outer handler then saw a plain RuntimeError rather than a
+                    # `_ProviderTurnFailed`, missed the provider-limit door and
+                    # reported the wall down the terminal belt as "its account
+                    # binding, environment or arguments are wrong" — pointing
+                    # the operator at configuration for a wall on a known clock.
+                    #
+                    # MEASURED: turnlog work-payload 1789583670685-0104 shows
+                    # `classify limit=true` (recognition was never the problem)
+                    # followed by `abandon door=belt`. Recognition is UNCHANGED
+                    # here — this only stops a bookkeeping failure from
+                    # cancelling the park.
+                    try:
+                        # what actually served this turn — stamped at spawn from
+                        # the resolved env; an unstamped turn ran ambient, which
+                        # is the primary lane
+                        _served = str(st.get("ran_as") or "") or accounts.PRIMARY
+                        _tier = (str(org.node(nid).get("model") or "")
+                                 if nid in org.nodes else "")
+                        _trusted = not (agent_authored
+                                        and err_blob is synth_limit_txt)
+                        if _auth_fail:
+                            log_failover_refusal(slug, nid, (
+                                "the credential was rejected (401) — broken and "
+                                "in need of replacing, not out of capacity; no "
+                                "lane was marked"))
+                        elif (_served in ("api-key", "key:unattributed",
+                                          OPENROUTER_IDENTITY) or not _tier):
+                            # the API-key lane has no subscription capacity to
+                            # mark, and a token no row explains has no lane —
+                            # the freeze path below owns both, unchanged.
+                            # ⚠ AND THE OPENROUTER LANE (2026-09-05, measured):
+                            # `accounts.resolve` answers "primary, available" for
+                            # an `or-*` tier whenever a Claude login exists, so
+                            # an OpenRouter 429 was "re-driven on the next
+                            # account in line" — the next spawn of an OR tier
+                            # takes the same gateway key (spawn_env), so that is
+                            # the same wall, up to four real requests before the
+                            # freeze finally happened. The account roster cannot
+                            # serve this lane; it is never asked. Keyed on the
+                            # spawn identity, so a prose-only rate limit takes
+                            # the same door as a typed one.
+                            pass
+                        else:
+                            # when does THIS lane refresh? The prose first; the
+                            # host usage readout only when it was the HOST
+                            # subscription that failed — a key row's wall is a
+                            # different account's quota, and timing it off the
+                            # host's lanes is the wrong-account parking bug
+                            # (redteam 2026-08-18) in a new costume. Nothing
+                            # parseable ⇒ the 5-minute probe floor, honestly
+                            # short so capacity is re-asked soon.
+                            # THE REGISTRY SPLIT (multi-account S4, design D2c):
+                            # a bound spawn's ran_as IS a registry account id
+                            # (identity_in_env answers the marker), and that id
+                            # routes to the registry's own mark writer — the
+                            # legacy roster below never learns registry ids
+                            # (record_limit refuses unknowns by design).
+                            _reg_row = None
+                            try:
+                                _reg_row = registry.get_account(_served)
+                            except registry.UnknownAccount:
+                                _reg_row = None  # legacy identity — old roster
+                            # Registry accounts read their own profile board; the
+                            # subscription flag is used only for legacy identities.
+                            if _reg_row is not None:
+                                _sub_for_mark = (registry.resolve_alias("primary")
+                                                 == _reg_row["id"])
+                            else:
+                                _sub_for_mark = subscription_lane(
+                                    billed_key, str(st.get("ran_as") or ""))
+                            # ⚠ the MESSAGE's time marks the roster (user ruling
+                            # 2026-09-07): the cached recovery deadline used to
+                            # sit in front of it here, so the mark — and every
+                            # refresh time projected from it — followed the
+                            # readout's latest active lane instead of the wall
+                            # the message described
+                            _rts, _mark_src = _limit_reset_ts(
+                                err_blob,
+                                subscription=_sub_for_mark,
+                                trusted=_trusted, tier=_tier,
+                                account=_served if _reg_row is not None else "")
+                            if _reg_row is not None:
+                                # BOUND NODES NEVER RE-DRIVE (no-rollover ruling
+                                # 18:11Z): record the observed mark on exactly
+                                # the account that served, refuse as loudly as
+                                # the switch would have been, and fall to the
+                                # freeze below — the WAIT. _pool_dry stays None:
+                                # this freeze never asked the resolver, so
+                                # capacity appearing elsewhere must not wake it;
+                                # the mark's own horizon (auto-resume) does.
+                                _record_account_reset(
+                                    _served, _tier, err_blob, _rts, _mark_src, _trusted)
+                                log_failover_refusal(slug, nid, (
+                                    f"usage limit recorded for {_tier} on bound "
+                                    f"account {_served}; this node waits for "
+                                    f"that account's horizon (no rollover)"))
+                                # fall through to the freeze below — the WAIT
+                            else:
+                                accounts.record_limit(
+                                    _served, _tier,
+                                    _rts or time.time() + PROBE_FLOOR)
+                                _nxt = accounts.resolve(_tier)
+                                # the answer the resolver gave AT FREEZE TIME,
+                                # kept for the record below (D-156). False here
+                                # means capacity was standing available and we
+                                # froze for some other reason — the switch
+                                # counter, or a resolver that named the same
+                                # account back — and a readiness rule keyed on
+                                # "capacity exists" must not fire on a node
+                                # whose capacity never went away.
+                                _pool_dry = not _nxt.get("available")
+                                _switches = int(st.get("account_switches") or 0)
+                                if (_nxt.get("available")
+                                        and _nxt.get("account") != _served
+                                        and _switches < 4):
+                                    # bounded by the marks themselves: every
+                                    # re-drive lands on an account with NO mark
+                                    # for this tier, and each failure writes one
+                                    # — ping-pong cannot happen because a marked
+                                    # lane stops resolving. The counter is a
+                                    # backstop for a mark expiring mid-turn, not
+                                    # the mechanism; cleared only by a COMPLETED
+                                    # turn, same shape as hard_fail_run.
+                                    st["account_switches"] = _switches + 1
+                                    redrive_after_limit(slug, nid, (
+                                        f"{_tier} capacity exhausted on the "
+                                        f"serving account — re-driven on the "
+                                        f"next account in line"))
+                                    handled = True   # the switch owns this failure
+                                    turnlog.emit(_trec, "owner",
+                                                 branch="account_switch",
+                                                 handled=True)
+                                    if _trec is not None:
+                                        _trec.dispose("redriven")
+                                    raise RuntimeError(
+                                        "a usage limit was recorded and the "
+                                        "turn has been re-driven on the next "
+                                        "account in line")
+                                # ⚠ THE REFUSAL IS AS LOUD AS THE SWITCH, ON
+                                # PURPOSE: "considered moving and had nowhere to
+                                # go" and "not an account problem" must never
+                                # leave identical records (nothing). No mail, no
+                                # re-drive — the freeze path below is the
+                                # correct outcome.
+                                log_failover_refusal(slug, nid, (
+                                    f"usage limit recorded for {_tier}; no "
+                                    f"other account has capacity for it"))
+                    except Exception as _mark_err:           # noqa: BLE001
+                        # ⚠ `handled` RE-RAISES, and that is not defensive
+                        # politeness: the account-switch branch sets it True and
+                        # then raises a RuntimeError ON PURPOSE to hand the turn
+                        # to the re-drive. Swallowing that would freeze an agent
+                        # whose turn is already running again somewhere else.
+                        if handled:
+                            raise
+                        # The lane is simply unmarked: the next spawn re-asks
+                        # the resolver and may walk into the same wall once
+                        # more. That is a wasted spawn; losing the freeze was a
+                        # lost turn plus a wrong diagnosis. `_pool_dry` stays
+                        # None — this freeze never got an answer from the
+                        # resolver, so capacity appearing elsewhere must not
+                        # wake it (D-156); its own horizon does.
+                        _pool_dry = None
                         log_failover_refusal(slug, nid, (
-                            "the credential was rejected (401) — broken and "
-                            "in need of replacing, not out of capacity; no "
-                            "lane was marked"))
-                    elif (_served in ("api-key", "key:unattributed",
-                                      OPENROUTER_IDENTITY) or not _tier):
-                        # the API-key lane has no subscription capacity to
-                        # mark, and a token no row explains has no lane —
-                        # the freeze path below owns both, unchanged.
-                        # ⚠ AND THE OPENROUTER LANE (2026-09-05, measured):
-                        # `accounts.resolve` answers "primary, available" for
-                        # an `or-*` tier whenever a Claude login exists, so
-                        # an OpenRouter 429 was "re-driven on the next
-                        # account in line" — the next spawn of an OR tier
-                        # takes the same gateway key (spawn_env), so that is
-                        # the same wall, up to four real requests before the
-                        # freeze finally happened. The account roster cannot
-                        # serve this lane; it is never asked. Keyed on the
-                        # spawn identity, so a prose-only rate limit takes
-                        # the same door as a typed one.
-                        pass
-                    else:
-                        # when does THIS lane refresh? The prose first; the
-                        # host usage readout only when it was the HOST
-                        # subscription that failed — a key row's wall is a
-                        # different account's quota, and timing it off the
-                        # host's lanes is the wrong-account parking bug
-                        # (redteam 2026-08-18) in a new costume. Nothing
-                        # parseable ⇒ the 5-minute probe floor, honestly
-                        # short so capacity is re-asked soon.
-                        # THE REGISTRY SPLIT (multi-account S4, design D2c):
-                        # a bound spawn's ran_as IS a registry account id
-                        # (identity_in_env answers the marker), and that id
-                        # routes to the registry's own mark writer — the
-                        # legacy roster below never learns registry ids
-                        # (record_limit refuses unknowns by design).
-                        _reg_row = None
-                        try:
-                            _reg_row = registry.get_account(_served)
-                        except registry.UnknownAccount:
-                            _reg_row = None  # legacy identity — old roster
-                        # Registry accounts read their own profile board; the
-                        # subscription flag is used only for legacy identities.
-                        if _reg_row is not None:
-                            _sub_for_mark = (registry.resolve_alias("primary")
-                                             == _reg_row["id"])
-                        else:
-                            _sub_for_mark = subscription_lane(
-                                billed_key, str(st.get("ran_as") or ""))
-                        # ⚠ the MESSAGE's time marks the roster (user ruling
-                        # 2026-09-07): the cached recovery deadline used to
-                        # sit in front of it here, so the mark — and every
-                        # refresh time projected from it — followed the
-                        # readout's latest active lane instead of the wall
-                        # the message described
-                        _rts, _mark_src = _limit_reset_ts(
-                            err_blob,
-                            subscription=_sub_for_mark,
-                            trusted=_trusted, tier=_tier,
-                            account=_served if _reg_row is not None else "")
-                        if _reg_row is not None:
-                            # BOUND NODES NEVER RE-DRIVE (no-rollover ruling
-                            # 18:11Z): record the observed mark on exactly
-                            # the account that served, refuse as loudly as
-                            # the switch would have been, and fall to the
-                            # freeze below — the WAIT. _pool_dry stays None:
-                            # this freeze never asked the resolver, so
-                            # capacity appearing elsewhere must not wake it;
-                            # the mark's own horizon (auto-resume) does.
-                            _record_account_reset(
-                                _served, _tier, err_blob, _rts, _mark_src, _trusted)
-                            log_failover_refusal(slug, nid, (
-                                f"usage limit recorded for {_tier} on bound "
-                                f"account {_served}; this node waits for "
-                                f"that account's horizon (no rollover)"))
-                            # fall through to the freeze below — the WAIT
-                        else:
-                            accounts.record_limit(
-                                _served, _tier,
-                                _rts or time.time() + PROBE_FLOOR)
-                            _nxt = accounts.resolve(_tier)
-                            # the answer the resolver gave AT FREEZE TIME,
-                            # kept for the record below (D-156). False here
-                            # means capacity was standing available and we
-                            # froze for some other reason — the switch
-                            # counter, or a resolver that named the same
-                            # account back — and a readiness rule keyed on
-                            # "capacity exists" must not fire on a node
-                            # whose capacity never went away.
-                            _pool_dry = not _nxt.get("available")
-                            _switches = int(st.get("account_switches") or 0)
-                            if (_nxt.get("available")
-                                    and _nxt.get("account") != _served
-                                    and _switches < 4):
-                                # bounded by the marks themselves: every
-                                # re-drive lands on an account with NO mark
-                                # for this tier, and each failure writes one
-                                # — ping-pong cannot happen because a marked
-                                # lane stops resolving. The counter is a
-                                # backstop for a mark expiring mid-turn, not
-                                # the mechanism; cleared only by a COMPLETED
-                                # turn, same shape as hard_fail_run.
-                                st["account_switches"] = _switches + 1
-                                redrive_after_limit(slug, nid, (
-                                    f"{_tier} capacity exhausted on the "
-                                    f"serving account — re-driven on the "
-                                    f"next account in line"))
-                                handled = True   # the switch owns this failure
-                                turnlog.emit(_trec, "owner",
-                                             branch="account_switch",
-                                             handled=True)
-                                if _trec is not None:
-                                    _trec.dispose("redriven")
-                                raise RuntimeError(
-                                    "a usage limit was recorded and the "
-                                    "turn has been re-driven on the next "
-                                    "account in line")
-                            # ⚠ THE REFUSAL IS AS LOUD AS THE SWITCH, ON
-                            # PURPOSE: "considered moving and had nowhere to
-                            # go" and "not an account problem" must never
-                            # leave identical records (nothing). No mail, no
-                            # re-drive — the freeze path below is the
-                            # correct outcome.
-                            log_failover_refusal(slug, nid, (
-                                f"usage limit recorded for {_tier}; no "
-                                f"other account has capacity for it"))
+                            f"the usage limit could not be recorded against the "
+                            f"serving lane ({type(_mark_err).__name__}: "
+                            f"{_mark_err}); the freeze below still applies"))
                 # user ruling: fable weekly-limit exhaustion → org-wide fable freeze
                 if _limit_class and not handled:
                     # ANY model's usage limit → the agent FREEZES (user ruling):
@@ -24961,6 +25011,35 @@ def freeze_provider_limit(slug: str, nid: str, blob: str,
                 return False
             tier = str(o2.node(nid).get("model") or "")
             fz = _ensure_frozen(o2.node(nid))
+            # ── ANCHOR ONCE: A RESTATED COUNTDOWN MAY NOT MOVE THE DEADLINE.
+            # (user report 2026-09-17, `notice-toggle`.) Read the wall this
+            # node ALREADY carries BEFORE the writes below overwrite it —
+            # `_ensure_frozen` hands back the SURVIVING record on a re-freeze,
+            # so the previous message and the deadline it produced are both
+            # right here, and no new state has to be persisted to remember
+            # them. `classify_countdown` owns the rule and states the measured
+            # evidence; the three outcomes are handled positively below.
+            #
+            # ⚠ RECOGNITION IS NOT TOUCHED. This function is only reached once
+            # `_looks_like_usage_limit` has already said "this is a wall", and
+            # every branch here still freezes. The only question asked is
+            # which deadline a sentence that has not changed may set.
+            _cd_kind, _cd_ts = antigravity_limits.classify_countdown(
+                blob, str(fz.get("error") or ""), fz.get("until_ts"))
+            if _cd_kind == antigravity_limits.COUNTDOWN_REPEAT:
+                # one wall restated: keep the release time it first named
+                ts, src = cast("float", _cd_ts), "provider"
+                effective_kind = "observed-deadline"
+            elif _cd_kind == antigravity_limits.COUNTDOWN_STALE:
+                # the countdown outlived its own deadline without advancing,
+                # so it describes no present wall and may set no horizon. The
+                # turn still failed and the node still freezes — on the probe
+                # floor, which is short on purpose: the agent re-asks the
+                # provider in ~5 minutes and walks out by itself if the wall
+                # is gone. This is what un-sticks a node already wrongly
+                # frozen, without ever refusing to freeze.
+                ts, src = _provider_limit_until(blob, None, reset_from="stale")
+                effective_kind = _usage_schedule_kind(blob, src)
             fz["limit"] = True
             # the CLI reported this itself — it is not the agent's own prose
             # promoted by the clean-result gate, so the untrusted machinery
