@@ -379,17 +379,41 @@ def consumed(slug: str, nid: str) -> None:
             store.save_org(org)
 
 
-def _cut(slug: str, nid: str, st) -> None:
+def _cut(slug: str, nid: str, st, *, halting: bool = True) -> None:
     with store.DOC_LOCK:
         owners = _states(slug, nid, st)
     for runtime in owners:
-        _cut_state(slug, nid, runtime)
+        _cut_state(slug, nid, runtime, halting=halting)
 
 
-def _cut_state(slug: str, nid: str, st) -> None:
+def cut_for_archive(slug: str, nid: str) -> None:
+    """The abrupt cross-lane teardown, WITHOUT the halt flags — for a node
+    whose turn is about to lose its owner to an archive.
+
+    `supervisor.interrupt_before_archive` calls this for a node whose turn did
+    not settle inside the interrupt timeout. Retire/dissolve do not otherwise
+    touch process state (the measured gap `warmpool._keeper_pass` names), and
+    the graceful `interrupt_turn` verb deliberately leaves the process alive,
+    so without this the CLI's only remaining end condition after the archive
+    commits is its own turn's `finally` — bounded only by `TURN_TIMEOUT`, four
+    hours, during which it keeps making tool calls under a seat that no longer
+    exists. That is the stranded-CLI symptom.
+
+    ⚠ `halting=False` IS THE WHOLE POINT, not a detail. `st["halt_requested"]`
+    is keyed to `(slug, nid)` in `supervisor._state` and is cleared only by
+    unhalt; set here it would survive the archive and suppress every turn of a
+    LATER agent rehired under the same id. The per-turn flags (`interrupted`,
+    the admission and deploy-hold cancel tokens) are set as usual — they die
+    with the turn they belong to."""
+    from . import supervisor as sup
+    _cut(slug, nid, sup.state(slug, nid), halting=False)
+
+
+def _cut_state(slug: str, nid: str, st, *, halting: bool = True) -> None:
     from . import supervisor as sup, warmpool
     with sup._state_lock:
-        st["halt_requested"] = True
+        if halting:
+            st["halt_requested"] = True
         st["interrupted"] = True
         st["admission_cancel_token"] = st.get("admission_wait_token")
         st["deploy_hold_cancel"] = st.get("deploy_hold_token")

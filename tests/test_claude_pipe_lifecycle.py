@@ -305,6 +305,38 @@ class ClaudePipeLifecycleTests(unittest.TestCase):
         self.assert_settled()
         self.assertFalse(self.st["busy"])
 
+    def test_archive_reaps_a_cli_that_ignores_the_interrupt(self):
+        # The stranded-CLI symptom. "silent" never reads the graceful
+        # control_request, so the settle wait MUST time out — which before the
+        # fix left the process running with nobody attached until
+        # TURN_TIMEOUT (4h). Nothing else could reap it: retire/dissolve touch
+        # no process state, and a cold process is in neither warmpool table.
+        self.start("silent")
+        child = int(self.marker.read_text())
+        self.assertIsNone(self.procs[0].poll(), "fixture must still be running")
+        warnings = sup.interrupt_before_archive(
+            self.slug, store.load_org(self.slug), self.nid, timeout=1)
+        # the process itself, and the CLI child under it, are both gone
+        self.assertIsNotNone(self.procs[0].poll(),
+                             "the archive must not leave the CLI running")
+        if os.name == "nt":
+            self.assertTrue(eventually(lambda: not windows_alive(child)),
+                            "the reap must take the CLI child too, not just "
+                            "the launcher")
+        # it is reported, never silently swallowed, and it does not claim a
+        # clean settlement
+        self.assertEqual(len(warnings), 1, warnings)
+        self.assertIn("process tree was ended", warnings[0])
+        self.assertIn(self.nid, warnings[0])
+        # and the turn still reaches its own finally
+        self.assert_settled(timeout=10)
+        self.assertFalse(self.st["busy"])
+        # ⚠ the archive path must NOT leave halt's durable flag behind: it is
+        # keyed (slug, nid) and only unhalt clears it, so an agent later
+        # rehired under this id would be suppressed forever.
+        self.assertFalse(self.st.get("halt_requested"))
+        self.assertNotIn("halt", store.load_org(self.slug).node(self.nid))
+
     def test_warm_output_consumer_can_stop_without_pipe_eof(self):
         import queue
         wp = object.__new__(warmpool.WarmProc)

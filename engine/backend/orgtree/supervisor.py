@@ -25482,6 +25482,12 @@ def interrupt_all(slug: str, *,
 # with its OWN 30s budget, and a tool call already in flight when the
 # interrupt lands may still need to finish before the turn can exit).
 ARCHIVE_INTERRUPT_TIMEOUT_S = 10.0
+#: After an unsettled turn's process tree is reaped at archive time, how long
+#: to let its `finally` book cost and clear occupancy before the caller is
+#: told what actually happened. Short on purpose: the work it is doing is
+#: local bookkeeping against a process that is already dead, and retire must
+#: not become slow. Exceeding it is reported, never hidden.
+ARCHIVE_REAP_SETTLE_S = 5.0
 
 
 def interrupt_before_archive(slug: str, org: Org, nid: str,
@@ -25504,6 +25510,17 @@ def interrupt_before_archive(slug: str, org: Org, nid: str,
     timeout is reported back as a warning; the archive proceeds regardless
     (a wedged CLI must not hang retire forever) — see each call site's
     warning text for what that means for in-flight file writes.
+
+    ⚠ AND A NODE THAT MISSES THE TIMEOUT HAS ITS PROCESS TREE ENDED, across
+    every lane, before this returns (`halt.cut_for_archive`). It is the last
+    point at which anything can: the graceful verb above leaves the process
+    alive by design, retire/dissolve touch process state nowhere else, the
+    warm pool refuses to disturb a mid-turn process and never sees a cold one
+    at all — so after the archive commits the CLI would run on to
+    TURN_TIMEOUT (four hours), calling tools under a seat that no longer
+    exists. Both outcomes still return a warning, and the two warnings say
+    DIFFERENT things: one that the turn was cut, one that its bookkeeping was
+    still landing. Neither asserts a clean settlement.
 
     ⚠ MUST be called with `store.DOC_LOCK` NOT held by this thread. The
     interrupted turn's own `finally` block needs that lock to book its cost
@@ -25530,12 +25547,54 @@ def interrupt_before_archive(slug: str, org: Org, nid: str,
         deadline = time.monotonic() + timeout
         while state(slug, t)["busy"] and time.monotonic() < deadline:
             time.sleep(0.1)
+        if not state(slug, t)["busy"]:
+            continue
+        # ── THE UNSETTLED TURN IS REAPED, NOT LEFT (stranded-CLI fix).
+        # The graceful verb above deliberately leaves the process alive
+        # (`interrupt_turn`'s own docstring), and retire/dissolve touch
+        # process state nowhere else — `warmpool._keeper_pass` records that
+        # same measured gap. A warm process mid-turn is protected from the
+        # keeper on purpose (`warmpool.kill_node` early-returns on a CLAIMED
+        # process) and a COLD one was never in the pool for any pass to see.
+        # So once the archive below commits, this CLI's only remaining end
+        # condition is its own turn's `finally` — bounded by TURN_TIMEOUT,
+        # FOUR HOURS, throughout which it keeps calling tools and writing to
+        # disk under a seat that no longer exists. That is the stranded-CLI
+        # symptom the user reported, and this is the one place that can still
+        # act: after the archive there is no owner left to ask.
+        #
+        # The teardown is halt's, not a second copy of it — one cross-lane
+        # implementation (claude `proc`, codex, antigravity, auxiliary
+        # handles, then the warm pool's forced kill), reached WITHOUT halt's
+        # durable flags. See `halt.cut_for_archive`.
+        try:
+            from . import halt as _halt                    # noqa: PLC0415
+            _halt.cut_for_archive(slug, t)
+        except Exception as e:                             # noqa: BLE001
+            warnings.append(
+                f'"{t}" was interrupted, did not settle in {timeout:g}s, and '
+                f"the fallback process reap itself failed "
+                f"({type(e).__name__}: {e}) — its CLI may still be running")
+            continue
+        # The kill is abrupt; the turn's `finally` still has to run to book
+        # cost and clear occupancy. Give it a bounded grace and then report
+        # what is ACTUALLY true rather than asserting a settlement.
+        reaped = time.monotonic() + ARCHIVE_REAP_SETTLE_S
+        while state(slug, t)["busy"] and time.monotonic() < reaped:
+            time.sleep(0.1)
         if state(slug, t)["busy"]:
             warnings.append(
-                f'"{t}" was interrupted but its turn had not finished '
-                f"settling {timeout:g}s later — its cost/occupancy "
-                f"bookkeeping, and any tool call it had already started, "
-                f"may still land on disk after this call returns")
+                f'"{t}" was interrupted, did not settle in {timeout:g}s, so '
+                f"its CLI process tree was ended — but its cost/occupancy "
+                f"bookkeeping was still running "
+                f"{ARCHIVE_REAP_SETTLE_S:g}s later and may land on disk "
+                f"after this call returns")
+        else:
+            warnings.append(
+                f'"{t}" did not answer the interrupt within {timeout:g}s, so '
+                f"its CLI process tree was ended outright — the turn was cut "
+                f"mid-flight and any tool call it had already started may "
+                f"have landed only partly")
     return warnings
 
 
