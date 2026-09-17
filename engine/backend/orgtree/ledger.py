@@ -16214,6 +16214,48 @@ class Org:
                 "cannot accept this item: every acceptance condition needs an "
                 "explicit `met` or `known_negative` check; qualified or "
                 "unexercised evidence cannot complete it")
+        # ---- W11: THE UNCLASSIFIED SHAPE IS RECORDED, NOT REFUSED.
+        #
+        # Read the guard above again: it fires only when something is already
+        # classified, because an empty `explicit` makes its own precondition
+        # false. So an item whose conditions were NEVER classified skipped it
+        # entirely and completed with no statement of any kind about what had
+        # been checked -- the weakest items were the ones that closed most
+        # freely. Measured against this docket the day this landed: 410 of 473
+        # archived completions (86%) had passed no gate at all, and 8 of the 14
+        # active items were in that shape.
+        #
+        # Since 274fdb2 the shape is also reachable deliberately: amending a
+        # condition clears its check, so rewriting the ONLY condition -- or all
+        # of them -- empties `explicit` and turns the guard off. That converts
+        # an item this guard actively refuses into one it completes.
+        #
+        # The user ruled on 2026-09-17 that this WARNS rather than blocks. The
+        # item completes and the acceptance record states plainly how much of
+        # it closed without classified evidence. Blocking was on the table and
+        # was declined: the cheapest way past a block is to type `met` without
+        # checking anything, which would write a FALSE record where an honest
+        # gap is written now. A silent hole becomes a stated one.
+        #
+        # ⚠ THIS DOES NOT RELAX THE PARTIAL SHAPE. Some-classified still
+        # refuses on the length mismatch above, which
+        # tests/test_docket_update_acceptance.py pins on purpose. The gap is
+        # recorded only when NOTHING is classified -- exactly the question that
+        # was asked and answered, and nothing wider.
+        #
+        # ⚠ AND IT IS SCOPED TO THIS CORE, which is `accept` and a reviewer's
+        # approval. The user ruled in the same breath that `update(status=
+        # "done")` stays ungated as it is today, so a completion by that route
+        # records no gap. That is deliberate, not an oversight.
+        gap: dict[str, Any] | None = None
+        if not explicit:
+            n = len(acceptance)
+            gap = {"unclassified": n, "total": n,
+                   "summary": (
+                       f"completed with {n} of {n} acceptance condition(s) "
+                       f"closed without classified evidence"
+                       if n else
+                       "completed with no acceptance conditions to check")}
         frm = it.get("status")
         it["status"] = "done"
         self._work_stamp_status(it)
@@ -16226,12 +16268,28 @@ class Org:
         it["accepted"] = {"at": now(), "by": self._work_actor(actor),
                           "note": (_prose(note) if note else None),
                           "via": op}
-        self._work_hist(it, actor, op, {"from": frm})
+        if gap is not None:
+            # On the item itself, beside the completion it qualifies -- so a
+            # reader of the acceptance record cannot miss it, and `work_get`
+            # serves it without anyone having to ask a second question.
+            it["accepted"]["evidence_gap"] = gap
+        self._work_hist(it, actor, op, {"from": frm}
+                        if gap is None else
+                        {"from": frm, "evidence_gap": gap["summary"]})
         it["docket_at"] = now()
-        self._log("work_accept", actor, {"item": wid, "via": op}, [])
-        return {"accepted": wid, "rev": it["rev"],
-                "status": "done — archives automatically once its last docket "
-                          "update is over an hour old (records are kept)"}
+        self._log("work_accept", actor,
+                  {"item": wid, "via": op}
+                  if gap is None else
+                  {"item": wid, "via": op, "evidence_gap": gap["summary"]}, [])
+        out = {"accepted": wid, "rev": it["rev"],
+               "status": "done — archives automatically once its last docket "
+                         "update is over an hour old (records are kept)"}
+        if gap is not None:
+            # The WARN half of warn-and-record: the caller is told at the
+            # moment it completes, not left to discover it by reading back.
+            out["warning"] = gap["summary"]
+            out["evidence_gap"] = gap
+        return out
 
     # ---- REVIEW. User rulings 2026-09-05 21:22/21:26, relayed by Astra.
     #
