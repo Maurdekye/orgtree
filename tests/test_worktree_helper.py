@@ -1,6 +1,9 @@
 """Focused W10 safety controls (no Git repository mutation required)."""
 from __future__ import annotations
 
+import contextlib
+import io
+import json
 import subprocess
 import tempfile
 import os
@@ -299,6 +302,389 @@ class RemovalSafetyTests(unittest.TestCase):
                 with self.assertRaises(ValueError) as caught:
                     worktree.plan_remove(folder, folder)
             self.assertIn("main checkout", str(caught.exception))
+
+
+class UnforcedRemovalTests(unittest.TestCase):
+    """The un-forced removal is the one an agent actually reaches.
+
+    ⚠ MEASURED, not assumed (git 2.52.0.windows.1, worktree under the repository
+    root, ``node_modules`` junction pointing outside it): ``git worktree remove``
+    with NO flags exited 0 and emptied the junction's target, exactly as
+    ``--force`` did. ``--force`` overrides the dirty/untracked CHECK; it does not
+    change how Git deletes the tree.
+
+    That matters because a ``node_modules`` junction is gitignored, so ``status``
+    calls the worktree clean and none of the force-only refusals apply. Gating
+    the link check on ``force`` guarded the careful route and left the default
+    one wide open. These cases pin the correction: the link check is not about
+    ``force`` and must never be put back behind it.
+    """
+
+    def _escaping_worktree(self, root: Path) -> Path:
+        outside, inside = root / "outside", root / "checkout"
+        outside.mkdir()
+        (outside / "precious.txt").write_bytes(b"do not delete")
+        inside.mkdir()
+        make_link(inside / "node_modules", outside)
+        return inside
+
+    def test_plan_remove_refuses_an_unforced_removal_through_an_escaping_link(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            inside = self._escaping_worktree(root)
+            with mock.patch.object(worktree, "repository_root", return_value=worktree.canonical(root)), \
+                    mock.patch.object(worktree, "_status", return_value=(False, False, True)):
+                plan = worktree.plan_remove(str(root), str(inside))
+            self.assertFalse(plan["force"])
+            self.assertFalse(plan["safe"])
+            self.assertIn("deletes through them", plan["refusals"][0])
+            # The message must not claim this was a --force refusal, because it
+            # was not; an agent told "refusing --force" on a plain remove drops
+            # the flag it never passed and believes it has worked around it.
+            self.assertNotIn("refusing --force", plan["refusals"][0])
+            self.assertIn("WITHOUT --force", plan["refusals"][0])
+
+    def test_remove_never_runs_git_when_a_link_escapes_and_no_force_was_asked(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            inside = self._escaping_worktree(root)
+            with mock.patch.object(worktree, "repository_root", return_value=worktree.canonical(root)), \
+                    mock.patch.object(worktree, "_status", return_value=(False, False, True)), \
+                    mock.patch.object(worktree.subprocess, "run") as run:
+                with self.assertRaises(ValueError):
+                    worktree.remove(str(root), str(inside))
+            run.assert_not_called()
+            self.assertTrue((root / "outside" / "precious.txt").exists())
+
+    def test_a_clean_worktree_is_still_refused_because_the_junction_is_gitignored(self) -> None:
+        # The exact live shape: git reports nothing to commit, so every
+        # force-only refusal is silent, and only the link check stands between
+        # the removal and somebody else's dependency tree.
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            inside = self._escaping_worktree(root)
+            with mock.patch.object(worktree, "repository_root", return_value=worktree.canonical(root)), \
+                    mock.patch.object(worktree, "_status", return_value=(False, False, True)):
+                plan = worktree.plan_remove(str(root), str(inside))
+            self.assertFalse(plan["dirty"])
+            self.assertFalse(plan["unmerged"])
+            self.assertEqual(len(plan["refusals"]), 1)
+            self.assertFalse(plan["safe"])
+
+    def test_a_truncated_scan_refuses_without_force_too(self) -> None:
+        stopped = {"worktree": "w", "links": [], "escaping": [], "entries_scanned": 1,
+                   "truncated": True, "removal_safe": False, "force_safe": False}
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            inside = root / ".worktrees" / "agent"
+            inside.mkdir(parents=True)
+            with mock.patch.object(worktree, "repository_root", return_value=worktree.canonical(root)), \
+                    mock.patch.object(worktree, "_status", return_value=(False, False, True)), \
+                    mock.patch.object(worktree, "removal_scan", return_value=stopped):
+                plan = worktree.plan_remove(str(root), str(inside))
+            self.assertFalse(plan["safe"])
+            self.assertIn("would be a guess", plan["refusals"][0])
+
+    def test_force_still_means_discard_changes_and_never_means_cross_a_link(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            inside = self._escaping_worktree(root)
+            with mock.patch.object(worktree, "repository_root", return_value=worktree.canonical(root)), \
+                    mock.patch.object(worktree, "_status", return_value=(True, False, True)):
+                forced = worktree.plan_remove(str(root), str(inside), force=True)
+                plain = worktree.plan_remove(str(root), str(inside))
+            # force clears the dirty refusal...
+            self.assertFalse(any("uncommitted" in r for r in forced["refusals"]))
+            self.assertTrue(any("uncommitted" in r for r in plain["refusals"]))
+            # ...and clears nothing about the link, in either direction.
+            self.assertFalse(forced["safe"])
+            self.assertFalse(plain["safe"])
+            self.assertTrue(any("deletes through them" in r for r in forced["refusals"]))
+            self.assertTrue(any("deletes through them" in r for r in plain["refusals"]))
+
+    def test_a_worktree_with_a_real_installed_dependency_tree_is_still_removable(self) -> None:
+        """⚠ The regression the un-gating nearly introduced.
+
+        A junctioned ``node_modules`` is a reparse point and is never descended
+        into, so it scans small. A REAL one is walked, and measured at 61,324
+        entries it used to blow a 50,000-entry budget - which, once the
+        truncation refusal stopped depending on ``--force``, would have made
+        every worktree anybody ran ``npm install`` in permanently unremovable,
+        with no way out in the message. Those are exactly the checkouts that
+        need cleaning up. Reported by worktree-setup in review.
+        """
+        self.assertGreater(worktree.SCAN_LIMIT, 61324,
+                           "the budget must clear a real installed node_modules")
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            inside = root / ".worktrees" / "agent"
+            (inside / "node_modules" / "pkg").mkdir(parents=True)
+            (inside / "node_modules" / "pkg" / "index.js").write_bytes(b"")
+            with mock.patch.object(worktree, "repository_root", return_value=worktree.canonical(root)), \
+                    mock.patch.object(worktree, "_status", return_value=(False, False, True)):
+                plan = worktree.plan_remove(str(root), str(inside))
+            self.assertEqual(plan["refusals"], [])
+            self.assertTrue(plan["safe"])
+
+    def test_accept_unscanned_waives_only_the_unknown(self) -> None:
+        stopped = {"worktree": "w", "links": [], "escaping": [], "entries_scanned": 1,
+                   "truncated": True, "removal_safe": False, "force_safe": False}
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            inside = root / ".worktrees" / "agent"
+            inside.mkdir(parents=True)
+            with mock.patch.object(worktree, "repository_root", return_value=worktree.canonical(root)), \
+                    mock.patch.object(worktree, "_status", return_value=(False, False, True)), \
+                    mock.patch.object(worktree, "removal_scan", return_value=stopped):
+                waived = worktree.plan_remove(str(root), str(inside), accept_unscanned=True)
+            self.assertTrue(waived["safe"])
+            self.assertEqual(waived["refusals"], [])
+
+    def test_accept_unscanned_never_waives_a_link_the_scan_actually_found(self) -> None:
+        # The distinction the flag exists to preserve: "I could not finish
+        # looking" is waivable, "I looked and found a door out of the tree" is
+        # not. Overloading one word into both is the original defect.
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            inside = self._escaping_worktree(root)
+            with mock.patch.object(worktree, "repository_root", return_value=worktree.canonical(root)), \
+                    mock.patch.object(worktree, "_status", return_value=(False, False, True)):
+                plan = worktree.plan_remove(str(root), str(inside),
+                                            force=True, accept_unscanned=True)
+            self.assertFalse(plan["safe"])
+            self.assertTrue(any("deletes through them" in r for r in plan["refusals"]))
+
+    def test_the_refusal_points_at_a_command_that_can_actually_do_the_job(self) -> None:
+        # It used to name cleanup-preview, which cannot: the CLI passed it no
+        # `owned` list, so every candidate came back preserved. Reachable only
+        # via --force before; this change makes it the default experience.
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            inside = self._escaping_worktree(root)
+            with mock.patch.object(worktree, "repository_root", return_value=worktree.canonical(root)), \
+                    mock.patch.object(worktree, "_status", return_value=(False, False, True)):
+                plan = worktree.plan_remove(str(root), str(inside))
+            self.assertIn("cleanup-scan", plan["refusals"][0])
+            self.assertNotIn("cleanup-preview", plan["refusals"][0])
+
+    def test_removal_safe_is_reported_beside_the_older_force_safe_name(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            inside = self._escaping_worktree(root)
+            scan = worktree.removal_scan(str(inside))
+            self.assertFalse(scan["removal_safe"])
+            self.assertEqual(scan["removal_safe"], scan["force_safe"])
+
+
+class CleanupScanTests(unittest.TestCase):
+    """Enumeration was the missing half: nothing produced a candidate list.
+
+    ``cleanup_preview`` could always validate a path, but the CLI called it with
+    no ``owned`` argument, so every candidate came back "not registered as an
+    owned link" and no cleanup could ever be run from the command line.
+    """
+
+    def test_an_escaping_dependency_link_is_found_and_selected(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            scanned, outside = root / "scratch", root / "real"
+            outside.mkdir()
+            (outside / "precious.txt").write_bytes(b"the real dependency tree")
+            (scanned / "agent" / "wt").mkdir(parents=True)
+            make_link(scanned / "agent" / "wt" / "node_modules", outside)
+            plan = worktree.cleanup_scan(str(scanned))
+            self.assertEqual(plan["selection"]["selected"], 1)
+            self.assertEqual(plan["unlinkable"], 1)
+            # Found by reading the entry, never by walking through it.
+            self.assertTrue((outside / "precious.txt").exists())
+
+    def test_a_link_that_stays_inside_the_scanned_root_is_preserved(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "real").mkdir()
+            (root / "wt").mkdir()
+            make_link(root / "wt" / "node_modules", root / "real")
+            plan = worktree.cleanup_scan(str(root))
+            self.assertEqual(plan["selection"]["selected"], 0)
+            self.assertEqual(plan["unlinkable"], 0)
+            self.assertEqual(plan["preserved"], 1)
+
+    def test_a_link_with_another_name_is_listed_but_not_selected(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            outside = root / "elsewhere"
+            outside.mkdir()
+            (root / "wt").mkdir()
+            make_link(root / "wt" / "cache", outside)
+            plan = worktree.cleanup_scan(str(root))
+            self.assertEqual(plan["selection"]["links_found"], 1)
+            self.assertEqual(plan["selection"]["selected"], 0)
+            self.assertEqual(plan["preserved"], 1)
+
+    def test_a_real_dependency_directory_is_recorded_and_not_descended(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            heavy = root / "wt" / "node_modules" / "pkg"
+            heavy.mkdir(parents=True)
+            (heavy / "index.js").write_bytes(b"")
+            survey = worktree.find_reparse_points(str(root))
+            self.assertEqual(survey["links"], [])
+            self.assertTrue(any(worktree.canonical(p) == worktree.canonical(root / "wt" / "node_modules")
+                                for p in survey["skipped_directories"]))
+
+    def test_the_entry_budget_is_reported_rather_than_applied_quietly(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            for index in range(6):
+                (root / f"d{index}").mkdir()
+            survey = worktree.find_reparse_points(str(root), limit=2)
+            self.assertTrue(survey["truncated"])
+            self.assertFalse(survey["complete"])
+
+    def test_the_depth_bound_is_reported_rather_than_applied_quietly(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "a" / "b").mkdir(parents=True)
+            survey = worktree.find_reparse_points(str(root), max_depth=2)
+            self.assertTrue(survey["depth_limited"])
+            self.assertFalse(survey["exhaustive"])
+
+    def test_a_depth_bound_is_a_scope_statement_and_a_truncation_is_a_failure(self) -> None:
+        # Folding these into one flag makes the useful one useless: on any real
+        # tree something is always deeper than the bound, so a combined flag
+        # reads False forever and stops meaning anything.
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "a" / "b").mkdir(parents=True)
+            bounded = worktree.find_reparse_points(str(root), max_depth=2)
+            self.assertTrue(bounded["complete"], "the requested depth WAS fully examined")
+            self.assertFalse(bounded["exhaustive"], "but something below it was not")
+            for index in range(6):
+                (root / f"d{index}").mkdir()
+            stopped = worktree.find_reparse_points(str(root), limit=2)
+            self.assertFalse(stopped["complete"], "running out of budget is a real failure")
+
+    def test_the_plan_states_the_safe_order_and_names_the_tool_that_destroys(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            plan = worktree.cleanup_scan(str(Path(folder)))
+            self.assertEqual([s["step"] for s in plan["remediation"]], [1, 2])
+            self.assertIn("rmdir", plan["remediation"][0]["command"])
+            # Doing it the other way round IS the incident, and a recursive
+            # delete is the tool that follows the link instead of removing it.
+            self.assertIn("Remove-Item -Recurse", plan["remediation"][0]["never"])
+
+    def test_a_truncated_scan_says_INCOMPLETE_in_the_plan_the_operator_reads(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            for index in range(6):
+                (root / f"d{index}").mkdir()
+            plan = worktree.cleanup_scan(str(root), limit=2)
+            self.assertFalse(plan["complete"])
+            self.assertIn("INCOMPLETE", plan["note"])
+            self.assertIn("--limit", plan["note"])
+
+    def test_a_depth_bounded_scan_states_its_scope_without_crying_incomplete(self) -> None:
+        # It did everything it was asked to do. Calling that INCOMPLETE would
+        # make the word meaningless, since a real tree always has something
+        # below any bound - and then a genuinely truncated scan reads the same
+        # as a healthy one.
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "a" / "b").mkdir(parents=True)
+            plan = worktree.cleanup_scan(str(root), max_depth=2)
+            self.assertTrue(plan["complete"])
+            self.assertFalse(plan["exhaustive"])
+            self.assertNotIn("INCOMPLETE", plan["note"])
+            self.assertIn("were not descended into", plan["note"])
+
+    def test_scan_then_apply_unlinks_the_link_and_leaves_the_target(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            scanned, outside = root / "scratch", root / "real"
+            outside.mkdir()
+            (outside / "precious.txt").write_bytes(b"the real dependency tree")
+            (scanned / "wt").mkdir(parents=True)
+            link = scanned / "wt" / "node_modules"
+            make_link(link, outside)
+            plan = worktree.cleanup_scan(str(scanned))
+            applied = worktree.apply_cleanup(plan, confirm=True)
+            self.assertEqual(len(applied["removed"]), 1)
+            self.assertFalse(link.exists())
+            # The whole point: the link is gone, the target is untouched.
+            self.assertTrue((outside / "precious.txt").exists())
+            self.assertEqual((outside / "precious.txt").read_bytes(), b"the real dependency tree")
+
+    def test_a_plan_survives_a_json_round_trip_because_that_is_how_it_is_run(self) -> None:
+        # The operator runs `cleanup-scan > plan.json` and then
+        # `cleanup-apply plan.json`, so the identity tuple reaches apply as a
+        # list. If that comparison were type-sensitive the plan would preserve
+        # everything and the cleanup would silently do nothing.
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            outside = root / "real"
+            outside.mkdir()
+            (outside / "precious.txt").write_bytes(b"x")
+            (root / "scratch" / "wt").mkdir(parents=True)
+            make_link(root / "scratch" / "wt" / "node_modules", outside)
+            plan = json.loads(json.dumps(worktree.cleanup_scan(str(root / "scratch"))))
+            applied = worktree.apply_cleanup(plan, confirm=True)
+            self.assertEqual(len(applied["removed"]), 1)
+            self.assertTrue((outside / "precious.txt").exists())
+
+    def test_applying_without_confirmation_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            with self.assertRaises(ValueError):
+                worktree.apply_cleanup(worktree.cleanup_scan(str(root)))
+
+    def test_the_cli_wires_scan_and_apply_together(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            outside = root / "real"
+            outside.mkdir()
+            (outside / "precious.txt").write_bytes(b"x")
+            (root / "scratch" / "wt").mkdir(parents=True)
+            link = root / "scratch" / "wt" / "node_modules"
+            make_link(link, outside)
+            stream = io.StringIO()
+            with contextlib.redirect_stdout(stream):
+                worktree.main(["cleanup-scan", str(root / "scratch")])
+            plan_path = root / "plan.json"
+            plan_path.write_text(stream.getvalue(), encoding="utf-8")
+            with contextlib.redirect_stdout(io.StringIO()):
+                worktree.main(["cleanup-apply", str(plan_path), "--confirm"])
+            self.assertFalse(link.exists())
+            self.assertTrue((outside / "precious.txt").exists())
+
+    def test_the_cli_refuses_to_apply_without_confirm(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            plan_path = Path(folder) / "plan.json"
+            plan_path.write_text(json.dumps({"targets": []}), encoding="utf-8")
+            errors = io.StringIO()
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(errors):
+                code = worktree.main(["cleanup-apply", str(plan_path)])
+            self.assertEqual(code, 2)
+            self.assertIn("confirmation", errors.getvalue())
+
+    def test_a_refusal_reaches_the_reader_as_a_sentence_not_a_traceback(self) -> None:
+        # The refusals in this tool are written to be acted on: they name the
+        # hazard and the command that resolves it. A traceback buries that under
+        # a stack the reader did not ask for.
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            outside, inside = root / "outside", root / "checkout"
+            outside.mkdir()
+            inside.mkdir()
+            make_link(inside / "node_modules", outside)
+            errors = io.StringIO()
+            with mock.patch.object(worktree, "repository_root", return_value=worktree.canonical(root)), \
+                    mock.patch.object(worktree, "_status", return_value=(False, False, True)), \
+                    contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(errors):
+                code = worktree.main(["remove", str(inside), "--repository", str(root)])
+            self.assertEqual(code, 2)
+            self.assertIn("refused:", errors.getvalue())
+            self.assertIn("deletes through them", errors.getvalue())
+            self.assertNotIn("Traceback", errors.getvalue())
 
 
 class PlacementTests(unittest.TestCase):
