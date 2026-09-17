@@ -105,6 +105,9 @@ test('the baseline tool is release tooling, and its own tests run when it change
   const plan = selectReleaseVerification(['tools/test-baseline.mjs'])
   assert.equal(plan.area, 'release')
   assert.ok(plan.checks.find(check => check.gate === 'source').command.includes('tests/test-baseline.test.mjs'))
+  // Its guide is classified with the release documentation, as
+  // docs/windows-release.md already is.
+  assert.equal(classifyReleaseChanges(['docs/known-failures.md']).area, 'release')
 })
 
 test('editing the acquittal list itself escalates to the full profile', () => {

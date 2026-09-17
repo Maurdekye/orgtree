@@ -99,6 +99,9 @@ const RELEASE_PATHS = [
   /^tests\/release-verification\.test\.mjs$/,
   /^tests\/test_work_evidence_receipts\.py$/,
   /^docs\/windows-release\.md$/,
+  // The guide to the baseline the full profile now runs on, classified
+  // alongside the release documentation above it for the same reason.
+  /^docs\/known-failures\.md$/,
   RELEASE_NOTES_PATH,
 ]
 const INSTALLER_PATHS = [
