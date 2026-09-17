@@ -21462,6 +21462,59 @@ def _run_one_turn_recorded(slug: str, nid: str,
 ABANDON_DRIVE_WINDOW = 120.0
 _abandon_drove: dict[str, float] = {}
 
+# How long one superior is spared a second STOPPED-REPORT drive, shared by
+# `_limit_announce` and `_parked_announce`. Same rule and same size as
+# `ABANDON_DRIVE_WINDOW` above, for the same reason: one account hitting its
+# limit walls every report on that lane AT ONCE, so a drive per walled report
+# would cost a manager one turn each for a single fact. The mail is deposited
+# every time regardless — only the WAKE is bounded. Loud once, complete always.
+#
+# ⚠ ONE BUCKET FOR BOTH KINDS, and that is deliberate. A superior already woken
+# for a walled report does not need a second turn to hear that another report's
+# credential was rejected: it is awake, and `send_message`'s own delivery makes
+# the second notice ride into the turn the first one started (a busy node
+# queues to the same live process at each result boundary; a responding one
+# steers after its next tool call). Sharing suppresses a redundant WAKE, never
+# a notice.
+STOPPED_REPORT_DRIVE_WINDOW = 120.0
+_stopped_drove: dict[str, float] = {}
+
+
+def _wake_superior(slug: str, nid: str, sup: str, text: str, what: str) -> bool:
+    """Wake a superior because one of its reports has STOPPED.
+
+    User ruling 2026-09-17 21:29, on finding a report frozen for ten minutes
+    while the coordinator sat idle: *"your report was frozen. it seems the
+    notification was only queued, and it didnt wake you. something like that
+    should always wake you."* Before this, a usage-limit wall and an
+    indefinitely-parked report both deposited mail and stopped, so a superior
+    with nothing else to do never learned of it until something unrelated woke
+    it.
+
+    Returns True if a turn was actually driven. The caller has ALREADY written
+    the durable mail before calling this — that write is unconditional and is
+    what makes throttling the drive safe.
+    """
+    key = f"{slug}/{sup}"
+    now = time.time()
+    recent = _stopped_drove.get(key, 0.0)
+    if now - recent < STOPPED_REPORT_DRIVE_WINDOW:
+        print(f"[orgtree] {slug}/{nid}: {what} — mailed its superior "
+              f"({sup}); not driving, one was driven {now - recent:.0f}s ago "
+              f"and this rides with it")
+        return False
+    _stopped_drove[key] = now
+    try:
+        send_message(slug, sup, text)
+    except Exception:                                            # noqa: BLE001
+        # a failed drive must not cost the caller its own bookkeeping: the
+        # durable mail is already in the box and still says everything.
+        print(f"[orgtree] {slug}/{nid}: {what} — drive of its superior "
+              f"({sup}) failed; the durable mail still waits in its box")
+        return False
+    print(f"[orgtree] {slug}/{nid}: {what} — woke its superior ({sup})")
+    return True
+
 
 def _turn_abandoned(slug: str, nid: str, door: str, err: str) -> bool:
     """A turn failed TERMINALLY — nothing will retry it and nothing will
@@ -21847,9 +21900,17 @@ def _parked_announce(slug: str, nid: str, kind: str, lane: str) -> bool:
     only by a turn that COMPLETES (`_after_turn`), so an operator who replaces
     the credential, resumes, and watches it get stuck again is told again.
 
-    PASSIVE, like `_limit_announce`: mail, never a drive. One broken
-    credential parks every node on that account at once, so a drive would cost
-    a manager a turn per node for a fact only the operator can act on.
+    WAKES ITS SUPERIOR, like `_limit_announce` — user ruling 2026-09-17 21:29,
+    which reversed the passive delivery both of these used to have. This case
+    is if anything the stronger of the two: a parked node has NO reset time and
+    nothing will ever wake it, so a superior that does not hear promptly does
+    not hear until it happens to run for some other reason.
+
+    One broken credential still parks every node on that account at once, so
+    the WAKE is bounded per superior by `_wake_superior`
+    (`STOPPED_REPORT_DRIVE_WINDOW`) while the durable mail is deposited on
+    every park. Throttling the drive loses nothing: the notices ride into the
+    turn the first wake started.
 
     No superior ⇒ the user's inbox, for the third time and the same reason.
 
@@ -21898,8 +21959,12 @@ def _parked_announce(slug: str, nid: str, kind: str, lane: str) -> bool:
             store.save_org(org)
         if sup:
             mail_spark(slug, "@system", sup)
-            print(f"[orgtree] {slug}/{nid}: parked ({kind}) on {lane} — "
-                  f"mailed its superior ({sup}); not driving")
+            _wake_superior(
+                slug, nid, sup,
+                f"(orgtree) Your report {name} {headline} and is STOPPED with "
+                f"no reset time — nothing will wake it. The mail above has the "
+                f"detail and the remedy.",
+                f"parked ({kind}) on {lane}")
         else:
             print(f"[orgtree] {slug}/{nid}: parked ({kind}) on {lane} — no "
                   f"superior to tell; left a notice in the user's inbox")
@@ -21929,11 +21994,23 @@ def _limit_announce(slug: str, nid: str, lane: str,
     measured the asymmetry both ways: deposited mail COALESCES (three deposits
     then one drive gave ONE envelope carrying all three) while drives do NOT
     (three drives gave three envelopes). One account wall breaks every report
-    on that lane AT ONCE, so driving would cost a manager one turn per walled
-    report for a fact that can wait — and unlike an abandonment there is
-    nothing for it to do urgently: the node is frozen with a reset time, not
-    broken. So this deposits and stops. The notices ride along with whatever
-    wakes the manager next.
+    on that lane AT ONCE, so a drive per walled report would cost a manager one
+    turn each for a single fact.
+
+    ⚠ IT NOW DRIVES ANYWAY, BOUNDED — reversed by user ruling 2026-09-17 21:29.
+    This used to deposit and stop, on the reasoning that a frozen report "is not
+    urgent: the node is frozen with a reset time, not broken". Measured against
+    reality that was wrong: `toolbar-polish` was walled at 21:19:19Z holding an
+    assigned, in-progress ticket, and its coordinator — idle, with nothing else
+    to wake it — did not find out for ten minutes, and then only because the
+    USER noticed. A report whose work has STOPPED is exactly the thing a manager
+    must hear about while it is still actionable. The user's words: *"something
+    like that should always wake you."*
+
+    The firehose argument above survives intact and is answered where it
+    belongs: `_wake_superior` bounds the WAKE per superior
+    (`STOPPED_REPORT_DRIVE_WINDOW`), while the durable mail is still deposited
+    unconditionally on every wall. Loud once, complete always.
 
     ⚠ ONCE PER EPISODE, bounded by `limit_run` — the same shape, for the same
     reason, as `hard_fail_run` and `net_fail_run`, and cleared in exactly the
@@ -22035,9 +22112,12 @@ def _limit_announce(slug: str, nid: str, lane: str,
             store.save_org(org)
         if sup:
             mail_spark(slug, "@system", sup)
-            print(f"[orgtree] {slug}/{nid}: usage limit on {lane} — mailed "
-                  f"its superior ({sup}); not driving, a frozen report is not "
-                  f"urgent and the notice rides with its next turn")
+            _wake_superior(
+                slug, nid, sup,
+                f"(orgtree) Your report {name} is FROZEN on a usage limit and "
+                f"its work has stopped — the mail above has the lane and the "
+                f"reset time.",
+                f"usage limit on {lane}")
         else:
             print(f"[orgtree] {slug}/{nid}: usage limit on {lane} — no "
                   f"superior to tell; left a notice in the user's inbox")
