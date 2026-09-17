@@ -6821,19 +6821,15 @@ _WORK_ACTION_ALIASES: dict[str, str] = {
 _WORK_READ_ONLY = frozenset({"list", "get", "verify", "receipts",
                              "artifact_read"})
 
-#: ⚠ TEMPORARY, AND SHIPPING SEPARATELY ON PURPOSE. A field here is one the
-#: audit found dead but which this commit still accepts and drops, because
-#: refusing it is a bigger behaviour change than the rest of the guard and the
-#: coordinator wants it revertable on its own (ruling 2026-09-17).
+#: Fields the guard lets through even though no action reads them. EMPTY, and
+#: meant to stay empty — it exists so that a refusal too disruptive to ship
+#: with the rest can be held back for one commit and reverted on its own.
 #:
-#: `expected_rev` is the whole of it. The tool card does not merely permit it
-#: on the actions that ignore it — it INSTRUCTS callers to pass it ("update/
-#: evidence/receipt and every other mutating action"), and eight actions
-#: honour it. So the refusal and the card correction must land together, in
-#: one commit, or every careful agent is refused for following the
-#: documentation. THIS SET IS EXPECTED TO BE EMPTY; emptying it is that
-#: commit, and reverting that commit restores this line.
-_WORK_GUARD_EXEMPT: frozenset[str] = frozenset({"expected_rev"})
+#: `expected_rev` was the only entry it ever had. The card did not merely
+#: permit it on the nineteen actions that dropped it, it INSTRUCTED callers to
+#: pass it there, so the refusal and the card correction landed together in
+#: this commit — never the refusal first, and never the correction alone.
+_WORK_GUARD_EXEMPT: frozenset[str] = frozenset()
 
 #: Where a field an action does NOT write is actually written. A refusal that
 #: only says "not here" leaves the caller to guess, which on a docket means

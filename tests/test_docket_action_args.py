@@ -38,13 +38,13 @@ WHAT THIS SUITE PINS:
   §3  A refused call leaves the org document BYTE-IDENTICAL and the revision
       unmoved: no field, no history row, no rev.
   §4  The refusal names the field AND the action that does write it.
-  §5  `expected_rev` is EXEMPT from this commit, deliberately and visibly.
-      The card instructs callers to pass it, so the refusal and the card
-      correction ship together in their own commit (coordinator ruling
-      2026-09-17) — this commit pins that it is exempt and that the exemption
-      says so, so nobody mistakes the gap for an oversight.
+  §5  `expected_rev` is refused everywhere it is dead, and the message
+      distinguishes "redundant here" (receipt/rangediff, which do their own
+      compare-and-set) from "no protection at all" (the other seventeen).
   §6  The read-shaped actions are guarded too, and say so differently: a read
       moves no revision, so it must not claim one did not move.
+  §7  The tool card no longer advertises `expected_rev` for actions that drop
+      it — the refusal and the correction land in the same commit.
 """
 import inspect
 import json
@@ -357,32 +357,31 @@ class TheRefusalNamesTheRoute(unittest.TestCase):
         self.assertIn("action=grant", self.refuse("revoke", note="why"))
 
 
-class ExpectedRevIsExemptForNow(unittest.TestCase):
-    """§5 — the one gap in this commit, pinned so it cannot pass for an
-    oversight.
+class ExpectedRevIsTheDeadSchema(unittest.TestCase):
+    """§5 — the one advertised-but-unread argument, and its two refusals.
 
-    The audit found `expected_rev` advertised for "update/evidence/receipt and
-    every other mutating action" and read by eight. Refusing it is the honest
-    fix and it is NOT in this commit: the card instructs callers to pass it, so
-    the refusal and the correction to the card must land together, in one
-    commit that can be reverted without taking the other thirty-one actions'
-    fixes with it (coordinator ruling 2026-09-17).
+    The card said "update/evidence/receipt and every other mutating action".
+    Eight honour it; nineteen read it not at all. The card is corrected in this
+    same commit, and that pairing is the point: this field is not `acceptance`,
+    which nobody could use successfully. Agents are passing `expected_rev`
+    right now, correctly, BECAUSE THE CARD TELLS THEM TO — so a refusal that
+    arrived before the correction would reject every careful caller for
+    following the documentation.
     """
 
-    def test_it_is_exempt_here(self):
+    def test_nothing_is_exempt_from_the_guard_any_more(self):
+        self.assertEqual(api._WORK_GUARD_EXEMPT, frozenset())
+
+    def test_it_is_refused_wherever_it_is_dead(self):
         for act in ("check", "claim", "accept", "participants", "decision",
-                    "move", "assign", "supersede", "archive", "delete"):
-            api._work_refuse_unused({"action": act, "slug": "x",
-                                     "expected_rev": 3}, act)   # not refused
-
-    def test_nothing_else_is_exempt(self):
-        self.assertEqual(api._WORK_GUARD_EXEMPT, frozenset({"expected_rev"}))
-
-    def test_the_exemption_says_why_and_that_it_is_temporary(self):
-        src = inspect.getsource(api)
-        note = src.split("_WORK_GUARD_EXEMPT: frozenset")[0][-1400:]
-        self.assertIn("TEMPORARY", note)
-        self.assertIn("EXPECTED TO BE EMPTY", note)
+                    "move", "assign", "supersede", "archive", "delete",
+                    "review", "verdict", "create", "handoff", "receipt",
+                    "rangediff", "review_request", "review_grant",
+                    "review_revoke"):
+            with self.assertRaises(LedgerError, msg=act) as e:
+                api._work_refuse_unused({"action": act, "slug": "x",
+                                         "expected_rev": 3}, act)
+            self.assertIn("`expected_rev`", str(e.exception), act)
 
     def test_exactly_eight_actions_honour_it(self):
         honour = sorted(k for k, v in api._WORK_ACTION_ARGS.items()
@@ -422,7 +421,30 @@ class ExpectedRevIsExemptForNow(unittest.TestCase):
             self.assertNotIn(
                 "expected_rev", sig.parameters,
                 f"{fn} now takes expected_rev — action={act} should read it "
-                f"instead of dropping it")
+                f"instead of refusing it")
+
+    def test_receipt_and_rangediff_are_told_it_is_redundant(self):
+        """They are NOT missing compare-and-set — they do their own."""
+        for act in ("receipt", "rangediff"):
+            route = api._work_field_route("expected_rev", act)
+            self.assertIn("its OWN compare-and-set", route)
+            self.assertIn("stale", route)
+
+    def test_the_others_are_told_they_had_no_protection(self):
+        route = api._work_field_route("expected_rev", "check")
+        self.assertIn("NO protection", route)
+        self.assertIn("action=update", route)
+        self.assertIn("action=evidence", route)
+
+    def test_a_refused_expected_rev_moves_nothing(self):
+        org, slug = fixture()
+        before = json.dumps(org.d, sort_keys=True, default=str)
+        for act in ("check", "accept", "claim", "decision", "participants"):
+            with self.assertRaises(LedgerError):
+                api._work_mutate_action(org, "owner-a",
+                                        {"action": act, "slug": slug,
+                                         "expected_rev": 1}, act, slug)
+        self.assertEqual(json.dumps(org.d, sort_keys=True, default=str), before)
 
 
 class TheReadActionsAreGuardedToo(unittest.TestCase):
@@ -468,11 +490,28 @@ class TheReadActionsAreGuardedToo(unittest.TestCase):
 
 
 class TheCardSaysSo(unittest.TestCase):
-    """The card is what a caller reads before it writes."""
+    """§7 — the card is what a caller reads before it writes, and a promise
+    the code refuses is worse than no promise."""
 
     def desc(self, field):
         card = next(t for t in mcptool.TOOLS if t["name"] == "orgtree_work")
         return card["inputSchema"]["properties"][field]["description"]
+
+    def test_expected_rev_no_longer_claims_every_mutating_action(self):
+        d = self.desc("expected_rev")
+        self.assertNotIn("and every other mutating action", d)
+        self.assertIn("AND NO OTHER ACTION", d)
+
+    def test_it_names_every_action_that_honours_it(self):
+        d = self.desc("expected_rev")
+        for act in sorted(k for k, v in api._WORK_ACTION_ARGS.items()
+                          if "expected_rev" in v):
+            self.assertIn(act, d, act)
+
+    def test_it_says_the_rest_refuse_rather_than_drop(self):
+        d = self.desc("expected_rev")
+        self.assertIn("REFUSES", d)
+        self.assertIn("receipt", d)
 
     def test_slug_still_says_where_it_does_not_apply(self):
         self.assertIn("every action but list/create", self.desc("slug"))
