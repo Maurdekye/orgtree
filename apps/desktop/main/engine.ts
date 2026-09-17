@@ -699,10 +699,17 @@ export class Engine extends EventEmitter {
  *  whenever the engine was healthy meant it could not be found in the normal
  *  case, which is the case they usually want it in. So the row is now present
  *  in every engine state and says what it can do through its ENABLED state
- *  instead of through its presence. The mis-click hazard is unchanged and is
- *  simply no longer answered by hiding; whether a healthy-engine restart
- *  should also ask for confirmation is a separate open question, and nothing
- *  here presumes an answer to it.
+ *  instead of through its presence.
+ *
+ *  ⚠ AND THE MIS-CLICK HAZARD IS AN ACCEPTED COST, NOT AN OVERSIGHT. The user
+ *  was asked, on 2026-09-17, whether an enabled-while-running row should put a
+ *  confirmation in front of the restart, and was told plainly that this makes
+ *  the row clickable while agents are live and that ending their turns is not
+ *  undoable. They answered "No confirmation": a click restarts immediately, in
+ *  every engine state, exactly as it already did when the engine was down.
+ *  DO NOT ADD one back — no dialog, no "are you sure", no warning, no
+ *  countdown, no live-agent count. Adding a guard here is not a fix; it is
+ *  overturning a ruling the user made with the hazard in front of them.
  *
  *  ⚠ `status` IS NO LONGER READ, and the parameter is kept deliberately. The
  *  old rule turned on it; the new one does not, because what decides this row

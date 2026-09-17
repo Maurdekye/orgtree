@@ -381,6 +381,25 @@ test('the superseded 2026-09-15 hide-while-running rule is recorded, not left st
   assert.match(doc, /SUPERSEDING|supersed/i, 'and it is marked as superseded, so it does not read as current')
   assert.doesNotMatch(doc, /HIDDEN WHILE THE ENGINE RUNS \(user ruling 2026-09-15\)/,
     'the stale heading that asserted the old rule is gone')
+  // USER RULING 2026-09-17 16:02: "No confirmation." The user was told the row
+  // becomes clickable while agents are live and that ending their turns is not
+  // undoable, and chose the unguarded row anyway. The comment must say so, or
+  // the next reader reads the hazard as an oversight and "fixes" it.
+  assert.match(doc, /ACCEPTED COST/, 'the mis-click hazard is recorded as accepted, not as an open gap')
+  assert.match(doc, /No confirmation/, 'the ruling is quoted')
+})
+
+test('a click restarts immediately: there is no confirmation step in front of it', () => {
+  // The user ruled against a confirmation dialog on 2026-09-17 with the hazard
+  // in front of them. `restartEngine` DOES use dialog.showMessageBox — for the
+  // FAILURE report, after the attempt — so the assertion is specifically that
+  // nothing prompts BEFORE the restart is handed to the engine.
+  const handler = indexSource.slice(indexSource.indexOf('const restartEngine = async () =>'), indexSource.indexOf('const rebuildTray = () =>'))
+  const beforeRestart = handler.slice(0, handler.indexOf('engine.restart(options)'))
+  assert.ok(!/showMessageBox|confirm|areYouSure/i.test(beforeRestart),
+    'nothing may prompt the user between the click and the restart')
+  // and the only guard on the path is the mechanical one: can a restart run
+  assert.match(beforeRestart, /if \(!options \|\| engineRestartBlocked\(\) \|\| engine\.restartInProgress\) return/)
 })
 
 test('the click drives the existing engine lifecycle, not a new spawn path', () => {
