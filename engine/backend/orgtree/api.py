@@ -667,13 +667,16 @@ def _public_denied(method: str, rest: str, slug: str) -> tuple[int, str] | None:
         # unstick does not touch it, so this was never a way past the spend
         # cap — only past every other lock the owner relies on.)
         or rest.endswith("/unstick")                         # user-only override
-        # ⚠ THE SAME BOUNDARY, for the same reason. `/continue-on` also
-        # passes USER unconditionally — to `assign_account` AND to the
-        # `unstick` it performs — so it is every power `/unstick` has plus
-        # the power to move an agent's billing onto another of the operator's
-        # accounts. Frozen here or a share-token holder could spend an
-        # account the kiosk was never meant to reach; it also names account
-        # ids, which D-145 keeps off the public side entirely.
+        # ⚠ THE SAME BOUNDARY, for the same reason. This ROUTE passes USER
+        # unconditionally — to `assign_account` AND to the `unstick` it
+        # performs — so it is every power `/unstick` has plus the power to
+        # move an agent's billing onto another of the operator's accounts.
+        # Frozen here or a share-token holder could spend an account the
+        # kiosk was never meant to reach; it also names account ids, which
+        # D-145 keeps off the public side entirely. (The agent verb
+        # `orgtree_continue_on` shares this route's implementation but passes
+        # the CALLING AGENT as the actor and never arrives here — it comes in
+        # over the tool dispatch, which has its own authority check.)
         or rest.endswith("/continue-on")                     # user-only override
         # /scope is OPEN (ceiling spec §2): visitors retool freely WITHIN the
         # kiosk permission ceiling — the ledger clamps, never a 403 here
