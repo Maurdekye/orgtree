@@ -262,6 +262,21 @@ export interface TreeFrozen {
   at: string | null
   until: string | null
   until_ts: number | null
+  /** THE SECOND COUNTDOWN (user ruling 2026-09-17 18:00). `until_ts` is the
+   *  provider's stated reset and keeps counting down to zero exactly as it
+   *  always has; this is the instant the wake may actually fire, which is
+   *  later by the backend's clock-skew allowance. Once `until_ts` reaches
+   *  zero the badge counts down to THIS instead of sitting at "reset due"
+   *  while nothing happens.
+   *
+   *  ⚠ NEVER DERIVE IT HERE. It is not always `until_ts + 60`: a connection
+   *  backoff carries no allowance at all, because its deadline is the
+   *  backend's own timer rather than a provider's claim. `supervisor.
+   *  wake_grace_for` owns that rule and `api._stamp_wake_countdown` publishes
+   *  the result; re-expressing it in TypeScript is exactly how the shown time
+   *  and the woken time drifted apart in the first place. `null` means there
+   *  is no second phase — show one countdown, as before. */
+  wake_ts?: number | null
   error: string | null
   /** multi-account: the REGISTRY ACCOUNT this freeze describes, when the
    *  node is bound — the wait belongs to that account's lane */

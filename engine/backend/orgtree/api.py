@@ -1692,6 +1692,45 @@ def _capacity_label(ts: float, src: str, schedule_kind: str) -> str:
             + supervisor._reset_label(ts))
 
 
+def _stamp_wake_countdown(node: dict[str, Any]) -> None:
+    """THE SECOND COUNTDOWN (user ruling 2026-09-17 18:00).
+
+    The user asked for two countdowns, not one number moved: "badge shows
+    reset time (what it does now) until hitting zero, then a new 60s
+    countdown until wake". So `until_ts` keeps meaning exactly what it has
+    always meant - the provider's stated reset, per the 2026-09-12 ruling
+    that what is shown takes precedence from the 429 - and this publishes
+    the instant the WAKE may fire as its own field beside it.
+
+    ⚠ WHY THE CLIENT CANNOT WORK THIS OUT FOR ITSELF, and why it is not
+    simply `until_ts + 60`. The grace is a backend rule with an exception in
+    it: a connection backoff gets NONE, because its deadline is our own timer
+    and there is no foreign clock to be early against. `supervisor.
+    wake_grace_for` is the one place that rule lives, and re-expressing it in
+    TypeScript is how the two surfaces drifted apart in the first place. The
+    renderer reads these numbers; it does not decide them.
+
+    ⚠ IT IS DELIBERATELY DERIVED FROM THE NUMBER ALREADY ON THE PAYLOAD,
+    not from a second ranking pass. `_rederive_freeze_reset` has just settled
+    which deadline this badge shows; the second countdown must begin exactly
+    where the first one ends, so it is that same value plus the grace. Asking
+    the ranking again could answer differently and reopen the disagreement
+    this whole item is about.
+
+    `None` when there is nothing to count down to - no deadline, or a kind
+    that carries no grace - so the renderer shows one countdown, as now.
+    """
+    fz = node.get("frozen")
+    if not isinstance(fz, dict):
+        return
+    try:
+        shown = float(fz.get("until_ts") or 0.0)
+    except (TypeError, ValueError):
+        shown = 0.0
+    grace = supervisor.wake_grace_for(fz)
+    fz["wake_ts"] = (shown + grace) if (shown and grace) else None
+
+
 def _rederive_freeze_reset(node: dict[str, Any],
                            cache: dict[str, dict[str, Any]]) -> None:
     """Re-derive a usage-limit freeze's reset from the CURRENT account roster.
@@ -2202,6 +2241,7 @@ def _org_view(slug: str, request: Request,
             node["account_tint_ordinal"] = account_row["tint_ordinal"]
             node["account_label"] = accountusage.canonical_name(account_row, primary, ambient_paths)
         _rederive_freeze_reset(node, _cap_cache)
+        _stamp_wake_countdown(node)
         # §4.8: an archived seat has no turn and no process, so every field
         # below is a constant for it — and deriving 242 constants from the
         # supervisor was most of this handler's own time. `full=True` is the

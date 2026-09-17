@@ -5798,13 +5798,75 @@ def freeze_waits_on_capacity(fz: FrozenInfo) -> bool:
         and fz.get("cause") not in ("auth", "balance")
 
 
+#: How long after a freeze's stated deadline the wake may actually fire.
+#:
+#: ⚠ IT IS A CLOCK-SKEW ALLOWANCE, NOT A DELAY WE WANT. A usage-limit
+#: deadline is the PROVIDER'S claim about the provider's clock; ours may
+#: differ, and waking a hair early spends a real turn only to be refused and
+#: re-frozen. Keep it.
+WAKE_GRACE_S = 60.0
+
+
+def wake_grace_for(fz: FrozenInfo) -> float:
+    """The grace THIS freeze's wake carries — one definition, every reader.
+
+    ⚠ A CONNECTION BACKOFF GETS NONE, and that is not symmetry for its own
+    sake: its deadline is OUR OWN timer, computed here from our own clock, so
+    there is no foreign clock to be early against. Padding it would make the
+    node wait longer than the label it had already shown — the same defect
+    this rule exists to remove, pointed the other way.
+    """
+    return 0.0 if fz.get("connection") else WAKE_GRACE_S
+
+
+def effective_wake_instant(fz: FrozenInfo, now: float | None = None,
+                           ) -> dict[str, Any] | None:
+    """WHEN THIS FREEZE BECOMES ACTIONABLE — the instant the badge counts down
+    to AND the instant the wake may fire. One number, both readers.
+
+    ⚠ WHY THIS EXISTS (user report 2026-09-17 17:16: "i have auto-rwsume on,
+    but the flash didnt wake when its timer hit 0"). The grace used to be
+    added by `auto_resume_ready` alone, AFTER the shared deadline:
+
+        if now >= float(ts) + (0.0 if fz.get("connection") else 60.0):
+
+    so the badge rendered the deadline, counted down to zero, and the wake was
+    still a minute away. That is exactly the one-time-shown/another-time-woken
+    split the 2026-09-12 ruling set out to remove, reintroduced one layer
+    further out. Measured on `notice-toggle`: 300-second probe freezes at
+    16:57, 17:03 and 17:10, each waking about 360 seconds later.
+
+    ⚠ IT IS A SEPARATE FUNCTION, NOT A CHANGE TO `effective_freeze_deadline`,
+    and the distinction is load-bearing twice over:
+
+    · THE WRITER MUST NOT SEE IT. `commit_node_wake` stamps what that function
+      returns as `frozen.wake`, the promise that by ruling never moves. Graced
+      there, the allowance would be baked into the record and added again on
+      the next read — +60 per commit, compounding, on the one value whose
+      whole purpose is to stay put.
+    · THE RANKING IS A DIFFERENT QUESTION. `effective_freeze_deadline` answers
+      "which deadline does this freeze have", and that answer is what the 429
+      precedence, the promise and the fallbacks are all about. This answers
+      "when does that deadline become actionable". Folding the second into the
+      first made 49 tests fail that were only ever asserting the first.
+    """
+    eff = effective_freeze_deadline(fz, None, now)
+    if eff is None:
+        return None
+    grace = wake_grace_for(fz)
+    return eff if not grace else {**eff, "ts": float(eff["ts"]) + grace}
+
+
 def effective_freeze_deadline(fz: FrozenInfo, mark: dict[str, Any] | None,
                               now: float | None = None,
                               roster: Mapping[str, Any] | None = None,
                               *, include_sources: bool = False,
                               ) -> dict[str, Any] | None:
     """THE deadline a usage-limit freeze has — the one the badge shows AND the
-    one the wake timer uses. There is only ever one number (USER RULING
+    one the wake timer uses, both of them through `effective_wake_instant`
+    above, which adds the skew allowance neither of them may add for itself.
+
+    There is only ever one number (USER RULING
     2026-09-12: "the wake timer should follow whats shown, and what's shown
     should always take precedence from the 429 error, not from usage").
 
@@ -26453,10 +26515,16 @@ def auto_resume_ready(org: Org, now: float | None = None) -> set[str]:
         # and nothing else, so the timer must too, or the two drift apart the
         # moment live state changes between them. `commit_node_wake` is where
         # live evidence enters, and it enters by being WRITTEN DOWN.
-        _eff = effective_freeze_deadline(fz, None, now)
+        # ⚠ THE WAKE INSTANT, NOT THE BARE DEADLINE. This line used to read
+        # `effective_freeze_deadline(...)` and then add the grace itself,
+        # `+ (0.0 if fz.get("connection") else 60.0)`, which is what made the
+        # badge count down to zero a full minute before this test could pass.
+        # The badge asks the SAME function now, so the number shown IS the
+        # number compared here.
+        _eff = effective_wake_instant(fz, now)
         ts = _eff["ts"] if _eff else None
         if ts:
-            if now >= float(ts) + (0.0 if fz.get("connection") else 60.0):
+            if now >= float(ts):
                 ready.add(nid)
         elif (fz.get("limit") or fz.get("connection")) and now - last >= 300:
             ready.add(nid)

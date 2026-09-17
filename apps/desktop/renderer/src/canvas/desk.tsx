@@ -379,12 +379,29 @@ export function UsageFreezeStatus({ frozen, variant = 'card' }: {
   const stamp = frozen.until_ts
   const deadline = typeof stamp === 'number' && Number.isFinite(stamp) && stamp > 0
     ? stamp * 1000 : null
+  // ⚠ THE SECOND COUNTDOWN (user ruling 2026-09-17 18:00): "badge shows reset
+  // time (what it does now) until hitting zero, then a new 60s countdown until
+  // wake". The wake instant is LATER than the stated reset by the backend's
+  // clock-skew allowance, and it is published rather than derived — the rule
+  // has an exception (a connection backoff gets none) and lives in one place.
+  const wakeStamp = frozen.wake_ts
+  const wakeDeadline = typeof wakeStamp === 'number' && Number.isFinite(wakeStamp)
+    && wakeStamp > 0 ? wakeStamp * 1000 : null
   const left = useCountdown(deadline)
-  const time = left === null ? null : left <= 0 ? 'reset due' : countdownText(left)
+  const wakeLeft = useCountdown(wakeDeadline)
+  // the stated reset has passed and the wake has not: this is the minute the
+  // badge used to spend saying "reset due" while nothing happened, which is
+  // the whole of what was reported.
+  const waking = left !== null && left <= 0 && wakeLeft !== null && wakeLeft > 0
+  const time = left === null ? null
+    : waking ? countdownText(wakeLeft)
+      : left <= 0 ? 'reset due' : countdownText(left)
   const title = left === null
     ? `Frozen: ${frozen.until || 'reset time unknown'}`
-    : left <= 0 ? 'Frozen: recorded reset reached; awaiting server release'
-      : `Frozen: capacity reset in ${countdownText(left)}; release is controlled by the server`
+    : waking
+      ? `Frozen: capacity reset reached; waking in ${countdownText(wakeLeft)}`
+      : left <= 0 ? 'Frozen: recorded reset reached; awaiting server release'
+        : `Frozen: capacity reset in ${countdownText(left)}; release is controlled by the server`
   return <span className={'usage-freeze-status ' + (variant === 'banner'
     ? 'turn-status-banner frozen' : variant === 'tray' ? 'tray-status' : '')}
     title={title} aria-label={title}>
