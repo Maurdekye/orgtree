@@ -5933,6 +5933,12 @@ class WorkReply(Body):
     # stages them via the ordinary upload endpoint and sends them WITH the
     # reply.
     attachments: list[str] = []
+    # Passive notice, EXACTLY as Message.notice means it (notice-toggle
+    # parity, user 2026-09-17): deliver into the recipient's mailbox without
+    # waking an idle one. Nothing about what a notice IS changes here — this
+    # endpoint simply gains the flag the ordinary send path already had, so
+    # the ticket-reply composer can reach the same behaviour.
+    notice: bool = False
 
 
 class WorkDismiss(Body):
@@ -6061,7 +6067,16 @@ def work_item_reply(slug: str, wid: str, body: WorkReply,
     that is neither is refused with nothing sent and nobody substituted. A
     participant is told, in the mail and in the wake, that the reply is
     addressed to it as a participant and who owns the item; ownership does
-    not move. `role` in the response says which of the two was reached."""
+    not move. `role` in the response says which of the two was reached.
+
+    A PASSIVE NOTICE (user 2026-09-17, notice-toggle parity): `notice` asks for
+    the reply to be delivered as mail-minus-the-wake, exactly as
+    `Message.notice` already means it on the ordinary send path. Nothing about
+    what a notice IS changes here; this endpoint simply gained the flag so the
+    ticket-reply composer could reach it. `notice` in the RESPONSE is what
+    actually happened, never what was asked for — an unsupported recipient
+    silently sends ordinary mail, and the composer reads the response rather
+    than its own toggle to say which it was."""
     text = str(body.body or "").strip()
     if not text:
         raise HTTPException(422, "empty reply")
@@ -6122,9 +6137,17 @@ def work_item_reply(slug: str, wid: str, body: WorkReply,
                 if extra > 0:
                     missing.append(f"{extra} further attachment(s) — past the "
                                    f"{ledger_mod.ATTACHMENT_MAX}-per-message limit")
+            # notice-toggle parity (user 2026-09-17): the SAME rule
+            # node_message applies — a notice is possible for an in-org agent
+            # and for nobody else, and when it is not possible the send
+            # silently becomes ordinary mail rather than failing. A docket
+            # reply always resolves to a node, so the guard is belt-and-braces
+            # against a recipient spelled like the user or an outside address.
+            can_notice = bool(body.notice and nid != USER and not nid.startswith("@"))
+            kind = "notice" if can_notice else "message"
             # typed (family linked_reply): reply.docket — the header/instruction
             # prose is the renderer's; the body is the user's text
-            r = org.post_mail(USER, nid, "", ev=events.mint(
+            r = org.post_mail(USER, nid, "", kind=kind, ev=events.mint(
                 "reply.docket", actor_of(USER),
                 org.work_item_ref(org._work_find(wid)[0]), body=text, role=role,
                 owner=(str(tgt.get("owner") or "") if role == "participant" else None)),
@@ -6148,8 +6171,25 @@ def work_item_reply(slug: str, wid: str, body: WorkReply,
         # archived recipient: the mail waits in its inbox for a rehire — the
         # UI says so; nobody else is picked
         return {"accepted": True, "to": nid, "role": role, "deferred": True,
+                "notice": can_notice,
                 "node_state": tgt.get("state"), **receipt,
                 **({"warnings": warn} if warn else {})}
+    if can_notice:
+        # A NOTICE IS MAIL MINUS THE WAKE, word for word as node_message does
+        # it: it steers a recipient that is already running, so the notice
+        # arrives mid-task, and it leaves an idle one idle (wake=False). It
+        # never starts a turn — which is the whole point of the toggle.
+        sent = supervisor.send_message(
+            slug, nid,
+            "(orgtree) A notice arrived in your mail above — the user's reply "
+            "on a docket item; informational, no reply expected. Note it and "
+            "continue your current task.",
+            wake=False, mail_ping=True, sender=USER, ping_reason="notice")
+        return {"accepted": True, "to": nid, "role": role, "deferred": False,
+                "notice": True, "node_state": tgt.get("state"),
+                "delivery": supervisor.delivery_note(slug, nid, sent,
+                                                     kind="notice"),
+                **receipt, **({"warnings": warn} if warn else {})}
     sent = supervisor.send_message(
         slug, nid,
         ("(orgtree) The mail above is the user's reply on a docket item you "
@@ -6160,6 +6200,7 @@ def work_item_reply(slug: str, wid: str, body: WorkReply,
          "ASSIGNED TO YOU — act on it now."), mail_ping=True,
         ping_reason="docket_reply")
     return {"accepted": True, "to": nid, "role": role, "deferred": False,
+            "notice": False,
             "node_state": tgt.get("state"),
             "delivery": supervisor.delivery_note(slug, nid, sent), **receipt,
             **({"warnings": warn} if warn else {})}

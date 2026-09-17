@@ -379,6 +379,45 @@ uiTest('§11 reply box is present below document for live owner and sends messag
     assert.deepEqual(replied, { node: 'agent-live', text: 'Looks good, proceed!', target: {kind:'document',org:'org1',id:'d1'} })
   })
 
+// notice-toggle parity (user 2026-09-17): the presentation reply is one of
+// the three composers the toggle was added to. Its send path is
+// `sendLinkedReply` → the ordinary `/message` endpoint, which has taken
+// `notice` since b38d9d9 — so nothing about a notice changed here, only who
+// can ask for one.
+uiTest('§11b the presentation reply carries the armed notice flag to its host',
+  async (mount) => {
+    let replied: unknown[] | null = null
+    mockDocs([row({ id: 'd1', title: 'the plan', node: 'agent-live', node_state: 'live' })],
+      { d1: 'body markdown' })
+    const { el } = await mount(gallery({
+      onReply: ((...args: unknown[]) => { replied = args }) as never,
+    }))
+    await flush()
+    await inAct(() => { (rows(el)[0] as HTMLElement).click() })
+    await flush()
+    const box = el.querySelector('.mailer-read .mail-reply') as HTMLElement
+    const toggle = box.querySelector('.cc-notice-toggle') as HTMLButtonElement
+    assert.ok(toggle, 'the presentation reply box has the notice toggle')
+    assert.equal(toggle.classList.contains('armed'), false, 'default OFF')
+    const textarea = box.querySelector('textarea') as HTMLTextAreaElement
+    await inAct(() => {
+      const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set
+      nativeSetter?.call(textarea, 'noted, no reply needed')
+      textarea.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await flush()
+    await inAct(() => toggle.click())
+    await flush()
+    assert.equal(box.classList.contains('notice-armed'), true,
+      'the composer wears the armed edge')
+    await inAct(() => (box.querySelector('.mail-reply-send') as HTMLButtonElement).click())
+    await flush()
+    // onReply(node, text, target, attachments, notice)
+    assert.equal(replied![4], true, 'the 5th argument is the notice flag')
+    assert.equal(replied![0], 'agent-live')
+    assert.equal(toggle.classList.contains('armed'), false, 'sending disarmed it')
+  })
+
 uiTest('§12 reply box is ABSENT when the owning agent is retired or document is evicted',
   async (mount) => {
     mockDocs([

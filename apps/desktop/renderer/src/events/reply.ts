@@ -8,11 +8,11 @@ import { addPending, bindPendingMail, dismissPending, mintClientOp } from '../co
  * durable copy retires the ghost by identity even before this call returns
  * (see PendingGhost.op). */
 export async function sendLinkedReply(org: string, node: string, text: string, target: ReplyTarget,
-  attachments?: string[]) {
+  attachments?: string[], notice?: boolean) {
   const op = mintClientOp()
-  const ghost = addPending(org, node, text, undefined, undefined, op)
+  const ghost = addPending(org, node, text, undefined, undefined, op, notice)
   try {
-    const response = await replyMessage(org, node, text, target, attachments, op)
+    const response = await replyMessage(org, node, text, target, attachments, op, notice)
     bindPendingMail(org, node, ghost, response)
     return response
   } catch (error) {

@@ -2644,6 +2644,10 @@ export interface WorkItemReplyResult extends Partial<TypedReplyReceipt> {
    *  supplied attachment path that never resolved to a real staged file,
    *  same rule as SendMessageResult.warnings. */
   warnings?: string[]
+  /** notice-toggle parity: true only when the reply ACTUALLY landed as a
+   *  passive notice, never when the request merely asked for one — the same
+   *  rule SendMessageResult.notice carries. */
+  notice?: boolean
 }
 
 export interface UploadResult {

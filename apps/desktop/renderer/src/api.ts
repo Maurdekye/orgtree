@@ -453,12 +453,15 @@ export const getWorkItems = (slug: string, archived = false,
 export const getWorkItem = (slug: string, id: string): Promise<WorkItemPayload> =>
   req(`/api/orgs/${slug}/work-items/${id}`)
 export const replyWorkItem = (slug: string, id: string, body: string, to?: string,
-  attachments?: string[]): Promise<WorkItemReplyResult> =>
+  attachments?: string[], notice?: boolean): Promise<WorkItemReplyResult> =>
   req(`/api/orgs/${slug}/work-items/${id}/reply`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ body, ...(to !== undefined ? { to } : {}),
-      ...(attachments?.length ? { attachments } : {}) }),
+      ...(attachments?.length ? { attachments } : {}),
+      // notice-toggle parity (user 2026-09-17): the same flag Message.notice
+      // carries on the ordinary send path, wired into the ticket reply box
+      ...(notice ? { notice: true } : {}) }),
   })
 // ---- ticket attachments (user feature 2026-09-10): files/images ON the
 // item itself, not mail to the assignee. Raw-body upload like uploadFile.
