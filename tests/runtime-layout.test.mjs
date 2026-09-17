@@ -56,7 +56,6 @@ const MAC_PTH = '../../../../backend\n../../../../mailhub\n../../../../../\n'
 /** A minimal CORRECT runtime tree matching what provision-runtime.py writes. */
 function correctRuntime(root, runtimeRelative = 'engine/runtime') {
   put(root, `${runtimeRelative}/python.exe`, 'exe-bytes')
-  put(root, `${runtimeRelative}/bin/python3.13`, 'exe-bytes') // darwin's assertRuntimeImports probes this path
   put(root, `${runtimeRelative}/python313.zip`, 'zip-bytes')
   put(root, `${runtimeRelative}/python313._pth`, PTH)
   put(root, `${runtimeRelative}/runtime-manifest.json`, MANIFEST)
@@ -286,6 +285,7 @@ test('the import probe fails closed when a dependency resolves outside the runti
   const root = fixtureRoot()
   try {
     const runtime = correctRuntime(root)
+    put(root, 'engine/runtime/bin/python3.13', 'exe-bytes') // darwin's assertRuntimeImports probes this path
     const outside = {
       python: '3.13.15', executable: path.join(runtime, 'python.exe'),
       modules: { fastapi: { file: 'C:/Python313/Lib/site-packages/fastapi/__init__.py', inside: false } },
