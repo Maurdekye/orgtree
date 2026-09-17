@@ -18,6 +18,7 @@ import path from 'node:path'
 import {
   assertRuntimeImports,
   assertRuntimeLayout,
+  assertRuntimeLayoutMac,
   locateEngineRuntime,
   normalizeDistName,
   REPRESENTATIVE_RUNTIME_IMPORTS,
@@ -28,7 +29,10 @@ import { stageRuntime } from '../tools/stage-runtime.mjs'
 const repoRoot = path.resolve(import.meta.dirname, '..')
 
 function fixtureRoot() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-runtime-layout-'))
+  // realpathSync: on macOS os.tmpdir() sits behind /var -> /private/var, and
+  // stageRuntime's junction/symlink guard (rightly) refuses any ancestor
+  // symlink, so fixtures must hand back the already-resolved path.
+  return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-runtime-layout-')))
 }
 
 function put(root, relative, content) {
@@ -47,10 +51,12 @@ const MANIFEST = JSON.stringify({
     { name: 'typing_extensions', version: '4.15.0' },
   ],
 })
+const MAC_PTH = '../../../../backend\n../../../../mailhub\n../../../../../\n'
 
 /** A minimal CORRECT runtime tree matching what provision-runtime.py writes. */
 function correctRuntime(root, runtimeRelative = 'engine/runtime') {
   put(root, `${runtimeRelative}/python.exe`, 'exe-bytes')
+  put(root, `${runtimeRelative}/bin/python3.13`, 'exe-bytes') // darwin's assertRuntimeImports probes this path
   put(root, `${runtimeRelative}/python313.zip`, 'zip-bytes')
   put(root, `${runtimeRelative}/python313._pth`, PTH)
   put(root, `${runtimeRelative}/runtime-manifest.json`, MANIFEST)
@@ -62,11 +68,70 @@ function correctRuntime(root, runtimeRelative = 'engine/runtime') {
   return path.join(root, ...runtimeRelative.split('/'))
 }
 
+/** A minimal CORRECT macOS runtime tree matching what provision-runtime.py's darwin branch writes. */
+function correctRuntimeMac(root, runtimeRelative = 'engine/runtime') {
+  put(root, `${runtimeRelative}/bin/python3.13`, 'exe-bytes')
+  put(root, `${runtimeRelative}/runtime-manifest.json`, MANIFEST)
+  put(root, `${runtimeRelative}/lib/python3.13/site-packages/fastapi-0.141.1.dist-info/METADATA`, 'meta')
+  put(root, `${runtimeRelative}/lib/python3.13/site-packages/fastapi/__init__.py`, 'fastapi')
+  put(root, `${runtimeRelative}/lib/python3.13/site-packages/annotated_doc-0.0.5.dist-info/METADATA`, 'meta')
+  put(root, `${runtimeRelative}/lib/python3.13/site-packages/typing_extensions-4.15.0.dist-info/METADATA`, 'meta')
+  put(root, `${runtimeRelative}/lib/python3.13/site-packages/typing_extensions.py`, 'module')
+  put(root, `${runtimeRelative}/lib/python3.13/site-packages/orgtree.pth`, MAC_PTH)
+  return path.join(root, ...runtimeRelative.split('/'))
+}
+
 test('dist-info names use PEP 503 normalization', () => {
   assert.equal(normalizeDistName('annotated-doc'), 'annotated_doc')
   assert.equal(normalizeDistName('typing_extensions'), 'typing_extensions')
   assert.equal(normalizeDistName('Pillow'), 'pillow')
   assert.equal(normalizeDistName('foo.bar--baz'), 'foo_bar_baz')
+})
+
+test('a correct macOS provisioned layout passes and reports every dependency', () => {
+  const root = fixtureRoot()
+  try {
+    const runtime = correctRuntimeMac(root)
+    const result = assertRuntimeLayoutMac(runtime, { label: 'fixture runtime' })
+    assert.deepEqual(Object.keys(result.distInfo).sort(),
+      ['annotated-doc', 'fastapi', 'typing_extensions'])
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('assertRuntimeLayoutMac refuses a tree with no bin/python3.13 interpreter, by name', () => {
+  const root = fixtureRoot()
+  try {
+    const runtime = correctRuntimeMac(root)
+    fs.rmSync(path.join(runtime, 'bin', 'python3.13'))
+    assert.throws(() => assertRuntimeLayoutMac(runtime, { label: 'runtime' }), /bin\/python3\.13/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('assertRuntimeLayoutMac refuses a manifest dependency with no matching dist-info', () => {
+  const root = fixtureRoot()
+  try {
+    const runtime = correctRuntimeMac(root)
+    fs.rmSync(path.join(runtime, 'lib', 'python3.13', 'site-packages', 'fastapi-0.141.1.dist-info'), { recursive: true })
+    assert.throws(() => assertRuntimeLayoutMac(runtime, { label: 'runtime' }),
+      /missing fastapi-0\.141\.1\.dist-info/)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test("locateEngineRuntime's default marker is bin/python3.13 on darwin, python.exe elsewhere", () => {
+  const root = fixtureRoot()
+  try {
+    const runtime = correctRuntimeMac(root)
+    const found = locateEngineRuntime(root, process.platform === 'darwin' ? {} : { marker: 'bin/python3.13' })
+    assert.equal(found, runtime)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test('a correct provisioned layout passes and reports every dependency', () => {
@@ -207,7 +272,7 @@ test('the embedded interpreter imports the representative backend dependencies f
     t.skip('no provisioned engine/runtime in this checkout or above it; the release worktree runs this for real')
     return
   }
-  assertRuntimeLayout(runtime, { label: 'provisioned runtime' })
+  ;(process.platform === 'darwin' ? assertRuntimeLayoutMac : assertRuntimeLayout)(runtime, { label: 'provisioned runtime' })
   const report = assertRuntimeImports(runtime)
   assert.equal(report.ok, true)
   for (const name of REPRESENTATIVE_RUNTIME_IMPORTS) {
