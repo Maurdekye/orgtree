@@ -37,7 +37,7 @@ import { AttachThumb, fmtBytes, ImgCardCaption, isImg } from './img'
 import { openLightbox } from './lightbox'
 import PushPinIcon from '@mui/icons-material/PushPinOutlined'
 import {
-  ArrowDownIcon, ArrowUpIcon, AutorenewIcon, CloseIcon, DocIcon, DotIcon,
+  ArrowDownIcon, ArrowUpIcon, AttachIcon, AutorenewIcon, CloseIcon, DocIcon, DotIcon,
   DownloadIcon, EditIcon, EyeIcon, FileIcon, FolderIcon, FrozenIcon,
   DocketIcon, HearingIcon, LayersIcon, LockIcon, MailIcon, NotificationsActiveIcon,
   NotificationsIcon, PlayIcon, PsychologyIcon,
@@ -3520,10 +3520,20 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
             onClick={() => toggleNoticeArmed()}>
             {noticeArmed ? <NotificationsActiveIcon fontSize="inherit" /> : <NotificationsIcon fontSize="inherit" />}
           </button>
+          {/* ONE attachment glyph everywhere (user 2026-09-17). This button
+              used to draw FileIcon (a document sheet) while every OTHER attach
+              control in the app drew AttachIcon (the paperclip), so the same
+              action looked like a different feature depending on where you
+              were. The main composer was the odd one out, so it moved to the
+              majority glyph rather than the other three moving to it. The
+              button itself — size, class, placement, tooltip, flow — is
+              untouched; only the glyph changed. FileIcon still labels a
+              staged-attachment CHIP below; a chip is a listing, not a
+              control. */}
           <button className="cc-attach" disabled={!canMail}
             title="attach a file — it lands in the agent's uploads/ folder"
             onClick={() => fileRef.current?.click()}>
-            <FileIcon fontSize="inherit" /></button>
+            <AttachIcon fontSize="inherit" /></button>
         </div>
         <input type="file" ref={fileRef} style={{ display: 'none' }} multiple
           onChange={(e) => {

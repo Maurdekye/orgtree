@@ -2416,9 +2416,9 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
                   onRead={(m: MailEntry) => markRead(slug, [m.id])
                     .then(() => { setReadBump((n) => n + 1); refresh?.() })
                     .catch(() => {})}
-                  onReply={(m: MailEntry, text: string, attachments?: string[]) => {
+                  onReply={(m: MailEntry, text: string, attachments?: string[], notice?: boolean) => {
                     return sendLinkedReply(slug, m.from, text, { kind: 'mail', org: slug, box: 'user', id: m.id },
-                      attachments)
+                      attachments, notice)
                       .then(async (receipt) => {
                         toast([`sent to ${m.from}`, ...(receipt.warnings ?? [])])
                         // Commands have no mail receipt. Read only after a

@@ -5305,8 +5305,26 @@ svg.MuiSvgIcon-root {
   padding: 6px 8px;
 }
 .mail-reply:focus-within { border-color: var(--accent); }
+/* armed for a passive notice — the same edge the desk composer wears, and for
+   the same reason: the notice flair's STYLE from the shared
+   --notice-edge-style token so it can never drift from the notice mail card's,
+   and the provider's COLOUR from --accent, because an armed composer must say
+   so. See `.cc-composer.notice-armed`; these two must stay in step. */
+.mail-reply.notice-armed {
+  border-style: var(--notice-edge-style);
+  border-width: 1px;
+  border-color: var(--accent);
+}
+.mail-reply.notice-armed:focus-within { border-color: var(--accent); }
+/* TOP-ALIGNED for the same measured reason as `.cc-composer textarea`: the
+   left column is now a 52px stack (24 + 4 + 24) and an ungrown `rows={2}`
+   textarea is shorter than that, so the container's `align-items: flex-end`
+   would push the text to the bottom and leave blank space above the first
+   line — the exact complaint the desk composer was fixed for. `align-self`
+   opts THIS item out; the buttons keep the baseline. */
 .mail-reply textarea {
-  flex: 1; min-width: 0; border: none; background: none; resize: none;
+  flex: 1; min-width: 0; align-self: flex-start;
+  border: none; background: none; resize: none;
   font-size: 12.5px; font-family: inherit; color: var(--ink-strong); padding: 0;
 }
 .mail-reply textarea:focus { outline: none; }
