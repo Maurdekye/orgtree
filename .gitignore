@@ -19,3 +19,9 @@ apps/desktop/renderer/tests/minihire-browser-evidence.png
 # private worktrees and local release output — never part of the source tree
 .worktrees/
 artifacts/
+
+# Litter from tests/attach.test.mjs if a run dies before its cleanup hook.
+# The fixtures now live under %LOCALAPPDATA%, so this should never match --
+# it is the belt to that cleanup braces, because the failure mode is an agent
+# sweeping stray fixture dirs into a commit with `git add -A` and not noticing.
+acl-fixtures-*/

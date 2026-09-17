@@ -298,6 +298,41 @@ is the defect, one step further along. Under the sanctioned runner — and so un
 guard sits *after* that insert, so they keep working bare. The other 110 did not,
 and those were the silent ones.
 
+### Why two imports of the same engine can disagree in one process
+
+This is the detail that makes the rest of it make sense, and it is worth knowing
+before you debug anything in this family.
+
+Your `PYTHONPATH` ends in a **trailing semicolon**:
+
+```text
+C:\Program Files\Orgtree\resources\engine\backend;
+```
+
+An empty entry in `PYTHONPATH` means **the current working directory**. So
+`sys.path` gets the installed backend *first* and the repo root *second*, and
+which copy you get depends on the name you import:
+
+| you write | you get | why |
+| --- | --- | --- |
+| `import orgtree` | `C:\Program Files\...\engine\backend\orgtree` | the installed backend holds `orgtree/` directly, so entry 1 wins |
+| `from engine.backend.orgtree import ...` | **your checkout** | the installed backend has no `engine/` under it, so entry 1 misses and the repo root (entry 2) answers |
+
+**Both, in the same process.** That is why some tools looked immune while others
+were not: `tools/docket-payload-probe.py` reaches the checkout by accident of
+spelling, and a module next to it does not.
+
+It is also why a bare run is worse than "you get the shipped code". Three engine
+modules — `clipin.py`, `codexpin.py`, `mcptool.py` — import `orgtree.` absolutely.
+A bare run that reaches any of them loads **two copies of the same package at
+once**, one from each tree, with separate module state. The guard refuses before
+you can get there.
+
+One more consequence, since it looks like a contradiction otherwise:
+`%LOCALAPPDATA%` and `%LOCALAPPDATA%\Temp` are not interchangeable for ACL
+fixtures. See `tests/attach.test.mjs`, which explains which roots this machine's
+ACLs actually permit and why.
+
 Everything else is listed in each suite's `excluded` array and reprinted by
 `show`, so the gap is stated rather than hidden:
 
