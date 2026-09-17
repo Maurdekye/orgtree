@@ -594,8 +594,63 @@ class CleanupScanTests(unittest.TestCase):
             plan = worktree.cleanup_scan(str(root), max_depth=2)
             self.assertTrue(plan["complete"])
             self.assertFalse(plan["exhaustive"])
+            self.assertFalse(plan["census"])
             self.assertNotIn("INCOMPLETE", plan["note"])
-            self.assertIn("were not descended into", plan["note"])
+            self.assertIn("not descended into", plan["note"])
+
+    def test_a_bounded_scan_leads_with_the_undercount_not_a_footnote(self) -> None:
+        """⚠ A bounded scan that still selected something is the dangerous shape.
+
+        It looks like a finished cleanup. Whoever runs it is reading for a
+        number, so the caveat has to arrive before the remediation steps rather
+        than after them. Raised by worktree-setup after measuring 5 links below
+        a depth-4 bound in the primary scratch root and 49 in the second.
+        """
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            outside, scanned = root / "elsewhere", root / "scratch"
+            outside.mkdir()
+            (scanned / "shallow").mkdir(parents=True)
+            make_link(scanned / "shallow" / "node_modules", outside)
+            (scanned / "a" / "b" / "c").mkdir(parents=True)
+            plan = worktree.cleanup_scan(str(scanned), max_depth=3)
+            self.assertEqual(plan["selection"]["selected"], 1)
+            self.assertFalse(plan["census"])
+            self.assertTrue(plan["note"].startswith("⚠"), plan["note"][:60])
+            self.assertIn("NOT in its counts", plan["note"])
+            self.assertIn("leave the deeper ones in place", plan["note"])
+
+    def test_census_is_true_only_when_nothing_at_all_was_skipped(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "flat").mkdir()
+            plan = worktree.cleanup_scan(str(root))
+            self.assertTrue(plan["census"])
+            self.assertNotIn("⚠", plan["note"])
+
+    def test_raising_depth_without_budget_finds_fewer_links_not_more(self) -> None:
+        """The coupling that made a depth-6 scan find 11 links where depth 4 found 77.
+
+        Pinned because the conclusion is counter-intuitive and a future reader
+        tuning these constants will otherwise reach for depth alone.
+        """
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            outside = root / "elsewhere"
+            outside.mkdir()
+            # A wide shallow tree: deepening the walk spends budget on entries
+            # that contain nothing, before the scan ever reaches the link.
+            for index in range(12):
+                padding = root / f"wide{index}" / "deeper"
+                padding.mkdir(parents=True)
+                for leaf in range(8):
+                    (padding / f"leaf{leaf}").mkdir()
+            make_link(root / "wide0" / "node_modules", outside)
+            shallow = worktree.find_reparse_points(str(root), max_depth=2, limit=60)
+            deep = worktree.find_reparse_points(str(root), max_depth=9, limit=60)
+            self.assertEqual(len(shallow["links"]), 1)
+            self.assertTrue(deep["truncated"])
+            self.assertLessEqual(len(deep["links"]), len(shallow["links"]))
 
     def test_scan_then_apply_unlinks_the_link_and_leaves_the_target(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
@@ -685,6 +740,26 @@ class CleanupScanTests(unittest.TestCase):
             self.assertIn("refused:", errors.getvalue())
             self.assertIn("deletes through them", errors.getvalue())
             self.assertNotIn("Traceback", errors.getvalue())
+
+    def test_a_git_failure_is_an_error_and_not_reported_as_a_refusal(self) -> None:
+        # A refusal is this tool declining; a RuntimeError is git breaking.
+        # Printing "refused" over the second sends the reader looking for a
+        # policy to satisfy when nothing judged their request. Raised by
+        # worktree-setup in review.
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            inside = root / ".worktrees" / "agent"
+            inside.mkdir(parents=True)
+            broken = subprocess.CompletedProcess([], 1, "", "fatal: git said no")
+            errors = io.StringIO()
+            with mock.patch.object(worktree, "repository_root", return_value=worktree.canonical(root)), \
+                    mock.patch.object(worktree, "_status", return_value=(False, False, True)), \
+                    mock.patch.object(worktree.subprocess, "run", return_value=broken), \
+                    contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(errors):
+                code = worktree.main(["remove", str(inside), "--repository", str(root)])
+            self.assertEqual(code, 1)
+            self.assertIn("error: fatal: git said no", errors.getvalue())
+            self.assertNotIn("refused:", errors.getvalue())
 
 
 class PlacementTests(unittest.TestCase):

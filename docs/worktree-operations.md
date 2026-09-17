@@ -201,10 +201,20 @@ and both bounds are reported:
 - `exhaustive: false` means only that something sits below `--max-depth`. The
   requested depth was fully examined. On any real tree this is normal.
 
-**Deeper is not safer.** Measured against the live scratch root, `--max-depth`
-3, 4 and 5 each found the same 77 links, taking 5s, 11s and 32s. Depth 6 found
-eleven, because the extra breadth exhausted the entry budget and truncated
-before reaching most of the tree. The default is 4.
+**Depth and budget are coupled — raise them together or not at all.** Measured
+against the live scratch root at a 50,000 budget, `--max-depth` 3, 4 and 5 each
+found the same 77 links; depth 6 found *eleven*. Not because six was too deep:
+that root is 572,301 entries, and the budget ran out. Raising depth without
+raising `--limit` converts a generous bound into a truncating one and finds
+**fewer** links while still looking like it worked.
+
+A depth-4 default was tried and was wrong — it missed 5 links in the primary
+root and 49 in the second, while printing `complete: true`. The defaults are now
+sized to be exhaustive on the shapes we actually have.
+
+**Check `census`, not `complete`.** `census: true` is the single flag that means
+nothing was skipped for any reason — budget, readability, or depth. It is the
+only one to trust before treating a count as a count.
 
 **The safe order, which the plan also prints:**
 
@@ -224,18 +234,32 @@ root, where `node_modules` resolves upward and no link is needed.
 
 ### The current population
 
-Measured 2026-09-17 by two independent methods that agree exactly (this tool,
-and `Get-ChildItem -Attributes ReparsePoint`):
+Measured 2026-09-17 with `census: true` on both roots — unbounded depth, no
+truncation, nothing unreadable. Earlier depth-bounded figures in this ticket's
+history (77/75, and 81 in the original report) were undercounts.
 
-- `…\Orgtree v2\data\scratch\orgtree` — **77 reparse points, 75 named
-  `node_modules`**. 71 of those target `E:\Libraries\Desktop\orgtree\node_modules`,
-  the real checkout. That is the hazard this tooling exists for.
-- `C:\Users\ncola_k8bx\orgtree\scratch\orgtree` — a **second** scratch root with
-  **27** further `node_modules` junctions, all pointing within itself.
+**Primary — `…\Orgtree v2\data\scratch\orgtree`.** 572,301 entries, 39s.
 
-A scan of the first root selects 72 and preserves 5: three `node_modules`
-junctions whose targets sit inside the scanned root, and two links by other
-names. Those are listed, not hidden.
+- **82 links, 80 named `node_modules`**
+- **71** target `E:\Libraries\Desktop\orgtree\node_modules` exactly
+- **76** target somewhere under `E:\Libraries\Desktop\orgtree` — the other 5
+  point at `apps\desktop\renderer\node_modules`, which is still inside the real
+  checkout and still the hazard. Both numbers are correct; they answer different
+  questions, and "into the real checkout" should be read as **76**.
+- a scan selects **77** and preserves 5 (3 `node_modules` links whose target is
+  inside the scanned root, 2 links by other names), each with its reason.
+
+**Second — `C:\Users\ncola_k8bx\orgtree\scratch\orgtree`.** 280,753 entries, 18s.
+
+- **76 links, 27 named `node_modules`**, and **zero** pointing into this
+  repository. 13 point at `E:\Libraries\Desktop\claude-orgtree\frontend\node_modules`,
+  a different project entirely; the rest point within their own tree.
+
+> ⚠ **Do not clean up the second root.** It is retained V1 reference data from
+> the 2026-09-08 handover (coordinator ruling, 2026-09-17). Detecting and
+> reporting it is in scope precisely because a scanner that knows about one root
+> will be wrong the next time a root appears — but a plan produced for that path
+> must not be applied. A scan there selects 13 links; leave them.
 
 ## Cleanup (validating paths you already have)
 

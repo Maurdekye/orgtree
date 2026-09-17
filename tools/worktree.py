@@ -35,6 +35,27 @@ completely. Measured, not assumed: see ``plan_remove``.
 following any of them, and hands back a plan that ``cleanup-apply`` can execute
 against a re-validated filesystem. Removal always unlinks the link itself; the
 target is never opened, walked or deleted.
+
+⚠ TWO KNOWN LIMITS, both recorded so the next reader gets five minutes rather
+than an afternoon, and neither fixed here:
+
+* **An UNREADABLE reparse point deadlocks.** ``removal_scan`` counts a link
+  whose target cannot be read as escaping - the safe direction - so ``remove``
+  refuses it; ``accept_unscanned`` waives truncation only; ``cleanup_scan``
+  declines to select it because its target is unknown; and ``cleanup_preview``
+  preserves it as "target could not be validated". So that worktree cannot be
+  removed by this tool at all, and the cleanup its refusal points at will not
+  clear it. The obstacle is policy, not mechanism: ``os.rmdir`` removes a
+  reparse point without following it. Analysis by worktree-setup, from the code
+  rather than from a constructed case.
+* **This repository is npm, and that is load-bearing.** Its 61,324-entry
+  ``node_modules`` contains zero links, so the unconditional escaping-link
+  refusal never fires on an ordinary installed tree. Under **pnpm** it would:
+  ``node_modules/.pnpm`` is symlinks into a global store outside the repository,
+  every one of which reads as escaping, and every worktree would become
+  unremovable with no applicable waiver - ``accept_unscanned`` does not cover a
+  found link, and ``cleanup-scan`` only selects links NAMED ``node_modules``.
+  Changing package manager means revisiting this file.
 """
 from __future__ import annotations
 
@@ -78,18 +99,25 @@ DEPENDENCY_DIR = "node_modules"
 SCAN_LIMIT = 400000
 
 #: How deep ``find_reparse_points`` descends below its root before it stops and
-#: SAYS it stopped. The junctions this exists to find sit a fixed distance down
-#: (``<scratch>/<agent>/<worktree>/node_modules``), so a shallow bound finds all
-#: of them and a deep one only buys source-tree walking.
+#: SAYS it stopped.
 #:
-#: ⚠ DEEPER IS NOT SAFER HERE, which is counter-intuitive enough to write down.
-#: Measured against the live scratch root: depth 3, 4 and 5 all found the same
-#: 77 links (75 of them ``node_modules``), taking 5s, 11s and 32s. Depth 6 found
-#: only ELEVEN, because the extra breadth exhausted the entry budget and the
-#: scan truncated before reaching most of the tree. A bound that is too generous
-#: degrades into a bound that is too small, silently, at the far end. Four keeps
-#: a level of margin over the observed shape while staying well inside budget.
-DEFAULT_SCAN_DEPTH = 4
+#: ⚠ DEPTH AND BUDGET ARE COUPLED, and getting that backwards produces a scan
+#: that undercounts while reporting success. Raising the depth raises the entry
+#: count; if the budget does not rise with it the walk truncates early and finds
+#: FEWER links than a shallower one would. Measured on the live scratch root at
+#: a 50000 budget: depths 3, 4 and 5 each found 77 links, while depth 6 found
+#: ELEVEN - not because six was too deep, but because that root is 572,294
+#: entries and the budget ran out. Raise the two together or not at all.
+#:
+#: The default is deliberately deep enough to be exhaustive on the shapes we
+#: actually have. An earlier value of 4 was chosen from the observation that
+#: junctions sit at ``<scratch>/<agent>/<worktree>/node_modules``; that was
+#: wrong. worktree-setup's unbounded walk found links at depth 5 in the primary
+#: scratch root and at depth 9 in the second one - 5 and 49 links respectively
+#: below a depth-4 bound, none of which a depth-4 scan would have reported while
+#: still printing ``complete: true``. A default that silently undercounts a
+#: cleanup is worse than a slow one.
+DEFAULT_SCAN_DEPTH = 12
 
 #: Never descended into. Recorded instead, so the output still says they were
 #: there. A real ``node_modules`` would exhaust the entry budget on its own and
@@ -97,6 +125,13 @@ DEFAULT_SCAN_DEPTH = 4
 #: same problem in smaller form. A link BY these names is still recorded - the
 #: link check runs before the descent decision.
 SCAN_SKIP_DIRS = {".git", DEPENDENCY_DIR, ".venv"}
+
+#: The entry budget for a WHOLE-ROOT scan, which is a different scale of job
+#: from scanning one worktree and needs its own number. The primary scratch root
+#: measures 572,294 entries unbounded, so ``SCAN_LIMIT`` would truncate it - and
+#: a truncated cleanup scan is the failure mode that leaves junctions behind
+#: while the operator reads a count and believes it.
+SCAN_ROOT_LIMIT = 2000000
 
 
 def strip_extended_prefix(path: str) -> str:
@@ -772,7 +807,7 @@ def cleanup_preview(root: str, candidates: Iterable[str], *, owned: Iterable[str
 
 
 def find_reparse_points(root: str | os.PathLike[str], *, max_depth: int = DEFAULT_SCAN_DEPTH,
-                        limit: int = SCAN_LIMIT) -> dict[str, Any]:
+                        limit: int = SCAN_ROOT_LIMIT) -> dict[str, Any]:
     """Enumerate every link under a root WITHOUT following a single one.
 
     This is the half that was missing. ``cleanup_preview`` could always validate
@@ -864,7 +899,7 @@ def find_reparse_points(root: str | os.PathLike[str], *, max_depth: int = DEFAUL
 
 
 def cleanup_scan(root: str | os.PathLike[str], *, name: str | None = DEPENDENCY_DIR,
-                 max_depth: int = DEFAULT_SCAN_DEPTH, limit: int = SCAN_LIMIT) -> dict[str, Any]:
+                 max_depth: int = DEFAULT_SCAN_DEPTH, limit: int = SCAN_ROOT_LIMIT) -> dict[str, Any]:
     """Enumerate the hazard shape and return a plan ``apply_cleanup`` can run.
 
     Selection is deliberately narrow. A link is marked for unlinking only when
@@ -925,23 +960,42 @@ def cleanup_scan(root: str | os.PathLike[str], *, name: str | None = DEPENDENCY_
         {"step": 2, "what": "remove the worktree, now that nothing leaves it",
          "command": ["python", "tools/worktree.py", "remove", "<worktree>"]},
     ]
-    preview["note"] = (
+    # ⚠ THE WARNING GOES FIRST WHEN IT CHANGES THE NUMBER. Whoever acts on this
+    # plan is reading it for a count, and a caveat printed after the remediation
+    # steps arrives too late to stop them treating a partial scan as a census.
+    # A bounded scan that nonetheless SELECTED something is the dangerous
+    # combination: it looks like a completed cleanup and silently leaves
+    # junctions behind.
+    warnings: list[str] = []
+    if not survey["complete"]:
+        warnings.append(
+            "⚠ THIS SCAN IS INCOMPLETE (see survey.truncated / survey.unreadable). It is not a "
+            "census of what exists under this root - raise --limit and rerun before treating "
+            "any count here as complete."
+        )
+    elif not survey["exhaustive"]:
+        deeper = len(survey["depth_limited"])
+        warnings.append(
+            f"⚠ THIS SCAN IS BOUNDED AT --max-depth {max_depth}; {deeper} director"
+            f"{'y' if deeper == 1 else 'ies'} below that depth {'was' if deeper == 1 else 'were'}"
+            f" not descended into, so links below that "
+            f"depth are NOT in this plan and NOT in its counts. Everything within the depth was "
+            f"examined ('complete'), which is not the same as everything ('exhaustive'). Raise "
+            f"--max-depth AND --limit together - raising depth alone exhausts the budget and "
+            f"finds fewer links, not more."
+            + (" Links WERE selected at this depth, so applying this plan will clean up some "
+               "and leave the deeper ones in place." if selected else "")
+        )
+    preview["note"] = " ".join(warnings + [
         "Unlinking removes the link itself and never its target. A worktree whose "
         f"{DEPENDENCY_DIR} link is removed can no longer resolve dependencies from it; "
         "the supported fix is to recreate that worktree under the repository root, where "
         f"{DEPENDENCY_DIR} resolves upward and no link is needed."
-    )
-    if not survey["complete"]:
-        preview["note"] += (
-            " ⚠ This scan is INCOMPLETE (see survey.truncated / survey.unreadable), so it is "
-            "not a full census of what exists under this root - raise --limit and rerun."
-        )
-    elif not survey["exhaustive"]:
-        preview["note"] += (
-            f" Everything within --max-depth {max_depth} was examined; "
-            f"{len(survey['depth_limited'])} directories below that depth were not descended "
-            f"into, so a link deeper than the bound would not appear here."
-        )
+    ])
+    # One word for the only question an operator running a cleanup actually has:
+    # "is this everything?" It is true only when nothing was skipped for any
+    # reason - not budget, not readability, not depth.
+    preview["census"] = survey["exhaustive"]
     return preview
 
 
@@ -1054,15 +1108,22 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return _dispatch(args)
-    except (ValueError, RuntimeError) as error:
+    except ValueError as error:
         # A refusal is an ANSWER, not a crash. Printing a traceback buries the
         # one sentence that says what to do next under a stack the reader did
         # not ask for, and the refusals in this file are written to be read -
-        # they name the hazard and the command that resolves it. Exit 2 keeps
-        # "refused" distinguishable from "worked" and from argparse's own 2...
-        # which it is not, so say it in words rather than relying on the code.
+        # they name the hazard and the command that resolves it.
         print(f"refused: {error}", file=sys.stderr)
         return 2
+    except RuntimeError as error:
+        # ⚠ A DIFFERENT WORD ON PURPOSE. RuntimeError is raised when git itself
+        # failed, which is a breakage; ValueError is this tool declining, which
+        # is a decision. Printing "refused" over a git failure would tell the
+        # reader their request was judged and rejected when in fact nothing
+        # judged it, and they would go looking for a policy to satisfy instead
+        # of at the error git actually returned.
+        print(f"error: {error}", file=sys.stderr)
+        return 1
 
 
 def _dispatch(args: argparse.Namespace) -> int:
