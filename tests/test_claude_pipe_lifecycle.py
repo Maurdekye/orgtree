@@ -316,18 +316,36 @@ class ClaudePipeLifecycleTests(unittest.TestCase):
         self.assertIsNone(self.procs[0].poll(), "fixture must still be running")
         warnings = sup.interrupt_before_archive(
             self.slug, store.load_org(self.slug), self.nid, timeout=1)
-        # the process itself, and the CLI child under it, are both gone
-        self.assertIsNotNone(self.procs[0].poll(),
-                             "the archive must not leave the CLI running")
-        if os.name == "nt":
-            self.assertTrue(eventually(lambda: not windows_alive(child)),
-                            "the reap must take the CLI child too, not just "
-                            "the launcher")
-        # it is reported, never silently swallowed, and it does not claim a
-        # clean settlement
-        self.assertEqual(len(warnings), 1, warnings)
+        # ⚠ THE WARNING IS ASSERTED FIRST, AND ON PURPOSE. The two ways this
+        # can fail are "the reap ran and the OS has not finished" and "no reap
+        # ran at all", and only the second is a real defect. Asserting the
+        # process state first reports BOTH as "the CLI is still running",
+        # which sends the reader hunting for a teardown bug when the honest
+        # answer may be that the node never entered the reap branch. The
+        # warning says which happened, so it is the diagnostic that goes first.
+        self.assertEqual(len(warnings), 1,
+                         f"the unsettled node must be reported exactly once "
+                         f"(no reap ran if this list is empty): {warnings}")
         self.assertIn("process tree was ended", warnings[0])
         self.assertIn(self.nid, warnings[0])
+        # …and only then the process itself, and the CLI child under it.
+        # BOUNDED, NOT INSTANT: `_wd_kill_tree` shells out to `taskkill /T /F`,
+        # which returns before the OS has necessarily finished reaping, so
+        # `poll()` can legitimately still be None for a moment after the call
+        # returns — and on a machine running several suites at once that
+        # moment stretches. The invariant this test exists to pin is "no CLI
+        # survives the archive", not "the kernel is done before the next
+        # bytecode", and a few seconds of grace cannot mask the regression:
+        # without the fix this process stays alive for TURN_TIMEOUT, four
+        # hours, which no bounded wait will ever forgive.
+        self.assertTrue(eventually(lambda: self.procs[0].poll() is not None,
+                                   timeout=10),
+                        "the archive must not leave the CLI running")
+        if os.name == "nt":
+            self.assertTrue(eventually(lambda: not windows_alive(child),
+                                       timeout=10),
+                            "the reap must take the CLI child too, not just "
+                            "the launcher")
         # and the turn still reaches its own finally
         self.assert_settled(timeout=10)
         self.assertFalse(self.st["busy"])
