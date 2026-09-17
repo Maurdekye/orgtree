@@ -13,9 +13,40 @@ import { pathToFileURL } from 'node:url'
 export const RELEASE_VERIFICATION_SCHEMA = 'orgtree.windows-release-verification/v1'
 export const RELEASE_VERIFICATION_PROFILE = 'focused-release-v1'
 
+// ⚠ NEITHER of these may be a raw `npm test` / `npm run test:renderer`.
+//
+// A raw suite runner has no concept of a test that was ALREADY failing, so one
+// unowned failure anywhere in 638 tests blocked release verification for every
+// commit touching a path the focused profiles do not name — and the agent it
+// blocked had no way to tell that the block had nothing to do with its change.
+// That is the same defect as the bare-`python` receipt gate below: a check
+// reporting on something other than what it claims.
+//
+// `compare` runs the same suite and then splits NEW failures from pre-existing
+// ones against docs/test-baseline.json, exiting 0 only when the run introduced
+// none. So a known failure is acquitted BY NAME and a regression still blocks.
+//
+// ⚠ ONE GATE PER SUITE, and never a bare `compare`. A bare `compare` runs all
+// three registered suites, and `python-backend` alone takes 9.9 minutes
+// (measured; recorded in the baseline's own duration_ms), which puts the single
+// command past the 600s ceiling this harness kills a foreground command at —
+// four agents lost a day to that. Split per suite it is 63s + 80s, measured
+// 2026-09-17 on 5f3a172. Adding a third gate here without timing it first is how
+// that ceiling comes back.
+//
+// The suites named here are exactly the two the raw commands ran: this changed
+// how failures are CLASSIFIED, not what is covered. `python-backend` was never
+// in the full profile and is not added.
+const BASELINE_GATE = ['node', 'tools/test-baseline.mjs', 'compare']
+// `--require-usable`, not `--require-fresh`: a release verification runs on a
+// commit past the one the baseline was recorded at, by construction, so
+// `--require-fresh` refuses every time. `--require-usable` still refuses a
+// baseline from another machine, an unreachable commit, a dirty measurement or
+// one carrying no timestamp — cases where the acquittals cannot be trusted.
+const BASELINE_TRUST = ['--max-age-days', '7', '--require-usable']
 const FULL = [
-  ['full-node', ['npm', 'test']],
-  ['full-renderer', ['npm', 'run', 'test:renderer']],
+  ['full-node', [...BASELINE_GATE, '--suite', 'node-root', ...BASELINE_TRUST]],
+  ['full-renderer', [...BASELINE_GATE, '--suite', 'renderer', ...BASELINE_TRUST]],
 ]
 const RELEASE = [
   // `tests/release-verification.test.mjs` is in this list because the focused
@@ -24,7 +55,12 @@ const RELEASE = [
   // `release`, and the `release` profile did not run this file's own tests — so
   // a change could break them and still be waved through green. That is exactly
   // how the bare-`python` fix below reached `main` with a passing gate.
-  ['source', ['node', '--test', 'tests/release-windows.test.mjs', 'tests/runtime-layout.test.mjs', 'tests/release-verification.test.mjs']],
+  // `tests/test-baseline.test.mjs` joined this list when the full profile above
+  // started running `tools/test-baseline.mjs`: that tool now decides whether a
+  // release is verified, so it is release tooling, and the lesson of `ed152e5`
+  // is that release tooling whose own tests are not in this gate can break them
+  // and still be waved through green.
+  ['source', ['node', '--test', 'tests/release-windows.test.mjs', 'tests/runtime-layout.test.mjs', 'tests/release-verification.test.mjs', 'tests/test-baseline.test.mjs']],
   // ⚠ NEVER run this gate as a bare `python -m unittest`. Orgtree spawns an
   // agent CLI with PYTHONPATH prepended by its own installed backend so the
   // child can import it, so a bare `python` resolves `import orgtree` to
@@ -50,6 +86,13 @@ const RELEASE_PATHS = [
   /^tools\/runtime-layout\.mjs$/,
   /^tools\/stage-runtime\.mjs$/,
   /^tools\/verification-receipt\.py$/,
+  // Release tooling since the full profile started running it. Note what is
+  // deliberately ABSENT: `docs/test-baseline.json`, the acquittal list itself.
+  // Editing that decides which failures the gate forgives, so it stays
+  // unclassified and escalates to `full` — the fail-safe, applied to the one
+  // file that could otherwise be used to wave a failure through.
+  /^tools\/test-baseline\.mjs$/,
+  /^tests\/test-baseline\.test\.mjs$/,
   /^engine\/backend\/orgtree\/workevidence\.py$/,
   /^tests\/release-windows\.test\.mjs$/,
   /^tests\/runtime-layout\.test\.mjs$/,

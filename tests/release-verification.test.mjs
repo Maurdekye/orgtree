@@ -40,6 +40,99 @@ test('unknown and application changes escalate to both full suites', () => {
   }
 })
 
+// ---------------------------------------------------------------------------
+// The full profile and the baseline. See the header comment on FULL in
+// tools/release-verification.mjs for why these are pinned rather than trusted.
+// ---------------------------------------------------------------------------
+
+const fullChecks = () => selectReleaseVerification(['README.md']).checks
+
+test('the full profile classifies failures against the baseline instead of running a raw suite', () => {
+  const checks = fullChecks()
+  assert.deepEqual(checks.map(check => check.gate), ['full-node', 'full-renderer'])
+  for (const check of checks) {
+    assert.deepEqual(check.command.slice(0, 3), ['node', 'tools/test-baseline.mjs', 'compare'],
+      `${check.gate} is not going through the baseline comparison`)
+  }
+  // ⚠ The revert-by-simplification guard. A raw `npm test` has no concept of a
+  // test that was already failing, so one unowned failure anywhere in the suite
+  // blocked release verification for every commit touching an unclassified
+  // path — and told the blocked agent nothing about why. Pinned so that going
+  // back to it fails a test instead of silently re-breaking every ordinary
+  // commit the next time a known failure appears.
+  for (const check of checks) {
+    assert.equal(check.command[0], 'node', `${check.gate} must not shell out to npm`)
+    assert.equal(check.command.includes('test'), false,
+      `${check.gate} is running a raw suite again; route it through tools/test-baseline.mjs compare`)
+  }
+})
+
+test('each full gate names exactly one suite — a bare compare cannot finish in one command', () => {
+  // ⚠ This is a TIMING invariant, not a style one. A bare `compare` runs all
+  // three registered suites, and `python-backend` alone takes 9.9 minutes
+  // (measured; it is in the baseline's own duration_ms), which puts the single
+  // command past the 600s ceiling a foreground command is killed at. Split per
+  // suite it was 63s and 80s, measured 2026-09-17. Dropping `--suite`, or
+  // folding both gates into one, brings that ceiling straight back.
+  const baseline = JSON.parse(fs.readFileSync(path.resolve('docs/test-baseline.json'), 'utf8'))
+  for (const check of fullChecks()) {
+    const suiteFlags = check.command.filter(argument => argument === '--suite')
+    assert.equal(suiteFlags.length, 1, `${check.gate} must name exactly one suite`)
+    const suite = check.command[check.command.indexOf('--suite') + 1]
+    // A gate naming a suite the baseline has never measured acquits nothing and
+    // counts every failure in it against whoever is committing.
+    assert.ok(baseline.suites[suite], `${check.gate} names suite "${suite}", which the baseline does not record`)
+  }
+})
+
+test('the full profile refuses an untrustworthy baseline but tolerates the code having moved on', () => {
+  for (const check of fullChecks()) {
+    assert.ok(check.command.includes('--require-usable'), `${check.gate} would trust a baseline from another machine`)
+    assert.equal(check.command[check.command.indexOf('--max-age-days') + 1], '7', `${check.gate} sets no age ceiling`)
+    // --require-fresh refuses on ANY drift, including the code having moved past
+    // the recorded commit — which is the normal state of a release candidate, so
+    // a gate carrying it would refuse every run. Measured 2026-09-17: a baseline
+    // 14 hours and four commits old already reported DRIFTED.
+    assert.equal(check.command.includes('--require-fresh'), false,
+      `${check.gate} carries --require-fresh, which refuses every release verification`)
+  }
+})
+
+test('the baseline tool is release tooling, and its own tests run when it changes', () => {
+  // The lesson of ed152e5, applied to the file that now decides whether a
+  // release is verified: release tooling whose own tests are not in the source
+  // gate can break them and still be waved through green.
+  const plan = selectReleaseVerification(['tools/test-baseline.mjs'])
+  assert.equal(plan.area, 'release')
+  assert.ok(plan.checks.find(check => check.gate === 'source').command.includes('tests/test-baseline.test.mjs'))
+})
+
+test('editing the acquittal list itself escalates to the full profile', () => {
+  // docs/test-baseline.json is the list of failures the gate forgives. It is
+  // deliberately NOT release tooling: if the focused profile could wave through
+  // a change to it, the gate could be widened by editing its own input.
+  assert.equal(classifyReleaseChanges(['docs/test-baseline.json']).area, 'full')
+})
+
+test('a full gate that reports a new failure stops the run and the receipt is not green', () => {
+  const calls = []
+  const receipt = runVerification({
+    root: process.cwd(), files: ['README.md'], candidate: 'abc123',
+    git: (_command, args) => {
+      if (args[0] === 'rev-parse') return 'base123\n'
+      if (args[0] === 'diff') return 'README.md\n'
+      if (args[0] === 'ls-files') return 'README.md\n'
+      throw new Error(`unexpected git call: ${args.join(' ')}`)
+    },
+    // Exit 1 is what `compare` returns for "failures this baseline does not
+    // account for". It must still block: acquitting the known ones does not
+    // soften the new ones.
+    runner: (command, args) => { calls.push(args); return { status: 1, stdout: 'VERDICT: 1 failure(s)', stderr: '' } },
+  })
+  assert.equal(receipt.green, false)
+  assert.equal(calls.length, 1, 'the run stops at the first failing gate')
+})
+
 test('version-only classification compares Git content and stays focused', () => {
   const values = {
     'base:package.json': { version: '2.1.3', name: 'orgtree', scripts: { test: 'node --test' } },

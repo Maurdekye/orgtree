@@ -37,7 +37,11 @@
 // command that reads the baseline prints its age, the commit it was measured
 // at, how many commits main has moved since, and whether any test file has
 // changed in between. `compare` degrades that to a loud warning and, with
-// --max-age-days / --require-fresh, to a refusal.
+// --max-age-days / --require-usable / --require-fresh, to a refusal.
+//
+// `npm run verify:release` runs `compare` as its own full-suite gate, one gate
+// per suite. See docs/known-failures.md, "Release verification runs on this
+// baseline", before changing anything `compare` prints or exits with.
 
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
@@ -269,6 +273,26 @@ function machineProvenance(concurrency) {
 // Age / drift — how much a reader should trust the baseline
 // ---------------------------------------------------------------------------
 
+/**
+ * Drift reasons that make a baseline UNUSABLE, as opposed to merely out of date.
+ *
+ * `--require-fresh` refuses on ANY reason, including `code_moved`, and that
+ * makes it useless to an automated gate: a release verification runs on a commit
+ * PAST the one the baseline was recorded at, by construction, so `code_moved` is
+ * the normal condition rather than a warning sign. Measured 2026-09-17 — a
+ * baseline recorded 14 hours earlier, four commits back, already reported
+ * DRIFTED, so `--require-fresh` would have refused every verification that day.
+ *
+ * These six are different in kind. Each one means the baseline is not describing
+ * THIS machine, THIS checkout, or any moment it is willing to name — so nothing
+ * it acquits can be trusted, and a gate that accepted it would be exactly the
+ * defect it exists to prevent: a check reporting on something other than what it
+ * claims. `--require-usable` refuses on these and tolerates `code_moved`.
+ */
+const UNUSABLE_CODES = new Set([
+  'no_timestamp', 'too_old', 'commit_unreachable', 'measured_dirty', 'host_mismatch', 'no_tree_hashes',
+])
+
 function ageOf(baseline) {
   // A baseline is only as fresh as its STALEST suite. `record --suite X`
   // re-measures one suite and carries the rest forward, so after a partial
@@ -306,19 +330,21 @@ function ageOf(baseline) {
     : null
 
   const reasons = []
+  const reasonCodes = []
   const notes = []
-  if (ageHours === null) reasons.push('the baseline records no timestamp')
-  else if (ageHours > DEFAULT_MAX_AGE_DAYS * 24) reasons.push(`it is ${(ageHours / 24).toFixed(1)} days old`)
-  if (!reachable && base) reasons.push('its commit is not in this checkout, so drift cannot be measured')
-  if (baseline && baseline.measured_tree_clean === false) reasons.push('it was measured with UNCOMMITTED changes to the code under test')
-  else if (baseline && baseline.measured_tree_clean === undefined && baseline.tree_clean === false) reasons.push('it was measured on a DIRTY tree')
+  const because = (code, text) => { reasonCodes.push(code); reasons.push(text) }
+  if (ageHours === null) because('no_timestamp', 'the baseline records no timestamp')
+  else if (ageHours > DEFAULT_MAX_AGE_DAYS * 24) because('too_old', `it is ${(ageHours / 24).toFixed(1)} days old`)
+  if (!reachable && base) because('commit_unreachable', 'its commit is not in this checkout, so drift cannot be measured')
+  if (baseline && baseline.measured_tree_clean === false) because('measured_dirty', 'it was measured with UNCOMMITTED changes to the code under test')
+  else if (baseline && baseline.measured_tree_clean === undefined && baseline.tree_clean === false) because('measured_dirty', 'it was measured on a DIRTY tree')
   else if (baseline && baseline.tree_clean === false) notes.push('the tree had uncommitted files at record time, but none of them were under test')
 
   const hostMatches = baseline?.machine?.host ? baseline.machine.host === os.hostname() : null
-  if (hostMatches === false) reasons.push(`it was measured on ${baseline.machine.host}, not ${os.hostname()} — these failures are partly environmental, so treat that as drift`)
+  if (hostMatches === false) because('host_mismatch', `it was measured on ${baseline.machine.host}, not ${os.hostname()} — these failures are partly environmental, so treat that as drift`)
 
-  if (treesChanged === null) reasons.push('the baseline records no tree hashes, so content drift cannot be measured')
-  else if (treesChanged.length) reasons.push(`the code under test changed since, in: ${treesChanged.join(', ')}`)
+  if (treesChanged === null) because('no_tree_hashes', 'the baseline records no tree hashes, so content drift cannot be measured')
+  else if (treesChanged.length) because('code_moved', `the code under test changed since, in: ${treesChanged.join(', ')}`)
 
   if (commitsSince) {
     const line = `HEAD is ${commitsSince} commit(s) past the baseline commit`
@@ -342,6 +368,10 @@ function ageOf(baseline) {
     // `fresh` only when nothing that could move the result has drifted.
     verdict: reasons.length === 0 ? 'fresh' : (ageHours !== null && ageHours > DEFAULT_MAX_AGE_DAYS * 24 ? 'stale' : 'drifted'),
     reasons,
+    reason_codes: reasonCodes,
+    // USABLE is a weaker and more useful question than FRESH. See UNUSABLE_CODES.
+    usable: !reasonCodes.some(code => UNUSABLE_CODES.has(code)),
+    unusable_reasons: reasons.filter((_, index) => UNUSABLE_CODES.has(reasonCodes[index])),
     notes,
   }
 }
@@ -356,7 +386,12 @@ function printAge(age, say = console.log) {
   const mark = age.verdict === 'fresh' ? 'FRESH' : age.verdict === 'drifted' ? 'DRIFTED' : 'STALE'
   say(`baseline: ${mark} — recorded ${age.recorded_at ?? '(no timestamp)'} (${age.age_human} ago)`)
   say(`          at commit ${short(age.baseline_commit)}${age.same_commit ? ' (this is HEAD)' : `, HEAD is ${short(age.head_commit)}`}`)
-  for (const reason of age.reasons) say(`  ! ${reason}`)
+  // Two marks, because the two classes of reason mean different things: `!` is
+  // "the code moved on, read the verdict with that in mind", `✗` is "this
+  // baseline cannot acquit anything here at all".
+  age.reasons.forEach((reason, index) => {
+    say(`  ${UNUSABLE_CODES.has(age.reason_codes?.[index]) ? '✗' : '!'} ${reason}`)
+  })
   for (const note of age.notes ?? []) say(`  · ${note}`)
 }
 
@@ -814,6 +849,29 @@ async function cmdRecord(args) {
       (previous?.suites?.[suiteName]?.failures ?? []).map(f => [f.id, f.note]).filter(([, note]) => note),
     )
 
+    // How long a failure has been acquitted, carried across re-records.
+    //
+    // Without this every re-record resets the clock, so a failure that has been
+    // excused for a month reads exactly like one that appeared this morning, and
+    // "acquitted indefinitely" becomes literally true and invisible. A failure
+    // already in the previous baseline keeps its earliest known date; one whose
+    // predecessor predates this field falls back to when that suite was last
+    // measured, which is a LOWER BOUND — it was already failing then — and
+    // `compare` says "at least" when it is reporting one.
+    const recordedAt = new Date().toISOString()
+    const previousSuite = previous?.suites?.[suiteName]
+    const previousFailingSince = new Map(
+      (previousSuite?.failures ?? []).map(f => [f.id, {
+        at: f.failing_since ?? previousSuite?.recorded_at ?? null,
+        exact: !!f.failing_since && f.failing_since_is_lower_bound !== true,
+      }]),
+    )
+    const failingSince = id => {
+      const before = previousFailingSince.get(id)
+      if (!before?.at) return { failing_since: recordedAt, failing_since_is_lower_bound: false }
+      return { failing_since: before.at, failing_since_is_lower_bound: !before.exact }
+    }
+
     suites[suiteName] = {
       title: SUITES[suiteName].title,
       description: SUITES[suiteName].description,
@@ -824,7 +882,7 @@ async function cmdRecord(args) {
       // 14-minute suite and re-recording all three. That only stays honest if
       // each suite says when and where IT was measured, because after a partial
       // re-record they are no longer the same moment.
-      recorded_at: new Date().toISOString(),
+      recorded_at: recordedAt,
       commit: provenance.commit,
       trees: provenance.trees,
       // A partial baseline must say so: without this, a filtered run reads as
@@ -850,6 +908,7 @@ async function cmdRecord(args) {
         stability: f.stability ?? 'unknown',
         error: f.error,
         error_digest: f.error_digest,
+        ...failingSince(f.id),
         ...(previousNotes.has(f.id) ? { note: previousNotes.get(f.id) } : {}),
       })),
       // Tests that exist at all, so `compare` can tell "added by your branch"
@@ -927,14 +986,28 @@ async function cmdCompare(args) {
   const age = ageOf(baseline)
   printAge(age, say)
 
-  const maxAge = args.maxAgeDays === undefined ? null : Number(args.maxAgeDays)
-  if (maxAge !== null && age.age_hours !== null && age.age_hours > maxAge * 24) {
-    console.error(`\nrefusing: --max-age-days ${maxAge} and the baseline is ${age.age_human} old. Re-record it.`)
+  // A refusal is NOT a test result, and an automated caller records both as a
+  // non-zero exit. Say which one this is in words the next reader cannot misread
+  // — otherwise the agent whose commit happened to trip it spends an afternoon
+  // hunting a regression that does not exist.
+  const refuse = lines => {
+    console.error('\nBASELINE REFUSED — no suite was run, and this is NOT a failure of your change.')
+    for (const line of lines) console.error(`  ${line}`)
+    console.error('  Re-record the baseline on this machine: node tools/test-baseline.mjs record')
     return 2
   }
+  const maxAge = args.maxAgeDays === undefined ? null : Number(args.maxAgeDays)
+  if (maxAge !== null && age.age_hours !== null && age.age_hours > maxAge * 24) {
+    return refuse([`--max-age-days ${maxAge} and the baseline is ${age.age_human} old.`])
+  }
+  if (args.requireUsable && !age.usable) {
+    return refuse([
+      'the baseline cannot acquit anything in this checkout:',
+      ...age.unusable_reasons.map(reason => `  - ${reason}`),
+    ])
+  }
   if (args.requireFresh && age.verdict !== 'fresh') {
-    console.error('\nrefusing: --require-fresh and the baseline has drifted (reasons above).')
-    return 2
+    return refuse(['--require-fresh and the baseline has drifted (reasons above).'])
   }
   say('')
 
@@ -966,6 +1039,18 @@ async function cmdCompare(args) {
   let newFailures = 0
   const report = { schema: 'orgtree.test-comparison/v1', baseline_age: age, suites: {} }
 
+  // Who, if anyone, has been TOLD about each acquitted failure. Acquitting one
+  // does not expire (see docs/known-failures.md) — blocking the next commit for
+  // a failure it did not cause is the defect this tool exists to remove. What
+  // replaces expiry is this: every acquittal is printed with its age and with
+  // whether anybody owns it, so "nobody has ever been told" is visible on every
+  // run instead of only when somebody goes looking.
+  const openHandovers = (() => {
+    try {
+      return new Map(loadHandovers(args).handovers.filter(h => h.status === 'open').map(h => [h.test_id, h]))
+    } catch { return new Map() }
+  })()
+
   for (const suiteName of suiteNames) {
     const runResult = runs[suiteName]
     if (!runResult) continue
@@ -990,11 +1075,23 @@ async function cmdCompare(args) {
     for (const outcome of failedNow) {
       if (known.has(outcome.id)) {
         const before = known.get(outcome.id)
+        const since = before.failing_since ?? baseline.suites[suiteName]?.recorded_at ?? null
+        const sinceMs = since ? Date.parse(since) : NaN
+        const handover = openHandovers.get(outcome.id) ?? null
         preExisting.push({
           ...outcome,
           baseline_note: before.note ?? null,
           baseline_stability: before.stability,
           error_changed: before.error_digest !== outcome.error_digest,
+          failing_since: since,
+          // True when the date is only "it was already failing by then" — either
+          // the entry predates `failing_since` or it was itself carried from
+          // such an entry. Reported as "at least", never as the real age.
+          failing_since_is_lower_bound: !before.failing_since || before.failing_since_is_lower_bound === true,
+          failing_for_days: Number.isFinite(sinceMs) ? Number(((Date.now() - sinceMs) / 86_400_000).toFixed(1)) : null,
+          // `null` is the answer this exists to make visible: acquitted, and
+          // nobody has ever been handed it.
+          open_handover: handover && { seq: handover.seq, route_to: handover.route_to, at: handover.at, work_item: handover.work_item ?? null },
         })
       } else if (outcome.stability === 'flaky') {
         // THIS RUN watched it fail and then pass, in this checkout, minutes
@@ -1047,6 +1144,15 @@ async function cmdCompare(args) {
     for (const f of preExisting) {
       const flags = [f.baseline_stability === 'flaky' ? 'FLAKY in baseline' : null, f.error_changed ? 'error text differs' : null].filter(Boolean)
       say(`     · ${f.file} :: ${f.test}${flags.length ? `  [${flags.join('; ')}]` : ''}`)
+      const age = f.failing_for_days === null ? 'failing for an unrecorded length of time'
+        : `failing for ${f.failing_since_is_lower_bound ? 'at least ' : ''}${f.failing_for_days} day(s)`
+      const owner = f.open_handover
+        ? `handed to ${f.open_handover.route_to} as #${f.open_handover.seq}${f.open_handover.work_item ? ` (${f.open_handover.work_item})` : ''}`
+        : 'UNOWNED — nobody has been told'
+      say(`         ${age}; ${owner}`)
+      if (!f.open_handover) {
+        say(`         hand it on:  node tools/test-baseline.mjs handover --test "${f.id}" --to <agent>`)
+      }
       if (f.baseline_note) say(`         note: ${f.baseline_note}`)
     }
     if (fixed.length) {
@@ -1292,7 +1398,7 @@ function parseArgs(argv) {
     if (!token.startsWith('--')) { args._.push(token); continue }
     const [flag, inline] = token.slice(2).split('=', 2)
     const key = flag.replace(/-([a-z])/g, (_, c) => c.toUpperCase())
-    const boolean = ['json', 'force', 'claim', 'claimed', 'all', 'again', 'open', 'requireFresh', 'allowBranch', 'strictFlaky']
+    const boolean = ['json', 'force', 'claim', 'claimed', 'all', 'again', 'open', 'requireFresh', 'requireUsable', 'allowBranch', 'strictFlaky']
     if (flag === 'no-confirm') { args.confirm = false; continue }
     if (boolean.includes(key)) { args[key] = inline === undefined ? true : inline !== 'false'; continue }
     args[key] = inline ?? argv[++i]
@@ -1319,7 +1425,12 @@ common flags
   --no-confirm             skip the re-run of failing files that separates flaky from stable
   --json                   machine-readable output
   --max-age-days <n>       compare: refuse if the baseline is older than this
-  --require-fresh          compare: refuse unless the baseline shows no drift at all
+  --require-usable         compare: refuse unless the baseline describes THIS machine and
+                           THIS checkout — wrong host, unreachable commit, dirty measurement,
+                           no timestamp, no tree hashes. Code having moved on is tolerated,
+                           because a release gate always runs past the recorded commit.
+  --require-fresh          compare: refuse unless the baseline shows no drift at all.
+                           Too strict for a gate: see --require-usable.
   --strict-flaky           compare: count a test that failed then passed on re-run as a regression
   --by <agent>             record/handover: who is doing this
   --baseline <file>        read the baseline from here instead of docs/test-baseline.json

@@ -132,17 +132,117 @@ distance is reported, but only as a note; the tree comparison is what decides.
 The baseline is called `DRIFTED` when anything that could move the result has
 changed — the code under test, the host it was measured on, a dirty tree at
 record time — and `STALE` once it is older than seven days. Each reason is
-printed on its own line. Two flags make that fatal instead of advisory:
+printed on its own line. Three flags make that fatal instead of advisory:
 
 ```text
 node tools/test-baseline.mjs compare --max-age-days 2
+node tools/test-baseline.mjs compare --require-usable
 node tools/test-baseline.mjs compare --require-fresh
 ```
+
+### Out of date is not the same as untrustworthy
+
+`--require-fresh` refuses on **any** drift, and that makes it useless to an
+automated gate. A release verification runs on a commit *past* the one the
+baseline was recorded at, by construction, so "the code under test changed
+since" is its normal condition rather than a warning sign. Measured on
+2026-09-17: a baseline recorded fourteen hours and four commits earlier already
+reported `DRIFTED`, so a gate carrying `--require-fresh` would have refused
+every verification that day.
+
+`--require-usable` draws the line somewhere more useful. It tolerates the code
+having moved on and refuses only the cases where the baseline is not describing
+this machine, this checkout, or any moment it will name:
+
+| reason | `--require-usable` |
+| --- | --- |
+| the code under test changed since | tolerated, still printed |
+| measured on a different host | **refused** |
+| its commit is not in this checkout | **refused** |
+| measured with uncommitted changes under test | **refused** |
+| records no timestamp | **refused** |
+| records no tree hashes, so drift cannot be measured | **refused** |
+| older than `--max-age-days` | **refused** |
+
+Refusals are marked `✗` in the age report and mere drift `!`. A refusal exits
+**2**, distinct from the **1** that means "found new failures", and it leads with
+`BASELINE REFUSED — no suite was run, and this is NOT a failure of your change.`
+That wording is load-bearing: an automated caller records both as the same
+non-zero exit, and without it the agent whose commit happened to trip a stale
+baseline spends an afternoon hunting a regression that does not exist.
 
 **These failures are partly environmental.** The baseline records the host,
 platform, arch, node version and the test concurrency it was measured at, and
 `compare` treats a different hostname as drift. A baseline recorded on another
 machine is a hint, not an acquittal.
+
+### Acquittal does not expire — but it is never silent
+
+A failure that has been in the baseline for a month is still acquitted. Failing
+somebody's commit for a failure it did not cause is precisely the defect this
+tool exists to remove, and putting an expiry date on acquittal would reintroduce
+it on a timer, aimed at whoever happened to commit next.
+
+What replaces expiry is visibility. Every acquitted failure is printed with how
+long it has been excused and with whether anybody has ever been told about it:
+
+```text
+   PRE-EXISTING (not yours): 1
+     · tests/example.test.mjs :: the-broken-one
+         failing for 30 day(s); UNOWNED — nobody has been told
+         hand it on:  node tools/test-baseline.mjs handover --test "..." --to <agent>
+```
+
+The age comes from `failing_since` on the baseline entry, which `record` carries
+forward across re-recordings — without that, every re-record resets the clock
+and a month-old failure reads exactly like one that appeared this morning. An
+entry predating the field falls back to when its suite was last measured, which
+is a lower bound, and the report says `at least` when it is quoting one.
+`UNOWNED` means no **open** handover in `docs/test-handovers.json` names it.
+
+---
+
+## Release verification runs on this baseline
+
+`npm run verify:release` picks a profile from the changed paths. Anything
+matching neither the release nor the installer patterns escalates to `full` —
+a deliberate fail-safe, and not something to weaken. What `full` *runs* used to
+be a raw `npm test` and `npm run test:renderer`, which have no concept of a test
+that was already failing. One unowned failure anywhere in 638 tests therefore
+blocked release verification for every ordinary commit, and told the blocked
+agent nothing about why.
+
+`full` now runs this tool instead:
+
+```text
+node tools/test-baseline.mjs compare --suite node-root --max-age-days 7 --require-usable
+node tools/test-baseline.mjs compare --suite renderer  --max-age-days 7 --require-usable
+```
+
+Same two suites, same coverage; the only change is that a known failure is
+acquitted by name and a new one still blocks.
+
+**One gate per suite, and never a bare `compare`.** A bare `compare` runs all
+three registered suites, and `python-backend` alone takes 9.9 minutes — that is
+its own recorded `duration_ms`, not an estimate — which puts the single command
+past the 600-second ceiling a foreground command is killed at here. Split per
+suite it was 63s and 80s, measured 2026-09-17 on `5f3a172`. Both invariants are
+pinned in `tests/release-verification.test.mjs` so that folding the gates back
+together, or dropping `--suite`, fails a test rather than quietly reintroducing a
+ten-minute command that cannot finish.
+
+`python-backend` is not in the `full` profile and was not added by this change;
+it would cost ten minutes per verification and `full` never covered it.
+
+Two path rules follow from the gate depending on this tool:
+
+- `tools/test-baseline.mjs` and `tests/test-baseline.test.mjs` are **release
+  tooling**. Changing them classifies as `release`, and the focused `source`
+  gate runs `tests/test-baseline.test.mjs` — release tooling whose own tests are
+  not in that gate can break them and still be waved through green.
+- `docs/test-baseline.json` is deliberately **not** release tooling. It is the
+  list of failures the gate forgives, so editing it escalates to `full`. The
+  gate's own input cannot be widened behind the focused profile.
 
 ---
 

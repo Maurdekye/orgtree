@@ -287,8 +287,146 @@ test('--max-age-days refuses an old baseline instead of quietly trusting it', as
     TOOL, 'compare', '--baseline', baselineFile, '--max-age-days', '7',
   ], { cwd: REPO, encoding: 'utf8', windowsHide: true })
   assert.equal(result.status, 2, 'refusal is its own exit code, distinct from "found regressions"')
-  assert.match(result.stderr, /refusing/)
+  assert.match(result.stderr, /BASELINE REFUSED/)
+  // An automated caller records a refusal and a regression as the same non-zero
+  // exit, so the words have to separate them. Without this line the agent whose
+  // commit happened to trip a stale baseline goes looking for a regression that
+  // does not exist.
+  assert.match(result.stderr, /NOT a failure of your change/)
+  assert.match(result.stderr, /test-baseline\.mjs record/, 'a refusal must say what would fix it')
   assert.match(result.stdout, /STALE/)
+})
+
+// --------------------------------------------------------------------------
+// Usable vs fresh — the distinction the release `full` profile runs on.
+// --------------------------------------------------------------------------
+
+const HEAD = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: REPO, encoding: 'utf8', windowsHide: true }).stdout.trim()
+
+/** A baseline measured on THIS machine, at a commit this checkout can see. */
+function usableFixture(overrides = {}) {
+  const baseline = baselineFixture()
+  baseline.commit = HEAD
+  // `trees: {}` matches no current tree hash, so this baseline is DRIFTED by
+  // `code_moved` and nothing else — exactly the state a release verification is
+  // always in, because it runs on a commit past the one the baseline recorded.
+  return Object.assign(baseline, overrides)
+}
+
+function compareWith(t, baseline, args) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'baseline-test-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const baselineFile = path.join(dir, 'baseline.json')
+  const resultsFile = path.join(dir, 'results.json')
+  fs.writeFileSync(baselineFile, JSON.stringify(baseline))
+  fs.writeFileSync(resultsFile, JSON.stringify({
+    schema: 'orgtree.test-run/v1', ran_at: new Date().toISOString(), commit: HEAD,
+    suites: { 'node-root': { counts: { files: 1, tests: 1, passed: 1, failed: 0, skipped: 0 }, outcomes: [outcome('solid', 'passed')], duration_ms: 1 } },
+  }))
+  return spawnSync(process.execPath, [TOOL, 'compare', '--baseline', baselineFile, '--results', resultsFile, ...args], {
+    cwd: REPO, encoding: 'utf8', windowsHide: true,
+  })
+}
+
+test('--require-usable accepts a baseline the code has merely moved past; --require-fresh refuses the same one', async t => {
+  // This is the whole reason --require-usable exists. A release verification
+  // runs on a commit PAST the one the baseline was recorded at, by
+  // construction, so --require-fresh refuses every single verification — it was
+  // measured doing exactly that on 2026-09-17, on a baseline 14 hours old. A
+  // gate wired to --require-fresh would never pass, and a gate wired to nothing
+  // would trust a baseline from another machine. This flag is the line between.
+  const baseline = usableFixture()
+  const strict = compareWith(t, baseline, ['--require-fresh'])
+  assert.equal(strict.status, 2, '--require-fresh refuses ordinary code movement')
+  assert.match(strict.stdout, /DRIFTED/)
+
+  const usable = compareWith(t, baseline, ['--require-usable'])
+  assert.equal(usable.status, 0, '--require-usable tolerates the same drift')
+  assert.match(usable.stdout, /the code under test changed since/, 'tolerated, but never hidden')
+})
+
+test('--require-usable refuses a baseline measured on another machine', async t => {
+  // These failures are partly environmental, so another machine's acquittals
+  // are not evidence about this one. Exit 2, and the reason says whose they are.
+  const result = compareWith(t, usableFixture({
+    machine: { host: 'SomeOtherBox', platform: process.platform, arch: process.arch, node: process.version, cpus: 1, concurrency: 4 },
+  }), ['--require-usable'])
+  assert.equal(result.status, 2)
+  assert.match(result.stderr, /BASELINE REFUSED/)
+  assert.match(result.stderr, /NOT a failure of your change/)
+  assert.match(result.stderr, /SomeOtherBox/)
+})
+
+test('--require-usable refuses a baseline whose commit this checkout cannot see', async t => {
+  // Drift cannot be measured against a commit that is not here, so "no new
+  // failures" would be a claim with nothing behind it.
+  const result = compareWith(t, usableFixture({ commit: 'a'.repeat(40) }), ['--require-usable'])
+  assert.equal(result.status, 2)
+  assert.match(result.stderr, /not in this checkout/)
+})
+
+test('--require-usable refuses a baseline measured on a dirty tree, and names what would fix it', async t => {
+  const result = compareWith(t, usableFixture({ measured_tree_clean: false }), ['--require-usable'])
+  assert.equal(result.status, 2)
+  assert.match(result.stderr, /UNCOMMITTED changes/)
+  assert.match(result.stderr, /test-baseline\.mjs record/)
+})
+
+// --------------------------------------------------------------------------
+// Acquittal does not expire — but it is never silent.
+// --------------------------------------------------------------------------
+
+test('an acquitted failure is reported with its age and with the fact that nobody owns it', async t => {
+  // Acquitting a pre-existing failure deliberately does NOT expire: failing the
+  // next commit for a failure it did not cause is the defect this tool exists
+  // to remove. What replaces expiry is visibility — every acquittal carries how
+  // long it has been excused and whether anyone has ever been told about it, so
+  // "quietly forgiven for a month" cannot happen without it being on screen.
+  const baseline = baselineFixture()
+  baseline.suites['node-root'].failures[0].failing_since = new Date(Date.now() - 30 * 24 * 3_600_000).toISOString()
+  const { report, human, status } = runFixture(t, {
+    baseline,
+    outcomes: [outcome('old-broken', 'failed', 'boom'), outcome('solid', 'passed')],
+  })
+  assert.equal(status, 0, 'still acquitted — age is reported, not enforced')
+  const acquitted = report.pre_existing_failures[0]
+  assert.equal(acquitted.failing_for_days, 30)
+  assert.equal(acquitted.failing_since_is_lower_bound, false)
+  assert.equal(acquitted.open_handover, null, 'null is the answer this field exists to make visible')
+  assert.match(human, /failing for 30 day\(s\); UNOWNED — nobody has been told/)
+  assert.match(human, /handover --test/, 'the report must name the verb that hands it on')
+})
+
+test('an entry recorded before failing_since existed is dated "at least", never precisely', async t => {
+  // The fallback is the suite's own recorded_at: it was already failing then, so
+  // that is a lower bound and the report may not dress it up as the real age.
+  const baseline = baselineFixture()
+  baseline.suites['node-root'].recorded_at = new Date(Date.now() - 10 * 24 * 3_600_000).toISOString()
+  delete baseline.suites['node-root'].failures[0].failing_since
+  const { report, human } = runFixture(t, {
+    baseline,
+    outcomes: [outcome('old-broken', 'failed', 'boom'), outcome('solid', 'passed')],
+  })
+  assert.equal(report.pre_existing_failures[0].failing_since_is_lower_bound, true)
+  assert.match(human, /failing for at least 10 day\(s\)/)
+})
+
+test('an acquitted failure that has been handed over names its owner instead of shouting', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'baseline-ledger-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const ledger = path.join(dir, 'handovers.json')
+  fs.writeFileSync(ledger, JSON.stringify({
+    schema: 'orgtree.test-handover/v1',
+    handovers: [{ seq: 4, status: 'open', test_id: id('old-broken'), route_to: 'someone-else', at: new Date().toISOString(), work_item: 'a-ticket' }],
+  }))
+  const { report, human } = runFixture(t, {
+    baseline: baselineFixture(),
+    outcomes: [outcome('old-broken', 'failed', 'boom'), outcome('solid', 'passed')],
+    args: ['--ledger', ledger],
+  })
+  assert.equal(report.pre_existing_failures[0].open_handover.route_to, 'someone-else')
+  assert.match(human, /handed to someone-else as #4 \(a-ticket\)/)
+  assert.doesNotMatch(human, /UNOWNED/)
 })
 
 test('a handover cannot be recorded for a failure the baseline does not know about', async t => {
