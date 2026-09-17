@@ -48,7 +48,7 @@ from . import (accounts, agentauth, antigravity_limits, appsettings,
                envelope, events, events_table, failfix, handoff, imgblock,
                lifecycle, limits,
                liveness, localtime, net, openrouter, opreceipts, providers, registry,
-               sandbox as sbx, store, workevidence,
+               sandbox as sbx, steer, store, workevidence,
                tokens, turnlog, turnusage, warmpool)
 from .fleet_walk import fleet_walk
 from .desktop_native import NativeInventory
@@ -8135,6 +8135,58 @@ def identity_prompt(org: Org, nid: str, include_archived: bool = False, *,
                "approve. If you need one, request the raise with "
                "orgtree_request_scope (permission_mode) — do "
                "not work around it. "))
+    # ── the sensitive-path gate, named in full ───────────────────────────
+    # Ticket `a-third-git-gate-blocks-claude-lane-tools-above` (2026-09-17).
+    # `8e81614` established the principle this line exists to serve: an agent
+    # must be TOLD about a wall, not left to find it by hitting it. Twenty
+    # agents learned the codex `.git` denial the hard way; `worktree-perms`
+    # then learned THIS one the hard way, on a `rm -f <root>/.git/index.lock`
+    # while cleaning up after a crash — the worst possible moment to be handed
+    # one unexplained sentence.
+    #
+    # ⚠ THIS IS THE SAME GATE AS THE `.claude` ONE ABOVE, NOT A NEW MECHANISM.
+    # Read out of the shipped binary (npm 2.1.241 AND the pin 2.1.258 — see
+    # steer.GATED_DIRS): the CLI's `checkPathSafetyForAutoEdit` matches path
+    # segments against ONE hardcoded nine-name array. We had documented
+    # exactly one of those nine. Naming only `.git` now would repeat the same
+    # mistake one entry later, so the whole list is stated.
+    #
+    # It is NOT stated as a security boundary, deliberately, because it is not
+    # one: it matches the path a call NAMES, so `git -C <root> worktree add`
+    # sails through while `rm .git/index.lock` does not, even though git then
+    # writes `.git/` itself. Describing it as protection would be false and
+    # would stop agents using the route that legitimately works.
+    #
+    # NOTHING HERE IS A WORKAROUND (`d707da7`): the permitted routes are git
+    # itself, which was never intercepted, and asking for the mode. There is
+    # no quiet path and the text must not read as offering one.
+    gate_line = (
+        "Sensitive-path gate: the CLI refuses to WRITE any path containing "
+        + ", ".join(steer.GATED_DIRS)
+        + " as a folder component (and a few config files like .gitconfig, "
+        ".bashrc, .npmrc). "
+        + ("Your permission mode clears it, so this is FYI: it is what stops "
+           "other agents touching these paths, and it is the one gate a "
+           "grant cannot express. "
+           if sc.get("permission_mode") == "bypassPermissions" else
+           "It sits ABOVE the permission system — the same gate as the "
+           ".claude one, one list covering all of them. Such a write raises "
+           "a permission REQUEST, and a headless turn has nobody to answer "
+           "it, so it fails. It is NOT a deny rule, your grant is not at "
+           "fault, and the file is not missing or corrupt. NOTHING RETRIES "
+           "INTO SUCCESS: no allow-rule, no --add-dir, no hook and no "
+           "respelling of the path works (measured 2026-08-07). It catches "
+           "MUTATING shell commands too, not just Write/Edit — `rm "
+           "<repo>/.git/index.lock` is refused; reads like `ls` are not. "
+           "WHAT WORKS INSTEAD: run git itself. The gate matches the path "
+           "you TYPE, and git writing its own internals is never "
+           "intercepted, so `git -C <root> worktree add|remove`, commit, "
+           "branch and push all work normally — that is the intended route, "
+           "not a loophole. If you are stuck on a stale <repo>/.git lock in "
+           "a SHARED checkout, do not fight it: your own worktree has its "
+           "own index, so commit and push from there. If you genuinely must "
+           "write such a path, request the mode with orgtree_request_scope "
+           "(permission_mode) and say why — do not work around it. "))
     tools = sc.get("tools", {})
     off = [label for key, label in (("bash", "the terminal"), ("web", "web access"),
                                     ("edit", "file editing"), ("subagents", "subagents"))
@@ -8399,7 +8451,7 @@ def identity_prompt(org: Org, nid: str, include_archived: bool = False, *,
         + f"\n{ACCOUNT_LANE_DOCTRINE}\n"
         # D-181: `Credits:`, the fable note and the open-ask line used to sit
         # here. They are live org state and now ride `org_state_block`.
-        f"{dir_line}{skills_line}{tool_line}{handles_line}"
+        f"{dir_line}{skills_line}{gate_line}{tool_line}{handles_line}"
         + ("" if n["parent"] is None else
            "Cross-session mail systems (the machine's mail hub, hubtool, or "
            "any successor) are OFF-LIMITS to you: never register an identity "

@@ -105,23 +105,145 @@ def hook_identity(raw: str) -> tuple[str, str]:
 
 
 _FILE_TOOLS = frozenset({"Write", "Edit", "MultiEdit", "NotebookEdit"})
+# ⚠ THE SENSITIVE-PATH GATE ALSO CATCHES THE SHELL. `worktree-perms` was
+# refused on a plain `rm -f <root>/.git/index.lock` (2026-09-16, transcript
+# quoted on `a-third-git-gate-blocks-claude-lane-tools-above`) and received NO
+# explanation at all, because this hook only ever looked at the file tools —
+# 0 occurrences of the explainer in its 1.7 MB transcript. The shell tools are
+# listed separately because only the SENSITIVE branch reaches them: a deny
+# RULE is a file-tool concept and its advice would be wrong here.
+_SHELL_TOOLS = frozenset({"Bash", "PowerShell"})
 # the pinned CLI's own refusal wording, lowercased. Matched as substrings
 # because the CLI phrases the same two gates slightly differently per tool.
 _DENY_MARKS = ("denied by your permission settings",
                "denied by permission settings")
 _SENSITIVE_MARKS = ("is a sensitive file", "sensitive file")
 
+# ── what the gate actually matches ───────────────────────────────────────
+# Read out of the shipped binary on 2026-09-17, from BOTH the npm global
+# 2.1.241 and the private pin 2.1.258 that `supervisor.CLAUDE` resolves to —
+# identical in each. The CLI's `checkPathSafetyForAutoEdit` matches path
+# SEGMENTS against a hardcoded `DANGEROUS_DIRECTORIES` array and returns
+# `{safe:false, message:"… which is a sensitive file.",
+#   classifierApprovable:true}`. `classifierApprovable` is why the harness
+# records `toolDenialKind:"user-rejected"`: it is a permission REQUEST, and a
+# headless turn has nobody to answer it, so it surfaces as a refusal.
+#
+# ⚠ THIS IS NOT A `.git` MECHANISM AND IT IS NOT A `.claude` MECHANISM. It is
+# ONE list of NINE directories, and until this commit we documented exactly
+# one of them. `.claude` is the ONLY entry carrying carve-outs (skills,
+# agents, commands, scheduled_tasks.json, worktrees) — which is why an agent
+# can edit its own skills but cannot touch `.git/index.lock`. Every other
+# entry matches unconditionally.
+#
+# Kept SORTED: this text reaches a cached prefix via the identity prompt, and
+# an unstable order would re-pay it for nothing (D-181).
+GATED_DIRS = (".cargo", ".claude", ".devcontainer", ".git", ".husky",
+              ".idea", ".mvn", ".vscode", ".yarn")
+# matched as a multi-segment tail rather than a single segment
+GATED_DIR_PATHS = (".config/git",)
 
-def _response_text(value: object) -> str:
-    """Flatten a tool_response of any shape into searchable text."""
+
+def gated_segment(path: str) -> str:
+    """The gated directory this path actually trips on, or "".
+
+    Named rather than guessed. The previous version of this hook asserted
+    "that path contains a `.claude` segment" for EVERY sensitive refusal,
+    which is false for the other eight and would have told an agent holding a
+    `.git` refusal to go and look for a `.claude` component that is not there.
+
+    ⚠ DELIBERATELY DOES NOT REPLICATE THE CLI'S `.claude` CARVE-OUTS. A first
+    version skipped `.claude` when followed by skills/agents/commands, on the
+    grounds that the CLI lets those through. That reasoning is backwards here:
+    this function only ever runs on a refusal that ALREADY HAPPENED, so if the
+    path holds a gated component, that component IS the reason — whatever the
+    carve-out would have done. Modelling the carve-out only made the message
+    vaguer on exactly the `.claude/skills` case the previous ticket was about.
+    """
+    segments = [s for s in path.replace("\\", "/").split("/") if s]
+    lowered = [s.lower() for s in segments]
+    for seg in lowered:
+        if seg in GATED_DIRS:
+            return seg
+    joined = "/".join(lowered)
+    for tail in GATED_DIR_PATHS:
+        if tail in joined:
+            return tail
+    return ""
+
+
+def sensitive_path_from(text: str) -> str:
+    """The path out of the CLI's own refusal sentence.
+
+    `Claude requested permissions to edit <PATH> which is a sensitive file.`
+    Preferred over `tool_input` for the SHELL route, where the input is a
+    whole command line and the gate reports the path it resolved and
+    normalized out of it (an agent that typed forward slashes is refused with
+    backslashes — measured). Returns "" when the wording does not match, and
+    the caller then falls back to whatever the tool input offered.
+    """
+    lead, tail = "permissions to edit ", " which is a sensitive file"
+    i = text.find(lead)
+    if i == -1:
+        return ""
+    j = text.find(tail, i)
+    if j == -1:
+        return ""
+    return text[i + len(lead):j].strip()
+
+
+# ⚠ FIELDS THAT ECHO WHAT THE AGENT JUST WROTE, and therefore must never be
+# searched for a refusal marker. REPRODUCED LIVE 2026-09-17 while writing this
+# very commit: an Edit that SUCCEEDED came back through this hook and was
+# explained as a refusal, because the file content being written contained the
+# phrase "which is a sensitive file" and the old `_response_text` flattened
+# every value of the response dict indiscriminately. Any agent editing a file
+# that merely DISCUSSES the gate was told its write had been refused, naming a
+# `.claude` segment the path did not contain — three wrong statements from one
+# successful call.
+_ECHO_KEYS = frozenset({
+    "content", "file", "filecontents", "newstring", "oldstring", "newtext",
+    "oldtext", "structuredpatch", "patch", "edits", "originalfile",
+    "originalfilecontents", "updatedfile", "newtodos", "oldtodos", "stdout",
+})
+_ERROR_KEYS = frozenset({"is_error", "iserror", "error"})
+
+
+def _response_text(value: object, *, skip_echo: bool = True) -> str:
+    """Flatten a tool_response of any shape into searchable text.
+
+    `skip_echo` drops the fields that carry the agent's own content back, so a
+    marker found in what remains came from the HARNESS and not from the file.
+    """
     if isinstance(value, str):
         return value
     if isinstance(value, dict):
         d = cast("dict[str, object]", value)
-        return " ".join(_response_text(v) for v in d.values())
+        return " ".join(
+            _response_text(v, skip_echo=skip_echo) for k, v in d.items()
+            if not (skip_echo and str(k).lower().replace("_", "") in _ECHO_KEYS))
     if isinstance(value, list):
-        return " ".join(_response_text(v) for v in cast("list[object]", value))
+        return " ".join(_response_text(v, skip_echo=skip_echo)
+                        for v in cast("list[object]", value))
     return ""
+
+
+def _looks_refused(value: object, text: str) -> bool:
+    """Did this call actually FAIL? Never explain a success.
+
+    A bare string response is the whole result, so a marker in it is the
+    result. A dict is structured, and there the harness states failure
+    explicitly — so an explicit `is_error: false` is believed and ends it.
+    """
+    if isinstance(value, dict):
+        d = cast("dict[str, object]", value)
+        for k, v in d.items():
+            if str(k).lower().replace("_", "") in _ERROR_KEYS:
+                if isinstance(v, bool):
+                    return v
+                if v:
+                    return True
+    return bool(text.strip())
 
 
 def refusal_advice(raw: str) -> str:
@@ -148,9 +270,22 @@ def refusal_advice(raw: str) -> str:
         return ""
     d = cast("dict[str, object]", data)
     name = d.get("tool_name")
-    if not isinstance(name, str) or name not in _FILE_TOOLS:
+    if not isinstance(name, str):
         return ""
-    text = _response_text(d.get("tool_response")).lower()
+    if name not in _FILE_TOOLS and name not in _SHELL_TOOLS:
+        return ""
+    response: object = d.get("tool_response")
+    text = _response_text(response)
+    # ⚠ NEVER EXPLAIN A SUCCESS. Added after this hook did exactly that, to
+    # the agent writing this commit: an `Edit` that SUCCEEDED came back and
+    # was announced as a refusal naming a `.claude` segment the path did not
+    # contain, because the file being written happened to contain the phrase
+    # "which is a sensitive file". Three false statements out of one good
+    # call, and the same trap for anyone editing a file that merely discusses
+    # the gate — including this one.
+    if not _looks_refused(response, text):
+        return ""
+    lowered = text.lower()
     target = ""
     raw_input: object = d.get("tool_input")
     if isinstance(raw_input, dict):
@@ -160,23 +295,53 @@ def refusal_advice(raw: str) -> str:
             if isinstance(got, str) and got:
                 target = got
                 break
-    where = f"\nThe path was: {target}" if target else ""
-    if any(m in text for m in _SENSITIVE_MARKS):
+    if any(m in lowered for m in _SENSITIVE_MARKS):
+        # the CLI's own sentence carries the path it RESOLVED, which beats the
+        # tool input on the shell route (there the input is a whole command
+        # line) and is the only path available there at all.
+        named = sensitive_path_from(text) or target
+        seg = gated_segment(named)
+        where = f"\nThe path was: {named}" if named else ""
+        # name the component actually matched. Saying `.claude` for all nine
+        # sent an agent holding a `.git` refusal looking for a component that
+        # was never there.
+        which = (f"That path contains a `{seg}` component"
+                 if seg else "That path matched the CLI's sensitive-path list")
         return (
             "[ORGTREE — that refusal explained]"
             f"{where}\n"
-            "That path contains a `.claude` segment. The CLI gates those ABOVE "
-            "the permission system: it raises an approval REQUEST, and a "
-            "headless turn has nobody present to answer it, so it surfaces to "
-            "you as a refusal. It is not a deny rule, and the file is neither "
-            "missing nor corrupt.\n"
-            "What IS permitted: reading those files. To WRITE one you need "
-            "permission_mode=bypassPermissions — ask for it with "
-            "orgtree_request_scope. No allow-rule, no --add-dir and no hook "
-            "satisfies this particular gate (measured 2026-08-07), so there is "
-            "nothing to retry and no spelling of the path that works.\n"
+            f"{which}. The CLI refuses to WRITE any path containing "
+            + ", ".join(GATED_DIRS)
+            + " as a folder component. It is ONE list and ONE gate, sitting "
+            "ABOVE the permission system: it raises an approval REQUEST, and "
+            "a headless turn has nobody present to answer it, so it surfaces "
+            "to you as a refusal. It is not a deny rule, your grant is not at "
+            "fault, and the file is neither missing nor corrupt.\n"
+            # ⚠ "nothing to retry" and "bypassPermissions" are PINNED by
+            # tests/test_steer_refusal_advice.py from the previous ticket.
+            # They are promises that hook already makes and an agent may be
+            # searching for; widening the message must not quietly drop them.
+            "There is nothing to retry: no allow-rule, no --add-dir and no "
+            "hook satisfies this gate (measured 2026-08-07), and no spelling "
+            "of the path works. Only permission_mode=bypassPermissions "
+            "clears it. Reading these paths is fine; so are non-mutating "
+            "shell commands naming them.\n"
+            "WHAT WORKS INSTEAD: if this is a `.git` path, run git itself — "
+            "the gate matches the path you TYPE, and git writing its own "
+            "internals is never intercepted, so `git -C <root> "
+            "worktree add|remove`, commit, branch and push all work normally. "
+            "A stale lock in a SHARED checkout is not worth fighting: your "
+            "own worktree has its own index, so commit and push from there. "
+            "Otherwise request the mode with orgtree_request_scope "
+            "(permission_mode) and say why — do not work around it.\n"
             "[END ORGTREE]")
-    if not any(m in text for m in _DENY_MARKS):
+    # Everything below is the DENY-RULE branch, which is a file-tool concept:
+    # its advice is about grants and working folders and would be wrong for a
+    # shell refusal, so the shell tools stop here.
+    if name not in _FILE_TOOLS:
+        return ""
+    where = f"\nThe path was: {target}" if target else ""
+    if not any(m in lowered for m in _DENY_MARKS):
         return ""
     return (
         "[ORGTREE — that refusal explained]"
