@@ -69,6 +69,15 @@ export function mailhubStats(value: unknown): MailhubStats | undefined {
     ...(typeof raw.error === 'string' && raw.error ? { error: raw.error } : {}) }
 }
 
+/** The packaged interpreter's location under the platform-provisioned
+ *  `engine/runtime` directory: `bin/python3.13` on darwin, `python.exe`
+ *  elsewhere. Mirrors the same marker tools/runtime-layout.mjs's
+ *  locateEngineRuntime uses; duplicated here rather than imported since
+ *  tools/ is a build-time script, not part of the Electron bundle. */
+export function resolvePackagedPythonPath(directory: string): string {
+  return path.join(directory, 'runtime', process.platform === 'darwin' ? 'bin/python3.13' : 'python.exe')
+}
+
 /** One fresh managed child, or an authenticated attachment to the boot
  *  host's engine. Never discovers or attaches by a bare .port file: attaching
  *  requires the descriptor's token AND an /api/desktop/identity proof of
