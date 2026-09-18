@@ -10938,7 +10938,7 @@ class Org:
             return self._work_archive()
         return self._work_archive_proj()
 
-    def _work_ref(self, wid: str) -> WorkItem | None:
+    def _work_pointer_target(self, wid: str) -> WorkItem | None:
         """Resolve a POINTER to an item — a dependency, a history `by`/`from`/
         `to` — to something that can be titled and permission-checked, without
         materialising the archive. `None` when no item has that name.
@@ -12120,11 +12120,11 @@ class Org:
         next_actor, next_role = self._work_next_recipient(it)
         deps: list[dict[str, Any]] = []
         for did in it.get("dependencies") or []:
-            # ⚠ `_work_ref`, NOT `_work_find`: this needs a title, a status and a
-            # permission check, and `_work_find` reaches those by materialising
-            # the whole archived docket whenever the dependency is archived —
-            # which, on the operator's org, two live items do right now.
-            d = self._work_ref(did)
+            # ⚠ `_work_pointer_target`, NOT `_work_find`: this needs a title, a
+            # status and a permission check, and `_work_find` reaches those by
+            # materialising the whole archived docket whenever the dependency is
+            # archived — which, on the operator's org, two live items do now.
+            d = self._work_pointer_target(did)
             if d is None:
                 deps.append({"visible": False})
                 continue
@@ -12589,10 +12589,10 @@ class Org:
         derived from a title, so an unreadable pointer is served anonymously."""
         if not wid:
             return None
-        # `_work_ref` for the same reason as the dependency loop above: a history
-        # pointer needs only a permission check, and resolving it through
-        # `_work_find` materialises the archived docket to get one.
-        t = self._work_ref(str(wid))
+        # `_work_pointer_target` for the same reason as the dependency loop
+        # above: a history pointer needs only a permission check, and resolving
+        # it through `_work_find` materialises the archived docket to get one.
+        t = self._work_pointer_target(str(wid))
         if t is None:
             return False
         return self._work_can_read(viewer, t)
@@ -12902,11 +12902,12 @@ class Org:
         if include_archived:
             # ⚠ MATERIALISED UP FRONT, BEFORE THE ACTIVE LOOP, when the rows are
             # going to be served anyway. The loop below resolves dependencies
-            # through `_work_ref`, which reaches for the cheapest available view
-            # of the archive — and if nothing has loaded the section yet, that is
-            # a projection, i.e. a second copy of rows this very call is about to
-            # materialise a few lines later. Touching it here costs nothing that
-            # was not already owed and makes `_work_ref` take the resident path.
+            # through `_work_pointer_target`, which reaches for the cheapest
+            # available view of the archive — and if nothing has loaded the
+            # section yet, that is a projection, i.e. a second copy of rows this
+            # very call is about to materialise a few lines later. Touching it
+            # here costs nothing that was not already owed, and makes
+            # `_work_pointer_target` take the resident path.
             self._work_archive()
         for it in self._work_active():
             if not self._work_can_read(viewer, it):

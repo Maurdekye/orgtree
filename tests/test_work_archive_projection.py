@@ -31,7 +31,7 @@ WHAT IS PINNED HERE, each with the failure it guards against.
   * A DEPENDENCY ON AN ARCHIVED ITEM DOES NOT DRAG THE SECTION IN. `_work_view`
     resolves every dependency, and `_work_find` falls through to the archive.
     Two live items on the operator's org depend on archived items right now, so
-    without `_work_ref` the counting fix bought nothing at all.
+    without `_work_pointer_target` the counting fix bought nothing at all.
 
   * AN ARCHIVED ROW THAT HOLDS ATTENTION IS STILL SERVED WHOLE, on the main
     list, because attention outranks the list the row is physically in. That is
@@ -439,7 +439,7 @@ class SectionIsNotMaterialised(ArchiveProjectionBase):
 
     def test_a_dependency_on_an_archived_item_does_not_materialise(self):
         """`_work_view` resolves dependencies, and `_work_find` falls through to
-        the archive. Without `_work_ref` this alone re-materialised the section
+        the archive. Without `_work_pointer_target` this alone re-materialised the section
         on the same call and the counting fix bought nothing."""
         slug = self.mixed("Dependency Pointer")
         seen = self.counting()
@@ -690,9 +690,30 @@ class NonReadPathsAreUntouched(ArchiveProjectionBase):
         with self.assertRaises(LedgerError):
             org._work_find("no-such-item")
 
-    def test_ref_returns_none_for_an_unknown_name(self):
+    def test_pointer_target_returns_none_for_an_unknown_name(self):
         org = self.cold(self.mixed("Ref Unknown"))
-        self.assertIsNone(org._work_ref("no-such-item"))
+        self.assertIsNone(org._work_pointer_target("no-such-item"))
+
+    def test_the_pre_existing_work_ref_still_names_an_item(self):
+        """⚠ A NAME COLLISION I CAUSED, PINNED SO IT CANNOT RECUR. The new
+        pointer resolver was first called `_work_ref` — and `Org` ALREADY had a
+        `_work_ref(it) -> str`, which returns an item's NAME. Mine was defined
+        later in the class body, so it silently won, and two pre-existing callers
+        in `repair_rename_identity` started passing an item dict to a function
+        expecting a slug. Python raised nothing: the dict stringified, matched no
+        slug, and the repair refused with "work item ... has no slug".
+
+        Only ONE of the two broken callers had a test
+        (`test_rename_history_immutable.py`), which is what caught it; the other,
+        at the `wid = self._work_ref(it)` in the same region, had none. So this
+        asserts the surviving meaning directly rather than relying on that.
+        """
+        org = self.cold(self.mixed("Ref Collision"))
+        it, _phys = org._work_find("phys-done-0")
+        self.assertEqual(org._work_ref(it), "phys-done-0")
+        # and the two names are genuinely different functions, in both directions
+        self.assertIsInstance(org._work_ref(it), str)
+        self.assertIsInstance(org._work_pointer_target("phys-done-0"), dict)
 
     def test_a_mutation_still_sweeps_and_names_uniquely(self):
         """`_work_names_in_use` and the slug backfill run at the head of a
