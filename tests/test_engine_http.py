@@ -15,7 +15,31 @@ import import_provenance  # noqa: F401  asserts orgtree resolves inside this che
 
 ROOT = Path(__file__).resolve().parents[1]
 CHILD = r'''
-import json, launch
+import importlib.util, json, os, sys
+from pathlib import Path
+# The bundled runtime carries a ``python313._pth``, which forces safe_path and
+# isolated mode: the child's cwd is NOT placed on sys.path (so ``cwd=engine``
+# no longer makes ``launch`` importable) and PYTHONPATH is ignored.  What the
+# ``._pth`` does list is ``../backend`` and ``../../`` relative to the runtime
+# — and ``engine/runtime/`` is gitignored, so a worktree has none and the
+# runner selects the MAIN checkout's interpreter.  Left alone, this child
+# would import the main checkout's engine and quietly test the wrong tree.
+# Place the checkout under test ahead of all of it, then PROVE it won.
+_CHECKOUT = Path(os.environ['ORGTREE_TEST_CHECKOUT']).resolve()
+sys.path[:0] = [str(_CHECKOUT / 'engine' / 'backend'), str(_CHECKOUT / 'engine'), str(_CHECKOUT)]
+import launch
+def _origin(name, module=None):
+    if module is not None:
+        return Path(module.__file__).resolve()
+    # find_spec, not import: ``launch`` captures and strips the V2 credential
+    # before the legacy modules load, so the child must not import orgtree here.
+    spec = importlib.util.find_spec(name)
+    return Path(spec.origin).resolve() if spec and spec.origin else None
+for _name, _module in (('launch', launch), ('orgtree', None)):
+    _path = _origin(_name, _module)
+    if _path is None or _CHECKOUT not in _path.parents:
+        raise SystemExit(f'engine child resolved {_name} OUTSIDE the checkout under '
+                         f'test: {_path} (checkout under test: {_CHECKOUT})')
 original = launch.load_app
 def seeded():
     result = original()
@@ -123,7 +147,8 @@ class EngineHTTPTests(unittest.TestCase):
                     'ORGTREE_AGENT_PARENT_DATA', 'ORGTREE_AGENT_LEGACY_DATA'):
             env.pop(key, None)
         env.update(ORGTREE_DATA=str(data), HOME=str(home), USERPROFILE=str(home),
-                   ORGTREE_V2_TOKEN='test-operator-secret', ORGTREE_V2_UI_DIR=str(ui))
+                   ORGTREE_V2_TOKEN='test-operator-secret', ORGTREE_V2_UI_DIR=str(ui),
+                   ORGTREE_TEST_CHECKOUT=str(ROOT))
         cls.log = (root / 'stderr.log').open('w+')
         cls.process = subprocess.Popen([sys.executable, '-c', CHILD], cwd=ROOT / 'engine',
              env=env, stdout=subprocess.PIPE, stderr=cls.log, text=True)
@@ -160,7 +185,13 @@ class EngineHTTPTests(unittest.TestCase):
                 if cls.port is not None and reconciled:
                     break
         except BaseException:
+            # Release the log and the fixture root here: left to the interpreter's
+            # exit finalizer, the still-open stderr.log raises WinError 32 and that
+            # cleanup noise is what the reader sees instead of the real cause.
             cls.process.terminate(); cls.process.wait(timeout=15)
+            cls.log.close()
+            try: cls.tmp.cleanup()
+            except OSError: pass
             raise
 
     @classmethod
