@@ -1,4 +1,5 @@
 import { BrowserWindow, shell, type Session } from 'electron'
+import { attachEditMenu } from './editmenu'
 import { externalHttpUrl, scopedHeaders, trustedUiUrl } from './policy'
 
 /** Origin/token sources may be live getters: after a boot-engine recovery the
@@ -155,6 +156,12 @@ export function configureWindow(window: BrowserWindow, liveOrigin: Live, isMain:
     throttle()
   }
   window.webContents.on('will-attach-webview', event => event.preventDefault())
+  // Cut/copy/paste in every text field of this window. Registered HERE, and not
+  // once for the main window, because this function recurses into every popout
+  // through `did-create-window` below — so each popped-out surface gets its own
+  // listener on its own webContents, and its menu is popped in the window that
+  // was actually clicked in. See main/editmenu.ts.
+  attachEditMenu(window)
   const routeExternal = (url: string): boolean => {
     const origin = live(liveOrigin), current = window.webContents.getURL()
     const trustedDocument = trustedUiUrl(current, origin) || (!isMain && current === 'about:blank')

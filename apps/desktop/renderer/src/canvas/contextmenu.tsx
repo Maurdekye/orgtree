@@ -18,7 +18,16 @@
 //   * the browser menu is KEPT where it is the right one — an editable field,
 //     a live text selection, an ordinary link inside the object: see
 //     `nativeMenuPreferred`, which `open` consults first and, when it says so,
-//     returns without `preventDefault`;
+//     returns without `preventDefault`. ⚠ THAT DEFERRAL USED TO LAND ON
+//     NOTHING: Electron shows no context menu of its own unless the main
+//     process pops one, and until 2026-09-18 nothing did — so right-clicking
+//     any text field in the app produced no menu at all (user report: "i
+//     should be able to copy cut and paste using the context menu in textboxes
+//     throughout the app"). The rule was right; the menu it deferred to was
+//     missing. It now exists, in `main/editmenu.ts`, attached to every window
+//     by `configureWindow`. Keep the two ends in step: widening `EDITABLE`
+//     here hands more presses to that menu, and it offers Cut/Copy/Paste/
+//     Select All and nothing object-specific;
 //   * keyboard activation (Shift+F10, the ContextMenu key) is the browser's
 //     own `contextmenu` dispatch on the focused element — there is no key
 //     handling here. The anchor is the pointer when it lies inside the
@@ -167,6 +176,12 @@ const EDITABLE = 'input, textarea, select, [contenteditable=""], [contenteditabl
  *  menu for editable fields, selected text, ordinary links"). The object's
  *  handler consults this FIRST and, when it answers true, leaves the event
  *  alone entirely — no preventDefault, no menu of ours.
+ *
+ *  ⚠ "THE BROWSER'S OWN MENU" IS `main/editmenu.ts`, and nothing else. Electron
+ *  has no default context menu: not preventing the event means the event
+ *  reaches the main process, which pops a native one. Before 2026-09-18 no such
+ *  handler existed and every true answer here produced no menu at all — the two
+ *  ends of this rule are a pair, and neither half works alone.
  *
  *  `currentTarget` is the object; `target` is what was actually pressed.
  *   - an editable control anywhere under the press keeps its menu
