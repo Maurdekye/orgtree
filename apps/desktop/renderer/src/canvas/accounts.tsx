@@ -641,6 +641,5 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
       <SetGroup title="Startup"><StartupView /></SetGroup>
     </SettingsTabPanel>
     <SettingsTabPanel id="import" idBase="app-settings" active={tab === 'import'}><ImportSettings active={tab === 'import'} /></SettingsTabPanel>
-    <button onClick={close}>close</button>
   </PinFrame>{addAccount && <AddAccountDialog key={addAccount} provider={addAccount} onAdded={registry.reload} close={() => setAddAccount(null)} />}</>
 }
