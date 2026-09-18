@@ -47,9 +47,26 @@ _changed = threading.Condition(store.DOC_LOCK)
 SETTLE_TIMEOUT = 20.0  # leave room inside the agent tool transport's 30s timeout
 
 
+# ------------------------------------------------- the three gate predicates
+# `blocked` is asked by EVERY agent tool call, before the verb runs, and it
+# used to answer by parsing the whole document. On the live org that is 50-75
+# ms of a call that has already paid the same cost once for authentication
+# (measured 2026-09-18, toolcalls/out/load-sites-orgtree.json), and
+# `send_message` asks it a second time through `guarded`.
+#
+# These three READ and never write, so they take `cached_org` — the shared,
+# `org_seq`-guarded snapshot the streaming path has used since `aba2439`. A
+# save bumps the seq and drops the entry, so a halt or a killswitch latched by
+# one call is seen by the very next one: this is not a TTL cache and there is
+# no window in which it can answer from before a write.
+#
+# ⚠ READ-ONLY BY CONTRACT (store.cached_org): the returned Org is shared with
+# every other reader in the process. Never mutate it, never save it, and never
+# hand it to a caller that will. Everything below this block still loads its
+# own copy under the lock, because everything below this block writes.
 def _node(slug: str, nid: str):
     try:
-        return store.load_org(slug).nodes.get(nid)
+        return store.cached_org(slug).nodes.get(nid)
     except LedgerError:
         return None
 
@@ -64,7 +81,7 @@ def org_killswitch(slug: str) -> dict[str, Any] | None:
     """The org-level emergency latch record ({at, by}), or None."""
     with store.DOC_LOCK:
         try:
-            return store.load_org(slug).d.get("killswitch") or None
+            return store.cached_org(slug).d.get("killswitch") or None
         except LedgerError:
             return None
 
@@ -77,7 +94,7 @@ def blocked(slug: str, nid: str) -> str | None:
     consulted `requested` alone would be a path the latch does not close."""
     with store.DOC_LOCK:
         try:
-            org = store.load_org(slug)
+            org = store.cached_org(slug)
         except LedgerError:
             return None
         n = org.nodes.get(nid)
