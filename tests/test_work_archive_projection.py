@@ -387,6 +387,56 @@ class SectionIsNotMaterialised(ArchiveProjectionBase):
         self.assertEqual(len(seen), 1, "expected exactly one materialisation")
         self.assertEqual(len(out["archived"]), 7)
 
+    def counting_projections(self):
+        """Count narrow reads that actually READ — cache MISSES, not calls.
+
+        ⚠ COUNTING CALLS, OR INSPECTING THE CACHE AFTERWARDS, BOTH LIE HERE.
+        `project` memoises per (section, fields), so a second caller is a hit
+        rather than a read; and materialising the section DROPS the cache
+        (`_drop_proj`), so a projection that really was built leaves no trace by
+        the time the call returns. The first version of the two tests below
+        asserted on `_proj` after the fact and passed under mutations M16 and
+        M17, which is how this instrument came to be written.
+        """
+        reads = []
+        real = store.LazyDoc.project
+
+        def probe(doc, k, fields):
+            miss = (k, fields) not in doc._proj
+            out = real(doc, k, fields)
+            if miss:
+                reads.append(k)
+            return out
+
+        store.LazyDoc.project = probe
+        self.addCleanup(setattr, store.LazyDoc, "project", real)
+        return reads
+
+    def test_include_archived_does_not_also_build_a_projection(self):
+        """A narrow read of a section the process is ALREADY HOLDING WHOLE is
+        pure waste, and the first draft of this fix did exactly that: serving the
+        archive materialised it (48 ms) and the dependency resolution then built
+        a projected copy of the same rows (17 ms), which made this arm SLOWER
+        than before the fix — 116.9 ms to 177.7 ms for an agent, measured, while
+        every other arm got much faster. Pinned so it cannot come back quietly.
+        """
+        slug = self.mixed("No Double Read")
+        reads = self.counting_projections()
+        out = self.cold(slug).work_list("worker", include_archived=True)
+        self.assertEqual(len(out["archived"]), 7)
+        self.assertEqual(reads, [],
+                         "projected a section that was already materialised")
+
+    def test_the_cold_path_still_projects(self):
+        """THE NEGATIVE CONTROL for the test above. If `_work_archive_rows` ever
+        preferred the whole section unconditionally, no projection would be built
+        at all — the fix would be silently undone and that test would still
+        pass, because "no projection" is exactly what it asserts."""
+        slug = self.mixed("Cold Path Projects")
+        reads = self.counting_projections()
+        self.cold(slug).work_list("worker")
+        self.assertEqual(reads, ["work_items_archive"])
+
     def test_a_dependency_on_an_archived_item_does_not_materialise(self):
         """`_work_view` resolves dependencies, and `_work_find` falls through to
         the archive. Without `_work_ref` this alone re-materialised the section
