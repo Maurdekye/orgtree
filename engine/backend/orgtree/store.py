@@ -1554,6 +1554,12 @@ class LazyDoc(dict[str, Any]):
         # §4.7 append-only fast path: rows destined for a list-log section
         # that NOBODY HAS READ. See `log_append`.
         self._pending: dict[str, list[Any]] = {}
+        # narrow reads of a list-log section that was never materialised, keyed
+        # by (section, fields). See `project`. Per-document, so the docket's two
+        # counting loops and the tree badge share one read; dropped with the
+        # document, and invalidated by `__setitem__`/`pop` like anything else
+        # derived from a section.
+        self._proj: dict[tuple[str, tuple[str, ...]], list[dict[str, Any]]] = {}
 
     # -- materialisation --------------------------------------------------
     def log_append(self, k: str, row: Any) -> None:
@@ -1581,6 +1587,7 @@ class LazyDoc(dict[str, Any]):
         path's premise does not hold: a dict-log, a section already read, one
         deleted since load, or one stored as a wrong-shape `doc` blob (which
         `_write_lazy` has to rewrite whole anyway)."""
+        self._drop_proj(k)
         if (k not in LAZY_SECTIONS or k in DICT_LOGS or k in self._dropped
                 or k in self._snap_doc or dict.__contains__(self, k)):
             self.setdefault(k, []).append(row)
@@ -1588,6 +1595,7 @@ class LazyDoc(dict[str, Any]):
         self._pending.setdefault(k, []).append(row)
 
     def __missing__(self, k: str) -> Any:
+        self._drop_proj(k)
         pending = self._pending.pop(k, None)
         if k in LAZY_SECTIONS and k in self._present and k not in self._dropped:
             v = _load_section(self._slug, k, self._snap_logs)
@@ -1601,6 +1609,74 @@ class LazyDoc(dict[str, Any]):
             dict.__setitem__(self, k, v)
             return v
         raise KeyError(k)
+
+    def project(self, k: str, fields: tuple[str, ...]) -> list[dict[str, Any]]:
+        """`fields` of every row of list-log section `k`, WITHOUT materialising
+        it — SQLite extracts them in C and only the named values cross into
+        Python.
+
+        THE PROBLEM THIS SOLVES. `work_items_archive` is 508 rows and 10.17 MB
+        on the operator's org, and the docket's two counting loops walked all of
+        it to produce four integers — so a cold `orgtree_work list`, and every
+        cold `Ledger.tree()` behind the UI poll, paid a 10.4 MB parse for a
+        count. MEASURED on that org with a pooled connection: materialising is
+        51.4 ms and 10,445,177 B of Python objects; this is 22.8 ms and
+        196,892 B. SQLite still scans the rows — the win is that 98% of them
+        never become Python objects — so this is a narrower read, not a free
+        one.
+
+        ⚠ A MISSING KEY COMES BACK AS `None`, which is exactly what
+        `it.get(field)` already yields on the full item. That is what lets the
+        CALLER run its existing predicates unchanged on the projected mapping
+        instead of growing a second classifier that can disagree with the first
+        one. Callers must therefore project every field their predicates read;
+        `ledger._WORK_PROJ` is the docket's list.
+
+        ⚠ THE DATABASE IS NOT ALWAYS THE TRUTH, and each of these falls back to
+        the ordinary materialising read rather than answering from stale rows:
+        a section already resident (somebody has it, and may have EDITED an
+        entry in place); one with buffered appends (`log_append`, rows not in
+        the db yet); one popped since load; one stored as a wrong-shape `doc`
+        blob; and a dict-log, which has no `log_l` rows at all. In every one of
+        those the projection is taken from the in-memory list, so there is one
+        answer, never two.
+        """
+        if k in DICT_LOGS or k not in LAZY_SECTIONS:
+            raise ValueError(f"not a projectable list-log section: {k!r}")
+        if len(fields) < 2:
+            # ⚠ REFUSED, NOT HANDLED. `json_extract` with ONE path returns the
+            # value itself — TEXT for a JSON string, the JSON text for an
+            # object — and those two are indistinguishable afterwards, so a
+            # one-field projection would silently parse `"done"` as JSON and
+            # either raise or, worse, succeed on a value that happens to look
+            # like JSON. Several paths return a JSON array, which is
+            # unambiguous. Ask for two fields.
+            raise ValueError(
+                "project() needs at least 2 fields: json_extract with a single "
+                "path returns a bare value that cannot be told apart from JSON "
+                f"text (asked for {fields!r} on {k!r})")
+        key = (k, fields)
+        cached = self._proj.get(key)
+        if cached is not None:
+            return cached
+        rows: list[dict[str, Any]]
+        if (dict.__contains__(self, k) or k in self._dropped
+                or k in self._pending or k in self._snap_doc
+                or k not in self._present):
+            # resident, edited, buffered, dropped, blobbed or absent — read it
+            # the ordinary way and project in Python. Same answer, no shortcut.
+            rows = [{f: it.get(f) for f in fields}
+                    for it in (self.get(k) or [])
+                    if isinstance(it, dict)]
+        else:
+            paths = ",".join("'$." + f + "'" for f in fields)
+            with _POOL.acquire(self._slug) as conn:
+                raw = [r[0] for r in conn.execute(
+                    f"SELECT json_extract(val,{paths}) FROM log_l "
+                    f"WHERE sect=? ORDER BY seq", (k,))]
+            rows = [dict(zip(fields, json.loads(v))) for v in raw]
+        self._proj[key] = rows
+        return rows
 
     def materialize_all(self) -> None:
         for k in (*LAZY_SECTIONS, *list(self._pending)):
@@ -1635,7 +1711,27 @@ class LazyDoc(dict[str, Any]):
         self[k] = default
         return default
 
+    def _drop_proj(self, k: str | None = None) -> None:
+        """Discard cached `project()` reads of `k` (all of them when `k` is
+        None).
+
+        ⚠ THE MATERIALISATION IS THE GATE, and that is what makes the cache
+        safe rather than merely fast. An entry of a lazy section cannot be
+        edited in place by a caller that has not first OBTAINED it, and
+        obtaining it goes through `__missing__`. So dropping the projection
+        there means a cached one can never outlive the last moment the rows
+        were the whole truth: afterwards `project()` finds the section resident
+        and re-projects from memory, which sees the edit. Every other route
+        that can change a section's content — replace, delete, buffered append,
+        clear — drops it too."""
+        if k is None:
+            self._proj.clear()
+        elif self._proj:
+            for key in [key for key in self._proj if key[0] == k]:
+                del self._proj[key]
+
     def __setitem__(self, k: str, v: Any) -> None:
+        self._drop_proj(k)
         self._dropped.discard(k)
         # §4.7: REPLACING a section discards anything buffered for it. Without
         # this, `_write_doc` would write the new value through `_write_lazy`
@@ -1647,6 +1743,7 @@ class LazyDoc(dict[str, Any]):
         dict.__setitem__(self, k, v)
 
     def __delitem__(self, k: str) -> None:
+        self._drop_proj(k)
         if k in self and not dict.__contains__(self, k):
             self[k]                         # materialise so the semantics match a dict
         dict.__delitem__(self, k)
@@ -1664,6 +1761,7 @@ class LazyDoc(dict[str, Any]):
         raise KeyError(k)
 
     def popitem(self) -> tuple[str, Any]:
+        self._drop_proj()
         self.materialize_all()
         k, v = dict.popitem(self)
         if k in LAZY_SECTIONS:
@@ -1689,6 +1787,7 @@ class LazyDoc(dict[str, Any]):
         self._dropped |= {k for k in LAZY_SECTIONS if dict.__contains__(self, k)}
         self._dropped |= {k for k in self._pending if k in LAZY_SECTIONS}
         self._pending.clear()
+        self._drop_proj()
         dict.clear(self)
 
     def keys(self):   # pyright: ignore[reportIncompatibleMethodOverride]

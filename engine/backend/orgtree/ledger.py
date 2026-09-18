@@ -10866,6 +10866,99 @@ class Org:
     def _work_archive(self) -> list[WorkItem]:
         return cast("list[WorkItem]", self.d.get("work_items_archive") or [])
 
+    #: THE FIELDS THE DOCKET'S CLASSIFIERS READ, and nothing else. Every name
+    #: here is one some predicate below actually looks at:
+    #:   slug              `_work_attention` (the ask store is keyed by it)
+    #:   status            `_work_status` -> `_work_eligible`, `_work_backlogged`,
+    #:                     `_work_counts_active`
+    #:   docket_at         `_work_age_s`, and the list's sort key
+    #:   updated_at        `_work_age_s`'s fallback, and the sort key's
+    #:   owner created_by  `_work_can_manage`
+    #:   participants
+    #:   reviewer          `_work_can_read`
+    #:   manual_attention  `_work_attention`
+    #:   title             the DEPENDENCY view in `_work_view` — the one field
+    #:                     here that no predicate needs
+    #: ⚠ ADD A FIELD HERE THE MOMENT A PREDICATE STARTS READING ONE. The whole
+    #: safety argument for `_work_archive_proj` is that the SAME predicate runs
+    #: on the projected mapping, which holds only while the projection covers
+    #: what it reads; `tests/test_work_archive_projection.py` asserts the two
+    #: paths agree item by item and fails if this list falls behind.
+    _WORK_PROJ: Final = ("slug", "title", "status", "owner", "created_by",
+                         "participants", "reviewer", "manual_attention",
+                         "docket_at", "updated_at")
+
+    def _work_archive_proj(self) -> list[WorkItem]:
+        """The archived docket AS THE CLASSIFIERS NEED IT — `_WORK_PROJ` of
+        every archived row — without materialising the section.
+
+        THE PROBLEM. `work_items_archive` is a lazy section holding 508 rows and
+        10.17 MB on the operator's org, larger than the whole eager document.
+        Two counting loops (`work_list`, `work_counts`) walked all of it to
+        produce four integers, so a cold `orgtree_work list` — and every cold
+        `Ledger.tree()` behind the UI poll — paid a 10.4 MB parse for a count.
+        MEASURED, pooled connection: 51.4 ms and 10,445,177 B of Python objects
+        the old way, 22.8 ms and 196,892 B this way.
+
+        ⚠ IT RETURNS MAPPINGS THE EXISTING PREDICATES CAN EAT, WHICH IS THE
+        POINT. `_work_can_read`, `_work_attention`, `_work_archived`,
+        `_work_backlogged` and `_work_counts_active` all reach the item through
+        `.get`, and a key absent from the projection reads as `None` exactly as
+        an absent key does on the whole item. So nothing here reimplements a
+        classification — the same function is called on a smaller mapping, and
+        there is no second copy of the rule to fall out of step with the first.
+
+        ⚠ IT IS NOT A WORK ITEM, and must not be served as one or written to.
+        Callers that need the whole record — anything building a `_work_view`,
+        anything mutating — take `_work_archive()` and pay for it."""
+        proj = getattr(self.d, "project", None)
+        if proj is None:
+            # a plain-dict document (Org.create, a test fixture, a migration):
+            # no rows to project from, so narrow the real list instead. Same
+            # keys, same values, same answers — only the saving is absent.
+            return [cast("WorkItem", {f: it.get(f) for f in self._WORK_PROJ})
+                    for it in self._work_archive()]
+        return cast("list[WorkItem]",
+                    proj("work_items_archive", self._WORK_PROJ))
+
+    def _work_ref(self, wid: str) -> WorkItem | None:
+        """Resolve a POINTER to an item — a dependency, a history `by`/`from`/
+        `to` — to something that can be titled and permission-checked, without
+        materialising the archive. `None` when no item has that name.
+
+        Active rows come back whole; archived rows come back PROJECTED, which
+        carries every field the two pointer sites use (`slug`, `title`,
+        `status`) and everything `_work_can_read` asks for. Use `_work_find`
+        when you need the record itself.
+
+        ⚠ THIS IS WHY THE COUNTING FIX IS NOT ENOUGH ON ITS OWN. `_work_view`
+        resolves every `dependencies` entry, and `_work_find` falls through to
+        `self._work_archive()` whenever the active list misses. Two live items
+        depend on archived items right now, so with the counting loops fixed and
+        this one left alone the section still materialised on the same call —
+        measured, not predicted (archive/out/attribute.json)."""
+        ref = str(wid or "")
+        for it in self._work_active():
+            if it.get("slug") == ref:
+                return it
+        for row in self._work_archive_proj():
+            if row.get("slug") == ref:
+                return row
+        return None
+
+    def _work_archived_item(self, slug: str) -> WorkItem:
+        """The WHOLE archived record named `slug`, materialising the section.
+
+        Reached only when a physically-archived row turns out to hold attention
+        and therefore has to be SERVED on the main list rather than counted (see
+        `_work_archived`). That is the documented-but-rare case; paying for the
+        section then is correct, and the projection cannot stand in for it
+        because the caller is about to render every field."""
+        for it in self._work_archive():
+            if it.get("slug") == slug:
+                return it
+        raise LedgerError(f"no archived work item {slug!r}")
+
     def _work_actor(self, actor: str) -> WorkActor | str:
         """A node AT ITS GENERATION, or the literal user."""
         if actor == USER or actor not in self.nodes:
@@ -12010,9 +12103,12 @@ class Org:
         next_actor, next_role = self._work_next_recipient(it)
         deps: list[dict[str, Any]] = []
         for did in it.get("dependencies") or []:
-            try:
-                d, _ = self._work_find(did)
-            except LedgerError:
+            # ⚠ `_work_ref`, NOT `_work_find`: this needs a title, a status and a
+            # permission check, and `_work_find` reaches those by materialising
+            # the whole archived docket whenever the dependency is archived —
+            # which, on the operator's org, two live items do right now.
+            d = self._work_ref(did)
+            if d is None:
                 deps.append({"visible": False})
                 continue
             if self._work_can_read(viewer, d):
@@ -12476,9 +12572,11 @@ class Org:
         derived from a title, so an unreadable pointer is served anonymously."""
         if not wid:
             return None
-        try:
-            t, _ = self._work_find(str(wid))
-        except LedgerError:
+        # `_work_ref` for the same reason as the dependency loop above: a history
+        # pointer needs only a permission check, and resolving it through
+        # `_work_find` materialises the archived docket to get one.
+        t = self._work_ref(str(wid))
+        if t is None:
             return False
         return self._work_can_read(viewer, t)
 
@@ -12496,8 +12594,13 @@ class Org:
         rule; see `work_list`."""
         now_ts = _time.time() if now_ts is None else now_ts
         attention = active = archived = backlogged = 0
+        # ⚠ PROJECTED, NOT MATERIALISED. Four integers do not need 10.17 MB of
+        # archived records; `_work_archive_proj` carries exactly the fields the
+        # four predicates below read. This function is also called from
+        # `Ledger.tree()`, which the UI polls, so the parse it used to force was
+        # paid on a timer and not only when somebody opened the docket.
         for it, phys in ([(i, False) for i in self._work_active()]
-                         + [(i, True) for i in self._work_archive()]):
+                         + [(i, True) for i in self._work_archive_proj()]):
             if self._work_attention(it):
                 attention += 1
             if self._work_archived(it, phys, now_ts):
@@ -12771,8 +12874,15 @@ class Org:
         items: list[dict[str, Any]] = []
         arch: list[dict[str, Any]] = []
         back: list[dict[str, Any]] = []
-        for it, phys in ([(i, False) for i in self._work_active()]
-                         + [(i, True) for i in self._work_archive()]):
+        # ⚠ THE PHYSICAL ARCHIVE IS WALKED PROJECTED UNLESS ITS CONTENTS ARE
+        # ASKED FOR. When `include_archived` is false nothing in the answer
+        # depends on an archived record except HOW MANY there are, and
+        # `_work_archive_proj` answers that from the fields the classifiers
+        # read — 196,892 B instead of 10,445,177 B, MEASURED on the operator's
+        # org. `arch_n` counts the logically-archived readable rows of BOTH
+        # lists, because `arch` itself is only filled when it is served.
+        arch_n = 0
+        for it in self._work_active():
             if not self._work_can_read(viewer, it):
                 continue
             # the rolled-over rows are summarised here and served whole by
@@ -12785,10 +12895,33 @@ class Org:
             # Which group a row belongs to and where it sorts are answers the
             # projection may have narrowed away; deciding them first is what
             # keeps `fields=["slug"]` from changing which items come back.
-            v = self._work_view(it, phys, viewer, now_ts, scope_archive=False)
+            v = self._work_view(it, False, viewer, now_ts, scope_archive=False)
             if v["archived"]:
                 arch.append(v)
+                arch_n += 1
             elif self._work_backlogged(it):
+                back.append(v)
+            else:
+                items.append(v)
+        for row in (self._work_archive() if include_archived
+                    else self._work_archive_proj()):
+            if not self._work_can_read(viewer, row):
+                continue
+            if self._work_archived(row, True, now_ts):
+                arch_n += 1
+                if include_archived:
+                    arch.append(self._work_view(row, True, viewer, now_ts,
+                                                scope_archive=False))
+                continue
+            # ⚠ IN THE ARCHIVE AND STILL NOT ARCHIVED: it holds attention, which
+            # outranks the list the row is physically in (`_work_archived`), so
+            # it is SERVED on the main list and every field of it is about to be
+            # rendered. That is the one branch a projection cannot answer, and it
+            # pays for the section — correctly, and only when such a row exists.
+            it = row if include_archived else \
+                self._work_archived_item(str(row.get("slug") or ""))
+            v = self._work_view(it, True, viewer, now_ts, scope_archive=False)
+            if self._work_backlogged(it):
                 back.append(v)
             else:
                 items.append(v)
@@ -12810,17 +12943,25 @@ class Org:
         arch.sort(key=key, reverse=True)
         back.sort(key=key, reverse=True)
         counts = (self.work_counts(now_ts) if viewer == USER else {
+            # ⚠ `arch` CONTRIBUTES NOTHING TO THIS SUM AND CANNOT, which is what
+            # makes it safe to leave the list empty when the archive is not
+            # served. A row lands in `arch` only when `_work_archived` said yes,
+            # and that returns False for anything holding attention — so every
+            # row here has `effective_attention` False by construction. It is
+            # summed anyway, over whatever is present, so the expression stays
+            # the same statement it was. Asserted in
+            # test_archived_rows_contribute_nothing_to_the_attention_count.
             "attention": sum(1 for v in items + arch + back
                              if v["effective_attention"]),
             "active": sum(1 for v in items
                           if v["status"] not in self.WORK_UNCOUNTED),   # v: served (mapped) status
-            "archived": len(arch),
+            "archived": arch_n,
             "backlogged": len(back)})
         groups = {
             "items": {"count": len(items), "included": True,
                       "how": "served in `items`"},
             "archived": {
-                "count": len(arch), "included": bool(include_archived),
+                "count": arch_n, "included": bool(include_archived),
                 "how": ("served in `archived`" if include_archived else
                         "NOT in this payload — pass include_archived=true to "
                         "`orgtree_work list` and they are served in `archived`")},
