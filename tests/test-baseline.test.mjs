@@ -602,3 +602,19 @@ test('the verdict names the suites it actually covers', async t => {
   assert.equal(status, 0)
   assert.match(human, /VERDICT: no new failures in 1 suite\(s\): node-root\./)
 })
+
+test('show says which suites ignore --concurrency', () => {
+  // `--concurrency` is accepted by every subcommand, documented as "test-file
+  // concurrency", and written into the baseline's machine provenance — but
+  // runPythonSuite never received it, so for the one suite slow enough to make
+  // anybody reach for the flag it did nothing at all. Measured 2026-09-18:
+  // 11m15s at 4 and 11m10s at 12, identical. Same family as this file's other
+  // cases — a flag accepted, plausible output, and no correspondence between
+  // them — so the tool says so rather than leaving it to a stopwatch.
+  const { status, stdout } = runTool(['show', '--suite', 'python-backend'])
+  assert.equal(status, 0)
+  assert.match(stdout, /runs SEQUENTIALLY/)
+  assert.match(stdout, /--concurrency does not apply/)
+  // and the suites that DO honour it must not claim otherwise
+  assert.doesNotMatch(runTool(['show', '--suite', 'node-root']).stdout, /--concurrency does not apply/)
+})

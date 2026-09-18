@@ -119,6 +119,20 @@ const SUITES = {
     // worth trading for finer reporting. Recorded as `granularity` so nobody
     // reads a module verdict as a test verdict.
     granularity: 'module',
+    // ⚠ SEQUENTIAL, AND `--concurrency` DOES NOT APPLY TO IT. The runner takes
+    // every module in ONE spawn and walks them in order, giving each its own
+    // interpreter and its own ORGTREE_DATA — the isolation the suite's
+    // trustworthiness rests on. `runPythonSuite` therefore never received the
+    // concurrency argument, but the flag was still accepted, still documented
+    // as "test-file concurrency", and still written into the baseline's
+    // machine provenance as though it described the run.
+    //
+    // MEASURED 2026-09-18 on a 16-core box, same tree, same 188 modules:
+    // `compare --suite python-backend` took 11m15s at the default 4 and
+    // 11m10s at 12. Identical, because the flag reaches nothing. Saying so is
+    // the fix here; making the suite parallel is a change to the isolation
+    // property and is not one to make in passing.
+    sequential: 'one module at a time, each in its own interpreter and data root',
     files: () => listFiles(path.join(REPO, 'tests'), name => /^test_.*\.py$/.test(name)),
     excluded: [
       { what: 'tests/*.py not matching test_*.py', why: 'helpers and probes, not unittest modules' },
@@ -402,6 +416,21 @@ function short(sha) {
 // ---------------------------------------------------------------------------
 // Running a suite
 // ---------------------------------------------------------------------------
+
+/**
+ * ⚠ NOT EVERY SUITE HONOURS `--concurrency`. A suite carrying `sequential`
+ * runs one file at a time whatever the caller asked for, and the caller is
+ * told rather than left to infer it from a stopwatch.
+ */
+function noteIgnoredConcurrency(suiteNames, args) {
+  if (args.concurrency === undefined) return
+  for (const name of suiteNames) {
+    const suite = SUITES[name]
+    if (suite?.sequential) {
+      console.error(`[baseline] NOTE: --concurrency does not apply to ${name} — it runs ${suite.sequential}. The flag is ignored for this suite.`)
+    }
+  }
+}
 
 /**
  * Run one suite and return per-test outcomes.
@@ -867,6 +896,7 @@ async function cmdRecord(args) {
   const suiteNames = args.suite ? [args.suite] : Object.keys(SUITES)
   const concurrency = Number(args.concurrency ?? 4)
   const timeout = Number(args.timeout ?? 120_000)
+  noteIgnoredConcurrency(suiteNames, args)
   const previous = (() => { try { return loadBaseline(args) } catch { return null } })()
   const provenance = gitProvenance()
 
@@ -1010,6 +1040,7 @@ async function cmdRun(args) {
   const suiteNames = args.suite ? [args.suite] : Object.keys(SUITES)
   const concurrency = Number(args.concurrency ?? 4)
   const timeout = Number(args.timeout ?? 120_000)
+  noteIgnoredConcurrency(suiteNames, args)
   const suites = {}
   for (const suiteName of suiteNames) {
     const result = await runSuite(suiteName, { concurrency, timeout, filter: args.filter })
@@ -1086,6 +1117,7 @@ async function cmdCompare(args) {
   } else {
     const concurrency = Number(args.concurrency ?? baseline.machine?.concurrency ?? 4)
     const timeout = Number(args.timeout ?? 120_000)
+    noteIgnoredConcurrency(suiteNames, args)
     for (const suiteName of suiteNames) {
       if (!SUITES[suiteName]) {
         // The baseline names a suite this checkout no longer registers — it was
@@ -1316,6 +1348,9 @@ function cmdShow(args) {
     if (suite.granularity === 'module') {
       console.log('   reports per MODULE, not per test — one verdict covers every case in the file')
     }
+    if (SUITES[name]?.sequential) {
+      console.log(`   runs SEQUENTIALLY — ${SUITES[name].sequential}; --concurrency does not apply`)
+    }
     // Only shout when this suite is MEANINGFULLY older than the file as a
     // whole. The suites of a single `record` are milliseconds apart, and a
     // warning that fires every time is a warning nobody reads.
@@ -1535,7 +1570,9 @@ common flags
                            it never runs zero suites and calls that a pass.
   --filter <substring>     only files whose path contains this. A baseline recorded
                            with a filter is stored as PARTIAL and says so everywhere.
-  --concurrency <n>        test-file concurrency (default 4; recorded in the baseline)
+  --concurrency <n>        test-file concurrency (default 4; recorded in the baseline).
+                           Does NOT apply to python-backend, which is sequential
+                           by design; 'show' says which suites ignore it.
   --timeout <ms>           per-test timeout (default 120000)
   --no-confirm             skip the re-run of failing files that separates flaky from stable
   --json                   machine-readable output
