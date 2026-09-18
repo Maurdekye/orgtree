@@ -189,9 +189,35 @@ def annotate(org, nid, chat):
     return result
 
 
+def annotate_ident(slug, nid, scope, generation, chat):
+    """`annotate` for a caller that already resolved identity via `identity()`
+    — the prose stream hot path, which must not load the org document per
+    delta. Writes exactly the rows `annotate` writes: `remember` derives
+    nothing from `org` but the slug, the generation and the incarnation scope,
+    and `identity()` returns the last two off the same save-seq guard.
+
+    It does NOT mint. `identity()` already did, on the first delta of the
+    session; calling this without having called that would write rows under an
+    unminted scope, so the two belong together."""
+    with _connect() as connection:
+        def save(source, kind, text):
+            quote = str(text or '')[:4000]
+            eid = _eid(scope, source, kind, quote)
+            connection.execute('INSERT OR IGNORE INTO events VALUES (?,?,?,?,?,?)',
+                               (slug, nid, generation, eid, quote, scope))
+            return eid
+        result = _annotate_rows(chat, save)
+    connection.close()
+    return result
+
+
 def _annotate(org, nid, chat, connection):
     def save(source, kind, text):
         return remember(org, nid, source, kind, text, connection=connection)
+    return _annotate_rows(chat, save)
+
+
+def _annotate_rows(chat, save):
     result = dict(chat)
     for field in ('messages', 'live', 'transient'):
         rows = []

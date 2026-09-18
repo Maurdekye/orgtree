@@ -3195,15 +3195,24 @@ def capture_reply_stream(slug: str, nid: str, payload: dict[str, Any]) -> dict[s
     mid = payload.get('assistant_id')
     if mid and kind in {'delta', 'draft', 'text'} and not payload.get('cmd_output'):
         from . import assistant_messages, reply_events
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
+        # identity() and scope_ident() are both save-seq-cached: after the
+        # first delta of a session this branch is two dict lookups -- no
+        # DOC_LOCK, no document load. The old form here (DOC_LOCK + load_org
+        # per delta) was 61.3 ms of a 75.5 ms prose delta at 673 nodes and
+        # made an ordinary write's latency linear in concurrent streams out to
+        # 32 agents, almost all of it lock wait. It is the SAME defect the
+        # comment below describes; the 2026-09-12 fix reached only the
+        # thinking branch, and Claude prose deltas always carry an
+        # assistant_id, so the user-visible reply text took the slow one.
+        scope, generation = reply_events.identity(slug, nid)
         row = assistant_messages.observe(str(payload.get('assistant_scope') or
-            assistant_messages.scope(org, nid)), str(mid),
+            assistant_messages.scope_ident(slug, nid)), str(mid),
             str(payload.get('text') or ''), now_iso(), complete=kind == 'text',
             append=kind == 'delta' and not payload.get('assistant_reset'),
             native_id=payload.get('event_id') if kind == 'text' else None,
             owned=payload.get('assistant_ids'))
-        annotated = reply_events.annotate(org, nid, {'messages': [row]})['messages'][0]
+        annotated = reply_events.annotate_ident(slug, nid, scope, generation,
+                                                {'messages': [row]})['messages'][0]
         return {**payload, 'assistant_row': annotated,
                 'event_id': annotated['event_id'], 'reply_quote': annotated['reply_quote']}
     if kind not in {'draft', 'delta', 'thinking', 'thinking_start', 'thought', 'starting', 'error'}:
