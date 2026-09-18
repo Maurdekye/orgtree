@@ -54,6 +54,14 @@ def scope_ident(slug, nid):
     the seq is read BEFORE the load, a mint re-reads both, and the entry is
     stored only if the seq is unchanged across the whole read -- a save
     landing mid-read simply costs one more load next call.
+
+    It reads the SHARED snapshot (`store.cached_org`), not `load_org`: a miss
+    here is a miss for every agent at once, since one save invalidates every
+    entry. Per-agent parsing turned a single save into one full document
+    parse per streaming agent. The snapshot is read-only by contract and
+    nothing below writes to it; `transcript_records.incarnation` already
+    refuses to stamp a `_shared_snapshot` and mints on its own copy under
+    DOC_LOCK.
     """
     from . import store
     key = (slug, nid)
@@ -62,11 +70,11 @@ def scope_ident(slug, nid):
         hit = _scope_cache.get(key)
     if hit is not None and hit[0] == seq:
         return hit[1]
-    org = store.load_org(slug)          # read-only: DOC_LOCK is for cycles
+    org = store.cached_org(slug)        # shared read-only snapshot, see below
     if not org.node(nid).get('transcript_incarnation'):
         transcript_records.incarnation(org, nid)   # mints under DOC_LOCK, saves
         seq = store.org_seq(slug)       # the mint's save bumped it...
-        org = store.load_org(slug)      # ...and ONLY a fresh read is coherent
+        org = store.cached_org(slug)    # ...and ONLY a fresh read is coherent
     value = scope(org, nid)
     if store.org_seq(slug) == seq:
         with _scope_lock:
