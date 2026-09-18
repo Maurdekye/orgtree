@@ -443,11 +443,29 @@ class DescriptionMarkup(unittest.TestCase):
         store.save_org(self.org)
         store._POOL.close_all(self.slug)
 
+        import contextlib
+
         tool = self._repair_tool()
         data = os.environ['ORGTREE_DATA']
 
-        # report only: it must find the damage and change nothing
-        self.assertEqual(tool.main(['--data', data, '--org', self.slug]), 0)
+        # Report only: it must find the damage and change nothing.
+        #
+        # ⚠ INSTRUMENT THE CONTROL. Asserting only that the STORED text is
+        # unchanged is not enough and this test proved it: deleting the
+        # `--apply` guard entirely left this assertion passing, because the
+        # write went to the in-memory org and the save was separately guarded.
+        # A report-only run that quietly mutates a loaded org and relies on
+        # nobody saving it is one `save_org` away from writing. So the run must
+        # also SAY it wrote nothing, and the apply run must say it wrote
+        # something — otherwise a count of zero could just mean it never ran.
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(tool.main(['--data', data, '--org', self.slug]), 0)
+        report = out.getvalue()
+        self.assertIn('1 damaged field(s)', report,
+                      'the report found no damage, so a "0 repaired" below '
+                      'would prove nothing')
+        self.assertIn('0 repaired', report)
         untouched = store.load_org(self.slug)
         self.assertEqual(
             next(i for i in untouched.d['work_items']
@@ -455,8 +473,11 @@ class DescriptionMarkup(unittest.TestCase):
         store._POOL.close_all(self.slug)
 
         # and with --apply it repairs, mechanically
-        self.assertEqual(
-            tool.main(['--data', data, '--org', self.slug, '--apply']), 0)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(
+                tool.main(['--data', data, '--org', self.slug, '--apply']), 0)
+        self.assertIn('1 repaired', out.getvalue())
         after = store.load_org(self.slug)
         got = next(i for i in after.d['work_items']
                    if i['slug'] == name)['objective']
