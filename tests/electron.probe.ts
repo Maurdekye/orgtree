@@ -120,6 +120,17 @@ app.whenReady().then(async () => {
   const options = { show: false, webPreferences: { session: ses, preload: path.resolve('dist/preload/index.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, additionalArguments: [`--orgtree-ui-origin=${origin}`] } }
   const main = new BrowserWindow(options)
   configureWindow(main, () => origin, true, register, undefined, url => { openedExternal.push(url) })
+  // THE EDITING MENU FOR TEXT FIELDS, ticket
+  // right-click-cut-copy-paste-in-every-textbox-in-t. Asserted HERE, before
+  // this probe adds a listener of its own, because the count is the evidence:
+  // configureWindow put exactly one `context-menu` handler on this window, and
+  // until 2026-09-18 there were none in the whole app.
+  assert.equal(main.webContents.listenerCount('context-menu'), 1, 'configureWindow gave the app window its editing menu')
+  // Every `context-menu` event the MAIN window sees, recorded from the start:
+  // the popout assertions further down have to show that a press inside a
+  // popped-out window never arrives here. See the editing-menu block at the end.
+  const raised: Electron.ContextMenuParams[] = []
+  main.webContents.on('context-menu', (_event, params) => raised.push(params))
   ipcMain.handle('desktop:status', event => { assertNativeSender(event, main, origin); return { state: 'ready' } })
   await main.loadURL(origin)
   assert.deepEqual(await main.webContents.executeJavaScript('window.orgtreeDesktop.getStatus()'), { state: 'ready' })
@@ -188,6 +199,36 @@ app.whenReady().then(async () => {
   assert.equal(await main.webContents.executeJavaScript('child.document.getElementById("draft").value'), 'same live draft')
   assert.equal(await child.webContents.executeJavaScript('typeof window.orgtreeDesktop'), 'undefined')
   assert.equal(await child.webContents.executeJavaScript('typeof require'), 'undefined')
+
+  // THE EDITING MENU IN A POPPED-OUT WINDOW. This child is the real case the
+  // ticket names: a frameless native window whose about:blank document has
+  // ADOPTED the main window's `#draft` input, so the field's React handlers run
+  // in the main window's realm while the press happens here. configureWindow
+  // recurses into this window, and the menu must arrive with that recursion.
+  assert.equal(child.webContents.listenerCount('context-menu'), 1, 'the popout got its own editing menu')
+  const popoutRaised: Electron.ContextMenuParams[] = []
+  child.webContents.on('context-menu', (_event, params) => popoutRaised.push(params))
+  const mainSawBefore = raised.length
+  const popoutBox = await child.webContents.executeJavaScript(`(() => {
+    const el = document.getElementById('draft'); el.focus(); el.setSelectionRange(0, 4)
+    const r = el.getBoundingClientRect()
+    return { x: Math.round(r.left + 4), y: Math.round(r.top + r.height / 2) } })()`)
+  for (const type of ['mouseDown', 'mouseUp'] as const) {
+    child.webContents.sendInputEvent({ type, button: 'right', x: popoutBox.x, y: popoutBox.y, clickCount: 1 })
+  }
+  for (let i = 0; i < 100 && !popoutRaised.length; i++) await new Promise(resolve => setTimeout(resolve, 20))
+  assert.ok(popoutRaised.length, 'a right-click inside the popout raised the context-menu event')
+  // ⚠ ON THE POPOUT'S OWN webContents, and NOT on the main window's — the whole
+  // "menu drawn on the main canvas while the user clicked in a popout" failure.
+  assert.equal(raised.length, mainSawBefore, 'the press never reached the main window')
+  const popoutMenu = Menu.buildFromTemplate(editMenuTemplate(popoutRaised[0], child.webContents)!)
+  assert.deepEqual(popoutMenu.items.filter(candidate => candidate.type !== 'separator').map(candidate => candidate.label),
+    ['Cut', 'Copy', 'Paste', 'Select All'], 'the popout gets the same menu as the main window')
+  assert.equal(popoutMenu.items.find(candidate => candidate.label === 'Copy')!.enabled, true,
+    'and its enablement comes from the selection in THIS window')
+  // popped in the popout, at the popout's own client coordinates
+  popoutMenu.popup({ window: child, x: popoutRaised[0].x, y: popoutRaised[0].y })
+  popoutMenu.closePopup(child)
   await main.webContents.executeJavaScript(`new Promise((resolve,reject)=>{const css=child.document.createElement('link');css.rel='stylesheet';css.href=${JSON.stringify(origin + '/asset.css?portal=1')};css.onload=()=>resolve(true);css.onerror=reject;child.document.head.appendChild(css)})`)
   assert.equal(await child.webContents.executeJavaScript('getComputedStyle(document.body).backgroundColor'), 'rgb(12, 34, 56)', 'registered portal loads authenticated CSS')
   await child.webContents.executeJavaScript(`fetch(${JSON.stringify(origin + '/api/portal-fetch')}).then(r=>r.text())`)
@@ -235,9 +276,6 @@ app.whenReady().then(async () => {
   // Chromium can settle is here, and none of it is simulated: a right-click on
   // a real input raises the event, Chromium's own editFlags gate the entries,
   // and choosing Paste puts actual characters into the actual field.
-  assert.equal(main.webContents.listenerCount('context-menu'), 1, 'configureWindow gave the app window its editing menu')
-  const raised: Electron.ContextMenuParams[] = []
-  main.webContents.on('context-menu', (_event, params) => raised.push(params))
   const rightClickField = async (prepare = '') => {
     const box = await main.webContents.executeJavaScript(`(() => {
       const el = document.getElementById('draft'); el.focus(); ${prepare}
