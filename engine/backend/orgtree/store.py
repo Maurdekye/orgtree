@@ -1610,6 +1610,17 @@ class LazyDoc(dict[str, Any]):
             return v
         raise KeyError(k)
 
+    def resident(self, k: str) -> bool:
+        """Is section `k` ALREADY materialised in this document?
+
+        Callers ask so they can stop narrowing something they are already
+        holding whole. `project` on a resident section is correct but pure
+        waste — MEASURED at 17 ms building a second, smaller copy of 509
+        archived rows that were already in memory, on a call that had just spent
+        48 ms materialising them. A caller with a cheap path over the real list
+        should take it."""
+        return dict.__contains__(self, k)
+
     def project(self, k: str, fields: tuple[str, ...]) -> list[dict[str, Any]]:
         """`fields` of every row of list-log section `k`, WITHOUT materialising
         it — SQLite extracts them in C and only the named values cross into
