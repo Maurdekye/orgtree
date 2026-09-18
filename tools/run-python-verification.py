@@ -479,7 +479,19 @@ def _child_script() -> str:
             result["phase"] = "execution_failure"
             result["marker"] = "execution_failure"
             traceback.print_exc()
-        print("__ORGTREE_VERIFY_RESULT__" + json.dumps(result), flush=True)
+        # Leading newline: the parent finds this payload by line prefix, so a
+        # module whose last write was unterminated -- print("x", end="") is
+        # enough -- would otherwise leave the marker mid-line and cost the run
+        # its import_provenance. Emitting the separator here keeps the parent's
+        # matching rule exactly as strict as it was. The parent drops the empty
+        # line this produces when the module's output already ended in one, so
+        # a run that parsed before reports byte-identical stdout.
+        # The escape below is DOUBLED on purpose. This whole script is a
+        # non-raw string literal, so a single backslash-n would become a real
+        # newline out here instead of reaching the child -- which also breaks
+        # textwrap.dedent, since the resulting zero-indent line makes the
+        # common prefix empty and nothing gets stripped at all.
+        print("\\n__ORGTREE_VERIFY_RESULT__" + json.dumps(result), flush=True)
         raise SystemExit(0 if result["phase"] in {"pass", "skip"} else 1)
         """
     )
@@ -503,16 +515,37 @@ def _stream(value: str | None, name: str) -> str:
 
 
 def _parse_child(stdout: str) -> tuple[str | None, str, dict[str, str | None]]:
+    """Read the child's protocol payload out of its stdout.
+
+    The matching rule is deliberately unchanged and deliberately strict: a
+    payload is a LINE beginning with the marker, and the LAST such line wins.
+    Last-wins is what makes a module printing the marker string itself -- a
+    test covering this protocol, a log echoing it -- harmless rather than
+    authoritative: the child emits its own marker after the module has
+    finished, so a module's copy can only ever appear earlier.
+    """
     marker = "__ORGTREE_VERIFY_RESULT__"
     lines = stdout.splitlines()
-    protocol = next((line[len(marker):] for line in reversed(lines) if line.startswith(marker)), None)
-    if protocol is None:
+    index = next((position for position in range(len(lines) - 1, -1, -1)
+                  if lines[position].startswith(marker)), None)
+    if index is None:
         return None, stdout, {}
     try:
-        payload = json.loads(protocol)
-        return payload.get("marker"), "\n".join(line for line in lines if not line.startswith(marker)), payload.get("import_provenance", {})
+        payload = json.loads(lines[index][len(marker):])
     except json.JSONDecodeError:
         return None, stdout, {}
+    # The child writes exactly one newline before its marker. When the module's
+    # own output already ended in a newline that separator shows up as an empty
+    # line, and reporting it would make every already-parsing run gain a
+    # trailing blank line. Drop that one line, and only that one: when the
+    # module's last write was unterminated, lines[index - 1] is the module's
+    # own text and must survive.
+    dropped = {index}
+    if index and not lines[index - 1]:
+        dropped.add(index - 1)
+    clean = [line for position, line in enumerate(lines)
+             if position not in dropped and not line.startswith(marker)]
+    return payload.get("marker"), "\n".join(clean), payload.get("import_provenance", {})
 
 
 def _cleanup(path: Path) -> list[str]:
