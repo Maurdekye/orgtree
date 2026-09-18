@@ -35,7 +35,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Final, Literal, cast
 
 from . import (clipin, deployment, events, events_render, lifecycle,
-               opreceipts, workfields)
+               opreceipts, toolmarkup, workfields)
 from .schema import (AudienceGrant, DirGrant, FrozenInfo, MailEntry, NodeDoc,
                      NoticeEntry, NoticeLogEntry, OrgDoc, OrgInboxEntry, ToolGrant,
                      UserMailEntry, WorkActor, WorkItem, WorkScopeRecord,
@@ -477,6 +477,33 @@ def _prose(value: Any) -> str:
     """A LOSSLESS docket field: trimmed at the ends, kept entire. See
     `workfields.prose` — and never add a slice to a call site of this."""
     return workfields.prose(value)
+
+
+def _description(field: str, value: Any) -> str:
+    """The item's DESCRIPTION: lossless, and refused if it carries raw
+    tool-call framing markup.
+
+    `_prose` plus `toolmarkup.assert_clean`, with the refusal re-raised as the
+    `LedgerError` every caller of this module already handles — exactly the
+    shape `_bounded` uses for an over-length field, and for the same reason.
+    This is a REFUSAL, not a repair: the docket does not quietly rewrite
+    somebody's specification, and an agent whose text was silently altered
+    learns nothing about why.
+
+    ⚠ SAME PLACEMENT RULE AS `_bounded`: call it before the first mutation. The
+    promise that a refused description leaves no item change, no history row,
+    no scope row and no mail is a promise about WHERE this runs.
+
+    It cannot prevent the defect — the text is already malformed when it
+    arrives, because the markup is emitted by the caller's own tool-call
+    framing (see `toolmarkup`). What it prevents is storing it in silence.
+    """
+    text = workfields.prose(value)
+    try:
+        toolmarkup.assert_clean(field, text)
+    except toolmarkup.MarkupLeakError as e:
+        raise LedgerError(str(e)) from None
+    return text
 
 
 def now() -> str:
@@ -13690,7 +13717,7 @@ class Org:
         # blob, the wire copies the field verbatim and the renderer folds long
         # prose rather than cutting it, so nothing downstream needs a bound.
         # Only whitespace at the ends is touched.
-        obj = _prose(objective)
+        obj = _description("objective", objective)
         if not obj:
             raise LedgerError(
                 "a work item needs a description in `objective` — state the "
@@ -14195,7 +14222,7 @@ class Org:
                 # addition that arrived as mail). Re-typing the whole
                 # description by hand to add a paragraph is how the original
                 # wording gets quietly lost.
-                addition = _prose(objective_append)
+                addition = _description("objective_append", objective_append)
                 if not addition:
                     raise LedgerError(
                         "`objective_append` adds text to the end of the "
@@ -14217,7 +14244,7 @@ class Org:
                 # `work_create` — an edit that silently dropped the tail would
                 # turn "I completed the spec" into a shorter spec that still
                 # looks whole.
-                newobj = _prose(objective)
+                newobj = _description("objective", objective)
                 if not newobj:
                     raise LedgerError(
                         "the description (`objective`) may be rewritten but not "
