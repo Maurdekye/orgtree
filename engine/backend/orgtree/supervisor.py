@@ -4226,6 +4226,68 @@ def _transcript_root(org: Org, nid: str | None = None, *,
     return None
 
 
+#: ⚠ THE AGENT CLI'S FOREGROUND COMMAND CEILING (user ruling 2026-09-18).
+#:
+#: 25 minutes, in MILLISECONDS, because that is the unit the variable is
+#: named for and reads in.
+#:
+#: ⚠ WHY 25 AND NOT 30, WHICH IS THE OBVIOUS ROUND NUMBER TO DRIFT TO. The
+#: value comes from PROVIDER PROMPT-CACHE WINDOWS, not from the suite's
+#: runtime. A long foreground command holds the agent's turn open for its whole
+#: duration; if that can outlast the provider's prompt-cache TTL, the agent
+#: resumes into a cold cache and pays full price to re-read its entire context
+#: on that turn and arguably every turn after it. So the ceiling has to fit
+#: inside the SHORTEST cache window any lane here has, which is Codex at 30
+#: minutes (Claude's is 60, so it is not the constraint). 25 minutes sits
+#: inside the Codex window with five minutes of grace.
+#:
+#: Which means BOTH directions are wrong. Rounding UP to 30 puts the ceiling
+#: exactly on the edge of the Codex window, and that failure is invisible at
+#: the call site and expensive on every turn afterwards. Trimming DOWN to
+#: "just over the 675 s the suite takes" is equally wrong: the headroom over
+#: the suite is a side effect of the cache arithmetic, not the reason for the
+#: number. (User, 2026-09-18: "the 25 minute timeout is intentionally within
+#: the bounds of cache limits for both codex and claude, with an extra 5
+#: minute grace period.")
+#:
+#: WHY IT EXISTS. `node tools/test-baseline.mjs compare --suite python-backend`
+#: is the run every agent here is told to quote before landing a change, and it
+#: takes 675 s — measured twice on an idle machine, 2026-09-18. The Claude Code
+#: harness caps a foreground shell command at 600 s by default, so that run
+#: could not complete in a plain foreground call: agents had to background it
+#: and poll, which is the pattern the house rules tell them not to use, and
+#: several lost whole sessions to runs that were killed at a turn boundary
+#: before producing a verdict.
+#:
+#: WHY THE CEILING MOVED RATHER THAN THE SUITE. Raising concurrency was
+#: measured and does nothing: 11m15s at 4 and 11m10s at 12, because
+#: `runPythonSuite` never passes the flag on and `run-python-verification.py`
+#: has no parallelism to receive it. It is sequential BY DESIGN — one
+#: interpreter and one ORGTREE_DATA per module — and that isolation is the
+#: reason the suite's results are worth quoting at all. 675 s is what correct
+#: isolation costs, so the limit moves instead of the isolation.
+#:
+#: ⚠ THIS IS THE CEILING, NOT THE DEFAULT. `BASH_MAX_TIMEOUT_MS` raises the
+#: largest timeout an agent may ASK FOR; `BASH_DEFAULT_TIMEOUT_MS` is what it
+#: gets when it asks for nothing, and that one is deliberately left alone. A
+#: 25-minute default would mean every hung command — an interactive prompt, a
+#: wedged installer — costs 25 minutes of an agent's turn instead of two. The
+#: long runs that need it are known in advance and pass the timeout explicitly.
+#:
+#: ⚠ CLAUDE LANE ONLY, and that is a finding rather than an omission. Surveyed
+#: 2026-09-18 against the shipped binaries: the Codex CLI exposes no
+#: shell-timeout environment variable at all (its only TIMEOUT env names are
+#: OpenTelemetry exporter settings; its shell limit is the config.toml key
+#: `background_terminal_max_timeout` and a per-call `timeout_ms` argument), and
+#: the Gemini CLI reads no timeout variable from the environment either. There
+#: is nothing to set on those lanes, so they are not silently left unset — they
+#: have no such control to set.
+#:
+#: A single node can still override this through `env_overrides` (the name is
+#: not on that function's refused list), which is what that knob is for.
+AGENT_BASH_MAX_TIMEOUT_MS = "1500000"
+
+
 def clean_env() -> dict[str, str]:
     env = dict(os.environ)
     for k in list(env):
@@ -4259,6 +4321,10 @@ def clean_env() -> dict[str, str]:
     env.pop("CLAUDE_CONFIG_DIR", None)
     env.pop("CODEX_HOME", None)
     env.pop("ORGTREE_ACCOUNT_ID", None)
+    # Set, not defaulted: whatever the HOST happens to have is not the ceiling
+    # this org's agents should run under, and an inherited lower value would be
+    # the silent-switch failure the strips above exist to prevent.
+    env["BASH_MAX_TIMEOUT_MS"] = AGENT_BASH_MAX_TIMEOUT_MS
     from . import devguard
     return devguard.child_env(env)
 

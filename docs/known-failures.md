@@ -223,13 +223,44 @@ Same two suites, same coverage; the only change is that a known failure is
 acquitted by name and a new one still blocks.
 
 **One gate per suite, and never a bare `compare`.** A bare `compare` runs all
-three registered suites, and `python-backend` alone takes 9.9 minutes — that is
-its own recorded `duration_ms`, not an estimate — which puts the single command
-past the 600-second ceiling a foreground command is killed at here. Split per
-suite it was 63s and 80s, measured 2026-09-17 on `5f3a172`. Both invariants are
-pinned in `tests/release-verification.test.mjs` so that folding the gates back
-together, or dropping `--suite`, fails a test rather than quietly reintroducing a
-ten-minute command that cannot finish.
+three registered suites, and `python-backend` alone takes about 11 minutes —
+675 seconds, measured twice on an idle machine 2026-09-18; its recorded
+`duration_ms` of 9.9 minutes is the optimistic end of the range. Split per
+suite the other two were 63s and 80s, measured 2026-09-17 on `5f3a172`. Both
+invariants are pinned in `tests/release-verification.test.mjs` so that folding
+the gates back together, or dropping `--suite`, fails a test rather than
+quietly changing what the release gate measures.
+
+> ⚠ **The 600-second foreground ceiling this section used to cite is no longer
+> the limit** (user ruling 2026-09-18). Orgtree now spawns agent processes with
+> `BASH_MAX_TIMEOUT_MS=1500000` — 25 minutes — set in
+> `supervisor.clean_env()`, because the run every agent is told to quote before
+> landing a change could not finish inside 600 s. **So
+> `node tools/test-baseline.mjs compare --suite python-backend` is now an
+> ordinary foreground command: run it and wait for it.** It does not need to be
+> backgrounded and polled, and the first-letter chunking some agents invented
+> for it is no longer necessary. Pass the timeout explicitly — the raised number
+> is the *ceiling* an agent may ask for, not the default it gets for free.
+>
+> Raising concurrency is not an alternative and has been measured rather than
+> assumed: 11m15s at `--concurrency 4` and 11m10s at 12, because the flag never
+> reaches `run-python-verification.py`, which is sequential by design — one
+> interpreter and one `ORGTREE_DATA` per module. That isolation is why the
+> suite's results are worth quoting, so the ceiling moved instead of the suite.
+>
+> Claude lane only: surveyed 2026-09-18 against the shipped binaries, neither
+> the Codex CLI nor the Gemini CLI reads any shell-timeout environment
+> variable, so there is nothing equivalent to set on those lanes.
+>
+> **Do not round 25 minutes up to 30.** The value is set by provider
+> prompt-cache windows, not by the suite's runtime. A long foreground command
+> holds the turn open for its whole duration, and a turn that outlasts the
+> prompt-cache TTL resumes into a cold cache and re-reads its whole context at
+> full price. The shortest window here is Codex at 30 minutes, so 25 leaves
+> five minutes of grace; 30 would sit exactly on the edge, and that failure is
+> invisible where it is caused. Trimming it down toward the suite's 675s is
+> wrong for the same reason — the headroom is a consequence of the cache
+> arithmetic, not the point of it.
 
 `python-backend` is not in the `full` profile and was not added by this change;
 it would cost ten minutes per verification and `full` never covered it.

@@ -67,13 +67,23 @@ test('the full profile classifies failures against the baseline instead of runni
   }
 })
 
-test('each full gate names exactly one suite — a bare compare cannot finish in one command', () => {
-  // ⚠ This is a TIMING invariant, not a style one. A bare `compare` runs all
-  // three registered suites, and `python-backend` alone takes 9.9 minutes
-  // (measured; it is in the baseline's own duration_ms), which puts the single
-  // command past the 600s ceiling a foreground command is killed at. Split per
-  // suite it was 63s and 80s, measured 2026-09-17. Dropping `--suite`, or
-  // folding both gates into one, brings that ceiling straight back.
+test('each full gate names exactly one suite', () => {
+  // ⚠ RENAMED 2026-09-18, because the old name asserted something that has
+  // stopped being true. It read "a bare compare cannot finish in one command",
+  // and the reason given was the 600s ceiling a foreground command was killed
+  // at. That ceiling is now 25 minutes — orgtree spawns agents with
+  // BASH_MAX_TIMEOUT_MS=1500000 (supervisor.clean_env, user ruling
+  // 2026-09-18) — and a bare compare is roughly 675 + 63 + 80 ≈ 820s, which
+  // fits. A test name that states a false fact is worse than no comment.
+  //
+  // THE INVARIANT STAYS, on its own merits rather than on the timing: one gate
+  // per suite is what lets a known failure be acquitted by name and a new one
+  // still block, and it is what makes a red gate say which suite went red.
+  // Dropping `--suite`, or folding both gates into one, loses that.
+  //
+  // Timings for whoever needs them: python-backend 675s, measured twice on an
+  // idle machine 2026-09-18 (its recorded duration_ms of 9.9 minutes is the
+  // optimistic end); the other two 63s and 80s, measured 2026-09-17.
   const baseline = JSON.parse(fs.readFileSync(path.resolve('docs/test-baseline.json'), 'utf8'))
   for (const check of fullChecks()) {
     const suiteFlags = check.command.filter(argument => argument === '--suite')
