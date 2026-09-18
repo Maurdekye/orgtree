@@ -681,10 +681,15 @@ def dependency_setup(worktree: str, *, package_manager: str | None = None,
         if apply:
             if os.name != "nt":
                 raise ValueError("junction setup is supported on Windows only")
+            # encoding/errors as the three sibling call sites above: without
+            # them `text=True` decodes with the ambient code page, and one byte
+            # it has no character for kills the reader thread, leaves stderr
+            # None, and turns a reportable git failure into an AttributeError.
             result = subprocess.run(link["command"], check=False,
-                                    capture_output=True, text=True)
+                                    capture_output=True, text=True,
+                                    encoding="utf-8", errors="replace")
             if result.returncode:
-                raise RuntimeError(result.stderr.strip() or "dependency junction creation failed")
+                raise RuntimeError((result.stderr or "").strip() or "dependency junction creation failed")
             if not is_reparse(destination):
                 raise RuntimeError("dependency junction was not created; refusing to continue")
             link["applied"] = True

@@ -145,10 +145,17 @@ def repo_commit(repo_root: object) -> tuple[str | None, bool | None, str | None]
     repo = str(repo_root)
 
     def _git(*args: str) -> str:
-        return subprocess.run(
+        # encoding/errors explicitly: `text=True` alone decodes with the ambient
+        # code page, so a path in `git status` holding a byte that code page has
+        # no character for would kill the reader thread and leave stdout None --
+        # and `.strip()` on that raises an AttributeError no handler here
+        # catches. The guard must not fail for a reason unrelated to provenance.
+        captured = subprocess.run(
             ("git", "-C", repo, *args),
             check=True, capture_output=True, text=True, timeout=30,
-        ).stdout.strip()
+            encoding="utf-8", errors="replace",
+        ).stdout
+        return (captured or "").strip()
 
     try:
         sha = _git("rev-parse", "HEAD")
