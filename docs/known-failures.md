@@ -476,6 +476,87 @@ Everything else is listed in each suite's `excluded` array and reprinted by
 - **renderer probe scripts** (`*_probe.py`, `*-probe.tsx`, `*.probe.ts`) — driven
   by hand or by a native probe runner, not by `run.mjs`.
 
+### A probe that lives outside the checkout: `tools/assert_repo_import.py`
+
+Everything above protects `tests/test_*.py`. It does not reach the other half of
+the problem: a benchmark or one-off probe in an agent's scratch folder, which
+lives outside the repository and reaches into it by hand.
+
+```python
+sys.path.insert(0, os.path.join(REPO, "engine", "backend"))
+from orgtree import store
+```
+
+That pattern is correct and it wins **while `REPO` is right**. The defect is what
+happens when it is wrong -- a typo, a shell-quoting slip, a worktree that was
+removed after the script was written. The insert then points at nothing, a
+fallback answers instead, and **no `ImportError` is raised**. The probe measures
+the wrong code and prints a plausible number. Two arms of a real performance A/B
+were lost to exactly this; the only thread that caught it was an empty
+provenance field in a result file.
+
+There are three fallbacks on this machine, not one:
+
+| fallback | reaches you when | what answers `import orgtree` |
+| --- | --- | --- |
+| `PYTHONPATH` | any bare `python` | `C:\Program Files\Orgtree\resources\engine\backend` |
+| the packaged runtime's `python313._pth` | `-I`, or any launch of the installed `python.exe` | the same installed backend |
+| **the runtime's `../backend`, from a worktree** | any bare run using this checkout's `engine/runtime/python.exe` | **the MAIN checkout** -- `engine/runtime/` is gitignored, so a worktree has no interpreter of its own and the `_pth` resolves relative to the main tree |
+
+The third one is the reason an A/B between two worktrees can measure the same
+code twice. It is also invisible: both arms run, both report, neither errors.
+
+Two lines at the top of the probe close all three:
+
+```python
+sys.path.insert(0, os.path.join(REPO, "tools"))
+from assert_repo_import import assert_repo_import
+provenance = assert_repo_import(REPO)      # raises, loudly, if it is wrong
+from orgtree import store                  # now provably this checkout
+...
+provenance.write_result(out, {"ms": 8.2})  # result carries a non-empty sha
+```
+
+It proves `REPO` is really a checkout before importing anything, places the same
+two roots the sanctioned runner uses, reads back each module's own `__file__`,
+and requires that origin to be exactly where the module's dotted name says it
+should be -- containment under the repo root is not enough, because a worktree
+is *inside* the main root. On success it prints a receipt:
+
+```text
+provenance OK: repo E:\...\orgtree @ aba2439ae354
+provenance OK: orgtree <- E:\...\orgtree\engine\backend\orgtree\__init__.py
+```
+
+The receipt is the point. A guard that is silent when it passes cannot be told
+apart from a guard that was never called, which is the failure class this whole
+family exists to close. It goes to stderr so a probe's JSON stdout stays clean.
+
+It also refuses to hand back provenance it cannot tie to a commit, so
+`write_result` cannot produce the empty field that was the only warning last
+time. `--allow-missing-commit` exists for a tree with no git, and it records
+*why* the sha is absent rather than leaving a blank.
+
+From the shell, which is also how both directions are demonstrated:
+
+```text
+python tools/assert_repo_import.py --repo <path> [--result out.json] [names...]
+```
+
+Exit 0 with the receipt, or exit 2 with `IMPORT PROVENANCE FAILED` and no result
+file. `tests/test_assert_repo_import.py` drives real subprocesses for both
+directions and carries its own negative control -- it proves that *without* the
+guard the same wrong path still resolves `orgtree` somewhere else with no error,
+so if the hazard ever stops reproducing the suite says so instead of quietly
+testing nothing.
+
+**This one repairs `sys.path`; `tests/import_provenance.py` deliberately does
+not.** That is not an inconsistency. A test module has a sanctioned runner that
+places the roots for it, so quietly making a bare run work would hide the defect.
+A scratch probe has nothing else, so placing the roots is the job -- and it
+happens only after the root has been proven real. Pass `insert_path=False` for
+the refusing behaviour.
+
 ### How the renderer suite is captured
 
 Worth knowing, because it looks impossible at first: `run.mjs` spawns node's test
