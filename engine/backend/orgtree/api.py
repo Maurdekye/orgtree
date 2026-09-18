@@ -6160,7 +6160,12 @@ def work_item_reply(slug: str, wid: str, body: WorkReply,
             # A successful user reply acknowledges manual attention without
             # taking the explicit-dismissal path (which blocks the item).
             # Attached questions deliberately keep attention active.
-            org.work_clear_attention_on_user_reply(wid)
+            #
+            # ⚠ THE REPLY TEXT GOES WITH IT (W-flag-question). The clearing row
+            # used to carry a bare `set_rev`, so answering a flag destroyed the
+            # question it answered; passing `text` here is what puts the ruling
+            # and the thing it ruled on together on one row that `get` serves.
+            org.work_clear_attention_on_user_reply(wid, text)
             store.save_org(org)
         except LedgerError as e:
             raise HTTPException(422, str(e))
@@ -6862,7 +6867,15 @@ _WORK_ACTION_ARGS: dict[str, frozenset[str]] = {
     "update": _WORK_UPDATE_ARGS,
     "addendum": frozenset({"note", "done_so_far", "working_on_next",
                            "keep_done", "keep_next", "done_append",
-                           "next_append", "expected_rev"}),
+                           "next_append", "expected_rev",
+                           # W-flag-clear: retract or amend the manual attention
+                           # flag on finished work. `attention: true` reaches
+                           # the ledger and is refused there — it is READ by
+                           # this action, which is what this list records, and
+                           # dropping it here would make the refusal look like
+                           # an unknown argument instead of a deliberate one.
+                           "attention", "attention_amend",
+                           "attention_reason"}),
     "assign": frozenset({"owner"}),
     "handoff": frozenset({"target", "reason"}),
     "review": frozenset({"decision", "note", "candidate", "candidate_sha",
@@ -7476,10 +7489,15 @@ def _work_mutate_action(org: Org, nid: str, a: dict[str, Any],
     if act == "addendum":
         # ---- THE POST-COMPLETION CORRECTION (W-post-done). Deliberately a
         # DIFFERENT action rather than a flag on `update`: everything `update`
-        # can do — move the status, raise attention, reopen, reassign — is
+        # can do — move the status, RAISE attention, reopen, reassign — is
         # unreachable from here, so a completed item has no route through this
-        # call back to being incomplete. The two lists and the required note
-        # are the whole of its surface.
+        # call back to being incomplete.
+        #
+        # ⚠ W-flag-clear WIDENED IT BY EXACTLY ONE THING, in the one direction
+        # that cannot make a finished item unfinished: taking an attention flag
+        # DOWN, or editing the text of the one standing. Raising a new one is
+        # still refused (in the ledger, with a message that says why), so the
+        # property above is unchanged.
         return org.work_addendum(
             nid, wid, str(a.get("note") or ""),
             a.get("done_so_far"), a.get("working_on_next"),
@@ -7488,7 +7506,17 @@ def _work_mutate_action(org: Org, nid: str, a: dict[str, Any],
             done_append=a.get("done_append"),
             next_append=a.get("next_append"),
             expected_rev=(None if a.get("expected_rev") is None
-                          else _arg_int(a, "expected_rev", -1)))
+                          else _arg_int(a, "expected_rev", -1)),
+            # ⚠ TRISTATE, NOT A FLAG. `_arg_flag` would fold an absent
+            # `attention` and an explicit `attention: false` into the same
+            # False, and those are the two cases this whole feature is about
+            # telling apart — absent means "do not touch the flag" and false
+            # means "take it down".
+            attention=(None if a.get("attention") is None
+                       else _arg_flag(a, "attention")),
+            attention_amend=_arg_flag(a, "attention_amend"),
+            attention_reason=(None if a.get("attention_reason") is None
+                              else str(a.get("attention_reason"))))
     if act == "assign":
         return org.work_assign(nid, wid, str(a.get("owner") or ""))
     if act in ("handoff", "handoff_request"):

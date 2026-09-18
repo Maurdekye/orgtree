@@ -13509,6 +13509,46 @@ class Org:
         return self._work_list_room(stored, name, " already stored")
 
     @staticmethod
+    def _work_attention_archive(flag: Mapping[str, Any]) -> dict[str, Any]:
+        """The fields a CLEARING record keeps of the flag it is taking down.
+
+        ⚠ THE DEFECT THIS ENDS (W-flag-question, reported 2026-09-18). A manual
+        attention flag is one of only two channels to the user, and it is the
+        one used specifically when an agent went beyond the stated spec, chose
+        an edge case, or filled a definition gap — exactly the decisions a later
+        reader most needs the context for. Every route that took a flag down
+        set `manual_attention = None` and recorded a bare `set_rev`, so the
+        ANSWER survived on the item and the QUESTION did not. An agent
+        compacted between the raise and the answer woke to the two words "yea do
+        that" attached to nothing, and recovered the wording only by
+        hand-parsing 1.9 MB of its own transcript. A reader without that
+        transcript had a ruling and no way to know what it ruled on.
+
+        There are FOUR routes that clear a flag — a user reply, a user
+        dismissal, an agent's ordinary status update, and an agent's retraction
+        on finished work — and this returns the same block for all of them, so
+        no route can be fixed while another keeps losing the text. It is
+        deliberately a dict to splat into a history row rather than a value: a
+        row that carries the reason under a different name on each route is the
+        same defect wearing a different shape.
+
+        THE FINAL TEXT, not the whole drafting history. `attention_amend`
+        already writes its own row carrying `from` and `to`, so superseded
+        wordings are durable where they happened; what was missing, and what
+        this keeps, is the sentence the user was actually looking at."""
+        reason = str(flag.get("reason") or "")
+        out: dict[str, Any] = {"reason": reason,
+                               "raised_at": flag.get("at"),
+                               "raised_by": flag.get("by")}
+        if flag.get("amended_at"):
+            # the flag the user read was not the one first raised, and a reader
+            # comparing this text against the raise would otherwise find a
+            # mismatch it could not explain
+            out["amended_at"] = flag.get("amended_at")
+            out["amended_by"] = flag.get("amended_by")
+        return out
+
+    @staticmethod
     def _work_attention_repeat_guard(it: WorkItem, reason: str) -> None:
         """A reason the user has already DISMISSED may not come back unchanged
         — whether it arrives as a fresh raise or as an amendment of the flag
@@ -14522,7 +14562,14 @@ class Org:
             # above. So an amending update never falls through to the clear.
             it["manual_attention"] = None
             changes["manual_attention"] = {"cleared_set_rev": prev.get("set_rev"),
-                                           "by": "status update"}
+                                           "by": "status update",
+                                           # the text that came down, kept on
+                                           # the row that took it down
+                                           # (W-flag-question) — this is the
+                                           # QUIETEST of the four clearers, and
+                                           # was the only one that left no
+                                           # trace of the sentence at all
+                                           **self._work_attention_archive(prev)}
         self._work_hist(it, actor, "update",
                         {"changes": changes, "done": len(done), "next": len(nxt)})
         self._work_stamp_docket(it, actor)
@@ -14664,15 +14711,60 @@ class Org:
                       done_so_far: Any = None, working_on_next: Any = None, *,
                       keep_done: bool = False, keep_next: bool = False,
                       done_append: Any = None, next_append: Any = None,
-                      expected_rev: int | None = None) -> dict[str, Any]:
-        """Correct or extend a CLOSED item's progress lists, in place.
+                      expected_rev: int | None = None,
+                      attention: bool | None = None,
+                      attention_amend: bool = False,
+                      attention_reason: str | None = None) -> dict[str, Any]:
+        """Correct or extend a CLOSED item's progress lists, in place — and
+        RETRACT OR AMEND the manual attention flag standing on it.
 
-        THE ONE THING IT CHANGES is the pair of summary lists, plus the
-        `post_completion` stamp that says they were changed after the outcome.
-        The item keeps its status, its acceptance record, its checks, its
-        evidence, its verdicts and its owner. It does not archive, un-archive,
-        or move in the list: an addendum is a correction to a finished record,
-        not activity on live work.
+        THE TWO THINGS IT CHANGES are the pair of summary lists, plus the
+        `post_completion` stamp that says they were changed after the outcome,
+        and the manual attention flag. The item keeps its status, its acceptance
+        record, its checks, its evidence, its verdicts and its owner. It does
+        not archive, un-archive, or move in the list: an addendum is a
+        correction to a finished record, not activity on live work.
+
+        ---- THE FLAG (W-flag-clear). The charter tells every agent that a stale
+        attention flag is theirs to withdraw, and on a finished item that
+        instruction used to be impossible to obey: `update` is refused on a
+        closed item, `attention_amend` is an argument to `update` and so
+        unreachable for the same reason, and the one route that did clear the
+        flag — `reopen=true` carrying `done` — CLEARS THE ACCEPTANCE RECORD to
+        remove one stale sentence. An agent hit exactly that on
+        2026-09-18, judged the trade not worth making, and correctly left a
+        sentence the team had already disproved standing on the user's screen.
+
+        A flag is MOST likely to have gone stale precisely on finished work: the
+        work concluded, the picture changed, and the reason that justified
+        interrupting the user stopped holding. `orgtree_ask` has
+        `orgtree_withdraw_ask` for the same situation; the manual flag now has
+        this.
+
+        · `attention=False` RETRACTS the standing flag. The required `note` IS
+          the retraction reason — there is no second reason field, because two
+          reasons on one act is how the durable one ends up blank.
+        · `attention_amend=True` with `attention_reason` edits the standing
+          flag's text in place, keeping its `set_rev`, exactly as `work_update`
+          does — so it is not a second raise and mints no new notification edge.
+        · `attention=True` is REFUSED. This path exists to take a flag DOWN on
+          finished work; raising a new demand on the user's attention from a
+          record that says the work is over is a different act, and the narrow
+          surface that keeps a completed item completed is worth more than the
+          convenience.
+
+        Either operation is REFUSED when no flag is standing, and refused when
+        it would be the only way around a dismissal: the amend runs the same
+        `_work_attention_repeat_guard` an update does.
+
+        ⚠ WHAT A USER DISMISSAL ALREADY DID (recorded here because the answer is
+        not obvious and the question comes back). `work_dismiss_attention` takes
+        the flag DOWN itself and moves the item to `blocked`, un-archiving it if
+        it was archived. So after a dismissal there is no flag to retract and
+        the item is no longer closed: this path refuses on both counts, and that
+        is correct rather than a gap. A retraction is an agent withdrawing its
+        OWN standing question; a dismissal is the user rejecting it, and the
+        `dismissals` record of that is sealed below like any other outcome.
 
         ⚠ IT TOUCHES ONLY THE LISTS YOU NAME, and that is the deliberate
         difference from `work_update`. An update states the COMPLETE current
@@ -14685,9 +14777,13 @@ class Org:
         clearing one is said outright (`working_on_next: []`).
 
         A call must therefore CHANGE something: an addendum whose materialized
-        lists equal the stored ones is refused rather than written, because a
-        stamp saying a finished item was amended, on an item that was not, is
-        exactly the kind of false record this whole path is about.
+        lists equal the stored ones, AND which does nothing to the flag, is
+        refused rather than written, because a stamp saying a finished item was
+        amended, on an item that was not, is exactly the kind of false record
+        this whole path is about. An attention operation is a change, so a
+        retraction on its own needs no list argument at all — and it stamps no
+        `post_completion`, because that stamp says the SUMMARY was corrected and
+        a retraction corrects no summary.
 
         `note` is required and is the durable reason — the history row and the
         stamp both carry it entire. Anyone who may read the item may write
@@ -14720,6 +14816,62 @@ class Org:
                 f"It is the durable reason the finished summary changed, and "
                 f"it is what a later reader has instead of guessing why a "
                 f"{status} item's text is not the text that was accepted")
+        # ---- THE FLAG OPERATION, decided here and written nowhere yet. Every
+        # refusal in this block lands before the first mutation, for the same
+        # reason `work_update` moved its own attention checks to the top: a
+        # refused flag argument that has already rewritten the summary lists
+        # leaves the caller with half of a call it was told did not happen.
+        att_op: str | None = None
+        standing = cast("dict[str, Any] | None", it.get("manual_attention"))
+        if attention is True:
+            raise LedgerError(
+                "an addendum can take an attention flag DOWN on finished work "
+                "(attention: false) or edit the one standing (attention_amend) "
+                "— it cannot RAISE one. A finished item asking for the user's "
+                "attention for the first time is a resumption of the work, not "
+                "a correction to its record: reopen it with `update` and raise "
+                "the flag there. NOTHING WAS WRITTEN")
+        if attention is False and attention_amend:
+            raise LedgerError(
+                "`attention: false` RETRACTS the flag and `attention_amend` "
+                "rewrites the text of the one still standing — they are "
+                "opposite acts. Pass one or the other. NOTHING WAS WRITTEN")
+        if attention_amend:
+            att_op = "amend"
+        elif attention is False:
+            att_op = "retract"
+        if att_op and not standing:
+            raise LedgerError(
+                f"{wid} has no manual attention flag standing, so there is "
+                f"nothing to {att_op}. ⚠ A flag the USER DISMISSED is already "
+                f"down — the dismissal clears it and moves the item to "
+                f"`blocked` — so there is never anything for this path to "
+                f"retract afterwards, and the dismissal record stays. If you "
+                f"mean to correct the summary instead, pass done_so_far / "
+                f"working_on_next. NOTHING WAS WRITTEN")
+        att_reason: str | None = None
+        if att_op == "retract":
+            if attention_reason is not None:
+                raise LedgerError(
+                    "a retraction carries ONE reason and it is the `note` this "
+                    "call already requires — say there why the flag no longer "
+                    "holds. `attention_reason` is the text OF a flag, so "
+                    "sending it alongside `attention: false` would be writing "
+                    "the reason for a flag you are taking down. NOTHING WAS "
+                    "WRITTEN")
+        elif att_op == "amend":
+            if not str(attention_reason or "").strip():
+                raise LedgerError(
+                    "attention_amend needs a nonblank attention_reason — it "
+                    "REPLACES the text the user is currently reading, so an "
+                    "empty one would blank the question rather than sharpen "
+                    "it. To take the flag down instead, pass attention: false "
+                    "with the reason in `note`. NOTHING WAS WRITTEN")
+            att_reason = _bounded("attention_reason", attention_reason)
+            # the same guard `work_update` runs, for the same reason: amending
+            # must not become the way to put a dismissed sentence back in front
+            # of somebody who already rejected it
+            self._work_attention_repeat_guard(it, att_reason)
         # ---- THE LISTS. Named ones are materialized through the same helper
         # `work_update` uses (whole / keep / append, with the same expected_rev
         # requirement on the patch forms); unnamed ones are carried forward
@@ -14737,23 +14889,30 @@ class Org:
             touched.append(name)
             lists[name] = self._work_patch_list(it, name, supplied, keep,
                                                 append, expected_rev)
-        if not touched:
+        if not touched and not att_op:
             raise LedgerError(
                 "an addendum needs a list to correct: pass done_so_far or "
                 "working_on_next (or done_append / next_append / keep_done / "
                 "keep_next). ⚠ UNLIKE `update`, a list you do not name is kept "
                 "as it stands — on finished work the half you did not mention "
                 "is a record somebody accepted, so clearing one is said "
-                "outright with an empty list. NOTHING WAS WRITTEN")
+                "outright with an empty list. To take an attention flag down "
+                "instead and leave the summary alone, pass attention: false. "
+                "NOTHING WAS WRITTEN")
         done, nxt = lists["done_so_far"], lists["working_on_next"]
-        if not done and not nxt:
+        was_done = [str(x) for x in (it.get("done_so_far") or [])]
+        was_next = [str(x) for x in (it.get("working_on_next") or [])]
+        # ⚠ WHETHER THE SUMMARY REALLY MOVED, not whether a list was NAMED. The
+        # stamp and the history row below both claim the summary was corrected,
+        # so both key on this rather than on `touched`: a call that names a list
+        # with the text already stored and retracts a flag corrected nothing.
+        lists_changed = (done != was_done or nxt != was_next)
+        if touched and not done and not nxt:
             raise LedgerError(
                 "an addendum may not empty both lists — a finished item with "
                 "no summary at all is worse than the frozen one this corrects. "
                 "NOTHING WAS WRITTEN")
-        was_done = [str(x) for x in (it.get("done_so_far") or [])]
-        was_next = [str(x) for x in (it.get("working_on_next") or [])]
-        if done == was_done and nxt == was_next:
+        if not lists_changed and not att_op:
             raise LedgerError(
                 "this addendum changes neither list, so there is nothing to "
                 "record — and stamping a finished item as amended when it was "
@@ -14763,36 +14922,92 @@ class Org:
         # the first write. The body below has no expression for changing any of
         # it; this is the guard that keeps that true as the method is edited,
         # rather than a claim in a docstring nobody re-checks.
+        #
+        # ⚠ `manual_attention` LEAVES THE SEAL ONLY WHEN THIS CALL ASKED FOR A
+        # FLAG OPERATION, and it is the ONLY field that ever does. That is the
+        # whole of what W-flag-clear widened: a call carrying no attention
+        # argument is sealed exactly as tightly as it was before, and a call
+        # that does carry one is still sealed against status, acceptance,
+        # evidence, the summaries' owner, both clocks — and against the
+        # `dismissals` record, so retracting a flag can never be a way to erase
+        # the fact that the user rejected an earlier one.
         sealed = ("status", "accepted", "acceptance", "evidence",
                   "candidate_verdict", "candidate_verdicts", "review_packet",
                   "review_packets", "superseded_by", "dropped_reason",
                   "docket_at", "status_at", "last_updater", "owner",
-                  "archived_at", "manual_attention")
+                  "archived_at", "manual_attention",
+                  "dismissals", "manual_attention_rev", "blocked_reason")
+        if att_op:
+            sealed = tuple(k for k in sealed if k != "manual_attention")
         before = {k: json.dumps(it.get(k), sort_keys=True, default=str)
                   for k in sealed}
         it["done_so_far"] = done
         it["working_on_next"] = nxt
-        prior = cast("dict[str, Any]", it.get("post_completion") or {})
         accepted = cast("dict[str, Any]", it.get("accepted") or {})
-        stamp = {"count": int(prior.get("count") or 0) + 1,
-                 "at": now(), "by": self._work_actor(actor),
-                 "status": status, "note": reason,
-                 # the completion this addendum came AFTER, so the ordering is
-                 # readable without walking history
-                 "accepted_at": accepted.get("at") or None,
-                 "first_at": prior.get("first_at") or now()}
-        it["post_completion"] = stamp
-        # ⚠ THE HISTORY ROW CARRIES THE LISTS AS THEY WERE. This is the only
-        # place the summary that was accepted survives once it is corrected,
-        # and losing it would make the correction unauditable — which is the
-        # failure mode of the route this replaces, arriving one step later.
-        self._work_hist(it, actor, "addendum",
-                        {"status": status, "note": reason,
-                         "touched": list(touched),
-                         "after_completion": True,
-                         "accepted_at": accepted.get("at") or None,
-                         "done_was": was_done, "next_was": was_next,
-                         "done": len(done), "next": len(nxt)})
+        stamp = cast("dict[str, Any] | None", it.get("post_completion"))
+        if lists_changed:
+            prior = cast("dict[str, Any]", it.get("post_completion") or {})
+            stamp = {"count": int(prior.get("count") or 0) + 1,
+                     "at": now(), "by": self._work_actor(actor),
+                     "status": status, "note": reason,
+                     # the completion this addendum came AFTER, so the ordering
+                     # is readable without walking history
+                     "accepted_at": accepted.get("at") or None,
+                     "first_at": prior.get("first_at") or now()}
+            it["post_completion"] = stamp
+            # ⚠ THE HISTORY ROW CARRIES THE LISTS AS THEY WERE. This is the only
+            # place the summary that was accepted survives once it is corrected,
+            # and losing it would make the correction unauditable — which is the
+            # failure mode of the route this replaces, arriving one step later.
+            self._work_hist(it, actor, "addendum",
+                            {"status": status, "note": reason,
+                             "touched": list(touched),
+                             "after_completion": True,
+                             "accepted_at": accepted.get("at") or None,
+                             "done_was": was_done, "next_was": was_next,
+                             "done": len(done), "next": len(nxt)})
+        # ---- THE FLAG, AND ITS OWN HISTORY ROW. A flag that silently vanished
+        # would leave the user unable to tell a withdrawal from a bug, so the
+        # retraction is recorded as an event in its own right, carrying BOTH the
+        # sentence that came down and the reason it came down. That pairing is
+        # the whole point: the reason alone reads as an unexplained edit, and
+        # the retracted text alone reads as a deletion.
+        att_change: dict[str, Any] | None = None
+        if att_op and standing:
+            was_reason = str(standing.get("reason") or "")
+            set_rev = int(standing.get("set_rev") or 0)
+            if att_op == "retract":
+                it["manual_attention"] = None
+                att_change = {"op": "retract", "set_rev": set_rev,
+                              "reason": was_reason, "why": reason}
+                self._work_hist(it, actor, "attention_retract",
+                                # the QUESTION that stood, kept entire under the
+                                # same key every other clearing route uses — the
+                                # only surviving copy once the flag is down
+                                {"set_rev": set_rev,
+                                 **self._work_attention_archive(standing),
+                                 # and WHY it was withdrawn, which is the half
+                                 # no other clearing route has: a dismissal is
+                                 # the user rejecting a question, a reply is the
+                                 # user answering it, and this is the agent
+                                 # saying its own question stopped holding
+                                 "why": reason,
+                                 "after_completion": True,
+                                 "status": status})
+            else:
+                # amended IN PLACE, keeping `set_rev` — see `work_update`: the
+                # dismissal compare-and-set stamp keeps pointing at the flag the
+                # user is looking at, and no new notification edge is minted
+                standing["reason"] = cast(str, att_reason)
+                standing["amended_at"] = now()
+                standing["amended_by"] = self._work_actor(actor)
+                att_change = {"op": "amend", "set_rev": set_rev,
+                              "from": was_reason, "to": att_reason}
+                self._work_hist(it, actor, "attention_amend",
+                                {"set_rev": set_rev, "from": was_reason,
+                                 "to": att_reason, "why": reason,
+                                 "after_completion": True,
+                                 "status": status})
         drift = [k for k in sealed
                  if json.dumps(it.get(k), sort_keys=True,
                                 default=str) != before[k]]
@@ -14802,24 +15017,34 @@ class Org:
             # the only honest response
             raise LedgerError(
                 f"INTERNAL: an addendum altered {', '.join(drift)} — this path "
-                f"may only touch the two progress lists. Refused")
+                f"may only touch the two progress lists and the attention "
+                f"flag. Refused")
         self._log("work_addendum", actor,
                   {"item": wid, "status": status,
-                   "touched": list(touched)}, [])
+                   "touched": list(touched),
+                   **({"attention": att_op} if att_op else {})}, [])
         return {"addendum": wid, "rev": it["rev"], "status": it["status"],
                 # what was actually STORED, both lists, whether or not this
                 # call named them — the caller sees the whole corrected
                 # summary without a second read
                 "done_so_far": list(done), "working_on_next": list(nxt),
                 "touched": list(touched),
-                "post_completion": dict(stamp),
+                "post_completion": (dict(stamp) if stamp else None),
                 # PROOF, RETURNED: the acceptance record as it stands after the
                 # call is the same one that stood before it
                 "accepted": it.get("accepted"),
+                # and the flag as it stands NOW, beside what this call did to
+                # it — so a caller confirms the retraction rather than reading
+                # the item back to find out
+                "manual_attention": it.get("manual_attention"),
+                "attention": att_change,
                 "archived": self._work_archived(it, phys, _time.time()),
                 "note": (f"recorded after completion — {wid} is still "
                          f"{status}, its acceptance record is untouched, and "
-                         f"neither the row's age nor the archive clock moved")}
+                         f"neither the row's age nor the archive clock moved"
+                         + (f". The attention flag was {att_op}ed and the "
+                            f"withdrawal is in the item's history with its "
+                            f"reason" if att_op else ""))}
 
     # ---- ASSIGNMENT. User ruling 2026-09-05 21:02: ASSIGNMENT IS OWNERSHIP —
     # the `owner` field is the ONE meaning behind the docket's Assignment line,
@@ -17597,7 +17822,14 @@ class Org:
             it["archived_at"] = None
             self.d.setdefault("work_items", []).append(it)
         self._work_hist(it, USER, "dismiss_attention",
-                        {"set_rev": int(cur["set_rev"]), "from": frm})
+                        {"set_rev": int(cur["set_rev"]), "from": frm,
+                         # the same archive the reply path writes
+                         # (W-flag-question). The `dismissals` list already kept
+                         # this text — it is what the identical-re-raise guard
+                         # compares against — but a reader walking the HISTORY
+                         # for what happened to a flag found a row that named
+                         # only a revision number. One read now answers it.
+                         **self._work_attention_archive(cur)})
         self._log("work_dismiss", USER, {"item": wid,
                                          "set_rev": int(cur["set_rev"])}, [])
         # The explicit no-comment notice belongs to the assigned agent, not
@@ -17608,13 +17840,27 @@ class Org:
                 "notify": notify if notify in self.nodes else None,
                 "reason": cur.get("reason")}
 
-    def work_clear_attention_on_user_reply(self, wid: str) -> dict[str, Any]:
+    def work_clear_attention_on_user_reply(self, wid: str,
+                                           reply: str | None = None
+                                           ) -> dict[str, Any]:
         """Clear only manual attention after a successful user reply.
 
         Pending attached questions remain the effective attention source, and
         the item's work status is deliberately unchanged. This is separate
         from work_dismiss_attention: a reply acknowledges the request but is
         not a user dismissal that should block the item.
+
+        ⚠ `reply` IS THE USER'S OWN TEXT, AND IT GOES ON THE SAME ROW AS THE
+        QUESTION IT ANSWERED (W-flag-question). The answer already survived —
+        it is mail, and mail is durable — but it survived SOMEWHERE ELSE, and
+        the question did not survive at all. Putting the pair on one history row
+        is what lets `orgtree_work get` show a later reader both halves without
+        anyone's transcript, which is the whole of what was being lost: two
+        words of ruling with nothing to anchor them to.
+
+        It is stored ENTIRE and never sliced, on the same principle as the
+        dismissal's composed `blocked_reason`: the only thing a truncation here
+        could ever cut is the end of the sentence that settles the question.
         """
         it, _ = self._work_find(wid)
         cur = it.get("manual_attention")
@@ -17623,9 +17869,29 @@ class Org:
             return {"cleared": False, "pending_questions": len(pending)}
         it["manual_attention"] = None
         self._work_hist(it, USER, "reply_clear_attention",
-                        {"set_rev": int(cur.get("set_rev") or 0)})
+                        {"set_rev": int(cur.get("set_rev") or 0),
+                         # ⚠ THE QUESTION, ARCHIVED ONTO THE ROW THAT KILLS IT
+                         # (W-flag-question). This row used to carry `set_rev`
+                         # and nothing else, so answering a flag DESTROYED the
+                         # text it answered: the reply survived on the item and
+                         # the question it replied to did not. An agent that was
+                         # compacted between the raise and the answer woke to
+                         # the two words "yea do that" with no way to know what
+                         # they ruled on, and recovered the wording only by
+                         # hand-parsing 1.9 MB of its own transcript.
+                         #
+                         # Keeping it here is what makes the pair readable from
+                         # `orgtree_work get` alone. It is the FINAL text — the
+                         # wording the user was actually looking at when they
+                         # answered — and any superseded wording is already on
+                         # this item's own `attention_amend` rows, which carry
+                         # `from` and `to`.
+                         **self._work_attention_archive(cur),
+                         **({"answer": str(reply)}
+                            if str(reply or "").strip() else {})})
         self._work_stamp_docket(it, USER)
-        return {"cleared": True, "pending_questions": 0}
+        return {"cleared": True, "pending_questions": 0,
+                "reason": cur.get("reason")}
 
     # ---- STEP 4 (design §8): the server side of a qualified reply `target`
     def resolve_reply_target(self, target: Mapping[str, str],

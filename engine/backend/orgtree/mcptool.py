@@ -569,6 +569,21 @@ TOOLS: list[dict[str, Any]] = [
             "than cleared. Use `reopen=true` only when work has genuinely "
             "RESUMED: that clears the acceptance because the outcome no "
             "longer stands. "
+            "⚠ AND `addendum` IS HOW YOU WITHDRAW A STALE ATTENTION FLAG ON "
+            "FINISHED WORK. A flag is most likely to have gone stale exactly "
+            "there — the work concluded and the reason that justified "
+            "interrupting the user stopped holding — and that used to be the "
+            "one state where you could not take it back: `update` is refused "
+            "on a closed item, `attention_amend` is an argument to `update`, "
+            "and `reopen=true` clears the whole acceptance record to remove "
+            "one sentence. Pass `attention: false` with the `note` saying why "
+            "it no longer holds, and the flag comes down while the status, the "
+            "acceptance record, the evidence and BOTH progress lists stay "
+            "exactly as they were; the withdrawal and its reason go into the "
+            "item's history, so the user sees it was taken back rather than "
+            "silently vanishing. `attention_amend` + `attention_reason` works "
+            "there too. Raising a NEW flag from `addendum` is refused — that is "
+            "a resumption, not a correction. "
             "An update that does not pass "
             "attention:true CLEARS a standing attention flag; a user "
             "dismissal makes the item blocked and an exact repeat of the "
@@ -576,7 +591,12 @@ TOOLS: list[dict[str, Any]] = [
             "already looking at, use `attention_amend` rather than raising "
             "again — it edits the standing reason in place, keeps its set_rev, "
             "and so does not read as a second nag or ping them a second time "
-            "(the dismissed-repeat refusal still applies to it). "
+            "(the dismissed-repeat refusal still applies to it). EVERY ROUTE "
+            "THAT TAKES A FLAG DOWN NOW KEEPS ITS TEXT on the history row that "
+            "took it down — a user reply, a user dismissal, an ordinary update "
+            "and a retraction alike — so the question and the answer stay "
+            "together on the record and `get` shows both without anyone's "
+            "transcript. "
             "`backlogged` means NOT YET "
             "APPROACHED OR APPROVED: it is kept out of the toolbar's active "
             "count and hidden behind its own toggle, so use it only for work "
@@ -661,8 +681,8 @@ TOOLS: list[dict[str, Any]] = [
                 "blocked_reason": {"type": "string", "description": "create/update: REQUIRED when you move an item to blocked — what is preventing progress, what would unblock it, and who can act when that is known. A blank string is refused rather than erasing what is recorded." + _cap("blocked_reason")},
                 "dropped_reason": {"type": "string", "description": "update: REQUIRED when you end an item as `dropped` — why this work ended without being completed. Say plainly whether it was CANCELLED or FAILED UNRECOVERABLY, who decided, and what would have to change for it to be worth resuming. A blank string is refused rather than erasing what is recorded." + _cap("dropped_reason")},
                 "attention": {"type": "boolean",
-                              "description": "update: raise the manual attention flag (needs attention_reason)"},
-                "attention_reason": {"type": "string", "description": "update: the concrete reason the user must see — what was asked against what was built, the exact decision, edge case or definition you added beyond the spec, and the confirmation you want. 'Ready for review' or 'please approve' is not enough; this is what they read to know what they are approving." + _cap("attention_reason") + " The supporting detail belongs in the description or in `evidence`, neither of which has a limit."},
+                              "description": "update: raise the manual attention flag (needs attention_reason) · addendum: `attention: false` RETRACTS a stale flag from a done or dropped item — the one state where you previously could not take one back at all, short of `reopen=true`, which destroys the acceptance record. The required `note` is the retraction reason and carries it; the status, the acceptance record, the evidence and BOTH progress lists are left exactly as they were, and the withdrawal is written into the item's history with its reason so the user can see the flag was taken back rather than silently vanishing. `attention: true` is REFUSED on addendum — raising a new demand on the user's attention from a finished record is a resumption, so reopen with `update` and raise it there"},
+                "attention_reason": {"type": "string", "description": "update (and `addendum` with attention_amend): the concrete reason the user must see — what was asked against what was built, the exact decision, edge case or definition you added beyond the spec, and the confirmation you want. 'Ready for review' or 'please approve' is not enough; this is what they read to know what they are approving." + _cap("attention_reason") + " The supporting detail belongs in the description or in `evidence`, neither of which has a limit."},
                 "reopen": {"type": "boolean", "description": "update: RESUME an archived/closed item — real work has started again and the outcome no longer stands, so the acceptance record is cleared (kept in history). ⚠ It is NOT how you fix the text of work that is still finished: if only the summary is out of date because the code landed after the item was closed, use `addendum`, which corrects the lists, keeps the item done and leaves the acceptance untouched. It may carry a TERMINAL status (done|dropped) in the same call, for work that was finished, then extended, then finished again — one call records both the reopening and its outcome, instead of passing through an in_progress state that was never true. A reopen to dropped owes a fresh dropped_reason: the one it just overturned goes with the outcome it described"},
                 "stage": {"type": "string",
                           "description": "claim/verify: implemented|committed|pushed|deployed|in_build"},
@@ -694,7 +714,7 @@ TOOLS: list[dict[str, Any]] = [
                                 "description": "update/addendum: entries appended to the stored done_so_far. Needs expected_rev. The backend materializes and stores the COMPLETE merged list and returns it, so there is never a partial summary on the item; the 40-entry cap is measured on the merge"},
                 "next_append": {"type": "array", "items": {"type": "string"},
                                 "description": "update/addendum: entries appended to the stored working_on_next. Needs expected_rev. Same materialize-and-store-complete rule as done_append"},
-                "attention_amend": {"type": "boolean", "description": "update: EDIT the reason of the attention flag already standing, in place, keeping its set_rev — so it is not a second raise: the history shows one question being refined rather than another nag, and the user is not pinged again for a sentence they are already reading. Needs attention_reason; refused when no flag is standing, refused together with attention:true, and a reason the user has already DISMISSED is still refused unchanged"},
+                "attention_amend": {"type": "boolean", "description": "update / addendum: EDIT the reason of the attention flag already standing, in place, keeping its set_rev — so it is not a second raise: the history shows one question being refined rather than another nag, and the user is not pinged again for a sentence they are already reading. Needs attention_reason; refused when no flag is standing, refused together with attention:true, and a reason the user has already DISMISSED is still refused unchanged. On `addendum` it is how you sharpen a flag standing on FINISHED work, where `update` is refused outright"},
                 # ── W08: verification receipts, scoped artifacts, findings ──
                 "execution": {"type": "string",
                               "enum": ["independent", "owner_report",
