@@ -24,6 +24,7 @@ import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { AccountsPanel } from '../src/canvas/accounts'
+import { CurrentOrg } from '../src/popout'
 
 const W = window as unknown as Window & typeof globalThis
 
@@ -43,7 +44,7 @@ const ORDOC = {
   reason: null, favorites: 0, favorites_max: 0, tiers: [], user_enabled: true,
 }
 
-async function setup(t: TestContext) {
+async function setup(t: TestContext, org: string | null = null) {
   const oldFetch = globalThis.fetch
   const state = { closed: 0 }
   globalThis.fetch = (async (url: string, init?: RequestInit) => {
@@ -64,8 +65,10 @@ async function setup(t: TestContext) {
   const desk = window as unknown as { orgtreeDesktop?: unknown }
   desk.orgtreeDesktop = { getProviderLoginStatus: async () => ({ phase: 'idle' }),
     getPreferences: async () => ({}), onEvent: () => () => {} }
+  const panel = <AccountsPanel toast={() => {}} close={() => { state.closed++ }} />
   const view = await mountView(
-    <AccountsPanel toast={() => {}} close={() => { state.closed++ }} />, el => el)
+    org === null ? panel : <CurrentOrg.Provider value={org}>{panel}</CurrentOrg.Provider>,
+    el => el)
   t.after(async () => { await view.unmount(); globalThis.fetch = oldFetch; delete desk.orgtreeDesktop })
   await inAct(async () => { await flush(10) })
   return { view, state }
@@ -141,6 +144,23 @@ test('§4 the frame draws NO close control of its own here, and the title bar\u2
   assert.ok(close, 'the title bar\u2019s menu offers Close')
   await inAct(async () => { close!.click(); await flush(3) })
   assert.equal(state.closed, 1, 'and Close ran the panel\u2019s own dismiss')
+})
+
+test('§7 …and still draws none WITH AN ORG OPEN, which is the state the '
+  + 'never-pinnable guard actually decides', async (t) => {
+  // ⚠ §4 alone does not prove this. With no org in context `useCurrentOrg()`
+  // is null, so PinFrame's scope is null whatever the kind-list says, and a
+  // mutation that DELETED 'app-settings' from that list still passed §4. Open
+  // an org and the list becomes the only thing holding the pin, popout and
+  // close controls off this surface — which is what this section pins down.
+  const { state } = await setup(t, 'mine')
+  assert.equal(document.querySelector('[aria-label="close this window"]'), null,
+    'no close control even with an org open')
+  assert.equal(bar().querySelector('button'), null,
+    'no pin button and no popout button either — the bar stays empty')
+  assert.equal(footerCloses().map(b => b.className).length, 0,
+    'and no footer close button came back')
+  assert.equal(state.closed, 0, 'nothing dismissed the modal')
 })
 
 test('§5 the add-account dialog swallows the first Escape; the second closes settings',
