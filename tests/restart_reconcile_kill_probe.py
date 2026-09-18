@@ -281,15 +281,27 @@ def main():
                  'OK' if good else 'BROKEN SETUP'))
     if 'kill' in results:
         r = results['kill']
-        lost = [n for n, v in r['survived'].items() if not v]
+        # THE INVARIANT, and it is stronger than "the agent is replayed":
+        # after the kill, every seat must be either marker-present or
+        # replayed -- never neither.  The ONLY seat allowed to be lost is the
+        # one the loop was inside when the kill landed, whose marker the
+        # "spent by its dispatch" rule already treats as gone.  Seats the loop
+        # NEVER REACHED must all survive; that is the whole defect.
+        dispatched_before_kill, in_flight = NODES[0], NODES[1]
+        never_reached = list(NODES[2:])
         stranded = [n for n in NODES
                     if not r['survived'][n] and n not in r['replayed']]
-        good = len(lost) == len(NODES) and len(stranded) == len(NODES)
+        rescued = [n for n in never_reached
+                   if r['survived'][n] or n in r['replayed']]
+        leaked = [n for n in stranded
+                  if n not in (dispatched_before_kill, in_flight)]
+        good = rescued == never_reached and not leaked
         ok &= good
-        print('KILL      markers lost %s, next boot replayed %s' %
-              (lost, r['replayed']))
-        print('          STRANDED (marker gone AND never replayed): %s'
-              % stranded)
+        print('KILL      next boot replayed %s' % r['replayed'])
+        print('          never-reached seats rescued: %s (expected %s)'
+              % (rescued, never_reached))
+        print('          lost beyond the in-flight marker: %s  -> %s'
+              % (leaked or 'none', 'OK' if good else 'STRANDING'))
     print('=========================================')
     raise SystemExit(0 if ok else 1)
 

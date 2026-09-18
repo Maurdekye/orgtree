@@ -7185,11 +7185,30 @@ def _status_note(org: Org, rid: str, now: float) -> str:
       It is process-bound and resets to False on a backend restart, which is
       the CORRECT answer after one: no turn is running.
     * `inflight` (on the node, durable) — the turn's START time. Written at
-      `o2.node(nid)["inflight"] = inf`; popped in exactly ONE place, the turn's
-      `finally`. ⚠ THERE IS NO BOOT-TIME RECONCILIATION, so a backend killed
-      mid-turn leaves this marker behind for good. `inflight` ALONE IS NOT
-      PROOF OF A RUNNING TURN — read against `busy` or it lies exactly the way
-      a stale "working" lies.
+      `o2.node(nid)["inflight"] = inf`; popped in exactly TWO places, and the
+      difference between them matters to every reader of this function. One is
+      the turn's own `finally`. The other is `reconcile()`, which IS a
+      boot-time reconciliation (`api.py` runs it for every org at startup) and
+      which spends each marker as it replays that turn.
+      ⚠ CORRECTED 2026-09-18. This said "popped in exactly ONE place" and
+      "THERE IS NO BOOT-TIME RECONCILIATION, so a backend killed mid-turn
+      leaves this marker behind for good". Both halves were false, and the
+      file already contradicted them — the code that WRITES the marker says
+      "if orgtree dies mid-turn, reconcile() auto-resumes this node". A
+      comment asserting a safety property the code does not have is worse
+      than no comment, and this one was read as a guarantee.
+      WHAT IS STILL TRUE, and it is why the signature below is kept: a marker
+      does survive for every node `reconcile` deliberately SKIPS — halted,
+      held by `_native_context_hold` or `_import_recovery_hold`, not live,
+      condemned, or frozen — and it survives the window before the startup
+      pass has run. `inflight` ALONE IS NOT PROOF OF A RUNNING TURN — read
+      against `busy` or it lies exactly the way a stale "working" lies.
+      ⚠ AND THE ABSENCE OF A MARKER IS NOT PROOF OF AN IDLE AGENT. Until
+      2026-09-18 `reconcile` erased every replayable marker before dispatching
+      any, so a backend killed inside that loop left the un-replayed agents
+      with no marker at all and they rendered here as ordinary idle nodes.
+      That is fixed — each marker is now spent immediately before its own
+      dispatch — but a doc written by an older build can still carry it.
     * `last_status` / `prev_status` — self-reported. A turn start POPS
       `last_status` into `prev_status`, so a PRESENT `last_status` was set
       during this agent's current-or-most-recent turn, while `prev_status`
@@ -31520,25 +31539,47 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
                     or _import_recovery_hold(org, nid, n.get("inflight"))):
                 continue  # Retain interrupted intent until explicit resolution.
             if n["state"] == "live" and nid not in marked and not n.get("frozen"):
-                inf = n.pop("inflight", None)
+                inf = n.get("inflight")
                 # a command turn can't replay honestly (the restart preamble
                 # would bury the "/" mid-prose and the CLI would run it as
                 # text) — a lost command is dropped, not degraded (review)
                 if inf and not inf.get("cmd"):
+                    # ⚠ READ, NOT POPPED — and this is the whole fix for the
+                    # 2026-09-18 stranding. This loop used to `pop` every
+                    # replayable marker and `save_org` that erasure BEFORE the
+                    # dispatch loop below ran a single turn. The dispatch loop
+                    # runs OUTSIDE the lock and each iteration is a whole turn,
+                    # so a backend killed partway through it lost every
+                    # not-yet-dispatched marker permanently: the `finally` that
+                    # put them back cannot run when the process is killed, and
+                    # no later boot replays a marker that is already off disk.
+                    # Worse, the marker is also what renders the node as
+                    # died-mid-turn, so the stranded agent read as merely IDLE
+                    # — invisible precisely because the evidence was erased.
+                    # Reproduced with a real `taskkill /T /F`:
+                    # tests/restart_reconcile_kill_probe.py.
+                    # Each marker is now spent immediately before ITS OWN
+                    # dispatch instead (see the loop below), so a kill can cost
+                    # at most the single marker in flight — which is the one
+                    # the "spent by its dispatch" rule below already treats as
+                    # gone — and never the ones the loop has not reached.
                     inflight.append((nid, inf))
                     if recovery_observer is not None \
                             and _import_recovery_unsettled(org, nid):
                         recovery_seats.add(nid)
                 elif inf:
-                    # ⚠ the pop above is IN MEMORY. Saving only when something
+                    # A COMMAND marker is still dropped HERE, because dropping
+                    # it is the outcome — there is no dispatch later to hang it
+                    # on. ⚠ the pop is IN MEMORY. Saving only when something
                     # is replayable meant an org whose only in-flight turn was
                     # a COMMAND never wrote the drop back: the marker survived
                     # on disk, every later restart re-dropped it, and the tree
                     # kept reporting `inflight_at` — "running for 6 days" on an
                     # idle node. Measured 2026-08-04 (test_turn_lifecycle
                     # "reconcile · its inflight marker is cleared").
+                    n.pop("inflight", None)
                     dropped_cmd = True
-        if inflight or dropped_cmd:
+        if dropped_cmd:
             store.save_org(org)
         # D-234: a switch queued behind a turn the backend's death ended
         # applies NOW, before that turn is replayed below — the replay is the
@@ -31628,6 +31669,25 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
     try:
         for nid, inf in ([] if latched else inflight):
             print(f"[orgtree] {slug}/{nid}: resuming the turn interrupted by shutdown")
+            # SPEND THIS ONE MARKER, NOW, IMMEDIATELY BEFORE ITS OWN DISPATCH.
+            # The erasure and the dispatch it pays for are adjacent, so the
+            # doc is never in a state where a marker is neither present nor
+            # about to be replayed. The old code erased ALL of them up front
+            # and relied on the `finally` below to put back whatever the loop
+            # never reached — and a `finally` does not run when the process is
+            # killed, which is exactly how a restart stranded agents silently.
+            # Deliberately NOT a journal: a journal is a second artifact that
+            # has to be written in the same save as the erasure to be correct,
+            # and writing it in its own save would move the window rather than
+            # close it. There is nothing to keep in step here.
+            # Cost: this adds at most one `save_org` per MID-TURN node to a
+            # pass that already performs six, on the one code path where a
+            # single engine process is alive. Measured shape, not assumed.
+            with store.DOC_LOCK:
+                _spend = store.load_org(slug)
+                if nid in _spend.nodes and _spend.node(nid).get("inflight"):
+                    _spend.node(nid).pop("inflight", None)
+                    store.save_org(_spend)
             observer = recovery_observer if nid in recovery_seats else None
             if observer:
                 observer(nid,'before')
@@ -31652,14 +31712,17 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
             if observer:
                 observer(nid,'result',recovery_result)
     finally:
-        # A MARKER IS SPENT BY ITS DISPATCH, NOT BY BEING READ. They are all
-        # taken under the lock above so the doc is consistent while this loop
-        # runs outside it; whatever the loop never reached — because an
-        # earlier seat's admission raised — goes back, and the next restart
-        # still has it. A node that has since started a new turn owns its
-        # own marker and must not be overwritten — and `inflight` is a key
-        # that legitimately holds None (a reseeded bearer), so the test is
-        # the VALUE, never the key's presence.
+        # A MARKER IS SPENT BY ITS DISPATCH, NOT BY BEING READ. Since each
+        # marker is now spent immediately before its own dispatch, the seats
+        # this loop never reached still hold theirs ON DISK and the guard
+        # below simply skips them — that is the point, and it is what makes a
+        # killed process survivable. What remains for this block to repair is
+        # the ONE seat whose marker was spent and whose dispatch then raised;
+        # without this it would be the single marker a live failure could
+        # still lose. A node that has since started a new turn owns its own
+        # marker and must not be overwritten — and `inflight` is a key that
+        # legitimately holds None (a reseeded bearer), so the test is the
+        # VALUE, never the key's presence.
         # (A COMMAND marker is deliberately absent from this list: dropping
         # one is the honest outcome, see the drop above.)
         undispatched = inflight[dispatched:]
