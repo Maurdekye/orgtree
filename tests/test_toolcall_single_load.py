@@ -41,6 +41,7 @@ import sys
 import tempfile
 import threading
 import time
+import traceback
 import unittest
 import unittest.mock
 from types import SimpleNamespace
@@ -184,6 +185,88 @@ class ToolCallSingleLoad(unittest.TestCase):
             c.reset()
             self.status("second")
             self.assertEqual(c.n, 1, "only the private write parse remains")
+
+    def test_chart_parses_the_document_zero_times_when_nothing_changed(self):
+        """`orgtree_chart` is the OTHER read-shaped door -- `read_transcript`,
+        `read_scratch`, `send_file` and `list_tiers` come through the same
+        block -- and it needs its own count: a mutation that put only this
+        branch back to a private parse survived the `orgtree_work` counts."""
+        self.call("orgtree_chart", {})         # warm the snapshot
+        with _LoadCounter() as c:
+            c.reset()
+            self.call("orgtree_chart", {})
+            self.assertEqual(c.n, 0, "a warm chart must not re-parse")
+
+    def test_gates_answer_from_the_last_save_not_from_a_remembered_document(self):
+        """THE STALENESS CONTROL, aimed at `store.cached_org` itself rather
+        than at any caller.
+
+        The snapshot is kept fresh by TWO independent mechanisms -- `org_seq`
+        is compared on every read, and `_bump_org_seq` drops the entry on every
+        save -- so removing either one alone still leaves a correct answer.
+        This asserts the result they exist to produce, by writing straight to
+        the store (no tool call, so no gate has a chance to reload for its own
+        reasons) and then asking the gates. If BOTH guards were ever removed,
+        every assertion here fails and the security tests above stop meaning
+        anything."""
+        self.work_list()                       # warm
+        warm = store.cached_org(self.slug)
+        with store.DOC_LOCK:
+            org = store.load_org(self.slug)
+            org.node(self.peer)["title"] = "a title only a fresh read sees"
+            store.save_org(org)
+        after = store.cached_org(self.slug)
+        self.assertIsNot(after, warm, "the save must have replaced the share")
+        self.assertEqual(after.nodes[self.peer].get("title"),
+                         "a title only a fresh read sees")
+        self.assertEqual(self.doc_bytes(after),
+                         self.doc_bytes(store.load_org(self.slug)))
+
+    def test_no_write_path_ever_saves_the_shared_snapshot(self):
+        """THE INVARIANT THE WHOLE CHANGE RESTS ON, asserted directly.
+
+        `store.cached_org` hands back an object shared with every reader in the
+        process. Saving one is not merely a style violation: the writer's
+        mutations become visible to readers before the save, and the save
+        itself runs against a document whose lazy-section baselines belong to
+        somebody else. So this wraps `store.save_org` and refuses any org
+        carrying `_shared_snapshot`, then drives every write door this change
+        touched -- including `_agent_identity`'s legacy `seat_id` mint, which
+        is the one branch of the READ path that writes and which no other test
+        here reaches."""
+        saved_shared = []
+        real_save = store.save_org
+
+        def guard(org):
+            if getattr(org, "_shared_snapshot", False):
+                saved_shared.append("".join(traceback.format_stack()[-6:-1]))
+            return real_save(org)
+
+        # strip the seat_id so the durable mint branch actually fires
+        with store.DOC_LOCK:
+            org = store.load_org(self.slug)
+            org.node(self.worker).pop("seat_id", None)
+            real_save(org)
+        self.work_list()                       # warm the shared snapshot
+
+        with unittest.mock.patch.object(store, "save_org", guard):
+            self.status("a write through the ordinary door")
+            self.call("orgtree_work", {"action": "evidence", "slug": self.item,
+                                       "kind": "note", "ref": "a-ref",
+                                       "note": "a note"})
+            minted = api._agent_identity(
+                api.AgentCall(org=self.slug, node=self.worker,
+                              tool="orgtree_send_file", args={}),
+                SimpleNamespace(state=SimpleNamespace()), durable=True)
+
+        self.assertEqual(saved_shared, [],
+                         "a write path saved the shared snapshot")
+        # the control: the mint branch really ran, so this test proves
+        # something about it rather than about a branch it never reached
+        self.assertTrue(minted.get("seat_id"), "the seat_id mint did not run")
+        self.assertEqual(
+            store.load_org(self.slug).node(self.worker).get("seat_id"),
+            minted["seat_id"], "the minted seat_id was not persisted")
 
     # ------------------------------------------------- the gates are fresh
     def test_gate_sees_a_halt_latched_since_the_previous_call(self):
