@@ -73,6 +73,7 @@ __all__ = [
     "GUARDED",
     "assert_repo_import",
     "import_roots",
+    "expected_locations",
     "repo_commit",
     "origin_of",
     "main",
@@ -106,6 +107,24 @@ def _normal(path: object) -> str:
 def _within(path: object, root: object) -> bool:
     candidate, parent = _normal(path), _normal(root)
     return candidate == parent or candidate.startswith(parent + os.sep)
+
+
+def expected_locations(name: str, roots: list[Path]) -> list[Path]:
+    """Every path ``name`` may legitimately have come from, exactly.
+
+    Mere containment under the repo root is not enough, and this is not
+    hypothetical: worktrees live at ``<repo>/.worktrees/<agent>``, so a probe
+    handed the MAIN root while its import resolves inside a worktree is
+    "within the repo" and would pass a containment test while measuring a
+    different tree.  That is the same wrong-code-measured defect one level
+    down, so the origin must match the module's dotted name against a root.
+    """
+    relative = name.split(".")
+    candidates: list[Path] = []
+    for root in roots:
+        base = root.joinpath(*relative)
+        candidates += [base / "__init__.py", base.with_suffix(".py"), base]
+    return candidates
 
 
 def import_roots(repo_root: object) -> list[Path]:
@@ -259,16 +278,17 @@ def _foreign_report(name: str, origin: str | None, repo: Path, roots: list[Path]
     return (
         "%s -- refusing to produce a result.\n"
         "    %s was imported from : %s\n"
-        "    the repo root implies    : %s\n"
-        "    repo root                : %s\n"
-        "    PYTHONPATH               : %s\n"
+        "    this checkout would give  : %s\n"
+        "    repo root                 : %s\n"
+        "    PYTHONPATH                : %s\n"
         "Whatever this run would have reported describes that other code and "
         "says nothing about this checkout. If the path above is under Program "
         "Files, the installed build answered the import. If `%s` was already "
         "imported before this check ran, no sys.path repair can undo it -- call "
         "assert_repo_import BEFORE importing the engine."
         % (BANNER, name, origin if origin else "(not importable at all)",
-           roots[-1], repo, os.environ.get("PYTHONPATH") or "(not set)", name)
+           " or ".join(str(item) for item in expected_locations(name, roots)[:2]),
+           repo, os.environ.get("PYTHONPATH") or "(not set)", name)
     )
 
 
@@ -312,7 +332,8 @@ def assert_repo_import(repo_root: object, *names: str, insert_path: bool = True,
     origins: dict[str, str] = {}
     for name in (names or GUARDED):
         origin = origin_of(name)
-        if origin is None or not _within(origin, repo):
+        allowed = {_normal(item) for item in expected_locations(name, roots)}
+        if origin is None or _normal(origin) not in allowed:
             raise _fail(ForeignImportError(_foreign_report(name, origin, repo, roots)))
         origins[name] = os.path.abspath(origin)
 

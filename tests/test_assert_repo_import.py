@@ -92,6 +92,45 @@ class ProvenanceGuardTests(unittest.TestCase):
         self.assertIn(self.missing, result.stderr)
         self.assertFalse(out.exists(), "a result file was written despite the failure")
 
+    def test_wrong_repo_root_is_reported_as_a_wrong_root(self):
+        """The second layer would refuse this anyway, on the grounds that some
+        module came from elsewhere. That is the wrong diagnosis and sends the
+        reader hunting an import problem they do not have, so the root check
+        must fire first and name the file it looked for."""
+        result = _cli("--repo", self.missing)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("not an orgtree checkout", result.stderr)
+        self.assertIn(os.path.join("engine", "backend", "orgtree", "__init__.py"),
+                      result.stderr)
+        self.assertIn("(missing)", result.stderr)
+
+    def test_a_nested_checkout_is_not_accepted_as_this_one(self):
+        """Containment under the repo root is not enough. Worktrees live at
+        `<repo>/.worktrees/<agent>`, so an import resolving inside a worktree
+        is 'within' the main repo -- and a probe handed the main root would
+        pass a containment check while measuring a different tree."""
+        outer = Path(self.tmp) / "outer"
+        inner = outer / ".worktrees" / "inner"
+        for tree, marker in ((outer, "outer"), (inner, "inner")):
+            (tree / "engine" / "backend" / "orgtree").mkdir(parents=True)
+            (tree / "engine" / "backend" / "orgtree" / "__init__.py").write_text(
+                f"WHICH = {marker!r}\n", encoding="utf-8")
+            (tree / "engine").joinpath("__init__.py").write_text("", encoding="utf-8")
+        result = _run(
+            "import sys\n"
+            f"sys.path.insert(0, r'{inner}\\engine\\backend')\n"
+            f"sys.path.insert(0, r'{REPO}\\tools')\n"
+            "from assert_repo_import import assert_repo_import, ForeignImportError\n"
+            "try:\n"
+            f"    assert_repo_import(r'{outer}', 'orgtree',\n"
+            "                       insert_path=False, require_commit=False)\n"
+            "except ForeignImportError:\n"
+            "    print('REFUSED')\n"
+            "else:\n"
+            "    print('ACCEPTED')\n")
+        self.assertIn("REFUSED", result.stdout, result.stdout + result.stderr)
+        self.assertIn(str(inner), result.stderr)
+
     def test_foreign_import_already_loaded_cannot_be_repaired(self):
         """sys.path repair cannot undo an import that already happened, so the
         guard must read the loaded module rather than re-resolve the name."""
