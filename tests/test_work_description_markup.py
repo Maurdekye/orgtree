@@ -420,6 +420,103 @@ class DescriptionMarkup(unittest.TestCase):
         self.assertEqual(len(str(row['before'])) - len(str(after)),
                          sum(len(s.text) for s in removed))
 
+    # ── section 6: the repair TOOL, driven end to end ─────────────────────
+    def _repair_tool(self) -> Any:
+        """`tools/repair-docket-markup.py`, loaded by path (it is a script, not
+        a package module)."""
+        import importlib.util
+        path = (Path(__file__).resolve().parent.parent / 'tools'
+                / 'repair-docket-markup.py')
+        spec = importlib.util.spec_from_file_location('repair_docket_markup',
+                                                      path)
+        assert spec and spec.loader
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_s6_the_repair_tool_reports_without_writing_then_repairs(self) -> None:
+        item = self.org.work_create(self.agent, 'Tool target', 'clean for now')
+        name = item['slug']
+        stored = next(i for i in self.org.d['work_items'] if i['slug'] == name)
+        damaged = damaged_description()
+        stored['objective'] = damaged
+        store.save_org(self.org)
+        store._POOL.close_all(self.slug)
+
+        tool = self._repair_tool()
+        data = os.environ['ORGTREE_DATA']
+
+        # report only: it must find the damage and change nothing
+        self.assertEqual(tool.main(['--data', data, '--org', self.slug]), 0)
+        untouched = store.load_org(self.slug)
+        self.assertEqual(
+            next(i for i in untouched.d['work_items']
+                 if i['slug'] == name)['objective'], damaged)
+        store._POOL.close_all(self.slug)
+
+        # and with --apply it repairs, mechanically
+        self.assertEqual(
+            tool.main(['--data', data, '--org', self.slug, '--apply']), 0)
+        after = store.load_org(self.slug)
+        got = next(i for i in after.d['work_items']
+                   if i['slug'] == name)['objective']
+        expected, removed = toolmarkup.strip_leaks(damaged)
+        self.assertEqual(got, expected)
+        self.assertEqual(toolmarkup.find_leaks(got), [])
+        self.assertIn('The attach button in the mail reply composer', got)
+        self.assertIn('The actual cause is named.', got)
+        self.assertEqual(len(got), len(damaged)
+                         - sum(len(s.text) for s in removed))
+
+    def test_s6_the_tool_never_prints_the_word_the_runner_reads_as_a_skip(self) -> None:
+        """A guard on the runner's classifier, not on English.
+
+        `tools/run-python-verification.py` marks a WHOLE module as a skip when a
+        case-insensitive `\\bSKIP(?:PED)?\\b` appears anywhere in its output, and
+        a skipped module still exits 0. This suite drives the repair tool, so
+        the tool printing "skipped" made 21 passing tests report as `"phase":
+        "skip"`, `"skipped": 1`, `"passed": 0` — a green exit for a module
+        nothing had verified. Caught once; pinned so it cannot come back.
+        """
+        import contextlib
+        import re as _re
+
+        item = self.org.work_create(self.agent, 'Silent', 'clean for now')
+        stored = next(i for i in self.org.d['work_items']
+                      if i['slug'] == item['slug'])
+        stored['objective'] = damaged_description()
+        store.save_org(self.org)
+        store._POOL.close_all(self.slug)
+
+        tool = self._repair_tool()
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            tool.main(['--data', os.environ['ORGTREE_DATA'],
+                       '--org', self.slug, '--apply'])
+        printed = out.getvalue() + err.getvalue()
+        self.assertTrue(printed.strip(), 'the tool printed nothing at all, so '
+                                         'this guard would pass vacuously')
+        self.assertIsNone(_re.search(r'\bSKIP(?:PED)?\b', printed, _re.I),
+                          'the repair tool printed a word the verification '
+                          'runner reads as a module-level skip')
+
+    def test_s6_the_tool_leaves_a_legitimate_quotation_alone(self) -> None:
+        """The false-refusal guard applies to the repair too: a description
+        that merely quotes the markup must come back byte-identical."""
+        item = self.org.work_create(self.agent, 'Quoting',
+                                    TICKET_OWN_DESCRIPTION)
+        name = item['slug']
+        store.save_org(self.org)
+        store._POOL.close_all(self.slug)
+
+        tool = self._repair_tool()
+        self.assertEqual(tool.main(['--data', os.environ['ORGTREE_DATA'],
+                                    '--org', self.slug, '--apply']), 0)
+        after = store.load_org(self.slug)
+        self.assertEqual(
+            next(i for i in after.d['work_items']
+                 if i['slug'] == name)['objective'], TICKET_OWN_DESCRIPTION)
+
     # ── section 5: nothing else moved ─────────────────────────────────────
     def test_s5_the_description_still_has_no_length_limit(self) -> None:
         text = ('A real problem statement, then the solution. '
