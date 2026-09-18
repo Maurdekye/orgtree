@@ -69,7 +69,14 @@ function harness(options = {}) {
     builtFor: () => builtFor,
     load: async target => {
       loads.push(target)
-      if (!serving) throw new Error('ERR_CONNECTION_REFUSED (-102) loading ' + target)
+      if (!serving) {
+        // ⚠ ELECTRON SIGNALS A FAILED NAVIGATION TWICE: `did-fail-load` fires
+        // AND `loadURL` rejects. A harness that only rejected let a mutation
+        // removing the in-flight guard survive, because the double signal the
+        // guard exists for never happened in the test. Faithful now.
+        contents.fire('did-fail-load', -102, 'ERR_CONNECTION_REFUSED', target, true)
+        throw new Error('ERR_CONNECTION_REFUSED (-102) loading ' + target)
+      }
       url = target
       // A real webContents announces the success; the emitter does too.
       contents.fire('did-finish-load')
@@ -215,12 +222,19 @@ test('our own retry aborting the previous navigation does NOT schedule a second 
     'and it is not recorded as a failure either')
 })
 
-test('a second real failure while a retry is in flight does not double the schedule', async () => {
+test('a failed retry runs the failure path ONCE, though Electron signals it twice', async () => {
   const h = harness()
   h.contents.fire('did-fail-load', -102, 'ERR_CONNECTION_REFUSED', 'http://127.0.0.1:21350/', true)
   await h.flush()
-  await h.tick()
+  assert.equal(h.holding.length, 1, 'the initial failure rendered the holding page once')
+  await h.tick()   // one retry, which fails — did-fail-load AND a rejection
   assert.equal(h.pending().length, 1, 'exactly one retry is ever outstanding')
+  // ⚠ THE IN-FLIGHT GUARD IS WHAT THIS PINS. Without it the retry's own
+  // `did-fail-load` runs the whole failure path a second time, re-rendering the
+  // holding page on top of itself on every attempt for as long as the outage
+  // lasts. (The timer count stays right either way — `schedule()` clears before
+  // it sets — so the timer is NOT what proves the guard is doing anything.)
+  assert.equal(h.holding.length, 2, 'one more render for the failed retry, not two')
 })
 
 // -------------------------------------------------------------------- shutdown
@@ -316,8 +330,12 @@ test('the 2026-09-18 incident, replayed: the window comes back on its own', asyn
 
 test('index.ts attaches the window-load recovery to the main window', () => {
   const main = read('apps/desktop/main/index.ts')
-  assert.match(main, /attachWindowLoadRecovery\(main\.webContents/,
-    'the recovery is wired to the real window')
+  // ⚠ ANCHORED TO THE ASSIGNMENT. A looser match for the call alone survived a
+  // mutation that left the call in place but short-circuited it away
+  // (`= undefined && attachWindowLoadRecovery(...)`), which is exactly the
+  // shape a real mistake would take.
+  assert.match(main, /windowLoadRecovery = attachWindowLoadRecovery\(main\.webContents, \{/,
+    'the recovery is wired to the real window, and its result is what is kept')
   assert.match(main, /import \{ attachWindowLoadRecovery/)
 })
 

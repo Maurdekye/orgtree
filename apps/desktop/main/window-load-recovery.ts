@@ -171,9 +171,16 @@ export interface WindowLoadHooks {
 export class WindowLoadRecovery {
   /** The window is not showing the interface. */
   private failed = false
-  /** A retry navigation is in flight. `did-fail-load` fires AND `loadURL`
-   *  rejects for the same failure, so without this the two would each schedule
-   *  a retry and the interval would halve on every round. */
+  /** A retry navigation is in flight.
+   *
+   *  ⚠ Electron signals ONE failed navigation TWICE — `did-fail-load` fires and
+   *  `loadURL` rejects — so without this, a single failed retry would run the
+   *  whole failure path twice: two holding-page renders and two trips through
+   *  the scheduler. It does NOT prevent a doubled timer (mutation testing
+   *  established that: `schedule()` clears before it sets, so it is idempotent
+   *  and the timer count is right either way). What it prevents is the
+   *  duplicated work and the duplicated re-render, which is a real cost on the
+   *  path taken every 30 s during a long outage but is not a correctness bug. */
   private inFlight = false
   private attempt = 0
   private timer: unknown = null
