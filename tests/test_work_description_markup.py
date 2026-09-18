@@ -521,6 +521,22 @@ class DescriptionMarkup(unittest.TestCase):
                           'the repair tool printed a word the verification '
                           'runner reads as a module-level skip')
 
+        # AND THE SAME CHECK OVER THE SOURCE, because the run above only covers
+        # the branches this test happens to reach. Mutation testing caught that
+        # directly: putting the word back on the tool's no-live-owner branch
+        # left the assertion above green, since no fixture here has an ownerless
+        # item. The hazard is textual, so the guard has to be textual too.
+        source = (Path(__file__).resolve().parent.parent / 'tools'
+                  / 'repair-docket-markup.py').read_text(encoding='utf-8')
+        emitted = _re.findall(r'^\s*(?:print|.*file=sys\.stderr).*$', source,
+                              _re.M)
+        self.assertTrue(emitted, 'found no print statements to check')
+        for line in emitted:
+            self.assertIsNone(
+                _re.search(r'\bSKIP(?:PED)?\b', line, _re.I),
+                f'this line prints a word the verification runner reads as a '
+                f'module-level skip: {line.strip()}')
+
     def test_s6_the_tool_leaves_a_legitimate_quotation_alone(self) -> None:
         """The false-refusal guard applies to the repair too: a description
         that merely quotes the markup must come back byte-identical."""
@@ -530,9 +546,18 @@ class DescriptionMarkup(unittest.TestCase):
         store.save_org(self.org)
         store._POOL.close_all(self.slug)
 
+        import contextlib
+
         tool = self._repair_tool()
-        self.assertEqual(tool.main(['--data', os.environ['ORGTREE_DATA'],
-                                    '--org', self.slug, '--apply']), 0)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(tool.main(['--data', os.environ['ORGTREE_DATA'],
+                                        '--org', self.slug, '--apply']), 0)
+        # It must not merely leave the text alone -- `strip_leaks` is a no-op on
+        # clean text, so "unchanged" would still hold if the tool examined every
+        # item indiscriminately, and mutation testing showed exactly that. It
+        # must not COUNT this item as damaged either.
+        self.assertIn('0 damaged field(s)', out.getvalue())
         after = store.load_org(self.slug)
         self.assertEqual(
             next(i for i in after.d['work_items']
