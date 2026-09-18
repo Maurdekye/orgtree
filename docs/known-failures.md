@@ -373,7 +373,7 @@ covers three suites:
 | Suite | What it is | Reports per | Roughly |
 | --- | --- | --- | --- |
 | `node-root` | `node --test tests/*.test.mjs` — the `npm test` set, 47 modules | test | ~1.5 min |
-| `python-backend` | `tools/run-python-verification.py` over `tests/test_*.py`, 176 modules | **module** | several min |
+| `python-backend` | `tools/run-python-verification.py` over `tests/test_*.py`, 192 modules | **module** | several min |
 | `renderer` | `node apps/desktop/renderer/tests/run.mjs` — 233 bundled jsdom suites | test | ~4-6 min |
 
 **`python-backend` reports per MODULE, not per test**, and `show` says so on the
@@ -556,6 +556,41 @@ places the roots for it, so quietly making a bare run work would hide the defect
 A scratch probe has nothing else, so placing the roots is the job -- and it
 happens only after the root has been proven real. Pass `insert_path=False` for
 the refusing behaviour.
+
+#### The runner's protection stops at the process it launches
+
+A test module that spawns its **own** child -- an engine, a hook, a CLI -- gets
+none of it. The runner puts the roots on the module's `sys.path` and passes `-I`
+to the module's interpreter; neither reaches a `subprocess.Popen` the module
+makes. That child starts from the packaged runtime's own configuration, and the
+`._pth` has a second effect nobody writes down:
+
+| what the `._pth` does | consequence for a spawned child |
+| --- | --- |
+| sets `safe_path` / isolated mode | **the child's cwd is NOT on `sys.path`** -- `cwd=` does not make a sibling module importable |
+| lists `../backend`, `../mailhub`, `../../` | those are the only roots, and they are relative to whichever checkout owns the interpreter |
+
+`tests/test_engine_http.py` was broken by the first row for days. It spawned the
+engine with `cwd=engine/` and `import launch`, which had worked under a system
+`python`, and under the bundled runtime died on `No module named 'launch'` --
+`Ran 0 tests`, so the one suite covering the HTTP routes end to end asserted
+nothing in either direction while `compare` correctly reported it as
+pre-existing and stayed green.
+
+The second row is the trap in fixing it. `engine/runtime/` is gitignored, so a
+worktree has no interpreter and the runner selects the **main** checkout's; its
+`._pth` roots therefore point at the main checkout. Restoring the import by
+leaning on `../../` would have run the main checkout's engine underneath a
+worktree's tests, passing while measuring code the branch does not contain.
+
+So a module that spawns a child owes that child the same two things the runner
+owes the module: pass the checkout in explicitly, place its roots ahead of the
+`._pth` entries, and have the child read back what it actually resolved and
+refuse to start if it is outside. `tests/test_engine_http.py` does this in the
+first twenty lines of its `CHILD` script and is the pattern to copy. Check
+`orgtree` with `importlib.util.find_spec`, not `import` -- `launch` captures and
+strips the V2 credential before the legacy modules load, and importing them
+early defeats that.
 
 ### How the renderer suite is captured
 
