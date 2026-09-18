@@ -65,6 +65,13 @@ test('realtime inventory payloads apply stepwise before any turn boundary', asyn
     assert.doesNotMatch(marks[3]?.textContent ?? '', /—/,
       'a node with a known last-turn count must not read as never-measured')
     assert.match(marks[3]?.getAttribute('aria-label') ?? '', /runtime inventory unavailable/)
+    // ⚠ THE `~` IS EXPLAINED IN WORDS ON HOVER (2026-09-18). The tooltip cut
+    // could have relied on the `~` prefix alone to distinguish a stale
+    // reading from a live one, and that was the explicit judgement call. It
+    // does not: the comment above this test has to spell out what `~` means,
+    // and a notation needing a comment is what a hover exists to say aloud.
+    assert.equal(marks[3]?.getAttribute('aria-label'),
+      '3 callable MCP tools last turn — runtime inventory unavailable')
 
     // ⚠ NEVER MEASURED IS STILL "—". This is the case the fallback must not
     // swallow: with no live count AND no last-turn count there is no number
@@ -76,6 +83,43 @@ test('realtime inventory payloads apply stepwise before any turn boundary', asyn
     assert.match(marks[4]?.textContent ?? '', /MCP\s+—/)
     assert.doesNotMatch(marks[4]?.textContent ?? '', /~/)
     assert.match(marks[4]?.getAttribute('aria-label') ?? '', /unknown/)
+    // №21 again: a BLANK "unknown" was the original user complaint, so the
+    // reason survived the cut. Pinned by equality — dropping it would leave
+    // the assertion above still passing on the bare word "unknown".
+    assert.equal(marks[4]?.getAttribute('aria-label'),
+      'MCP tool count unknown — runtime inventory unavailable')
+
+    // ⚠ THE TWO LIVE CASES, which is where the cut actually bit. Case 1 used
+    // to read "current callable MCP tools: 3 / last successful turn: 3 /
+    // provider/source: claude / refresh" — three lines to say what the "MCP
+    // 3" glyph beside it already said. The last-turn count survives only in
+    // the `changed` case, where it is the reason the chip changed colour.
+    assert.equal(marks[1]?.getAttribute('aria-label'), '3 callable MCP tools')
+    assert.equal(marks[2]?.getAttribute('aria-label'),
+      '2 callable MCP tools (3 last turn)')
+    // a real zero, and the singular
+    assert.equal(marks[0]?.getAttribute('aria-label'), '0 callable MCP tools')
+    // EVERY tooltip is one line and carries no plumbing
+    for (const m of marks) {
+      const t = m.getAttribute('aria-label') ?? ''
+      assert.equal(t.includes('\n'), false, `multi-line tooltip: ${t}`)
+      assert.doesNotMatch(t, /provider\/source|last successful turn|current callable/,
+        `a cut line came back: ${t}`)
+      // title and aria-label must stay in step with each other
+      assert.equal(m.getAttribute('title'), t)
+    }
+  } finally { await view.unmount() }
+})
+
+test('the singular is used for exactly one tool', async () => {
+  // "1 callable MCP tools" was the shape the first draft produced; the count
+  // is user-visible prose now rather than a value after a colon, so it has to
+  // read like prose.
+  const view = await mountView(
+    <McpToolCountMark count={1} last={1} provider="claude" source="init" />, (el) => el)
+  try {
+    assert.equal(view.el.querySelector('.mcp-tool-count')?.getAttribute('aria-label'),
+      '1 callable MCP tool')
   } finally { await view.unmount() }
 })
 
@@ -120,8 +164,15 @@ test('readiness websocket transitions repaint the unique gated label', async () 
     assert.match(labels[0]?.textContent ?? '', /starting/i)
     assert.match(labels[1]?.textContent ?? '', /Waiting for MCP tools/)
     assert.equal(labels[1]?.title, 'missing mcp__alpha__one')
-    assert.match(view.el.querySelector<HTMLElement>('.mcp-tool-count')
-      ?.getAttribute('aria-label') ?? '', /readiness: waiting.*mcp__alpha__one/s)
+    // ⚠ READINESS SURVIVED THE 2026-09-18 CUT, as a trailing clause rather
+    // than a fourth line. It used to read "readiness: waiting — missing
+    // mcp__alpha__one"; the word "readiness:" was the label on a line that no
+    // longer exists, and the state plus the missing tool is the whole of what
+    // it was carrying. Asserted by equality so the count half is pinned too:
+    // the clause has to hang off the count, not replace it.
+    assert.equal(view.el.querySelector<HTMLElement>('.mcp-tool-count')
+      ?.getAttribute('aria-label'),
+    '1 callable MCP tool · waiting: missing mcp__alpha__one')
   } finally { await view.unmount() }
 })
 

@@ -855,10 +855,18 @@ export function ProcessLifecycleMark({ warm, live, relaunch, reason, busy,
   </button>
 }
 
-export function McpToolCountMark({ count, last, provider, source, reason,
+export function McpToolCountMark({ count, last, reason,
   readinessState, readinessReason }: {
-  count?: number | null; last?: number | null; provider?: string | null;
-  source?: string | null; reason?: string | null;
+  count?: number | null; last?: number | null; reason?: string | null
+  /** ⚠ ACCEPTED AND DELIBERATELY UNREAD (2026-09-18). `provider` and `source`
+   *  were the tooltip's third line, `provider/source: claude / system/init.tools`,
+   *  and that line was cut as plumbing. They stay in the props because the
+   *  backend still sends both fields and the call site still threads them, so
+   *  removing them would be an API change in a text-only ticket — but nothing
+   *  renders them, and a caller passing them should not expect them to show.
+   *  If they are ever genuinely wanted on screen again, put them somewhere a
+   *  reader would look for them rather than back into this hover. */
+  provider?: string | null; source?: string | null
   readinessState?: string | null; readinessReason?: string | null
 }) {
   const known = typeof count === 'number'
@@ -877,15 +885,46 @@ export function McpToolCountMark({ count, last, provider, source, reason,
   // resolved right now", never "27 right now". Only a node that has never
   // completed a turn — nothing measured, ever — still reads '—'.
   const stale = !known && hasLast
-  const title = [
-    known ? `current callable MCP tools: ${count}`
-      : `current callable MCP tools: unknown${reason ? ` — ${reason}` : ''}`,
-    hasLast ? `last successful turn: ${last}` : 'last successful turn: none',
-    `provider/source: ${provider || 'unknown'} / ${source || 'unavailable'}`,
-    readinessState
-      ? `readiness: ${readinessState}${readinessReason ? ` — ${readinessReason}` : ''}`
-      : '',
-  ].filter(Boolean).join('\n')
+  // ⚠ ONE SHORT LINE, NOT FOUR (user ruling 2026-09-17, extended to this chip
+  // 2026-09-18) — the same cut already applied to the account badge and the
+  // cache forecast in bb6dc2b. This built four lines: the count, the
+  // last-turn count, `provider/source`, and readiness. Two of them are gone
+  // and the other two are down to a clause each.
+  //
+  // WHAT WAS DROPPED, and why each is safe to drop:
+  //   · `current callable MCP tools: 3` — the glyph beside it already reads
+  //     "MCP 3". A tooltip line that only restates the glyph is the clearest
+  //     case there is for cutting.
+  //   · `last successful turn: none` — "none" beside a "—" glyph says the
+  //     same nothing twice. The last-turn count SURVIVES where it is actually
+  //     informative: the `changed` state, where it is the reason the chip
+  //     changed colour, and the stale state, where it is the number shown.
+  //   · `provider/source: claude / system/init.tools` — plumbing. It is the
+  //     exact counterpart of the cache tooltip's `lane/source` line, cut for
+  //     the same reason: it identifies which code path produced the reading,
+  //     which is a developer's question, not a hover hint.
+  //
+  // WHAT WAS KEPT, and why none of it is padding:
+  //   · the `reason` for an unknown count. №21 below is explicit that a blank
+  //     "unknown" was a real user complaint; dropping the reason would walk
+  //     straight back into it.
+  //   · the readiness state and its reason, as a trailing clause. "waiting:
+  //     missing mcp__alpha__one" names a tool the agent is actually short of
+  //     — nothing on the glyph carries it.
+  //   · the words "last turn" on a stale reading. THIS IS THE JUDGEMENT CALL:
+  //     the `~` prefix could have carried it alone, but the comment below has
+  //     to spell out what `~` means, and a notation that needs a comment is
+  //     exactly the thing a hover should say out loud. It costs two words.
+  const plural = (n: number) => `${n} callable MCP tool${n === 1 ? '' : 's'}`
+  const count_ = known
+    ? same ? plural(count) : `${plural(count)} (${last} last turn)`
+    : stale
+      ? `${plural(last as number)} last turn — ${reason || 'not resolved right now'}`
+      : `MCP tool count unknown${reason ? ` — ${reason}` : ''}`
+  const title = count_
+    + (readinessState
+      ? ` · ${readinessState}${readinessReason ? `: ${readinessReason}` : ''}`
+      : '')
   return <span className={'mcp-tool-count '
     + (!known ? (stale ? 'unknown stale' : 'unknown') : same ? 'same' : 'changed')}
     title={title} aria-label={title}>
