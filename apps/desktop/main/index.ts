@@ -28,6 +28,7 @@ import { popupBounds, trayListHtml, trayNavigationSlug } from './traylist'
 import type { VisualTheme, PresetVisualTheme } from '../../../packages/contracts/visual-theme'
 import { hasInstallerUpgradeRequest } from './installer-upgrade'
 import { attachChildProcessFailureHandler, attachRendererFailureHandlers, crashReportDialog, crashReportFolder, CRASH_REPORTER_OPTIONS, RecoveryBudget } from './process-failure'
+import { attachWindowLoadRecovery, type WindowLoadRecovery, type WindowLoadStage } from './window-load-recovery'
 import type { ProcessFailureStage } from './process-failure'
 
 // Who this process is — installed release, installed DEV-channel build (see
@@ -117,7 +118,11 @@ else {
   // ------------------------------------------------ process-failure recording
   // Every line a dying Chromium process leaves behind goes through here, so
   // the renderer, GPU and utility paths cannot drift apart in how they record.
-  const recordProcessFailure = (stage: ProcessFailureStage, detail: string) => {
+  // `WindowLoadStage` joins the union here rather than in process-failure.ts:
+  // a navigation failing is not a process dying — the render process is alive
+  // throughout — but both belong in the same durable log, in one order, so a
+  // reader can see a reload being issued and then failing to land.
+  const recordProcessFailure = (stage: ProcessFailureStage | WindowLoadStage, detail: string) => {
     try { updateLog.record(stage, detail) } catch { /* diagnostics never break the thing they describe */ }
     // Also to stderr, which a development run and `npm start` show immediately.
     console.warn(`[${stage}] ${detail}`)
@@ -155,6 +160,11 @@ else {
    *  Undefined until boot has composed them, and the entry stays disabled
    *  until then - there is nothing to restart before the first start. */
   let engineRestartOptions: EngineOptions | undefined
+  /** Keeps the main window's document loaded across an engine outage. Declared
+   *  here because the engine's status listener is registered before the window
+   *  exists, and 'ready' is the signal that makes a restart actually restore
+   *  the interface rather than merely restore the engine. */
+  let windowLoadRecovery: WindowLoadRecovery | undefined
   // The renderer owns provider discovery. This ephemeral value mirrors its
   // effective theme for native tray/taskbar/window icons and is never persisted.
   let effectiveTheme: VisualTheme | undefined
@@ -1271,7 +1281,15 @@ else {
       return submitProviderLoginCode(asLoginProvider(provider), code)
     })
     handle('desktop:provider-login-cancel', provider => cancelProviderLogin(asLoginProvider(provider)))
-    engine.on('status', status => { broadcast({ type: 'engine-status', data: status }); stats = null; rebuildTray() })
+    engine.on('status', status => {
+      broadcast({ type: 'engine-status', data: status }); stats = null; rebuildTray()
+      // ⚠ BROADCASTING IS NOT ENOUGH WHEN THE WINDOW HAS NO DOCUMENT. The
+      // renderer is what would normally react to this, and after a failed load
+      // there is no renderer listening — that is precisely the state this
+      // handles. A 'ready' engine is the one moment a blank window can be
+      // brought back, so take it directly rather than through the UI.
+      if (status.state === 'ready') windowLoadRecovery?.onEngineReady()
+    })
     const base = app.isPackaged ? process.resourcesPath : app.getAppPath()
     const directory = path.join(base, 'engine')
     try {
@@ -1374,6 +1392,27 @@ else {
             + '\n\nThe full record is in update-log.json beside Orgtree\'s data.' }) },
         suspended: () => quitting || installerUpgradeShutdown,
       }, new RecoveryBudget())
+      // ⚠ AND THE RELOAD ABOVE CAN FAIL. Everything to this point assumes that
+      // re-navigating the window restores it, which is true only while the
+      // engine is serving — and the engine serves the document itself. On
+      // 2026-09-18 the renderer was OOM-killed, the reload above was issued
+      // 2 ms later, and the engine died 1.4 s into it; the window went white
+      // and nothing ever looked at it again. This watches the navigation the
+      // reload starts, so a failed load is a state the window leaves rather
+      // than the state it ends in.
+      windowLoadRecovery = attachWindowLoadRecovery(main.webContents, {
+        record: recordProcessFailure,
+        target: () => engine.origin,
+        builtFor: () => initialOrigin,
+        load: url => main && !main.isDestroyed() ? main.loadURL(url) : Promise.resolve(),
+        showHolding: html => main && !main.isDestroyed()
+          ? main.webContents.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
+          : Promise.resolve(),
+        suspended: () => quitting || installerUpgradeShutdown,
+        setTimer: (fn, ms) => setTimeout(fn, ms),
+        clearTimer: handle => clearTimeout(handle as ReturnType<typeof setTimeout>),
+      }, () => main && !main.isDestroyed() ? main.webContents.getURL() : '')
+      main.once('closed', () => { windowLoadRecovery?.dispose(); windowLoadRecovery = undefined })
       await main.loadURL(engine.origin + '/')
       engineReady = true
       if (installerUpgradePending) void requestInstallerUpgradeShutdown()
