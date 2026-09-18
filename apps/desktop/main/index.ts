@@ -118,14 +118,23 @@ else {
   // ------------------------------------------------ process-failure recording
   // Every line a dying Chromium process leaves behind goes through here, so
   // the renderer, GPU and utility paths cannot drift apart in how they record.
-  // `WindowLoadStage` joins the union here rather than in process-failure.ts:
-  // a navigation failing is not a process dying — the render process is alive
-  // throughout — but both belong in the same durable log, in one order, so a
-  // reader can see a reload being issued and then failing to land.
-  const recordProcessFailure = (stage: ProcessFailureStage | WindowLoadStage, detail: string) => {
+  const recordToUpdateLog = (stage: ProcessFailureStage | WindowLoadStage, detail: string) => {
     try { updateLog.record(stage, detail) } catch { /* diagnostics never break the thing they describe */ }
     // Also to stderr, which a development run and `npm start` show immediately.
     console.warn(`[${stage}] ${detail}`)
+  }
+  const recordProcessFailure = (stage: ProcessFailureStage, detail: string) => {
+    recordToUpdateLog(stage, detail)
+  }
+  // ⚠ THE SAME LOG AND THE SAME FORMAT, under a second name so the two stage
+  // unions stay separate: a navigation failing is not a process dying — the
+  // render process is alive throughout — and letting one recorder take both
+  // would make `recordProcessFailure` accept stages that are not process
+  // failures. They interleave in one file on purpose, because the 2026-09-18
+  // white window is only legible as a 'renderer-recovered' immediately
+  // followed by a load that never landed.
+  const recordWindowLoad = (stage: WindowLoadStage, detail: string) => {
+    recordToUpdateLog(stage, detail)
   }
   // Where the dumps are and whether they travel, written once per run so the
   // answer is in the same file as the failures rather than only in the source.
@@ -1281,15 +1290,17 @@ else {
       return submitProviderLoginCode(asLoginProvider(provider), code)
     })
     handle('desktop:provider-login-cancel', provider => cancelProviderLogin(asLoginProvider(provider)))
-    engine.on('status', status => {
-      broadcast({ type: 'engine-status', data: status }); stats = null; rebuildTray()
-      // ⚠ BROADCASTING IS NOT ENOUGH WHEN THE WINDOW HAS NO DOCUMENT. The
-      // renderer is what would normally react to this, and after a failed load
-      // there is no renderer listening — that is precisely the state this
-      // handles. A 'ready' engine is the one moment a blank window can be
-      // brought back, so take it directly rather than through the UI.
-      if (status.state === 'ready') windowLoadRecovery?.onEngineReady()
-    })
+    engine.on('status', status => { broadcast({ type: 'engine-status', data: status }); stats = null; rebuildTray() })
+    // ⚠ BROADCASTING IS NOT ENOUGH WHEN THE WINDOW HAS NO DOCUMENT. The renderer
+    // is what would normally react to the status above, and after a failed load
+    // there is no renderer listening — which is precisely the state this exists
+    // for. A 'ready' engine is the one moment a blank window can be brought
+    // back, so take it directly rather than through the UI.
+    //
+    // A SECOND listener rather than a line inside the first: the tray's
+    // rebuild-on-every-status-change is pinned by tests as a single expression,
+    // and window recovery has no business being interleaved with it.
+    engine.on('status', status => { if (status.state === 'ready') windowLoadRecovery?.onEngineReady() })
     const base = app.isPackaged ? process.resourcesPath : app.getAppPath()
     const directory = path.join(base, 'engine')
     try {
@@ -1401,7 +1412,7 @@ else {
       // reload starts, so a failed load is a state the window leaves rather
       // than the state it ends in.
       windowLoadRecovery = attachWindowLoadRecovery(main.webContents, {
-        record: recordProcessFailure,
+        record: recordWindowLoad,
         target: () => engine.origin,
         builtFor: () => initialOrigin,
         load: url => main && !main.isDestroyed() ? main.loadURL(url) : Promise.resolve(),

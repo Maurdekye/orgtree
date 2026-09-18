@@ -354,7 +354,12 @@ test('index.ts reads the engine origin LIVE for the retry target', () => {
 
 test('the failed-load record shares the durable log the renderer failures use', () => {
   const main = read('apps/desktop/main/index.ts')
-  assert.match(main, /record: recordProcessFailure/)
+  // A SEPARATE recorder from `recordProcessFailure`, writing the SAME log
+  // through the same helper — the two stage unions stay apart so neither
+  // recorder can be handed a stage that does not belong to it.
+  assert.match(main, /record: recordWindowLoad/)
+  assert.match(main, /const recordWindowLoad = \(stage: WindowLoadStage, detail: string\) => \{\s*\n\s*recordToUpdateLog\(stage, detail\)/,
+    'and it reaches the same durable log the renderer failures go to')
   const updater = read('apps/desktop/main/updater.ts')
   assert.match(updater, /\| WindowLoadStage/, 'the stages are in the log\'s own union')
 })
