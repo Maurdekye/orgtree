@@ -3135,7 +3135,7 @@ class KioskCfg(Body):
 
 
 @app.post("/api/orgs/{slug}/kiosk")
-async def org_kiosk(slug: str, body: KioskCfg) -> dict[str, Any]:
+def org_kiosk(slug: str, body: KioskCfg) -> dict[str, Any]:
     """Admin-only (the public gateway 403s the path): enable/disable an org as
     a kiosk, adjust its caps, rotate its secret URL. Raising a breached limit
     clears the matching hard freeze — ▶ resume then replays halted turns."""
@@ -3232,7 +3232,7 @@ async def org_kiosk(slug: str, body: KioskCfg) -> dict[str, Any]:
     if supervisor.storage_check(slug) == "cleared":
         cleared.append("storage")
     _token_cache["at"] = 0.0             # rotation/enable takes effect now
-    await hub.changed(slug)
+    hub_changed(slug)
     safe = {kk: v for kk, v in k.items()
             if kk not in ("api_key", "sandbox_secret")}
     return {"kiosk": safe, "share_url": _share_url(k.get("token")),
@@ -3248,8 +3248,8 @@ class HireDefaults(Body):
 
 
 @app.post("/api/orgs/{slug}/defaults")
-async def org_hire_defaults(slug: str, body: HireDefaults,
-                            request: Request) -> dict[str, Any]:
+def org_hire_defaults(slug: str, body: HireDefaults,
+                      request: Request) -> dict[str, Any]:
     """Agent-hire defaults — OPEN to kiosk visitors (user ruling 2026-07-31):
     a default is a pre-filled grant, so the ceiling clamps it like any grant.
     The rest of /settings (org folders, caps, policies) stays admin-only."""
@@ -3269,7 +3269,7 @@ async def org_hire_defaults(slug: str, body: HireDefaults,
         store.save_org(org)
     if pub and isinstance(result, dict):
         result.pop("bridge", None)
-    await hub.changed(slug)
+    hub_changed(slug)
     return result
 
 
@@ -4588,7 +4588,7 @@ async def node_account_assign(slug: str, nid: str,
 
 
 @app.post("/api/orgs/{slug}/nodes/{nid}/reorder")
-async def node_reorder(slug: str, nid: str, body: Reorder) -> dict[str, Any]:
+def node_reorder(slug: str, nid: str, body: Reorder) -> dict[str, Any]:
     with store.DOC_LOCK:
         try:
             org = store.load_org(slug)
@@ -4596,7 +4596,7 @@ async def node_reorder(slug: str, nid: str, body: Reorder) -> dict[str, Any]:
         except LedgerError as e:
             raise HTTPException(422, str(e))
         store.save_org(org)
-    await hub.changed(slug)
+    hub_changed(slug)
     return result
 
 
@@ -5185,7 +5185,7 @@ def lineage_drop_phantom(slug: str, nid: str) -> dict[str, Any]:
 
 
 @app.post("/api/orgs/{slug}/dissolve-all")
-async def org_dissolve_all(slug: str) -> dict[str, Any]:
+def org_dissolve_all(slug: str) -> dict[str, Any]:
     """Dissolve EVERY agent in the org at once (context kept — rehire revives)."""
     with store.DOC_LOCK:
         try:
@@ -5198,7 +5198,7 @@ async def org_dissolve_all(slug: str) -> dict[str, Any]:
             store.save_org(org)
         except LedgerError as e:
             raise HTTPException(422, str(e))
-    await hub.changed(slug)
+    hub_changed(slug)
     return {"freed": freed, "nodes": nodes}
 
 
@@ -5271,7 +5271,7 @@ class CreditDecision(Body):
 
 
 @app.post("/api/orgs/{slug}/credit-requests")
-async def credit_request_decide(slug: str, body: CreditDecision) -> dict[str, Any]:
+def credit_request_decide(slug: str, body: CreditDecision) -> dict[str, Any]:
     """Decide a top-level agent's credit request: approve as asked, counter-
     offer any legal amount (F-05), or deny. The outcome reaches the agent as
     ordinary user MAIL (the unified ask system: the answer is a mail that
@@ -5312,7 +5312,7 @@ async def credit_request_decide(slug: str, body: CreditDecision) -> dict[str, An
             "(orgtree) The mail above contains the user's decision on your "
             "credit request — proceed accordingly.", mail_ping=True,
             ping_reason="credit_decision")
-    await hub.changed(slug)
+    hub_changed(slug)
     return req
 
 
@@ -5542,7 +5542,7 @@ def document_mockup(slug: str, did: str, request: Request) -> Response:
 
 
 @app.delete("/api/orgs/{slug}/documents/{did}")
-async def document_dismiss(slug: str, did: str) -> dict[str, Any]:
+def document_dismiss(slug: str, did: str) -> dict[str, Any]:
     """FR-03: the card's ✕ — remove a presented document."""
     with store.DOC_LOCK:
         try:
@@ -5551,7 +5551,7 @@ async def document_dismiss(slug: str, did: str) -> dict[str, Any]:
         except LedgerError as e:
             raise HTTPException(404, str(e))
         store.save_org(org)
-    await hub.changed(slug)
+    hub_changed(slug)
     return {"ok": True, "node": r["node"]}
 
 
@@ -5567,7 +5567,7 @@ class RenameRepair(Body):
 
 
 @app.post("/api/orgs/{slug}/repair-rename")
-async def repair_rename(slug: str, body: RenameRepair) -> dict[str, Any]:
+def repair_rename(slug: str, body: RenameRepair) -> dict[str, Any]:
     """Finish a rename for records an earlier rename stranded under the old id
     — presented documents, and the current ownership fields of work items.
 
@@ -5603,7 +5603,7 @@ async def repair_rename(slug: str, body: RenameRepair) -> dict[str, Any]:
             # a side effect of failing
             raise HTTPException(422, str(e))
         store.save_org(org)
-    await hub.changed(slug)
+    hub_changed(slug)
     return {"ok": True, "migrated": migrated, **r}
 
 
@@ -6350,40 +6350,50 @@ async def work_item_attach(slug: str, wid: str, request: Request,
                   os.path.basename(name or "upload.bin")).strip(" .") or "upload.bin"
     stem, ext = os.path.splitext(safe)
     stem, ext = (stem[:120] or "upload"), ext[:20]
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
-        try:
-            _work_identity_ready(org, slug)
-        except LedgerError as e:
-            raise HTTPException(422, str(e))
-        try:
-            it, _ = org._work_find(wid)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
-        adir = _work_attach_dir(slug, str(it["slug"]))
-        os.makedirs(adir, exist_ok=True)
-        final, i = stem + ext, 2
-        while os.path.exists(os.path.join(adir, final)):
-            final, i = f"{stem}-{i}{ext}", i + 1
-        try:
-            with open(os.path.join(adir, final), "wb") as f:
-                f.write(data)
-        except OSError as e:
-            raise HTTPException(422, f"could not store the attachment: {e}")
-        try:
-            rec = org.work_attach(USER, wid, final, len(data), final)
-            store.save_org(org)
-        except LedgerError as e:
-            # the record was refused, so the bytes must not linger unlisted
+    # This one KEEPS `async`: reading the raw request body is a genuine await
+    # and deleting it would be a correctness bug, not a speed-up. So the
+    # locked part goes to the threadpool instead -- same rule as No.22 (a
+    # threading lock plus a whole-document load and save must never run on the
+    # event loop), reached the other way round. `run_in_threadpool` is already
+    # this module's idiom for exactly this (see the usage/limits routes).
+    def _store_attachment() -> dict[str, Any]:
+        with store.DOC_LOCK:
             try:
-                os.unlink(os.path.join(adir, final))
-            except OSError:
-                pass
-            raise HTTPException(422, str(e))
-    return {"attachment": rec}
+                org = store.load_org(slug)
+            except LedgerError as e:
+                raise HTTPException(404, str(e))
+            try:
+                _work_identity_ready(org, slug)
+            except LedgerError as e:
+                raise HTTPException(422, str(e))
+            try:
+                it, _ = org._work_find(wid)
+            except LedgerError as e:
+                raise HTTPException(404, str(e))
+            adir = _work_attach_dir(slug, str(it["slug"]))
+            os.makedirs(adir, exist_ok=True)
+            final, i = stem + ext, 2
+            while os.path.exists(os.path.join(adir, final)):
+                final, i = f"{stem}-{i}{ext}", i + 1
+            try:
+                with open(os.path.join(adir, final), "wb") as f:
+                    f.write(data)
+            except OSError as e:
+                raise HTTPException(422, f"could not store the attachment: {e}")
+            try:
+                rec = org.work_attach(USER, wid, final, len(data), final)
+                store.save_org(org)
+            except LedgerError as e:
+                # the record was refused, so the bytes must not linger unlisted
+                try:
+                    os.unlink(os.path.join(adir, final))
+                except OSError:
+                    pass
+                raise HTTPException(422, str(e))
+        return {"attachment": rec}
+
+    from fastapi.concurrency import run_in_threadpool
+    return await run_in_threadpool(_store_attachment)
 
 
 @app.get("/api/orgs/{slug}/work-items/{wid}/attachments/{aid}")
@@ -7629,7 +7639,7 @@ class AskAnswer(Body):
 
 
 @app.post("/api/orgs/{slug}/asks/{aid}/answer")
-async def ask_answer(slug: str, aid: str, body: AskAnswer) -> dict[str, Any]:
+def ask_answer(slug: str, aid: str, body: AskAnswer) -> dict[str, Any]:
     """Answer an agent's question (F-04) — from the desk card or the inbox
     card, whichever the user reached first. Marking happens before the mail
     is posted, under one doc lock; every other rendering of the card nulls
@@ -7660,7 +7670,7 @@ async def ask_answer(slug: str, aid: str, body: AskAnswer) -> dict[str, Any]:
             "(orgtree) The mail above reports that the user dismissed your "
             "question — proceed accordingly.", mail_ping=True,
             ping_reason="ask_answer")
-    await hub.changed(slug)
+    hub_changed(slug)
     return {"answered": aid, "node": r["node"],
             "mail": posted.get("id")}
 
@@ -7680,7 +7690,7 @@ class BatchResolve(Body):
 
 
 @app.post("/api/orgs/{slug}/nodes/{nid}/batch")
-async def batch_resolve(slug: str, nid: str, body: BatchResolve) -> dict[str, Any]:
+def batch_resolve(slug: str, nid: str, body: BatchResolve) -> dict[str, Any]:
     """FR-14: resolve a node's whole request batch — question answers, the
     credit decision and per-item scope grants — in one submit, one lock, one
     composed answer mail. The desk card and the inbox card both land here."""
@@ -7710,7 +7720,7 @@ async def batch_resolve(slug: str, nid: str, body: BatchResolve) -> dict[str, An
             "(orgtree) The mail above resolves your request batch — act on "
             "it now. A skipped tab returned unanswered; re-ask it later if "
             "it still matters.", mail_ping=True, ping_reason="batch")
-    await hub.changed(slug)
+    hub_changed(slug)
     return {"resolved": nid}
 
 
@@ -7721,7 +7731,7 @@ class WatchdogAction(Body):
 
 
 @app.post("/api/orgs/{slug}/watchdogs")
-async def watchdog_action(slug: str, body: WatchdogAction) -> dict[str, Any]:
+def watchdog_action(slug: str, body: WatchdogAction) -> dict[str, Any]:
     """FR-18: the user manages any dog from the canvas detail panel."""
     with store.DOC_LOCK:
         try:
@@ -7730,12 +7740,12 @@ async def watchdog_action(slug: str, body: WatchdogAction) -> dict[str, Any]:
         except LedgerError as e:
             raise HTTPException(422, str(e))
         store.save_org(org)
-    await hub.changed(slug)
+    hub_changed(slug)
     return r
 
 
 @app.post("/api/orgs/{slug}/nodes/{nid}/unstick")
-async def node_unstick(slug: str, nid: str) -> dict[str, Any]:
+def node_unstick(slug: str, nid: str) -> dict[str, Any]:
     """⭐ The user's per-node override (ruling 2026-08-06): release EVERY
     lock holding this agent — freeze of any kind, limit_locked, and the org
     fable_lock if this was its last holder — then drive the node with its
@@ -7758,7 +7768,7 @@ async def node_unstick(slug: str, nid: str) -> dict[str, Any]:
             supervisor.send_message(slug, nid, t,
                                     view=views[i] if i < len(views) else t)
         supervisor.notify(slug, nid, "turn_started")
-    await hub.changed(slug)
+    hub_changed(slug)
     return r
 
 
@@ -7964,7 +7974,7 @@ class InboxRead(Body):
 
 
 @app.post("/api/orgs/{slug}/inbox/read")
-async def user_inbox_read(slug: str, body: InboxRead) -> dict[str, Any]:
+def user_inbox_read(slug: str, body: InboxRead) -> dict[str, Any]:
     """Per-mail read: a viewed mail is marked read when the user clicks off it
     (user ruling) — it moves from unread into the read archive."""
     with store.DOC_LOCK:
@@ -7989,7 +7999,7 @@ async def user_inbox_read(slug: str, body: InboxRead) -> dict[str, Any]:
             log.sort(key=lambda m: m.get("at") or "")
 
             store.save_org(org)
-    await hub.changed(slug)
+    hub_changed(slug)
     return {"read": len(read)}
 
 
@@ -8121,10 +8131,19 @@ async def extern_wait(peer: str, org: str | None = None,
     # and gets nothing still counts as alive
     deadline = time.monotonic() + min(max(timeout, 1), 55)
     rev = None
+    # This one KEEPS `async`: the whole point of a long poll is to suspend
+    # without holding a thread, and `asyncio.sleep` is a genuine await. But
+    # `_extern_scan` takes DOC_LOCK and reads org documents, and doing that on
+    # the event loop froze every other request and every websocket frame for
+    # its duration -- No.22's rule, and a parked waiter can sit here for 55
+    # seconds rescanning. So the scan goes to the threadpool and only the
+    # sleep stays on the loop.
+    from fastapi.concurrency import run_in_threadpool
     while True:
         if rev != store.REVISION:
             rev = store.REVISION
-            msgs = _extern_scan(addr, org, after, fresh_only=True)
+            msgs = await run_in_threadpool(_extern_scan, addr, org, after,
+                                           fresh_only=True)
             if msgs:
                 return {"messages": msgs, "cursor": msgs[-1]["at"]}
         if time.monotonic() >= deadline:
@@ -8208,7 +8227,7 @@ def mail_one(slug: str, box: str, mid: str, request: Request = cast(Request, Non
 
 
 @app.post("/api/orgs/{slug}/org_inbox/read")
-async def org_inbox_read(slug: str) -> dict[str, Any]:
+def org_inbox_read(slug: str) -> dict[str, Any]:
     """The user opened the org-inbox panel: clear its unread count."""
     with store.DOC_LOCK:
         try:
@@ -8217,7 +8236,7 @@ async def org_inbox_read(slug: str) -> dict[str, Any]:
             raise HTTPException(404, str(e))
         org.org_inbox_mark_read()
         store.save_org(org)
-    await hub.changed(slug)
+    hub_changed(slug)
     return {"ok": True}
 
 
@@ -8363,7 +8382,7 @@ def org_inbox_send(slug: str, body: OrgInboxSend,
 
 
 @app.post("/api/orgs/{slug}/inbox/clear")
-async def user_inbox_clear(slug: str) -> dict[str, Any]:
+def user_inbox_clear(slug: str) -> dict[str, Any]:
     """Mark-all-read: archives into the read log (mirror of a node's mail_log)
     rather than deleting."""
     with store.DOC_LOCK:
@@ -8376,7 +8395,7 @@ async def user_inbox_clear(slug: str) -> dict[str, Any]:
 
         org.d["user_inbox"] = []
         store.save_org(org)
-    await hub.changed(slug)
+    hub_changed(slug)
     return {"ok": True}
 
 
@@ -8665,7 +8684,7 @@ class AudienceAction(Body):
 
 
 @app.post("/api/orgs/{slug}/audiences")
-async def user_audience(slug: str, body: AudienceAction) -> dict[str, Any]:
+def user_audience(slug: str, body: AudienceAction) -> dict[str, Any]:
     """User-side audience management: grant/deny requests that reached you, and
     one-click rescind of any audience (your authority is unconditional)."""
     with store.DOC_LOCK:
@@ -8685,7 +8704,7 @@ async def user_audience(slug: str, body: AudienceAction) -> dict[str, Any]:
     for t in result.pop("drive", []):
         supervisor.send_message(slug, t, "(orgtree) You have new mail above.",
                                 mail_ping=True, ping_reason="audience")
-    await hub.changed(slug)
+    hub_changed(slug)
     return result
 
 
@@ -12835,7 +12854,7 @@ def clear_reply_events(slug: str, nid: str) -> dict[str, Any]:
 
 
 @app.delete("/api/orgs/{slug}/nodes/{nid}/mail/{mid}")
-async def node_mail_retract(slug: str, nid: str, mid: str) -> dict[str, Any]:
+def node_mail_retract(slug: str, nid: str, mid: str) -> dict[str, Any]:
     """Parity №17: retract one UNDRAINED mail entry — the only correction
     channel for a wrong send, since delivery deliberately never interrupts."""
     with store.DOC_LOCK:
@@ -12848,7 +12867,7 @@ async def node_mail_retract(slug: str, nid: str, mid: str) -> dict[str, Any]:
             raise HTTPException(404, "no such pending mail — it may already "
                                      "have been delivered")
         store.save_org(org)
-    await hub.changed(slug)
+    hub_changed(slug)
     return {"retracted": mid}
 
 
