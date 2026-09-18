@@ -154,6 +154,89 @@ if __name__ == '__main__':
         [result] = self.execute(self.module("teardown.py", source))
         self.assertEqual(result.phase, "teardown_failure")
 
+    # ------------------------------------------------------- child stream decoding
+    #
+    # A byte the ambient Windows code page has no character for used to kill the
+    # reader thread, leave the stream None, and take the WHOLE run's JSON with
+    # it -- every module's result, not just the noisy one -- with a traceback
+    # that named no module. A caller reading the exit code saw "the tests
+    # failed"; a caller parsing the JSON got nothing. The bytes below are
+    # undefined in cp1252, so these tests fail on the unfixed runner.
+
+    UNDECODABLE = r"b'\x81\x8d\x90\x9d'"
+
+    def test_child_stderr_that_the_code_page_cannot_decode_keeps_the_verdict(self):
+        source = (
+            "import sys, unittest\n"
+            f"sys.stderr.buffer.write({self.UNDECODABLE})\n"
+            "sys.stderr.buffer.flush()\n"
+            "class T(unittest.TestCase):\n"
+            "    def test_named_failure(self):\n"
+            "        self.assertEqual(1, 2)\n"
+            "unittest.main()\n"
+        )
+        [result] = self.execute(self.module("noisy_stderr.py", source))
+        # The module's REAL verdict, which is what the crash destroyed.
+        self.assertEqual(result.phase, "assertion_failure")
+        self.assertEqual(result.failure_id, "noisy_stderr.py:assertion_failure")
+        self.assertIn("test_named_failure", result.stderr)
+        # The undecodable bytes arrive as replacement characters rather than
+        # ending the run. Asserting this pins `errors="replace"`: dropping it
+        # for a strict decode brings the crash straight back.
+        self.assertIn("�", result.stderr)
+        self.assertIsInstance(result.stdout, str)
+
+    def test_child_stdout_that_the_code_page_cannot_decode_keeps_provenance(self):
+        # Newline-terminated, which is what a noisy module actually emits. The
+        # child's result protocol is a line prefix on this same stream, so an
+        # unterminated write would run into it and cost the run its provenance
+        # -- true of any unterminated write, ASCII included, and not this
+        # ticket's defect. Recorded on the item rather than changed here.
+        source = (
+            "import sys\n"
+            f"sys.stdout.buffer.write({self.UNDECODABLE} + b'\\n')\n"
+            "sys.stdout.buffer.flush()\n"
+        )
+        [result] = self.execute(self.module("noisy_stdout.py", source))
+        self.assertEqual(result.phase, "pass")
+        self.assertIn("�", result.stdout)
+        # Proves the noise did not cost the run its provenance.
+        self.assertIn("orgtree", result.import_provenance)
+
+    def test_a_stream_that_was_never_captured_is_reported_not_fatal(self):
+        """The second half of the defect, which the encoding fix alone hides.
+
+        `subprocess` reads each pipe on its own thread; a thread that dies
+        leaves the attribute None instead of raising, and the failure surfaces
+        later as a TypeError that destroys every module's result. With the
+        decode fixed, a dead reader is no longer reachable from a stray byte --
+        so this drives the None directly, to keep the guard under test rather
+        than trusting an unreachable branch.
+        """
+        real = runner.subprocess.run
+
+        def lost_streams(*args, **kwargs):
+            completed = real(*args, **kwargs)
+            return runner.subprocess.CompletedProcess(
+                completed.args, completed.returncode, stdout=None, stderr=None)
+
+        path = self.module("quiet.py", "print('hello')\n")
+        # Select the interpreter and the data root BEFORE patching: the
+        # interpreter probe shells out too, and patching around it would test
+        # the probe's own guard instead of this one.
+        interpreter = runner.select_interpreter(
+            ROOT, os.environ.get("ORGTREE_V2_PYTHON") or sys.executable)
+        run_root, _ = runner.make_data_root(ROOT, str(self.data))
+        with patch.object(runner.subprocess, "run", side_effect=lost_streams):
+            [result] = runner.run_modules(
+                [path], repo_root=ROOT, interpreter=interpreter, data_root=run_root)
+        self.assertIn("was not captured", result.stdout)
+        self.assertIn("was not captured", result.stderr)
+        # A missing stream must not read as a module that printed nothing, and
+        # the module must still get a verdict rather than taking the run down.
+        self.assertNotEqual(result.stdout, "")
+        self.assertIn(result.phase, {"pass", "execution_failure"})
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

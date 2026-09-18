@@ -273,10 +273,19 @@ def _probe_interpreter(path: Path) -> Interpreter:
             check=True,
             capture_output=True,
             text=True,
+            # Same reason as the module runner below: the ambient code page
+            # must not decide whether this probe can read its own child.
+            encoding="utf-8",
+            errors="replace",
             timeout=15,
             env=probe_env,
-        ).stdout.strip()
-        identity = json.loads(raw)
+        ).stdout
+        if raw is None:
+            # A dead reader thread leaves this None rather than raising, and
+            # `.strip()` on it would surface as an AttributeError that no
+            # handler here catches.
+            raise ValueError("the interpreter probe produced no readable output")
+        identity = json.loads(raw.strip())
         parts = tuple(int(value) for value in identity["version_info"])
     except (OSError, subprocess.SubprocessError, ValueError, KeyError, json.JSONDecodeError) as exc:
         raise ValueError(f"selected Python is not runnable: {path}: {exc}") from exc
@@ -476,6 +485,23 @@ def _child_script() -> str:
     )
 
 
+def _stream(value: str | None, name: str) -> str:
+    """A captured stream, or a stated note that it was not captured.
+
+    ``subprocess`` reads each pipe on its own thread on Windows.  A thread that
+    dies leaves the attribute ``None`` instead of raising, so the failure
+    arrives later, somewhere else, as ``TypeError: 'NoneType' object is not
+    subscriptable`` -- which killed the entire run and every module's result
+    with it, and named no module while doing so.  Degrade to a reported missing
+    stream instead: the module still gets its verdict, and the receipt says
+    plainly that the capture failed rather than showing an empty string that
+    reads like a module which printed nothing.
+    """
+    if value is None:
+        return f"[{name} was not captured: the reader returned no data]"
+    return value
+
+
 def _parse_child(stdout: str) -> tuple[str | None, str, dict[str, str | None]]:
     marker = "__ORGTREE_VERIFY_RESULT__"
     lines = stdout.splitlines()
@@ -555,11 +581,21 @@ def run_modules(
                 env=env,
                 capture_output=True,
                 text=True,
+                # Decode the child explicitly. Without this, `text=True` uses the
+                # ambient code page -- cp1252 on this machine -- and one byte a
+                # module happens to emit that cp1252 has no character for kills
+                # the reader thread, leaves the stream None, and takes the whole
+                # run's JSON with it. `replace` rather than `surrogateescape`
+                # because the text is written back out as JSON: a lone surrogate
+                # survives json.dumps and then fails at the file write instead.
+                encoding="utf-8",
+                errors="replace",
                 timeout=timeout,
             )
-            stdout = completed.stdout
+            stdout = _stream(completed.stdout, "stdout")
+            captured_stderr = _stream(completed.stderr, "stderr")
             marker, clean_stdout, provenance = _parse_child(stdout)
-            phase = _classify_failure(completed.returncode, clean_stdout, completed.stderr, marker)
+            phase = _classify_failure(completed.returncode, clean_stdout, captured_stderr, marker)
             exit_code = completed.returncode
         except subprocess.TimeoutExpired as exc:
             stdout = (exc.stdout or "") if isinstance(exc.stdout, str) else ""
@@ -577,7 +613,7 @@ def run_modules(
             completed = None
             stderr = str(exc)
         else:
-            stderr = completed.stderr
+            stderr = captured_stderr
         duration = int((time.monotonic() - started) * 1000)
         failure_id = f"{label}:{phase}" if phase in FAILURE_PHASES else None
         result = ModuleResult(
