@@ -807,10 +807,63 @@ function baselineFailures(baseline, suiteName) {
 }
 
 // ---------------------------------------------------------------------------
+// Which suites a command was asked for
+// ---------------------------------------------------------------------------
+
+/**
+ * ⚠ AN UNREGISTERED `--suite` NAME IS A REFUSAL, NOT AN EMPTY SELECTION.
+ *
+ * `compare --suite node` used to run nothing, print `VERDICT: no new failures`
+ * and exit 0 — the registered name is `node-root`. The only clue was an
+ * ABSENCE (no suite block in the output) while the verdict line positively
+ * asserted the opposite. `toolbar-polish` hit it on 2026-09-17 with
+ * `--suite node` and `--suite python` and nearly quoted both as evidence.
+ *
+ * This tool is the team's designated proof that nobody introduced a
+ * regression, so a false green is the most expensive thing it can produce: a
+ * red verdict costs an afternoon, a false green ships the regression. Every
+ * subcommand that takes `--suite` therefore validates it HERE, against the
+ * registry, before it does anything else — including before it prints the
+ * baseline's age, so that nothing resembling a measurement appears above a bad
+ * command line.
+ *
+ * Validated against `SUITES`, not against the baseline's suites: asking for a
+ * registered suite the baseline has never seen is legitimate (compare says NOT
+ * IN THE BASELINE and counts every failure against you), whereas a name in
+ * neither is a typo whatever the baseline happens to hold.
+ *
+ * @returns {string[] | null} refusal lines, or null when the selection is fine
+ */
+function unregisteredSuite(args) {
+  if (args.suite === undefined) return null
+  const requested = String(args.suite)
+  if (Object.hasOwn(SUITES, requested)) return null
+  const lines = [
+    `--suite ${JSON.stringify(requested)} is not a registered suite, so nothing ran.`,
+    `registered suites: ${Object.keys(SUITES).join(', ')}`,
+  ]
+  // Both spellings that caused this were PREFIXES of a real name. Nobody
+  // typos a suite name into something unrecognisable; they shorten it.
+  const near = Object.keys(SUITES).filter(name => name.startsWith(requested) || requested.startsWith(name))
+  if (near.length) lines.push(`did you mean: ${near.join(', ')}?`)
+  return lines
+}
+
+/** Print a bad-command-line refusal. It prints no verdict: there isn't one. */
+function refuseSuite(lines) {
+  console.error('')
+  console.error('NOTHING RAN — this is a bad command line, not a test result.')
+  for (const line of lines) console.error(`  ${line}`)
+  return 2
+}
+
+// ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
 
 async function cmdRecord(args) {
+  const bad = unregisteredSuite(args)
+  if (bad) return refuseSuite(bad)
   const suiteNames = args.suite ? [args.suite] : Object.keys(SUITES)
   const concurrency = Number(args.concurrency ?? 4)
   const timeout = Number(args.timeout ?? 120_000)
@@ -952,6 +1005,8 @@ async function cmdRecord(args) {
 }
 
 async function cmdRun(args) {
+  const bad = unregisteredSuite(args)
+  if (bad) return refuseSuite(bad)
   const suiteNames = args.suite ? [args.suite] : Object.keys(SUITES)
   const concurrency = Number(args.concurrency ?? 4)
   const timeout = Number(args.timeout ?? 120_000)
@@ -975,6 +1030,11 @@ async function cmdRun(args) {
 }
 
 async function cmdCompare(args) {
+  // FIRST, before the baseline is even read: a bad suite name must not get as
+  // far as printing an age banner, because everything this command prints
+  // reads as part of a measurement.
+  const bad = unregisteredSuite(args)
+  if (bad) return refuseSuite(bad)
   const baseline = loadBaseline(args)
   if (!baseline) {
     console.error(`no baseline at ${relative(baselinePath(args))}. Record one: node tools/test-baseline.mjs record`)
@@ -1027,13 +1087,42 @@ async function cmdCompare(args) {
     const concurrency = Number(args.concurrency ?? baseline.machine?.concurrency ?? 4)
     const timeout = Number(args.timeout ?? 120_000)
     for (const suiteName of suiteNames) {
-      if (!SUITES[suiteName]) continue
+      if (!SUITES[suiteName]) {
+        // The baseline names a suite this checkout no longer registers — it was
+        // renamed or retired. Not the caller's typo, since `--suite` is
+        // validated above, but it still means one fewer suite ran than the
+        // reader expects, so it is said out loud rather than skipped in silence.
+        console.error(`[baseline] SKIPPING ${suiteName}: recorded in the baseline but not registered in this checkout — nothing was run for it`)
+        continue
+      }
       console.error(`[baseline] running ${suiteName} once…`)
       const { result } = await runWithConfirmation(suiteName, {
         concurrency, timeout, filter: args.filter, confirm: args.confirm !== false,
       })
       runs[suiteName] = { outcomes: result.outcomes, counts: summarize(result), duration_ms: result.duration_ms }
     }
+  }
+
+  // ⚠ ZERO SUITES IS NEVER "NO NEW FAILURES". This is the general form of the
+  // `--suite node` defect. Whatever the reason nothing ran — an empty
+  // baseline, a saved --results file holding none of the suites asked for, a
+  // baseline whose every suite has since been retired — the report loop below
+  // would iterate over nothing, leave newFailures at 0, and print a green
+  // verdict about a measurement that does not exist. "Ran and found nothing
+  // new" and "ran nothing" must not be able to produce the same output, so
+  // this returns before any verdict can be written.
+  const executed = Object.keys(runs)
+  if (!executed.length) {
+    console.error('')
+    console.error('NOTHING WAS COMPARED — no suite produced a result, so this run can')
+    console.error('neither acquit nor convict anything. This is NOT a green result.')
+    console.error(`  suites asked for: ${suiteNames.length ? suiteNames.join(', ') : '(none — the baseline records no suites)'}`)
+    console.error(`  registered here:  ${Object.keys(SUITES).join(', ')}`)
+    if (args.results) {
+      const saved = Object.keys(readJson(path.resolve(args.results), {})?.suites ?? {})
+      console.error(`  saved run ${args.results} holds: ${saved.join(', ') || '(no suites)'}`)
+    }
+    return 2
   }
 
   let newFailures = 0
@@ -1170,15 +1259,19 @@ async function cmdCompare(args) {
 
   if (args.json) console.log(JSON.stringify(report, null, 2))
   const flakyTotal = Object.values(report.suites).reduce((n, s) => n + (s.flaky_failures?.length ?? 0), 0)
+  // THE VERDICT NAMES WHAT IT COVERS. A verdict that does not say which suites
+  // it ran is one a reader silently widens to "the whole suite", and that is
+  // how a single-suite run gets quoted as a clean bill of health.
+  const covering = `${executed.length} suite(s): ${executed.join(', ')}`
   if (newFailures === 0) {
-    say('VERDICT: no new failures. Every failure in this run was already failing in the baseline.')
+    say(`VERDICT: no new failures in ${covering}. Every failure in this run was already failing in the baseline.`)
     if (flakyTotal && !args.strictFlaky) {
       say(`         ${flakyTotal} test(s) failed and then passed on re-run here. Not counted as regressions,`)
       say('         but they are named above — do not quote this verdict without them.')
     }
     if (age.verdict !== 'fresh') say('         (read the drift warnings above before quoting this as proof.)')
   } else {
-    say(`VERDICT: ${newFailures} failure(s) this baseline does not account for. Read them above.`)
+    say(`VERDICT: ${newFailures} failure(s) this baseline does not account for, in ${covering}. Read them above.`)
   }
   say('\nTo hand a pre-existing failure to whoever owns it — without taking it on yourself:')
   say('  node tools/test-baseline.mjs handover --test "<id>" --to <agent> --summary "..."')
@@ -1186,18 +1279,38 @@ async function cmdCompare(args) {
 }
 
 function cmdShow(args) {
+  // `show` HONOURS `--suite` NOW. It used to parse the flag and then ignore it,
+  // printing all three suites — so `show --suite python` answered a question
+  // nobody asked while looking like it had answered the one they did. Same
+  // family as the compare defect: the flag was accepted, the output was
+  // plausible, and nothing said the two did not correspond.
+  const bad = unregisteredSuite(args)
+  if (bad) return refuseSuite(bad)
   const baseline = loadBaseline(args)
   if (!baseline) {
     console.error(`no baseline at ${relative(baselinePath(args))}. Record one: node tools/test-baseline.mjs record`)
     return 2
   }
   const age = ageOf(baseline)
-  if (args.json) { console.log(JSON.stringify({ ...baseline, age }, null, 2)); return 0 }
+  const recorded = Object.entries(baseline.suites ?? {})
+  const shown = args.suite ? recorded.filter(([name]) => name === args.suite) : recorded
+  // Registered, spelled correctly, and simply absent from this baseline. An
+  // empty page would read as "nothing to report"; it means the opposite.
+  if (args.suite && !shown.length) {
+    console.error(`this baseline holds no record of ${args.suite} — it has never been recorded here, or was recorded and later dropped.`)
+    console.error(`  suites in ${relative(baselinePath(args))}: ${recorded.map(([name]) => name).join(', ') || '(none)'}`)
+    console.error(`  record it: node tools/test-baseline.mjs record --suite ${args.suite}`)
+    return 2
+  }
+  if (args.json) {
+    console.log(JSON.stringify({ ...baseline, suites: Object.fromEntries(shown), age }, null, 2))
+    return 0
+  }
 
   printAge(age)
   console.log(`          recorded by ${baseline.recorded_by ?? '(unrecorded)'} on ${baseline.machine?.host} (${baseline.machine?.platform}/${baseline.machine?.arch}, node ${baseline.machine?.node}, concurrency ${baseline.machine?.concurrency})`)
   console.log('')
-  for (const [name, suite] of Object.entries(baseline.suites ?? {})) {
+  for (const [name, suite] of shown) {
     console.log(`── ${name} — ${suite.title}`)
     console.log(`   ${suite.runner}`)
     if (suite.granularity === 'module') {
@@ -1408,7 +1521,7 @@ function parseArgs(argv) {
 
 const USAGE = `tools/test-baseline.mjs — the shared record of what already fails
 
-  show                     print the baseline, its commit and its age (runs nothing)
+  show [--suite <name>]    print the baseline, its commit and its age (runs nothing)
   record                   run the suites and write docs/test-baseline.json
   run --out <file>         run the suites and save raw results
   compare [--results F]    run once here and split new failures from pre-existing ones
@@ -1417,7 +1530,9 @@ const USAGE = `tools/test-baseline.mjs — the shared record of what already fai
   resolve --seq N --status accepted|closed|declined [--note N]
 
 common flags
-  --suite <name>           limit to one suite (${Object.keys(SUITES).join(', ')})
+  --suite <name>           limit to one suite (${Object.keys(SUITES).join(', ')}).
+                           An unregistered name is REFUSED with a nonzero exit:
+                           it never runs zero suites and calls that a pass.
   --filter <substring>     only files whose path contains this. A baseline recorded
                            with a filter is stored as PARTIAL and says so everywhere.
   --concurrency <n>        test-file concurrency (default 4; recorded in the baseline)

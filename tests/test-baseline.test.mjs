@@ -490,3 +490,115 @@ test('the same failure is not handed over twice by accident', async t => {
   assert.match(again.stderr, /already handed over as #1/)
   assert.equal(JSON.parse(fs.readFileSync(ledgerFile, 'utf8')).handovers.length, 1)
 })
+
+
+// ---------------------------------------------------------------------------
+// The suite name itself — a green verdict for a run that never happened
+// ---------------------------------------------------------------------------
+//
+// `compare --suite node` ran nothing, printed `VERDICT: no new failures` and
+// exited 0. The registered name is `node-root`. The only signal was an
+// ABSENCE — no suite block in the output — while the verdict line positively
+// asserted the opposite, and this tool is the team's designated proof that
+// nobody introduced a regression. `toolbar-polish` hit it on 2026-09-17 with
+// `--suite node` and `--suite python` and nearly quoted both as evidence.
+//
+// These cases run the tool with a bad command line, which returns before any
+// suite is executed, so they cost nothing measurable.
+
+/** Run the tool with no baseline dependency and capture everything. */
+function runTool(argv) {
+  const result = spawnSync(process.execPath, [TOOL, ...argv], {
+    cwd: REPO, encoding: 'utf8', windowsHide: true,
+  })
+  return { status: result.status, stdout: result.stdout, stderr: result.stderr }
+}
+
+// The two spellings that actually happened, plus one that is a near-miss in the
+// other direction, so the case does not rest on a single string.
+for (const name of ['node', 'python', 'renderer-x']) {
+  for (const command of ['compare', 'show', 'run', 'record']) {
+    test(`${command} --suite ${name} refuses instead of reporting a pass`, () => {
+      const { status, stdout, stderr } = runTool([command, '--suite', name])
+      assert.notEqual(status, 0, `--suite ${name} must not exit 0:\n${stderr}`)
+      // The heart of it: no verdict may be printed about a suite that never
+      // ran. Checked across BOTH streams, because `compare --json` moves the
+      // human output to stderr and a verdict hiding on the other stream is
+      // still a verdict somebody will quote.
+      assert.doesNotMatch(stdout + stderr, /VERDICT/,
+        `a command that ran nothing printed a verdict:\n${stdout}\n${stderr}`)
+      assert.doesNotMatch(stdout + stderr, /no new failures/,
+        `a command that ran nothing claimed no new failures:\n${stdout}\n${stderr}`)
+      // and it names the real ones, so the next thing the reader types is right
+      assert.match(stderr, /node-root/)
+      assert.match(stderr, /python-backend/)
+      assert.match(stderr, /renderer/)
+    })
+  }
+}
+
+test('the refusal suggests the registered name the typo was reaching for', () => {
+  assert.match(runTool(['compare', '--suite', 'node']).stderr, /did you mean: node-root\?/)
+  assert.match(runTool(['compare', '--suite', 'python']).stderr, /did you mean: python-backend\?/)
+})
+
+test('a valid suite name is still accepted — the guard refuses typos, not work', () => {
+  // `show` is the one subcommand that reaches a real result without running a
+  // test suite, so it is what proves the guard lets correct spellings through.
+  const { status, stdout } = runTool(['show', '--suite', 'node-root'])
+  assert.equal(status, 0, 'a registered suite name must not be refused')
+  assert.match(stdout, /── node-root/)
+})
+
+test('show --suite actually narrows the output instead of ignoring the flag', () => {
+  // It used to parse `--suite` and print all three suites anyway: the flag was
+  // accepted, the output was plausible, and nothing said they did not
+  // correspond. A refusal test alone would not have caught that.
+  const one = runTool(['show', '--suite', 'node-root']).stdout
+  const all = runTool(['show']).stdout
+  assert.doesNotMatch(one, /── python-backend/)
+  assert.doesNotMatch(one, /── renderer/)
+  assert.match(all, /── python-backend/, 'the unfiltered form must still show everything')
+  assert.match(all, /── renderer/)
+})
+
+test('a comparison that executes zero suites is never reported as clean', async t => {
+  // The general form of the same defect, reached without a typo: the baseline
+  // asks for node-root and the saved run holds only renderer, so the loop that
+  // builds `runs` matches nothing. Before the fix this fell through to
+  // newFailures === 0 and printed a green verdict about no measurement at all.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'baseline-test-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const baselineFile = path.join(dir, 'baseline.json')
+  const resultsFile = path.join(dir, 'results.json')
+  fs.writeFileSync(baselineFile, JSON.stringify(baselineFixture()))
+  fs.writeFileSync(resultsFile, JSON.stringify({
+    schema: 'orgtree.test-run/v1',
+    ran_at: new Date().toISOString(),
+    commit: 'b'.repeat(40),
+    suites: { renderer: { counts: { files: 0, tests: 0, passed: 0, failed: 0, skipped: 0 }, outcomes: [], duration_ms: 1 } },
+  }))
+  const { status, stdout, stderr } = runTool([
+    'compare', '--baseline', baselineFile, '--results', resultsFile, '--json',
+  ])
+  assert.notEqual(status, 0, 'zero suites compared must not exit 0')
+  assert.doesNotMatch(stdout + stderr, /VERDICT/)
+  assert.doesNotMatch(stdout + stderr, /no new failures/)
+  assert.match(stderr, /NOTHING WAS COMPARED/)
+  // and it must not emit a report either: a caller parsing stdout has to fail
+  // loudly rather than read an empty-but-green comparison
+  assert.equal(stdout.trim(), '', `stdout should carry no report:\n${stdout}`)
+})
+
+test('the verdict names the suites it actually covers', async t => {
+  // "Ran and found nothing new" and "ran nothing" must not be able to produce
+  // the same output. Naming the coverage is what makes them distinguishable at
+  // a glance, and it stops a one-suite run being quoted as a clean bill of
+  // health for the whole repo.
+  const { human, status } = runFixture(t, {
+    baseline: baselineFixture(),
+    outcomes: [outcome('old-broken', 'failed', 'boom'), outcome('solid', 'passed'), outcome('also-solid', 'passed')],
+  })
+  assert.equal(status, 0)
+  assert.match(human, /VERDICT: no new failures in 1 suite\(s\): node-root\./)
+})
