@@ -59,6 +59,12 @@ def seeded():
     org = store.create_org("auth-fixture")
     org.hire(USER, None, "haiku", 0, "caller")
     org.hire(USER, None, "haiku", 0, "old")
+    # A LIVE seat at the SAME generation as the caller. 'forged'/'foreign' below
+    # do not exist, so their 403s are produced by the missing-seat branch and say
+    # nothing about credential scope; this one can only be refused by the scope
+    # check itself. (Mutation M2, 2026-09-18: deleting that check left the suite
+    # green until this seat existed.)
+    org.hire(USER, None, "haiku", 0, "peer")
     store.save_org(org)
     stale = agentauth.child_env('auth-fixture', 'old')['ORGTREE_AGENT_TOKEN']
     org.node('old')['generation'] = 1
@@ -228,6 +234,13 @@ class EngineHTTPTests(unittest.TestCase):
         self.assertEqual(self.request('/api/agent', call, token=self.token+'x')[0], 401)
         self.assertEqual(self.request('/api/agent', {**call,'node':'forged'}, token=self.token)[0], 403)
         self.assertEqual(self.request('/api/agent', {**call,'org':'foreign'}, token=self.token)[0], 403)
+        # Both of the above name a seat and an org that DO NOT EXIST, so the
+        # gateway refuses them for being missing. These two name a live seat at
+        # the caller's own generation and a live seat in another real org, so
+        # the only thing that can refuse them is the credential's scope.
+        self.assertEqual(self.request('/api/agent', {**call,'node':'peer'}, token=self.token)[0], 403)
+        self.assertEqual(self.request('/api/agent', {**call,'org':'duplicate-one','node':'worker'},
+                                      token=self.token)[0], 403)
         self.assertEqual(self.request('/api/agent', {**call,'node':'old'}, token=self.stale)[0], 403)
         self.assertEqual(self.request('/api/desktop/status', token=self.token)[0], 401)
         status, body = self.request('/api/desktop/status', operator=True)
