@@ -526,6 +526,18 @@ class ProjectionCannotGoStale(ArchiveProjectionBase):
         self.assertEqual(len(after), 8)
         self.assertIn("added-late", {p["slug"] for p in after})
 
+    def test_clearing_the_document_is_seen(self):
+        """`clear()` marks every lazy section dropped WITHOUT materialising any
+        of them, so it is the one invalidation route a cached projection cannot
+        survive by accident — after it, an uninvalidated cache would be the only
+        thing still claiming the archive had rows. Found by mutation M14, which
+        survived until this test existed.
+        """
+        org = self.cold(self.mixed("Stale Clear"))
+        self.assertEqual(len(org._work_archive_proj()), 7)
+        org.d.clear()
+        self.assertEqual(org._work_archive_proj(), [])
+
     def test_deleting_the_section_is_seen(self):
         org = self.cold(self.mixed("Stale Delete"))
         self.assertEqual(len(org._work_archive_proj()), 7)
