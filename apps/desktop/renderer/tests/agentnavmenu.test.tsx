@@ -39,7 +39,8 @@ import path from 'node:path'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
-import { AGENT_NAV_ATTR } from '../src/canvas/agentnav'
+import { AGENT_NAV_ATTR, AgentNavProvider, useAgentNavRegistry } from '../src/canvas/agentnav'
+import type { AgentNavMenu } from '../src/canvas/agentnav'
 import { AgentName } from '../src/canvas/identity'
 import { ObjectMenuBoundary } from '../src/canvas/contextmenu'
 import { resetConvos } from '../src/convo'
@@ -299,6 +300,49 @@ test('§4 every file that draws a navigating agent name also marks it', () => {
     'these files draw a `' + NAV_CLASS + '` agent name — a name the app itself '
     + 'says navigates — without marking it as a navigation target, so it '
     + 'offers a copy-only menu')
+})
+
+// ------------------------------------------- §6 THE REGISTRY IS READ LATE
+// WHY THIS SECTION EXISTS, stated plainly: a deliberate mutation that reads
+// the registry at RENDER time instead of at menu-open time SURVIVED §1-§5. In
+// the canvas fixture everything re-renders after OrgCanvas registers, so the
+// two reads agree and no mounted test can tell them apart. The property still
+// matters — a `memo`'d row that renders before registration and never
+// re-renders would hold `null` forever and silently offer a copy-only menu —
+// so it is pinned here, at the registry's own contract, instead of at the menu.
+//
+// ⚠ WHAT THIS DOES AND DOES NOT PROVE. It proves the hook hands back a LIVE
+// registry rather than a value captured when the consumer subscribed, which is
+// the one edit that would reintroduce the bug. It does NOT prove the whole
+// open-menu path dereferences late; no mounted fixture reaches that, and
+// saying so here is cheaper than a test that looks like it does.
+
+test('§6 a consumer that subscribed BEFORE registration still reaches the builder', async () => {
+  let captured: { readonly current: AgentNavMenu | null } | null | undefined
+  function Consumer() {
+    const reg = useAgentNavRegistry()
+    if (captured === undefined) captured = reg     // ONCE, like a memo'd row
+    return null
+  }
+  const v = await mountView(
+    <AgentNavProvider><Consumer /></AgentNavProvider>, (h) => h)
+  await flush(2)
+  assert.ok(captured, 'the consumer found a registry')
+  assert.equal(captured!.current, null,
+    'nothing was registered at the moment it subscribed')
+  // now somebody registers, exactly as OrgCanvas does, and the consumer is
+  // never re-rendered
+  const asked: string[] = []
+  ;(captured as { current: AgentNavMenu | null }).current = (id) => {
+    asked.push(id)
+    return [{ label: 'Open desk', onSelect: () => {} }]
+  }
+  const late = captured!.current
+  assert.ok(late, 'the early subscriber reaches the late registration')
+  assert.deepEqual(late!('worker').map((e) => (e === 'sep' ? 'sep' : e.label)),
+    ['Open desk'], 'and it is the registered builder that answers')
+  assert.deepEqual(asked, ['worker'], 'called with the agent the target names')
+  v.unmount()
 })
 
 // ----------------------------------- §5 THE PRIMARY CLICK IS UNTOUCHED
