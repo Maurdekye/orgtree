@@ -167,38 +167,38 @@ class ToolCallSingleLoad(unittest.TestCase):
                              "a section-granular refresh must not re-parse "
                              "the document")
 
-    def test_write_verb_parses_the_document_once_not_twice(self):
-        """A write verb owes ONE document parse and cannot owe zero (yet).
+    def test_write_verb_parses_the_document_zero_times_warm(self):
+        """A warm write verb owes NO document parse at all.
 
-        This pinned 2 when it was written: one shared gate parse (the
-        previous call's save invalidated the snapshot) plus one private
-        write parse under `DOC_LOCK`. The state-access rearchitecture's
-        Phase A made the first half disappear as a PARSE: an invalidated
-        snapshot now REFRESHES section-granularly, re-reading only the rows
-        the save changed (store._assemble_snapshot), so the gates cost a
-        few KB instead of a document load — and the freshness they must
-        keep is pinned by `test_gates_answer_from_the_last_save_*`, which
-        runs against the refresh path now. The private write parse remains
-        until the dispatch cycle is converted to `store.write_org`; when
-        that lands, this pin moves to 0 on a warm resident and this
-        docstring moves with it."""
+        The history of this pin tells the whole story: it was 3 (auth gate,
+        halt gate, verb — each a whole-document parse), then 2 (the gates
+        moved to the shared snapshot), then 1 (the snapshot started
+        refreshing section-granularly instead of re-parsing), and now 0:
+        the dispatch runs on the per-org RESIDENT document
+        (store.write_org), whose one construction is amortized across every
+        write cycle in the process, and the differ re-serializes only what
+        the verb exposed. Correctness did not move an inch while the number
+        fell: the gates' freshness is pinned by
+        `test_gates_answer_from_the_last_save_*`, lost-update protection by
+        `test_concurrent_writes_all_land`, and the discard property by the
+        write_org tests in test_state_access_rearchitecture.py."""
         self.status("first")
         with _LoadCounter() as c:
             c.reset()
             self.status("second")
-            self.assertEqual(c.n, 1,
-                             "gate refresh is row-reads, not a parse; only "
-                             "the private write parse remains")
+            self.assertEqual(c.n, 0,
+                             "gates answer from the refreshed snapshot and "
+                             "the verb from the resident — no parse remains")
 
     def test_write_verb_gates_are_free_after_a_read(self):
-        """The same write verb, reached from a warm snapshot: the gates cost
-        nothing and only the private write parse remains."""
+        """The same write verb, reached from a warm snapshot: still zero —
+        the read warmed the snapshot, the resident was already warm."""
         self.status("first")
         self.work_list()                      # warms the snapshot after the save
         with _LoadCounter() as c:
             c.reset()
             self.status("second")
-            self.assertEqual(c.n, 1, "only the private write parse remains")
+            self.assertEqual(c.n, 0, "no parse on either half")
 
     def test_chart_parses_the_document_zero_times_when_nothing_changed(self):
         """`orgtree_chart` is the OTHER read-shaped door -- `read_transcript`,

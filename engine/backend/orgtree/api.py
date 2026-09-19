@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import collections
+import contextlib
 import hashlib
 import importlib.util
 import ipaddress
@@ -102,7 +103,8 @@ from .ledger import (LedgerError, Org, StaleRevError, USER, VIS_LEVELS,
                      actor_of, norm_dirs, norm_tools)
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Iterator, Mapping
+    from contextlib import AbstractContextManager
 
     import httpx
     # aliased: `Scope` is taken by the pydantic body model of the same name
@@ -10115,6 +10117,25 @@ class _op_inflight:
                 _OP_INFLIGHT.pop(self._k, None)
 
 
+@contextlib.contextmanager
+def _entry_ledger_422(cm: "AbstractContextManager[Org]") -> "Iterator[Org]":
+    """Enter a `store.write_org` cycle; a LedgerError raised by the ENTRY
+    itself (no such org, bad slug) becomes the same 422 the old in-block
+    `load_org` produced. Errors from the body or the exit pass through
+    untouched, so nothing that used to escape as a 500 gets reclassified."""
+    try:
+        v = cm.__enter__()
+    except LedgerError as e:
+        raise HTTPException(422, str(e))
+    try:
+        yield v
+    except BaseException as e:
+        if not cm.__exit__(type(e), e, e.__traceback__):
+            raise
+    else:
+        cm.__exit__(None, None, None)
+
+
 OP_CALL, OP_LOOKUP = opreceipts.OP_CALL, opreceipts.OP_LOOKUP
 OP_EPOCH = opreceipts.OP_EPOCH
 
@@ -10446,12 +10467,12 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
         # protect it — arriving BEFORE any mutation has been attempted
         # rather than after one has already applied.
         #
-        # It mutates nothing. It does take DOC_LOCK, because the seq it reads
-        # is what the rewind check compares and reading it beside a
-        # half-written transaction would be a false rewind.
-        with store.DOC_LOCK:
+        # It mutates nothing. It does take the write cycle's lock, because
+        # the seq it reads is what the rewind check compares and reading it
+        # beside a half-written transaction would be a false rewind. The
+        # resident makes this lock-consistent read cost microseconds.
+        with _entry_ledger_422(store.write_org(body.org)) as org:
             try:
-                org = store.load_org(body.org)
                 org.node(body.node)
             except LedgerError as e:
                 raise HTTPException(422, str(e))
@@ -10858,9 +10879,11 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
             raise HTTPException(422, str(e))
         _archive_warnings = supervisor.interrupt_before_archive(
             body.org, _pre_org, _arch_node)
-    with _op_inflight(body), store.DOC_LOCK:
+    # the RESIDENT write cycle (rearchitecture Phase B): same DOC_LOCK, same
+    # save fanout, same discard-on-failure — without re-parsing 11 MB of
+    # document per tool call.
+    with _op_inflight(body), _entry_ledger_422(store.write_org(body.org)) as org:
         try:
-            org = store.load_org(body.org)
             org.node(body.node)
             if org.node(body.node).get("halt"):
                 raise LedgerError("agent is halted — tools cannot execute until unhalt")
