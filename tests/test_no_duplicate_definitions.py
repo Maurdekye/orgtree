@@ -25,19 +25,40 @@ PARSED, NOT GREPPED. A regex over a file this size both misses and misfires,
 and a guard that cries wolf gets deleted. `ast` sees the class body Python
 actually builds.
 
-⚠ THE THREE SAME-NAME-BY-DESIGN PATTERNS ARE RECOGNISED, not worked around.
-Python has three, and a check that does not know them is a false-alarm machine:
+⚠ THE FOUR SAME-NAME-BY-DESIGN PATTERNS ARE RECOGNISED, not worked around.
+Python has four, and a check that does not know them is a false-alarm machine:
 
   * `@property` with `@name.setter` / `@name.deleter` / `@name.getter`
   * `typing.overload` — several stubs and then the real implementation
+  * `functools.singledispatchmethod` — the base plus its `@name.register`
+    implementations, which the documented idiom ALL names `_`, so idiomatic
+    single dispatch really does put several `def _` in one class body
   * definitions under different `if` / `try` branches
 
-The first two sit in the class body directly and are classified as legitimate.
-The third does NOT reach this check at all: a def inside an `if` belongs to the
-If node's body, not the class body, so walking the direct body never sees it.
-That is a deliberate limit and it is stated rather than hidden — version- or
-platform-conditional definitions are exactly the case where two defs of one
-name are correct, and guessing at them would make this guard untrustworthy.
+The first three sit in the class body directly and are classified as
+legitimate. The fourth does NOT reach this check at all: a def inside an `if`
+belongs to the If node's body, not the class body, so walking the direct body
+never sees it. That is a deliberate limit and it is stated rather than hidden —
+version- or platform-conditional definitions are exactly the case where two
+defs of one name are correct, and guessing at them would make this guard
+untrustworthy.
+
+⚠ RECOGNISING THE DECORATORS IS NOT ENOUGH; THE SHAPE HAS TO BE COUNTED. This
+file got that wrong twice, in the same way, and both were the hazard wearing
+correct-looking decorators:
+
+  * two `@property` of one name, and one `@overload` stub with TWO
+    implementations — the later definition silently replacing the earlier;
+  * two `@value.setter` of one name (review finding f1) — the second rebuilds
+    the property and DISCARDS the first setter function. A flat `accessor`
+    classification could not tell that from the by-design `setter` + `deleter`
+    pair, which is why `classify` reports the accessor KIND.
+
+So `legitimate` counts: at most one `@property`, at most one accessor of each
+kind, at most one non-stub implementation in an overload group. The
+false-alarm direction is guarded just as deliberately, because a guard that
+cries wolf on textbook `functools` usage is one somebody switches off — and
+then every real collision is missed.
 
 WHAT THE TREE ACTUALLY CONTAINS. Measured across `engine/`, `tests/` and
 `tools/` — 359 Python files — before this guard was written: ZERO duplicates of
@@ -98,19 +119,45 @@ def _decorator_names(node: ast.AST) -> list[str]:
     return out
 
 
+#: Accessor decorators, by the suffix of `@<something>.<suffix>`.
+_ACCESSORS = ("setter", "deleter", "getter")
+
+
 def classify(node: ast.AST, name: str) -> str:
-    """Why this definition may legitimately share its name — or `plain`."""
+    """Why this definition may legitimately share its name — or `plain`.
+
+    The accessor kinds are reported SEPARATELY (`accessor:setter` and friends)
+    rather than collapsed into one `accessor`. That distinction is the whole
+    of finding f1: two `@value.setter` of one name is a silent replacement —
+    the second rebuilds the property and discards the first function — and a
+    flat `accessor` cannot tell that from the by-design `setter` + `deleter`
+    pair. `legitimate` counts the kinds; this has to give it kinds to count.
+    """
     for dec in _decorator_names(node):
         tail = dec.rsplit(".", 1)[-1]
         if tail == "overload":
             return "overload"
         if dec in ("property", "cached_property") or tail == "cached_property":
             return "property"
-        if tail in ("setter", "deleter", "getter") and "." in dec:
-            # `@value.setter` on `def value` is the accessor pattern; an
-            # accessor named after a DIFFERENT property is still an accessor
-            # and still not the hazard this guard is looking for.
-            return "accessor"
+        if tail == "singledispatchmethod" or dec.endswith("singledispatch"):
+            return "singledispatch"
+        if tail == "register" and "." in dec:
+            # `@area.register` — a `functools.singledispatchmethod`
+            # implementation. The documented idiom names every one of them
+            # `_`, so idiomatic single dispatch puts several `def _` in one
+            # class body. See the module docstring's fourth pattern.
+            return "dispatch"
+        if tail in _ACCESSORS and "." in dec:
+            base = dec.rsplit(".", 1)[0]
+            if base == name:
+                # `@value.setter` on `def value`: this builds THIS name's
+                # property from itself, which is the by-design pattern.
+                return f"accessor:{tail}"
+            # `@other.setter` on `def value` rebinds `value` to a property
+            # derived from `other`, so an earlier `value` is DISCARDED. The
+            # decorator looks like an accessor and the effect is a
+            # replacement, so it is not treated as by-design.
+            return "plain"
     return "plain"
 
 
@@ -136,14 +183,39 @@ def legitimate(kinds: tuple[str, ...]) -> bool:
     """
     if not kinds:
         return False
+
     if any(k == "overload" for k in kinds):
         # stubs are free; more than one real implementation is a collision
         return sum(1 for k in kinds if k != "overload") <= 1
-    if all(k in ("property", "accessor") for k in kinds):
-        # `<= 1` rather than `== 1`: a body holding only accessors is odd but
-        # not this hazard (the property may be built by other means), whereas
-        # TWO `@property` of one name is precisely it.
-        return sum(1 for k in kinds if k == "property") <= 1
+
+    if any(k in ("dispatch", "singledispatch") for k in kinds):
+        # `functools.singledispatchmethod`: the base plus its registered
+        # implementations, which the documented idiom all names `_`. Two
+        # `@x.register` for the SAME annotated type would be a real
+        # collision, but an ast walk cannot resolve types, so the honest rule
+        # is that registered implementations are all fine and only a second
+        # BASE is a collision.
+        if not all(k in ("dispatch", "singledispatch") for k in kinds):
+            return False
+        return sum(1 for k in kinds if k == "singledispatch") <= 1
+
+    if all(k == "property" or k.startswith("accessor:") for k in kinds):
+        # At most one `@property` — two of them is a plain replacement.
+        if sum(1 for k in kinds if k == "property") > 1:
+            return False
+        # AND at most one accessor OF EACH KIND. `setter` + `deleter` is the
+        # by-design pair; `setter` + `setter` is finding f1 — the second
+        # rebuilds the property and discards the first function, silently.
+        # Counting `accessor` as one bucket could not tell those apart.
+        for accessor in _ACCESSORS:
+            if sum(1 for k in kinds if k == f"accessor:{accessor}") > 1:
+                return False
+        # The `@property` bound stays `<= 1` rather than `== 1` on purpose: a
+        # body holding only accessors (the property built by other means) is
+        # odd but is not a replacement. Note that leniency about the MISSING
+        # property never extended to the accessors — that conflation was f1.
+        return True
+
     return False
 
 
@@ -465,6 +537,44 @@ class Classification(unittest.TestCase):
                 "    def v(self): return 1\n"
                 "    @cached_property\n"
                 "    def v(self): return 2\n"),
+            # ── review finding f1: the accessor kinds, previously uncounted ──
+            "@property with TWO @value.setter — second discards the first": (
+                "class C:\n"
+                "    @property\n"
+                "    def value(self): return self._v\n"
+                "    @value.setter\n"
+                "    def value(self, v): self._v = v\n"
+                "    @value.setter\n"
+                "    def value(self, v): self._v = v * 2\n"),
+            "@property with TWO @v.getter": (
+                "class C:\n"
+                "    @property\n"
+                "    def v(self): return 1\n"
+                "    @v.getter\n"
+                "    def v(self): return 2\n"
+                "    @v.getter\n"
+                "    def v(self): return 3\n"),
+            "two @v.deleter of one name": (
+                "class C:\n"
+                "    @property\n"
+                "    def v(self): return 1\n"
+                "    @v.deleter\n"
+                "    def v(self): pass\n"
+                "    @v.deleter\n"
+                "    def v(self): pass\n"),
+            "an accessor named after a DIFFERENT property rebinds this name": (
+                "class C:\n"
+                "    @property\n"
+                "    def value(self): return 1\n"
+                "    @other.setter\n"
+                "    def value(self, v): pass\n"),
+            "a property group mixed with a plain redefinition": (
+                "class C:\n"
+                "    @property\n"
+                "    def v(self): return 1\n"
+                "    @v.setter\n"
+                "    def v(self, x): pass\n"
+                "    def v(self): return 2\n"),
         }
         for label, src in cases.items():
             with self.subTest(case=label):
@@ -506,12 +616,34 @@ class Classification(unittest.TestCase):
                 "    def v(self, x): self._v = x\n"
                 "    @v.deleter\n"
                 "    def v(self): del self._v\n"),
+            # DISTINCT accessor kinds, which is the line the counting rule
+            # draws: different kinds are fine, a repeated kind is f1.
             "accessors only, property built elsewhere": (
                 "class C:\n"
                 "    @v.setter\n"
                 "    def v(self, x): self._v = x\n"
                 "    @v.deleter\n"
                 "    def v(self): del self._v\n"),
+            # ── review finding f2: the fourth by-design pattern ──
+            # The documented idiom names EVERY registered implementation `_`,
+            # so textbook single dispatch really does put several `def _` in
+            # one class body. A guard that cries wolf on this gets switched
+            # off, and then every real collision is missed too.
+            "functools.singledispatchmethod with registered implementations": (
+                "from functools import singledispatchmethod\n"
+                "class C:\n"
+                "    @singledispatchmethod\n"
+                "    def area(self, s): raise NotImplementedError\n"
+                "    @area.register\n"
+                "    def _(self, s: int): return s\n"
+                "    @area.register\n"
+                "    def _(self, s: str): return len(s)\n"),
+            "singledispatch registrations without the base in this body": (
+                "class C:\n"
+                "    @area.register\n"
+                "    def _(self, s: int): return s\n"
+                "    @area.register\n"
+                "    def _(self, s: str): return len(s)\n"),
         }
         for label, src in cases.items():
             with self.subTest(case=label):
@@ -538,10 +670,20 @@ class Classification(unittest.TestCase):
                                      "    def f(): pass\n"
                                      "    @staticmethod\n"
                                      "    def f(): pass\n"),
-            "a setter with no property of that name": (
+            # ⚠ REVIEW FINDING f3: this case used to hold a body with no
+            # setter in it at all, byte-identical to "plain" above — so the
+            # suite ran one assertion twice under two names and the shape the
+            # label promised was never exercised. It was also precisely the
+            # shape f1 showed to be EXCUSED, which made the one test claiming
+            # to cover it the one test that did not. The same "green because
+            # it never ran" failure the control test exists to prevent, a
+            # level down.
+            "two setters with no property of that name": (
                 "class C:\n"
-                "    def f(self): pass\n"
-                "    def f(self): pass\n"),
+                "    @f.setter\n"
+                "    def f(self, v): pass\n"
+                "    @f.setter\n"
+                "    def f(self, v): pass\n"),
         }
         for label, src in cases.items():
             with self.subTest(case=label):
