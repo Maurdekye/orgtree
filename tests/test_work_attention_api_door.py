@@ -241,9 +241,27 @@ class UpdateAndAddendumAgreeOnWhatFalseMeans(unittest.TestCase):
         self.assertIsNotNone(self._flag(org, agent, finished))
 
     def test_true_is_the_one_deliberate_difference(self):
-        """`update` raises; `addendum` refuses. Pinned so the parity above is
-        never "completed" by making a finished record able to raise a new
-        demand on the user's attention."""
+        """`update` raises; `addendum` refuses. Pinned so the agreement above
+        is never "completed" by making a finished record able to raise a new
+        demand on the user's attention.
+
+        ⚠ THE TWO HALVES BELOW ARE ONE FACT, NOT TWO, AND NEITHER MAY BE
+        DELETED AS REDUNDANT. `addendum` can refuse `true` only BECAUSE
+        `update` still accepts it on an active item — there is always a door.
+        An addendum is the post-completion correction path: it fixes the record
+        of work already judged, without `reopen=true` erasing the acceptance.
+        Raising a new demand on the user's attention is not a correction to
+        that record, it is a claim the work needs something further, and the
+        honest tool for that is `reopen`, which pays the price of clearing the
+        completion.
+
+        So if someone later made `update` refuse raising too, this divergence
+        would become a trap with no way out. The `update` half asserts the
+        escape route still exists; deleting it because
+        `test_raising_through_the_door_still_works` looks like it covers the
+        same ground would leave the refusal pinned and its precondition
+        unpinned. (Point made by flag-clear, who built the refusal.)
+        """
         org, agent = self._org()
         live = self._flagged(org, agent)
         api._work_mutate_action(org, agent, {"attention": False},
@@ -253,14 +271,19 @@ class UpdateAndAddendumAgreeOnWhatFalseMeans(unittest.TestCase):
                                 {"attention": False, "note": "down"},
                                 "addendum", finished)
 
-        # update: raising is allowed
+        # THE PRECONDITION: raising is still possible on an active item, which
+        # is what makes the refusal below safe rather than a dead end.
         api._work_mutate_action(
             org, agent, {"done_so_far": ["more"], "working_on_next": ["next"],
                          "attention": True, "attention_reason": REASON},
             "update", live)
-        self.assertIsNotNone(self._flag(org, agent, live))
+        self.assertIsNotNone(
+            self._flag(org, agent, live),
+            "update must still raise on an active item — the addendum refusal "
+            "below is only safe because this door exists")
 
-        # addendum: raising is refused, and the flag stays down
+        # THE DIVERGENCE: refused from a finished record, and the flag stays
+        # down rather than being half-raised by a call that errored.
         with self.assertRaises(Exception):
             api._work_mutate_action(
                 org, agent, {"attention": True, "attention_reason": REASON,
