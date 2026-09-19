@@ -27,6 +27,18 @@ THE MUTANTS, and what each one is a stand-in for:
       still coerces, and is simply wrong on every replay.
   M5  the flag is stamped on every carrier instead of only the replayed one.
   M6  the field is undeclared, so coercion drops it off the record.
+  M7  the spend pops on TRUTHINESS instead of identity -- the exact defect
+      this harness could not have found, see below.
+
+⚠ WHAT THIS HARNESS CANNOT DO, AND THE PROOF IS ITS OWN HISTORY.  It reported
+6 mutants, 6 killed, 0 survivors -- and a real blocking defect sailed straight
+through it, because the defect was a GUARD THAT WAS NOT THERE.  Mutation
+testing perturbs the code that was written; it has no way to express "the
+check nobody wrote".  restart-mail found that one by reading the fix against
+its own `finally` block and noticing the two touched a marker with different
+care.  So read 6/6 as "the tests cover the lines the fix has", never as "the
+fix is right".  M7 exists only because the guard now exists to be mutated --
+which is exactly the limitation, stated from the inside.
 
 ⚠ THIS HARNESS EDITS FILES IN THE WORKING TREE.  Every original is held in
 memory and restored in a `finally`, and the run ends by re-checking every
@@ -48,6 +60,8 @@ PROBE = [sys.executable, '-B', 'tests/restart_reconcile_kill_probe.py',
          '--kill-at', '2']
 FLAG = [sys.executable, '-B', 'tools/run-python-verification.py',
         '--repo-root', '.', 'tests/test_restart_replay_turnlog.py']
+RACE = [sys.executable, '-B', 'tools/run-python-verification.py',
+        '--repo-root', '.', 'tests/restart_reconcile_spend_race_probe.py']
 
 MUTANTS = [
     {
@@ -74,8 +88,8 @@ MUTANTS = [
         'command': PROBE,
         'edits': [
             (SUP,
-             '                if nid in _spend.nodes and _spend.node(nid).get("inflight"):\n',
-             '                if False and _spend.node(nid).get("inflight"):\n'),
+             '                if _cur == inf:\n',
+             '                if False:\n'),
         ],
     },
     {
@@ -111,6 +125,15 @@ MUTANTS = [
             (SUP,
              '    if restart_replay:\n        _segs["restart_replay"] = True\n',
              '    if True:\n        _segs["restart_replay"] = True\n'),
+        ],
+    },
+    {
+        'id': 'M7',
+        'what': 'the spend pops on truthiness instead of identity',
+        'catches': 'the spend race, restart_reconcile_spend_race_probe.py',
+        'command': RACE,
+        'edits': [
+            (SUP, '                if _cur == inf:\n', '                if _cur:\n'),
         ],
     },
     {
@@ -167,7 +190,7 @@ def main():
 
     print('=== BASELINE: the unmutated tree must be green ===')
     baseline = {}
-    for command in ([PROBE, FLAG] if only is None else
+    for command in ([PROBE, FLAG, RACE] if only is None else
                     [wanted[0]['command']]):
         key = ' '.join(command[-2:])
         code, out = _run(command)

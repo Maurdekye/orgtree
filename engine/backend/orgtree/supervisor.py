@@ -31699,11 +31699,38 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
             # Cost: this adds at most one `save_org` per MID-TURN node to a
             # pass that already performs six, on the one code path where a
             # single engine process is alive. Measured shape, not assumed.
+            # ⚠ IDENTITY, NEVER TRUTHINESS — and this guard is the mirror of
+            # the one in the `finally` below, which already refuses to
+            # overwrite a marker because "a node that has since started a new
+            # turn owns its own marker". The spend has the SAME hazard in the
+            # other direction and shipped without the guard (2026-09-19,
+            # caught in review by restart-mail): collection runs under the
+            # lock, the lock is released, and every dispatch below is a whole
+            # turn during which a live agent can message a seat this loop has
+            # not reached yet. That seat starts a real turn and writes itself
+            # a NEW marker. Popping on truthiness destroys THAT marker — the
+            # running turn is left with none, a later death replays nothing,
+            # and `_status_note` draws it as an ordinary idle node. Which is
+            # this ticket's own bug, re-entered through the fix for it.
+            # The old erase-everything-up-front code could not do this: the
+            # marker was already gone before any dispatch, so a newly written
+            # one was simply left alone. The window is one THIS fix opened.
+            # Reproduced: tests/restart_reconcile_spend_race_probe.py.
+            # Compared by VALUE rather than by `at` alone, so a marker written
+            # by an older build with no `at` cannot make two different turns
+            # look like one turn.
             with store.DOC_LOCK:
                 _spend = store.load_org(slug)
-                if nid in _spend.nodes and _spend.node(nid).get("inflight"):
+                _cur = (_spend.node(nid).get("inflight")
+                        if nid in _spend.nodes else None)
+                if _cur == inf:
                     _spend.node(nid).pop("inflight", None)
                     store.save_org(_spend)
+                elif _cur:
+                    # NOT silent. The whole incident behind this ticket was a
+                    # marker disappearing with nothing recording that it had.
+                    print(f"[orgtree] {slug}/{nid}: a newer turn owns this "
+                          f"node's marker; leaving it and replaying anyway")
             observer = recovery_observer if nid in recovery_seats else None
             if observer:
                 observer(nid,'before')
