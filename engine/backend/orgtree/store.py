@@ -162,73 +162,64 @@ def _migration_allowed() -> bool:
 # inner RLock, and a `Condition.wait` correctly SUSPENDS the held-time clock
 # across the release/re-acquire so a worker parked on the condition does not
 # read as a multi-second lock hold.
-class _InstrumentedDocLock:
-    __slots__ = ("_rlock", "_tls")
+class _InstrumentedDocLock(profiling.TimedRLock):
+    """`profiling.TimedRLock` (per-REQUEST lock_wait_ms / mutate_ms, the
+    Condition protocol, the substitutability contract its own docstring
+    pins) composed with the rearchitecture's two additions: per-OPERATION
+    wait/held aggregates (stateprobe), and the resident release hook that
+    enforces the discard property for every write cycle at the one place
+    all of them pass through. Subclassed rather than re-implemented so
+    test_write_route_timing's pins hold for the object actually installed.
+
+    Held-time accounting across `Condition.wait` follows the parent's rule:
+    the wait ends the hold window for both reporters (asleep is not held),
+    and the restore opens a fresh one."""
+
+    __slots__ = ("_tls",)
 
     def __init__(self) -> None:
-        self._rlock = threading.RLock()
+        super().__init__()
         self._tls = threading.local()
 
-    def _depth(self) -> int:
-        return getattr(self._tls, "depth", 0)
-
     def acquire(self, blocking: bool = True, timeout: float = -1) -> bool:
-        outer = self._depth() == 0
+        outer = getattr(self._held, "depth", 0) == 0
         t0 = time.perf_counter() if outer else 0.0
-        ok = self._rlock.acquire(blocking, timeout)
-        if ok:
-            self._tls.depth = self._depth() + 1
-            if outer:
-                now = time.perf_counter()
-                self._tls.wait_ms = (now - t0) * 1000.0
-                self._tls.held_at = now
+        ok = super().acquire(blocking, timeout)
+        if ok and outer:
+            now = time.perf_counter()
+            self._tls.wait_ms = (now - t0) * 1000.0
+            self._tls.held_at = now
         return ok
 
     def release(self) -> None:
-        depth = self._depth()
-        if depth == 1:
-            # STILL OWNING the lock: the resident release-check must see a
-            # world no other writer can be mutating (defined later in the
-            # module; name resolves at call time)
+        if getattr(self._held, "depth", 0) == 1:
+            # outermost, still owning the lock: run the resident release
+            # check first (it must see a world no other writer can be
+            # mutating), then record the hold
             try:
                 _on_doc_lock_release()
             except Exception:
                 pass
-        self._rlock.release()
-        if depth:
-            self._tls.depth = depth - 1
-            if depth == 1:
-                held = (time.perf_counter()
-                        - getattr(self._tls, "held_at", time.perf_counter())) * 1000.0
+            held_at = getattr(self._tls, "held_at", None)
+            if held_at is not None:
                 stateprobe.record("doc_lock_wait",
                                   ms=getattr(self._tls, "wait_ms", 0.0))
-                stateprobe.record("doc_lock_held", ms=held)
+                stateprobe.record("doc_lock_held",
+                                  ms=(time.perf_counter() - held_at) * 1000.0)
+                self._tls.held_at = None
+        super().release()
 
-    def __enter__(self) -> "_InstrumentedDocLock":
-        self.acquire()
-        return self
+    # ------------------------------------------------ threading.Condition
+    def _release_save(self) -> Any:
+        # a Condition.wait ends the hold for BOTH reporters — asleep is not
+        # held, and the parent closes its own window the same way
+        self._tls.held_at = None
+        return super()._release_save()
 
-    def __exit__(self, *exc: object) -> None:
-        self.release()
-
-    # --- the Condition protocol (threading.Condition(store.DOC_LOCK)) ---
-    def _is_owned(self) -> bool:
-        return self._rlock._is_owned()  # pyright: ignore[reportAttributeAccessIssue]  # RLock's own protocol method
-
-    def _release_save(self) -> tuple[Any, int, float]:
-        state = self._rlock._release_save()  # pyright: ignore[reportAttributeAccessIssue]
-        depth = self._depth()
-        self._tls.depth = 0
-        held = (time.perf_counter()
-                - getattr(self._tls, "held_at", time.perf_counter())) * 1000.0
-        return (state, depth, held)
-
-    def _acquire_restore(self, saved: tuple[Any, int, float]) -> None:
-        state, depth, held = saved
-        self._rlock._acquire_restore(state)  # pyright: ignore[reportAttributeAccessIssue]
-        self._tls.depth = depth
-        # resume the held clock where it stood before the Condition released
-        self._tls.held_at = time.perf_counter() - held / 1000.0
+    def _acquire_restore(self, state: Any) -> None:
+        super()._acquire_restore(state)
+        self._tls.held_at = time.perf_counter()
+        self._tls.wait_ms = 0.0
 
 
 DOC_LOCK = _InstrumentedDocLock()
