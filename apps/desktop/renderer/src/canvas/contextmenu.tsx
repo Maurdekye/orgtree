@@ -97,6 +97,7 @@ import type { CSSProperties, HTMLAttributes, KeyboardEvent as ReactKeyboardEvent
   ReactNode, SyntheticEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useSurfaceDocument } from '../popout'
+import { agentNavAt, useAgentNavRegistry } from './agentnav'
 import { useEsc } from './shared'
 import type { ToastFn } from '../types'
 
@@ -280,6 +281,10 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
   // reached for nothing real. It is kept so a future caller that hands `open`
   // a synthetic anchor still lands in its own surface rather than at `document`
   const surfaceDocument = useSurfaceDocument()
+  // read at OPEN time through the registry ref, never subscribed — see
+  // agentnav.tsx. `useAgentNavMenu` returns null in a window that registered
+  // nothing, and then a marked target keeps exactly the menu it has today.
+  const agentNav = useAgentNavRegistry()
   const anchorRef = useRef<Element | null>(null)
   const opening = useRef(0)
   const close = useCallback(() => setState(null), [])
@@ -298,8 +303,18 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
     if (nativeMenuPreferred({ target: e.target, currentTarget: el })) return
     const entriesList = (typeof entries === 'function' ? entries() : entries)
     const object = copyObjectAt(e.target, el)
+    // THE CANONICAL AGENT MENU, for a navigation target that has no menu of
+    // its own (user scope expansion 2026-09-19). Built here rather than by
+    // each surface so that every target reaches the SAME implementation —
+    // agentnav.tsx explains why it is a registry. A surface that already
+    // passes the menu in `entries` does not carry the marker, so these two
+    // paths never both fire and the entries are never doubled.
+    const navId = agentNavAt(e.target, el)
+    const navEntries = navId && !entriesList.length ? (agentNav?.current?.(navId) ?? []) : []
     const list: MenuEntry[] = object
-      ? [objectCopyEntry(object, feedback), ...(entriesList.length ? ['sep' as const, ...entriesList] : [])]
+      ? [objectCopyEntry(object, feedback),
+         ...(navEntries.length ? ['sep' as const, ...navEntries] : []),
+         ...(entriesList.length ? ['sep' as const, ...entriesList] : [])]
       : entriesList
     // nothing to offer is not a menu: the browser's own stands
     if (!list.some((x) => x !== 'sep')) return
@@ -320,7 +335,7 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
       doc,
     })
     return opening.current
-  }, [feedback, surfaceDocument])
+  }, [agentNav, feedback, surfaceDocument])
 
   // THE ORIGIN CLOSING WHILE THE MENU IS UP. `pagehide` is what MovableSurface
   // itself listens for to redock a surface whose window went away, so it is

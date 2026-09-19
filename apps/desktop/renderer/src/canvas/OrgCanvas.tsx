@@ -53,6 +53,7 @@ import { NodeDetailGate } from './nodedetailgate'
 import { contextMenuBelongsTo, useContextMenu } from './contextmenu'
 import type { ContextMenuHandle, MenuEntry } from './contextmenu'
 import { AgentRetireConfirm, agentMenuEntries, continueFrozenOnAccount } from './agentmenu'
+import { useProvideAgentNav } from './agentnav'
 import type { RetireKind } from './agentmenu'
 import { useSurfaceDocument } from '../popout'
 
@@ -262,6 +263,55 @@ function AgentListMenuHost({ render, map, op, slug, toast }: {
       <AgentRetireConfirm kind={asking.kind} node={node} op={op} toast={toast}
         close={() => setAsking(null)} />, body)}
   </>
+}
+
+/** THE ONE PLACE THE CANONICAL AGENT MENU IS BUILT FOR SOMEBODY ELSE'S
+ *  SURFACE (user scope expansion 2026-09-19). Every navigation target marked
+ *  with `data-agent-nav` — an agent name that jumps, a desk edge chip, a pile
+ *  row, a pinned placeholder, a ref chip in prose, the mail sender chip in
+ *  App.tsx, which is not even a descendant of this canvas — reaches this
+ *  builder through `agentnav.tsx`'s registry. None of them carries its own
+ *  entry list, its own labels, its own gating or its own confirm.
+ *
+ *  ⚠ IT IS `trayRowMenu`, NOT A SECOND BUILDER. The Agents List row already
+ *  had a menu for an ARBITRARY node built from the canvas's own handlers, so
+ *  the expansion needed a way to REACH it, not another copy of it.
+ *
+ *  ⚠ INSIDE `<DeskHosts>` FOR THE SAME REASON THE TRAY'S MENU HOST IS: the
+ *  desk registry's provider is DeskHosts, and `useDeskActionsNow` called in
+ *  OrgCanvas's own body would read the context from outside it and get null,
+ *  silently dropping the popout and show-window entries.
+ *
+ *  An unknown id yields NO entries rather than a stub menu — the same rule
+ *  agentmenu.tsx applies to a handler a surface cannot offer. The target then
+ *  keeps the copy-only menu it has today, which is the honest answer for a
+ *  name this tree does not hold. */
+function AgentNavHost({ map, op, slug, toast, goTo, build }: {
+  map: Map<string, CanvasNode>
+  op: OpFn
+  slug: string
+  toast: ToastFn
+  goTo: (id: string) => void
+  build: (n: CanvasNode, go: () => void,
+    ask: (a: { id: string; kind: RetireKind }) => void,
+    deskNow: ReturnType<typeof useDeskActionsNow>) => MenuEntry[]
+}) {
+  const deskNow = useDeskActionsNow(slug)
+  const [asking, setAsking] = useState<{ id: string; kind: RetireKind } | null>(null)
+  const body = useSurfaceDocument().body
+  const node = asking ? map.get(asking.id) : null
+  // registered during render, and read only when a menu opens: a memo'd row
+  // that never re-renders must still raise today's menu (agentnav.tsx)
+  useProvideAgentNav((id: string) => {
+    const n = map.get(id)
+    return n ? build(n, () => goTo(id), setAsking, deskNow) : []
+  })
+  // the CARD's confirm — same wording, same op, same undo toast — portaled
+  // into this document, exactly as the tray's menu host does it
+  return node && asking
+    ? createPortal(<AgentRetireConfirm kind={asking.kind} node={node} op={op}
+        toast={toast} close={() => setAsking(null)} />, body)
+    : null
 }
 
 export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettings, onWorkItem,
@@ -2496,6 +2546,23 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   // `go` is the row's navigation (it brings a piled-away agent to the front of
   // its pile first, and at compact it opens the sheet) — the row's answer to
   // the card's "re-centre on me".
+  // GOING TO AN AGENT, once. This was written inline in the tray row; the
+  // registry below needs exactly the same answer for an arbitrary id, and two
+  // copies of "bring it to the front of its pile, then glide or open the
+  // sheet" is the drift the ticket exists to stop. The row now calls this too.
+  const goToAgent = useCallback((id: string) => {
+    const n = map.get(id)
+    if (!n) return
+    if (hiddenRef.current.has(id)) {
+      const par = map.get(id)?.parent
+      setFront(par! + (n.state === 'archived' ? '|a' : '|c'), id)
+    }
+    // mobile sheet gate: the tray is primary navigation at compact (§5.3) —
+    // centerOn would glide past the compact zoom clamp
+    if (sheetGate()) { setSheetId(id); setTrayOpen(false) }
+    else centerOn(id)
+  }, [map, setFront, centerOn])
+
   const trayRowMenu = (n: CanvasNode, go: () => void,
     ask: (a: { id: string; kind: RetireKind }) => void,
     deskNow: ReturnType<typeof useDeskActionsNow>): MenuEntry[] => {
@@ -2800,7 +2867,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   return (
     <OrgKillswitchContext.Provider value={!!tree.killswitch}>
     <AgentSurfaceRoutesProvider value={agentSurfaceRoutes}>
-    <DeskHosts map={map} slug={slug} treeSlug={tree.slug}><div style={freeAnchor ?? undefined} className={'viewport' + (tree.sandboxed ? ' sandboxed' : '')
+    <DeskHosts map={map} slug={slug} treeSlug={tree.slug}><AgentNavHost
+      map={map} op={op} slug={slug} toast={toast} goTo={goToAgent} build={trayRowMenu} /><div style={freeAnchor ?? undefined} className={'viewport' + (tree.sandboxed ? ' sandboxed' : '')
       + (tree.headless ? ' headless' : '')
       + (tree.killswitch ? ' killswitched' : '') + (redAlert ? ' redalert' : '')} data-culling={visibleRect ? 'active' : 'unmeasured'} data-pin-org={slug} ref={viewportRef}
       onPointerDown={onPointerDown} onPointerMove={onPointerMove}
@@ -3373,17 +3441,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
                 // a piled-away agent comes to the FRONT of its pile when
                 // picked from the tray, then the glide lands on it — the key
                 // names the pile KIND (retired |a vs live crowd |c)
-                const go = () => {
-                  if (hidden.has(n.id)) {
-                    const par = map.get(n.id)?.parent
-                    setFront(par! + (n.state === 'archived' ? '|a' : '|c'), n.id)
-                  }
-                  // mobile sheet gate: the tray is primary navigation at
-                  // compact (§5.3) — a row opens the desk sheet directly
-                  // (centerOn would glide past the compact zoom clamp)
-                  if (sheetGate()) { setSheetId(n.id); setTrayOpen(false) }
-                  else centerOn(n.id)
-                }
+                // the canvas's one navigation, shared with the registry
+                // that serves every other surface's menu
+                const go = () => goToAgent(n.id)
                 // №13: the status summary is TEXT here, not a tooltip — and a
                 // finished status survives the next turn as prev_status (dim)
                 const stat: (NodeStatus & { _stale?: boolean }) | null = n.last_status

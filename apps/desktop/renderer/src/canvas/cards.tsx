@@ -33,6 +33,7 @@ import {
   AgentWorkstate, ContextWheel, deriveAgentVisualState, deriveTurnState, isUsageFrozen, DeskChat, DestinationBusy, LastTurnAge,
   MapModeIndicator, MapTurnAge, RouteBadge, ServingAccountBadge,
 } from './desk'
+import { agentNavProps } from './agentnav'
 import { DocChips } from './docs'
 import { useContextMenu } from './contextmenu'
 import type { MenuEntry } from './contextmenu'
@@ -463,7 +464,7 @@ export function EyeDesk({ map, op, slug, toast,
                 {!isPinned(a.id) &&
                   <FullscreenIcon className="eye-tab-panel-glyph" fontSize="inherit" />}
               </button>
-              {onJump && <button className="eye-tab-jump" type="button"
+              {onJump && <button className="eye-tab-jump" type="button" {...agentNavProps(a.id)}
                 title={`jump to ${a.id}`} aria-label={`jump to ${a.id}`}
                 onClick={() => onJump(a.id)}>
                 <FocusIcon fontSize="inherit" />

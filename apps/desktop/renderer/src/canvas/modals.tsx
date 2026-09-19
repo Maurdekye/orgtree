@@ -23,6 +23,7 @@ import { pickFolder } from '../picker'
 import {
   CloseIcon, DeleteIcon, FolderIcon, LayersIcon, SettingsIcon,
 } from '../icons'
+import { agentNavProps } from './agentnav'
 import { ago, ALL_PRESENT, anyTierSeat, codexTierOffer, CODEX_TIERS, ANTIGRAVITY_TIERS, fmtCredits, hireOf, isOpenRouterTier, MODEL_VERSIONS, openrouterTierIds, pileOrder, PROVIDER_LABEL, providerOf, stateLabel, TIER_LETTER, tierCapabilityNotes, tierLabel, TIERS, tierShown, USER, useEsc } from './shared'
 import type { ProviderPresence } from './shared'
 import type { CanvasNode, DraftScope, DraftState, OpFn, Pile } from './shared'
@@ -1736,7 +1737,7 @@ export function PilePicker({ pile, map, onPick, close, op, toast }: PilePickerPr
           // than "never" — FR-23's rule, kept so the two surfaces match.
           const lastTurn = n.turns?.[n.turns.length - 1]
           return (
-            <button key={id} data-copy-agent-name={id} className={'pile-row' + (id === pile.front ? ' on' : '')}
+            <button key={id} data-copy-agent-name={id} {...agentNavProps(id)} className={'pile-row' + (id === pile.front ? ' on' : '')}
               onClick={() => onPick(id)}>
               <span className={'tier t-' + n.tier}>{TIER_LETTER[n.tier!] ?? '?'}</span>
               <span className="pile-name">{id}</span>

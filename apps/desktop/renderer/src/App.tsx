@@ -33,6 +33,7 @@ import type { HostIdentity } from './accountidentity'
 import { groupByProvider } from './usagegroups'
 import { bumpLive } from './livebus'
 import { newSync, onBase, onFrame, resetSync } from './treesync'
+import { AgentNavProvider, agentNavProps } from './canvas/agentnav'
 import { AudienceFold, ConfirmModal, MailFolders, MailList, OrgCanvas, OrgRecord, RetiredFold } from './Canvas'
 import { KillSwitch } from './KillSwitch'
 import {
@@ -1025,7 +1026,7 @@ export default function App() {
   )
 
   return (
-    <CurrentOrg.Provider value={slug}><ObjectMenuBoundary className="app" toast={toast}>
+    <CurrentOrg.Provider value={slug}><AgentNavProvider><ObjectMenuBoundary className="app" toast={toast}>
       <RestartNotice />
       {orgTransitionPrompt}
       {/* no active org: the org list IS the screen */}
@@ -1494,7 +1495,7 @@ export default function App() {
       </WindowMirrors>
       {/* the in-app folder picker: LAST so it stacks above every modal */}
       <FolderPickerHost />
-    </ObjectMenuBoundary></CurrentOrg.Provider>
+    </ObjectMenuBoundary></AgentNavProvider></CurrentOrg.Provider>
   )
 }
 
@@ -2165,7 +2166,8 @@ export function SenderChip({ id, nodes, onFocusAgent }: {
          `AgentName` stops it for the same reason; the two must not drift.
          type="button" for the same reason `AgentName` carries one — this is
          rendered inside forms, where the default submit would be wrong. */
-      <button type="button" className="cc-name cc-name-jump" title={`focus ${id}'s desk`}
+      <button type="button" {...agentNavProps(id)}
+        className="cc-name cc-name-jump" title={`focus ${id}'s desk`}
         onClick={(e) => { e.stopPropagation(); onFocusAgent(id) }}>
         {chip}
       </button>

@@ -1,4 +1,5 @@
 import { transcriptViewport } from '../transcriptViewport'
+import { agentNavProps } from './agentnav'
 import { HaltControl, HaltStatus } from './haltcontrol'
 import { resolveRef } from './reflinks'
 import { readReply, replyContext, replyFromRow, replyWire, storeReply } from '../eventReply'
@@ -1609,7 +1610,8 @@ export function NavChip({ n, dir, onJump }:
   // to whichever provider's themed desk this chip happens to render inside
   const prov = !eye && n.tier ? ' prov-' + providerOf(n.tier) : ''
   return <span className="desk-nav-entry">
-    <button data-copy-agent-name={eye ? undefined : n.id} className={'desk-nav-chip' + (!eye && n.state !== 'live' ? ' dim' : '') + prov}
+    <button data-copy-agent-name={eye ? undefined : n.id}
+        {...agentNavProps(eye ? undefined : n.id)} className={'desk-nav-chip' + (!eye && n.state !== 'live' ? ' dim' : '') + prov}
         title={eye ? 'jump to the switchboard'
           : `jump to ${n.id}${n.state !== 'live' ? ` (${n.state})` : ''}`}
         onClick={() => onJump(n.id)}>
@@ -2890,7 +2892,17 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
     <ReplySourceProvider value={resolveReplySource}>
       <div className="cc-head">
         <div className="cc-head-top">
-        <span className="cc-head-left" data-copy-agent-name={node.id}>
+        {/* ⚠ MARKED UNCONDITIONALLY, unlike every other target. The scope
+            predicate everywhere else is "the primary click navigates", and on
+            the FOCUSED desk this name deliberately does not: `atDestination`
+            makes it plain text, because the click would take you where you
+            already are. But the desk header name is the surface the original
+            ticket was filed about — "in Desk view the context menu on an
+            agent's displayed name shows only Copy agent name" — so it is in
+            scope by name, not by predicate, and the marker goes on the
+            header region rather than on the name's navigating branch. */}
+        <span className="cc-head-left" data-copy-agent-name={node.id}
+          {...agentNavProps(node.id)}>
           {/* ⚠ `bare` IS THE DESTINATION TEST, which is why this reads
               `atDestination={!bare}` and never compares ids. A switchboard
               panel and a pinned window BOTH show this agent's own name, and
