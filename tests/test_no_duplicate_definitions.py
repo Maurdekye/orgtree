@@ -142,7 +142,20 @@ def duplicate_groups(path: Path):
     conditional definitions.
     """
     source = path.read_text(encoding="utf-8")
-    tree = ast.parse(source, filename=str(path))
+    try:
+        tree = ast.parse(source, filename=str(path))
+    except SyntaxError as exc:
+        # NOT swallowed. A file this guard cannot parse is a file it cannot
+        # vouch for, and silently skipping it is how a check keeps reporting
+        # green over code it never read. Re-raised with the reason, because
+        # the bare traceback says "invalid syntax" without saying that the
+        # DUPLICATE-DEFINITION GUARD is what went looking.
+        raise AssertionError(
+            f"the duplicate-definition guard could not parse "
+            f"{path}: {exc}. Either the file is broken, or it uses syntax "
+            f"newer than this interpreter ({'.'.join(map(str, __import__('sys').version_info[:3]))}). "
+            f"The guard cannot vouch for a file it cannot read, so this is a "
+            f"failure rather than a skip.") from exc
 
     bodies: list[tuple[str, list[ast.stmt]]] = [("<module>", tree.body)]
     for node in ast.walk(tree):
@@ -300,6 +313,26 @@ class FiresOnTheRealCollision(unittest.TestCase):
 
             # and it says WHY this matters, not merely that it happened
             self.assertIn("silently", message)
+
+    def test_an_unparseable_file_fails_rather_than_being_skipped(self) -> None:
+        """A file the guard cannot read is one it cannot vouch for.
+
+        Skipping it would be the same defect in miniature: a check reporting
+        green over code it never looked at.
+        """
+        import tempfile
+
+        with tempfile.TemporaryDirectory(prefix="dupdef-") as raw:
+            tmp = Path(raw).resolve()
+            broken = tmp / "broken.py"
+            broken.write_text("class C:\n    def f(self)\n        pass\n",
+                              encoding="utf-8")
+            with self.assertRaises(AssertionError) as caught:
+                offences([broken], root=tmp)
+            message = str(caught.exception)
+            self.assertIn("could not parse", message)
+            self.assertIn("duplicate-definition guard", message,
+                          "the failure does not say which check hit it")
 
     def test_the_same_copy_is_clean_before_the_injection(self) -> None:
         """The control for §2. If an untouched copy of `ledger.py` also
