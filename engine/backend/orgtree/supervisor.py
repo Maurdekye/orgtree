@@ -37,7 +37,8 @@ import sys
 import threading
 import time
 import uuid
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import (Callable, Iterable, Mapping, MutableMapping,
+                             Sequence)
 from functools import wraps
 from pathlib import Path
 from typing import Any, Final, Protocol, cast
@@ -21471,8 +21472,18 @@ def _run_one_turn_recorded(slug: str, nid: str,
         try:
             with store.DOC_LOCK:
                 o2 = store.load_org(slug)
-                changed = (nid in o2.nodes
-                           and o2.node(nid).pop("inflight", None) is not None)
+                # ⚠ THE POPPED MARKER IS KEPT, NOT DISCARDED. It used to be
+                # popped straight into the truth test and thrown away; the
+                # startup reconcile then had no way to tell a seat whose turn
+                # ENDED here from one whose marker went missing for some other
+                # reason, because both are an absent key (see
+                # `_mark_turn_ended`). The stamp rides the SAME `save_org` as
+                # this pop, so the two can never be observed apart.
+                _popped = (o2.node(nid).pop("inflight", None)
+                           if nid in o2.nodes else None)
+                changed = _popped is not None
+                if changed:
+                    _mark_turn_ended(o2.node(nid), _popped)
                 # D-234: a model switch asked for DURING this turn was queued
                 # behind it; the turn is over, so it applies here — on every
                 # exit (result, interrupt, watchdog kill, CLI death, halt,
@@ -31497,6 +31508,80 @@ def _marker_is_same(cur: Any, inf: Any) -> bool:
     return cur == inf
 
 
+def _mark_turn_ended(n: MutableMapping[str, Any], popped: Any) -> None:
+    """Record that a turn ENDED on this seat, in the same breath as the pop
+    that ends it.
+
+    ⚠ THIS EXISTS BECAUSE AN ABSENT MARKER IS UNREADABLE. `reconcile` collects
+    a marker under the lock and spends it later, outside the lock; if the
+    marker is GONE by then, the doc alone cannot say whether a newer turn ran
+    here and finished or whether the marker was taken by something else. Both
+    are a missing key. The first must drop the interrupted turn's replay (user
+    ruling 2026-09-19 — the agent has moved on); the second must still replay
+    it, because that is the stranding the parent ticket exists to prevent. So
+    the fact is WRITTEN DOWN when it is known, rather than reconstructed from
+    an absence that cannot carry it.
+
+    Deliberately written under the SAME `store.save_org` as the pop, by the
+    same `finally`. A second save would open a window in which the marker is
+    gone and the stamp is not yet there — which is precisely the unreadable
+    state this removes, re-created at a smaller scale.
+
+    ⚠ WHAT IS STORED IS THE POPPED MARKER'S OWN `at`, not `now`. See
+    `schema.TurnEnded`: the comparison it has to survive is against ANOTHER
+    turn's start stamp, so both sides must mean "when a turn started".
+
+    Silent no-op for a marker with no `at` — a marker written by an older
+    build carries none, and a stamp that cannot be ordered is worse than no
+    stamp, because `_newer_turn_ended` would have to invent an ordering for
+    it. Absence of the stamp already means "cannot tell", which is the answer.
+    """
+    if not isinstance(popped, dict):
+        return
+    at = popped.get("at")
+    if not at:
+        return
+    n["turn_ended"] = {"at": str(at), "ended": now_iso()}
+
+
+def _newer_turn_ended(n: Mapping[str, Any], inf: Mapping[str, Any]) -> bool:
+    """Did a turn that started LATER than `inf` already finish on this seat?
+
+    This is the whole of the marker-absent decision, and it answers only when
+    it can. `False` means "no evidence", never "no", and every caller must
+    treat it as the REPLAY side — the safe direction, because a wrong replay
+    costs a duplicate drive while a wrong drop destroys text that exists
+    nowhere but the marker.
+
+    ⚠ STRICTLY LATER, and the equality case is left alone ON PURPOSE.
+    `ended == started` would mean the interrupted turn ITSELF reached its own
+    `finally` — which a startup pass cannot see, because that turn's process
+    died with the backend and a dead process runs no `finally`. Rather than
+    reason about an unreachable case, this returns False for it and replays,
+    which is the behaviour that shipped. If some future caller makes equality
+    reachable, dropping there is probably right — but that is a decision to
+    take deliberately, with the case in hand, not a `>=` written today on the
+    strength of an argument about code that does not exist yet.
+
+    ⚠ EPOCHS, NOT STRING ORDER. `ledger.now` gained milliseconds on
+    2026-07-31 and says so in its own comment: within one second, a legacy
+    "…:00Z" stamp sorts AFTER a new "…:00.123Z" one. Two turns milliseconds
+    apart across that format change would compare backwards, and this
+    predicate would then call the older turn the newer one — dropping a
+    replay on the strength of a turn that ran BEFORE it. `_stamp_epoch`
+    parses both forms to a number and returns None for anything it cannot
+    read, which lands on the replay side by construction.
+    """
+    te = n.get("turn_ended")
+    if not isinstance(te, dict):
+        return False
+    ended = _stamp_epoch(te.get("at"))
+    started = _stamp_epoch(inf.get("at") if isinstance(inf, Mapping) else None)
+    if ended is None or started is None:
+        return False
+    return ended > started
+
+
 def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -> list[str]:
     """№31 eager pass at startup: any ledger-live node that has demonstrably run
     before (cost > 0) but whose transcript is gone cannot resume — say so now,
@@ -31781,13 +31866,20 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
             # See `_marker_is_same` for why identity is `at` first.
             with store.DOC_LOCK:
                 _spend = store.load_org(slug)
-                _cur = (_spend.node(nid).get("inflight")
-                        if nid in _spend.nodes else None)
+                _snode = _spend.node(nid) if nid in _spend.nodes else None
+                _cur = _snode.get("inflight") if _snode is not None else None
+                # READ IN THE SAME LOCK AS `_cur`, and that is not tidiness.
+                # The two are one observation of one node: asking "is the
+                # marker gone?" and "did a newer turn end here?" against two
+                # different loads could see a turn end in between and answer
+                # the two questions about different moments.
+                _ended_newer = (_snode is not None and not _cur
+                                and _newer_turn_ended(_snode, inf))
                 _ours = _marker_is_same(_cur, inf)
                 if _ours:
                     _spend.node(nid).pop("inflight", None)
                     store.save_org(_spend)
-            if not _ours and _cur:
+            if not _ours and (_cur or _ended_newer):
                 # ⚠ A NEWER TURN HAS ALREADY STARTED — DROP THE OLD REPLAY.
                 # USER RULING 2026-09-19: "if restart recovery discovers that
                 # an agent has already started a newer turn before its
@@ -31819,9 +31911,21 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
                 # NOT SILENT: the incident behind this whole ticket was a
                 # marker disappearing with nothing recording that it had, so
                 # a DROP most certainly says so.
-                print(f"[orgtree] {slug}/{nid}: a newer turn started first; "
-                      f"discarding the interrupted turn's drive text "
-                      f"(its mail is unaffected)")
+                # ⚠ TWO WAYS TO GET HERE, AND THE OPERATOR IS TOLD WHICH.
+                # `_cur` is a newer turn still RUNNING; `_ended_newer` is a
+                # newer turn that has already FINISHED and left only its
+                # stamp. Same ruling, same outcome, but a log line that could
+                # not tell them apart would leave the second looking like the
+                # first with a marker mysteriously missing — which is the kind
+                # of unreadable evidence this whole line of tickets came from.
+                if _cur:
+                    print(f"[orgtree] {slug}/{nid}: a newer turn started "
+                          f"first; discarding the interrupted turn's drive "
+                          f"text (its mail is unaffected)")
+                else:
+                    print(f"[orgtree] {slug}/{nid}: a newer turn already ran "
+                          f"and finished here; discarding the interrupted "
+                          f"turn's drive text (its mail is unaffected)")
                 # ⚠ COUNTED AS SETTLED, and this is load-bearing. The
                 # `finally` below restores `inflight[dispatched:]` — every
                 # seat this loop has not resolved. A skipped seat IS
@@ -31831,14 +31935,21 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
                 # the turn this ruling says to drop.
                 dispatched += 1
                 continue
-            # ⚠ THE MARKER-ABSENT CASE IS DELIBERATELY NOT A SKIP. `_cur` is
-            # None when the marker is simply gone — not when a newer turn
-            # owns it — and the ruling above is scoped to "an agent has
-            # already started a newer turn". Absence is not that, so this
-            # still replays, exactly as it did before the ruling. Narrowing
-            # it further would be me extending a user decision past what it
-            # says; if absence should also drop the replay, that is a
-            # separate decision to take deliberately.
+            # ⚠ THE MARKER-ABSENT CASE REPLAYS, AND ONLY BECAUSE NOTHING
+            # PROVED OTHERWISE. The drop above now also covers absence when —
+            # and only when — `turn_ended` shows a newer turn finished here.
+            # Reaching this line means the marker is gone and the seat has NO
+            # such stamp, so there is no evidence a turn ran: something else
+            # took the marker, or it was written by a build too old to stamp
+            # anything. That is "cannot tell", not "no".
+            #
+            # THE ASYMMETRY IS THE WHOLE POINT, and it is why this is not
+            # simply `if not _ours: drop`. A wrong replay costs a duplicate
+            # drive the agent can read and ignore. A wrong drop destroys the
+            # interrupted turn's drive text, which exists nowhere else — the
+            # exact loss the stranding fix was written to prevent. So the
+            # unproven case sits on the replay side, permanently, and the
+            # drop is spent only on evidence somebody wrote down on purpose.
             print(f"[orgtree] {slug}/{nid}: resuming the turn interrupted by shutdown")
             observer = recovery_observer if nid in recovery_seats else None
             if observer:

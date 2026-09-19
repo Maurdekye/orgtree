@@ -313,6 +313,35 @@ class InflightInfo(TypedDict):
     cache_attempt: NotRequired[dict[str, Any]]
 
 
+class TurnEnded(TypedDict):
+    """The last turn that ENDED on this seat, stamped by the turn's own
+    `finally` beside the pop that ends it (`supervisor._mark_turn_ended`).
+
+    It exists for exactly one reader: the startup reconcile, which has to tell
+    "a newer turn ran here and finished" apart from "the marker is simply
+    gone". Those two look IDENTICAL on disk — both are an absent `inflight` —
+    and the first must drop the interrupted turn's stale replay (user ruling
+    2026-09-19) while the second must still replay it, because a seat the
+    dispatch loop never reached is exactly what the restart-stranding fix
+    exists to protect. Without this stamp the absence is unreadable and
+    reconcile has to guess; guessing in the dropping direction destroys drive
+    text that exists nowhere else.
+
+    `at` is the ENDED TURN'S OWN START STAMP, copied off the marker being
+    popped — NOT the time it ended. That is what makes it comparable with the
+    `at` on the interrupted marker reconcile is holding: both name when a turn
+    STARTED, so `ended.at > interrupted.at` reads as "a turn that started
+    later than the interrupted one has already finished". Comparing against
+    the wall-clock end time instead would call every completed turn newer,
+    including the interrupted turn's own predecessor.
+    """
+    at: str
+    #: when that turn ended, wall clock. Diagnostic only — nothing decides on
+    #: it, and it is here so a human reading the doc can see how stale the
+    #: stamp is without having to correlate it against the turn log.
+    ended: str
+
+
 class AdmitOnce(TypedDict):
     """One spent-on-sight pass through the pre-slot account gate, and the
     identity it was earned for. `at` is when `resume_frozen` issued it;
@@ -444,6 +473,12 @@ class NodeDoc(TypedDict):
     last_turn_mcp_tools: NotRequired[list[str]]
     last_turn_mcp_fingerprint: NotRequired[str]
     inflight: NotRequired[InflightInfo | None]
+    #: the last turn that ENDED here — see TurnEnded. Written by the turn's own
+    #: `finally`, read only by the startup reconcile, and never cleared: it is
+    #: one small dict per node, overwritten by each turn end rather than
+    #: accumulating, and a stale one is harmless because every reader compares
+    #: it against a specific interrupted turn's start stamp.
+    turn_ended: NotRequired[TurnEnded]
     mail_drain: NotRequired[dict[str, Any]]  # waking mail ids awaiting delivery
     pending_switch: NotRequired[dict[str, Any] | None]   # D-234 {tier, from, by, at, crossing}
     last_denials: NotRequired[list[Denial]]

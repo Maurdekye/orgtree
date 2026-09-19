@@ -40,6 +40,22 @@ THE MUTANTS, and what each one is a stand-in for:
       bare `continue` does not merely forget the dropped seat, it shifts the
       restore window and puts back the marker of a LATER seat that really
       was dispatched.  That seat then replays a second time.
+  M12 drop the replay on BARE ABSENCE, treating a missing marker as proof a
+      turn ran.  The tempting one-line "fix" for the absent-marker hole, and
+      the one that would silently throw away the drive text of every seat
+      whose marker went missing for any other reason.
+  M13 the turn's own `finally` stops stamping `turn_ended`.  ⚠ THIS ONE
+      SURVIVED its first suite.  The absent-marker probe ends its simulated
+      turn by calling `_mark_turn_ended` directly, so removing the PRODUCTION
+      call left the probe green while the behaviour reverted completely.
+      `tests/test_turn_end_stamp.py` exists because of this mutant, and runs
+      a real turn over real pipes to catch it.
+  M14 read the stamp's PRESENCE instead of its ORDER.  Every seat that has
+      ever completed a turn carries a stamp, so this drops the interrupted
+      work of the whole fleet -- and it passes every arm that has no stamp or
+      a genuinely newer one.
+  M15 order the two stamps as STRINGS rather than as instants, walking into
+      the millisecond-transition quirk `ledger.now` documents.
 
 ⚠ WHAT THIS HARNESS CANNOT DO, AND THE PROOF IS ITS OWN HISTORY.  It reported
 6 mutants, 6 killed, 0 survivors -- and a real blocking defect sailed straight
@@ -50,7 +66,7 @@ its own `finally` block and noticing the two touched a marker with different
 care.  So read N/N as "the tests cover the lines the fix has", never as "the
 fix is right".
 
-M7 through M11 exist only because the code they mutate now exists -- which is
+M7 through M15 exist only because the code they mutate now exists -- which is
 the same limitation, stated from the inside each time.  M11 is the one worth
 reading: no suite here caught it until one was written for it specifically,
 because every other test in this set puts the affected seat LAST in the loop,
@@ -83,6 +99,11 @@ IDENT = [sys.executable, '-B', 'tools/run-python-verification.py',
 SETTLE = [sys.executable, '-B', 'tools/run-python-verification.py',
           '--repo-root', '.',
           'tests/test_restart_dropped_replay_settles_seat.py']
+ABSENT = [sys.executable, '-B', 'tools/run-python-verification.py',
+          '--repo-root', '.',
+          'tests/restart_reconcile_absent_marker_probe.py']
+STAMP = [sys.executable, '-B', 'tools/run-python-verification.py',
+         '--repo-root', '.', 'tests/test_turn_end_stamp.py']
 
 MUTANTS = [
     {
@@ -192,8 +213,8 @@ MUTANTS = [
         'command': RACE,
         'edits': [
             (SUP,
-             '            if not _ours and _cur:\n',
-             '            if False and _cur:\n'),
+             '            if not _ours and (_cur or _ended_newer):\n',
+             '            if False and (_cur or _ended_newer):\n'),
         ],
     },
     {
@@ -207,6 +228,67 @@ MUTANTS = [
             (SUP,
              '                dispatched += 1\n                continue\n',
              '                continue\n'),
+        ],
+    },
+    {
+        'id': 'M12',
+        'what': 'drop the replay on BARE ABSENCE, treating a missing marker '
+                'as proof a turn ran',
+        'catches': "the absent-marker probe's CONTROL-B -- the whole reason "
+                   'the fix carries a stamp instead of widening the condition',
+        'command': ABSENT,
+        'edits': [
+            (SUP,
+             '                _ended_newer = (_snode is not None and not _cur\n'
+             '                                and _newer_turn_ended(_snode, inf))\n',
+             '                _ended_newer = not _cur\n'),
+        ],
+    },
+    {
+        'id': 'M13',
+        'what': "the turn's own finally stops stamping `turn_ended`, so the "
+                'absence goes back to being unreadable',
+        'catches': 'test_turn_end_stamp.py §1 -- AND NOTHING ELSE DOES. This '
+                   'mutant SURVIVED the absent-marker probe, which is what '
+                   'that suite was written for: the probe ends its simulated '
+                   'turn by calling `_mark_turn_ended` itself, so deleting '
+                   "the production call leaves it green while every "
+                   'started-and-finished seat goes back to replaying stale '
+                   'text. A real turn had to be run to see it.',
+        'command': STAMP,
+        'edits': [
+            (SUP,
+             '                if changed:\n'
+             '                    _mark_turn_ended(o2.node(nid), _popped)\n',
+             '                if False:\n'
+             '                    _mark_turn_ended(o2.node(nid), _popped)\n'),
+        ],
+    },
+    {
+        'id': 'M14',
+        'what': "read the stamp's PRESENCE instead of its ORDER, so any seat "
+                'that ever finished a turn is dropped',
+        'catches': "the absent-marker probe's CONTROL-C. The subtlest of "
+                   'these: every other arm still passes, because every other '
+                   'arm either has no stamp or has a genuinely newer one.',
+        'command': ABSENT,
+        'edits': [
+            (SUP, '    return ended > started\n', '    return True\n'),
+        ],
+    },
+    {
+        'id': 'M15',
+        'what': 'order the two stamps as STRINGS rather than as instants',
+        'catches': "the absent-marker probe's LEGACY arm -- `ledger.now`'s "
+                   'own documented transition quirk, where a legacy '
+                   '"…:00Z" sorts after a newer "…:00.500Z"',
+        'command': ABSENT,
+        'edits': [
+            (SUP,
+             '    ended = _stamp_epoch(te.get("at"))\n'
+             '    started = _stamp_epoch(inf.get("at") if isinstance(inf, Mapping) else None)\n',
+             '    ended = te.get("at")\n'
+             '    started = inf.get("at") if isinstance(inf, Mapping) else None\n'),
         ],
     },
     {
@@ -263,7 +345,8 @@ def main():
 
     print('=== BASELINE: the unmutated tree must be green ===')
     baseline = {}
-    for command in ([PROBE, FLAG, RACE, IDENT, SETTLE] if only is None else
+    for command in ([PROBE, FLAG, RACE, IDENT, SETTLE, ABSENT, STAMP]
+                    if only is None else
                     [wanted[0]['command']]):
         key = ' '.join(command[-2:])
         code, out = _run(command)
