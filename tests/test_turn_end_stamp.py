@@ -51,7 +51,7 @@ for _k in ('ORGTREE_V1_ROOT', 'ORGTREE_V1_DATA_ROOT', 'ORGTREE_V2_PORT'):
     os.environ.pop(_k, None)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine' / 'backend'))
 
-import import_provenance  # noqa: F401,E402  orgtree must resolve in this checkout
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from engine.launch import load_app                                  # noqa: E402
 load_app()
