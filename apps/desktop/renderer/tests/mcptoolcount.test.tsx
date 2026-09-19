@@ -124,18 +124,35 @@ test('the singular is used for exactly one tool', async () => {
 })
 
 test('App applies MCP websocket inventory directly without a refetch', () => {
+  // Since the base+patch protocol (2026-09-19, treesync.ts) the three patch
+  // kinds share ONE handler branch that applies via applyPatchFrame; the
+  // only fetch it may contain is the rev-GAP catch-up, which fires solely
+  // when frames were missed — never as the ordinary update path.
   const src = readFileSync(path.join(__SRC_DIR__, 'App.tsx'), 'utf8')
-  const start = src.indexOf("if (data.kind === 'mcp_tool_count')")
+  // anchor inside handleWs: applyPatchFrame's own dispatch uses the same
+  // kind checks earlier in the file
+  const handler = src.indexOf('const handleWs')
+  const start = src.indexOf("if (data.kind === 'cache_forecast'", handler)
   const end = src.indexOf('// the conversation model', start)
-  assert.ok(start >= 0 && end > start, 'MCP websocket handler is absent')
+  assert.ok(start >= 0 && end > start, 'ws patch handler branch is absent')
   const block = src.slice(start, end)
   assert.match(block, /setTree\(/)
-  assert.match(block, /patchMcpNode/)
+  assert.match(block, /applyPatchFrame/)
   assert.match(block, /orgtree:mcp-tool-count-applied/)
   assert.match(block, /latency_ms/)
   assert.match(block, /return/)
-  assert.doesNotMatch(block, /refreshTree|getTree|bumpLive/,
+  assert.doesNotMatch(block, /getTree|bumpLive/,
     'inventory updates fell back to polling/refetch')
+  // every refreshTree in the branch is the gap catch-up, nothing else
+  const fetches = block.match(/refreshTree/g) ?? []
+  const guarded = block.match(/if \(gap\) refreshTree/g) ?? []
+  assert.equal(fetches.length, guarded.length,
+    'an unconditional refetch crept into the direct-apply branch')
+  // and the dispatcher actually routes inventory frames to the MCP patcher
+  const apply = src.slice(src.indexOf('export const applyPatchFrame'),
+                          src.indexOf('usageTitle'))
+  assert.match(apply, /mcp_tool_count/)
+  assert.match(apply, /patchMcpNode/)
 })
 
 test('readiness websocket transitions repaint the unique gated label', async () => {
@@ -177,14 +194,28 @@ test('readiness websocket transitions repaint the unique gated label', async () 
 })
 
 test('App applies readiness websocket transitions directly without polling', () => {
+  // Same merged branch as inventory (base+patch protocol): the direct
+  // application is via applyPatchFrame; only the gap catch-up may fetch.
   const src = readFileSync(path.join(__SRC_DIR__, 'App.tsx'), 'utf8')
-  const start = src.indexOf("if (data.kind === 'mcp_readiness')")
+  // anchor inside handleWs: applyPatchFrame's own dispatch uses the same
+  // kind checks earlier in the file
+  const handler = src.indexOf('const handleWs')
+  const start = src.indexOf("if (data.kind === 'cache_forecast'", handler)
   const end = src.indexOf('// the conversation model', start)
-  assert.ok(start >= 0 && end > start, 'readiness websocket handler is absent')
+  assert.ok(start >= 0 && end > start, 'ws patch handler branch is absent')
   const block = src.slice(start, end)
+  assert.match(block, /'mcp_readiness'/)
   assert.match(block, /setTree\(/)
-  assert.match(block, /patchMcpReadinessNode/)
+  assert.match(block, /applyPatchFrame/)
   assert.match(block, /return/)
-  assert.doesNotMatch(block, /refreshTree|getTree|bumpLive/,
+  assert.doesNotMatch(block, /getTree|bumpLive/,
     'readiness updates fell back to polling/refetch')
+  const fetches = block.match(/refreshTree/g) ?? []
+  const guarded = block.match(/if \(gap\) refreshTree/g) ?? []
+  assert.equal(fetches.length, guarded.length,
+    'an unconditional refetch crept into the direct-apply branch')
+  const apply = src.slice(src.indexOf('export const applyPatchFrame'),
+                          src.indexOf('usageTitle'))
+  assert.match(apply, /mcp_readiness/)
+  assert.match(apply, /patchMcpReadinessNode/)
 })

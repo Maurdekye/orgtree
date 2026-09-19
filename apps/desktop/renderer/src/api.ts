@@ -165,54 +165,48 @@ export const invalidateTreeCache = (slug: string): void => {
   treeCache.delete(slug)
   treeCacheGen.set(slug, (treeCacheGen.get(slug) ?? 0) + 1)
 }
-/** Resolves the fresh tree — or NULL when every bounded attempt raced a
- *  ws-patch invalidation (perf-review round 4). Null means the refresh was
- *  SUPERSEDED: the rendered tree, patched in place by those same ws frames,
- *  is newer than any body this call fetched, so the caller must keep what
- *  it is showing. The invalidation already deleted the cache entry, so the
- *  next heartbeat or `changed` frame does a real fetch and picks up
- *  whatever else the dropped bodies carried. */
+/** Resolves the tree body — ALWAYS (2026-09-19 base+patch protocol). The
+ *  old contract resolved NULL when bounded attempts raced ws-patch
+ *  invalidations; under a working swarm's continuous patch traffic every
+ *  attempt raced one, refreshes starved, and lifecycle state sat visibly
+ *  stale for over a minute (beta.1 wave 2). The payload now carries
+ *  `sync_rev` and the CALLER reconciles: buffered patch frames newer than
+ *  the body replay on top of it (App.tsx + treesync.ts), so a body that
+ *  raced a patch converges instead of being discarded.
+ *
+ *  The invalidation stamp still guards the CACHE: a body that raced an
+ *  invalidation is returned but not cached, so a later 304 can never
+ *  revalidate a pre-patch entry. Null survives in the signature for
+ *  callers' defensive checks but is no longer produced. */
 export const getTree = (slug: string): Promise<TreePayload | null> => {
-  const attempt = (left: number): Promise<TreePayload | null> => {
-    const gen = treeCacheGen.get(slug) ?? 0
-    // an invalidation deletes the entry, so a raced retry sends no
-    // validator and always lands on the fresh-200 arm
-    const hit = treeCache.get(slug)
-    return fetch(u(`/api/orgs/${slug}`), {
-      signal: timeoutSignal(DEFAULT_TIMEOUT_MS),
-      ...(hit ? { headers: { 'If-None-Match': hit.etag } } : {}),
-    }).then((r) => {
-      noteInstance(r)
-      if (r.status === 304 && hit) {
-        // raced: the captured hit predates the patch — retry, never
-        // return it; exhaustion resolves null (superseded refresh)
-        if ((treeCacheGen.get(slug) ?? 0) !== gen) {
-          return left > 0 ? attempt(left - 1) : null
-        }
-        return hit.tree
-      }
-      if (!r.ok) {
-        return r.json().then((b: { detail?: string }) => {
-          throw new Error(b.detail || r.statusText)
-        })
-      }
-      const etag = r.headers.get('ETag')
-      return r.json().then((raw: TreePayload) => {
-        const tree = hydrateTree(raw)
-        if ((treeCacheGen.get(slug) ?? 0) !== gen) {
-          // raced an invalidation: this body may predate the ws patch.
-          // Refetch — and on exhaustion resolve null rather than hand
-          // out a body known to be stale: the caller would install it
-          // over the newer patched render (perf-review round 4).
-          return left > 0 ? attempt(left - 1) : null
-        }
-        if (etag) treeCache.set(slug, { etag, tree })
-        else treeCache.delete(slug)
-        return tree
+  const gen = treeCacheGen.get(slug) ?? 0
+  const hit = treeCache.get(slug)
+  return fetch(u(`/api/orgs/${slug}`), {
+    signal: timeoutSignal(DEFAULT_TIMEOUT_MS),
+    ...(hit ? { headers: { 'If-None-Match': hit.etag } } : {}),
+  }).then((r) => {
+    noteInstance(r)
+    if (r.status === 304 && hit) {
+      // the cached body is unchanged server-side; newer patches replay on
+      // top of it in the caller, so returning it is always safe now
+      return hit.tree
+    }
+    if (!r.ok) {
+      return r.json().then((b: { detail?: string }) => {
+        throw new Error(b.detail || r.statusText)
       })
+    }
+    const etag = r.headers.get('ETag')
+    return r.json().then((raw: TreePayload) => {
+      const tree = hydrateTree(raw)
+      if ((treeCacheGen.get(slug) ?? 0) === gen && etag) {
+        treeCache.set(slug, { etag, tree })
+      } else if (!etag) {
+        treeCache.delete(slug)
+      }
+      return tree
     })
-  }
-  return attempt(2)
+  })
 }
 /** §4.8: the fields a summarised (archived) seat does not carry — full
  *  charter, scope, lineage, turn history. Fetched when a seat is opened. */

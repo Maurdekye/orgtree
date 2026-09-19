@@ -798,6 +798,11 @@ export interface TreePayload {
    *  from THIS rather than from a copy of the rule written in TypeScript.
    *  Absent from an older engine, which omitted nothing. */
   archived_defaults?: Partial<TreeNode>
+  /** the per-org sync revision current when this payload's snapshot was
+   *  acquired (2026-09-19 base+patch protocol — treesync.ts): ws patch
+   *  frames with rev > this replay on top of the payload; absent from an
+   *  older engine, in which case nothing replays */
+  sync_rev?: number
   slug: string
   name: string
   workspace: string | null

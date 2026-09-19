@@ -1248,7 +1248,7 @@ async def _wire_notify() -> None:  # type: ignore[unused-function]  # registered
             _tree_cache_drop(slug)
         asyncio.run_coroutine_threadsafe(
             hub._send(slug, {"type": "node_stream", "org": slug, "node": node,
-                             **payload}), loop)
+                             "rev": _next_sync_rev(slug), **payload}), loop)
 
     supervisor.notify = notify
     supervisor.stream = stream
@@ -1410,12 +1410,14 @@ class Hub:
             self.leave(slug, ws)
 
     async def changed(self, slug: str) -> None:
-        await self._send(slug, {"type": "changed", "org": slug})
+        await self._send(slug, {"type": "changed", "org": slug,
+                                "rev": _next_sync_rev(slug)})
 
     async def node_event(self, slug: str, node: str, event: str,
                          detail: dict[str, Any] | None = None) -> None:
         payload: dict[str, Any] = {"type": "node_event", "org": slug,
-                                   "node": node, "event": event}
+                                   "node": node, "event": event,
+                                   "rev": _next_sync_rev(slug)}
         if detail:
             payload.update(detail)
         await self._send(slug, payload)
@@ -1424,6 +1426,44 @@ class Hub:
 hub = Hub()
 # captured at startup — threadsafe broadcasts from sync code
 _LOOP: asyncio.AbstractEventLoop | None = None
+
+# ── the sync revision (2026-09-19, approved base+patch protocol) ─────────────
+#
+# Every STATE-BEARING ws frame ('changed', 'node_stream', 'node_event')
+# carries a per-slug monotonically increasing `rev`, and every full tree
+# payload carries `sync_rev` — the rev current when its snapshot was
+# acquired. The renderer's convergence rule is then arithmetic instead of
+# guesswork: a narrow patch frame with rev > the payload's sync_rev applies
+# ON TOP of it; one with rev <= sync_rev is already included; a gap in frame
+# revs means frames were missed (sleep, reconnect) and one full fetch
+# catches up. This retires the wholesale-discard behavior where a fetched
+# tree racing ANY patch frame was thrown away — under continuous patch
+# traffic those bounded retries starved and lifecycle state sat visibly
+# stale for over a minute while the backend was already correct (beta.1
+# wave-2, user timeline 21:01:50-21:02:43Z; swarm-astra's renderer finding).
+#
+# `sync_rev` is read BEFORE the snapshot is acquired, deliberately: if a
+# frame lands between the read and the build, the payload may carry NEWER
+# content than its stamp, and the renderer re-applies that frame's values
+# onto identical content — idempotent. The reverse order could stamp newer
+# than the content and make the renderer DISCARD a patch it still needs.
+# Animation-only frames ('mail' sparks) carry no rev and take no part in
+# ordering. Revs are per-process (the hub lives in the writer process), so
+# the contract also holds unchanged if read serving later moves to worker
+# processes — workers relay frames, the writer mints.
+_sync_revs: dict[str, int] = {}
+_sync_rev_lock = threading.Lock()
+
+
+def _next_sync_rev(slug: str) -> int:
+    with _sync_rev_lock:
+        _sync_revs[slug] = _sync_revs.get(slug, 0) + 1
+        return _sync_revs[slug]
+
+
+def _current_sync_rev(slug: str) -> int:
+    with _sync_rev_lock:
+        return _sync_revs.get(slug, 0)
 
 
 _BCAST_COALESCE = 0.4      # seconds; see hub_changed
@@ -2389,6 +2429,9 @@ def _org_view(slug: str, request: Request,
     # verbose profiling toggle on. Direct in-process callers have no bound
     # dict and skip the bookkeeping exactly as before.
     profile = getattr(request.state, "profile_timing", None)
+    # Read BEFORE the snapshot: see the sync-revision note at the Hub —
+    # stamping older-than-content is safe (idempotent re-apply), newer is not.
+    sync_rev0 = _current_sync_rev(slug)
     try:
         _stage = time.perf_counter()
         # THE SHARED REFRESHED SNAPSHOT, not a fresh parse (2026-09-19).
@@ -2416,6 +2459,7 @@ def _org_view(slug: str, request: Request,
     _t0 = time.perf_counter()
     _stage = time.perf_counter()
     tree = org.tree()
+    tree["sync_rev"] = sync_rev0
     if profile is not None: profile["tree_ms"] = (time.perf_counter() - _stage) * 1000.0
     # FR-27: the primed restart is a MACHINE fact, not an org one — it is
     # armed from one org and cuts every org on the box. So it is injected
