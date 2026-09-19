@@ -9,12 +9,17 @@ account that has room. The hand workaround observed in this org's own log on
 action performed in the UNSAFE order (release before switch) that
 ``api._continue_on_account``'s docstring exists to prevent.
 
-HISTORY. This file first REPRODUCED that state: six assertions showing the
-action absent end to end on unmodified `main` (preserved in git at the commit
-before the fix). It now guards the FIX, and keeps the measurement that made the
-diagnosis — `capacity`, the automatic path's rule, still refuses the very board
-the manual path now accepts — so the two tests below that pass cannot pass by
-the fixture having drifted into something easy.
+HISTORY, STATED EXACTLY. This file first REPRODUCED that state: six assertions
+showing the action absent end to end, run and green against unmodified `main`
+at `c185f39` before a line of the fix existed. ⚠ That reproduction-only text was
+never committed on its own — it exists as a recorded RUN, on the docket item,
+not as a commit anyone can check out. Say so rather than implying otherwise.
+
+What survives here in its place is the measurement that made the diagnosis, and
+it is load-bearing: `capacity` — the automatic path's rule, untouched by the fix
+— still refuses the very board the manual path now accepts
+(`test_the_strict_rule_still_rejects_the_measured_board`). So the tests below
+that pass cannot be passing because the fixture drifted into something easy.
 
 WHAT WAS WRONG. The renderer is not at fault: it builds one entry
 per id in ``node["continue_accounts"]``, and both surfaces pass the handler. The
