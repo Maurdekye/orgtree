@@ -80,13 +80,26 @@
                                purpose: it is neither in flight (--work) nor
                                finished (--dim), and desaturating it is what keeps
                                a long backlog from shouting over current work. */
-  --deploy-ready: #9b8ce0;  /* docket "Deploy Ready" — implementation complete,
-                               awaiting deployment. Periwinkle/indigo (~251°):
-                               the one hue gap left between --work (sky, 209°)
-                               and --review (violet, 311°), so it cannot be
-                               mistaken for either neighbor at a glance, and it
-                               is deliberately not --ok green — the work is not
-                               live yet, so it must not read as finished. */
+  --deploy-ready: #7484fb;  /* docket "Deploy Ready" — implementation complete,
+                               awaiting deployment. Royal blue-indigo (~233°),
+                               deliberately not --ok green: the work is not live
+                               yet and must not read as finished.
+                               ⚠ IT WAS #9b8ce0 (~251°, periwinkle) AND THAT WAS
+                               TOO CLOSE TO TWO THINGS AT ONCE (user report
+                               2026-09-19). Measured as CIE76 ΔE on this
+                               surface: 9.7 from the OpenRouter Lavender theme
+                               accent #b69afa (~258°) — the reported clash — and
+                               8.7 from its own neighbour --approved, which is
+                               worse, because those two are adjacent rows in the
+                               same docket. At 233° it is 20.3 from lavender and
+                               25.5 from --approved, while staying 42.7 from
+                               --work (sky, 209°) and 51.4 from --review (311°).
+                               The hue order of the real sequence is preserved
+                               and its spacing is more even than before:
+                               work 209° → deploy-ready 233° → approved 269° →
+                               review 311°. Keep any future value ≥20° from BOTH
+                               209° and 258°, or one of those collisions returns
+                               — deployreadycolor.test.tsx fails if it does. */
   --approved: #b58ce0;      /* docket "Approved — not landed" — a reviewer passed
                                an exact commit that is not on main yet. Orchid
                                (~283°), the midpoint of the remaining gap between
@@ -180,7 +193,11 @@
   --work: #23679e;
   --review: #815379;
   --backlog: #326b66;
-  --deploy-ready: #6350a8;
+  /* light surfaces: the same 233° hue, deepened for ink on a pale
+     background. ΔE 34.9 from lavender and 16.5 from --approved (was 29.5 and
+     7.8), and its contrast IMPROVES — 7.08:1 on --bg #f6f7f9 and 7.03:1 on
+     solarized #fdf6e3, against 6.04 and 6.00 before. */
+  --deploy-ready: #3f4ba6;
   --approved: #7a4fa8;
   --ice: #326b82;
   --tip-fill: #176377;
