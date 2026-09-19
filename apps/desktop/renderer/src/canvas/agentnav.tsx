@@ -48,13 +48,23 @@ interface Registry { current: AgentNavMenu | null }
 
 const AgentNavCtx = createContext<Registry | null>(null)
 
-/** Mount ONCE per window, above both the canvas and its siblings. */
+/** Mount per window, above both the canvas and its siblings.
+ *
+ *  ⚠ NESTING REUSES, IT DOES NOT SHADOW. App.tsx mounts the outer one, so the
+ *  mail sender chip and the other siblings of the canvas share a registry with
+ *  it; OrgCanvas mounts one too, because it is ALSO mounted on its own — by
+ *  every renderer test that exercises the canvas, and by any host that embeds
+ *  it without App. If the inner one made a second registry it would shadow the
+ *  outer for everything inside the canvas, OrgCanvas would publish into the
+ *  inner one, and App's own siblings would read an empty outer one and quietly
+ *  lose their menus. So an inner provider hands down the registry it found. */
 export function AgentNavProvider({ children }: { children: ReactNode }) {
+  const inherited = useContext(AgentNavCtx)
   const reg = useRef<AgentNavMenu | null>(null)
   // a stable identity: consumers read `reg.current` at open time, so a new
   // object here would churn every memo'd row for no change in behaviour
-  const value = useMemo<Registry>(() => reg as Registry, [])
-  return <AgentNavCtx.Provider value={value}>{children}</AgentNavCtx.Provider>
+  const own = useMemo<Registry>(() => reg as Registry, [])
+  return <AgentNavCtx.Provider value={inherited ?? own}>{children}</AgentNavCtx.Provider>
 }
 
 /** The surface that owns the handlers publishes its builder here. Called

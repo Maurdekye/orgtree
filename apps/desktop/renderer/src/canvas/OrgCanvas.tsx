@@ -53,7 +53,7 @@ import { NodeDetailGate } from './nodedetailgate'
 import { contextMenuBelongsTo, useContextMenu } from './contextmenu'
 import type { ContextMenuHandle, MenuEntry } from './contextmenu'
 import { AgentRetireConfirm, agentMenuEntries, continueFrozenOnAccount } from './agentmenu'
-import { useProvideAgentNav } from './agentnav'
+import { AgentNavProvider, useProvideAgentNav } from './agentnav'
 import type { RetireKind } from './agentmenu'
 import { useSurfaceDocument } from '../popout'
 
@@ -2865,6 +2865,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   }), [onOpenAgentGallery, toggleNodeSurface, showNodeSurface])
 
   return (
+    <AgentNavProvider>
     <OrgKillswitchContext.Provider value={!!tree.killswitch}>
     <AgentSurfaceRoutesProvider value={agentSurfaceRoutes}>
     <DeskHosts map={map} slug={slug} treeSlug={tree.slug}><AgentNavHost
@@ -3734,6 +3735,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     </div></DeskHosts>
     </AgentSurfaceRoutesProvider>
     </OrgKillswitchContext.Provider>
+    </AgentNavProvider>
   )
 }
 

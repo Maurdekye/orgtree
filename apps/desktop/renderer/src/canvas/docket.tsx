@@ -37,6 +37,7 @@ import {
   req,
 } from '../api'
 import { AttachIcon, CloseIcon, DocketIcon, DownloadIcon, TuneIcon } from '../icons'
+import { agentNavProps } from './agentnav'
 import { AttachThumb, fmtBytes, isImg } from './img'
 import { AskCard } from './asks'
 import { DocReader } from './docs'
@@ -2619,7 +2620,12 @@ function DocketPane({ slug, item, toast, asksById, onDismiss, close, onFocusAgen
             <div className="docket-question-box">
               <div className="docket-question-head">
               Question from{' '}
-              <button className="cc-name cc-name-jump" title={`focus ${q.node}'s desk`}
+              {/* a third hand-rolled copy of AgentName's navigating button
+                  (App.tsx's SenderChip is the second). Found by
+                  agentnavmenu.test.tsx §4, not by reading — which is why that
+                  check is a source scan rather than a list of surfaces. */}
+              <button className="cc-name cc-name-jump" {...agentNavProps(q.node)}
+                title={`focus ${q.node}'s desk`}
                 onClick={() => { close(); onFocusAgent?.(q.node) }}>
                 {q.node}
               </button>
