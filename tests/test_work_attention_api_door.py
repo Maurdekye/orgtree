@@ -164,5 +164,110 @@ class AttentionThroughTheApiDoor(unittest.TestCase):
                          REASON)
 
 
+class UpdateAndAddendumAgreeOnWhatFalseMeans(unittest.TestCase):
+    """One tool argument, one meaning — pinned across both actions.
+
+    Suggested by flag-clear, who wrote the `addendum` side and hit the mirror
+    image of f3 while building it: their note from the time reads "absent !=
+    false — folding them makes every addendum clear the flag". They folded in
+    the direction that clears too much and caught it in implementation; the
+    `update` path folded in the direction that clears nothing, which is quiet
+    and shipped. Same root confusion, opposite blast radius.
+
+    ⚠ THIS DOES NOT ASSERT BLANKET PARITY, because the two actions genuinely
+    differ on one input and that difference is deliberate: `attention: true` is
+    REFUSED on an addendum, since raising a new demand on the user's attention
+    from a finished record is a resumption, not a correction. Asserting full
+    parity would be asserting a bug. What must agree is the tristate reading of
+    absent vs false — the exact thing `_arg_flag` destroys — and the deliberate
+    divergence is pinned alongside so nobody "fixes" it into agreement.
+    """
+
+    def _org(self):
+        org = ledger.Org.create("attn-parity-" + uuid.uuid4().hex[:8])
+        agent = org.hire(USER, None, "haiku", 2, "worker", **_HIRE)["node"]
+        return org, str(agent)
+
+    def _flagged(self, org, agent, done=False):
+        wid = str(org.work_create(agent, "Sweep", "problem, then solution",
+                                  done_so_far=["built it"],
+                                  working_on_next=["confirm it"])["slug"])
+        api._work_mutate_action(
+            org, agent, {"done_so_far": ["built it"],
+                         "working_on_next": ["confirm it"],
+                         "attention": True, "attention_reason": REASON},
+            "update", wid)
+        if done:
+            api._work_mutate_action(org, agent, {"status": "done",
+                                                 "done_so_far": ["shipped"],
+                                                 "working_on_next": []},
+                                    "update", wid)
+        return wid
+
+    def _flag(self, org, agent, wid):
+        return org.work_get(agent, wid).get("manual_attention")
+
+    def test_false_clears_on_both_actions(self):
+        org, agent = self._org()
+        live = self._flagged(org, agent)
+        finished = self._flagged(org, agent, done=True)
+
+        api._work_mutate_action(org, agent, {"attention": False},
+                                "update", live)
+        api._work_mutate_action(org, agent,
+                                {"attention": False, "note": "no longer holds"},
+                                "addendum", finished)
+
+        self.assertIsNone(self._flag(org, agent, live))
+        self.assertIsNone(self._flag(org, agent, finished))
+
+    def test_absent_leaves_it_standing_on_both_actions(self):
+        org, agent = self._org()
+        live = self._flagged(org, agent)
+        finished = self._flagged(org, agent, done=True)
+
+        api._work_mutate_action(org, agent, {"title": "Retitled"},
+                                "update", live)
+        # an addendum must correct SOMETHING — a bare note is refused — so this
+        # one corrects the summary and says nothing at all about the flag,
+        # which is the case under test
+        api._work_mutate_action(org, agent,
+                                {"note": "a correction",
+                                 "done_so_far": ["shipped it"],
+                                 "working_on_next": []},
+                                "addendum", finished)
+
+        self.assertIsNotNone(self._flag(org, agent, live))
+        self.assertIsNotNone(self._flag(org, agent, finished))
+
+    def test_true_is_the_one_deliberate_difference(self):
+        """`update` raises; `addendum` refuses. Pinned so the parity above is
+        never "completed" by making a finished record able to raise a new
+        demand on the user's attention."""
+        org, agent = self._org()
+        live = self._flagged(org, agent)
+        api._work_mutate_action(org, agent, {"attention": False},
+                                "update", live)
+        finished = self._flagged(org, agent, done=True)
+        api._work_mutate_action(org, agent,
+                                {"attention": False, "note": "down"},
+                                "addendum", finished)
+
+        # update: raising is allowed
+        api._work_mutate_action(
+            org, agent, {"done_so_far": ["more"], "working_on_next": ["next"],
+                         "attention": True, "attention_reason": REASON},
+            "update", live)
+        self.assertIsNotNone(self._flag(org, agent, live))
+
+        # addendum: raising is refused, and the flag stays down
+        with self.assertRaises(Exception):
+            api._work_mutate_action(
+                org, agent, {"attention": True, "attention_reason": REASON,
+                             "note": "raising from a finished record"},
+                "addendum", finished)
+        self.assertIsNone(self._flag(org, agent, finished))
+
+
 if __name__ == "__main__":
     unittest.main()
