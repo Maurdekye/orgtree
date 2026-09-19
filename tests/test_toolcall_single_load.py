@@ -24,11 +24,14 @@ them could silently stop being true:
     every other reader sees, and would leave no trace on disk.
     `test_read_paths_leave_the_shared_snapshot_identical_to_disk` is that check.
 
-AND THE WRITE PATH IS UNCHANGED ON PURPOSE. Write verbs still take their own
-private `load_org` under `DOC_LOCK`; a shared or stale document in a
-load-modify-save cycle is a lost update, which is far worse than the parse it
-would save. `test_concurrent_writes_all_land` demonstrates that rather than
-arguing it.
+AND THE WRITE PATH RUNS ON THE RESIDENT DOCUMENT (rearchitecture Phase B).
+Write verbs load under `DOC_LOCK` exactly as before, but the load is served
+by the per-org resident, so a warm write parses nothing; the lock still
+serializes cycles, the resident is always the last committed state, and
+`test_concurrent_writes_all_land` demonstrates the no-lost-update property
+rather than arguing it. The discard property for abandoned cycles moved to
+the lock's release hook and is pinned in
+test_state_access_rearchitecture.py.
 
 ⚠ THE COUNTING TESTS ARE THE ACCEPTANCE EVIDENCE and they assert EXACT numbers,
 not upper bounds: a bound would still pass if a future change quietly added a
@@ -64,9 +67,13 @@ assert Path(store.DATA_ROOT).resolve() == Path(_root.name).resolve()
 
 
 class _LoadCounter:
-    """Counts every real whole-document parse, including the ones `cached_org`
-    makes on a miss -- `store.cached_org` reaches `load_org` as a module
-    global, so one patch sees both the direct calls and the cached ones.
+    """Counts every real whole-document PARSE. Since the resident write
+    document landed (rearchitecture Phase B), a `load_org` CALL under a held
+    DOC_LOCK is served from memory and parses nothing — so the counter hooks
+    `_load_sqlite_org`, the one place every actual eager materialization
+    (fresh loads, cache misses, snapshot loads) goes through, and calls that
+    the resident absorbs are exactly the ones this file exists to prove
+    absorbed.
 
     ⚠ It also COUNTS ITS OWN CALLS, which is why every test resets it at the
     exact moment it starts measuring: a counter that silently included the
@@ -74,10 +81,10 @@ class _LoadCounter:
 
     def __init__(self):
         self.n = 0
-        self._real = store.load_org
+        self._real = store._load_sqlite_org
 
     def __enter__(self):
-        self._patch = unittest.mock.patch.object(store, "load_org", self)
+        self._patch = unittest.mock.patch.object(store, "_load_sqlite_org", self)
         self._patch.start()
         return self
 

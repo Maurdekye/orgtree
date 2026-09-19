@@ -172,23 +172,61 @@ class WriteOrgSemantics(unittest.TestCase):
             w.node('alpha').get('state')          # read only
         self.assertIn('wo-ro', store._resident)
 
-    def test_legacy_cycle_interoperates(self):
-        """A not-yet-converted write site (DOC_LOCK + load + save) must drop
-        the resident so the next write_org sees its change — the property
-        that keeps the incremental conversion safe."""
+    def test_legacy_cycle_shares_the_resident(self):
+        """The classic idiom (DOC_LOCK + load_org + save) is served the SAME
+        resident as write_org — the unification that accelerates all ~300
+        legacy sites without edits — and both spellings' writes land."""
         _mk('wo-legacy')
         with store.write_org('wo-legacy') as w:
             w.node('alpha')['state'] = 'working'
             store.save_org(w)
         with store.DOC_LOCK:
             legacy = store.load_org('wo-legacy')
+            self.assertIs(legacy, w, 'classic load under the lock must be '
+                                     'served the resident')
             legacy.node('beta')['state'] = 'working'
             store.save_org(legacy)
-        self.assertNotIn('wo-legacy', store._resident)
-        with store.write_org('wo-legacy') as w:
-            self.assertEqual(w.node('beta')['state'], 'working')
-            self.assertEqual(w.node('alpha')['state'], 'working')
+        with store.write_org('wo-legacy') as w2:
+            self.assertEqual(w2.node('beta')['state'], 'working')
+            self.assertEqual(w2.node('alpha')['state'], 'working')
+            store.save_org(w2)
+
+    def test_foreign_object_save_invalidates_the_resident(self):
+        """A save through an org object that is NOT the resident (loaded
+        outside the lock, saved inside — the one shape residency cannot
+        vouch for) must drop the resident, and the next cycle must see the
+        foreign write rather than resurrect stale state."""
+        _mk('wo-foreign')
+        with store.write_org('wo-foreign') as w:
+            w.node('alpha')['state'] = 'working'
             store.save_org(w)
+        foreign = store.load_org('wo-foreign')      # outside the lock: private
+        foreign.node('beta')['state'] = 'working'
+        with store.DOC_LOCK:
+            store.save_org(foreign)
+        self.assertNotIn('wo-foreign', store._resident)
+        with store.write_org('wo-foreign') as w2:
+            self.assertEqual(w2.node('beta')['state'], 'working')
+            self.assertEqual(w2.node('alpha')['state'], 'working')
+            store.save_org(w2)
+
+    def test_reload_in_hold_discards_dirty_resident(self):
+        """The discard-by-reload contract: code that mutates, then loads
+        again inside the SAME hold to get a clean copy, must actually get a
+        clean copy — the resident is dropped when a repeat hand-out finds
+        unsaved dirt."""
+        _mk('wo-reload')
+        with store.write_org('wo-reload') as w:
+            w.node('alpha')['state'] = 'working'
+            store.save_org(w)
+        with store.DOC_LOCK:
+            first = store.load_org('wo-reload')
+            first.node('alpha')['state'] = 'half-applied'
+            again = store.load_org('wo-reload')
+            self.assertIsNot(again, first,
+                             'a dirty resident must not be re-served')
+            self.assertEqual(again.node('alpha')['state'], 'working')
+            store.save_org(again)
 
     def test_post_mail_keeps_residency(self):
         _mk('wo-mail')

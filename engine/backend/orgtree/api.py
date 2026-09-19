@@ -3382,9 +3382,8 @@ def org_hire_defaults(slug: str, body: HireDefaults,
     a default is a pre-filled grant, so the ceiling clamps it like any grant.
     The rest of /settings (org folders, caps, policies) stays admin-only."""
     pub = bool(_public_slug(request))
-    with store.DOC_LOCK:
+    with _entry_ledger_422(store.write_org(slug)) as org:
         try:
-            org = store.load_org(slug)
             rc = (not pub) and (bool((org.d.get("kiosk") or {}).get("auto_raise"))
                                 or body.raise_ceiling)
             result = org.set_hire_defaults(
@@ -3438,9 +3437,8 @@ class Scope(Body):
 def node_scope(slug: str, nid: str, body: Scope,
                request: Request) -> dict[str, Any]:
     pub = bool(_public_slug(request))
-    with store.DOC_LOCK:
+    with _entry_ledger_422(store.write_org(slug)) as org:
         try:
-            org = store.load_org(slug)
             rc = (not pub) and (bool((org.d.get("kiosk") or {}).get("auto_raise"))
                                 or body.raise_ceiling)
             result = org.set_scope(USER, nid, add_dirs=body.add_dirs, tools=body.tools,
@@ -4818,9 +4816,8 @@ def node_message(slug: str, nid: str, body: Message,
     # the user reached, not about whether a copy was filed.
     if stripped.startswith("/") \
             and re.fullmatch(r"/[A-Za-z?][\w-]*", stripped.split()[0]):
-        with store.DOC_LOCK:
+        with _entry_ledger_422(store.write_org(slug), 404) as org:
             try:
-                org = store.load_org(slug)
                 n = org.node(nid)
             except LedgerError as e:
                 raise HTTPException(404, str(e))
@@ -4956,9 +4953,8 @@ def node_message(slug: str, nid: str, body: Message,
             # an agent's context
             missing.append(f"{extra} further attachment(s) — past the "
                            f"{ledger_mod.ATTACHMENT_MAX}-per-message limit")
-    with store.DOC_LOCK:
+    with _entry_ledger_422(store.write_org(slug)) as org:
         try:
-            org = store.load_org(slug)
             reply_meta: dict[str, Any] | None = None
             if body.reply_to is not None and target is None:
                 raw_ref = body.reply_to.get("source_event_ref")
@@ -7818,9 +7814,8 @@ def ask_answer(slug: str, aid: str, body: AskAnswer) -> dict[str, Any]:
     is posted, under one doc lock; every other rendering of the card nulls
     to grey "answered" on the next payload. (The wake-void this ordering
     once guarded against was retired 2026-08-06 — see withdraw_ask.)"""
-    with store.DOC_LOCK:
+    with _entry_ledger_422(store.write_org(slug)) as org:
         try:
-            org = store.load_org(slug)
             r = (org.ask_dismiss(aid) if body.dismiss
                  else org.ask_answer(aid, selected=body.selected,
                                      text=body.text, rev=body.rev))
@@ -7867,9 +7862,8 @@ def batch_resolve(slug: str, nid: str, body: BatchResolve) -> dict[str, Any]:
     """FR-14: resolve a node's whole request batch — question answers, the
     credit decision and per-item scope grants — in one submit, one lock, one
     composed answer mail. The desk card and the inbox card both land here."""
-    with store.DOC_LOCK:
+    with _entry_ledger_422(store.write_org(slug)) as org:
         try:
-            org = store.load_org(slug)
             r = org.resolve_batch(nid, body.revs, answers=body.answers,
                                   credits=body.credits, scope=body.scope)
             _kiosk_cap_check(org)
@@ -8152,11 +8146,7 @@ class InboxRead(Body):
 def user_inbox_read(slug: str, body: InboxRead) -> dict[str, Any]:
     """Per-mail read: a viewed mail is marked read when the user clicks off it
     (user ruling) — it moves from unread into the read archive."""
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
+    with _entry_ledger_422(store.write_org(slug), 404) as org:
         ids = set(body.ids)
         keep: list[UserMailEntry] = []
         read: list[UserMailEntry] = []
@@ -10118,15 +10108,17 @@ class _op_inflight:
 
 
 @contextlib.contextmanager
-def _entry_ledger_422(cm: "AbstractContextManager[Org]") -> "Iterator[Org]":
+def _entry_ledger_422(cm: "AbstractContextManager[Org]",
+                      code: int = 422) -> "Iterator[Org]":
     """Enter a `store.write_org` cycle; a LedgerError raised by the ENTRY
-    itself (no such org, bad slug) becomes the same 422 the old in-block
-    `load_org` produced. Errors from the body or the exit pass through
+    itself (no such org, bad slug) becomes the same HTTP refusal the old
+    in-block `load_org` produced at that site (422 at the dispatch, 404 on
+    the inbox doors). Errors from the body or the exit pass through
     untouched, so nothing that used to escape as a 500 gets reclassified."""
     try:
         v = cm.__enter__()
     except LedgerError as e:
-        raise HTTPException(422, str(e))
+        raise HTTPException(code, str(e))
     try:
         yield v
     except BaseException as e:

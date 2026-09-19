@@ -186,6 +186,14 @@ class _InstrumentedDocLock:
 
     def release(self) -> None:
         depth = self._depth()
+        if depth == 1:
+            # STILL OWNING the lock: the resident release-check must see a
+            # world no other writer can be mutating (defined later in the
+            # module; name resolves at call time)
+            try:
+                _on_doc_lock_release()
+            except Exception:
+                pass
         self._rlock.release()
         if depth:
             self._tls.depth = depth - 1
@@ -3898,6 +3906,49 @@ def load_org(slug: str) -> Org:
 
 def _load_org(slug: str) -> Org:
     if STORE_BACKEND == "sqlite":
+        # THE RESIDENT FAST PATH (rearchitecture Phase B). A load performed
+        # while this thread holds the document lock is the front half of a
+        # write cycle — the classic idiom at ~300 sites. It is served the
+        # per-org resident document instead of a fresh 11 MB parse; the
+        # release hook on the lock (`_on_doc_lock_release`) enforces the
+        # discard property for every one of those sites uniformly. A REPEAT
+        # load in the same hold re-checks cleanliness first, so the old
+        # "reload to discard my half-applied mutations" pattern still gets
+        # the fresh copy it is asking for. Reads outside the lock are
+        # untouched: fresh private load, exactly as before (№22).
+        if getattr(DOC_LOCK, "_is_owned", lambda: False)() \
+                and not getattr(_hold_track, "suppress_resident", False):
+            org = _resident.get(slug)
+            slugs: set[str] = getattr(_hold_track, "slugs", None) or set()
+            if org is not None:
+                d = cast("dict[str, Any]", org.d)
+                fresh_needed = False
+                if isinstance(d, LazyDoc):
+                    if slug in slugs:
+                        # repeat hand-out within one hold: honor the
+                        # discard-by-reload contract if anything is dirty
+                        try:
+                            fresh_needed = bool(
+                                _resident_dirty(d)
+                                or any(r for r in d._pending.values())
+                                or d._lazy_exposed)
+                        except Exception:
+                            fresh_needed = True
+                else:
+                    fresh_needed = True
+                if fresh_needed:
+                    _resident.pop(slug, None)
+                else:
+                    slugs.add(slug)
+                    _hold_track.slugs = slugs
+                    return org
+            org = _load_sqlite_org(slug)
+            if isinstance(org.d, LazyDoc):
+                _settle_marks(org.d)
+                _resident[slug] = org
+                slugs.add(slug)
+                _hold_track.slugs = slugs
+            return org
         return _load_sqlite_org(slug)
     p = _json_path(slug)
     if not os.path.exists(p):
@@ -4246,7 +4297,17 @@ def cached_org(slug: str) -> Org:
             return org2
     seq = org_seq(slug)
     try:
-        org = load_org(slug)
+        # ⚠ residency SUPPRESSED for this load: under a held DOC_LOCK,
+        # `load_org` serves the mutable RESIDENT write document, and
+        # publishing that as the shared read snapshot would hand every
+        # reader a view that mutates under them. Still `load_org` (not the
+        # raw loader) so tests that inject a fixture by patching it keep
+        # working.
+        _hold_track.suppress_resident = True
+        try:
+            org = load_org(slug)
+        finally:
+            _hold_track.suppress_resident = False
     except Exception:
         with _doc_cache_lock:
             _doc_cache.pop(slug, None)
@@ -4272,65 +4333,80 @@ def cached_org(slug: str) -> Org:
     return org
 
 
-@contextlib.contextmanager
-def write_org(slug: str) -> Generator[Org]:
-    """The write cycle (rearchitecture Phase B): DOC_LOCK plus the per-org
-    RESIDENT document.
+#: slugs handed a resident during the CURRENT thread's lock hold — what the
+#: release hook checks. Thread-local because holds are per-thread.
+_hold_track = threading.local()
 
-    `with write_org(slug) as org: … ; save_org(org)` replaces the classic
-    `with DOC_LOCK: org = load_org(slug); … ; save_org(org)`. Semantics are
-    identical — the same lock, the same save fanout, and the discard
-    property (a cycle that raises leaves no trace of its mutations) is kept
-    by dropping the resident instance on any exception. What changes is the
-    cost: after the first cycle the 11 MB parse and the whole-tree Org
-    construction are gone, and with the access-scoped save the differ dumps
-    only what the cycle actually exposed.
 
-    A CLEAN exit without a save re-verifies every touched entry against its
-    baseline (cheap — touched entries only): an abandoned mutation drops
-    the resident loudly instead of riding the NEXT caller's save, and a
-    pure read-under-lock keeps residency at no cost. Legacy cycles that
-    still load their own copy remain correct beside this: their save
-    invalidates the resident (see _save_sqlite), so it is rebuilt fresh on
-    the next use.
+def _settle_marks(d: LazyDoc) -> None:
+    """Resolve construction-time marks into truth, once, at resident
+    registration.
 
-    The JSON backend keeps the exact historical behavior: lock + fresh
-    load, no residency."""
-    if STORE_BACKEND != "sqlite":
-        with DOC_LOCK:
-            yield load_org(slug)
+    `Org.__init__` walks the whole document applying idempotent migrations —
+    `values()`/`items()` walks that the read barrier must conservatively
+    record (it cannot know a walker won't mutate). Left standing, those
+    construction marks would put every node back into every save's dump set
+    and the access-scoped save would be a no-op. Settling compares each
+    marked entry against its loaded baseline exactly once: an entry the
+    constructor did NOT change is unmarked (nothing to persist), an entry it
+    DID change keeps its mark so the migration delta reaches disk on the
+    next save — the same outcome the full differ produced, at one
+    registration-time pass instead of every save."""
+    for k in list(d._touched):
+        if k in ROWED or k in LAZY_SECTIONS:
+            continue
+        if dict.__contains__(d, k) and k in d._snap_doc \
+                and d._snap_doc[k] == _dumps(dict.__getitem__(d, k)):
+            d._touched.discard(k)
+    nodes = dict.get(d, "nodes")
+    if isinstance(nodes, NodesMap):
+        nids = (set(dict.keys(nodes)) if nodes._touched_all
+                else set(nodes._touched))
+        real: set[str] = set()
+        for nid in nids:
+            if not dict.__contains__(nodes, nid):
+                real.add(nid)
+                continue
+            sn = d._snap_nodes.get(nid)
+            if sn is None or sn != _dumps(dict.__getitem__(nodes, nid)):
+                real.add(nid)
+        nodes._touched = real
+        nodes._touched_all = False
+
+
+def _on_doc_lock_release() -> None:
+    """Runs at every outermost DOC_LOCK release, still owning the lock: the
+    uniform discard-property enforcement for EVERY write cycle, converted or
+    classic. For each org handed a resident in this hold — an entry whose
+    serialization no longer matches its adopted baseline, a buffered append
+    never saved, or a lazy section exposed after the last save, drops the
+    resident (loudly for real dirt): the abandoned state is discarded
+    exactly as the old fresh-copy semantics discarded it, and the next
+    cycle reloads clean. A hold that only read, or that saved what it
+    changed, keeps residency at the cost of re-checking what it touched."""
+    slugs = getattr(_hold_track, "slugs", None)
+    if not slugs:
         return
-    with DOC_LOCK:
+    _hold_track.slugs = set()
+    for slug in slugs:
         org = _resident.get(slug)
         if org is None:
-            org = load_org(slug)
+            continue
         d = cast("dict[str, Any]", org.d)
         if not isinstance(d, LazyDoc):
-            # a document shape residency cannot track — plain one-shot cycle
-            yield org
-            return
-        _resident[slug] = org
-        d._mark_clear()
+            _resident.pop(slug, None)
+            continue
         try:
-            yield org
-        except BaseException:
-            # the discard property (invariant 4): a failed cycle's partial
-            # mutations must not survive into anyone's next save
-            if _resident.get(slug) is org:
-                _resident.pop(slug, None)
-            raise
-        if _resident.get(slug) is not org:
-            # a save through another object (a legacy cycle nested in this
-            # hold) already dropped residency — nothing further to prove
-            return
-        dirty = _resident_dirty(d)
-        if any(rows for rows in d._pending.values()):
-            dirty.append("(pending log appends)")
+            dirty = _resident_dirty(d)
+            if any(rows for rows in d._pending.values()):
+                dirty.append("(pending log appends)")
+        except Exception:
+            _resident.pop(slug, None)
+            continue
         if dirty:
             _resident.pop(slug, None)
-            stateprobe.record("resident_abandoned",
-                              detail={"keys": dirty[:8]})
-            print(f"[orgtree.store] write_org({slug!r}): mutated without "
+            stateprobe.record("resident_abandoned", detail={"keys": dirty[:8]})
+            print(f"[orgtree.store] write cycle for {slug!r} mutated without "
                   f"saving ({', '.join(dirty[:5])}) — resident dropped",
                   flush=True)
         elif d._lazy_exposed:
@@ -4341,6 +4417,42 @@ def write_org(slug: str) -> Generator[Org]:
             _resident.pop(slug, None)
             stateprobe.record("resident_lazy_exposed",
                               detail={"sections": sorted(d._lazy_exposed)[:8]})
+
+
+@contextlib.contextmanager
+def write_org(slug: str) -> Generator[Org]:
+    """The write cycle (rearchitecture Phase B): DOC_LOCK plus the per-org
+    RESIDENT document.
+
+    `with write_org(slug) as org: … ; save_org(org)` replaces the classic
+    `with DOC_LOCK: org = load_org(slug); … ; save_org(org)` — and since
+    `load_org` itself serves the resident under a held lock, the two
+    spellings are exactly equivalent now; this one just names the intent.
+    Semantics against the classic cycle are unchanged: same lock, same save
+    fanout, and the discard property (a cycle that raises or abandons its
+    mutations leaves no trace in anyone's later save) is enforced for both
+    spellings by the lock's release hook (`_on_doc_lock_release`). The cost
+    is what changed: after the first cycle the 11 MB parse and the
+    whole-tree Org construction are gone, and the access-scoped save dumps
+    only what the cycle exposed.
+
+    Known narrow limit, accepted and documented: read barriers are sticky
+    per document, so a mutation through a handle retained across saves and
+    Condition-waits is still caught — but an UNSAVED row edit in a lazy
+    section can escape the release check if a concurrent hold's save
+    settles the exposure flag first (Condition-wait interleavings only;
+    eager state is never subject to this). The row differ still writes such
+    an edit on the next save, so the exposure is to the discard property in
+    that corner, not to durability.
+
+    The JSON backend keeps the exact historical behavior: lock + fresh
+    load, no residency."""
+    if STORE_BACKEND != "sqlite":
+        with DOC_LOCK:
+            yield load_org(slug)
+        return
+    with DOC_LOCK:
+        yield load_org(slug)
 
 
 def _resident_dirty(d: LazyDoc) -> list[str]:
