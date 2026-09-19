@@ -82,9 +82,11 @@ cleared it — including one that had nothing to do with the flag. An agent
 fixing a ticket's title silently dropped the question you were still reading,
 and neither of you would necessarily notice.
 
-An update that does not mention the flag now leaves it alone. Exactly three
-things clear a standing flag: you replying to it, you dismissing it, or the
-agent explicitly retracting it.
+An update that does not mention the flag now leaves it alone. Three things take
+one down deliberately: you replying to it, you dismissing it, or the agent
+explicitly retracting it. Superseding a ticket also clears its flag — that is
+the ticket being replaced rather than edited, and leaving the question standing
+would print a dead question above its live replacement.
 
 The consequence worth knowing is that **retraction is now the raising agent's
 job**. A flag that stops mattering — because the agent worked the answer out
