@@ -287,9 +287,17 @@ class ProcessSpecTests(_Patched):
         self.nid = self.org.hire(ledger.USER, None, TIER, 1, "spec",
                                  harness=H.CODEX_CLI, **_HIRE)["node"]
         store.save_org(self.org)
+        # ⚠ `kind` IS DELIBERATELY NON-EMPTY, and `connected` deliberately
+        # False. Both are fixture choices with a job. An earlier cut used
+        # kind="" and test_6h passed against code that copied the ambient
+        # login straight through — the mutation harness caught it, because
+        # "" == "" tells you nothing. A machine that IS signed in to ChatGPT
+        # is the only fixture where "this OpenRouter turn must not claim that
+        # login" is a falsifiable statement.
         for p in (patch.object(providers, "codex_status", return_value={
                       "installed": True, "path": "/fake/codex",
-                      "connected": False, "kind": "", "version": "0.154.0"}),
+                      "connected": False, "kind": "chatgpt",
+                      "version": "0.154.0"}),
                   patch.object(openrouter, "_key", return_value="sk-or-test"),
                   patch.object(supervisor, "identity_prompt",
                                return_value="IDENT")):
