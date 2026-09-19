@@ -19,6 +19,17 @@ other archived children), reallocate(-Δ), and switch_model to a pricier tier (t
 Directory access (№30) is an inherited capability set, NOT a budget: a node may hold only
 dirs its parent holds (top-level nodes are user-granted and unconstrained). Nothing conserves;
 revoke is explicit; re-parenting intersects the moved subtree's dirs with the new chain.
+
+⚠ GREP FOR A METHOD NAME BEFORE YOU ADD ONE. `Org` is one class spanning most of this
+18,000-line file, so two methods can be given the same name thousands of lines apart.
+Python keeps the LAST definition and discards the earlier one with no error, no warning
+and no import failure, and every existing caller of the discarded one silently starts
+calling something else. That happened on 2026-09-18: a second `_work_ref` meaning a
+pointer lookup displaced the original meaning a name, and two callers in
+`repair_rename_identity` began passing an item dict into a slug parameter. Nothing
+raised; the repair failed with the plausible message "work item ... has no slug".
+`tests/test_no_duplicate_definitions.py` now fails on this, naming both line numbers —
+but it catches you after the fact, and one grep catches you before.
 """
 
 from __future__ import annotations
