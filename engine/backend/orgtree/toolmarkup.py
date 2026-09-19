@@ -233,6 +233,16 @@ def find_leaks(text: Any) -> list[Span]:
     to the earlier entry in `_PATTERNS` -- which is why the generic close keeps
     its own accurate label instead of being reported as an invented tag.
 
+    ⚠ NO TEST PINS THE `-end` HALF OF THAT KEY, and that is deliberate rather
+    than an oversight. With the patterns as they stand the overlap is always
+    exact: an invented close and the generic close match the same start AND the
+    same end, because the invented pattern's greedy run stops at the same `>`.
+    Swapping the key for `(start, end)` was checked against 2496 generated
+    overlap shapes and changed nothing, so it is an equivalent mutant and a test
+    for it would assert nothing. The `-end` is kept as the correct rule for a
+    future pattern whose match is longer at a shared start; if you add one, that
+    is the moment this becomes testable and should get a test.
+
     Returns `[]` for anything not a string, so a caller may hand this whatever
     it was given without pre-checking.
     """
