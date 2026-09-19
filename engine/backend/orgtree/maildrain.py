@@ -11,7 +11,7 @@ import threading
 import time
 from functools import wraps
 
-from . import store
+from . import stateprobe, store
 
 POLL_S = 1.0
 MAX_BATCH = 32
@@ -69,6 +69,7 @@ def worker(fn):
     @wraps(fn)
     def run(slug, nid, *args, **kwargs):
         from . import supervisor as sup
+        stateprobe.set_op("drain:" + fn.__name__)
         st = sup.state(slug, nid)
         owner = threading.current_thread()
         with sup._state_lock:

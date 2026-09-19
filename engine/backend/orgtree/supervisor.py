@@ -48,7 +48,7 @@ from . import (accounts, agentauth, antigravity_limits, appsettings,
                envelope, events, events_table, failfix, handoff, imgblock,
                lifecycle, limits,
                liveness, localtime, net, openrouter, opreceipts, providers, registry,
-               sandbox as sbx, steer, store, workevidence,
+               sandbox as sbx, stateprobe, steer, store, workevidence,
                tokens, turnlog, turnusage, warmpool)
 from .fleet_walk import fleet_walk
 from .desktop_native import NativeInventory
@@ -13412,6 +13412,7 @@ def _run_turn(slug: str, nid: str, text: str | dict[str, Any]) -> None:
     (test_turn_lifecycle "deepqueue"): a 260-deep queue against a 200-frame
     limit died at depth 189 with 71 messages still queued; the stock limit
     puts the cliff at ~900. Iterating costs nothing and has no cliff."""
+    stateprobe.set_op("turn:run")   # storage-boundary attribution for the thread
     # The desk's `starting...` row covers only the interval before THIS turn's
     # first event. `live` cannot answer that: its rows retire as the transcript
     # catches up, leaving normal between-event gaps empty. Reset a separate

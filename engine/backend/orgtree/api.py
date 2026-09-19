@@ -95,8 +95,8 @@ from . import reservations
 from . import ledger as ledger_mod
 from . import (accounts, antigravity_limits, appsettings, bridgeauth,
                codex_limits, codex_route, limits, net,
-               providers, quickstaff, restart_wake, sandbox, staffcache, store,
-               subproxy, supervisor, warmpool)
+               providers, quickstaff, restart_wake, sandbox, staffcache,
+               stateprobe, store, subproxy, supervisor, warmpool)
 from . import statepreview
 from .ledger import (LedgerError, Org, StaleRevError, USER, VIS_LEVELS,
                      actor_of, norm_dirs, norm_tools)
@@ -401,6 +401,12 @@ class AccessRecord:
             # modules and have no request to ask. Bound here, on the
             # OUTERMOST middleware, so the whole stack is inside the window.
             profile_token = profiling.bind(profile)
+        # storage-boundary attribution (stateprobe): the label must be the
+        # route TEMPLATE, which exists only after routing — so it is resolved
+        # lazily at record time, and the concrete path can never leak into a
+        # label. agent_call refines it to the tool verb.
+        stateprobe.label_deferred(
+            lambda: str(scope.get("method") or "?") + " " + _route_label(scope))
         global _access_inflight
         _access_inflight += 1
         depth = _access_inflight
@@ -614,6 +620,25 @@ def profile_timing() -> dict[str, Any]:
             "oldest_seq": records[0]["seq"] if records else None,
             "newest_seq": records[-1]["seq"] if records else None,
             "dropped": records[0]["seq"] - 1 if records else 0}
+
+@app.get("/api/diagnostics/state-access", dependencies=[Depends(_profile_operator_only)])
+def state_access_diagnostics(reset: bool = False) -> dict[str, Any]:
+    """The storage-boundary decomposition (stateprobe): per operation label —
+    tool verb, route template, worker loop — lock wait/held, document loads
+    (count, ms, bytes), lazy-section materializations, and what each save
+    changed vs. what it re-serialized. Same operator-only gate and the same
+    privacy boundary as the route-timing sink: labels are templates and
+    verbs, never a path, an argument or content. `?reset=1` returns the
+    aggregate and clears it, for clean before/after windows."""
+    return stateprobe.snapshot(reset=reset)
+
+
+@app.post("/api/diagnostics/state-access", dependencies=[Depends(_profile_operator_only)])
+def state_access_control(body: ProfileTimingControl) -> dict[str, Any]:
+    """Live enable/disable for the storage-boundary probe (no restart)."""
+    stateprobe.set_enabled(body.enabled)
+    return {"enabled": stateprobe.enabled()}
+
 
 @app.put("/api/desktop/profile-timing", dependencies=[Depends(_profile_operator_only)])
 @app.post("/api/diagnostics/timing", dependencies=[Depends(_profile_operator_only)])
@@ -10389,6 +10414,9 @@ def _agent_identity(body: AgentCall, request: Request, *, durable: bool = False)
 
 def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
     """Execute one authenticated tool through the existing authority/admission gates."""
+    # the tool verb is the operation the storage instrumentation attributes
+    # to — far more useful than the one dispatch route all verbs share
+    stateprobe.refine("tool:" + str(body.tool))
     if body.tool == 'orgtree_send_file_once':
         # Internal transport verb: old backends must refuse BEFORE a copy,
         # rather than silently ignore delivery_id and claim retry safety.
