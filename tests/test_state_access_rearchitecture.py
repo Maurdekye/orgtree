@@ -239,6 +239,56 @@ class WriteOrgSemantics(unittest.TestCase):
         self.assertTrue(any(m.get('body') == 'hello there' for m in got))
 
 
+class ReleaseHookEnforcement(unittest.TestCase):
+    def test_the_hook_is_the_enforcement_not_a_bystander(self):
+        """Reviewer finding (flag-clear, 2026-09-19): with the release hook
+        disabled, only ONE discard test objected — the others passed through
+        the repeat-hand-out backstop, which lives in the same thread's
+        hold-tracking and so cannot protect a DIFFERENT thread's next cycle.
+        This pins the hook as load-bearing both ways: with it no-opped, an
+        abandoned mutation IS served to another thread (the leak the hook
+        exists to stop, demonstrated rather than assumed); restored, the
+        same schedule stays clean."""
+        _mk('hook-pin')
+        real = store._on_doc_lock_release
+        leaked: list[str] = []
+
+        def cycle(mutate_only: bool, out: list[str]) -> None:
+            with store.write_org('hook-pin') as w:
+                if mutate_only:
+                    w.node('alpha')['state'] = 'leaky'   # never saved
+                else:
+                    out.append(w.node('alpha').get('state') or '')
+                    store.save_org(w)
+
+        try:
+            store._on_doc_lock_release = lambda: None
+            t1 = threading.Thread(target=cycle, args=(True, leaked))
+            t1.start(); t1.join(10)
+            seen: list[str] = []
+            t2 = threading.Thread(target=cycle, args=(False, seen))
+            t2.start(); t2.join(10)
+            self.assertEqual(seen, ['leaky'],
+                             'with the hook disabled the abandoned mutation '
+                             'must leak — otherwise this control is vacuous')
+        finally:
+            store._on_doc_lock_release = real
+            store._resident.pop('hook-pin', None)
+            store._invalidate_snapshot('hook-pin')
+        # and the same cross-thread schedule, hook restored: no leak
+        with store.write_org('hook-pin') as w:
+            w.node('alpha')['state'] = 'clean'
+            store.save_org(w)
+        t3 = threading.Thread(target=cycle, args=(True, leaked))
+        t3.start(); t3.join(10)
+        seen2: list[str] = []
+        t4 = threading.Thread(target=cycle, args=(False, seen2))
+        t4.start(); t4.join(10)
+        self.assertEqual(seen2, ['clean'],
+                         'with the hook active the abandoned mutation must '
+                         'be discarded before any other thread can read it')
+
+
 class ScopedSaveControls(unittest.TestCase):
     def test_smuggled_mutation_is_caught_by_verify(self):
         """THE NEGATIVE CONTROL. Mutate a node through raw dict access —

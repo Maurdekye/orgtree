@@ -1067,11 +1067,25 @@ def _open_conn(path: str, *, create: bool = False) -> sqlite3.Connection:
         target = pathlib.Path(os.path.abspath(path)).as_uri() + "?mode=rw"
     conn = sqlite3.connect(target, timeout=10.0, isolation_level=None,
                            check_same_thread=False, uri=not create)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=FULL")
     conn.execute("PRAGMA foreign_keys=OFF")
     conn.execute("PRAGMA busy_timeout=10000")
-    conn.executescript(_DDL)
+    if create:
+        # Schema and journal mode are properties the MINTING paths establish
+        # (`save_org` via create=True, the migration candidate); WAL persists
+        # in the file and `synchronous` only matters where commits happen.
+        #
+        # ⚠ A READ CONNECTION MUST NOT RUN THIS. `executescript(_DDL)` is a
+        # WRITE (even all-IF-NOT-EXISTS no-ops take the writer lock), and it
+        # turned every pool-churned read open into a queue behind
+        # `BEGIN IMMEDIATE` writers — measured 2026-09-19 as the second half
+        # of a lock-order inversion: a snapshot assembly holding the snap
+        # gate waited up to busy_timeout for the db write lock, while the
+        # save holding the db write lock waited for the snap gate. Ten
+        # seconds of stall per cycle, from schema DDL that had nothing to
+        # create.
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=FULL")
+        conn.executescript(_DDL)
     return conn
 
 
@@ -1446,7 +1460,7 @@ class SectionMap(dict[str, Any]):
         with _POOL.acquire(self._slug) as conn:
             rows = [(cast(int, seq), cast(str, val)) for seq, val in conn.execute(
                 "SELECT seq, val FROM log_d WHERE sect=? AND owner=? ORDER BY seq",
-                (self._sect, owner))]
+                (self._sect, owner)).fetchall()]
         log = AppendLog((json.loads(val) for _, val in rows), rows=rows)
         stateprobe.record("lazy_owner", ms=(time.perf_counter() - t0) * 1000.0,
                           nbytes=sum(len(v) for _, v in rows),
@@ -2218,7 +2232,8 @@ def _read_dict_log(conn: sqlite3.Connection, sect: str, slug: str = ""
     owners = _owners_of(conn, sect)
     snaps: dict[str, list[tuple[int, str]]] = {o: [] for o in owners}
     for owner, seq, val in conn.execute(
-            "SELECT owner, seq, val FROM log_d WHERE sect=? ORDER BY seq", (sect,)):
+            "SELECT owner, seq, val FROM log_d WHERE sect=? ORDER BY seq",
+            (sect,)).fetchall():
         snaps.setdefault(cast(str, owner), []).append(
             (cast(int, seq), cast(str, val)))
     out = SectionMap(slug, sect, owners)
@@ -2238,7 +2253,8 @@ def _read_dict_log(conn: sqlite3.Connection, sect: str, slug: str = ""
 def _read_list_log(conn: sqlite3.Connection, sect: str
                    ) -> tuple[list[tuple[int, str]], AppendLog]:
     rows = [(cast(int, seq), cast(str, val)) for seq, val in conn.execute(
-        "SELECT seq, val FROM log_l WHERE sect=? ORDER BY seq", (sect,))]
+        "SELECT seq, val FROM log_l WHERE sect=? ORDER BY seq",
+        (sect,)).fetchall()]
     return rows, AppendLog((json.loads(val) for _, val in rows), rows=rows)
 
 
@@ -2300,10 +2316,15 @@ def _load_lazy(conn: sqlite3.Connection, slug: str,
         raw_order = _meta_get(conn, _META_KEY_ORDER)
         key_order: list[str] = cast("list[str]", json.loads(raw_order)) if raw_order else []
         schema_version = _meta_get(conn, "schema_version")
+        # ⚠ fetchall() FIRST, comprehension SECOND — one C call per result
+        # set. Iterating a live cursor from Python yields the GIL at every
+        # row, and under concurrent Python-busy threads each yield costs a
+        # full switch interval: 709 rows × ~5 ms stolen slices turned this
+        # 100 ms load into 18-20 s (measured, 2026-09-19 incident).
         doc_rows: dict[str, str] = {cast(str, k): cast(str, v) for k, v in
-                                    conn.execute("SELECT key, val FROM doc")}
+                                    conn.execute("SELECT key, val FROM doc").fetchall()}
         node_rows = [(cast(str, i), cast(str, v)) for i, v in
-                     conn.execute("SELECT id, val FROM nodes ORDER BY ord")]
+                     conn.execute("SELECT id, val FROM nodes ORDER BY ord").fetchall()]
         d._eager_bytes = (sum(len(v) for v in doc_rows.values())
                           + sum(len(v) for _, v in node_rows))
         present: set[str] = set()
@@ -2889,7 +2910,9 @@ def _save_sqlite(org: Org) -> None:
             # rebuild pins its read view after the commit but drains the
             # accumulator before the publish, and serves that save's other
             # sections stale forever.
+            _gt0 = time.perf_counter()
             with _snap_gate(slug):
+                _gw = time.perf_counter()
                 conn.execute("COMMIT")
                 if lazy is not None:
                     _publish_changes(slug, changes)
@@ -2898,6 +2921,8 @@ def _save_sqlite(org: Org) -> None:
                     # change record is not a trustworthy delta of it
                     _publish_changes_unknown(slug)
                 _bump_org_seq(slug)
+                stateprobe.record("gate_commit", ms=(time.perf_counter() - _gw) * 1000.0)
+                stateprobe.record("gate_wait_commit", ms=(_gw - _gt0) * 1000.0)
         except BaseException:
             with contextlib.suppress(Exception):
                 conn.execute("ROLLBACK")
@@ -4111,6 +4136,12 @@ _org_seq: dict[str, int] = {}
 _changed_lock = threading.Lock()
 _changed_keys: dict[str, set[str]] = {}
 _changed_nodes: dict[str, set[str]] = {}
+#: node INSERTS/DELETES only — the structural delta. While it is empty the
+#: node id ORDER cannot have changed, so a snapshot refresh can keep the
+#: previous order and skip the 709-row id scan whose per-row GIL bounces
+#: cost ~5 ms each beside one Python-busy dispatch thread (measured: the
+#: scan alone was seconds under swarm; single-row fetches are not).
+_changed_node_struct: dict[str, set[str]] = {}
 #: saves whose change set could not be trusted (a plain-dict doc, a JSON
 #: backend save, a failure mid-collection) force the next snapshot rebuild
 #: to be a full reload.
@@ -4147,6 +4178,9 @@ def _publish_changes(slug: str, changes: SaveChanges) -> None:
             _changed_keys.setdefault(slug, set()).update(changes.changed_keys())
             _changed_nodes.setdefault(slug, set()).update(
                 changes.node_updates, changes.node_inserts, changes.node_deletes)
+            if changes.node_inserts or changes.node_deletes:
+                _changed_node_struct.setdefault(slug, set()).update(
+                    changes.node_inserts, changes.node_deletes)
     except Exception:
         with _changed_lock:
             _changed_all.add(slug)
@@ -4168,6 +4202,7 @@ def _invalidate_snapshot(slug: str) -> None:
         _changed_all.discard(slug)
         _changed_keys.pop(slug, None)
         _changed_nodes.pop(slug, None)
+        _changed_node_struct.pop(slug, None)
 
 
 def org_seq(slug: str) -> int:
@@ -4229,6 +4264,7 @@ def _load_pinned(slug: str) -> tuple[Org, int]:
                 _changed_all.discard(slug)
                 _changed_keys.pop(slug, None)
                 _changed_nodes.pop(slug, None)
+                _changed_node_struct.pop(slug, None)
             seq_pin = org_seq(slug)
             conn.execute("BEGIN")
             _meta_get(conn, "schema_version")     # first read pins the view
@@ -4253,28 +4289,46 @@ def _assemble_snapshot(slug: str, prev: Org) -> tuple[Org, int] | None:
     over-refresh costs a small read and an under-refresh serves stale
     state).
 
-    Runs entirely inside the per-slug snapshot gate, so no save can commit
-    between the accumulator drain and the read view — the invariant note on
-    `_changed_lock` is load-bearing here.
+    The GATE covers only {accumulator drain, seq read, transaction pin} —
+    microseconds — so no save can commit between the drain and the read
+    view (the invariant note on `_changed_lock` is load-bearing here); the
+    row reads and the build then run on the pinned WAL view WITHOUT the
+    gate, so a slow read can never make a committing save wait. (Its first
+    shape gated the whole body, and under a 17-writer swarm that composed
+    with the connection-open DDL into a seconds-long inversion.)
     """
     prev_d = cast("dict[str, Any]", prev.d)
     if not isinstance(prev_d, LazyDoc) or prev_d._slug != slug:
         return None
+    prev_nodes = cast("dict[str, Any]", dict.get(prev_d, "nodes") or {})
     t0 = time.perf_counter()
-    with _snap_gate(slug):
-        with _changed_lock:
-            if slug in _changed_all:
-                return None
-            keys = _changed_keys.pop(slug, set())
-            nids = _changed_nodes.pop(slug, set())
-        try:
+    with _POOL.acquire(slug) as conn:
+        with _snap_gate(slug):
+            _gw = time.perf_counter()
+            stateprobe.record("gate_wait_assemble", ms=(_gw - t0) * 1000.0)
+            with _changed_lock:
+                if slug in _changed_all:
+                    return None
+                keys = _changed_keys.pop(slug, set())
+                nids = _changed_nodes.pop(slug, set())
+                structural = bool(_changed_node_struct.pop(slug, None))
             seq = org_seq(slug)
+            try:
+                conn.execute("BEGIN")
+                raw_order = _meta_get(conn, _META_KEY_ORDER)   # pins the view
+            except BaseException:
+                _publish_changes_unknown(slug)
+                if conn.in_transaction:
+                    with contextlib.suppress(Exception):
+                        conn.execute("ROLLBACK")
+                raise
+            stateprobe.record("gate_hold_assemble",
+                              ms=(time.perf_counter() - _gw) * 1000.0)
+        try:
             fresh_doc: dict[str, str] = {}
             fresh_present: set[str] = set()
-            with _POOL.acquire(slug) as conn:
-                conn.execute("BEGIN")
+            if True:
                 try:
-                    raw_order = _meta_get(conn, _META_KEY_ORDER)
                     order: list[str] = (cast("list[str]", json.loads(raw_order))
                                         if raw_order else [])
                     for k in keys:
@@ -4293,26 +4347,40 @@ def _assemble_snapshot(slug: str, prev: Org) -> tuple[Org, int] | None:
                             elif conn.execute("SELECT 1 FROM log_l WHERE sect=? "
                                               "LIMIT 1", (k,)).fetchone():
                                 fresh_present.add(k)
-                    id_order = [cast(str, r[0]) for r in
-                                conn.execute("SELECT id FROM nodes ORDER BY ord")]
+                    _ta = time.perf_counter()
+                    if structural:
+                        id_order = [cast(str, r[0]) for r in
+                                    conn.execute("SELECT id FROM nodes "
+                                                 "ORDER BY ord").fetchall()]
+                    else:
+                        # no insert or delete since the last snapshot: the
+                        # previous order IS the order, and skipping the scan
+                        # keeps refresh cost strictly proportional to the
+                        # delta even under GIL contention
+                        id_order = list(dict.keys(prev_nodes))
+                    _tb = time.perf_counter()
                     fresh_nodes: dict[str, str] = {}
                     for nid in nids:
                         row = conn.execute("SELECT val FROM nodes WHERE id=?",
                                            (nid,)).fetchone()
                         if row is not None:
                             fresh_nodes[nid] = cast(str, row[0])
+                    _tc = time.perf_counter()
                     conn.execute("COMMIT")
+                    stateprobe.record("asm_keys", ms=(_ta - _gw) * 1000.0)
+                    stateprobe.record("asm_idscan", ms=(_tb - _ta) * 1000.0)
+                    stateprobe.record("asm_nids", ms=(_tc - _tb) * 1000.0)
+                    stateprobe.record("asm_commit", ms=(time.perf_counter() - _tc) * 1000.0)
                 except BaseException:
                     if conn.in_transaction:
                         with contextlib.suppress(Exception):
                             conn.execute("ROLLBACK")
                     raise
+            _t_rows = time.perf_counter()
             if "nodes" in fresh_doc:
                 raise _AssembleBail("nodes stored as a blob")
             # ---- assemble, sharing unchanged objects with prev ----------
             prev_known = set(prev_d._key_order)
-            prev_nodes = cast("dict[str, Any]",
-                              dict.get(prev_d, "nodes") or {})
             d2 = LazyDoc(slug)
             nodes2: NodesMap = NodesMap()
             carried: set[str] = set()
@@ -4367,7 +4435,11 @@ def _assemble_snapshot(slug: str, prev: Org) -> tuple[Org, int] | None:
             d2._normalized_nodes = carried  # type: ignore[attr-defined]  # Org.__init__ honors it
             d2._eager_bytes = (sum(len(v) for v in d2._snap_doc.values())
                                + sum(len(v) for v in d2._snap_nodes.values()))
+            _t_build = time.perf_counter()
             org2 = Org(cast("OrgDoc", d2))
+            stateprobe.record("asm_rows", ms=(_t_rows - t0) * 1000.0)
+            stateprobe.record("asm_share", ms=(_t_build - _t_rows) * 1000.0)
+            stateprobe.record("asm_orginit", ms=(time.perf_counter() - _t_build) * 1000.0)
             fresh_bytes = (sum(len(v) for v in fresh_doc.values())
                            + sum(len(v) for v in fresh_nodes.values()))
             stateprobe.record("snapshot_refresh",
@@ -4503,6 +4575,7 @@ def _advance_resident(slug: str, d: LazyDoc) -> bool:
             return False
         keys = _changed_keys.pop(slug, set())
         nids = _changed_nodes.pop(slug, set())
+        _changed_node_struct.pop(slug, None)
     if not keys and not nids:
         return True
     try:
