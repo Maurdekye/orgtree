@@ -1056,11 +1056,19 @@ def identity_snapshot(org: Any, nid: str, *,
         from . import antigravity_session
         spec = provider_spec or antigravity_session.specification(org, nid)
         return antigravity_session.process_identity(spec)
-    if model in providers.CODEX_TIERS:
+    if sup.codex_harness_turn(org, nid, model):
         # Codex's process-scoped identity is not Claude's `_build_cmd`.
         # External MCP servers are app-server argv and the managed identity is
         # AGENTS.md written before launch. Resolve the whole manifest once so
         # keeper, turn admission and cache recording cannot disagree.
+        #
+        # ⚠ THE HARNESS DECIDES, NOT THE TIER (D-182). This used to ask
+        # `model in providers.CODEX_TIERS`, which was the same question only
+        # while a codex tier was the one way to reach an app-server. An
+        # OpenRouter node whose harness is Codex CLI runs one too, and hashing
+        # `_build_cmd` for it described a Claude process that never existed —
+        # the parked identity could then never match the turn's, so the seat
+        # was permanently cold while the pool still counted it as warm.
         manifest = codex_manifest or sup._codex_startup_manifest(
             org, nid, write_ident=False, provider_spec=provider_spec)
         # The projection keeps the stable four-component vocabulary; Codex's
@@ -2019,7 +2027,13 @@ def _spawn_for(org: Any, nid: str, why: str) -> WarmProcess | None:
                 client.close()
                 raise
 
-        if model in providers.CODEX_TIERS:
+        # ⚠ THE HARNESS DECIDES, NOT THE TIER (D-182) — the same correction as
+        # in `identity_snapshot` above, and the one that actually spawns. The
+        # keeper used to launch a real `claude` process, carrying the
+        # OpenRouter gateway key in its env, for a node the user had put on
+        # Codex CLI; the turn then discarded it as `provider-lane` and cold
+        # spawned an app-server, every time, forever.
+        if sup.codex_harness_turn(org, nid, model):
             from . import codexrun                  # noqa: PLC0415
 
             manifest = sup._codex_startup_manifest(

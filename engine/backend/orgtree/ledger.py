@@ -3622,7 +3622,15 @@ class Org:
                         f"{', '.join(openrouter_harness.HARNESSES)}")
                 chosen = harness
             else:
-                chosen = appsettings.openrouter_harness()
+                # ⚠ WHAT THE SELECTOR SHOWS, NOT WHAT IS STORED (reviewer
+                # finding f2). The stored preference may name a CLI that has
+                # since gone away; stamping it onto a brand-new agent made one
+                # that refused on every turn, hired from a panel that had just
+                # said the other harness was the only one available.
+                # `for_new_hire` substitutes only for a hire, writes nothing
+                # back to settings, and moves no existing agent.
+                chosen = openrouter_harness.for_new_hire(
+                    appsettings.openrouter_harness())
             self.nodes[nid]["or_harness"] = chosen
         elif harness is not None:
             raise LedgerError(

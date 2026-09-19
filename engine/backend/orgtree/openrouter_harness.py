@@ -168,7 +168,18 @@ def config_overrides(model_id: str) -> list[str]:
 # an unchanged one is asked once. The probe is a bounded subprocess of the
 # same class `providers._codex_version` already runs for the accounts panel.
 
-_PROBE_TIMEOUT: Final = 20.0
+#: ⚠ THIS IS A CEILING ON A USER-FACING REQUEST, not an expected wait.
+#: MEASURED on codex-cli 0.154.0: `app-server` reads stdin, gets EOF, and
+#: EXITS in ~0.12 s (rc=0, twice, cold and warm) — so the real probe answers
+#: in a tenth of a second and the timeout branch below never fires. It fires
+#: only for a hypothetical build that keeps serving after EOF, and on that
+#: build the FIRST `/api/openrouter` request pays this whole number before it
+#: can answer. 20 s was that bill; 5 s is still forty times the measured exit
+#: and bounds the worst case to something a panel can survive. Both outcomes
+#: of the branch are the same verdict (`available`), so shortening it cannot
+#: change an answer — it can only stop a build that never dies from holding
+#: the request open.
+_PROBE_TIMEOUT: Final = 5.0
 _probe_lock = threading.Lock()
 _probe_cache: dict[str, tuple[bool, str]] = {}
 
@@ -393,6 +404,38 @@ def selector(stored: object = None) -> dict[str, Any]:
 def _other_why(states: dict[str, dict[str, Any]], only: str) -> str:
     return "; ".join(f"{LABEL[h]} is not ({states[h]['why']})"
                      for h in HARNESSES if h != only)
+
+
+def for_new_hire(stored: object = None) -> str:
+    """The harness to STAMP on an agent being hired RIGHT NOW.
+
+    A new hire is not an existing agent, and the no-migration rule was only
+    ever about existing ones: nothing written here moves anybody, because
+    nobody has been anywhere yet. So a hire follows what the selector SHOWS —
+    the harness that actually works on this machine — rather than the stored
+    preference, which may name a CLI that has since gone away.
+
+    Without this, hiring while the stored harness was unusable produced an
+    agent that was dead on arrival: stamped the missing harness, refusing on
+    every turn it ever took, from a panel that had just said the other one was
+    the only one available (reviewer finding f2).
+
+    THE PREFERENCE IS NOT TOUCHED. Nothing is written back to settings, so the
+    stored choice returns the moment its harness does, and every EXISTING
+    agent keeps exactly the harness it was hired on. An explicit `harness=`
+    argument still wins over this entirely — `ledger.hire` never reaches here
+    when one was supplied, because naming a harness is a deliberate act and
+    a deliberate act is allowed to fail loudly at launch.
+
+    When NEITHER harness is usable there is no honest substitution to make, so
+    the stored value is stamped unchanged: the agent refuses with the real
+    condition, which is the only true thing left to say.
+    """
+    want = canonical(stored)
+    sel = selector(want)
+    if sel["unavailable"] or not sel["selected"]:
+        return want
+    return str(sel["selected"])
 
 
 def resolve(stored: object) -> str:
