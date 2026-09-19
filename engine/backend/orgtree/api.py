@@ -7462,7 +7462,18 @@ def _work_mutate_action(org: Org, nid: str, a: dict[str, Any],
         return org.work_update(
             nid, wid, a.get("done_so_far"), a.get("working_on_next"),
             status=_s("status"),
-            attention=(True if _arg_flag(a, "attention") else None),
+            # ⚠ ABSENT AND FALSE ARE DIFFERENT HERE, and collapsing them was
+            # finding f3. This used to read `True if _arg_flag(...) else None`,
+            # which turned an explicit `attention: false` into None — "do not
+            # touch the flag" — so an agent's retraction was silently a no-op.
+            # That was survivable while ANY update cleared a standing flag; the
+            # 2026-09-19 ruling removed that, which left agents with no way at
+            # all to take their own flag down on an active item, while the
+            # documentation rewritten in the same commit told them to do it.
+            # `addendum` below has always drawn the distinction correctly; this
+            # is the same expression, so the two paths now genuinely agree.
+            attention=(None if a.get("attention") is None
+                       else _arg_flag(a, "attention")),
             attention_reason=_s("attention_reason"),
             blocked_reason=_s("blocked_reason"),
             waiting_reason=_s("waiting_reason"),
@@ -9721,7 +9732,13 @@ def _staff_call(org: Org, slug: str, actor: str, a: dict[str, Any],
             a.get("working_on_next"), status=(str(a["status"])
                                               if a.get("status") is not None
                                               else None),
-            attention=(True if _arg_flag(a, "attention") else None),
+            # the same absent-vs-false distinction as the `update` door (f3).
+            # Staffing normally RAISES a flag rather than retracting one, so
+            # this was not the path that bit — but it is the identical
+            # expression, and leaving it would have left a third copy free to
+            # diverge from the two that now agree.
+            attention=(None if a.get("attention") is None
+                       else _arg_flag(a, "attention")),
             attention_reason=(str(a["attention_reason"])
                               if a.get("attention_reason") is not None else None),
             blocked_reason=(str(a["blocked_reason"])
