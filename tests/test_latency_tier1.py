@@ -230,6 +230,109 @@ class SafeSlugMemo(unittest.TestCase):
                 store._safe_slug("plain-org")     # uncached -> real check runs
 
 
+class SharedSnapshotTreeView(unittest.TestCase):
+    """The tree view now builds over the SHARED refreshed snapshot
+    (store.cached_org) instead of a fresh whole-document parse per rebuild.
+    Two properties keep that safe and worth it: the view (private AND
+    public-scrubbed) must leave the shared document byte-identical, and a
+    rebuild after a one-node save must parse the document ZERO times."""
+
+    @classmethod
+    def setUpClass(cls):
+        import json as _json
+        import types
+        from orgtree import api
+        cls.api, cls.types, cls.json = api, types, _json
+        org = store.create_org("shared-view-" + str(time.time_ns()))
+        cls.slug = org.d["slug"]
+        org.hire(ledger.USER, None, "luna", 0, "boss", charter="the boss")
+        org.hire(ledger.USER, "boss", "luna", 0, "kid", charter="the kid")
+        org.hire(ledger.USER, "boss", "luna", 0, "gone", charter="retired")
+        store.save_org(org)
+        with store.DOC_LOCK:
+            org = store.load_org(cls.slug)
+            n = org.node("kid")
+            # the two nested document structures `_scrub_public` rewrites
+            n["scope"]["add_dirs"] = [{"path": "E:\\secret\\host\\folder",
+                                       "mode": "rw"}]
+            n["last_denials"] = [{"tool": "bash",
+                                  "arg": "C:\\Users\\operator\\private.txt"}]
+            org.retire(ledger.USER, "gone")
+            store.save_org(org)
+
+    @classmethod
+    def tearDownClass(cls):
+        store._POOL.close_all(cls.slug)
+
+    def _req(self):
+        return self.types.SimpleNamespace(
+            state=self.types.SimpleNamespace(), headers={},
+            url=self.types.SimpleNamespace(path="/api/orgs/x"))
+
+    def _doc_fingerprint(self):
+        org = store.cached_org(self.slug)
+        return self.json.dumps({nid: org.node(nid)
+                                for nid in sorted(org.d["nodes"])},
+                               sort_keys=True, default=str)
+
+    def test_private_and_public_view_leave_the_document_byte_identical(self):
+        before = self._doc_fingerprint()
+        tree = self.api.org_tree(self.slug, self._req())
+        self.api._scrub_public(tree)          # the public path's mutator
+        after = self._doc_fingerprint()
+        self.assertEqual(before, after,
+                         "building/scrubbing the view mutated the shared document")
+        # and the scrub actually scrubbed the ROW while the DOC keeps truth
+        org = store.cached_org(self.slug)
+        self.assertEqual(org.node("kid")["scope"]["add_dirs"][0]["path"],
+                         "E:\\secret\\host\\folder")
+        self.assertEqual(org.node("kid")["last_denials"][0]["arg"],
+                         "C:\\Users\\operator\\private.txt")
+
+        def find(nodes, nid):
+            for n in nodes:
+                if n["id"] == nid:
+                    return n
+                got = find(n.get("children") or [], nid)
+                if got:
+                    return got
+        row = find(tree["roots"], "kid")
+        self.assertEqual(row["scope"]["add_dirs"][0]["path"], "folder")
+        self.assertNotIn("operator", row["last_denials"][0]["arg"])
+
+    def test_tree_rebuild_after_one_save_parses_the_document_zero_times(self):
+        from starlette.testclient import TestClient
+        client = TestClient(self.api.app)
+        r = client.get(f"/api/orgs/{self.slug}")     # warm build + snapshot
+        self.assertEqual(r.status_code, 200)
+        with store.DOC_LOCK:
+            org = store.load_org(self.slug)
+            org.node("boss")["title"] = "renamed by the save"
+            store.save_org(org)
+        real = store._load_sqlite_org
+        calls = []
+        with patch.object(store, "_load_sqlite_org",
+                          side_effect=lambda *a, **k: calls.append(a) or real(*a, **k)):
+            r = client.get(f"/api/orgs/{self.slug}")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(calls, [],
+                         "a one-node save must refresh the shared snapshot, "
+                         "never re-parse the whole document")
+        import json as _json
+        tree = _json.loads(r.content)
+
+        def find(nodes, nid):
+            for n in nodes:
+                if n["id"] == nid:
+                    return n
+                got = find(n.get("children") or [], nid)
+                if got:
+                    return got
+        self.assertEqual(find(tree["roots"], "boss")["title"],
+                         "renamed by the save",
+                         "the rebuilt tree must reflect the save it followed")
+
+
 class SlowTraceAttribution(unittest.TestCase):
     """The universal tracing decision (2026-09-19): durable stage attribution
     for every slow request, explicit unattributed time, wall-vs-CPU on the

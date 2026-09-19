@@ -2391,7 +2391,25 @@ def _org_view(slug: str, request: Request,
     profile = getattr(request.state, "profile_timing", None)
     try:
         _stage = time.perf_counter()
-        org = store.load_org_snapshot(slug, ("org_inbox",))
+        # THE SHARED REFRESHED SNAPSHOT, not a fresh parse (2026-09-19).
+        # `load_org_snapshot` re-parsed the whole eager document on every
+        # tree build — 65-115 ms of GIL-held CPU per save under swarm load,
+        # measured as the largest single component of the rebuild and a
+        # direct contributor to every stretched write hold. `cached_org`
+        # serves the same coherent view refreshed section-granularly from
+        # each save's change set (~1.7 ms after a one-node write), with
+        # herd suppression. Lazy sections (mail, asks, org_inbox) simply
+        # materialize into the shared object on first touch and refresh
+        # only when a save changes them.
+        #
+        # ⚠ THE VIEW MUST NOT MUTATE THE SHARED DOCUMENT. Projection rows
+        # are fresh dicts, but they REFERENCE document structures (scope,
+        # denial lists, kiosk config); every downstream mutator writes
+        # row-level fields or fresh copies — `_scrub_public` was converted
+        # to copy-on-scrub for exactly this change, and
+        # `test_latency_tier1.SharedSnapshotTreeView` pins the whole
+        # private+public build leaving the document byte-identical.
+        org = store.cached_org(slug)
         if profile is not None: profile["load_snapshot_ms"] = (time.perf_counter() - _stage) * 1000.0
     except LedgerError as e:
         raise HTTPException(404, str(e))
@@ -2877,21 +2895,28 @@ def _scrub_public(tree: dict[str, Any]) -> None:
     tree["dirs"] = [{**d, "path": base(d.get("path", ""))} for d in dirs]
     if isinstance(tree.get("kiosk"), dict):
         # the ceiling's add_dirs are host paths; visitors see clamp warnings
-        # naming the ceiling, never the ceiling itself
-        tree["kiosk"].pop("max_scope", None)
-        tree["kiosk"].pop("auto_raise", None)
-        tree["kiosk"].pop("share_url", None)
+        # naming the ceiling, never the ceiling itself.
+        # ⚠ REPLACED, NEVER POPPED IN PLACE: `tree["kiosk"]` can be the
+        # document's own dict, and the tree is now built over the SHARED
+        # refreshed snapshot (2026-09-19) — an in-place pop here would strip
+        # the operator's ceiling from every subsequent private serve until
+        # the next section refresh. Same rule for every nested value below:
+        # the projection may reference document structures, so the scrub
+        # writes fresh copies onto the ROW and mutates nothing it reached
+        # through one.
+        tree["kiosk"] = {k: v for k, v in tree["kiosk"].items()
+                         if k not in ("max_scope", "auto_raise", "share_url")}
 
     def walk(n: dict[str, Any]) -> None:
-        n.pop("session_id", None)
+        n.pop("session_id", None)              # row-level field: safe to pop
         # an @mcp: peer id is a bearer credential, not a label: anyone holding
         # it can GET /api/extern/{peer}/messages and read that channel. Kiosk
         # visitors get the org, never its outside channels.
         n.pop("external_handles", None)
         sc: dict[str, Any] = n.get("scope") or {}
         if sc.get("add_dirs"):
-            sc["add_dirs"] = [{**d, "path": base(d.get("path", ""))}
-                              for d in sc["add_dirs"]]
+            n["scope"] = {**sc, "add_dirs": [
+                {**d, "path": base(d.get("path", ""))} for d in sc["add_dirs"]]}
         if n.get("last_error"):
             n["last_error"] = _WINPATH.sub("<path>", str(n["last_error"]))
         # the other two ENGINE-generated strings on a node. `frozen.error` is
@@ -2902,20 +2927,23 @@ def _scrub_public(tree: dict[str, Any]) -> None:
         # leaked the operator's username).
         fz: dict[str, Any] = n.get("frozen") or {}
         if fz.get("error"):
+            # `frozen` is a filtered copy built per row — mutable safely
             fz["error"] = _WINPATH.sub("<path>", str(fz["error"]))
         # …and `last_approvals` (2026-09-05) rides the same row shape with
         # the same host-path exposure, plus a `cwd` that is ALWAYS a host
         # path — scrub both lists, both fields, or the new one leaks exactly
-        # the way the old one was measured to.
+        # the way the old one was measured to. Fresh lists and dicts: the
+        # row's value is the document's own list.
         for key in ("last_denials", "last_approvals"):
             rows: list[Any] = n.get(key) or []
-            for dn in rows:
-                if not isinstance(dn, dict):
-                    continue
-                d2 = cast("dict[str, Any]", dn)
-                for fld in ("arg", "cwd"):
-                    if d2.get(fld):
-                        d2[fld] = _WINPATH.sub("<path>", str(d2[fld]))
+            if rows:
+                n[key] = [
+                    ({**cast("dict[str, Any]", dn),
+                      **{fld: _WINPATH.sub("<path>", str(cast("dict[str, Any]", dn)[fld]))
+                         for fld in ("arg", "cwd")
+                         if cast("dict[str, Any]", dn).get(fld)}}
+                     if isinstance(dn, dict) else dn)
+                    for dn in rows]
         children: list[dict[str, Any]] = n.get("children") or []
         for c in children:
             walk(c)
