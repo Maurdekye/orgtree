@@ -75,6 +75,17 @@ class ModuleResult:
     failure_id: str | None = None
     baseline_match: bool = False
     cleanup_errors: list[str] = field(default_factory=list)
+    #: whether the child's structured payload was FOUND at all. This is a
+    #: different question from "what did its ``marker`` field say", and
+    #: collapsing the two is what let a passing module read as skipped: a clean
+    #: pass carries ``marker: None``, so a present payload looked exactly like
+    #: an absent one to the classifier.
+    structured_result: bool = False
+    #: tests the module reported running, summed over every unittest summary it
+    #: printed. ``None`` when it never said. A module that is not failing and
+    #: counted no tests is not the same thing as a module that passed, and this
+    #: is the field that tells them apart.
+    tests_ran: int | None = None
 
 
 def _canonical(path: Path) -> Path:
@@ -423,7 +434,23 @@ def _classify_failure(exit_code: int | None, stdout: str, stderr: str, marker: s
         return "teardown_failure"
     if marker in {"skip", "assertion_failure", "import_failure", "teardown_failure", "execution_failure"}:
         return marker
-    if exit_code == 5 or re.search(r"\bSKIP(?:PED)?\b", text, re.IGNORECASE):
+    # A SKIP IS NEVER INFERRED FROM FREE TEXT. It used to be: any occurrence of
+    # ``skip`` or ``skipped``, in any case, anywhere in stdout or stderr, turned
+    # the whole module into a skip -- and a skip exits 0 and counts zero passes,
+    # so a module that fully passed reported as green with nothing counted.
+    #
+    # The guard that was supposed to stop this was "the structured marker wins
+    # when it is present", and it never fired on the path that mattered: the
+    # child initialises its result with ``marker: None`` and only its ``except``
+    # branches ever set one, so EVERY passing module arrives here with
+    # ``marker=None`` and fell straight through to the regex. Measured on an
+    # ordinary module with three passing assertions and one line of output
+    # containing the word: phase=skip, passed=0, exit 0, with "Ran 3 tests ...
+    # OK" sitting in its own captured stderr.
+    #
+    # ``exit_code == 5`` stays. That is pytest's "no tests were collected",
+    # which is a real signal from the runner rather than a guess about prose.
+    if exit_code == 5:
         return "skip"
     if re.search(r"(?:AssertionError|^FAIL:|^FAILED)", text, re.MULTILINE):
         return "assertion_failure"
@@ -514,7 +541,7 @@ def _stream(value: str | None, name: str) -> str:
     return value
 
 
-def _parse_child(stdout: str) -> tuple[str | None, str, dict[str, str | None]]:
+def _parse_child(stdout: str) -> tuple[bool, str | None, str, dict[str, str | None]]:
     """Read the child's protocol payload out of its stdout.
 
     The matching rule is deliberately unchanged and deliberately strict: a
@@ -529,11 +556,11 @@ def _parse_child(stdout: str) -> tuple[str | None, str, dict[str, str | None]]:
     index = next((position for position in range(len(lines) - 1, -1, -1)
                   if lines[position].startswith(marker)), None)
     if index is None:
-        return None, stdout, {}
+        return False, None, stdout, {}
     try:
         payload = json.loads(lines[index][len(marker):])
     except json.JSONDecodeError:
-        return None, stdout, {}
+        return False, None, stdout, {}
     # The child writes exactly one newline before its marker. When the module's
     # own output already ended in a newline that separator shows up as an empty
     # line, and reporting it would make every already-parsing run gain a
@@ -545,7 +572,24 @@ def _parse_child(stdout: str) -> tuple[str | None, str, dict[str, str | None]]:
         dropped.add(index - 1)
     clean = [line for position, line in enumerate(lines)
              if position not in dropped and not line.startswith(marker)]
-    return payload.get("marker"), "\n".join(clean), payload.get("import_provenance", {})
+    # The first element says a PAYLOAD WAS FOUND. The second is what its
+    # ``marker`` field held, which is ``None`` for a clean pass. Callers must not
+    # read the second as an answer to the first.
+    return True, payload.get("marker"), "\n".join(clean), payload.get("import_provenance", {})
+
+
+def _tests_ran(stdout: str, stderr: str) -> int | None:
+    """How many tests the module said it ran, or ``None`` if it never said.
+
+    Summed over every summary printed, because a module that drives more than
+    one ``unittest.main()`` prints one line per run and the last one alone would
+    undercount. Read from the module's OWN report -- the same
+    ``Ran N tests ... OK`` line that is unaffected by any classification bug --
+    so a module reporting zero here is making a claim rather than having one
+    guessed about it.
+    """
+    found = re.findall(r"^Ran (\d+) tests? in ", f"{stdout}\n{stderr}", re.MULTILINE)
+    return sum(int(value) for value in found) if found else None
 
 
 def _cleanup(path: Path) -> list[str]:
@@ -627,9 +671,10 @@ def run_modules(
             )
             stdout = _stream(completed.stdout, "stdout")
             captured_stderr = _stream(completed.stderr, "stderr")
-            marker, clean_stdout, provenance = _parse_child(stdout)
+            structured, marker, clean_stdout, provenance = _parse_child(stdout)
             phase = _classify_failure(completed.returncode, clean_stdout, captured_stderr, marker)
             exit_code = completed.returncode
+            tests_ran = _tests_ran(clean_stdout, captured_stderr)
         except subprocess.TimeoutExpired as exc:
             stdout = (exc.stdout or "") if isinstance(exc.stdout, str) else ""
             clean_stdout = stdout
@@ -637,6 +682,8 @@ def run_modules(
             phase = "execution_failure"
             exit_code = None
             completed = None
+            structured = False
+            tests_ran = _tests_ran(clean_stdout, "")
             stderr = f"module timed out after {timeout:g}s"
         except OSError as exc:
             clean_stdout = ""
@@ -644,6 +691,8 @@ def run_modules(
             phase = "execution_failure"
             exit_code = None
             completed = None
+            structured = False
+            tests_ran = None
             stderr = str(exc)
         else:
             stderr = captured_stderr
@@ -662,6 +711,8 @@ def run_modules(
             stderr=stderr[-65536:],
             failure_id=failure_id,
             baseline_match=failure_id in baseline if failure_id else False,
+            structured_result=structured,
+            tests_ran=tests_ran,
         )
         result.cleanup_errors = _cleanup(private_root)
         if result.cleanup_errors:
@@ -691,6 +742,21 @@ def _receipt(repo_root: Path, interpreter: Interpreter, data_root: Path, roots: 
             "failures": sum(bool(result.failure_id) for result in results),
             "unexpected_failures": unexpected,
             "cleanup_errors": len(cleanup_errors),
+            # A module that did not fail and counted NO tests is the shape this
+            # runner used to report as success while nothing had been proved.
+            # It is named here so it cannot read as green by being invisible:
+            # "0 passed" is a result a reader has to be shown, not one they
+            # have to go looking for.
+            "non_failing_modules_without_tests": sorted(
+                result.module for result in results
+                if not result.failure_id and not result.tests_ran
+            ),
+            # The child's structured payload was not found at all. The run then
+            # has only an exit code to go on, so say so rather than letting a
+            # guess pass for a report.
+            "modules_without_structured_result": sorted(
+                result.module for result in results if not result.structured_result
+            ),
         },
     }
 
