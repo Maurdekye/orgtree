@@ -2091,6 +2091,12 @@ export interface ReorderRequest {
 // {freed, nodes}, …) — only `warnings` is a cross-op convention
 export interface OpResult {
   warnings?: string[]
+  /** Facts about a save that SUCCEEDED, carrying no action — the other half of
+   *  the report from `warnings`, and NOT a thing to pop at the user. Today it
+   *  carries the long-charter note (ledger.note_charter_length). Only emitted
+   *  when non-empty. `modals.tsx savePopups` is the choke point that reads
+   *  `warnings` and deliberately not this: see the ruling on CHARTER_LONG. */
+  advisories?: string[]
   /** the one-action kiosk-ceiling bridge (ledger.py:714-715): present when
    *  something was clamped and re-sending with raise_ceiling would fit it */
   bridge?: { raise_ceiling?: boolean }

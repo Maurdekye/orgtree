@@ -339,20 +339,36 @@ _PROMOTION_SEAT_FIELDS: Final = ("add_dirs", "tools", "org_visibility",
 #: made deliberately (text silently lost is worse than tokens knowingly
 #: spent), but the person writing a very long charter should be able to SEE
 #: that they are writing one.
+#:
+#: ⚠ AND THE NOTE IS AN ADVISORY, NOT A WARNING — user ruling 2026-09-19, the
+#: ticket `remove-the-long-charter-warning-popup-from-agent`. It used to be
+#: appended to `warnings`, and `warnings` is the list a settings panel POPS:
+#: the agent-settings save re-sends the whole charter on every save, so an
+#: agent that already had a long one raised this popup again on EVERY save,
+#: interrupting work the user was doing for a fact about text they had not
+#: touched. So it rides `advisories` instead — text the backend reports about
+#: a save that SUCCEEDED, carrying no action and no acknowledgement. Nothing
+#: pops an advisory. Genuine warnings (a ceiling clamp, a cascade, a subtree
+#: clamp, a bridge) are untouched and still interrupt.
 CHARTER_LONG: Final = 4000
 
 
 def note_charter_length(field: str, value: str,
-                        warnings: list[str]) -> str:
+                        advisories: list[str]) -> str:
     """Strip a charter field and REPORT its length when it is unusually long.
 
     Returns the text to store — always the whole thing. This function cannot
     refuse and cannot truncate; if you are adding either, re-read the ruling
     above first.
+
+    The length note goes into `advisories`, never into `warnings`: it is a
+    fact about text that was stored successfully, not a problem with the save,
+    and a surface that pops warnings must not interrupt a save over it (user
+    ruling 2026-09-19 — see CHARTER_LONG).
     """
     v = value.strip()
     if len(v) > CHARTER_LONG:
-        warnings.append(
+        advisories.append(
             f"{field} is {len(v)} chars ({len(v.encode('utf-8'))} bytes). "
             f"Stored WHOLE — charters are not capped. Worth knowing: a "
             f"charter is re-sent in this agent's system prompt on every turn "
@@ -6462,6 +6478,12 @@ class Org:
         n = self.node(nid)
         sc = n["scope"]
         warnings: list[str] = []
+        # Advisories are the OTHER half of this call's report: things worth
+        # saying about a save that SUCCEEDED, carrying no action. They are
+        # deliberately not in `warnings`, because `warnings` is what a panel
+        # pops and interrupts the user with — see `note_charter_length` and
+        # CHARTER_LONG for the ruling that put the long-charter note here.
+        advisories: list[str] = []
         changed_caps = False
         bridged = False
         cascaded: list[str] = []       # D-106: agents this grant expanded
@@ -6543,16 +6565,18 @@ class Org:
         # Charter length is MEASURED here, never enforced — charters are
         # uncapped (user ruling 2026-09-04, see CHARTER_LONG). The text is
         # stored exactly as written; a long one only earns a note in
-        # `warnings`, which `modals.tsx` doSave toasts. Done with the other
-        # up-front work so the length is reported even when a LATER field in
-        # this call refuses and nothing is written at all.
+        # `advisories`, which NO surface pops (user ruling 2026-09-19 — it
+        # used to go into `warnings`, and `modals.tsx` doSave toasts those, so
+        # every save of an already-long charter raised the popup again). Done
+        # with the other up-front work so the length is reported even when a
+        # LATER field in this call refuses and nothing is written at all.
         new_charter: str | None = None
         new_team_charter: str | None = None
         if charter is not None:
-            new_charter = note_charter_length("charter", charter, warnings)
+            new_charter = note_charter_length("charter", charter, advisories)
         if team_charter is not None:
             new_team_charter = note_charter_length(
-                "team_charter", team_charter, warnings)
+                "team_charter", team_charter, advisories)
 
         if want_dirs is not None:
             _t, kept, _v, _p, b = self._apply_ceiling(
@@ -6776,6 +6800,10 @@ class Org:
                                          changed=changed_fields))
         self._log("set_scope", actor, {"node": nid, "scope": sc}, warnings)
         res: dict[str, Any] = {"scope": sc, "warnings": warnings}
+        # Emitted only when there is something to say, so the common response
+        # keeps exactly the shape every existing caller and test expects.
+        if advisories:
+            res["advisories"] = advisories
         if cascaded:
             res["cascaded"] = cascaded      # D-106: structured, for the UI
         if bridged:

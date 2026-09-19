@@ -909,6 +909,33 @@ const TOOL_LABELS = [
   ['edit', 'file editing (Write / Edit / notebooks)'],
   ['subagents', 'ephemeral subagents (Task / Agent tool)'],
 ] as const
+/** The lines an agent-settings save is allowed to POP at the user.
+ *
+ * WARNINGS ONLY. A scope save returns two kinds of text (ledger.set_scope):
+ * `warnings` — something the save had to do that the user must see, like a
+ * grant clamped to the kiosk ceiling, a cascade down the chain, or a subtree
+ * clamp — and `advisories`, which are facts about a save that SUCCEEDED and
+ * carry no action and no acknowledgement.
+ *
+ * The one advisory today is the long-charter note (ledger.note_charter_length,
+ * threshold ledger.CHARTER_LONG): the charter was stored whole and is merely
+ * longer than the point at which its per-turn cost is worth knowing about.
+ * Popping it is the bug the ticket
+ * `remove-the-long-charter-warning-popup-from-agent` exists to kill — the
+ * panel re-sends the whole charter on EVERY save, so once an agent had a long
+ * one the popup came back on every single save, interrupting the user over
+ * text they had not touched.
+ *
+ * So this is the single choke point: every toast a settings save raises goes
+ * through here, and it reads `warnings` and nothing else. If you are about to
+ * widen it to `advisories`, re-read the paragraph above.
+ */
+export function savePopups(
+  r: { warnings?: string[] | null } | null | undefined,
+): string[] {
+  return r?.warnings ?? []
+}
+
 interface NodeConfigProps {
   node: CanvasNode
   map: Map<string, CanvasNode>
@@ -1095,9 +1122,10 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
             ? modelVersion : '',
           ...reservePayload, ...fallbackPayload }))
       .then((r) => {
+        const lines = savePopups(r)
         if (r?.bridge?.raise_ceiling) {
           // one-action bridge (ceiling spec §1): same save, flag set
-          toast(r.warnings?.length ? r.warnings
+          toast(lines.length ? lines
             : ['clamped to the kiosk permission ceiling'],
           { label: 'raise ceiling & apply',
             fn: () => saveScope(slug, node.id,
@@ -1111,10 +1139,12 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
                   ? modelVersion : '',
                 ...reservePayload, ...fallbackPayload,
                 raise_ceiling: true })
-              .then((r2) => toast(r2.warnings?.length ? r2.warnings
-                : ['ceiling raised — applied']))
+              .then((r2) => {
+                const lines2 = savePopups(r2)
+                toast(lines2.length ? lines2 : ['ceiling raised — applied'])
+              })
               .catch((e: Error) => toast([`error: ${e.message}`])) })
-        } else toast(r.warnings)
+        } else toast(lines)
         close()
       })
       .catch((e: Error) => toast([`error: ${e.message}`]))
