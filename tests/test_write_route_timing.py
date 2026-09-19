@@ -30,6 +30,14 @@ WHAT IS PINNED HERE, and why each case is shaped the way it is:
       actually did. Those run on a plain `threading.Thread` that starts with
       an empty context; before `toolwait.invoke` carried the profile across,
       a successful retire recorded a 0.03 ms `mutate_ms` and no save at all.
+  §7  WHICH agent verb a `/api/agent` record describes. One route serves all
+      ~46 verbs, so §2 and §6 above can prove a hire was slow and still leave
+      an operator unable to tell a slow hire from a slow retire. The verb is
+      the only non-numeric thing a record may carry, and it is the only value
+      in one that begins as request text — `AgentCall.tool` is an unvalidated
+      `str` off the body and `orgtree_op_call` carries a second one in its
+      args — so every case here is really about the closed catalogue that
+      stands between those two facts.
 """
 from __future__ import annotations
 
@@ -398,9 +406,15 @@ class TheSinkBoundaryIsUnchanged(WriteTimingBase):
         self.clear_sink()
         self.assertEqual(self.answer_question().status_code, 200)
         row = self.only('/api/orgs/{slug}/asks/{aid}/answer')
-        allowed = set(api._PROFILE_ALLOWED_FIELDS) | set(api._PROFILE_RESERVED_FIELDS)
+        allowed = (set(api._PROFILE_ALLOWED_FIELDS)
+                   | set(api._PROFILE_RESERVED_FIELDS)
+                   | {api._PROFILE_TOOL_FIELD})
         self.assertLessEqual(set(row), allowed,
                              f'a write record grew a field outside the allowlist: {row}')
+        # …and this route is not `/api/agent`, so the one permitted
+        # non-numeric field must be absent rather than merely permitted.
+        self.assertNotIn(api._PROFILE_TOOL_FIELD, row,
+                         f'a non-agent route must carry no verb: {row}')
 
     def test_the_new_write_stages_are_on_the_allowlist_deliberately(self):
         # Named, so that removing a stage from `_PROFILE_ALLOWED_FIELDS`
@@ -522,6 +536,143 @@ class ManagedToolsReportTheWorkTheyReallyDid(WriteTimingBase):
         row = self.only('/api/agent')
         self.assertStages(row, what='move')
         self.assertGreater(row['org_save_ms'], 0.0, f'a move writes the document: {row}')
+
+
+class AnAgentRecordSaysWhichVerbItWas(WriteTimingBase):
+    """§7. `/api/agent` is one route serving every agent verb.
+
+    Everything above can prove that an agent call waited 4.9 s on the document
+    lock and still leave three identical `route: "/api/agent"` rows that no
+    operator can tell apart. These cases are about the field that fixes that,
+    and about the catalogue check that makes it safe to publish.
+    """
+
+    def test_three_different_verbs_on_one_route_are_told_apart(self):
+        # THE FEATURE. Note what this does NOT do: assert the field exists.
+        # A `tool` field that always said the same thing would satisfy that
+        # and be worth nothing, so the three verbs are driven through the
+        # same route and the three recorded values must differ.
+        self.capture(True)
+        self.clear_sink()
+        self.assertEqual(self.move().status_code, 200)
+        self.assertEqual(self.retire().status_code, 200)
+        with patch.object(accounts, 'live_identity',
+                          lambda *a, **k: {'uuid': 'fixture-uuid'}):
+            self.assertEqual(self.tool('orgtree_chart', {}).status_code, 200)
+        verbs = [r.get(api._PROFILE_TOOL_FIELD) for r in self.rows('/api/agent')]
+        self.assertEqual(verbs, ['orgtree_move', 'orgtree_retire', 'orgtree_chart'],
+                         f'three verbs on one route must be distinguishable: {verbs}')
+
+    def test_a_managed_verb_is_named_too(self):
+        # §6's dispatch path again: the managed worker runs on its own thread,
+        # and the label is written on the event loop before that thread
+        # starts. Pairing this with the unmanaged verbs above keeps both
+        # dispatch paths named, not just the one that happened to be tested.
+        self.capture(True)
+        self.clear_sink()
+        self.assertEqual(self.retire().status_code, 200)
+        row = self.only('/api/agent')
+        self.assertEqual(row.get(api._PROFILE_TOOL_FIELD), 'orgtree_retire')
+        self.assertStages(row, what='retire')
+
+    def test_the_wrapper_reports_the_verb_it_carries_not_the_wrapper(self):
+        # `orgtree_op_call` exists to carry a receipt key around another verb.
+        # Recording the wrapper would file every receipt-bearing call under one
+        # name and lose exactly the distinction this section is for.
+        self.capture(True)
+        self.clear_sink()
+        self.client.post('/api/agent', json={
+            'org': self.slug, 'node': 'boss', 'tool': 'orgtree_op_call',
+            'args': {'tool': 'orgtree_chart', 'args': {}}}, headers=self.agent)
+        row = self.only('/api/agent')
+        self.assertEqual(row.get(api._PROFILE_TOOL_FIELD), 'orgtree_chart',
+                         f'the wrapper must report what it wraps: {row}')
+
+    def test_an_invented_verb_is_dropped_and_the_record_still_arrives(self):
+        # THE POSITIVE CONTROL MATTERS MORE THAN THE ASSERTION. "no `tool`
+        # field" is also what a vanished record looks like, and a vanished
+        # record is the documented failure mode of this emit path — so the row
+        # must be shown to exist, with its stages, before its missing verb
+        # means anything.
+        self.capture(True)
+        self.clear_sink()
+        self.client.post('/api/agent', json={
+            'org': self.slug, 'node': 'boss',
+            'tool': 'orgtree_not_a_real_tool', 'args': {}}, headers=self.agent)
+        row = self.only('/api/agent')
+        self.assertIn('lock_wait_ms', row,
+                      f'positive control: the record itself must exist: {row}')
+        self.assertNotIn(api._PROFILE_TOOL_FIELD, row,
+                         f'an unknown verb must be dropped, not echoed: {row}')
+
+    def test_the_verb_is_never_echoed_from_the_request(self):
+        # The actual threat. `AgentCall.tool` is an unvalidated `str` and
+        # `orgtree_op_call` carries a second one in its args, so without the
+        # catalogue check this field would publish whatever a caller typed —
+        # into a sink whose whole promise is "route templates and numbers".
+        #
+        # The last value is the one with teeth beyond privacy: a non-ASCII
+        # byte on the emitted line raises UnicodeEncodeError under the
+        # caller's `except Exception: pass` and destroys the WHOLE record in
+        # silence (see `_access_emit`). Catalogue membership is what
+        # guarantees the field is one of ~49 fixed `[a-z_]` names.
+        self.capture(True)
+        for hostile in ('orgtree_hire; DROP TABLE', 'sk-ant-secret-token',
+                        '../../etc/passwd', 'orgtree_hire—dash', ''):
+            with self.subTest(verb=hostile):
+                self.clear_sink()
+                self.client.post('/api/agent', json={
+                    'org': self.slug, 'node': 'boss',
+                    'tool': hostile, 'args': {}}, headers=self.agent)
+                rows = self.rows('/api/agent')
+                self.assertTrue(rows, f'positive control: a record must exist for {hostile!r}')
+                for row in rows:
+                    self.assertNotIn(api._PROFILE_TOOL_FIELD, row,
+                                     f'{hostile!r} reached the sink: {row}')
+                    if hostile:     # '' is a substring of everything
+                        self.assertNotIn(hostile, json.dumps(row))
+
+    def test_the_catalogue_is_derived_from_the_tool_list_not_retyped(self):
+        # A hand-maintained copy of ~46 verb names would go stale at the first
+        # tool added after this ticket, and the symptom would be a silently
+        # unnamed verb rather than a failure. Pinned against the registry
+        # itself, plus the handful of dispatchable verbs deliberately absent
+        # from it.
+        from orgtree import mcptool
+        names = api._profile_tool_names()
+        for tool in mcptool.TOOLS:
+            self.assertIn(str(tool['name']), names,
+                          'every catalogued tool must be nameable in a record')
+        for extra in api._PROFILE_EXTRA_TOOL_VERBS:
+            self.assertIn(extra, names)
+        self.assertNotIn('orgtree_not_a_real_tool', names)
+        # Every member is ASCII and boring — the property the emit path relies
+        # on, asserted over the whole set rather than over the ones used above.
+        for name in names:
+            self.assertRegex(name, r'^[a-z_]+$', f'{name!r} is not a plain ASCII verb')
+
+    def test_the_boundary_drops_a_hostile_verb_at_the_emit_itself(self):
+        # The same rule as above, exercised directly at `_access_emit` rather
+        # than through a route — so it holds for any FUTURE caller of
+        # `profiling.label`, not only for the one wiring that exists today.
+        self.capture(True)
+
+        class FakeRoute:
+            path = '/api/agent'
+
+        scope = {'route': FakeRoute(), 'method': 'POST', 'type': 'http'}
+        before = len(api._PROFILE_RECORDS)
+        api._access_emit(scope, 200, 1.0, 1.0, 0, 1, profile={
+            'mutate_ms': 3.0, api._PROFILE_TOOL_FIELD: 'sk-ant-secret'})
+        self.assertEqual(len(api._PROFILE_RECORDS), before + 1)
+        row = api._PROFILE_RECORDS[-1]
+        self.assertEqual(row.get('mutate_ms'), 3.0, 'positive control')
+        self.assertNotIn(api._PROFILE_TOOL_FIELD, row, f'hostile verb survived: {row}')
+
+        api._access_emit(scope, 200, 1.0, 1.0, 0, 1, profile={
+            'mutate_ms': 3.0, api._PROFILE_TOOL_FIELD: 'orgtree_hire'})
+        self.assertEqual(api._PROFILE_RECORDS[-1].get(api._PROFILE_TOOL_FIELD),
+                         'orgtree_hire', 'a catalogued verb must survive')
 
 
 if __name__ == '__main__':

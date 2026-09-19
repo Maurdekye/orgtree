@@ -109,6 +109,31 @@ def add(field: str, ms: float) -> None:
             pass
 
 
+def label(field: str, value: str) -> None:
+    """Record a NON-NUMERIC fact about this request. ASSIGNS, unlike `add`.
+
+    The one caller is `/api/agent`, which is a single route serving every
+    agent verb: without the verb, a hire, a retire and a watchdog are three
+    identical `route: "/api/agent"` records and an operator who can see that
+    something waited 4.9 s on the document lock cannot see WHICH tool did.
+
+    ⚠ NOTHING IS VALIDATED HERE, and that is deliberate — this module knows
+    nothing about tools and must keep importing nothing from `orgtree`. The
+    value is checked against the tool catalogue in `api._access_emit`, at the
+    boundary where it would be published, so a future caller writing
+    arbitrary text under this field cannot leak it by going around a check
+    that lived at the writing end instead of the reading end.
+
+    Same mutex as `add`, for the same reason: a managed tool's worker thread
+    can be writing this dict while `_access_emit` iterates it.
+    """
+    profile = _CURRENT.get()
+    if profile is None:
+        return
+    with _MUTEX:
+        profile[field] = value
+
+
 def snapshot(profile: "dict[str, Any] | None") -> "dict[str, Any]":
     """A stable copy of `profile`, safe to iterate while a worker writes."""
     if not profile:

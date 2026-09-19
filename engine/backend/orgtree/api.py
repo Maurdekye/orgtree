@@ -178,6 +178,54 @@ _PROFILE_ALLOWED_FIELDS = frozenset({
     "lock_wait_ms", "org_load_ms", "chat_read_ms", "history_work_ms",
     "org_save_ms", "mutate_ms",
 })
+#: The ONE non-numeric field a record may carry, and the only exception to the
+#: "route templates and finite numbers, nothing else" rule above.
+#:
+#: WHY IT IS WORTH AN EXCEPTION. `/api/agent` is a single route serving all ~46
+#: agent verbs, so every hire, retire, move and watchdog files under the same
+#: label. The stage timings above now say a call spent 4.9 s waiting for the
+#: document lock; without the verb they cannot say which call, and "some agent
+#: tool is slow" is not an answer anyone can act on.
+#:
+#: WHY IT IS STILL SAFE. `AgentCall.tool` is an unvalidated `str` straight off
+#: the request body, and `orgtree_op_call` carries a second one in
+#: `args["tool"]` — so this value is attacker-chosen until it is checked. It is
+#: therefore checked HERE, at the point of publication, against the tool
+#: catalogue, and anything not in that closed set is dropped rather than
+#: recorded. A member of the set is by construction one of the catalogue's
+#: `[a-z_]` ASCII names, which matters twice over: it cannot carry a prompt,
+#: mail id or credential, and it cannot carry a non-ASCII byte — and a
+#: non-ASCII byte on this line would raise `UnicodeEncodeError` under the
+#: caller's `except Exception: pass` and silently destroy the whole record
+#: (see `_access_emit`).
+_PROFILE_TOOL_FIELD = "tool"
+#: Dispatchable verbs that are deliberately absent from `mcptool.TOOLS`, so
+#: deriving the set from the catalogue alone would silently stop naming them:
+#:   orgtree_send_file_once  internal transport verb (`agent_call`), never
+#:                           advertised to a model
+#:   orgtree_self_update     deprecated alias kept dispatchable for live
+#:                           sessions and stored charters (rename 2026-08-21)
+#:   orgtree_op_call         the receipt wrapper itself; `toolwait.tool_name`
+#:                           normally unwraps it to the verb it carries, and
+#:                           this entry only covers a wrapper that arrives
+#:                           carrying nothing usable
+_PROFILE_EXTRA_TOOL_VERBS = ("orgtree_send_file_once", "orgtree_self_update",
+                             "orgtree_op_call")
+#: Built once, lazily: `mcptool` is imported inside functions everywhere else
+#: in this module and there is no reason for this to be the one thing that
+#: drags it into import time. Derived FROM the catalogue rather than retyped,
+#: so a tool added later is nameable without anyone remembering this list.
+_PROFILE_TOOL_NAMES: "frozenset[str] | None" = None
+
+
+def _profile_tool_names() -> "frozenset[str]":
+    global _PROFILE_TOOL_NAMES
+    if _PROFILE_TOOL_NAMES is None:
+        from . import mcptool
+        _PROFILE_TOOL_NAMES = frozenset(
+            [str(t["name"]) for t in mcptool.TOOLS if t.get("name")]
+            + list(_PROFILE_EXTRA_TOOL_VERBS))
+    return _PROFILE_TOOL_NAMES
 
 #: THIS PROCESS's identity — a fresh value on every start.
 #:
@@ -433,13 +481,22 @@ def _access_emit(scope: ASGIScope, status: int, handler_ms: float,
         # eventually raise "dictionary changed size during iteration" inside
         # the caller's `except Exception: pass` and drop the whole record in
         # silence. See `profiling.snapshot`.
-        numeric_profile = {k: v for k, v in profiling.snapshot(profile).items()
-                           if isinstance(v, (int, float)) and not isinstance(v, bool)
-                           and math.isfinite(v) and k in _PROFILE_ALLOWED_FIELDS
-                           and k not in _PROFILE_RESERVED_FIELDS}
+        snap = profiling.snapshot(profile)
+        safe_profile = {k: v for k, v in snap.items()
+                        if isinstance(v, (int, float)) and not isinstance(v, bool)
+                        and math.isfinite(v) and k in _PROFILE_ALLOWED_FIELDS
+                        and k not in _PROFILE_RESERVED_FIELDS}
+        # The one non-numeric field, and the only value here that started life
+        # as request text. Membership in the catalogue is the whole check: a
+        # verb that is not in it is DROPPED, so the field is either one of ~49
+        # fixed ASCII names or absent. See `_PROFILE_TOOL_FIELD`.
+        verb = snap.get(_PROFILE_TOOL_FIELD)
+        if (_PROFILE_TOOL_FIELD not in _PROFILE_RESERVED_FIELDS
+                and isinstance(verb, str) and verb in _profile_tool_names()):
+            safe_profile[_PROFILE_TOOL_FIELD] = verb
         record = {"route": route, "handler_ms": round(handler_ms, 3),
                   "total_ms": round(total_ms, 3), "bytes": nbytes,
-                  **numeric_profile}
+                  **safe_profile}
         print("[orgtree.profile] " + route + " " +
               json.dumps(record, sort_keys=True), flush=True)
         # Same call already sits behind the caller's `except Exception: pass`
@@ -452,10 +509,13 @@ def _access_emit(scope: ASGIScope, status: int, handler_ms: float,
         # those would crowd out the routes this sink exists to hold; (2) not
         # this route itself — a caller polling `/api/desktop/profile-timing`
         # would otherwise evict what it came to read with its own reads; (3)
-        # only numeric values leave the handler's dict — `**profile` merges
-        # only known timing fields leave the handler's dict. Numeric type alone
+        # only allowlisted fields leave the handler's dict. Numeric type alone
         # is not enough: a handler must not expose arbitrary content such as a
-        # token or mail identifier by choosing a field name.
+        # token or mail identifier by choosing a field name. The lone
+        # non-numeric field, `tool`, is held to the stricter rule of the two —
+        # its VALUE must also be a member of the tool catalogue (see
+        # `_PROFILE_TOOL_FIELD`), because unlike a stage timing it starts out
+        # as request text.
         if profile and route != _PROFILE_TIMING_ROUTE:
             global _PROFILE_SEQ
             _PROFILE_SEQ += 1
@@ -476,7 +536,7 @@ def _access_emit(scope: ASGIScope, status: int, handler_ms: float,
             _PROFILE_RECORDS.append({"seq": _PROFILE_SEQ, "route": route,
                                      "handler_ms": round(handler_ms, 3),
                                      "total_ms": round(total_ms, 3),
-                                     "bytes": nbytes, **numeric_profile})
+                                     "bytes": nbytes, **safe_profile})
     if handler_ms < _SLOW_MS:
         return
     # The alarm. Rate-limited per route by a TIME WINDOW rather than by a set
@@ -10255,6 +10315,14 @@ async def _run_chat_read(function: Any, *args: Any) -> Any:
 @app.post("/api/agent")
 async def _agent_call_route(body: AgentCall, request: Request) -> dict[str, Any]:
     from . import toolwait
+    # WHICH verb this is, recorded before dispatch so all three paths below
+    # (managed worker, chat read, plain threadpool) carry it and a handler
+    # that raises still gets labelled. `tool_name` rather than `body.tool`,
+    # so an `orgtree_op_call` reports the verb it WRAPS instead of the
+    # wrapper — that is the whole value of the field for receipt-bearing
+    # calls. Unvalidated here on purpose: `_access_emit` checks it against
+    # the tool catalogue at the point of publication and drops anything else.
+    profiling.label(_PROFILE_TOOL_FIELD, toolwait.tool_name(body))
     if body.node != USER and toolwait.tool_name(body) in toolwait.TOOLS:
         from fastapi.concurrency import run_in_threadpool
 
