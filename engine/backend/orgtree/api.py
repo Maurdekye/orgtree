@@ -2309,11 +2309,24 @@ def _org_view(slug: str, request: Request,
         # behind the same D-145 bound as `serving_account`; and it is only
         # ever a candidate list, never a promise — `/continue-on` re-decides
         # it against a forced read before it moves a binding.
+        #
+        # ⚠ `offered`, NOT `alternatives` (docket
+        # `restore-continue-on-in-agent-context-menus`). The strict rule is
+        # "prove this account has room", and everything it cannot ESTABLISH
+        # fails it — including a claude `session` window reported with no
+        # `resets_at`, which is the ordinary shape for a window that has not
+        # started. Every signed-in claude account failed it, this list was
+        # empty for every frozen agent, and the menu had nothing to build, so
+        # the operator's only route back was halting the agent and rebinding
+        # it by hand. `offered` asks the operator's question instead — offer
+        # unless something POSITIVELY says the account is full — while the
+        # automatic scheduler keeps the strict rule, because it moves agents
+        # with nobody watching.
         node["continue_accounts"] = []
         if node.get("frozen") and not public_view and node["state"] == "live":
             try:
                 if accountfallback.manual_only(org, node["id"]):
-                    node["continue_accounts"] = accountfallback.alternatives(
+                    node["continue_accounts"] = accountfallback.offered(
                         org, node["id"], rows=list(account_rows.values()))
             except (LedgerError, KeyError, ValueError, OSError):
                 node["continue_accounts"] = []
@@ -7892,12 +7905,14 @@ def _continue_on_account(slug: str, nid: str, account: str, *, actor: str,
         # app-server); account_fallback's own rule is that provider reads never
         # happen under the document lock.
         row = next(r for r in rows if str(r["id"]) == account)
-        fresh = accountfallback.alternatives(
+        fresh = accountfallback.offered(
             org, nid, board_of=accountfallback.read_board, rows=[row])
         if account not in fresh:
             raise HTTPException(
-                409, f"{account} has no capacity for {tier} right now, or its "
-                     f"standing could not be established — nothing was changed")
+                409, f"{account} is at its limit for {tier} right now — its "
+                     f"latest reading reports a window at 100%, or this org "
+                     f"has recorded a wall on it that has not expired. Nothing "
+                     f"was changed")
         try:
             disclosure = supervisor.assign_account(
                 slug, nid, account, actor=actor, via=via, allow_frozen=True)
