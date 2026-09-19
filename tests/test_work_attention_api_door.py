@@ -126,6 +126,28 @@ class AttentionThroughTheApiDoor(unittest.TestCase):
         self.assertIsNotNone(flag)
         self.assertEqual(flag["reason"], REASON)
 
+    def test_a_plain_assign_through_the_door_preserves_the_backlog(self):
+        """The ticket's HEADLINE defect, at the layer a coordinator hits.
+
+        Everything else pinning this rule drives `Org.work_assign` directly.
+        That is the right layer for the rule and the wrong one for the wire —
+        the dispatcher could pass `starts_agent` and no ledger test would
+        notice. The `assign` branch must reach the ledger WITHOUT the opt-in.
+        """
+        org = ledger.Org.create("attn-api-assign-" + uuid.uuid4().hex[:8])
+        manager = org.hire(USER, None, "haiku", 3, "manager", **_HIRE)["node"]
+        one = org.hire(manager, manager, "haiku", 0, "w-one", **_HIRE)["node"]
+        two = org.hire(manager, manager, "haiku", 0, "w-two", **_HIRE)["node"]
+        wid = str(org.work_create(manager, "Unstarted", "needs doing",
+                                  status="backlogged", owner=one)["slug"])
+
+        api._work_mutate_action(org, manager, {"owner": two}, "assign", wid)
+
+        item = org.work_get(manager, wid)
+        self.assertEqual(item["status"], "backlogged")
+        self.assertEqual(item["owner"]["node"], two)   # it really did assign
+        self.assertEqual(org.work_counts()["backlogged"], 1)
+
     def test_the_retraction_keeps_the_question_on_the_clearing_row(self):
         """The record property the sibling suite protects, asserted at this
         layer too — a retraction that loses the sentence is the defect
