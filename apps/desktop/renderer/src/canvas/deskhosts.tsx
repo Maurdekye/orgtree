@@ -1,4 +1,3 @@
-import { draftKey } from '../draftstore'
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import { MovableSurface, useSurface } from '../popout'
@@ -327,34 +326,27 @@ function DeskOwnerControls({ entry, stale, dismiss }: { entry: Entry; stale: boo
       queueMicrotask(() => entry.popout?.())
     }
   }, [entry, surface])
-  const p = entry.last.props
-  return <DraftRecovery stale={stale} dismiss={dismiss} keyName={draftKey(p.slug, p.node.id, deskGeneration(p.node))} />
+  return <StaleDeskControls stale={stale} dismiss={dismiss} />
 }
-/** The notice names the action that is ACTUALLY available where it is read. A
- *  popped-out desk has no draft-recovery controls (below), so telling its
- *  reader to copy the draft there would point at nothing. */
+/** The draft stranded by an identity change is now SAVED, not copied: it goes
+ *  into this agent's sent-message history and comes back with Up in the
+ *  message box. So the notice reads the same docked or popped out - there is
+ *  no longer a control that exists in one place and not the other. */
 function StaleIdentityNotice({ generation }: { generation: number | undefined }) {
-  const detached = !!useSurface()?.detached
   return <div className="popout-error" role="status">
     This agent's identity changed. This draft belongs to generation {generation}.
-    {detached
-      ? ' Return this desk to the main window to copy it; it will not be sent to the new generation.'
-      : ' Copy your draft before returning; it will not be sent to the new generation.'}
+    It will not be sent to the new generation; it is kept in this agent's
+    message history, so press Up in the message box to bring it back.
   </div>
 }
-/** Draft recovery for a desk whose agent's identity has moved on, in the main
- *  window only (user 2026-09-11): a popped-out desk shows no draft-copy control
- *  at all. Redocking brings it back. */
-function DraftRecovery({ keyName, stale, dismiss }: { keyName: string; stale: boolean; dismiss: () => void }) {
+/** What is left on a desk whose agent's identity has moved on: the way to
+ *  close it. The `Copy unsent draft` button that used to sit here is retired -
+ *  the draft is written into the agent's message history instead, so there is
+ *  nothing to copy by hand and nothing that only works in the main window. */
+function StaleDeskControls({ stale, dismiss }: { stale: boolean; dismiss: () => void }) {
   const surface = useSurface()
-  const [copied, setCopied] = useState(false)
   if (!surface || !stale || surface.detached) return null
-  return <div className="popout-draft-recovery"><button className="popout-copy-draft" onClick={() => {
-    let text = ''
-    try { text = localStorage.getItem(keyName) || localStorage.getItem(keyName.replace('orgtree-draft-v2-', 'orgtree-draft-recovery-')) || '' } catch { /* unavailable */ }
-    surface.document.defaultView?.navigator.clipboard?.writeText(text)
-      .then(() => setCopied(true)).catch(() => setCopied(false))
-  }}>{copied ? 'Draft copied' : 'Copy unsent draft'}</button>
+  return <div className="popout-draft-recovery">
     <button onClick={dismiss}>Close old desk</button>
   </div>
 }

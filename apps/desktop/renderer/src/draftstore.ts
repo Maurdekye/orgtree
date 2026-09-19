@@ -1,5 +1,4 @@
-import { readReply } from './eventReply'
-import type { ReplyContext } from './eventReply'
+import { recordStranded, renameHistory } from './composerhistory'
 const partSuffix = (key: string) => key.endsWith('-attachments') ? '-attachments' : key.endsWith('-reply') ? '-reply' : ''
 
 export interface DraftAttachment { name: string; path: string; bytes: number }
@@ -22,6 +21,9 @@ export function storeAttachments(key: string, attachments: DraftAttachment[]) {
 
 /** A validated rename changes only the name, never a draft's generation. */
 export function renameDrafts(slug: string, from: string, to: string) {
+  // The agent's sent-message history is keyed on the node id and NOT on the
+  // generation, so a rename is the one event that would otherwise lose it.
+  renameHistory(slug, from, to)
   try {
     const prefix = 'orgtree-draft-v2-'
     const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i))
@@ -44,14 +46,18 @@ export function renameDrafts(slug: string, from: string, to: string) {
 }
 
 const activePrefix = 'orgtree-draft-v2-'
-const recoveryPrefix = 'orgtree-draft-recovery-'
-const dismissedRecoveryPrefix = 'orgtree-draft-recovery-dismissed-'
 function savedIdentity(key: string, prefix: string): unknown[] | null {
   try {
     const value = JSON.parse(key.slice(prefix.length, partSuffix(key) ? -partSuffix(key).length : undefined))
     return Array.isArray(value) && value.length === 3 ? value : null
   } catch { return null }
 }
+/** A draft belonging to a node that has left the org is STRANDED, and it now
+ *  goes straight into that agent's sent-message history instead of into the
+ *  `orgtree-draft-recovery-` keys and the panel that read them. It is marked
+ *  as never-delivered and reached with Up like anything else. If the agent is
+ *  rehired the history is still there, because the history key carries no
+ *  generation. */
 export function preserveRemovedDrafts(slug: string, ids: ReadonlyMap<string, unknown>) {
   try {
     const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i))
@@ -59,79 +65,13 @@ export function preserveRemovedDrafts(slug: string, ids: ReadonlyMap<string, unk
       if (!key?.startsWith(activePrefix)) continue
       const identity = savedIdentity(key, activePrefix)
       if (!identity || identity[0] !== slug || ids.has(String(identity[1]))) continue
-      const value = localStorage.getItem(key)
-      if (value !== null) {
-        localStorage.setItem(recoveryPrefix + key.slice(activePrefix.length), value)
-        localStorage.removeItem(key)
-      }
+      const suffix = partSuffix(key)
+      const textKey = suffix ? key.slice(0, -suffix.length) : key
+      const value = localStorage.getItem(textKey)
+      if (value) recordStranded(slug, String(identity[1]), value)
+      localStorage.removeItem(textKey)
+      localStorage.removeItem(`${textKey}-attachments`)
+      localStorage.removeItem(`${textKey}-reply`)
     }
   } catch { /* best effort persistence */ }
-}
-function dismissedRecoveryKey(slug: string, id: string) {
-  return `${dismissedRecoveryPrefix}${JSON.stringify([slug, id])}`
-}
-function readDismissedGenerations(slug: string, id: string): Set<number> {
-  try {
-    const raw: unknown = JSON.parse(localStorage.getItem(dismissedRecoveryKey(slug, id)) || '[]')
-    return new Set(Array.isArray(raw) ? raw.filter((g): g is number => typeof g === 'number' && Number.isInteger(g)) : [])
-  } catch { return new Set() }
-}
-function saveDismissedGenerations(slug: string, id: string, generations: Set<number>) {
-  try {
-    if (generations.size) localStorage.setItem(dismissedRecoveryKey(slug, id), JSON.stringify([...generations].sort((a, b) => a - b)))
-    else localStorage.removeItem(dismissedRecoveryKey(slug, id))
-  } catch { /* best effort persistence */ }
-}
-function removeDraftGeneration(slug: string, id: string, generation: number, currentGeneration: number | undefined) {
-  const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i))
-  for (const key of keys) {
-    if (!key) continue
-    const prefix = key.startsWith(activePrefix) ? activePrefix : key.startsWith(recoveryPrefix) ? recoveryPrefix : null
-    if (!prefix) continue
-    const identity = savedIdentity(key, prefix)
-    if (!identity || identity[0] !== slug || identity[1] !== id || identity[2] !== generation) continue
-    if (prefix === activePrefix && generation === currentGeneration) continue
-    const textKey = partSuffix(key) ? key.slice(0, -partSuffix(key).length) : key
-    localStorage.removeItem(key)
-    localStorage.removeItem(textKey)
-    localStorage.removeItem(`${textKey}-attachments`)
-    localStorage.removeItem(`${textKey}-reply`)
-  }
-}
-/** Permanently dismiss one recovered generation for this desk. */
-export function discardRecoverableDraft(slug: string, id: string, generation: number, currentGeneration?: number) {
-  try {
-    const dismissed = readDismissedGenerations(slug, id)
-    dismissed.add(generation)
-    saveDismissedGenerations(slug, id, dismissed)
-    removeDraftGeneration(slug, id, generation, currentGeneration)
-  } catch { /* unavailable storage */ }
-}
-/** Permanently dismiss the currently recovered generations for this desk. */
-export function discardAllRecoverableDrafts(slug: string, id: string, generations: readonly number[], currentGeneration?: number) {
-  try {
-    const dismissed = readDismissedGenerations(slug, id)
-    for (const generation of generations) dismissed.add(generation)
-    saveDismissedGenerations(slug, id, dismissed)
-    for (const generation of generations) removeDraftGeneration(slug, id, generation, currentGeneration)
-  } catch { /* unavailable storage */ }
-}
-export function recoverableDrafts(slug: string, id: string, generation: number | undefined) {
-  const drafts: { key: string; generation: number; text: string; attachments: DraftAttachment[]; reply: ReplyContext | null }[] = []
-  try {
-    const dismissed = readDismissedGenerations(slug, id)
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i)!
-      const prefix = key.startsWith(activePrefix) ? activePrefix : key.startsWith(recoveryPrefix) ? recoveryPrefix : null
-      if (!prefix) continue
-      const identity = savedIdentity(key, prefix)
-      if (!identity || identity[0] !== slug || identity[1] !== id || typeof identity[2] !== 'number'
-        || (prefix === activePrefix && identity[2] === generation)) continue
-      if (dismissed.has(identity[2])) continue
-      const textKey = partSuffix(key) ? key.slice(0, -partSuffix(key).length) : key
-      if (drafts.some(d => d.key === textKey)) continue
-      drafts.push({ key: textKey, generation: identity[2], text: localStorage.getItem(textKey) || '', attachments: readAttachments(textKey), reply: readReply(textKey) })
-    }
-  } catch { /* unavailable storage */ }
-  return drafts
 }

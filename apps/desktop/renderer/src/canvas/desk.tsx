@@ -10,7 +10,9 @@ import { foldKeysOf, FoldProvider, sysFoldKey, thoughtFoldKey, toolFoldKey, useF
 import { useChangedState } from '../changedstate'
 import { messageCopyText, toolCallCopyText, toolResultCopyText } from './copytext'
 import type { MouseEvent as ReplyMouseEvent } from 'react'
-import { discardAllRecoverableDrafts, discardRecoverableDraft, readAttachments, recoverableDrafts, storeAttachments } from '../draftstore'
+import { readAttachments, storeAttachments } from '../draftstore'
+import { absorbStrandedDrafts, readHistory, recordSent } from '../composerhistory'
+import type { HistoryEntry } from '../composerhistory'
 import { DeskSlot } from './deskhosts'
 import { PopoutButton, PopoutWindowControls, useSurface, useSurfaceDocument } from '../popout'
 // canvas/desk.tsx — the desk: DeskChat (the zoomed-in per-agent chat window,
@@ -1801,6 +1803,62 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   }), [draftKey])
   const [reply, setReplyRaw] = useState<ReplyContext | null>(() => readReply(draftKey))
   const setReply = (next: ReplyContext | null) => { setReplyRaw(next); storeReply(draftKey, next) }
+  /** SENT-MESSAGE HISTORY - Up and Down walk what you have sent to THIS agent,
+   *  the way PowerShell and bash do (user request 2026-09-18). Kept per agent
+   *  and deliberately NOT per generation, so a compaction or a rehire cannot
+   *  wipe it; see composerhistory.ts. */
+  const [sentHistory, setSentHistory] = useState<HistoryEntry[]>(() => readHistory(slug, node.id))
+  /** Where in the history the box is showing from. null = showing your own
+   *  live text and not navigating; 0 = the newest entry. */
+  const [histAt, setHistAt] = useState<number | null>(null)
+  /** What you had typed before navigation started. Down past the newest entry
+   *  puts it back - losing an unsent message to a stray Up is the one thing
+   *  this feature must never do. */
+  const histStash = useRef('')
+  /** Set when a recall changed the text, so the caret lands at the END of the
+   *  recalled message rather than wherever it happened to be. */
+  const histCaret = useRef(false)
+  const histEntry = histAt === null ? null : sentHistory[sentHistory.length - 1 - histAt] ?? null
+  // A draft eaten by an agent state change is written into this same history,
+  // so some entries were never actually delivered. Recall says so rather than
+  // letting them pass for sent (decision 1 on the item).
+  const histUndelivered = !!histEntry && !histEntry.delivered
+  useEffect(() => {
+    // Fold every stranded draft for this agent into the history: the previous
+    // generation's orphaned draft, anything left in the old recovery keys by
+    // an earlier release, and the pre-generation legacy key.
+    if (absorbStrandedDrafts(slug, node.id, node.generation)) setSentHistory(readHistory(slug, node.id))
+  }, [slug, node.id, node.generation])
+  /** Up: one step further back. Returns false when nothing moved, and the key
+   *  is then left to do its ordinary caret job. */
+  const histBack = () => {
+    if (!sentHistory.length) return false
+    if (histAt === null) histStash.current = text
+    const next = histAt === null ? 0 : Math.min(histAt + 1, sentHistory.length - 1)
+    const entry = sentHistory[sentHistory.length - 1 - next]
+    if (next === histAt || !entry) return false
+    setHistAt(next)
+    setText(entry.text)
+    histCaret.current = true
+    return true
+  }
+  /** Down: one step forward, and past the newest entry back to what you typed. */
+  const histForward = () => {
+    if (histAt === null) return false
+    if (histAt === 0) {
+      setHistAt(null)
+      setText(histStash.current)
+      histCaret.current = true
+      return true
+    }
+    const next = histAt - 1
+    const entry = sentHistory[sentHistory.length - 1 - next]
+    if (!entry) return false
+    setHistAt(next)
+    setText(entry.text)
+    histCaret.current = true
+    return true
+  }
   const replyMenu = useContextMenu()
   // every fold this desk's transcript draws, held above the rows (foldstate.tsx)
   const folds = useFoldState()
@@ -1959,12 +2017,6 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
     const context = replyContext(wire)
     return context && <ReplyPreview reply={context} available={replyAvailable(context)} onLocate={() => locateReply(context)} />
   }
-  const [recoveryRevision, setRecoveryRevision] = useState(0)
-  const recoveryDrafts = useMemo(() => recoverableDrafts(slug, node.id, node.generation),
-    [slug, node.id, node.generation, recoveryRevision])
-  const [legacyDraft, setLegacyDraft] = useState(() => {
-    try { return localStorage.getItem(`orgtree-draft-${slug}-${node.id}`) || '' } catch { return '' }
-  })
   // №11: which door the last send went through. It is a RECEIPT, not a state —
   // it answers "where did that message just go", and that answer goes stale the
   // moment the queue drains. It had no clear at all (user bug 2026-08-02: the
@@ -2557,6 +2609,12 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
     setReply(null)
     setText('')
     setAttached([])
+    // Sending appends to the history and returns the box to the newest end of
+    // it, the way a shell does. `t` is what was actually sent, so the history
+    // records the delivered text and not the untrimmed buffer.
+    if (recordSent(slug, node.id, t)) setSentHistory(readHistory(slug, node.id))
+    setHistAt(null)
+    histStash.current = ''
     // optimistic ghost only until the server confirms — the durable copy
     // then renders from chat.pending_mail (№11); a failed send clears the
     // ghost instead of leaving a dimmed bubble forever.
@@ -2665,6 +2723,16 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   // already in the DOM when this reads scrollHeight — reading it inside the
   // handler would measure the outgoing text.
   useLayoutEffect(grow, [text, grow])
+  // Recall puts the caret at the END of the recalled message. Done as a layout
+  // effect because the textarea only holds the new text once React has
+  // committed it; setting selection inside the key handler would move it
+  // within the OLD value.
+  useLayoutEffect(() => {
+    if (!histCaret.current) return
+    histCaret.current = false
+    const el = taRef.current
+    if (el) el.selectionStart = el.selectionEnd = el.value.length
+  }, [text])
   // №6: dropping a file anywhere on the desk uploads it (and prevents the
   // browser's default navigate-away, which would also eat the draft)
   const dropProps = {
@@ -3525,29 +3593,9 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
       {reply && <ReplyPreview reply={reply} available={replyAvailable(reply)}
         onLocate={() => locateReply(reply)} onRemove={() => setReply(null)} />}
       {sendMode && <div className="sendmode dim">{sendMode}</div>}
-      {legacyDraft && !staleIdentity && <div className="popout-error">
-        An older saved draft is available. Its generation was not recorded.
-        <button onClick={() => {
-          setText((previous) => previous ? previous + '\n' + legacyDraft : legacyDraft)
-          try { localStorage.removeItem(`orgtree-draft-${slug}-${node.id}`) } catch { /* unavailable */ }
-          setLegacyDraft('')
-        }}>Restore draft</button>
+      {histUndelivered && <div className="dim composer-history-note" role="status">
+        recalled from history - this message was never sent
       </div>}
-      {!staleIdentity && recoveryDrafts.length > 0 && <details className="popout-draft-recovery">
-        <summary>Older unsent drafts ({recoveryDrafts.length})</summary>
-        <button type="button" onClick={() => {
-          discardAllRecoverableDrafts(slug, node.id, recoveryDrafts.map(d => d.generation), node.generation)
-          setRecoveryRevision((v) => v + 1)
-        }}>Dismiss all</button>
-        {recoveryDrafts.map(d => <div key={d.key}>
-          <p>Generation {d.generation} draft <button type="button" onClick={() => {
-            discardRecoverableDraft(slug, node.id, d.generation, node.generation)
-            setRecoveryRevision((v) => v + 1)
-          }}>Discard</button></p><pre>{d.text}</pre>
-          {d.reply && <ReplyPreview reply={d.reply} available={replyAvailable(d.reply)} onLocate={() => locateReply(d.reply!)} />}
-          {d.attachments.map(a => <p key={a.path}>{a.name} ({a.bytes} bytes) {a.path}</p>)}
-        </div>)}
-      </details>}
       {/* staged attachments ride the NEXT message as mail attachments */}
       {attached.length > 0 && (
         <div className="attach-row">
@@ -3641,6 +3689,25 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
               e.preventDefault()
               toggleNoticeArmed()
               return
+            }
+            // HISTORY, and the one real conflict in the design: this box is
+            // multi-line and a shell prompt is not, so Up and Down already
+            // move the caret between lines. History triggers ONLY when the
+            // caret is on the first line (Up) or the last line (Down) and
+            // nothing is selected. Anywhere else the arrow moves the caret, so
+            // a multi-line message can never be replaced out from under you.
+            if ((e.key === 'ArrowUp' || e.key === 'ArrowDown')
+              && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
+              const el = e.currentTarget
+              const from = el.selectionStart ?? 0
+              const to = el.selectionEnd ?? 0
+              const edge = e.key === 'ArrowUp'
+                ? !el.value.slice(0, from).includes('\n')
+                : !el.value.slice(to).includes('\n')
+              if (from === to && edge && (e.key === 'ArrowUp' ? histBack() : histForward())) {
+                e.preventDefault()
+                return
+              }
             }
             // mobile: soft keyboards emit Enter with shiftKey:false and no
             // gesture recovers the newline — send is the button's job there
