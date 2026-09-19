@@ -36,7 +36,17 @@ the process is alive when the loop unwinds.  Same seats, same loop, same point
 of failure.  If the control does not restore and replay, the probe is measuring
 a broken setup rather than the defect, and it says so instead of reporting.
 
-    python tests/restart_reconcile_kill_probe.py            # both arms
+AND IT SWEEPS THE KILL POINT, because one point proves the defect but does not
+prove a fix holds wherever the kill lands.  Three seats give three points
+inside the loop and each is a different shape: #1 has nothing spent before it,
+#2 has both a spent seat and an unreached one, #3 has no unreached seat at all
+and is run as an honest boundary -- its rescue check is vacuous and it says so,
+but its leak check still catches a fix that over-preserved and replayed a turn
+twice.  Both arms run at every point, so every kill has its own matched
+control.
+
+    python tests/restart_reconcile_kill_probe.py            # both arms, sweep
+    python tests/restart_reconcile_kill_probe.py --kill-at 2
     python tests/restart_reconcile_kill_probe.py --arm kill
     python tests/restart_reconcile_kill_probe.py --arm survive
 
@@ -125,6 +135,7 @@ if len(sys.argv) > 2 and sys.argv[1] == 'seed':
 # the dispatch loop (or, in the control arm, is allowed to finish it).
 if len(sys.argv) > 3 and sys.argv[1] == 'pass':
     root, arm, sig = Path(sys.argv[2]), sys.argv[3], Path(sys.argv[4])
+    kill_at = int(sys.argv[5]) if len(sys.argv) > 5 else 2
     store, _prov = _bind(root)
     from orgtree import supervisor
 
@@ -134,15 +145,16 @@ if len(sys.argv) > 3 and sys.argv[1] == 'pass':
         dispatched.append(nid)
         sig.write_text(json.dumps({'dispatched': dispatched,
                                    'pid': os.getpid()}), encoding='utf-8')
-        if len(dispatched) == 1:
+        if len(dispatched) < kill_at:
             return {'accepted': True, 'queued': 0}
-        # Dispatch #2 is the point of failure in BOTH arms, and the arms
-        # differ in exactly one thing: whether this process is still alive
-        # when the loop unwinds.
+        # Dispatch #`kill_at` is the point of failure in BOTH arms, and the
+        # arms differ in exactly one thing: whether this process is still
+        # alive when the loop unwinds.
         if arm == 'kill':
             while True:            # ... held open until taskkill lands
                 time.sleep(0.5)
-        raise RuntimeError('dispatch #2 failed while the process lived')
+        raise RuntimeError('dispatch #%d failed while the process lived'
+                           % kill_at)
 
     supervisor.send_message = drive
     try:
@@ -182,7 +194,7 @@ Path(sys.argv[3]).write_text(json.dumps(result), encoding="utf-8")
 '''
 
 
-def _run_arm(arm):
+def _run_arm(arm, kill_at=2):
     box = tempfile.mkdtemp(prefix='reconcile-kill-probe-')
     root = Path(box) / 'data'
     root.mkdir()
@@ -194,7 +206,7 @@ def _run_arm(arm):
     for key in ('ORGTREE_V1_ROOT', 'ORGTREE_V1_DATA_ROOT', 'ORGTREE_V2_PORT'):
         env.pop(key, None)
 
-    print('\n=== ARM: %s ===' % arm)
+    print('\n=== ARM: %s (kill point: dispatch #%d) ===' % (arm, kill_at))
     print('§A  seeding three real interrupted turns in %s' % root)
     seed = subprocess.run([sys.executable, '-B', __file__, 'seed', str(root)],
                           cwd=str(REPO), env=env, text=True,
@@ -208,7 +220,7 @@ def _run_arm(arm):
     sig = Path(box) / 'dispatch.json'
     print('§B  running the startup pass (%s)' % arm)
     victim = subprocess.Popen([sys.executable, '-B', __file__, 'pass',
-                               str(root), arm, str(sig)],
+                               str(root), arm, str(sig), str(kill_at)],
                               cwd=str(REPO), env=env, text=True,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if arm == 'kill':
@@ -221,15 +233,15 @@ def _run_arm(arm):
                 seen = json.loads(sig.read_text(encoding='utf-8'))['dispatched']
             except (OSError, ValueError, KeyError):
                 seen = []
-            if len(seen) >= 2:
+            if len(seen) >= kill_at:
                 break
             time.sleep(0.1)
-        if len(seen) < 2:
+        if len(seen) < kill_at:
             victim.kill()
-            raise SystemExit('the pass never reached the second dispatch; '
-                             'nothing was exercised')
-        print('    the loop is inside dispatch #2 (%s); killing the tree'
-              % seen)
+            raise SystemExit('the pass never reached dispatch #%d; '
+                             'nothing was exercised' % kill_at)
+        print('    the loop is inside dispatch #%d (%s); killing the tree'
+              % (kill_at, seen))
         subprocess.run(['taskkill', '/T', '/F', '/PID', str(victim.pid)],
                        capture_output=True, check=True)
         victim.wait(timeout=120)
@@ -254,25 +266,22 @@ def _run_arm(arm):
     return json.loads(out_path.read_text(encoding='utf-8'))
 
 
-def main():
-    want = None
-    for i, a in enumerate(sys.argv):
-        if a == '--arm' and i + 1 < len(sys.argv):
-            want = sys.argv[i + 1]
-        elif a.startswith('--arm='):
-            want = a.split('=', 1)[1]
-    arms = [want] if want else ['survive', 'kill']
-    results = {a: _run_arm(a) for a in arms}
-
-    print('\n================ VERDICT ================')
+def _verdict(kill_at, results):
+    """Judge one kill point.  Returns True if this point is clean."""
     ok = True
+    spent_before = list(NODES[:kill_at - 1])   # dispatched, legitimately gone
+    in_flight = NODES[kill_at - 1]             # the loop was inside this one
+    never_reached = list(NODES[kill_at:])      # the loop never got here
+    print('\n--- kill point: dispatch #%d  (spent before: %s | in flight: %s '
+          '| never reached: %s)' % (kill_at, spent_before or 'none', in_flight,
+                                    never_reached or 'none'))
     if 'survive' in results:
         r = results['survive']
         # The control must show the `finally` doing its job while the process
         # lives.  If it does not, nothing the kill arm shows can be attributed
         # to the kill rather than to the setup.
         restored = [n for n, v in r['survived'].items() if v]
-        expect = list(NODES[1:])          # alpha was dispatched and is spent
+        expect = list(NODES[kill_at - 1:])     # everything from the raise on
         good = restored == expect and sorted(r['replayed']) == sorted(expect)
         ok &= good
         print('CONTROL   finally restored %s (expected %s), next boot '
@@ -287,22 +296,59 @@ def main():
         # one the loop was inside when the kill landed, whose marker the
         # "spent by its dispatch" rule already treats as gone.  Seats the loop
         # NEVER REACHED must all survive; that is the whole defect.
-        dispatched_before_kill, in_flight = NODES[0], NODES[1]
-        never_reached = list(NODES[2:])
         stranded = [n for n in NODES
                     if not r['survived'][n] and n not in r['replayed']]
         rescued = [n for n in never_reached
                    if r['survived'][n] or n in r['replayed']]
         leaked = [n for n in stranded
-                  if n not in (dispatched_before_kill, in_flight)]
+                  if n not in spent_before and n != in_flight]
         good = rescued == never_reached and not leaked
         ok &= good
         print('KILL      next boot replayed %s' % r['replayed'])
-        print('          never-reached seats rescued: %s (expected %s)'
-              % (rescued, never_reached))
+        if never_reached:
+            print('          never-reached seats rescued: %s (expected %s)'
+                  % (rescued, never_reached))
+        else:
+            # The last kill point is a BOUNDARY, and it is honest about it:
+            # there is no unreached seat to rescue here, so the rescue check
+            # is vacuous and only the leak check carries weight.  It is run
+            # anyway because a fix that over-preserved -- refusing to spend
+            # the marker it was dispatching -- would replay a turn twice, and
+            # this is the arm that would show it.
+            print('          no unreached seat at this point (boundary arm); '
+                  'only the leak check applies')
         print('          lost beyond the in-flight marker: %s  -> %s'
               % (leaked or 'none', 'OK' if good else 'STRANDING'))
-    print('=========================================')
+    return ok
+
+
+def main():
+    want, points = None, None
+    for i, a in enumerate(sys.argv):
+        if a == '--arm' and i + 1 < len(sys.argv):
+            want = sys.argv[i + 1]
+        elif a.startswith('--arm='):
+            want = a.split('=', 1)[1]
+        elif a == '--kill-at' and i + 1 < len(sys.argv):
+            points = [int(sys.argv[i + 1])]
+        elif a.startswith('--kill-at='):
+            points = [int(a.split('=', 1)[1])]
+    arms = [want] if want else ['survive', 'kill']
+    # THE SWEEP.  One kill point proves the defect; it does not prove the fix
+    # holds wherever the kill lands.  Three seats means three points inside
+    # the dispatch loop, and every one of them is a different shape: #1 has
+    # nothing spent before it, #2 has both a spent seat and an unreached one,
+    # #3 has no unreached seat at all.
+    points = points or [1, 2, 3]
+
+    ok = True
+    for kill_at in points:
+        results = {a: _run_arm(a, kill_at) for a in arms}
+        print('\n================ VERDICT ================')
+        ok &= _verdict(kill_at, results)
+        print('=========================================')
+    print('\nSWEEP %s over kill points %s'
+          % ('CLEAN' if ok else 'FOUND STRANDING', points))
     raise SystemExit(0 if ok else 1)
 
 
