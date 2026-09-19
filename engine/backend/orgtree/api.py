@@ -9255,7 +9255,19 @@ def _seat_finish(org: Org, slug: str, actor: str, nid: str, a: dict[str, Any],
         applied.append(f"review_items:{len(result['review_items'])}")
     if wi is not None and str(wi).strip():
         _work_identity_ready(org, slug)
-        ares = org.work_assign(actor, str(wi).strip(), nid)
+        # ⚠ `starts_agent` BECAUSE THIS ROUTE STARTS THE AGENT — see the note
+        # above: a hire carrying `work_item` and no `kickoff` is hired,
+        # assigned, told so, and RUNNING. A plain `assign` leaves `backlogged`
+        # alone (user ruling 2026-09-19), but an item with an agent already
+        # running on it must not still read as unstarted: it would be hidden
+        # from the active count and never nudged by the idle reminder.
+        #
+        # This is the SAME rule `orgtree_staff` gets, reached from the other
+        # side: `_staff_call` pops `work_item` before the seat is made, so that
+        # path never comes through here and the two cannot be fixed as one call
+        # site. The rule itself lives in `Org._work_start_if_backlogged` so
+        # they cannot drift apart again (regression found in review, f1).
+        ares = org.work_assign(actor, str(wi).strip(), nid, starts_agent=True)
         if ares.get("notified"):
             mail_notify(slug, actor, nid)
             if not ares.get("deferred"):
@@ -9692,28 +9704,23 @@ def _staff_call(org: Org, slug: str, actor: str, a: dict[str, Any],
             parent=(str(a["parent"]) if a.get("parent") else None))
         item = str(w.get("created") or "")
     else:
-        # ⚠ STAFFING OPENS A BACKLOGGED ITEM, AND SAYS SO HERE (2026-09-19).
-        # Plain `assign` no longer moves the status — ownership and status are
-        # independent metadata, and a coordinator that reassigns a ticket must
-        # not silently start work left unstarted on purpose. Staffing is the
-        # one exception, and it is a real one rather than a leftover: this call
-        # creates the seat and starts the agent on the item in the same breath,
-        # so leaving the item `backlogged` would have the docket report work as
-        # unstarted while an agent is actively running it.
+        # ⚠ THE BACKLOG TRANSITION IS NOT RESOLVED HERE ANY MORE. The first cut
+        # of this change read the item's status at this call site and passed an
+        # explicit `status`, which worked for `orgtree_staff` and left
+        # `orgtree_hire`/`orgtree_rehire` carrying `work_item` broken — they
+        # reach the assignment through `_seat_finish`, never through here, so
+        # they kept starting agents on items the docket still called backlogged
+        # (found in review, finding f1).
         #
-        # It is resolved HERE, into an ordinary explicit `status`, instead of
-        # living as a hidden side effect inside the shared assignment core. The
-        # transition belongs to staffing, so it is visible at staffing's own
-        # call site, and an explicit `status` from the caller still wins.
-        staff_status = (str(a["status"]) if a.get("status") is not None
-                        else None)
-        if staff_status is None:
-            current = org.work_get(actor, str(a.get("slug") or ""))
-            if str(current.get("status") or "") == Org.WORK_BACKLOG:
-                staff_status = "open"
+        # The rule now lives in `Org._work_start_if_backlogged` and this path
+        # reaches it through `staffed_to` below, which already means "the
+        # substantive change in this update is that the item was STAFFED". One
+        # rule, two call sites, no second copy to drift.
         w = org.work_update(
             actor, str(a.get("slug") or ""), a.get("done_so_far"),
-            a.get("working_on_next"), status=staff_status,
+            a.get("working_on_next"), status=(str(a["status"])
+                                              if a.get("status") is not None
+                                              else None),
             attention=(True if _arg_flag(a, "attention") else None),
             attention_reason=(str(a["attention_reason"])
                               if a.get("attention_reason") is not None else None),

@@ -14657,7 +14657,19 @@ class Org:
             # the real handovers in noise.
             assigned = self._work_assign_core(
                 actor, it, tgt, True,
-                "update" if tgt == actor else "update+assign")
+                "update" if tgt == actor else "update+assign",
+                # a STAFFING is an assignment that also starts the agent, so it
+                # takes the one opt-in exception — unless this call named a
+                # status itself, in which case the caller has already said what
+                # it wants and nothing should second-guess it
+                starts_agent=bool(staffed_to) and status is None)
+        elif staffed_to and status is None:
+            # A STAFFING THAT DID NOT CHANGE HANDS still starts the agent — a
+            # rehire of the seat that already owns the item reaches here, and
+            # the block above is skipped precisely because the owner is
+            # unchanged. The transition belongs to the staffing, not to the
+            # change of owner, so it must not depend on one.
+            self._work_start_if_backlogged(it, actor, "staffing")
         return {"updated": wid, "rev": it["rev"], "status": it["status"],
                 # ⚠ WHAT WAS ACTUALLY STORED, always — the complete lists, not
                 # the fragment a keep/append call sent. A caller that patched
@@ -15098,8 +15110,44 @@ class Org:
     # places to look and two to keep true, and the one that lost would still
     # render somewhere. `last_updater` survives untouched as HISTORY (who wrote
     # the latest status), which is what it always actually was.
+    def _work_start_if_backlogged(self, it: WorkItem, actor: str,
+                                  why: str) -> bool:
+        """THE STAFFING TRANSITION, in the ONE place that states it.
+
+        A plain `assign` never moves the status (user ruling 2026-09-19) —
+        reassigning a ticket nobody has started leaves it unstarted. But an
+        assignment that ALSO STARTS AN AGENT on the item is different in kind:
+        leaving it `backlogged` would have the docket report the work as
+        unstarted while an agent is actively running it, and a backlogged item
+        is hidden from the active count AND never nudged by the idle reminder,
+        so the work would be both invisible and unreminded.
+
+        ⚠ IT LIVES HERE BECAUSE IT HAS TWO CALLERS AND THEY MUST NOT DRIFT.
+        `orgtree_staff` reaches it through `work_update`'s `staffed_to`, and
+        `orgtree_hire`/`orgtree_rehire` carrying `work_item` reach it through
+        `work_assign`'s `starts_agent`. Those are DISJOINT paths — `_staff_call`
+        pops `work_item` before creating the seat, precisely so the assignment
+        is filed once — so a fix applied to either one alone leaves the other
+        wrong. That is exactly what happened: the first cut of this ticket put
+        the transition in `api._staff_call`, and the hire/rehire route silently
+        kept starting agents on items the docket still called backlogged
+        (found in review by textmenu, finding f1).
+
+        It is opt-in at every call site and never implicit, which is the whole
+        point of the ruling: a caller that has not said it is starting an agent
+        does not get a status change.
+        """
+        if str(it.get("status") or "") != self.WORK_BACKLOG:
+            return False
+        it["status"] = "open"
+        self._work_stamp_status(it)
+        self._work_hist(it, actor, "status",
+                        {"from": self.WORK_BACKLOG, "to": "open", "why": why})
+        return True
+
     def _work_assign_core(self, actor: str, it: WorkItem, owner: str,
-                          notify: bool, why: str) -> dict[str, Any]:
+                          notify: bool, why: str,
+                          starts_agent: bool = False) -> dict[str, Any]:
         """Move the assignment, and TELL the agent that just acquired it.
 
         ⚠ THE AUTHORITY CHECK IS THE CALLER'S JOB and is made BEFORE this runs
@@ -15128,14 +15176,20 @@ class Org:
         # stands, and "as it stands" has to still mean the OUTGOING holder.
         self._work_holders_append(it, own, actor)
         it["owner"] = cast(WorkActor, self._work_holder(own))
-        # ⚠ ASSIGNMENT NEVER TOUCHES THE STATUS — not even `backlogged`
-        # (user ruling 2026-09-19). Until then this path opened a backlogged
-        # item automatically, which is how a coordinator's plain `assign`
-        # silently started work the user had deliberately left unstarted: the
-        # caller asked for one field and got two. Ownership and status are
-        # independent metadata, so a caller that wants the item opened as well
-        # says so, by passing `status` on `work_update`. The status a
-        # reassignment finds is the status it leaves behind, backlog included.
+        # ⚠ ASSIGNMENT NEVER TOUCHES THE STATUS ON ITS OWN — not even
+        # `backlogged` (user ruling 2026-09-19). Until then this path opened a
+        # backlogged item automatically, which is how a coordinator's plain
+        # `assign` silently started work the user had deliberately left
+        # unstarted: the caller asked for one field and got two. Ownership and
+        # status are independent metadata, so the status a reassignment finds
+        # is the status it leaves behind, backlog included.
+        #
+        # The ONE exception is opt-in and named: an assignment that also STARTS
+        # an agent on the item passes `starts_agent`. See
+        # `_work_start_if_backlogged` for why that case is different and why
+        # the rule lives there rather than at either call site.
+        if starts_agent:
+            self._work_start_if_backlogged(it, actor, why)
         parts = [p for p in (it.get("participants") or []) if p != own]
         it["participants"] = parts
         if self._work_actor_node(it.get("reviewer")) == own:
@@ -15514,7 +15568,8 @@ class Org:
         return moved
 
     def work_assign(self, actor: str, wid: str, owner: str,
-                    notify: bool = True) -> dict[str, Any]:
+                    notify: bool = True,
+                    starts_agent: bool = False) -> dict[str, Any]:
         """Explicit reassignment, and it NOTIFIES (user request 2026-09-05):
         the assignee learns it holds the item at its next turn, before it has
         ever written a status update. Still not a docket update — `docket_at`
@@ -15525,7 +15580,8 @@ class Org:
         if not self._work_can_manage(actor, it):
             raise LedgerError("only the owner, the creator, their superiors or "
                               "the user may reassign an item")
-        return self._work_assign_core(actor, it, owner, notify, "assign")
+        return self._work_assign_core(actor, it, owner, notify, "assign",
+                                      starts_agent=starts_agent)
 
     def work_request_handoff(self, actor: str, wid: str,
                              target: str | None = None,

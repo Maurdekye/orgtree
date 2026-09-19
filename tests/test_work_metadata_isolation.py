@@ -172,6 +172,87 @@ class AssignmentLeavesTheStatusAlone(unittest.TestCase):
         self.assertEqual(item["owner"]["node"], two)
 
 
+class StartingAnAgentOpensTheBacklog(unittest.TestCase):
+    """The opt-in exception, and the regression that proved it needed one home.
+
+    A plain `assign` leaves `backlogged` alone. An assignment that also STARTS
+    an agent on the item opens it, because a backlogged item is hidden from the
+    active count and never nudged by the idle reminder — so an agent running on
+    one is both invisible and unreminded.
+
+    ⚠ THERE ARE TWO DISJOINT ROUTES INTO THAT CASE and the first cut of this
+    ticket fixed only one. `orgtree_staff` reaches it through `work_update`'s
+    `staffed_to`; `orgtree_hire`/`orgtree_rehire` carrying `work_item` reach it
+    through `work_assign`'s `starts_agent`, because `_staff_call` pops
+    `work_item` before the seat is created and so never comes through the other
+    path. textmenu found the gap in review (finding f1). Both routes are pinned
+    here, against the one shared rule, so they cannot drift apart again.
+    """
+
+    def test_an_assignment_that_starts_an_agent_opens_a_backlogged_item(self):
+        org, slug, manager, (_one, two, _three) = fixture(status="backlogged")
+
+        result = org.work_assign(manager, slug, two, starts_agent=True)
+
+        self.assertEqual(result["status"], "open")
+        self.assertEqual(org.work_get(manager, slug)["status"], "open")
+        self.assertEqual(org.work_counts()["backlogged"], 0)
+
+    def test_the_same_call_without_the_opt_in_leaves_it_backlogged(self):
+        """The opt-in is real, not decorative: the identical call without it
+        must not move the status. This is what stops the exception quietly
+        becoming the rule again."""
+        org, slug, manager, (_one, two, _three) = fixture(status="backlogged")
+
+        result = org.work_assign(manager, slug, two)
+
+        self.assertEqual(result["status"], "backlogged")
+        self.assertEqual(org.work_counts()["backlogged"], 1)
+
+    def test_it_only_touches_the_backlog_not_other_statuses(self):
+        for status in ("open", "in_progress", "blocked", "deploy_ready"):
+            with self.subTest(status=status):
+                extra = ({"blocked_reason": "external blocker"}
+                         if status == "blocked" else {})
+                org, slug, manager, (_one, two, _t) = fixture(status=status,
+                                                              **extra)
+
+                result = org.work_assign(manager, slug, two, starts_agent=True)
+
+                self.assertEqual(result["status"], status)
+
+    def test_a_staffing_update_opens_it_through_the_same_rule(self):
+        """The `orgtree_staff` route, via `staffed_to`."""
+        org, slug, manager, (_one, two, _three) = fixture(status="backlogged")
+
+        result = org.work_update(manager, slug, owner=two, staffed_to=two)
+
+        self.assertEqual(result["status"], "open")
+        self.assertEqual(org.work_get(manager, slug)["status"], "open")
+
+    def test_a_staffing_that_names_a_status_is_not_second_guessed(self):
+        """An explicit status from the caller still wins over the exception."""
+        org, slug, manager, (_one, two, _three) = fixture(status="backlogged")
+
+        result = org.work_update(manager, slug, ["picked up"], ["go"],
+                                 status="blocked",
+                                 blocked_reason="waiting on the API",
+                                 owner=two, staffed_to=two)
+
+        self.assertEqual(result["status"], "blocked")
+
+    def test_a_staffing_that_does_not_change_hands_still_opens_it(self):
+        """A rehire of the agent that ALREADY owns the item skips the
+        assignment branch entirely, because the owner is unchanged. The
+        transition belongs to the staffing, not to the change of owner."""
+        org, slug, manager, (one, _two, _three) = fixture(status="backlogged")
+
+        result = org.work_update(manager, slug, owner=one, staffed_to=one)
+
+        self.assertEqual(result["status"], "open")
+        self.assertEqual(org.work_get(manager, slug)["status"], "open")
+
+
 class EveryFieldChangesAlone(unittest.TestCase):
     """The matrix: one field in, one field out, nothing else touched."""
 
