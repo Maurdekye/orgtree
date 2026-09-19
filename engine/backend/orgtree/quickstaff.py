@@ -190,9 +190,24 @@ def tier_block(org: Org, item: dict[str, Any], ctx: dict[str, Any],
         org._check_tier_ceiling(tier)
         args = staff_args(org, item, ctx, tier)
         trial = (probe or HireProbe(org)).org()
+        # ⚠ THE TRIAL NAMES A HARNESS SO IT NEVER ASKS FOR ONE. Left to
+        # itself, `hire` chooses a new OpenRouter agent's harness by asking
+        # whether the Codex CLI can run — which spawns one. This runs once per
+        # TIER while the Staff… menu is built, and the menu is exactly the
+        # thing the HireProbe exists to keep fast. Nothing here reads the
+        # stamp: this hire is thrown away, and the four refusals it is looking
+        # for do not depend on the harness, so naming the default asks the
+        # same question for free. The real hire resolves the live answer at
+        # the door (`api.new_hire_harness`). ⚠ ONLY for an OpenRouter tier —
+        # `hire` refuses a harness on any other, because no other tier has one
+        # to choose.
+        from . import openrouter as _orr, openrouter_harness  # noqa: PLC0415
+        _trial_harness = (openrouter_harness.DEFAULT
+                          if _orr.is_tier(tier) else None)
         result = trial.hire(USER, args.get("target"), tier, args["grant"], args["name"],
                             add_dirs=args.get("add_dirs"), tools=args.get("tools"),
-                            org_visibility=args.get("org_visibility"), charter=args["charter"])
+                            org_visibility=args.get("org_visibility"), charter=args["charter"],
+                            harness=_trial_harness)
         if args.get("permission_mode"):
             trial.set_scope(USER, result["node"], permission_mode=args["permission_mode"])
     except (LedgerError, ValueError) as e:

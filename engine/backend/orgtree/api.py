@@ -6112,6 +6112,10 @@ def quick_staff_select(slug: str, wid: str, body: QuickStaffSelection) -> dict[s
         # anything marked stale, so the worst a menu rendered a moment before an
         # account was disabled can do is get the click refused with a reason.
         snap = staffcache.read(max_age=staffcache.COMMIT_MAX_AGE, allow_stale=False)
+        # ⚠ OFF DOC_LOCK, exactly as at the other two hiring doors: choosing a
+        # new OpenRouter agent's harness spawns a Codex process, and provider
+        # reads never happen under the document lock. See `new_hire_harness`.
+        _hire_harness = new_hire_harness(body.tier)
         with store.DOC_LOCK:
             org = store.load_org(slug)
             _work_identity_ready(org, slug)
@@ -6178,7 +6182,8 @@ def quick_staff_select(slug: str, wid: str, body: QuickStaffSelection) -> dict[s
                                      if ctx["mode"] == "under_assignee" else "")
                 args = quickstaff.staff_args(org, item, ctx, str(body.tier),
                                              body.effort, body.account)
-                result = _staff_call(org, slug, USER, args, drive, None, [])
+                result = _staff_call(org, slug, USER, args, drive, None, [],
+                                     _hire_harness)
                 result["message"] = f"Staffed {result['node']} " + (
                     "at top level" if ctx["mode"] == "top_level" else f"under {ctx['owner']['node']}") + (
                     f" on {body.account}" if body.account else "") + "; ticket moved to Open."
@@ -9642,8 +9647,43 @@ def _seat_finish(org: Org, slug: str, actor: str, nid: str, a: dict[str, Any],
     return None
 
 
+def new_hire_harness(tier: object, explicit: object = None) -> str | None:
+    """The harness to stamp on a brand-new OpenRouter agent — answered HERE,
+    at the door, and never under `store.DOC_LOCK`.
+
+    ⚠ WHY IT IS NOT LEFT TO `ledger.hire`. `hire` still knows how to answer
+    this by itself, and for a caller that is not holding the document lock
+    that is still the right thing. But answering it asks whether the Codex CLI
+    can run, and `openrouter_harness.codex_state` answers that by SPAWNING
+    one — `codex app-server` for the capability probe, and `codex --version`
+    behind `providers.codex_status`'s 60-second cache. A subprocess spawn
+    under the document lock stalls every other org operation in the process,
+    not just the request that asked for it; account_fallback's standing rule,
+    written out at the `orgtree_continue_on` branch, is that provider reads
+    never happen under DOC_LOCK, and this is one. The answer needs nothing
+    from the org document, so every door resolves it out here and hands it in
+    as the explicit choice — `hire` then takes its explicit branch and spawns
+    nothing at all while the lock is held (reviewer finding f5).
+
+    Returns None for a tier that has no harness to choose, which is exactly
+    what `hire` already reads as "no explicit choice was made". An explicitly
+    supplied harness comes back untouched: naming one is a deliberate act,
+    it is allowed to fail loudly at launch, and nothing here may substitute
+    for it.
+    """
+    from . import openrouter as _orr                # noqa: PLC0415
+    t = str(tier or "")
+    if not t or not _orr.is_tier(t):
+        return None
+    if explicit:
+        return str(explicit)
+    from . import appsettings, openrouter_harness   # noqa: PLC0415
+    return openrouter_harness.for_new_hire(appsettings.openrouter_harness())
+
+
 def _hire_seat(org: Org, slug: str, actor: str, a: dict[str, Any],
-               drive: list[str]) -> dict[str, Any]:
+               drive: list[str],
+               harness: str | None = None) -> dict[str, Any]:
     """`orgtree_hire`, lifted out of the dispatch WHOLE (2026-09-05) so that
     `orgtree_staff` runs the same hire rather than a second one written to
     look like it. Not a line of it changed in the move: a shortcut whose seat
@@ -9721,7 +9761,8 @@ def _hire_seat(org: Org, slug: str, actor: str, a: dict[str, Any],
                       tools=a.get("tools"),
                       org_visibility=a.get("org_visibility"),
                       charter=a.get("charter"),
-                      account=a.get("account"))
+                      account=a.get("account"),
+                      harness=harness)
     if dwarns:
         result.setdefault("warnings", []).extend(dwarns)
     if result.get("node"):
@@ -9972,7 +10013,8 @@ _STAFF_WORK_ONLY: tuple[str, ...] = ("action", "slug", "title", "objective", "ki
 
 def _staff_call(org: Org, slug: str, actor: str, a: dict[str, Any],
                 drive: list[str], renamed_to: str | None,
-                rename_warnings: list[str]) -> dict[str, Any]:
+                rename_warnings: list[str],
+                harness: str | None = None) -> dict[str, Any]:
     """`orgtree_staff` — the docket item, the seat, and the assignment that
     ties them together, in ONE call (user request 2026-09-05 20:46).
 
@@ -10012,7 +10054,7 @@ def _staff_call(org: Org, slug: str, actor: str, a: dict[str, Any],
     # assignments and mail the seat twice for one call.
     seat_args.pop("work_item", None)
     if mode == "hire":
-        result = _hire_seat(org, slug, actor, seat_args, drive)
+        result = _hire_seat(org, slug, actor, seat_args, drive, harness)
     else:
         result = _rehire_seat(org, slug, actor, seat_args, drive,
                               renamed_to, rename_warnings)
@@ -11119,6 +11161,15 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
             raise HTTPException(422, str(e))
         _archive_warnings = supervisor.interrupt_before_archive(
             body.org, _pre_org, _arch_node)
+    # ⚠ OUT HERE FOR A DIFFERENT REASON THAN THE ARCHIVE WAIT ABOVE, and the
+    # same reason `orgtree_continue_on` is out here: choosing a new OpenRouter
+    # agent's harness is a LIVE PROVIDER READ that spawns a Codex process, and
+    # provider reads never happen under DOC_LOCK. `new_hire_harness` explains
+    # the whole rule; the value is handed to the hire below as its explicit
+    # choice, so nothing under the lock re-asks.
+    _hire_harness = (new_hire_harness(a.get("tier"), a.get("harness"))
+                     if body.tool in ("orgtree_hire", "orgtree_staff")
+                     else None)
     # the RESIDENT write cycle (rearchitecture Phase B): same DOC_LOCK, same
     # save fanout, same discard-on-failure — without re-parsing 11 MB of
     # document per tool call.
@@ -11705,7 +11756,8 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                 if _mail_target:
                     mail_to = str(_mail_target)
             elif body.tool == "orgtree_hire":
-                result = _hire_seat(org, body.org, body.node, a, drive)
+                result = _hire_seat(org, body.org, body.node, a, drive,
+                                    _hire_harness)
             elif body.tool == "orgtree_account_assign":
                 # multi-account D2d: node authority here (strictly downward
                 # — a node cannot rebind ITSELF, a DECIDED refusal: own-
@@ -11828,7 +11880,8 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
             elif body.tool == "orgtree_staff":
                 # the docket item + the seat + the assignment, in one call
                 result = _staff_call(org, body.org, body.node, a, drive,
-                                     _renamed_to, _rename_warnings)
+                                     _renamed_to, _rename_warnings,
+                                     _hire_harness)
             elif body.tool == "orgtree_move":
                 _batch = a.get("moves")
                 if _batch:
@@ -13820,8 +13873,16 @@ def org_op(slug: str, body: Op, request: Request) -> dict[str, Any]:
             raise HTTPException(422, str(e))
         _archive_warnings = supervisor.interrupt_before_archive(
             slug, _pre_org, body.node)
+    # ⚠ OFF DOC_LOCK for the same class of reason as the wait above, though
+    # not the same reason: a new OpenRouter agent's harness is chosen by a
+    # LIVE PROVIDER READ that spawns a Codex process, and provider reads never
+    # happen under the document lock. See `new_hire_harness`; the hire below
+    # takes this as its explicit choice and re-asks nothing under the lock.
+    _hire_harness = (new_hire_harness(body.tier, getattr(body, "harness", None))
+                     if body.op == "hire" else None)
     with store.DOC_LOCK:
-        result = _org_op_locked(slug, body, allow_raise=not pub)
+        result = _org_op_locked(slug, body, allow_raise=not pub,
+                                harness=_hire_harness)
         if _archive_warnings and isinstance(result, dict):
             result.setdefault("warnings", []).extend(_archive_warnings)
     # FR-01 (redteam): retire/dissolve/delete must not orphan a running
@@ -13852,7 +13913,8 @@ def org_op(slug: str, body: Op, request: Request) -> dict[str, Any]:
     return result
 
 
-def _org_op_locked(slug: str, body: Op, allow_raise: bool = False) -> dict[str, Any]:
+def _org_op_locked(slug: str, body: Op, allow_raise: bool = False,
+                   harness: str | None = None) -> dict[str, Any]:
     try:
         org = store.load_org(slug)
     except LedgerError as e:
@@ -13922,7 +13984,8 @@ def _org_op_locked(slug: str, body: Op, allow_raise: bool = False) -> dict[str, 
                               charter=body.charter,
                               external_handles=body.external_handles,
                               raise_ceiling=rc,
-                              account=body.account)
+                              account=body.account,
+                              harness=harness)
             if body.effort:
                 # applied WITH the hire, atomically (same save): the draft
                 # gear's effort used to ride a separate /scope call that the

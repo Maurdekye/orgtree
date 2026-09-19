@@ -3629,6 +3629,16 @@ class Org:
                 # said the other harness was the only one available.
                 # `for_new_hire` substitutes only for a hire, writes nothing
                 # back to settings, and moves no existing agent.
+                #
+                # ⚠ EVERY DOOR THAT HOLDS `store.DOC_LOCK` ANSWERS THIS
+                # BEFORE IT TAKES THE LOCK and arrives here with `harness`
+                # already set, so this branch is not reached from one
+                # (`api.new_hire_harness`, reviewer finding f5). Asking here
+                # is a PROVIDER READ — it spawns a Codex process — and under
+                # the document lock that stalls every other org operation in
+                # the process. The fallback stays because a caller that holds
+                # no lock is entitled to a straight `hire(...)` that just
+                # works; add a new door and resolve it at the door.
                 chosen = openrouter_harness.for_new_hire(
                     appsettings.openrouter_harness())
             self.nodes[nid]["or_harness"] = chosen

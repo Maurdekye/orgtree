@@ -1013,5 +1013,191 @@ class MutationTests(_Patched):
                          "native paths will look for a transcript that "
                          "cannot exist")
 
+
+# ── §14 no CLI spawn under the document lock (finding f5) ─────────────────
+
+def _harness_calls(fn):
+    """Every `new_hire_harness(...)` call in `fn`, split into the ones that
+    sit inside a block holding the document lock and the ones that do not.
+
+    ⚠ AST, NOT TEXT. A `grep` for the call and a `grep` for the lock can only
+    compare line numbers, and these doors take the lock more than once — the
+    hoisted-out halt / unhalt / continue_on branches each take their own,
+    earlier in the same function. Line order would therefore report a
+    correctly hoisted call as being inside a lock it has nothing to do with.
+    Walking the tree asks the question that is actually meant: is the call a
+    DESCENDANT of a lock-holding `with`?
+    """
+    import ast
+    import inspect
+    import textwrap
+    tree = ast.parse(textwrap.dedent(inspect.getsource(fn)))
+    locked = [n for n in ast.walk(tree)
+              if isinstance(n, ast.With)
+              and any(("DOC_LOCK" in ast.unparse(i.context_expr)
+                       or "write_org" in ast.unparse(i.context_expr))
+                      for i in n.items)]
+    held = {id(x) for w in locked for x in ast.walk(w)}
+    calls = [n for n in ast.walk(tree)
+             if isinstance(n, ast.Call)
+             and getattr(n.func, "id", None) == "new_hire_harness"]
+    return calls, [c for c in calls if id(c) in held]
+
+
+class DocLockTests(_Patched):
+    """Reviewer finding f5 — and it was introduced by the f2 fix above, which
+    is why it is a section of its own rather than a line in §12.
+
+    Choosing a NEW hire's harness asks whether the Codex CLI can run, and
+    `openrouter_harness.codex_state` answers that by SPAWNING one. Every door
+    that hires calls `ledger.hire` while holding `store.DOC_LOCK`, and that
+    lock is process-global: a subprocess spawn under it stalls every other org
+    operation in the process, not just the request that asked for it.
+    account_fallback's standing rule — written out at the
+    `orgtree_continue_on` branch of the agent door — is that provider reads
+    never happen under DOC_LOCK, and this was one.
+
+    The fix is that every door answers the question BEFORE taking the lock and
+    hands the answer to `hire` as its explicit choice.
+
+    ⚠ WHAT EACH HALF PROVES, because they are not the same kind of evidence.
+    §14a-§14d are EXECUTED: they run the code and watch it. §14e and §14f are
+    STRUCTURAL — they read the doors' syntax trees. No unit test can observe a
+    lock that a real HTTP request holds without standing up the whole app, so
+    the structural half is what stops the hoist from being quietly undone, and
+    it is labelled as structure rather than dressed up as behaviour.
+    """
+
+    def setUp(self):
+        from orgtree import api
+        self.api = api
+        self.org = ledger.Org.create("orl-" + uuid.uuid4().hex[:8])
+        self.org.d["tiers"][TIER] = 1.0
+        self.org.d["models"][TIER] = MODEL_ID
+
+    def _detonate(self):
+        """Replace every path to a CLI with a detonator. If anything under
+        test asks a provider question, the test dies at the question."""
+        boom = AssertionError("a provider was read where none may be")
+        for name in ("claude_state", "codex_state", "for_new_hire"):
+            p = patch.object(H, name, side_effect=boom)
+            p.start()
+            self.addCleanup(p.stop)
+
+    def test_14a_an_explicit_harness_makes_hire_read_NO_provider_at_all(self):
+        """THE PROPERTY EVERY DOOR DEPENDS ON. Handing `hire` the answer has
+        to actually stop it asking — if it asked anyway, hoisting the call
+        would have bought nothing but a second spawn."""
+        self._detonate()
+        nid = self.org.hire(ledger.USER, None, TIER, 1, "a",
+                            harness=H.CODEX_CLI, **_HIRE)["node"]
+        self.assertEqual(self.org.harness_for(nid), H.CODEX_CLI)
+
+    def test_14b_a_tier_with_no_harness_to_choose_is_answered_without_asking(self):
+        """A claude or codex tier has exactly one CLI by construction. The
+        door must not probe anything to work that out."""
+        self._detonate()
+        self.assertIsNone(self.api.new_hire_harness("opus"))
+        self.assertIsNone(self.api.new_hire_harness(""))
+        self.assertIsNone(self.api.new_hire_harness(None))
+
+    def test_14c_an_explicit_choice_comes_back_untouched_and_unprobed(self):
+        """Naming a harness is a deliberate act (§12c). The door may not
+        substitute for it, and it has nothing to ask in order to pass it on."""
+        self._detonate()
+        self.assertEqual(
+            self.api.new_hire_harness(TIER, H.CODEX_CLI), H.CODEX_CLI)
+
+    def test_14d_the_door_answers_exactly_what_hire_would_have(self):
+        """The hoist must not change the ANSWER, only where it is computed.
+        Stored codex, codex gone: both routes say claude-code."""
+        self.avail(codex=GONE)
+        with patch.object(appsettings, "openrouter_harness",
+                          return_value=H.CODEX_CLI):
+            self.assertEqual(self.api.new_hire_harness(TIER), H.CLAUDE_CODE)
+            self.assertEqual(self.api.new_hire_harness(TIER),
+                             H.for_new_hire(H.CODEX_CLI))
+
+    def test_14e_every_door_resolves_the_harness_OUTSIDE_the_lock(self):
+        """STRUCTURAL. The three doors that create a seat: the operator ops
+        endpoint, the agent tool dispatch (`orgtree_hire` and `orgtree_staff`)
+        and the quick-staff commit. Each must ask before it takes the lock."""
+        for door in (self.api.org_op, self.api.agent_call,
+                     self.api.quick_staff_select):
+            with self.subTest(door=door.__name__):
+                calls, inside = _harness_calls(door)
+                self.assertTrue(calls,
+                                f"{door.__name__} no longer resolves the "
+                                f"new-hire harness at all; `hire` will ask "
+                                f"under the document lock instead")
+                self.assertEqual(
+                    inside, [],
+                    f"{door.__name__} resolves the harness INSIDE the "
+                    f"document lock — that is a subprocess spawn holding a "
+                    f"process-global lock (finding f5)")
+
+    def test_14f_the_answer_is_carried_all_the_way_to_the_stamp(self):
+        """STRUCTURAL. A door that resolves the harness and then drops it on
+        the floor would pass §14e and still spawn under the lock, because
+        `hire` would fall back to asking. Every function between the door and
+        `hire` must take it and forward it."""
+        import ast
+        import inspect
+        import textwrap
+        for fn in (self.api._hire_seat, self.api._staff_call,
+                   self.api._org_op_locked):
+            with self.subTest(fn=fn.__name__):
+                self.assertIn("harness", inspect.signature(fn).parameters,
+                              f"{fn.__name__} cannot accept the door's answer")
+        # …and the two that actually hire pass it on
+        for fn in (self.api._hire_seat, self.api._org_op_locked):
+            tree = ast.parse(textwrap.dedent(inspect.getsource(fn)))
+            hires = [n for n in ast.walk(tree)
+                     if isinstance(n, ast.Call)
+                     and getattr(n.func, "attr", None) == "hire"]
+            self.assertTrue(hires, f"{fn.__name__} no longer hires")
+            for call in hires:
+                self.assertIn(
+                    "harness", [k.arg for k in call.keywords],
+                    f"{fn.__name__} hires without passing the harness the "
+                    f"door resolved; `hire` will probe under the lock")
+
+    def test_14h_the_agent_door_hires_without_reading_a_provider(self):
+        """EXECUTED, and it is the case §14f cannot see: a door that kept the
+        keyword but handed it `None` would satisfy every structural check
+        above and still make `hire` probe under the lock. So this drives the
+        real `_hire_seat` — the same function `orgtree_hire` and
+        `orgtree_staff` both run — with every provider reader replaced by a
+        detonator, and asserts a seat comes out stamped."""
+        self._detonate()
+        p = patch.object(self.api, "provider_hire_gate", lambda *a, **k: None)
+        p.start()
+        self.addCleanup(p.stop)
+        args = dict(_HIRE, tier=TIER, grant=1, name="h" + uuid.uuid4().hex[:6])
+        out = self.api._hire_seat(self.org, self.org.d["slug"], ledger.USER,
+                                  args, [], H.CODEX_CLI)
+        self.assertEqual(self.org.harness_for(str(out["node"])), H.CODEX_CLI)
+
+    def test_14g_the_staff_MENU_probe_never_asks_either(self):
+        """`quickstaff.check_choice` runs a throwaway hire ONCE PER TIER to
+        find out whether that tier could be staffed, and the menu is the thing
+        the HireProbe exists to keep fast. It names a harness so that loop
+        cannot turn into one CLI spawn per OpenRouter model."""
+        import ast
+        import inspect
+        import textwrap
+        from orgtree import quickstaff
+        tree = ast.parse(textwrap.dedent(
+            inspect.getsource(quickstaff.tier_block)))
+        hires = [n for n in ast.walk(tree)
+                 if isinstance(n, ast.Call)
+                 and getattr(n.func, "attr", None) == "hire"]
+        self.assertTrue(hires, "the trial hire is gone")
+        for call in hires:
+            self.assertIn("harness", [k.arg for k in call.keywords],
+                          "the Staff… menu's trial hire asks for a harness "
+                          "again — one CLI spawn per OpenRouter tier")
+
+
 if __name__ == "__main__":
     unittest.main()
