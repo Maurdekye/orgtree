@@ -1,6 +1,7 @@
 """Actual copied native tool-output bytes and reference boundaries."""
 import json
 from pathlib import Path
+import unittest
 import uuid
 
 from tests import test_desktop_import as fixtures
@@ -134,3 +135,7 @@ class NativeDependencyTests(fixtures.DesktopImportTests):
 for _name in list(fixtures.DesktopImportTests.__dict__):
     if _name.startswith("test_") and _name not in NativeDependencyTests.__dict__:
         setattr(NativeDependencyTests, _name, None)
+
+
+if __name__ == "__main__":
+    unittest.main()
