@@ -150,31 +150,45 @@ class ToolCallSingleLoad(unittest.TestCase):
             self.work_list()
             self.assertEqual(c.n, 0, "a warm read verb must not re-parse")
 
-    def test_read_verb_parses_the_document_once_after_a_write(self):
-        """The one parse a read owes: the document moved, so the snapshot is
-        rebuilt exactly once and all three readers share that rebuild."""
+    def test_read_verb_parses_the_document_zero_times_after_a_write(self):
+        """This pinned ONE parse when written: the document moved, so the
+        snapshot was rebuilt by a full load, shared by all three readers.
+        The rearchitecture's Phase A rebuilds it by re-reading only the rows
+        the save changed (store._assemble_snapshot), so even the
+        after-a-write read owes NO document parse — the refresh is a few KB
+        of row reads. Staleness is still impossible by construction: the
+        refresh is seq-gated against the save's own published change set,
+        and the gate-freshness tests below run against this exact path."""
         self.status("something changed")      # bumps org_seq
         with _LoadCounter() as c:
             c.reset()
             self.work_list()
-            self.assertEqual(c.n, 1, "one rebuild, shared by all three readers")
+            self.assertEqual(c.n, 0,
+                             "a section-granular refresh must not re-parse "
+                             "the document")
 
-    def test_write_verb_parses_the_document_twice_not_three_times(self):
-        """A write verb owes TWO parses and cannot owe one.
+    def test_write_verb_parses_the_document_once_not_twice(self):
+        """A write verb owes ONE document parse and cannot owe zero (yet).
 
-        The shared snapshot serves authentication and the halt gate together
-        (one parse, because the previous call's save invalidated it), and the
-        verb itself then takes a PRIVATE load under `DOC_LOCK` because it is
-        about to mutate and save. Handing a write the shared object instead
-        would be a lost update. Two is therefore the floor, not a shortfall --
-        it was three before this change, and the gate half of it is free
-        whenever the preceding call did not write."""
+        This pinned 2 when it was written: one shared gate parse (the
+        previous call's save invalidated the snapshot) plus one private
+        write parse under `DOC_LOCK`. The state-access rearchitecture's
+        Phase A made the first half disappear as a PARSE: an invalidated
+        snapshot now REFRESHES section-granularly, re-reading only the rows
+        the save changed (store._assemble_snapshot), so the gates cost a
+        few KB instead of a document load — and the freshness they must
+        keep is pinned by `test_gates_answer_from_the_last_save_*`, which
+        runs against the refresh path now. The private write parse remains
+        until the dispatch cycle is converted to `store.write_org`; when
+        that lands, this pin moves to 0 on a warm resident and this
+        docstring moves with it."""
         self.status("first")
         with _LoadCounter() as c:
             c.reset()
             self.status("second")
-            self.assertEqual(c.n, 2,
-                             "one shared gate parse + one private write parse")
+            self.assertEqual(c.n, 1,
+                             "gate refresh is row-reads, not a parse; only "
+                             "the private write parse remains")
 
     def test_write_verb_gates_are_free_after_a_read(self):
         """The same write verb, reached from a warm snapshot: the gates cost

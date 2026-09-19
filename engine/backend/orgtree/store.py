@@ -687,6 +687,21 @@ LAZY_SECTIONS: frozenset[str] = frozenset(DICT_LOGS) | frozenset(LIST_LOGS)
 
 _SCHEMA_VERSION = "1"
 
+#: Rearchitecture Phase B — the ACCESS-SCOPED SAVE. When on (the default),
+#: a save of a LazyDoc re-serializes only the top-level keys and node rows
+#: exposed mutably since the last adopt (the read barrier on LazyDoc and
+#: NodesMap) and carries the stored baseline for everything else, making
+#: save cost proportional to what the operation touched instead of to org
+#: size. `ORGTREE_SCOPED_SAVE=0` restores the full re-serialize-and-compare
+#: everywhere — the operational escape hatch while the beta soaks.
+_SCOPED_SAVE = os.environ.get("ORGTREE_SCOPED_SAVE", "1").strip() != "0"
+#: Test-mode control: after every scoped save, re-serialize EVERYTHING and
+#: compare against the adopted baselines — any mismatch is a mutation the
+#: read barrier missed, and it raises rather than letting a silent stale
+#: write survive. The concurrency suite runs with this on; production does
+#: not pay for it.
+_SCOPED_VERIFY = os.environ.get("ORGTREE_SCOPED_SAVE_VERIFY", "").strip() == "1"
+
 # §3.1 — the DDL. Nothing inside a NodeDoc or an entry is a column (§3.3): a
 # field earns a column by appearing in a WHERE or an ORDER BY, nothing else.
 _DDL = """
@@ -1571,6 +1586,101 @@ class SectionMap(dict[str, Any]):
         return super().__reduce_ex__(protocol)
 
 
+class NodesMap(dict[str, Any]):
+    """The `nodes` section with PER-NODE read barriers (rearchitecture
+    Phase B). A real dict of node id → node doc; the only addition is
+    bookkeeping of which node values have been EXPOSED MUTABLY since the
+    marks were last cleared — obtaining a node dict is the ability to mutate
+    it, so exposure is the conservative super-set of mutation. The
+    access-scoped save re-serializes exactly the exposed nodes and carries
+    the stored baseline for the rest, which is what turns the 81 ms
+    all-nodes dump of every save into a per-change cost.
+
+    Key reads (`in`, `keys()`, iteration, `len`) expose no value and mark
+    nothing. Whole-dict value walks (`values`, `items`, `copy`) mark
+    everything — a chart walk inside a write cycle costs that write a full
+    node dump, which is still never WRONG, only conservative. Instance
+    state is plain data so `copy.deepcopy` (the ledger's rollback snapshot)
+    keeps working."""
+
+    _STATE_DEFAULTS: dict[str, Callable[[], Any]] = {
+        "_touched": set, "_touched_all": bool,
+    }
+
+    def __getattr__(self, name: str) -> Any:
+        factory = NodesMap._STATE_DEFAULTS.get(name)
+        if factory is None:
+            raise AttributeError(name)
+        v = factory()
+        object.__setattr__(self, name, v)
+        return v
+
+    def __init__(self, src: dict[str, Any] | None = None) -> None:
+        super().__init__(src or {})
+        self._touched: set[str] = set()
+        self._touched_all: bool = False
+
+    def _mark_clear(self) -> None:
+        self._touched = set()
+        self._touched_all = False
+
+    def __getitem__(self, nid: str) -> Any:
+        v = dict.__getitem__(self, nid)
+        self._touched.add(nid)
+        return v
+
+    def get(self, nid: str, default: Any = None) -> Any:  # pyright: ignore[reportIncompatibleMethodOverride]
+        try:
+            return self[nid]
+        except KeyError:
+            return default
+
+    def setdefault(self, nid: str, default: Any = None) -> Any:  # pyright: ignore[reportIncompatibleMethodOverride]
+        self._touched.add(nid)
+        return dict.setdefault(self, nid, default)
+
+    def __setitem__(self, nid: str, v: Any) -> None:
+        self._touched.add(nid)
+        dict.__setitem__(self, nid, v)
+
+    def __delitem__(self, nid: str) -> None:
+        self._touched.add(nid)
+        dict.__delitem__(self, nid)
+
+    def pop(self, nid: str, *default: Any) -> Any:  # pyright: ignore[reportIncompatibleMethodOverride]
+        self._touched.add(nid)
+        return dict.pop(self, nid, *default)
+
+    def popitem(self) -> tuple[str, Any]:
+        self._touched_all = True
+        return dict.popitem(self)
+
+    def update(self, *a: Any, **kw: Any) -> None:  # pyright: ignore[reportIncompatibleMethodOverride]
+        # route through __setitem__ so every written key is marked
+        for m in a:
+            for k, v in (m.items() if isinstance(m, dict)
+                         else cast("Iterable[tuple[str, Any]]", m)):
+                self[k] = v
+        for k, v in kw.items():
+            self[k] = v
+
+    def clear(self) -> None:
+        self._touched_all = True
+        dict.clear(self)
+
+    def values(self):  # pyright: ignore[reportIncompatibleMethodOverride]
+        self._touched_all = True
+        return dict.values(self)
+
+    def items(self):  # pyright: ignore[reportIncompatibleMethodOverride]
+        self._touched_all = True
+        return dict.items(self)
+
+    def copy(self) -> dict[str, Any]:  # pyright: ignore[reportIncompatibleMethodOverride]
+        self._touched_all = True
+        return dict(dict.items(self))
+
+
 class LazyDoc(dict[str, Any]):
     """The org document as `save_org`/`load_org` hand it to `ledger.Org` under
     the SQLite backend (§4.2). A real `dict` — `ledger.py` never learns the
@@ -1615,7 +1725,8 @@ class LazyDoc(dict[str, Any]):
     _STATE_DEFAULTS: dict[str, Callable[[], Any]] = {
         "_slug": str, "_snap_doc": dict, "_snap_nodes": dict,
         "_snap_logs": dict, "_key_order": list, "_present": set,
-        "_dropped": set, "_pending": dict,
+        "_dropped": set, "_pending": dict, "_touched": set,
+        "_lazy_exposed": set,
     }
 
     def __getattr__(self, name: str) -> Any:
@@ -1789,6 +1900,38 @@ class LazyDoc(dict[str, Any]):
         return {k for k in (self._present | set(self._pending))
                 if not dict.__contains__(self, k) and k not in self._dropped}
 
+    # -- the read barrier (rearchitecture Phase B) ------------------------
+    # Which top-level EAGER keys have been exposed mutably since the marks
+    # were last cleared. Obtaining a mutable value is the ability to edit it,
+    # so exposure is the conservative super-set of mutation; the
+    # access-scoped save re-serializes exactly these and carries the stored
+    # baseline for the rest. Lazy sections are deliberately never marked —
+    # their row-level diff is already proportional to what changed. Scalars
+    # are never marked — a returned str/int/bool cannot edit the document.
+    def _mark(self, k: str, v: Any) -> None:
+        if k in LAZY_SECTIONS:
+            # lazy sections diff by row and cannot be cheaply re-verified at
+            # a write_org release, so exposure is recorded and an exposure
+            # left standing after the last save costs residency (see
+            # write_org) rather than risking an unsaved row edit riding a
+            # later caller's save
+            if isinstance(v, (dict, list)):
+                self._lazy_exposed.add(k)
+        elif isinstance(v, (dict, list)):
+            self._touched.add(k)
+
+    def _mark_clear(self) -> None:
+        self._touched = set()
+        self._lazy_exposed = set()
+        nodes = dict.get(self, "nodes")
+        if isinstance(nodes, NodesMap):
+            nodes._mark_clear()
+
+    def __getitem__(self, k: str) -> Any:
+        v = dict.__getitem__(self, k)   # __missing__ handles the lazy load
+        self._mark(k, v)
+        return v
+
     # -- the overrides ----------------------------------------------------
     def __contains__(self, k: object) -> bool:
         return (dict.__contains__(self, k)
@@ -1830,6 +1973,8 @@ class LazyDoc(dict[str, Any]):
     def __setitem__(self, k: str, v: Any) -> None:
         self._drop_proj(k)
         self._dropped.discard(k)
+        if k not in LAZY_SECTIONS:
+            self._touched.add(k)
         # §4.7: REPLACING a section discards anything buffered for it. Without
         # this, `_write_doc` would write the new value through `_write_lazy`
         # AND still insert the buffered rows beside it — the one way the fast
@@ -1847,6 +1992,8 @@ class LazyDoc(dict[str, Any]):
         self._pending.pop(k, None)
         if k in LAZY_SECTIONS:
             self._dropped.add(k)
+        else:
+            self._touched.add(k)
 
     def pop(self, k: str, *default: Any) -> Any:   # pyright: ignore[reportIncompatibleMethodOverride]
         if k in self:
@@ -1863,6 +2010,8 @@ class LazyDoc(dict[str, Any]):
         k, v = dict.popitem(self)
         if k in LAZY_SECTIONS:
             self._dropped.add(k)
+        else:
+            self._touched.add(k)
         return k, v
 
     def update(self, *a: Any, **kw: Any) -> None:   # pyright: ignore[reportIncompatibleMethodOverride]
@@ -1883,9 +2032,14 @@ class LazyDoc(dict[str, Any]):
         self._dropped |= self._present
         self._dropped |= {k for k in LAZY_SECTIONS if dict.__contains__(self, k)}
         self._dropped |= {k for k in self._pending if k in LAZY_SECTIONS}
+        self._touched |= {k for k in dict.keys(self) if k not in LAZY_SECTIONS}
         self._pending.clear()
         self._drop_proj()
         dict.clear(self)
+
+    def _mark_all(self) -> None:
+        """A whole-document VALUE walk exposes every eager section mutably."""
+        self._touched |= {k for k in dict.keys(self) if k not in LAZY_SECTIONS}
 
     def keys(self):   # pyright: ignore[reportIncompatibleMethodOverride]
         self.materialize_all()
@@ -1893,10 +2047,12 @@ class LazyDoc(dict[str, Any]):
 
     def items(self):   # pyright: ignore[reportIncompatibleMethodOverride]
         self.materialize_all()
+        self._mark_all()
         return dict.items(self)
 
     def values(self):   # pyright: ignore[reportIncompatibleMethodOverride]
         self.materialize_all()
+        self._mark_all()
         return dict.values(self)
 
     def __iter__(self) -> Iterator[str]:
@@ -2166,9 +2322,9 @@ def _load_lazy(conn: sqlite3.Connection, slug: str,
             known.add(k)
     for k in order:
         if k == "nodes" and "nodes" not in doc_rows:
-            nodes: dict[str, Any] = {}
+            nodes: NodesMap = NodesMap()
             for nid, v in node_rows:
-                nodes[nid] = json.loads(v)
+                dict.__setitem__(nodes, nid, json.loads(v))
                 d._snap_nodes[nid] = v
             dict.__setitem__(d, "nodes", nodes)
         elif k in doc_rows:
@@ -2453,11 +2609,24 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
     db_doc_keys: set[str] = set()
     if snap_doc is None:
         db_doc_keys = {cast(str, k) for (k,) in conn.execute("SELECT key FROM doc")}
+    # the access-scoped save: a key never exposed mutably since the last
+    # adopt cannot have changed, so its stored baseline stands without a
+    # re-serialize. Anything without a baseline (a brand-new key is always
+    # marked by __setitem__ anyway) falls through to the full path.
+    touched = (lazy._touched
+               if _SCOPED_SAVE and lazy is not None and snap_doc is not None
+               else None)
     for k, v in items:
         if k in ROWED or k in LAZY_SECTIONS:
             continue
+        if touched is not None and k not in touched \
+                and snap_doc is not None and k in snap_doc:
+            new_doc[k] = snap_doc[k]
+            continue
         s = _dumps(v)
         new_doc[k] = s
+        if changes is not None:
+            changes.dumped_bytes += len(s)
         if snap_doc is None or snap_doc.get(k) != s:
             conn.execute(_UPSERT_DOC, (k, s))
             if changes is not None:
@@ -2489,9 +2658,26 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
         known_ids = db_ids if db_ids is not None else set(cast("dict[str, str]", snap_nodes))
         row = conn.execute("SELECT COALESCE(MAX(ord), -1) FROM nodes").fetchone()
         next_ord = cast(int, row[0]) + 1 if row is not None else 0
-        for nid, nv in nodes.items():
+        # per-node scoping, same rule as the doc keys: a node row never
+        # exposed mutably keeps its stored baseline. Disabled whenever the
+        # baselines themselves are in doubt (plain dict, nodes-was-blob).
+        node_touched: set[str] | None = None
+        if touched is not None and isinstance(nodes, NodesMap) \
+                and not nodes._touched_all and db_ids is None \
+                and snap_nodes is not None:
+            node_touched = nodes._touched
+        # ⚠ dict.items, NOT nodes.items(): the differ itself must not trip
+        # the read barrier it consumes
+        for nid, nv in dict.items(nodes):
+            if node_touched is not None and nid not in node_touched:
+                sn = cast("dict[str, str]", snap_nodes).get(nid)
+                if sn is not None:
+                    new_nodes[nid] = sn
+                    continue
             s = _dumps(nv)
             new_nodes[nid] = s
+            if changes is not None:
+                changes.dumped_bytes += len(s)
             if nid in known_ids:
                 if snap_nodes is None or db_ids is not None or snap_nodes.get(nid) != s:
                     conn.execute("UPDATE nodes SET val=? WHERE id=?", (s, nid))
@@ -2581,6 +2767,39 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
     return new_doc, new_nodes, new_logs, order
 
 
+#: the per-org RESIDENT write document (rearchitecture Phase B): one
+#: long-lived Org per slug, reused by every `write_org` cycle so the 11 MB
+#: parse and the whole-tree Org construction are paid once per process
+#: instead of once per write. Guarded by DOC_LOCK — only writers touch it.
+_resident: dict[str, Org] = {}
+
+
+def _verify_scoped_save(d: dict[str, Any], lazy: LazyDoc) -> None:
+    """Test-mode negative control for the read barrier: after a scoped save,
+    every eager value must serialize to exactly its adopted baseline — any
+    difference is a mutation the barrier missed, which the scoped save would
+    have silently failed to write. Raises rather than logs: a missed write
+    is corruption, not a warning."""
+    for k in list(dict.keys(d)):
+        if k in ROWED or k in LAZY_SECTIONS:
+            continue
+        s = _dumps(dict.__getitem__(d, k))
+        if lazy._snap_doc.get(k) != s:
+            raise RuntimeError(
+                f"scoped save verification failed: doc key {k!r} differs "
+                "from its adopted baseline — a mutation escaped the read "
+                "barrier")
+    nodes = dict.get(d, "nodes")
+    if isinstance(nodes, dict):
+        for nid in list(dict.keys(nodes)):
+            s = _dumps(dict.__getitem__(nodes, nid))
+            if lazy._snap_nodes.get(nid) != s:
+                raise RuntimeError(
+                    f"scoped save verification failed: node {nid!r} differs "
+                    "from its adopted baseline — a mutation escaped the "
+                    "read barrier")
+
+
 def _save_sqlite(org: Org) -> None:
     slug = _safe_slug(org.d["slug"])
     d = cast("dict[str, Any]", org.d)
@@ -2593,21 +2812,38 @@ def _save_sqlite(org: Org) -> None:
         conn.execute("BEGIN IMMEDIATE")
         try:
             new_doc, new_nodes, new_logs, order = _write_doc(conn, d, lazy, changes)
-            conn.execute("COMMIT")
+            # {COMMIT, publish, seq bump} are one atom with respect to
+            # snapshot rebuilds — see the invariant note on `_changed_lock`.
+            # A commit outside the gate opens the exact window this closes: a
+            # rebuild pins its read view after the commit but drains the
+            # accumulator before the publish, and serves that save's other
+            # sections stale forever.
+            with _snap_gate(slug):
+                conn.execute("COMMIT")
+                if lazy is not None:
+                    _publish_changes(slug, changes)
+                else:
+                    # a plain-dict save reconciles the whole database; the
+                    # change record is not a trustworthy delta of it
+                    _publish_changes_unknown(slug)
+                _bump_org_seq(slug)
         except BaseException:
             with contextlib.suppress(Exception):
                 conn.execute("ROLLBACK")
             raise
-    # every doc key and node was re-serialized to compare — that CPU is the
-    # cost the rearchitecture's access-scoped save exists to shrink, so it is
-    # the number worth recording beside what actually changed
-    changes.dumped_bytes += (sum(len(s) for s in new_doc.values())
-                             + sum(len(s) for s in new_nodes.values()))
+    # a save through anything but the resident instance leaves the resident's
+    # baselines stale — drop it; the next write_org reloads fresh. This is
+    # what keeps the ~200 not-yet-converted legacy write cycles correct
+    # beside residency during the incremental conversion.
+    res = _resident.get(slug)
+    if res is not None and cast("dict[str, Any]", res.d) is not d:
+        _resident.pop(slug, None)
+    # dumped_bytes was counted at each real _dumps in the differ, so under
+    # the scoped save the carried baselines cost — and report — nothing
     stateprobe.record("save_doc", ms=(time.perf_counter() - t0) * 1000.0,
                       nbytes=changes.dumped_bytes,
                       detail={"changed": changes.as_dict()}
                       if not changes.is_empty() else None)
-    _publish_changes(slug, changes)
     if lazy is not None:
         # the database now IS this document: adopt the new snapshot so a
         # second save of the same object compares against the right thing
@@ -2657,6 +2893,15 @@ def _save_sqlite(org: Org) -> None:
                           if dict.__contains__(d, k) and k not in new_doc}
                          | unmat | flushed)
         lazy._dropped = set()
+        # everything materialized was just adopted: memory and disk agree,
+        # so standing exposures are settled (a NEW exposure after this save
+        # re-records itself and is what the write_org release judges)
+        lazy._lazy_exposed = set()
+        if _SCOPED_VERIFY:
+            # AFTER the adopt, so memory is compared against what this save
+            # just made authoritative — before it, every legitimately-saved
+            # entry reads as a false mismatch
+            _verify_scoped_save(d, lazy)
         for k in LAZY_SECTIONS:
             v = dict.get(d, k)
             if isinstance(v, AppendLog):
@@ -3415,6 +3660,29 @@ def node_row_exists(slug: str, nid: str) -> bool | None:
     return _bounded_read(slug, body)
 
 
+def read_node(slug: str, nid: str) -> dict[str, Any] | None:
+    """One node as STORED — a single primary-key row, parsed alone
+    (rearchitecture Phase A: reading one node must not materialize the node
+    table). None = the node does not exist, or this backend/document shape
+    has no cheap row answer and the caller must load instead.
+
+    ⚠ Storage truth, not a constructed `Org` view: the in-place
+    normalizations `Org.__init__` applies (scope tool/dir shapes, inherited
+    permission_mode, charter fold) are NOT applied here. Every document
+    saved by this codebase persists nodes post-normalization, so the
+    difference is visible only on documents that predate a migration and
+    have never been saved since — callers needing the constructed view use
+    `cached_org(slug).node(nid)`, which after Phase A refreshes by exactly
+    what changed rather than re-parsing the org."""
+    def body(conn: sqlite3.Connection) -> Any:
+        if conn.execute("SELECT 1 FROM doc WHERE key='nodes'").fetchone():
+            return None
+        row = conn.execute("SELECT val FROM nodes WHERE id=?",
+                           (nid,)).fetchone()
+        return json.loads(cast(str, row[0])) if row is not None else None
+    return cast("dict[str, Any] | None", _bounded_read(slug, body))
+
+
 def read_events_page(slug: str, since: int = 0, last: int | None = None
                      ) -> tuple[int, list[Any]] | None:
     """(total, rows) for the events endpoint: `events[since:]`, or the newest
@@ -3714,16 +3982,34 @@ _org_seq: dict[str, int] = {}
 
 # ------------------------------------------------- accumulated save changes
 # What the differ actually wrote since each org's shared snapshot was last
-# rebuilt (stateprobe.SaveChanges → top-level keys + node ids). Phase A of
-# the rearchitecture refreshes only these from the database instead of
-# re-parsing 11 MB because one mailbox moved; until then the accumulation is
-# also the instrumentation's ground truth for "what do saves actually touch".
+# rebuilt (stateprobe.SaveChanges → top-level keys + node ids). The
+# section-granular snapshot refresh (rearchitecture Phase A) re-reads ONLY
+# these instead of re-parsing 11 MB because one mailbox moved.
+#
+# ⚠ THE INVARIANT THE WHOLE SCHEME RESTS ON: every commit that changes an
+# org is either published here BEFORE any snapshot rebuild can observe its
+# data, or marks the org unknown (`_changed_all`). Under-reporting serves
+# READERS STALE STATE; over-reporting merely costs a wasted small read. The
+# per-slug `_snap_gate` is what makes "before" true: a save holds it across
+# {COMMIT, publish, seq bump}, a rebuild holds it across {drain, read
+# transaction}, so a rebuild can never see a commit whose keys it has not
+# drained. Writes from another process cannot exist (`.owner` claim).
 _changed_lock = threading.Lock()
 _changed_keys: dict[str, set[str]] = {}
 _changed_nodes: dict[str, set[str]] = {}
 #: saves whose change set could not be trusted (a plain-dict doc, a JSON
-#: backend save) force the next snapshot rebuild to be a full reload.
+#: backend save, a failure mid-collection) force the next snapshot rebuild
+#: to be a full reload.
 _changed_all: set[str] = set()
+_snap_gates: dict[str, threading.Lock] = {}
+
+
+def _snap_gate(slug: str) -> threading.Lock:
+    with _changed_lock:
+        gate = _snap_gates.get(slug)
+        if gate is None:
+            gate = _snap_gates[slug] = threading.Lock()
+        return gate
 
 
 def _publish_changes(slug: str, changes: SaveChanges) -> None:
@@ -3744,6 +4030,17 @@ def _publish_changes_unknown(slug: str) -> None:
         _changed_all.add(slug)
 
 
+def _invalidate_snapshot(slug: str) -> None:
+    """Delete/rename/migration/backend surprises: drop everything derived."""
+    _resident.pop(slug, None)
+    with _doc_cache_lock:
+        _doc_cache.pop(slug, None)
+    with _changed_lock:
+        _changed_all.discard(slug)
+        _changed_keys.pop(slug, None)
+        _changed_nodes.pop(slug, None)
+
+
 def org_seq(slug: str) -> int:
     """The org's current change sequence (0 until its first save here)."""
     with _org_seq_lock:
@@ -3751,10 +4048,13 @@ def org_seq(slug: str) -> int:
 
 
 def _bump_org_seq(slug: str) -> None:
+    """Advance the change sequence. The cached snapshot is deliberately NOT
+    dropped any more: a stale entry is the seed the section-granular refresh
+    rebuilds from (`_assemble_snapshot`), and seq mismatch is what marks it
+    stale. Paths that cannot describe their change publish `unknown`, which
+    forces the next rebuild to be a full reload instead."""
     with _org_seq_lock:
         _org_seq[slug] = _org_seq.get(slug, 0) + 1
-    with _doc_cache_lock:
-        _doc_cache.pop(slug, None)
 
 
 # --------------------------------------------- shared read-only snapshots
@@ -3776,14 +4076,175 @@ _doc_cache_lock = threading.Lock()
 _doc_cache: dict[str, tuple[int, "Org"]] = {}
 
 
+def _assemble_snapshot(slug: str, prev: Org) -> tuple[Org, int] | None:
+    """Rebuild the shared snapshot from `prev` plus exactly what saves
+    changed since it was built (rearchitecture Phase A).
+
+    Returns (org, seq) — a NEW read-only Org sharing every unchanged parsed
+    object with `prev`, with only the changed doc keys and node rows re-read
+    and re-parsed in one gated transaction — or None, meaning the caller
+    must full-load (first build, unknown change set, or any structural
+    surprise; every surprise bails rather than guessing, because an
+    over-refresh costs a small read and an under-refresh serves stale
+    state).
+
+    Runs entirely inside the per-slug snapshot gate, so no save can commit
+    between the accumulator drain and the read view — the invariant note on
+    `_changed_lock` is load-bearing here.
+    """
+    prev_d = cast("dict[str, Any]", prev.d)
+    if not isinstance(prev_d, LazyDoc) or prev_d._slug != slug:
+        return None
+    t0 = time.perf_counter()
+    with _snap_gate(slug):
+        with _changed_lock:
+            if slug in _changed_all:
+                return None
+            keys = _changed_keys.pop(slug, set())
+            nids = _changed_nodes.pop(slug, set())
+        try:
+            seq = org_seq(slug)
+            fresh_doc: dict[str, str] = {}
+            fresh_present: set[str] = set()
+            with _POOL.acquire(slug) as conn:
+                conn.execute("BEGIN")
+                try:
+                    raw_order = _meta_get(conn, _META_KEY_ORDER)
+                    order: list[str] = (cast("list[str]", json.loads(raw_order))
+                                        if raw_order else [])
+                    for k in keys:
+                        if k == "nodes":
+                            continue
+                        row = conn.execute("SELECT val FROM doc WHERE key=?",
+                                           (k,)).fetchone()
+                        if row is not None:
+                            fresh_doc[k] = cast(str, row[0])
+                        elif k in LAZY_SECTIONS:
+                            if k in DICT_LOGS:
+                                if conn.execute("SELECT 1 FROM log_d WHERE sect=? "
+                                                "LIMIT 1", (k,)).fetchone() \
+                                        or _meta_get(conn, _META_OWNERS + k) is not None:
+                                    fresh_present.add(k)
+                            elif conn.execute("SELECT 1 FROM log_l WHERE sect=? "
+                                              "LIMIT 1", (k,)).fetchone():
+                                fresh_present.add(k)
+                    id_order = [cast(str, r[0]) for r in
+                                conn.execute("SELECT id FROM nodes ORDER BY ord")]
+                    fresh_nodes: dict[str, str] = {}
+                    for nid in nids:
+                        row = conn.execute("SELECT val FROM nodes WHERE id=?",
+                                           (nid,)).fetchone()
+                        if row is not None:
+                            fresh_nodes[nid] = cast(str, row[0])
+                    conn.execute("COMMIT")
+                except BaseException:
+                    if conn.in_transaction:
+                        with contextlib.suppress(Exception):
+                            conn.execute("ROLLBACK")
+                    raise
+            if "nodes" in fresh_doc:
+                raise _AssembleBail("nodes stored as a blob")
+            # ---- assemble, sharing unchanged objects with prev ----------
+            prev_known = set(prev_d._key_order)
+            prev_nodes = cast("dict[str, Any]",
+                              dict.get(prev_d, "nodes") or {})
+            d2 = LazyDoc(slug)
+            nodes2: NodesMap = NodesMap()
+            carried: set[str] = set()
+            for nid in id_order:
+                if nid in nids:
+                    raw = fresh_nodes.get(nid)
+                    if raw is None:
+                        raise _AssembleBail(f"changed node {nid!r} vanished mid-read")
+                    dict.__setitem__(nodes2, nid, json.loads(raw))
+                    d2._snap_nodes[nid] = raw
+                else:
+                    if not dict.__contains__(prev_nodes, nid) \
+                            or nid not in prev_d._snap_nodes:
+                        # a node this process never published a change for is
+                        # on disk — the accumulator missed something
+                        raise _AssembleBail(f"unpublished node {nid!r}")
+                    dict.__setitem__(nodes2, nid, dict.__getitem__(prev_nodes, nid))
+                    d2._snap_nodes[nid] = prev_d._snap_nodes[nid]
+                    carried.add(nid)
+            present2: set[str] = set(fresh_present)
+            for k in order:
+                if k == "nodes":
+                    dict.__setitem__(d2, "nodes", nodes2)
+                    continue
+                if k in keys:
+                    if k in fresh_doc:
+                        d2._snap_doc[k] = fresh_doc[k]
+                        dict.__setitem__(d2, k, json.loads(fresh_doc[k]))
+                    # else: a deleted key, or a lazy section that stays
+                    # unmaterialized (presence already in fresh_present)
+                    continue
+                if k in prev_d._snap_doc:
+                    if not dict.__contains__(prev_d, k):
+                        raise _AssembleBail(f"snap without value for {k!r}")
+                    d2._snap_doc[k] = prev_d._snap_doc[k]
+                    dict.__setitem__(d2, k, dict.__getitem__(prev_d, k))
+                elif k in LAZY_SECTIONS:
+                    if k in prev_d._present or dict.__contains__(prev_d, k):
+                        present2.add(k)
+                elif k not in prev_known:
+                    # a key on disk this process never published — the
+                    # accumulator missed something
+                    raise _AssembleBail(f"unpublished key {k!r}")
+            if "nodes" not in order and id_order:
+                dict.__setitem__(d2, "nodes", nodes2)
+                order = [*order, "nodes"]
+            docish = set(d2._snap_doc)
+            d2._key_order = [k for k in order
+                             if k in docish or k == "nodes"
+                             or (k in LAZY_SECTIONS and k in present2)]
+            d2._present = {k for k in present2 if k not in docish}
+            d2._normalized_nodes = carried  # type: ignore[attr-defined]  # Org.__init__ honors it
+            d2._eager_bytes = (sum(len(v) for v in d2._snap_doc.values())
+                               + sum(len(v) for v in d2._snap_nodes.values()))
+            org2 = Org(cast("OrgDoc", d2))
+            fresh_bytes = (sum(len(v) for v in fresh_doc.values())
+                           + sum(len(v) for v in fresh_nodes.values()))
+            stateprobe.record("snapshot_refresh",
+                              ms=(time.perf_counter() - t0) * 1000.0,
+                              nbytes=fresh_bytes,
+                              detail={"keys": sorted(keys),
+                                      "nodes": len(nids)})
+            return org2, seq
+        except BaseException as e:
+            # whatever was drained can no longer be trusted to be complete
+            _publish_changes_unknown(slug)
+            if not isinstance(e, (_AssembleBail, LedgerError, sqlite3.Error,
+                                  KeyError, ValueError, TypeError, OSError)):
+                raise
+            return None
+
+
+class _AssembleBail(Exception):
+    """A snapshot rebuild met something it cannot account for — full-load."""
+
+
 def cached_org(slug: str) -> Org:
     """The org as of its last save, shared and read-only. A dict lookup
-    while `org_seq` is unchanged; one real load when it moved."""
+    while `org_seq` is unchanged; a section-granular refresh — re-reading
+    only what saves actually changed — when it moved; one real full load
+    only on first build or when a change set is unknown."""
     seq = org_seq(slug)
     with _doc_cache_lock:
         hit = _doc_cache.get(slug)
     if hit is not None and hit[0] == seq:
         return hit[1]
+    if hit is not None and STORE_BACKEND == "sqlite":
+        assembled = _assemble_snapshot(slug, hit[1])
+        if assembled is not None:
+            org2, seq2 = assembled
+            org2._shared_snapshot = True   # type: ignore[attr-defined]
+            with _doc_cache_lock:
+                cur = _doc_cache.get(slug)
+                if cur is None or cur[0] <= seq2:
+                    _doc_cache[slug] = (seq2, org2)
+            return org2
+    seq = org_seq(slug)
     try:
         org = load_org(slug)
     except Exception:
@@ -3798,11 +4259,114 @@ def cached_org(slug: str) -> Org:
     # call reloads and the fresh snapshot carries the minted value anyway.
     org._shared_snapshot = True   # type: ignore[attr-defined]
     if org_seq(slug) == seq:
-        # unchanged across our read — cache under the seq we started from;
-        # a save that landed mid-load just costs one more load next call
+        # unchanged across our read — cache under the seq we started from
+        # (a save that landed mid-load just costs one more load next call),
+        # and only now may an `unknown` change-set flag be retired: this
+        # snapshot re-read everything, so nothing unknown is baked stale
+        # into it. Keys accumulated before this load stay — a later refresh
+        # re-reading them is a wasted small read, never a wrong one.
         with _doc_cache_lock:
             _doc_cache[slug] = (seq, org)
+        with _changed_lock:
+            _changed_all.discard(slug)
     return org
+
+
+@contextlib.contextmanager
+def write_org(slug: str) -> Generator[Org]:
+    """The write cycle (rearchitecture Phase B): DOC_LOCK plus the per-org
+    RESIDENT document.
+
+    `with write_org(slug) as org: … ; save_org(org)` replaces the classic
+    `with DOC_LOCK: org = load_org(slug); … ; save_org(org)`. Semantics are
+    identical — the same lock, the same save fanout, and the discard
+    property (a cycle that raises leaves no trace of its mutations) is kept
+    by dropping the resident instance on any exception. What changes is the
+    cost: after the first cycle the 11 MB parse and the whole-tree Org
+    construction are gone, and with the access-scoped save the differ dumps
+    only what the cycle actually exposed.
+
+    A CLEAN exit without a save re-verifies every touched entry against its
+    baseline (cheap — touched entries only): an abandoned mutation drops
+    the resident loudly instead of riding the NEXT caller's save, and a
+    pure read-under-lock keeps residency at no cost. Legacy cycles that
+    still load their own copy remain correct beside this: their save
+    invalidates the resident (see _save_sqlite), so it is rebuilt fresh on
+    the next use.
+
+    The JSON backend keeps the exact historical behavior: lock + fresh
+    load, no residency."""
+    if STORE_BACKEND != "sqlite":
+        with DOC_LOCK:
+            yield load_org(slug)
+        return
+    with DOC_LOCK:
+        org = _resident.get(slug)
+        if org is None:
+            org = load_org(slug)
+        d = cast("dict[str, Any]", org.d)
+        if not isinstance(d, LazyDoc):
+            # a document shape residency cannot track — plain one-shot cycle
+            yield org
+            return
+        _resident[slug] = org
+        d._mark_clear()
+        try:
+            yield org
+        except BaseException:
+            # the discard property (invariant 4): a failed cycle's partial
+            # mutations must not survive into anyone's next save
+            if _resident.get(slug) is org:
+                _resident.pop(slug, None)
+            raise
+        if _resident.get(slug) is not org:
+            # a save through another object (a legacy cycle nested in this
+            # hold) already dropped residency — nothing further to prove
+            return
+        dirty = _resident_dirty(d)
+        if any(rows for rows in d._pending.values()):
+            dirty.append("(pending log appends)")
+        if dirty:
+            _resident.pop(slug, None)
+            stateprobe.record("resident_abandoned",
+                              detail={"keys": dirty[:8]})
+            print(f"[orgtree.store] write_org({slug!r}): mutated without "
+                  f"saving ({', '.join(dirty[:5])}) — resident dropped",
+                  flush=True)
+        elif d._lazy_exposed:
+            # a materialized log section was exposed after the last save;
+            # rows cannot be cheaply re-verified, so residency is the price
+            # of certainty rather than the risk of an unsaved edit riding a
+            # later caller's save
+            _resident.pop(slug, None)
+            stateprobe.record("resident_lazy_exposed",
+                              detail={"sections": sorted(d._lazy_exposed)[:8]})
+
+
+def _resident_dirty(d: LazyDoc) -> list[str]:
+    """Touched entries whose serialization no longer matches the adopted
+    baseline — i.e. mutations that were never saved. Cost is proportional
+    to what the cycle touched; an untouched document costs nothing."""
+    dirty: list[str] = []
+    for k in list(d._touched):
+        if k in ROWED or k in LAZY_SECTIONS:
+            continue
+        if dict.__contains__(d, k):
+            if d._snap_doc.get(k) != _dumps(dict.__getitem__(d, k)):
+                dirty.append(k)
+        elif k in d._snap_doc:
+            dirty.append(k)                     # deleted but never saved
+    nodes = dict.get(d, "nodes")
+    if isinstance(nodes, NodesMap):
+        nids = (set(dict.keys(nodes)) | set(d._snap_nodes)
+                if nodes._touched_all else set(nodes._touched))
+        for nid in nids:
+            if dict.__contains__(nodes, nid):
+                if d._snap_nodes.get(nid) != _dumps(dict.__getitem__(nodes, nid)):
+                    dirty.append(f"nodes[{nid}]")
+            elif nid in d._snap_nodes:
+                dirty.append(f"nodes[{nid}]")
+    return dirty
 
 
 def cached_list() -> list[dict[str, Any]]:
@@ -3877,7 +4441,15 @@ def _save_org(org: Org) -> None:
     _assert_synced_data_root()
     from .notification_state import reconcile_attention
     _t0 = time.perf_counter()
-    reconcile_attention(org.d)
+    # reconcile reads only work_items and asks, and rewrites only work_items
+    # fields derived from them — with the read barrier in place (Phase B) it
+    # runs exactly when either input could have moved. Unconditionally it
+    # would MARK both sections on every save and cost every one-field write
+    # a 700 KB re-serialize; skipping it when neither input was exposed is
+    # semantically the identity (unchanged inputs ⇒ unchanged outputs).
+    _ld = org.d if isinstance(org.d, LazyDoc) else None
+    if _ld is None or "work_items" in _ld._touched or "asks" in _ld._touched:
+        reconcile_attention(org.d)
     stateprobe.record("save_reconcile",
                       ms=(time.perf_counter() - _t0) * 1000.0)
     for _h in list(pre_save_hooks):
@@ -3889,14 +4461,17 @@ def _save_org(org: Org) -> None:
             pass
     global REVISION
     if STORE_BACKEND == "sqlite":
+        # seq bump + change publication happen INSIDE _save_sqlite, under the
+        # per-org snapshot gate, atomically with the commit
         _save_sqlite(org)
     else:
         _t1 = time.perf_counter()
         _save_json(org)
         stateprobe.record("save_doc", ms=(time.perf_counter() - _t1) * 1000.0)
+        # the JSON backend has no change record: readers full-reload
         _publish_changes_unknown(org.d["slug"])
+        _bump_org_seq(org.d["slug"])
     REVISION += 1  # pyright: ignore[reportConstantRedefinition]  # uppercase mutable counter is the public API; renaming is forbidden this wave
-    _bump_org_seq(org.d["slug"])
     # never let a fanout failure fail the write — the doc is already on disk
     try:
         on_save(org.d["slug"])
@@ -4053,6 +4628,7 @@ def delete_org(slug: str) -> None:
                 _put_back()
                 raise
             _remove_reply_snapshots()
+            _invalidate_snapshot(slug)
             _bump_org_seq(slug)
             return
         with _POOL.acquire(slug) as conn:
@@ -4079,7 +4655,9 @@ def delete_org(slug: str) -> None:
                     os.replace(side, dside)
         _remove_reply_snapshots()
         # deletion is a change too: derived caches validated by the seq
-        # (reply identity, tree ETag, loop snapshots) must not survive it
+        # (reply identity, tree ETag, loop snapshots) must not survive it —
+        # and the section-granular snapshot must not either
+        _invalidate_snapshot(slug)
         _bump_org_seq(slug)
 
 

@@ -1,4 +1,5 @@
 """Phase 0 of the state-access rearchitecture: the storage-boundary probe.
+(Phases A/B are pinned in test_state_access_rearchitecture.py.)
 
 Three properties, each of which the later phases build on and none of which
 may regress silently:

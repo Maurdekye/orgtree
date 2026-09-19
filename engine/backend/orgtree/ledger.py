@@ -674,8 +674,18 @@ class Org:
         self.d: OrgDoc = doc
         # migrate older docs in place: dir grants gain modes; scopes gain tool sets
         # (pre-schema docs — the loop handles keys NodeDoc no longer declares)
-        for i, n in enumerate(cast("dict[str, dict[str, Any]]",
-                                   self.d.get("nodes", {})).values()):
+        #
+        # `_normalized_nodes` is the section-granular snapshot rebuild's seam
+        # (store._assemble_snapshot): those node dicts are the SAME objects a
+        # previous construction already normalized in this process, so
+        # re-deriving their scopes would only spend the milliseconds the
+        # rebuild exists to save. Everything below the loop still runs — the
+        # once-per-document migrations are marker-gated and the rest is cheap.
+        _normalized: set[str] = getattr(doc, "_normalized_nodes", None) or set()
+        for i, (_nid, n) in enumerate(cast("dict[str, dict[str, Any]]",
+                                           self.d.get("nodes", {})).items()):
+            if _nid in _normalized:
+                continue
             sc = n.setdefault("scope", {})
             sc["add_dirs"] = norm_dirs(sc.get("add_dirs"))
             if "tools" not in sc:
