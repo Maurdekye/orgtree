@@ -36,8 +36,9 @@ available before the command starts:
   equal the explicit target version. This command does not edit `package.json`
   or `package-lock.json`; make and commit the version/release-notes change
   separately first. The target may be a final `MAJOR.MINOR.PATCH` version or a
-  release candidate in the exact `MAJOR.MINOR.PATCH-RCn` form, with `n` a
-  positive integer without leading zeroes.
+  prerelease in the exact `MAJOR.MINOR.PATCH-beta.N` form (`alpha.N` is also
+  accepted), with `N` an integer without leading zeroes. An `-RCn` label is
+  refused — see below.
 - A reachable `origin` remote and public GitHub API access. The command checks
   remote tag and release collisions and fails closed when it cannot establish
   that the target is unused.
@@ -92,16 +93,29 @@ canonical manifest records the receipt, so an unrelated standalone green run
 cannot satisfy the release gate.
 
 The version is required and must be a final `x.y.z` semantic version or an
-`x.y.z-RCn` release candidate. Before building, the command refuses a dirty
+`x.y.z-beta.N` prerelease. Before building, the command refuses a dirty
 tree, version drift, missing release notes, a local or remote tag collision, a
 public release collision, and missing runtime or packaging prerequisites.
 
-Release candidates use `MAJOR.MINOR.PATCH-RCn` exactly, for example
-`2.1.3-RC1`; successive candidates increment `n`. Final releases remove the
+Prereleases use `MAJOR.MINOR.PATCH-beta.N` exactly, for example `2.1.9-beta.0`;
+successive prereleases increment `N`. Final releases remove the
 suffix and use `MAJOR.MINOR.PATCH`. The version is carried unchanged through
 the application/build metadata, installer source name, hyphenated updater
 asset name, manifests, and installation handoff. Do not use an ad-hoc filename
 counter such as `-2` or `-3` as a candidate identity.
+
+⚠ **An `-RCn` label is refused, and this document used to recommend it.** The
+updater reads the first dot-separated component of a prerelease label as a
+*channel name* and only accepts a release on a matching channel. `2.1.5-RC3`
+therefore sits on a channel whose only member is itself: measured, such a build
+is offered its own version, finds it is not newer, and never updates again. The
+updater recognises exactly two labels as a prerelease line that also moves up to
+stable — `alpha` and `beta` — so a `2.1.9-beta.0` build receives newer betas and
+takes stable `2.1.9` when it appears. The code changed to refuse `RC` outright;
+the paragraphs above did not, and on 2026-09-19 a release owner read them, told
+their coordinator that `-beta.N` would be rejected and an RC was required, and
+had it exactly backwards. The command's own refusal message carried the same
+stale advice and has been corrected with it.
 
 The build uses the existing `npm run package:win` path and always forwards
 `--publish never` to electron-builder. Credentials in `GH_TOKEN`, a logged-in

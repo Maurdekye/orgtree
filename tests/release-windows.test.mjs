@@ -372,11 +372,47 @@ test('prereleases use the exact beta.N convention in arguments and asset names',
   assert.equal(validReleaseVersion('2.1.3-beta.01'), false)
   assert.equal(validReleaseVersion('2.1.3-BETA.1'), false)
   assert.deepEqual(parseReleaseArgs([version]), { version, publish: false, help: false })
-  assert.throws(() => parseReleaseArgs(['2.1.3-RC1']), /release candidate/)
+  assert.throws(() => parseReleaseArgs(['2.1.3-RC1']), /only alpha\.N and beta\.N/)
   assert.equal(installerSourceName(version), 'Orgtree Setup 2.1.3-beta.1.exe')
   assert.equal(installerAssetName(version), 'Orgtree-Setup-2.1.3-beta.1.exe')
   assert.deepEqual(releasePlan(version, { publish: true }).publication.tag,
     ['git', 'tag', 'v2.1.3-beta.1'])
+})
+
+test('the version refusal never recommends a version it would refuse', () => {
+  // ⚠ THE POINT IS THE ADVICE, NOT THE REFUSAL. Both call sites used to say
+  // "a release candidate such as 2.1.3-RC1" — the one label this command
+  // rejects, and rejects for the measured reason above. An operator who typed
+  // -RCn was told to type -RCn. It survived a convention change because the
+  // old test asserted only that SOMETHING was thrown, matching the stale
+  // phrase `/release candidate/`, so it kept passing while the sentence it
+  // pinned had become wrong.
+  //
+  // So this asserts the property rather than the wording: whatever the message
+  // says, every version it offers as an example must actually be accepted.
+  for (const broken of ['2.1.3-RC1', '2.1.3-rc.1', '2.1.3-beta', 'nonsense', '']) {
+    let message = ''
+    try { parseReleaseArgs([broken]) } catch (error) { message = String(error?.message ?? error) }
+    assert.ok(message, `no refusal for ${broken || '<empty>'}`)
+    const offered = message.match(/\d+\.\d+\.\d+(?:-[A-Za-z]+\.?\d*)?/g) ?? []
+    const examples = offered.filter((candidate) => candidate !== broken)
+    assert.ok(examples.length, `the refusal for ${broken || '<empty>'} offers no example`)
+    for (const example of examples) {
+      assert.equal(validReleaseVersion(example), true,
+        `the refusal recommends ${example}, which it would itself refuse`)
+    }
+  }
+  // …and the refused label is still named, so the operator learns WHY rather
+  // than only that they were wrong. Without this the message could satisfy the
+  // loop above by dropping every mention of RC and explaining nothing.
+  let rcMessage = ''
+  try { parseReleaseArgs(['2.1.3-RC1']) } catch (error) { rcMessage = String(error?.message ?? error) }
+  assert.match(rcMessage, /-RCn/)
+  assert.match(rcMessage, /channel/)
+  // both refusal sites share one message, so they cannot drift apart again
+  let planMessage = ''
+  try { releasePlan('2.1.3-RC1') } catch (error) { planMessage = String(error?.message ?? error) }
+  assert.equal(planMessage, rcMessage)
 })
 
 test('the release build invokes npm through a Windows-safe Node CLI boundary', () => {

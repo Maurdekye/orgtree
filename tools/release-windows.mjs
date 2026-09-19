@@ -216,6 +216,33 @@ export function validReleaseVersion(version) {
     && /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:alpha|beta)\.(0|[1-9]\d*))?$/.test(version)
 }
 
+/** The refusal an operator actually reads when their version is rejected.
+ *
+ *  ⚠ IT USED TO RECOMMEND THE ONE FORM THIS COMMAND REFUSES. Both call sites
+ *  said "a release candidate such as 2.1.3-RC1" — the exact label
+ *  `validReleaseVersion` rejects, and rejects for the concrete reason in the
+ *  comment above. So the operator who typed `-RCn` was told to type `-RCn`,
+ *  and the operator who typed anything else was pointed at a form that would
+ *  fail next. Measured 2026-09-19: `2.1.9-RC1` refused with
+ *  "…or a release candidate such as 2.1.3-RC1: 2.1.9-RC1".
+ *
+ *  It survived because `docs/windows-release.md` still described the RC rule
+ *  too, so the message and the documentation agreed with each other and
+ *  disagreed only with the code — and the test pinned the stale wording by
+ *  matching on `/release candidate/`, which kept passing while saying nothing
+ *  about whether the advice was usable. A release owner following either one
+ *  is sent straight into a refusal.
+ *
+ *  One function so the two call sites cannot drift apart again. */
+export function badVersionMessage(version) {
+  return 'Target version must be a final semantic version such as 2.1.3, or a '
+    + 'prerelease such as 2.1.3-beta.4 — only alpha.N and beta.N labels are '
+    + 'accepted. An -RCn label is refused on purpose: the updater reads the '
+    + 'prerelease label as a channel name, so an RC build sits on a channel '
+    + 'whose only member is itself and can never update again. '
+    + `Received: ${version}`
+}
+
 /** The prerelease channel a version is on, or null for a stable release. The
  *  same rule electron-builder uses to name its update manifest and
  *  electron-updater uses to decide what a build may accept. */
@@ -288,9 +315,7 @@ export function parseReleaseArgs(argv) {
     }
   }
   if (!parsed.help && parsed.version === null) fail(`An explicit target version is required.\n\n${RELEASE_USAGE}`)
-  if (!parsed.help && !validReleaseVersion(parsed.version)) {
-    fail(`Target version must be a final semantic version such as 2.1.3 or a release candidate such as 2.1.3-RC1: ${parsed.version}`)
-  }
+  if (!parsed.help && !validReleaseVersion(parsed.version)) fail(badVersionMessage(parsed.version))
   return parsed
 }
 
@@ -298,7 +323,7 @@ export function parseReleaseArgs(argv) {
  * useful to callers and fixture tests that need to prove the ordinary command
  * has no tag, push, or GitHub publication operation in its plan. */
 export function releasePlan(version, { publish = false } = {}) {
-  if (!validReleaseVersion(version)) fail(`Target version must be a final semantic version such as 2.1.3 or a release candidate such as 2.1.3-RC1: ${version}`)
+  if (!validReleaseVersion(version)) fail(badVersionMessage(version))
   const tag = `v${version}`
   return {
     mode: publish ? 'publish' : 'candidate',
