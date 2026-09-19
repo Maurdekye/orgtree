@@ -156,6 +156,60 @@ class DataRootGuardMemo(unittest.TestCase):
                     store._assert_synced_data_root()
 
 
+class TreeBytesBypassEquality(unittest.TestCase):
+    """The serialize-once tree cache may bypass the framework encoder ONLY
+    where equality proves the bytes identical (coordinator-sol decision,
+    2026-09-19 21:35Z). This is that proof, on a real org payload, plus the
+    preserved direct-caller contract."""
+
+    @classmethod
+    def setUpClass(cls):
+        import types
+        from orgtree import api
+        cls.api = api
+        cls.types = types
+        org = store.create_org("tree-bytes-" + str(time.time_ns()))
+        cls.slug = org.d["slug"]
+        org.hire(ledger.USER, None, "luna", 0, "boss", charter="the boss")
+        org.hire(ledger.USER, "boss", "luna", 0, "kid", charter="a child")
+        store.save_org(org)
+
+    def _req(self):
+        return self.types.SimpleNamespace(
+            state=self.types.SimpleNamespace(), headers={},
+            url=self.types.SimpleNamespace(path="/api/orgs/x"))
+
+    def test_served_bytes_equal_framework_encoding_of_the_same_dict(self):
+        from starlette.testclient import TestClient
+        client = TestClient(self.api.app)
+        r = client.get(f"/api/orgs/{self.slug}")
+        self.assertEqual(r.status_code, 200)
+        tree = self.api.org_tree(self.slug, self._req())   # same cached build
+        self.assertIsInstance(tree, dict, "direct caller must get the dict")
+        from fastapi.responses import JSONResponse
+        from fastapi.encoders import jsonable_encoder
+        framework = JSONResponse(jsonable_encoder(tree)).body
+        self.assertEqual(r.content, framework,
+                         "bypassed serialization diverged from the framework encoding")
+
+    @classmethod
+    def tearDownClass(cls):
+        store._POOL.close_all(cls.slug)
+
+    def test_http_response_carries_the_etag_and_304_works(self):
+        from starlette.testclient import TestClient
+        client = TestClient(self.api.app)
+        client.get(f"/api/orgs/{self.slug}")   # cold fetch warms the limits
+        # cache, which is an etag input, so the FIRST tag rotates once
+        # (pre-existing behavior, not part of the bytes bypass under test)
+        r = client.get(f"/api/orgs/{self.slug}")
+        etag = r.headers.get("etag")
+        self.assertTrue(etag, "bytes response lost the ETag header")
+        r2 = client.get(f"/api/orgs/{self.slug}",
+                        headers={"If-None-Match": etag})
+        self.assertEqual(r2.status_code, 304)
+
+
 class SafeSlugMemo(unittest.TestCase):
     def setUp(self):
         store._SAFE_SLUG_OK.clear()

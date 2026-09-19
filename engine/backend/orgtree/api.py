@@ -2185,7 +2185,15 @@ def _summarise_archived(node: dict[str, Any]) -> None:
 # polling an unchanged org shares one build and usually just gets a 304.
 _TREE_STALE_BUCKET_S = 30.0
 _tree_cache_lock = threading.Lock()
-_tree_cache: dict[tuple[str, bool], tuple[str, dict[str, Any]]] = {}
+#: (etag, built dict, serialized body). The BYTES are first-class cache
+#: content: FastAPI's encode-per-request of the cached dict cost ~32 ms per
+#: hit on a ~1 MB tree against ~5 ms for one direct dumps (measured
+#: byte-identical, 2026-09-19) — and serialize-once means hits re-encode
+#: nothing at all. The dict stays cached beside the bytes because the
+#: archived-summary suite calls the route function directly and reads the
+#: payload as a mapping, and because node-detail and future delta patching
+#: work on the dict.
+_tree_cache: dict[tuple[str, bool], tuple[str, dict[str, Any], bytes]] = {}
 #: one build at a time per (slug, public): concurrent misses on the SAME
 #: etag must share one build, not race two (perf-review reproduction #4 —
 #: a barrier probe produced two builds). The dict of locks is tiny and
@@ -2251,13 +2259,11 @@ def org_tree(slug: str, request: Request,
         # nothing the payload derives from has moved — no load, no tree(),
         # no annotate, no serialize; the client keeps what it has
         return Response(status_code=304, headers={"ETag": etag})
-    if response is not None:
-        response.headers["ETag"] = etag
     key = (slug, pub)
     with _tree_cache_lock:
         hit = _tree_cache.get(key)
     if hit is not None and hit[0] == etag:
-        return hit[1]
+        return _tree_payload(hit, response)
     with _tree_build_lock(key):
         # a concurrent miss may have filled the cache while we queued —
         # answer from its build instead of making a second one
@@ -2265,8 +2271,9 @@ def org_tree(slug: str, request: Request,
             hit = _tree_cache.get(key)
             rev_before = _tree_inval_rev.get(slug, 0)
         if hit is not None and hit[0] == etag:
-            return hit[1]
+            return _tree_payload(hit, response)
         tree = _org_view(slug, request, None)
+        entry = (etag, tree, _dump_tree(tree))
         with _tree_cache_lock:
             if _tree_inval_rev.get(slug, 0) == rev_before:
                 # GUARDED PUBLICATION (perf-review round 2): a patch frame
@@ -2275,8 +2282,26 @@ def org_tree(slug: str, request: Request,
                 # drop. The build still answers THIS request (its etag is
                 # already retired by the rev bump, so no one can 304 onto
                 # it); it just never enters the cache.
-                _tree_cache[key] = (etag, tree)
-    return tree
+                _tree_cache[key] = entry
+    return _tree_payload(entry, response)
+
+
+def _dump_tree(tree: dict[str, Any]) -> bytes:
+    """Exactly JSONResponse's serialization options, so the served bytes are
+    what the framework would have produced — verified byte-identical on the
+    real tree payload before this bypass shipped."""
+    return json.dumps(tree, ensure_ascii=False, allow_nan=False,
+                      indent=None, separators=(",", ":")).encode("utf-8")
+
+
+def _tree_payload(entry: tuple[str, dict[str, Any], bytes], response) -> Any:
+    """HTTP callers get the pre-serialized body (no per-request re-encode);
+    a DIRECT in-process caller (`response is None`, e.g. the archived-summary
+    suite driving the route function) keeps the plain payload dict."""
+    if response is None:
+        return entry[1]
+    return Response(content=entry[2], media_type="application/json",
+                    headers={"ETag": entry[0]})
 
 
 @app.get("/api/orgs/{slug}/nodes/{nid}/detail")
