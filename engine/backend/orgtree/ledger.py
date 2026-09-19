@@ -15189,7 +15189,15 @@ class Org:
         # `_work_start_if_backlogged` for why that case is different and why
         # the rule lives there rather than at either call site.
         if starts_agent:
-            self._work_start_if_backlogged(it, actor, why)
+            # ⚠ NOT the bare `why`. For `work_assign` that is the literal
+            # "assign", so the status row would have read
+            # {from: backlogged, to: open, why: "assign"} — an auditor reading
+            # the history would see precisely the defect this ticket removed,
+            # recorded as having happened, with nothing pointing at the real
+            # cause (review finding f2). The reason names the opt-in flag, so
+            # the row says which branch produced it and greps straight to the
+            # code that did.
+            self._work_start_if_backlogged(it, actor, f"{why}+starts_agent")
         parts = [p for p in (it.get("participants") or []) if p != own]
         it["participants"] = parts
         if self._work_actor_node(it.get("reviewer")) == own:

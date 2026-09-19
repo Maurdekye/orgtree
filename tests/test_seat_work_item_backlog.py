@@ -111,6 +111,29 @@ class SeatWorkItemBacklogTests(unittest.TestCase):
                 self.assertEqual(
                     self.org.work_get(self.manager, wid)["status"], status)
 
+    def test_the_history_row_does_not_read_as_a_bare_assign_opening_it(self):
+        """Review finding f2. The status row used to carry `why: 'assign'`,
+        because the assignment core passed its own reason straight through.
+
+        An auditor reading that history would see {from: backlogged, to: open,
+        why: 'assign'} — which is EXACTLY the defect this ticket removed,
+        recorded as having happened, with nothing pointing at the real cause.
+        The record has to distinguish "a plain assign opened it" (a bug) from
+        "a seat was started on it" (the one sanctioned exception).
+        """
+        wid = self._item()
+
+        self._seat_finish(wid)
+
+        rows = [h for h in self.org.work_get(self.manager, wid)["history"]
+                if h.get("op") == "status"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["from"], "backlogged")
+        self.assertEqual(rows[0]["to"], "open")
+        # the reason names the opt-in that caused it, not the bare operation
+        self.assertNotEqual(rows[0]["why"], "assign")
+        self.assertIn("starts_agent", rows[0]["why"])
+
     def test_a_plain_assign_on_the_same_item_still_preserves_the_backlog(self):
         """The control. The ticket's whole point is that assignment alone does
         NOT start work; if this ever goes green-by-accident the exception has
