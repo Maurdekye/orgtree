@@ -637,6 +637,61 @@ class DescriptionMarkup(unittest.TestCase):
         self.assertEqual(len(got), len(damaged)
                          - sum(len(s.text) for s in removed))
 
+    def test_s6_the_tool_repairs_the_overlapping_specimen_shape(self) -> None:
+        """THE SHAPE THE TOOL USED TO REFUSE, driven end to end.
+
+        `damaged_description()` uses an invented `</objective>` close, which only
+        one pattern matches. The commonest specimen in the live store is the
+        other shape -- the GENERIC close followed by an opening parameter tag --
+        and that one is matched by two patterns at once. While those two matches
+        were both reported, `proves_mechanical` compared the repaired length
+        against an inflated total, failed, and the tool printed "LEFT ALONE --
+        the removed spans do not reconstruct the stored text".
+
+        So the guard did its job: it refused rather than corrupting anything,
+        which is the right failure. But the effect was that the repair path was
+        INOPERATIVE on the commonest real damage, and nothing noticed, because
+        the end-to-end test used the shape that happened to work and the live
+        repair set is empty so the tool never met a real item.
+        """
+        import contextlib
+
+        damaged = ('Fix the packaging step. The next one is mine.'
+                   + T['parameter_close'] + '\n' + T['parameter_open']
+                   + '"acceptance">["The actual cause is identified."]')
+        # two patterns cover the close; exactly one span must be reported
+        self.assertEqual(len(toolmarkup.find_leaks(damaged)), 2)
+
+        item = self.org.work_create(self.agent, 'Specimen target', 'clean for now')
+        name = item['slug']
+        stored = next(i for i in self.org.d['work_items'] if i['slug'] == name)
+        stored['objective'] = damaged
+        store.save_org(self.org)
+        store._POOL.close_all(self.slug)
+
+        tool = self._repair_tool()
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            self.assertEqual(tool.main(['--data', os.environ['ORGTREE_DATA'],
+                                        '--org', self.slug, '--apply']), 0)
+        printed = out.getvalue() + err.getvalue()
+        self.assertIn('1 damaged field(s)', printed)
+        self.assertIn('1 repaired', printed)
+        self.assertNotIn('LEFT ALONE', printed,
+                         'the tool declined the commonest real damage shape')
+
+        after = store.load_org(self.slug)
+        got = next(i for i in after.d['work_items']
+                   if i['slug'] == name)['objective']
+        expected, removed = toolmarkup.strip_leaks(damaged)
+        self.assertEqual(got, expected)
+        self.assertEqual(toolmarkup.find_leaks(got), [])
+        # the prose and the leaked payload both survive; only markup left
+        self.assertIn('Fix the packaging step. The next one is mine.', got)
+        self.assertIn('The actual cause is identified.', got)
+        self.assertEqual(len(got), len(damaged)
+                         - sum(len(s.text) for s in removed))
+
     def test_s6_the_tool_never_prints_the_word_the_runner_reads_as_a_skip(self) -> None:
         """A guard on the runner's classifier, not on English.
 
