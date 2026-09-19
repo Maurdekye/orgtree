@@ -362,3 +362,7 @@ class WindowTests(unittest.TestCase):
         self.assertEqual(response.status_code,200,response.text)
         self.assertEqual(len(response.json()['messages']),8)
         self.assertTrue(response.json()['has_older'])
+
+
+if __name__ == "__main__":
+    unittest.main()

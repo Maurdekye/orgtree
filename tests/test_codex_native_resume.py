@@ -44,3 +44,7 @@ class NativeResumeTests(unittest.TestCase):
                 else:
                     self.assertNotIn('path',client.params)
                     self.assertNotIn('cwd',client.params)
+
+
+if __name__ == "__main__":
+    unittest.main()
