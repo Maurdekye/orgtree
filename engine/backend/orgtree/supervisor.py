@@ -7199,11 +7199,28 @@ def _status_note(org: Org, rid: str, now: float) -> str:
       It is process-bound and resets to False on a backend restart, which is
       the CORRECT answer after one: no turn is running.
     * `inflight` (on the node, durable) — the turn's START time. Written at
-      `o2.node(nid)["inflight"] = inf`; popped in exactly TWO places, and the
-      difference between them matters to every reader of this function. One is
-      the turn's own `finally`. The other is `reconcile()`, which IS a
-      boot-time reconciliation (`api.py` runs it for every org at startup) and
-      which spends each marker as it replays that turn.
+      `o2.node(nid)["inflight"] = inf`. ⚠ IT IS REMOVED IN AT LEAST SIX
+      PLACES, NOT TWO — do not read an absent marker as "a turn ran here and
+      finished". As of 2026-09-19 the removers are: the turn's own `finally`
+      (`_mark_turn_ended`, the only one that leaves a `turn_ended` stamp);
+      `reconcile()`'s spend, which IS a boot-time reconciliation (`api.py`
+      runs it for every org at startup) and which spends each marker as it
+      replays that turn; `reconcile()`'s separate in-memory drop of a COMMAND
+      marker, which is not replayable; `halt`, twice, which moves the marker
+      into `halt["interrupted_turn"]` rather than deleting it; the import
+      resume in `desktop_recovery`; and `ledger`, which sets it to None
+      instead of deleting the key (`.get("inflight")` tested for truthiness,
+      so None and absent behave identically — no gap, but no key either).
+      THE COUNT IS THE POINT AND IT KEEPS ROTTING, so treat the roles above
+      as the durable part and re-grep the sites before trusting a number.
+      ⚠ CORRECTED 2026-09-19, the SECOND correction to this same sentence
+      (restart-mail, in review). It then said "popped in exactly TWO places",
+      which is not a harmless undercount: a reader who believes only the
+      turn's `finally` and `reconcile` remove the marker concludes that an
+      absence after startup must mean a turn ran — which is mutant M12, the
+      drop-on-bare-absence behaviour the user ruled AGAINST on 2026-09-19.
+      The stamp below `turn_ended` exists precisely because absence alone is
+      not that proof.
       ⚠ CORRECTED 2026-09-18. This said "popped in exactly ONE place" and
       "THERE IS NO BOOT-TIME RECONCILIATION, so a backend killed mid-turn
       leaves this marker behind for good". Both halves were false, and the

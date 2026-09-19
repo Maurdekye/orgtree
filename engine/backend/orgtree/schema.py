@@ -331,9 +331,24 @@ class TurnEnded(TypedDict):
     popped — NOT the time it ended. That is what makes it comparable with the
     `at` on the interrupted marker reconcile is holding: both name when a turn
     STARTED, so `ended.at > interrupted.at` reads as "a turn that started
-    later than the interrupted one has already finished". Comparing against
-    the wall-clock end time instead would call every completed turn newer,
-    including the interrupted turn's own predecessor.
+    later than the interrupted one has already finished".
+
+    ⚠ THE REASON IS THAT LIKE-FOR-LIKE COMPARISON, AND NOT THE OBVIOUS ONE.
+    An earlier draft of this docstring argued that a wall-clock end time
+    "would call every completed turn newer, including the interrupted turn's
+    own predecessor". THAT IS FALSE, and it was measured false in review
+    (restart-mail, 2026-09-19): `turn_ended` is only ever written when a
+    marker is popped, so for a marker reconcile actually COLLECTED, nothing
+    popped it between its turn's start and the crash — otherwise it would not
+    still be there — and the previous pop, with it the stored end time,
+    therefore precedes that marker's own `at`. A predecessor's END time
+    always precedes the next turn's START time. Mutant N3 (read `ended`
+    instead of `at`) confirms it: the interrupted turn's own predecessor goes
+    on replaying correctly.
+    The conclusion stands on the comparison being apples-to-apples instead:
+    both sides must mean "when a turn STARTED", and that stays true even if
+    turns ever overlap on a seat — which is exactly the case the false reason
+    would not survive.
     """
     at: str
     #: when that turn ended, wall clock. Diagnostic only — nothing decides on

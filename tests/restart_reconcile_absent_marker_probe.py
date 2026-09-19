@@ -135,6 +135,24 @@ def seed(slug: str, old_at: str = OLD_AT, victim_stamp: str | None = None) -> No
                 "text": f"OLD-INTERRUPTED-TURN for {name}",
                 "view": f"OLD-INTERRUPTED-TURN for {name}"}
         if victim_stamp is not None:
+            # ⚠ `at` AND `ended` ARE SEEDED EQUAL, AND NO ARM SEPARATES THEM.
+            # Raised in review as F3 (restart-mail, 2026-09-19): mutant N3 --
+            # reconcile reading `turn_ended["ended"]` instead of
+            # `turn_ended["at"]` -- survives this whole suite, because with
+            # the two keys equal both reads give the same answer. The STAMP
+            # check pins what is WRITTEN (mutant N1 dies on it); nothing pins
+            # which key is READ.
+            # LEFT ALIVE DELIBERATELY, because N3 is an EQUIVALENT mutant and
+            # the obvious fix does not kill it. Seeding a REALISTIC `ended`
+            # -- later than `at`, as the review suggested -- does not help: a
+            # turn's end always precedes the next turn's start (see
+            # schema.TurnEnded), so a realistic `ended` for this arm's stamp
+            # still falls BEFORE the interrupted marker's `at`, and reading
+            # either key still replays. The only seed that would kill N3 is
+            # an `ended` AFTER the interrupted turn started, which is a state
+            # the product cannot reach. Killing this mutant would mean
+            # asserting on an impossible fixture, so it is written down here
+            # instead -- which is what the reviewer asked for.
             o.node(VICTIM)["turn_ended"] = {
                 "at": victim_stamp, "ended": victim_stamp}
         store.save_org(o)
