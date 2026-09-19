@@ -83,6 +83,8 @@ import unittest
 from collections import defaultdict
 from pathlib import Path
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 REPO = Path(__file__).resolve().parent.parent
 
 #: Trees walked by the guard. See SCOPE in the module docstring.
