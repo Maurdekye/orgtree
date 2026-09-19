@@ -285,8 +285,19 @@ class StaffProgressOptional(unittest.TestCase):
                          ledger.Org.STAFFING_BOUNDARY.format(node='veteran2'))
 
     def test_s5c_backlogged_is_opened_by_the_staffing_as_before(self):
-        """Assignment starts a backlogged item; preservation must not have
-        moved that transition."""
+        """Staffing starts a backlogged item; preservation must not have moved
+        that transition.
+
+        ⚠ STAFFING IS NOW THE ONLY PATH THAT DOES THIS. Since 2026-09-19 a
+        plain `assign` leaves the status alone, backlog included, because
+        ownership and status are independent metadata (see
+        tests/test_work_metadata_isolation.py). Staffing keeps the transition
+        because it creates the seat and starts the agent in the same call, so a
+        `backlogged` item here would mean the docket reporting work as
+        unstarted while an agent is actively running it. It is resolved into an
+        explicit `status` in `api._staff_call`, not as a side effect of the
+        shared assignment core, and a caller's own `status` still wins.
+        """
         wid = self.item('Unstarted', status='backlogged')
 
         out = self.staff(wid, 'opener')

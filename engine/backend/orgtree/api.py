@@ -9692,11 +9692,28 @@ def _staff_call(org: Org, slug: str, actor: str, a: dict[str, Any],
             parent=(str(a["parent"]) if a.get("parent") else None))
         item = str(w.get("created") or "")
     else:
+        # ⚠ STAFFING OPENS A BACKLOGGED ITEM, AND SAYS SO HERE (2026-09-19).
+        # Plain `assign` no longer moves the status — ownership and status are
+        # independent metadata, and a coordinator that reassigns a ticket must
+        # not silently start work left unstarted on purpose. Staffing is the
+        # one exception, and it is a real one rather than a leftover: this call
+        # creates the seat and starts the agent on the item in the same breath,
+        # so leaving the item `backlogged` would have the docket report work as
+        # unstarted while an agent is actively running it.
+        #
+        # It is resolved HERE, into an ordinary explicit `status`, instead of
+        # living as a hidden side effect inside the shared assignment core. The
+        # transition belongs to staffing, so it is visible at staffing's own
+        # call site, and an explicit `status` from the caller still wins.
+        staff_status = (str(a["status"]) if a.get("status") is not None
+                        else None)
+        if staff_status is None:
+            current = org.work_get(actor, str(a.get("slug") or ""))
+            if str(current.get("status") or "") == Org.WORK_BACKLOG:
+                staff_status = "open"
         w = org.work_update(
             actor, str(a.get("slug") or ""), a.get("done_so_far"),
-            a.get("working_on_next"), status=(str(a["status"])
-                                              if a.get("status") is not None
-                                              else None),
+            a.get("working_on_next"), status=staff_status,
             attention=(True if _arg_flag(a, "attention") else None),
             attention_reason=(str(a["attention_reason"])
                               if a.get("attention_reason") is not None else None),
