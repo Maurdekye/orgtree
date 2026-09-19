@@ -15110,13 +15110,14 @@ class Org:
         # stands, and "as it stands" has to still mean the OUTGOING holder.
         self._work_holders_append(it, own, actor)
         it["owner"] = cast(WorkActor, self._work_holder(own))
-        # Assignment starts work that was explicitly left in the backlog.
-        # Keep every other status untouched: assignment is ownership, not a
-        # general-purpose status update.
-        previous_status = str(it.get("status") or "")
-        if previous_status == self.WORK_BACKLOG:
-            it["status"] = "open"
-            self._work_stamp_status(it)
+        # ⚠ ASSIGNMENT NEVER TOUCHES THE STATUS — not even `backlogged`
+        # (user ruling 2026-09-19). Until then this path opened a backlogged
+        # item automatically, which is how a coordinator's plain `assign`
+        # silently started work the user had deliberately left unstarted: the
+        # caller asked for one field and got two. Ownership and status are
+        # independent metadata, so a caller that wants the item opened as well
+        # says so, by passing `status` on `work_update`. The status a
+        # reassignment finds is the status it leaves behind, backlog included.
         parts = [p for p in (it.get("participants") or []) if p != own]
         it["participants"] = parts
         if self._work_actor_node(it.get("reviewer")) == own:
@@ -15128,11 +15129,12 @@ class Org:
             self._work_hist(it, actor, "reviewer",
                             {"from": own, "to": None, "why": "became owner"})
             it["reviewer"] = None
+        # No `status_from`/`status_to` here any more: this path cannot move the
+        # status, so a status pair on an `assign` row would describe a change
+        # that did not happen. A status change made in the SAME work_update
+        # call is recorded by that call's own status row.
         self._work_hist(it, actor, "assign",
-                        {"from": frm, "to": it["owner"], "why": why,
-                         **({"status_from": previous_status,
-                            "status_to": str(it["status"])}
-                           if previous_status != str(it["status"]) else {})})
+                        {"from": frm, "to": it["owner"], "why": why})
         self._log("work_assign", actor,
                   {"item": it["slug"], "to": own, "why": why}, [])
         out: dict[str, Any] = {"assigned": it["slug"], "owner": it["owner"],
