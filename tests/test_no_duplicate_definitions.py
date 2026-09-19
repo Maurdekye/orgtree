@@ -575,6 +575,23 @@ class Classification(unittest.TestCase):
                 "    @v.setter\n"
                 "    def v(self, x): pass\n"
                 "    def v(self): return 2\n"),
+            # ── the single-dispatch rule has a hazard side too, and it
+            # survived the first mutation round because nothing covered it.
+            # Registered implementations may repeat; a second BASE may not —
+            # the later @singledispatchmethod discards the earlier dispatcher
+            # and every registration made against it.
+            "two @singledispatchmethod bases of one name": (
+                "from functools import singledispatchmethod\n"
+                "class C:\n"
+                "    @singledispatchmethod\n"
+                "    def area(self, s): raise NotImplementedError\n"
+                "    @singledispatchmethod\n"
+                "    def area(self, s): return 0\n"),
+            "a dispatch group mixed with a plain redefinition": (
+                "class C:\n"
+                "    @area.register\n"
+                "    def _(self, s: int): return s\n"
+                "    def _(self): return None\n"),
         }
         for label, src in cases.items():
             with self.subTest(case=label):
