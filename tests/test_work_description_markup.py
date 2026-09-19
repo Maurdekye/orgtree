@@ -319,6 +319,72 @@ class DescriptionMarkup(unittest.TestCase):
                         + '"acceptance">' + ticks + ' appears inline.')
                 self.assertEqual(toolmarkup.find_leaks(text), [])
 
+    def test_s3_masking_never_changes_the_length_of_the_text(self) -> None:
+        """LOAD-BEARING, AND IT WAS ASSERTED NOWHERE.
+
+        `mask_code` blanks code regions to spaces of the SAME LENGTH so that an
+        offset found in the masked copy is a true offset in the original --
+        `find_leaks` slices the ORIGINAL at those offsets and `strip_leaks`
+        deletes exactly those bytes. A mutant whose mask collapsed length passed
+        the whole suite, because no test put a code region BEFORE a leak, which
+        is the only arrangement where the offsets shift.
+        """
+        samples = (
+            TICKET_OWN_DESCRIPTION,
+            'plain prose with no code at all',
+            'inline `code` span',
+            'a ``double `tick` run`` here',
+            '```\nfenced\nblock\n```\n\ntrailing prose',
+            '~~~\ntilde fenced\n~~~\n',
+            '```unclosed fence runs to the end\nand keeps going',
+            '',
+        )
+        for text in samples:
+            with self.subTest(text=text[:40]):
+                masked = toolmarkup.mask_code(text)
+                self.assertEqual(len(masked), len(text),
+                                 'masking changed the length, so every offset '
+                                 'it produces indexes the wrong byte')
+                # line structure is preserved too, for line-anchored patterns
+                self.assertEqual(masked.count('\n'), text.count('\n'))
+                # and every surviving character sits where it started
+                for i, ch in enumerate(masked):
+                    if ch != ' ':
+                        self.assertEqual(ch, text[i])
+
+    def test_s3_a_fence_before_a_leak_does_not_shift_the_repair(self) -> None:
+        """The end-to-end consequence of the property above.
+
+        With a length-collapsing mask this exact input lost twelve bytes out of
+        the MIDDLE OF THE LEGITIMATE CODE BLOCK and kept the real markup: a
+        silent edit to a specification plus a failure to repair, both at once.
+        """
+        block = '<items><item name="x">1</item></items>'
+        text = ('The exporter writes each item as XML.\n\n'
+                '```xml\n' + block + '\n```\n\n'
+                'That is the whole format. '
+                + T['parameter_close'] + T['parameter_open']
+                + '"acceptance">["a condition"]')
+
+        leaks = toolmarkup.find_leaks(text)
+        self.assertTrue(leaks, 'the real leak after the fence was missed')
+        # every reported span really is the bytes it claims, in the original
+        for span in leaks:
+            self.assertEqual(text[span.start:span.end], span.text,
+                             'a reported offset does not index the text the '
+                             'caller submitted')
+
+        repaired, removed = toolmarkup.strip_leaks(text)
+        self.assertIn(block, repaired,
+                      'the repair edited the legitimate code block')
+        self.assertIn('That is the whole format. ', repaired)
+        self.assertNotIn(T['parameter_close'], repaired)
+        self.assertNotIn(T['parameter_open'], repaired)
+        # the payload that leaked in is content its author wrote: it stays
+        self.assertIn('["a condition"]', repaired)
+        self.assertEqual(len(repaired),
+                         len(text) - sum(len(s.text) for s in removed))
+
     def test_s3_ordinary_xml_and_html_in_prose_are_untouched(self) -> None:
         text = ('The renderer emits <div class="docket"> around each item and '
                 'closes it with </div>; the export is <?xml version="1.0"?> '
@@ -379,6 +445,88 @@ class DescriptionMarkup(unittest.TestCase):
         self.assertIn('Merge into `main` and push.', repaired)
         self.assertIn('The actual cause is named.', repaired)
         self.assertNotIn('</objective>', repaired)
+
+    def test_s4_overlapping_patterns_report_one_run_of_bytes_once(self) -> None:
+        """THE COMMONEST REAL SHAPE, and it matched two patterns at once.
+
+        Specimen mail-log row 24663 in the live store: a description ending with
+        the generic parameter close, a newline, then the opening acceptance
+        parameter tag and its payload. That close is matched BOTH by the pattern
+        that owns it and by the invented-close pattern, whose
+        close-tag-named-after-an-argument shape also fits the real close when a
+        parameter tag follows. Reported twice it broke two things: the refusal
+        counted three constructs where there are two, and re-inserting the spans
+        no longer rebuilt the original -- which is the repair's whole proof that
+        it did not edit somebody's specification.
+        """
+        text = ('Fix the packaging step. The next one is mine.'
+                + T['parameter_close'] + '\n' + T['parameter_open']
+                + '"acceptance">["The cause is identified."]')
+        leaks = toolmarkup.find_leaks(text)
+
+        ranges = [(s.start, s.end) for s in leaks]
+        self.assertEqual(len(ranges), len(set(ranges)),
+                         f'the same bytes were reported more than once: {leaks}')
+        self.assertEqual(len(leaks), 2,
+                         f'two constructs are present, got {len(leaks)}: {leaks}')
+
+        # disjoint and ascending, which is what the two guarantees rest on
+        for earlier, later in zip(leaks, leaks[1:]):
+            self.assertLessEqual(earlier.end, later.start,
+                                 f'spans overlap: {earlier} then {later}')
+
+        # the generic close keeps its OWN label rather than being reported as
+        # an invented tag -- the agent is told what it actually emitted
+        self.assertEqual(leaks[0].label, 'a parameter closing tag')
+        self.assertEqual(leaks[0].text, T['parameter_close'])
+
+        # the count in the refusal matches the constructs actually present
+        with self.assertRaises(ledger.LedgerError) as caught:
+            self.org.work_create(self.agent, 'Specimen shape', text)
+        self.assertIn('and 1 more further on', str(caught.exception))
+
+    def test_s4_recorded_spans_rebuild_the_original_on_every_shape(self) -> None:
+        """The reconstruction promise, held to on more than one fixture.
+
+        The existing reconstruction test uses a fixture whose invented close is
+        `</objective>`, which only one pattern matches -- so it passed while the
+        promise was false on the specimen shape above. Overlap is the case that
+        breaks it, so the case has to be in the list.
+        """
+        shapes = {
+            'the damaged fixture': damaged_description(),
+            'the specimen shape': (
+                'Real prose here.' + T['parameter_close'] + '\n'
+                + T['parameter_open'] + '"acceptance">["a condition"]'),
+            'close immediately followed by open': (
+                'Prose.' + T['parameter_close'] + T['parameter_open']
+                + '"kickoff">go'),
+            'namespaced spellings': (
+                'Prose.' + T['parameter_close_ns'] + T['parameter_open_ns']
+                + '"acceptance">["x"]'),
+            'a legitimate fence before a real leak': (
+                'Prose.\n\n```xml\n<items><item name="x">1</item></items>\n```\n\n'
+                'More prose.' + T['parameter_close'] + T['parameter_open']
+                + '"acceptance">["y"]'),
+        }
+        for name, text in shapes.items():
+            with self.subTest(shape=name):
+                repaired, removed = toolmarkup.strip_leaks(text)
+                self.assertTrue(removed, 'nothing was detected to remove')
+                rebuilt: list[str] = []
+                cursor = 0
+                for span in removed:
+                    rebuilt.append(text[cursor:span.start])
+                    rebuilt.append(span.text)
+                    cursor = span.end
+                rebuilt.append(text[cursor:])
+                self.assertEqual(''.join(rebuilt), text,
+                                 'the recorded spans do not reconstruct the '
+                                 'original, so the repair cannot be shown to '
+                                 'be mechanical')
+                self.assertEqual(
+                    len(repaired),
+                    len(text) - sum(len(s.text) for s in removed))
 
     def test_s4_repair_is_idempotent_and_a_no_op_on_clean_text(self) -> None:
         repaired, _ = toolmarkup.strip_leaks(damaged_description())

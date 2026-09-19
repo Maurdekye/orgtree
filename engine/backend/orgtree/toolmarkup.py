@@ -83,8 +83,9 @@ def _tags(local: str) -> tuple[str, ...]:
 
 #: Regexes matching one complete framing construct each. Every pattern is
 #: anchored on vocabulary the wire format owns, so a match is a tag and not a
-#: sentence that happens to contain an angle bracket. Order matters only for
-#: readability; `find_leaks` reports matches in positional order.
+#: sentence that happens to contain an angle bracket. ORDER IS SIGNIFICANT: two
+#: patterns can cover the same bytes, and `find_leaks` keeps the earlier entry,
+#: so the most specific owner of a construct is listed first.
 #:
 #: Each entry is (label, pattern). The label is what the refusal names, so it is
 #: written for the agent reading the error, not for this file.
@@ -119,8 +120,10 @@ _PATTERNS: Final[tuple[tuple[str, "re.Pattern[str]"], ...]] = tuple(
         # may legitimately discuss, so this fires ONLY where the next thing is
         # an opening parameter tag, which is the shape the defect always takes.
         # The match covers the close tag alone; the parameter tag after it is
-        # matched by its own pattern, so a repair removes both and neither
-        # twice.
+        # matched by its own pattern, so a repair removes both. ⚠ This pattern
+        # OVERLAPS the generic close above -- `</parameter>` followed by an
+        # opening parameter tag fits both -- which is the commonest real
+        # specimen. `find_leaks` resolves that overlap; see its docstring.
         ("an invented argument closing tag",
          r"</[A-Za-z_][\w.:-]*>(?=\s*(?:%s)\s+name\s*=\s*\")"
          % "|".join(re.escape(t) for t in _tags("parameter"))),
@@ -212,6 +215,24 @@ def mask_code(text: str) -> str:
 def find_leaks(text: Any) -> list[Span]:
     """Every framing construct in `text` that is live prose, in position order.
 
+    The spans are DISJOINT and ascending: one run of bytes is reported once,
+    however many patterns matched it. That is not tidiness, it is what makes the
+    two things built on this function true. The refusal counts these spans, so a
+    construct listed twice makes the diagnostic overstate what it found; and
+    `strip_leaks` promises that re-inserting them reconstructs the input byte for
+    byte, which is the repair's proof that it edited nobody's specification, and
+    a duplicate re-inserts the same bytes twice and breaks it.
+
+    Overlap is NORMAL here rather than exotic: the generic parameter close is
+    matched both by the pattern that owns it and by the invented-close pattern,
+    whose close-tag-named-after-an-argument shape also fits the real close when
+    an opening parameter tag follows. That is exactly the commonest specimen in
+    the live store, so it is the case to get right.
+
+    Where two patterns cover the same start the LONGER match wins, and ties go
+    to the earlier entry in `_PATTERNS` -- which is why the generic close keeps
+    its own accurate label instead of being reported as an invented tag.
+
     Returns `[]` for anything not a string, so a caller may hand this whatever
     it was given without pre-checking.
     """
@@ -225,8 +246,16 @@ def find_leaks(text: Any) -> list[Span]:
             # look, never the bytes reported or removed
             found.append(Span(label, text[match.start():match.end()],
                               match.start(), match.end()))
-    found.sort(key=lambda span: (span.start, span.end))
-    return found
+    # Stable sort: equal (start, -end) keeps `_PATTERNS` order, so the label a
+    # construct is reported under is the pattern that most specifically owns it.
+    found.sort(key=lambda span: (span.start, -span.end))
+    disjoint: list[Span] = []
+    cursor = 0
+    for span in found:
+        if span.start >= cursor:
+            disjoint.append(span)
+            cursor = span.end
+    return disjoint
 
 
 def assert_clean(field: str, text: Any) -> Any:
@@ -252,6 +281,12 @@ def strip_leaks(text: str) -> tuple[str, list[Span]]:
     constraint on this path is absolute, because the text being repaired is
     somebody's specification and re-typing it is how a specification silently
     changes.
+
+    That proof rests entirely on `find_leaks` returning DISJOINT spans, and it
+    was briefly false because two patterns could report the same run of bytes
+    twice -- on the commonest specimen shape, at that. The suite now pins the
+    reconstruction on the overlapping shape specifically, not only on a fixture
+    that happens to match one pattern each.
 
     Note what is deliberately NOT removed: the payload of the argument that
     leaked in. It is content its author wrote, merely in the wrong field, and
