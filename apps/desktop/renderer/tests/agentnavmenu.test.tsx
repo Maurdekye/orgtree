@@ -491,3 +491,52 @@ uiTest('§9 every marked target on screen opens a menu AT ALL, entries aside',
       await esc()
     }
   })
+
+// --------------------- §10 THE THIRD SHAPE, PINNED RATHER THAN ASSUMED
+// Copy object is an ANCESTOR of the marker — `.eye-tab-jump`, which sits
+// inside a `<span data-copy-agent-name>` (cards.tsx). This shape ALWAYS
+// worked, and it is here precisely because it is the one a careless fix
+// breaks: textmenu's first reading of the review had it down as broken and
+// its own probe refuted that, so it is now pinned rather than left to a
+// future reader's judgement.
+//
+// ⚠ HONEST LIMIT, stated because a reader will otherwise assume more. The
+// mutation `anchor = nav ?? object` — dropping the outer-of-the-two rule and
+// always preferring the marker — SURVIVES this case, and I could not find a
+// real DOM shape in this codebase where it changes any label. It survives
+// because `open` now synthesizes the copy entry from the marker when no copy
+// object is in scope, and the marker and the enclosing copy object carry the
+// SAME agent id at every site that has both. The two would diverge only where
+// a `data-copy-ticket-title` element is a strict ANCESTOR of an agent marker,
+// and no such shape exists today (reflinks.tsx puts both attributes on one
+// element). So this asserts the behaviour that is observable, and does not
+// pretend to pin an anchor choice nothing can currently detect.
+uiTest('§10 a copy object ABOVE the marker keeps the whole menu, copy entry first',
+  async (t) => {
+    const v = await mountView(
+      <AgentNavProvider>
+        <ObjectMenuBoundary className="app">
+          <Registrar entries={['Open desk', 'Open inbox']} />
+          {/* the .eye-tab-jump shape: copy object wrapping the marked button */}
+          <span data-copy-agent-name="worker" className="eye-tab">
+            <button className="eye-tab-jump" type="button" {...agentNavProps('worker')}>go</button>
+          </span>
+        </ObjectMenuBoundary>
+      </AgentNavProvider>, (h) => h)
+    t.after(() => v.unmount())
+    await flush(2)
+
+    const button = v.el.querySelector('button.eye-tab-jump') as HTMLElement | null
+    assert.ok(button, 'the jump button rendered')
+    // prove the shape, so this cannot pass for the wrong reason later
+    assert.equal(button!.getAttribute('data-copy-agent-name'), null,
+      'the marked button does NOT carry the copy attribute')
+    assert.ok(button!.closest('[data-copy-agent-name]'),
+      'and the copy object is an ANCESTOR of it — the third shape')
+
+    const have = await menuOf(button!, 'the eye-tab jump')
+    assert.equal(have[0], 'Copy agent name',
+      `the copy entry is first — have ${JSON.stringify(have)}`)
+    assert.ok(have.includes('Open desk') && have.includes('Open inbox'),
+      `and the agent menu came with it — have ${JSON.stringify(have)}`)
+  })
