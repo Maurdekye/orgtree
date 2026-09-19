@@ -1391,6 +1391,38 @@ export interface OpenRouterDoc {
   favorites_max: number
   tiers: ProviderTier[]
   user_enabled: boolean
+  /** which CLI drives OpenRouter agents — see `OpenRouterHarness` */
+  harness?: OpenRouterHarness
+}
+/** one candidate CLI and why it can or cannot run an OpenRouter agent.
+ *  `state` is deliberately four-valued (`missing` · `unavailable` ·
+ *  `unauthenticated` · `unsupported` · `available`): the four failures need
+ *  four different next actions from the person reading them, and `why`
+ *  carries the sentence that says which. */
+export interface OpenRouterHarnessOption {
+  id: string
+  label: string
+  state: string
+  available: boolean
+  why: string
+  version?: string | null
+  path?: string
+}
+/** the selector, DECIDED IN THE BACKEND. The renderer draws this and derives
+ *  nothing from it: `enabled` false with `unavailable` false is the
+ *  exactly-one-harness case (show `selected`, grey the control out), and
+ *  `unavailable` true is the neither case (no choice is offered at all). */
+export interface OpenRouterHarness {
+  harnesses: OpenRouterHarnessOption[]
+  /** the stored preference — what a NEW hire gets; not necessarily `selected` */
+  stored: string
+  default: string
+  enabled: boolean
+  unavailable: boolean
+  /** the harness actually usable right now, or null when none is */
+  selected: string | null
+  /** the sentence to show when the control is not a live choice */
+  explain: string
 }
 /** one catalog row as the picker shows it (prices per MILLION tokens) */
 export interface OpenRouterModel {

@@ -4378,9 +4378,20 @@ class OpenRouterFavorite(Body):
 
 def _openrouter_doc(force: bool = False) -> dict[str, Any]:
     from . import openrouter                    # noqa: PLC0415 — one lane
+    from . import openrouter_harness            # noqa: PLC0415
     st = openrouter.status(force)
     st["tiers"] = openrouter.tier_infos()
     st["user_enabled"] = appsettings.provider_enabled(openrouter.PROVIDER_ID)
+    # THE WHOLE SELECTOR, DECIDED IN THE BACKEND. The renderer draws what this
+    # says and derives nothing: which harnesses exist, whether the control is
+    # enabled, what is selected, and the sentence to show when it is not. The
+    # three-state rule (both usable / exactly one / neither) lives in
+    # `openrouter_harness.selector` so there is one implementation of it
+    # rather than one per surface — D-182's standing warning.
+    if force:
+        openrouter_harness.forget_probe()
+    st["harness"] = openrouter_harness.selector(
+        appsettings.openrouter_harness())
     return st
 
 
@@ -4405,6 +4416,44 @@ async def openrouter_set_key(body: OpenRouterKey) -> dict[str, Any]:
     except OSError as e:
         raise HTTPException(500, str(e)) from e
     return await run_in_threadpool(_openrouter_doc, True)
+
+
+class OpenRouterHarness(Body):
+    harness: str
+
+
+@app.put("/api/openrouter/harness")
+async def openrouter_set_harness(body: OpenRouterHarness) -> dict[str, Any]:
+    """Choose the CLI that NEWLY HIRED OpenRouter agents are given.
+
+    ⚠ IT MOVES NOBODY. Every agent stamped its harness at hire and keeps it
+    (`ledger.Org.harness_for`), so this changes what the next hire gets and
+    nothing about anyone already running — the user's own ruling, and the only
+    way to avoid ending a live agent's provider-side session continuity
+    without being asked.
+
+    An unavailable harness is REFUSED here rather than stored and failed at
+    launch: the person is choosing in front of a panel that already tells them
+    what is installed, so "you cannot pick that, because X" belongs at the
+    moment they pick it.
+    """
+    from . import openrouter_harness            # noqa: PLC0415
+    from fastapi.concurrency import run_in_threadpool
+    want = str(body.harness or "").strip().lower()
+    if want not in openrouter_harness.HARNESSES:
+        raise HTTPException(
+            422, f"unknown harness {body.harness!r}; know "
+                 f"{', '.join(openrouter_harness.HARNESSES)}")
+    states = await run_in_threadpool(openrouter_harness.availability)
+    if not states[want]["available"]:
+        raise HTTPException(
+            422, f"{openrouter_harness.LABEL[want]} cannot be selected — "
+                 f"{states[want]['why']}")
+    try:
+        await run_in_threadpool(appsettings.set_openrouter_harness, want)
+    except (appsettings.AppSettingsUnreadable, OSError, ValueError) as e:
+        raise HTTPException(500, str(e)) from e
+    return await run_in_threadpool(_openrouter_doc)
 
 
 @app.delete("/api/openrouter/key")

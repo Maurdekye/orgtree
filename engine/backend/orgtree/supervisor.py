@@ -48,7 +48,8 @@ from . import (accounts, agentauth, antigravity_limits, appsettings,
                cachecontinuity, clipin, codex_limits, codex_route, deployment,
                envelope, events, events_table, failfix, handoff, imgblock,
                lifecycle, limits,
-               liveness, localtime, net, openrouter, opreceipts, providers, registry,
+               liveness, localtime, net, openrouter, openrouter_harness,
+               opreceipts, providers, registry,
                sandbox as sbx, stateprobe, steer, store, workevidence,
                tokens, turnlog, turnusage, warmpool)
 from .fleet_walk import fleet_walk
@@ -2208,7 +2209,10 @@ def _mcp_infrastructure_fingerprint(org: Org, nid: str) -> str | None:
     chosen = {name: registry[name] for name in granted_names
               if name in registry}
     provider = providers.provider_of(str(n.get("model") or ""))
-    if provider == "openai":
+    # the narrowing and the built-in catalogue below are both HARNESS facts —
+    # what this CLI can attach, and how it is handed orgtree's own powers —
+    # so they follow the harness, not the provider (see `codex_harness_turn`)
+    if codex_harness_turn(org, nid, str(n.get("model") or "")):
         from . import codexrun                         # noqa: PLC0415
         chosen, _ = codexrun.deliverable_mcp(chosen)
     elif provider == "google":
@@ -2221,10 +2225,10 @@ def _mcp_infrastructure_fingerprint(org: Org, nid: str) -> str | None:
     # they are deliberately excluded from both the runtime MCP count and its
     # infrastructure generation. Claude/Antigravity launch Orgtree as an MCP
     # server, so its callable catalogue is part of their surface.
-    builtin = ([] if provider == "openai" else
-               sorted(str(tool.get("name") or "")
-                      for tool in mcptool.available_tools()
-                      if isinstance(tool, dict) and tool.get("name")))
+    builtin = ([] if codex_harness_turn(org, nid, str(n.get("model") or ""))
+               else sorted(str(tool.get("name") or "")
+                           for tool in mcptool.available_tools()
+                           if isinstance(tool, dict) and tool.get("name")))
     raw = json.dumps({
         "version": 1,
         "provider": provider,
@@ -4782,7 +4786,18 @@ def identity_in_spec(spec: Mapping[str, Any]) -> str:
     `ANTHROPIC_*` variable — reading one off an inherited environment would
     attribute a codex turn to an Anthropic credential it never held.
     """
-    marker = str((spec.get("env_extra") or {}).get(registry.MARKER) or "")
+    env_extra = spec.get("env_extra") or {}
+    # THE GATEWAY LANE ANSWERS FIRST, and it answers the same sentinel the
+    # Claude harness's OpenRouter turns already record (`openrouter_env` →
+    # `OPENROUTER_IDENTITY`). Without this branch a Codex-harness OpenRouter
+    # turn falls to `accounts.PRIMARY` and is attributed to the machine's
+    # ChatGPT login — a turn billed to the gateway key, reported against a
+    # subscription it never touched. One lane, one sentinel, whichever CLI
+    # happens to be holding the wire: that is the whole point of the harness
+    # being a harness and not a provider.
+    if env_extra.get(openrouter_harness.KEY_ENV):
+        return OPENROUTER_IDENTITY
+    marker = str(env_extra.get(registry.MARKER) or "")
     return marker or accounts.PRIMARY
 
 
@@ -6911,7 +6926,16 @@ def _standing_notes_block(org: Org, nid: str) -> str:
     supplies only bounded authorized docket facts; it never invents notes.
     """
     tier = str(org.node(nid).get("model") or "")
-    if providers.provider_of(tier) in _NATIVE_CLAUDEMD_PROVIDERS:
+    # ⚠ THE HARNESS DECIDES THIS, NOT THE PROVIDER — and this function is the
+    # one place where getting that wrong reproduces, exactly, the defect it
+    # was written to fix. "Reads CLAUDE.md natively" is a statement about a
+    # CLI. An OpenRouter tier satisfies it only while Claude Code is the CLI;
+    # on the codex harness the process reads AGENTS.md and never CLAUDE.md
+    # (measured 2026-09-04 with `codex debug prompt-input`), so returning ""
+    # here would hand that agent the same silently-unread notes file, and it
+    # would find out the same way — at a compaction, too late.
+    if (providers.provider_of(tier) in _NATIVE_CLAUDEMD_PROVIDERS
+            and not codex_harness_turn(org, nid, tier)):
         return ""
     try:
         path = os.path.join(scratch_dir(org.d["slug"], nid), "CLAUDE.md")
@@ -8434,7 +8458,7 @@ def identity_prompt(org: Org, nid: str, include_archived: bool = False, *,
                           f"container ({', '.join(dropped)} unavailable despite "
                           f"the grant) — they are outside contact points the "
                           f"sandbox restricts. ")
-    if str(n.get("model") or "") in providers.CODEX_TIERS:
+    if codex_harness_turn(org, nid, str(n.get("model") or "")):
         # D-180: the codex lane attaches granted servers by LAUNCHING the
         # app-server with `-c mcp_servers.…` overrides, which cannot express
         # every registry shape (a name that is not a TOML bare key aborts the
@@ -10992,6 +11016,18 @@ def _cache_semantic_inputs(
     """Digests of normalized provider-visible tool and argv surfaces."""
     n = org.node(nid)
     scope = n.get("scope") or {}
+    # ⚠ WHICH CLI, NOT WHICH PROVIDER — and on this lane they finally differ.
+    # The branches below project an ARGV and a TOOL SURFACE, so they belong to
+    # the harness; `provider` decides them only because, until the harness
+    # axis existed, it fixed them. An OpenRouter node on the codex harness
+    # projected the CLAUDE argv here (`_build_cmd`) and compared every future
+    # launch against a command line no process of its would ever run.
+    if provider == openrouter.PROVIDER_ID and codex_harness_turn(
+            org, nid, str(n.get("model") or "")):
+        manifest = codex_manifest or _codex_startup_manifest(
+            org, nid, write_ident=False)
+        return (cachecontinuity.digest(manifest["cache_tools"]),
+                cachecontinuity.digest(manifest["cache_argv"]))
     if provider in _NATIVE_CLAUDEMD_PROVIDERS:
         # `claude` AND `openrouter`: the same Claude CLI, the same argv — an
         # OpenRouter tier only re-points its endpoint (audit C1, 2026-09-04:
@@ -11123,10 +11159,21 @@ def _cache_openrouter_namespace(resolved_env: dict[str, str]
     ⚠ READS THE RESOLVED ENV, NOT `openrouter._key()`. The env is what the
     spawn will actually carry (the `identity_in_env` rule); re-reading the
     key store would answer "which key WOULD a spawn get now".
+
+    EITHER CARRIER, ONE NAMESPACE (the harness axis, 2026-09-19). The Claude
+    harness carries the key as `ANTHROPIC_AUTH_TOKEN` and the Codex one as
+    `openrouter_harness.KEY_ENV`; the credential, the endpoint and therefore
+    the provider-side cache namespace are IDENTICAL, so both carriers digest
+    to the same value on purpose. Reading only the Anthropic-shaped one would
+    have reported every Codex-harness agent's account as `unobserved` — not
+    wrong-looking, just permanently blind, which is the worse failure.
     """
-    if openrouter_env(resolved_env):
+    token = (resolved_env.get("ANTHROPIC_AUTH_TOKEN")
+             if openrouter_env(resolved_env)
+             else resolved_env.get(openrouter_harness.KEY_ENV))
+    if token:
         return ("openrouter-key:" + cachecontinuity.digest(
-                    {"credential": resolved_env["ANTHROPIC_AUTH_TOKEN"]}, 16),
+                    {"credential": token}, 16),
                 "api_key")
     return OPENROUTER_ACCOUNT_UNOBSERVED, "unobserved"
 
@@ -11216,6 +11263,11 @@ def _cache_snapshot(org: Org, nid: str, *, now: float | None = None,
     n = org.node(nid)
     tier = str(n.get("model") or "")
     provider = providers.provider_of(tier)
+    # WHICH CLI this node's next request comes out of. Every component below
+    # is one of two kinds — a statement about the CREDENTIAL (which follows
+    # the provider) or about the PROCESS (which follows the harness) — and
+    # this is the variable that keeps the second kind honest.
+    codex_harness = codex_harness_turn(org, nid, tier)
     account = account_override
     lane = lane_override
     resolved_env: dict[str, str] = {}
@@ -11235,15 +11287,33 @@ def _cache_snapshot(org: Org, nid: str, *, now: float | None = None,
         account = account or resolved_account
         lane = lane or resolved_lane
     elif provider == openrouter.PROVIDER_ID:
-        # the Claude CLI pointed at openrouter.ai: the ROUTE INPUTS are the
-        # Claude harness's (argv, startup files, env pins — the shared
-        # `_NATIVE_CLAUDEMD_PROVIDERS` legs below), the NAMESPACE is the
-        # gateway key's, and the lane is the gateway's measured 5-minute one
-        resolved_env = env or _cache_openrouter_spawn_env(org, tier, nid)
-        resolved_account, resolved_lane = _cache_openrouter_namespace(
-            resolved_env)
-        account = account or resolved_account
-        lane = lane or resolved_lane
+        # the gateway lane, EITHER HARNESS. The split is exact and it is only
+        # ever between the two halves of this record: the NAMESPACE is the
+        # gateway key's and the lane is the gateway's measured 5-minute one
+        # whichever CLI runs (one credential, one endpoint, one cache
+        # namespace), while the ROUTE INPUTS — argv, startup files, env — are
+        # the HARNESS'S, because they describe a process.
+        if codex_harness:
+            # resolved here, not below, for the reason the openai leg states:
+            # both projections must describe the SAME launch rather than two
+            # reads that merely happened close together.
+            codex_manifest = codex_manifest or _codex_startup_manifest(
+                org, nid, write_ident=False)
+            # the namespace comes off the CAPTURED launch, exactly as the
+            # Claude-harness branch takes it off the resolved env — same
+            # credential, same digest, same lane
+            resolved_account, resolved_lane = _cache_openrouter_namespace(
+                dict(cast("dict[str, Any]",
+                          codex_manifest["provider_spec"]).get("env_extra")
+                     or {}))
+            account = account or resolved_account
+            lane = lane or resolved_lane
+        else:
+            resolved_env = env or _cache_openrouter_spawn_env(org, tier, nid)
+            resolved_account, resolved_lane = _cache_openrouter_namespace(
+                resolved_env)
+            account = account or resolved_account
+            lane = lane or resolved_lane
     elif provider == "openai":
         # Cache rendering stays read-only: the default resolver never writes
         # the managed AGENTS.md. A real launch passes the manifest it already
@@ -11282,8 +11352,9 @@ def _cache_snapshot(org: Org, nid: str, *, now: float | None = None,
         agy_row = antigravity_session.selected_account(org, nid)
         account = account or (str(agy_row["id"]) if agy_row else _cache_antigravity_account_namespace())
         lane = lane or "provider_unsupported"
-    claude_harness = provider in _NATIVE_CLAUDEMD_PROVIDERS
-    if provider == "openai":
+    claude_harness = (provider in _NATIVE_CLAUDEMD_PROVIDERS
+                      and not codex_harness)
+    if codex_harness:
         assert codex_manifest is not None
         system = cachecontinuity.digest(codex_manifest["identity"])
         tools_digest, argv_digest = _cache_semantic_inputs(
@@ -14336,6 +14407,55 @@ def codex_bound_home(org: Org, nid: str) -> tuple[str, str]:
     return _codex_home_for(row), bound
 
 
+def codex_harness_turn(org: Org, nid: str, tier: str = "") -> bool:
+    """Does this node's next turn go down the CODEX leg?
+
+    ONE PREDICATE, asked everywhere the lane is chosen — the dispatch, the
+    cache-input projection and the turn record. Before the harness axis
+    existed the question was `tier in providers.CODEX_TIERS` written out at
+    each site, which was the same question three times only because there was
+    exactly one way to reach the codex leg. There are two now, and D-182 is
+    this codebase's standing warning about what happens next: three copies of
+    a rule, two agreeing, and the odd one out being a live bug.
+
+    ⚠ THE TIER STILL DECIDES THE PROVIDER. A codex tier goes down this leg
+    whatever else is true; an OpenRouter tier goes down it only when its
+    stored harness says so, and it is still an OpenRouter agent when it does —
+    OpenRouter's model, OpenRouter's key, OpenRouter's bill.
+    """
+    tier = tier or str((org.node(nid) or {}).get("model") or "")
+    if tier in providers.CODEX_TIERS:
+        return True
+    return (openrouter.is_tier(tier)
+            and org.harness_for(nid) == openrouter_harness.CODEX_CLI)
+
+
+def _openrouter_codex_home() -> str:
+    """The CODEX_HOME an OpenRouter-harness launch runs under.
+
+    ITS OWN TREE, never `~/.codex`. Three reasons, in order of how badly each
+    one bites:
+
+      · the user's codex home holds their ChatGPT `auth.json`, and handing it
+        to a launch that authenticates with a gateway key puts a credential in
+        reach of a turn that has no business with it — the same
+        one-credential-per-spawn rule `codexrun.child_env` enforces by
+        stripping, applied to the file half;
+      · rollouts (the thread store a resume reads) would interleave two
+        genuinely different accounts in one history, and a resume across that
+        boundary has no rollout to find;
+      · `config.toml` is the user's own. A `model_provider` they set by hand
+        would silently redirect every OpenRouter agent, and orgtree writes
+        nothing there to stop it.
+
+    Created lazily and left empty: the lane needs no auth.json and writes its
+    whole configuration as `-c` overrides per launch.
+    """
+    home = os.path.join(store.DATA_ROOT, "codex-openrouter")
+    os.makedirs(home, exist_ok=True)
+    return home
+
+
 def _codex_process_spec(org: Org, nid: str, *,
                         write_ident: bool = True) -> dict[str, Any]:
     """The exact process-scoped inputs for one Codex app-server.
@@ -14354,6 +14474,12 @@ def _codex_process_spec(org: Org, nid: str, *,
         raise RuntimeError(
             "turn failed: the Codex CLI is not installed — the accounts "
             "panel's Codex section shows the install command")
+    # ⚠ WHOSE MODELS THIS CODEX LAUNCH REACHES. A node on an `or-` tier that
+    # arrives here is an OpenRouter agent whose HARNESS is Codex: the CLI is
+    # OpenAI's, every other input is OpenRouter's. The two lanes diverge on
+    # the credential and on nothing else, which is why the split is here —
+    # one spec builder, one argv shape, one set of MCP and tool overrides.
+    _or_tier = openrouter.is_tier(str((org.node(nid) or {}).get("model") or ""))
     # ⚠ RESOLVE THE ACCOUNT BEFORE ASKING WHETHER THE MACHINE IS SIGNED IN.
     # `codex_status()["connected"]` reports the AMBIENT ~/.codex login, and
     # gating on it first made API-key-only operation impossible for this
@@ -14362,18 +14488,37 @@ def _codex_process_spec(org: Org, nid: str, *,
     # installed/executable checks above stay unconditional; only the
     # signed-in question is lane-dependent, because only it is about a
     # credential this turn may not use.
-    _bound_home, _bound_id = codex_bound_home(org, nid)
-    _metered = False
-    if _bound_id:
-        try:
-            _metered = registry.account_mode(
-                registry.get_account(_bound_id)) == "apikey"
-        except registry.UnknownAccount:
-            _metered = False
-    if not _metered and not cstat.get("connected"):
-        raise RuntimeError(
-            "turn failed: codex is not signed in on this machine — run "
-            "`codex login` (accounts panel → Codex)")
+    if _or_tier:
+        # THE GATEWAY LANE. `codex login` is not consulted and must not be:
+        # this launch authenticates to openrouter.ai with the machine's
+        # gateway key and never opens auth.json at all (measured — both the
+        # capability probe and a real completed turn ran under a CODEX_HOME
+        # containing no auth.json whatsoever). Demanding a ChatGPT session
+        # here would refuse a launch that works, and would send the person to
+        # a login that changes nothing about this lane.
+        #
+        # The HARNESS IS RE-CHECKED HERE, at the spawn seam, because this is
+        # the last moment before the process exists: a CLI removed between
+        # the choice and the launch refuses with the real condition rather
+        # than starting somewhere else (acceptance condition 5). `resolve`
+        # has no branch that answers with a harness other than the one asked
+        # about — there is no fallback to fall into.
+        openrouter_harness.resolve(org.harness_for(nid))
+        _bound_home, _bound_id = _openrouter_codex_home(), ""
+        _metered = False
+    else:
+        _bound_home, _bound_id = codex_bound_home(org, nid)
+        _metered = False
+        if _bound_id:
+            try:
+                _metered = registry.account_mode(
+                    registry.get_account(_bound_id)) == "apikey"
+            except registry.UnknownAccount:
+                _metered = False
+        if not _metered and not cstat.get("connected"):
+            raise RuntimeError(
+                "turn failed: codex is not signed in on this machine — run "
+                "`codex login` (accounts panel → Codex)")
     if sbx.is_sandboxed(org):
         raise RuntimeError("turn failed: codex agents cannot run in a "
                            "sandboxed kiosk org yet (user ruling)")
@@ -14394,12 +14539,31 @@ def _codex_process_spec(org: Org, nid: str, *,
         _key_env = registry.inject_binding(
             {}, registry.get_account(_bound_id), secret_resolver=tokens.get)
         _key_env.pop(registry.MARKER, None)
+    # the gateway lane's own credential + endpoint, in the same two carriers
+    # every other codex input uses: `-c` overrides and env_extra. Nothing is
+    # written to the user's config.toml and CODEX_HOME is never re-pointed at
+    # their login tree — the rules `codexrun.mcp_config_overrides` states.
+    _or_overrides: list[str] = []
+    if _or_tier:
+        _k = openrouter._key()
+        if not _k:
+            # the same loud, local failure the Claude-harness OpenRouter lane
+            # already raises (spawn_env): a missing key dies HERE rather than
+            # out on the network under a model id nobody can bill
+            raise RuntimeError(
+                "turn failed: this agent runs on an OpenRouter tier and no "
+                "OpenRouter API key is set — "
+                f"{providers.install_hint(openrouter.PROVIDER_ID)}")
+        _or_overrides = openrouter_harness.config_overrides(
+            org.model_for(nid))
+        _key_env[openrouter_harness.KEY_ENV] = _k
     return {
         "argv_head": providers.codex_argv(exe),
         "cwd": cwd,
         "identity": ident,
         "config_overrides": (codexrun.mcp_config_overrides(mcp_chosen)
-                             + _codex_tool_config(org.node(nid)["scope"])),
+                             + _codex_tool_config(org.node(nid)["scope"])
+                             + _or_overrides),
         "env_extra": {**agentauth.child_env(slug, nid, generation=int(org.node(nid).get("generation", 0))), "ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
                       "ORGTREE_PORT": port,
                       **_codex_git_trust_env(org.node(nid)["scope"]),
@@ -14410,7 +14574,11 @@ def _codex_process_spec(org: Org, nid: str, *,
                       **({registry.MARKER: _bound_id} if _bound_id else {})},
         "port": port,
         "exe": exe,
-        "login_kind": str(cstat.get("kind") or ""),
+        # ⚠ EMPTY ON THE GATEWAY LANE, deliberately. `login_kind` describes
+        # the ChatGPT session this launch would bill, and this launch bills
+        # none — reporting the ambient one would attribute an OpenRouter turn
+        # to an OpenAI plan in the route record and the cache namespace alike.
+        "login_kind": "" if _or_tier else str(cstat.get("kind") or ""),
         # Capture the resolved home beside the executable. Re-reading the
         # ambient variable after launch could describe a different login
         # tree than the process actually inherited. Resolved from the NODE'S
@@ -14920,6 +15088,26 @@ def _codex_resolve_route(org: Org, nid: str, tier: str, *,
     a cold cache costs one app-server read, at turn start, never per
     render) and hands the decision to the pure resolver."""
     n = org.node(nid)
+    if openrouter.is_tier(tier):
+        # ── THE GATEWAY LANE HAS ONE ROUTE ────────────────────────────────
+        # `codex_route` exists to choose between the gpt-reserve pool and the
+        # ChatGPT plan pool — two OpenAI billing pools, neither of which an
+        # OpenRouter turn can reach or spend. Running the resolver here would
+        # read an OpenAI limits board, stamp an OpenAI pool onto the node's
+        # header and freeze this agent when a plan it does not use runs out.
+        # So the route is synthesised, honestly: one destination, the model
+        # the org asked for, and the gateway named as the account the
+        # evidence belongs to (the same sentinel `identity_in_spec` records).
+        # ⚠ `reserve_ts`/`board_age` stay None rather than 0 — this lane has
+        # no board, and "unknown" is not "fresh and fine".
+        return cast("codex_route.Route", {
+            "requested": tier, "route": "direct",
+            "pool": openrouter.PROVIDER_ID,
+            "model": org.model_for(nid),
+            "account": OPENROUTER_IDENTITY,
+            "reason": "OpenRouter has one route — the gateway",
+            "evidence": "tier", "board_age": None, "reset_ts": None,
+            "selection": selection, "prefer": openrouter.PROVIDER_ID})
     resolved_login_kind = (str(providers.codex_status().get("kind") or "")
                            if login_kind is None else str(login_kind)) or None
     try:
@@ -18336,8 +18524,14 @@ def _run_one_turn_recorded(slug: str, nid: str,
                 # the node's own retry counter and its origin: the key that
                 # ties the attempts of one failure run together (turnlog)
                 _tn = org.node(nid)
+                # the lane is WHICH CLI RAN IT, which is what every reader of
+                # this record is asking; an OpenRouter tier on the codex
+                # harness reads `codex` here for the same reason it takes the
+                # codex leg below (it used to read `claude`, naming a CLI that
+                # was never started)
                 _trec.set(tier=_turn_tier,
-                          lane=("codex" if _turn_tier in providers.CODEX_TIERS
+                          lane=("codex" if codex_harness_turn(
+                                    org, nid, _turn_tier)
                                 else "antigravity"
                                 if _turn_tier in providers.ANTIGRAVITY_TIERS
                                 else "claude"),
@@ -18380,11 +18574,15 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     if _spend_admit_once(_o_pass, nid):
                         store.save_org(_o_pass)
 
-            if _turn_tier in providers.CODEX_TIERS:
+            if codex_harness_turn(org, nid, _turn_tier):
                 # THE PROVIDER SEAM (FR-15 M1b): a codex tier takes its own
                 # leg here — after the provider-neutral prologue above, before
                 # any claude machinery — and rejoins through the success tail
                 # + the SHARED finally via the control raise below.
+                # ⚠ AND NOW ALSO AN OPENROUTER TIER WHOSE HARNESS IS CODEX
+                # (2026-09-19). The seam was always about which CLI runs the
+                # turn, not about whose models it reaches; the harness axis is
+                # what finally makes those two questions distinguishable.
                 res, codex_occ = _codex_leg(
                     slug, nid, org, st, text, toks, turn_images, turn_view,
                     view_spans=view_spans, view_segments=view_segments,
@@ -24300,7 +24498,11 @@ def _compact_split_body(slug: str, nid: str) -> None:
         # fable id, so it is a no-op on those lanes, and computing it once
         # here is what keeps the fork's `--model` equal to the turn's.
         model = claude_model_for(org, nid)
-    if str(n.get("model") or "") in providers.CODEX_TIERS:
+    # the fork is a CLI operation — `thread/fork` on an app-server, or the
+    # claude CLI's own resume — so it follows the harness. An OpenRouter node
+    # on the codex harness holds a codex threadId, which the claude fork
+    # machinery below has no way to resume.
+    if codex_harness_turn(org, nid, str(n.get("model") or "")):
         _compact_split_codex_body(slug, nid, org, n, old_sid, model)
         return
     if str(n.get("model") or "") in providers.ANTIGRAVITY_TIERS:

@@ -57,6 +57,37 @@ def set_quick_staff_behavior(value: str) -> None:
         _save(doc)
 
 
+def openrouter_harness() -> str:
+    """Which CLI a NEWLY HIRED OpenRouter agent is given (user ruling
+    2026-09-19).
+
+    ⚠ A DEFAULT FOR NEW HIRES, NOT A LIVE SWITCH. Changing it moves nobody:
+    every agent stamps its harness at hire (`ledger.Org.hire`) and keeps that
+    value for its whole life. Reading it here to decide a RUNNING agent's
+    launch would be the automatic migration the ticket forbids — and worse
+    than a policy breach, it would silently end that agent's provider-side
+    session continuity mid-life, which is the same hazard the account rules
+    already refuse to take on anyone's behalf.
+
+    Unknown or absent values read as the lane default, which is also what
+    every agent hired before this setting existed is really running.
+    """
+    from . import openrouter_harness as _h              # noqa: PLC0415
+    return _h.canonical(load().get("runtime", {}).get("openrouter_harness"))
+
+
+def set_openrouter_harness(value: str) -> None:
+    from . import openrouter_harness as _h              # noqa: PLC0415
+    if value not in _h.HARNESSES:
+        raise ValueError(
+            f"unknown OpenRouter harness {value!r}; know "
+            f"{', '.join(_h.HARNESSES)}")
+    with _LOCK:
+        doc = load(strict=True)
+        doc["runtime"]["openrouter_harness"] = value
+        _save(doc)
+
+
 class AppSettingsUnreadable(RuntimeError):
     """An existing settings record cannot be safely read or overwritten."""
 

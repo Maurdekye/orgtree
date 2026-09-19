@@ -593,6 +593,14 @@ export const setOpenRouterKey = (key: string): Promise<OpenRouterDoc> =>
   })
 export const clearOpenRouterKey = (): Promise<OpenRouterDoc> =>
   req('/api/openrouter/key', { method: 'DELETE' })
+/** choose the CLI that NEWLY HIRED OpenRouter agents get. Moves nobody who is
+ *  already running — each agent keeps the harness it was hired on. */
+export const setOpenRouterHarness = (harness: string): Promise<OpenRouterDoc> =>
+  req('/api/openrouter/harness', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ harness }),
+  })
 export const searchOpenRouterModels = (
   q: string, offset = 0, limit = 8,
   sort: OpenRouterSort = 'relevance', order = '', groupByVendor = false,

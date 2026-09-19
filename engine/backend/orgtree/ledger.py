@@ -3434,7 +3434,8 @@ class Org:
              org_visibility: str | None = None, charter: str | None = None,
              external_handles: list[str] | None = None,
              raise_ceiling: bool = False,
-             account: str | None = None) -> dict[str, Any]:
+             account: str | None = None,
+             harness: str | None = None) -> dict[str, Any]:
         """§4.2 + §4.6. `parent` None = top level (actor must be USER). If actor is a
         strict ancestor of parent, credits cascade down the path (forcible hire).
 
@@ -3604,6 +3605,29 @@ class Org:
             # An inherited primary choice is just as deliberate as an
             # explicit one; migration must not turn it into a row binding.
             self.nodes[nid]["account_primary"] = True
+        # ── THE HARNESS STAMP (user ruling 2026-09-19) ────────────────────
+        # Only an OpenRouter tier has a harness to choose; every other tier
+        # has exactly one CLI by construction, and stamping those would write
+        # a field that can only ever be wrong when a node is later switched
+        # across providers. An explicit `harness` wins; otherwise the
+        # machine-wide NEW-HIRE default is read ONCE, here, and frozen onto
+        # the node — see `harness_for` for why it is never re-read later.
+        from . import openrouter as _orr_tier           # noqa: PLC0415
+        if _orr_tier.is_tier(tier):
+            from . import appsettings, openrouter_harness  # noqa: PLC0415
+            if harness is not None:
+                if harness not in openrouter_harness.HARNESSES:
+                    raise LedgerError(
+                        f"unknown harness {harness!r}; know "
+                        f"{', '.join(openrouter_harness.HARNESSES)}")
+                chosen = harness
+            else:
+                chosen = appsettings.openrouter_harness()
+            self.nodes[nid]["or_harness"] = chosen
+        elif harness is not None:
+            raise LedgerError(
+                f"tier {tier!r} does not run on a choosable harness — only "
+                f"OpenRouter tiers do")
         if handles:
             self.nodes[nid]["external_handles"] = handles
             stamp_handles(self.nodes[nid], handles)      # D-166
@@ -6402,6 +6426,30 @@ class Org:
             if got:
                 return got
         return self.d["models"].get(tier, tier)
+
+    def harness_for(self, nid: str) -> str:
+        """Which CLI drives this node — the OpenRouter harness axis.
+
+        STORED, not derived, and that is the whole design. `model_for` and
+        `effort_for` are deliberately derived because the tier can move under
+        a node and a stale value must not follow it; the harness is the
+        opposite case. It is stamped once at hire and read forever after,
+        because the machine-wide setting it came from is a default for NEW
+        hires and changing it must move nobody (user ruling 2026-09-19). A
+        derived harness would silently re-point every existing agent the
+        moment that setting changed — the automatic migration the ticket
+        forbids, and an unannounced loss of each agent's provider-side session
+        continuity on top.
+
+        Answers for EVERY node, not only OpenRouter ones: a node on a Claude,
+        Codex or Antigravity tier has exactly one harness by construction, so
+        the question is well-formed everywhere and the stamp is simply absent.
+        An absent stamp — every agent hired before this existed — reads as the
+        lane default, which is what those agents are genuinely running.
+        """
+        from . import openrouter_harness                # noqa: PLC0415
+        return openrouter_harness.canonical(
+            (self.node(nid) or {}).get("or_harness"))
 
     def account_fallback_for(self, nid: str) -> bool:
         """An absent individual setting follows the organization live."""

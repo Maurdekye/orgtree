@@ -6276,6 +6276,26 @@ html.mobile .md table { display: block; overflow-x: auto; max-width: 100%; }
   border-color: var(--prov-openrouter); outline: none;
   background: color-mix(in srgb, var(--prov-openrouter) 10%, transparent); }
 .orr-favs .orr-hint { font-size: 12px; color: var(--dim); }
+/* THE HARNESS ROW — which CLI drives OpenRouter agents. An account row by
+   construction (`.acct-line` › `.acct-row` › `.acct-main` + `.acct-provenance`),
+   so it lands on the same rail and the same two-line rhythm as the key row
+   above it; only the control between them is new.
+   ⚠ `.off` MUST STILL BE LEGIBLE. It is worn in the one-harness case, where
+   the row's whole job is to say WHICH harness you have — a disabled control
+   faded to the usual 40% would hide the answer it exists to give. It reads
+   at dim strength with the pointer disabled, which says "not a choice"
+   without saying "not information". */
+.orr-harness-opts { display: flex; gap: 6px; flex-wrap: wrap; }
+.orr-harness-opt { display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 8px; border: 1px solid var(--line); border-radius: 999px;
+  font-size: 12px; cursor: pointer; white-space: nowrap; }
+.orr-harness-opt:hover:not(.off) {
+  border-color: var(--prov-openrouter);
+  background: color-mix(in srgb, var(--prov-openrouter) 10%, transparent); }
+.orr-harness-opt.on { border-color: var(--prov-openrouter);
+  background: color-mix(in srgb, var(--prov-openrouter) 16%, transparent); }
+.orr-harness-opt.off { cursor: default; color: var(--dim); }
+.orr-harness-opt.off input { cursor: default; }
 .orr-card { display: inline-flex; align-items: center; justify-content: center;
   width: 26px; height: 26px; border-radius: 6px; font-weight: 700;
   font-size: 13px; flex: none; color: var(--orr-c);
