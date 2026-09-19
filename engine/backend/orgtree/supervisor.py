@@ -5847,9 +5847,22 @@ def _stamp_wakes_on_save(org: Org) -> None:
     added; a rule enforced at one choke point cannot be forgotten by the next
     one. Cheap by construction: `commit_node_wake` returns immediately for a
     node that is not frozen or already promised, so the steady state is a
-    dict lookup per node and no IO at all."""
-    for n in org.nodes.values():
-        commit_node_wake(n)
+    dict lookup per node and no IO at all.
+
+    ⚠ RAW WALK, BARRIERED WRITE (state-access rearchitecture). This hook
+    runs inside EVERY save; a `values()` walk would expose all ~700 node
+    values mutably and put the whole node table back into every save's dump
+    set — measured 8.8 MB re-serialized per one-field save at the API door.
+    The walk therefore reads the backing dict directly and touches the
+    barrier only for the rare node it actually stamps, so the scoped save
+    sees exactly those."""
+    nodes = cast("dict[str, Any]", org.d.get("nodes") or {})
+    for nid in list(dict.keys(nodes)):
+        n = dict.__getitem__(nodes, nid)
+        if not isinstance(n, dict) or not n.get("frozen"):
+            continue
+        # the barrier get marks the node BEFORE the mutation can land
+        commit_node_wake(cast("NodeDoc", nodes[nid]))
 
 
 store.pre_save_hooks.append(_stamp_wakes_on_save)
