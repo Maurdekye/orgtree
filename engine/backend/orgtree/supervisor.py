@@ -31800,11 +31800,28 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
                 # replay anyway and let it queue behind the running turn.
                 # The newer marker is left exactly as its own turn wrote it
                 # — we neither spend it nor restore over it.
+                # ⚠ WHAT IS LOST HERE, AND WHAT IS NOT. Stated because "skip
+                # the replay" reads as though queued messages go with it, and
+                # they do not.
+                #   LOST: the interrupted turn's DRIVE TEXT — what
+                #     `_restart_replay(inf, ...)` would have composed out of
+                #     `inf["text"]` and its frozen segments. That text exists
+                #     nowhere but this marker, so dropping it is a real loss
+                #     and it is the loss the user chose.
+                #   NOT LOST: the agent's MAIL. Mail lives in the mailbox and
+                #     the delivery journal, not in the marker, and is drained
+                #     at the start of whatever turn runs next — so the newer
+                #     turn already running on this seat picks it up. Read
+                #     here from `_restart_replay`'s inputs (it takes `inf`
+                #     and the build facts, never the mailbox); measured
+                #     independently by restart-mail's 14-shape probe, which
+                #     establishes delivery exactly once per message.
                 # NOT SILENT: the incident behind this whole ticket was a
                 # marker disappearing with nothing recording that it had, so
                 # a DROP most certainly says so.
-                print(f"[orgtree] {slug}/{nid}: a newer turn started before "
-                      f"this replay could run; dropping the interrupted turn")
+                print(f"[orgtree] {slug}/{nid}: a newer turn started first; "
+                      f"discarding the interrupted turn's drive text "
+                      f"(its mail is unaffected)")
                 # ⚠ COUNTED AS SETTLED, and this is load-bearing. The
                 # `finally` below restores `inflight[dispatched:]` — every
                 # seat this loop has not resolved. A skipped seat IS
