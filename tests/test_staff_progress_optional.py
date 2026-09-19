@@ -468,6 +468,45 @@ class StaffProgressOptional(unittest.TestCase):
                 self.assertIn('OPTIONAL', props[field]['description'].upper())
                 self.assertIn('preserve', props[field]['description'].lower())
 
+    # ── §8 the attention tristate, on THIS door ─────────────────────────
+    # Ticket: allow-every-ticket-metadata-field-to-be-updated.
+    # `_staff_call` reads `attention` with the same absent-vs-false expression
+    # as `orgtree_work update` and `addendum`. That was fixed in dd956c2 along
+    # with the two others, but it was FIXED AND PINNED BY NOTHING: the reviewer
+    # collapsed this call site alone, ran the API-door, staffing and isolation
+    # modules, and got zero failures. A future edit here would therefore
+    # regress in silence — which is exactly how f1 and f3 happened, twice, on
+    # this same ticket. Sibling coverage for the other two doors lives in
+    # tests/test_work_attention_api_door.py; this is the third.
+
+    def test_s8a_staffing_can_take_a_standing_flag_down(self):
+        """`attention: false` through `orgtree_staff` must reach the ledger as
+        an explicit retraction, not be folded into "do not touch"."""
+        wid = self.item(done_so_far=['found it'], working_on_next=['fix it'])
+        self.call('orgtree_work', action='update', slug=wid,
+                  done_so_far=['found it'], working_on_next=['fix it'],
+                  attention=True, attention_reason='please confirm the edge case')
+        self.assertTrue(self.read(wid)['manual_attention'])
+
+        self.staff(wid, 'flag-taker', attention=False)
+
+        self.assertIsNone(self.read(wid)['manual_attention'])
+
+    def test_s8b_a_staffing_that_says_nothing_leaves_the_flag_standing(self):
+        """The other half of the tristate, and the half that makes the first
+        one meaningful: omission must NOT clear. Without this, a call site that
+        cleared unconditionally would pass s8a."""
+        wid = self.item(done_so_far=['found it'], working_on_next=['fix it'])
+        self.call('orgtree_work', action='update', slug=wid,
+                  done_so_far=['found it'], working_on_next=['fix it'],
+                  attention=True, attention_reason='please confirm the edge case')
+
+        self.staff(wid, 'flag-keeper', status='in_progress')
+
+        flag = self.read(wid)['manual_attention']
+        self.assertIsNotNone(flag)
+        self.assertEqual(flag['reason'], 'please confirm the edge case')
+
 
 def mcptool_schema(tool):
     return next(t for t in mcptool.TOOLS
