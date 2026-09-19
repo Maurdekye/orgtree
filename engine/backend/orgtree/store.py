@@ -88,6 +88,7 @@ from typing import Any, cast
 
 from datetime import datetime, timezone
 from . import devguard
+from . import profiling
 
 # Fail before importing ledger or creating/opening any storage.
 devguard.validate_root(os.environ.get("ORGTREE_DATA", os.path.expanduser("~/orgtree")))
@@ -147,7 +148,14 @@ def _migration_allowed() -> bool:
 # Coarse per-process guard around load-modify-save cycles: API ops and the
 # supervisor's notice drain both rewrite org docs; without this a stale copy
 # could resurrect just-delivered notices (double delivery).
-DOC_LOCK = threading.RLock()
+#
+# A `TimedRLock` rather than a bare `threading.RLock`: identical semantics,
+# and while profiling is on it reports how long a request waited here and how
+# long it then held the lock doing work that was neither a document load nor a
+# document save. That is what makes a slow write attributable — the wait, the
+# parse, the work and the write-back are four different bugs. See
+# `profiling.TimedRLock`, which documents what it must forward and why.
+DOC_LOCK = profiling.TimedRLock()
 
 
 # ---------------------------------------------------------------- the latch
@@ -3464,10 +3472,21 @@ def load_org_snapshot(slug: str, sections: Iterable[str]) -> Org:
         raise ValueError(f"not lazy sections: {sorted(unknown)!r}")
     if STORE_BACKEND == "sqlite":
         return _load_sqlite_org(slug, selected)
-    return load_org(slug)
+    # `detached()`, because on this backend the delegation below IS the
+    # snapshot: `_org_view` already brackets this very call as
+    # `load_snapshot_ms`, and letting `load_org` also bill it to `org_load_ms`
+    # would report one parse twice under two names — an operator adding the
+    # stages up would see double the IO the route actually did.
+    with profiling.detached():
+        return load_org(slug)
 
 
 def load_org(slug: str) -> Org:
+    with profiling.stage("org_load_ms"):
+        return _load_org(slug)
+
+
+def _load_org(slug: str) -> Org:
     if STORE_BACKEND == "sqlite":
         return _load_sqlite_org(slug)
     p = _json_path(slug)
@@ -3673,6 +3692,11 @@ def save_org(org: Org) -> None:
     `BEGIN IMMEDIATE` transaction writing only what changed (§4.5). Either
     way the save IS the change: `REVISION`, `on_save` and `save_hooks` fire
     exactly as they always have."""
+    with profiling.stage("org_save_ms"):
+        _save_org(org)
+
+
+def _save_org(org: Org) -> None:
     _assert_synced_data_root()
     from .notification_state import reconcile_attention
     reconcile_attention(org.d)

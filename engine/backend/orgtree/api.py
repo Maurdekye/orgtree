@@ -87,6 +87,7 @@ from . import registry
 from . import refs
 from . import deployment
 from . import frozen_install
+from . import profiling
 from . import workitems
 from . import workevidence
 from . import opreceipts
@@ -165,9 +166,17 @@ _PROFILE_RESERVED_FIELDS = frozenset({"seq", "route", "handler_ms", "total_ms", 
 # Only known stage measurements may leave a handler profile dictionary. A
 # closed allowlist prevents future callers from exposing numeric prompt, mail,
 # credential, or token values by choosing an arbitrary field name.
+#
+# The last two are new, and they complete the write stages (see `profiling`):
+# a write is a wait, a parse, some work and a write-back, and naming them
+# separately is the whole point — "the save took 4.9 s" and "the lock took
+# 4.9 s" have nothing in common except the number. `lock_wait_ms` and
+# `org_load_ms` were already allowed and, before this, were populated by one
+# route (`history_page`) and by no write at all.
 _PROFILE_ALLOWED_FIELDS = frozenset({
     "load_snapshot_ms", "tree_ms", "annotate_ms",
     "lock_wait_ms", "org_load_ms", "chat_read_ms", "history_work_ms",
+    "org_save_ms", "mutate_ms",
 })
 
 #: THIS PROCESS's identity — a fresh value on every start.
@@ -334,8 +343,16 @@ class AccessRecord:
         # here. A wrong count would cost a misleading log field, never
         # correctness.
         profile = {} if _PROFILE_TIMING else None
+        profile_token = None
         if profile is not None:
             scope.setdefault("state", {})["profile_timing"] = profile
+            # The same dict, reachable two ways. `request.state` is how a
+            # HANDLER gets it — it has a request. `profiling.bind` is how the
+            # places that actually spend the time get it: `store.load_org`,
+            # `store.save_org` and `store.DOC_LOCK` are called from eighteen
+            # modules and have no request to ask. Bound here, on the
+            # OUTERMOST middleware, so the whole stack is inside the window.
+            profile_token = profiling.bind(profile)
         global _access_inflight
         _access_inflight += 1
         depth = _access_inflight
@@ -365,6 +382,11 @@ class AccessRecord:
                 _access_emit(scope, status, handler_ms, total_ms, nbytes, depth, profile)
             except Exception:                                   # noqa: BLE001
                 pass      # a log line may never be the reason a request fails
+            if profile_token is not None:
+                # After the emit, so anything the emit itself touches is still
+                # inside the window, and unconditional so a raising handler
+                # cannot leave the var bound to a request that is over.
+                profiling.unbind(profile_token)
 
 
 def _route_label(scope: ASGIScope) -> str:
@@ -405,7 +427,13 @@ def _access_emit(scope: ASGIScope, status: int, handler_ms: float,
         # retrievable sink.  A future handler must not be able to smuggle a
         # prompt, mail body, credential, token, or non-finite value into the
         # log merely by adding a field to its timing dict.
-        numeric_profile = {k: v for k, v in profile.items()
+        # A SNAPSHOT, not the live dict: a managed tool's worker thread
+        # (toolwait.invoke) shares this dict and may still be writing to it
+        # after its request gave up waiting. Iterating it directly would
+        # eventually raise "dictionary changed size during iteration" inside
+        # the caller's `except Exception: pass` and drop the whole record in
+        # silence. See `profiling.snapshot`.
+        numeric_profile = {k: v for k, v in profiling.snapshot(profile).items()
                            if isinstance(v, (int, float)) and not isinstance(v, bool)
                            and math.isfinite(v) and k in _PROFILE_ALLOWED_FIELDS
                            and k not in _PROFILE_RESERVED_FIELDS}
