@@ -87,11 +87,21 @@ export function useAgentNavRegistry(): { readonly current: AgentNavMenu | null }
 
 /** The nearest navigation target at or above `target`, bounded by `within`
  *  exactly as `copyObjectAt` is — a press inside one surface must never find
- *  another surface's target through a portal. */
-export function agentNavAt(target: EventTarget | null, within?: Element): string | null {
+ *  another surface's target through a portal.
+ *
+ *  Returned as the ELEMENT rather than only its id because the caller has to
+ *  compare its position against the copy object's: whichever of the two is
+ *  the OUTER one has to be the anchor, since the anchor bounds both lookups.
+ *  Anchoring on the inner one leaves the outer unreachable, which is how a
+ *  marker sitting above its copy object went silently inert. */
+export function agentNavElementAt(target: EventTarget | null, within?: Element): Element | null {
   const el = (target as Element | null)?.closest?.('[' + AGENT_NAV_ATTR + ']')
   if (!el || (within && !within.contains(el))) return null
-  return el.getAttribute(AGENT_NAV_ATTR) || null
+  return el.getAttribute(AGENT_NAV_ATTR) ? el : null
+}
+
+export function agentNavAt(target: EventTarget | null, within?: Element): string | null {
+  return agentNavElementAt(target, within)?.getAttribute(AGENT_NAV_ATTR) || null
 }
 
 /** Spread onto a navigating target to mark it. There is deliberately no

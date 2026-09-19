@@ -39,9 +39,12 @@ import path from 'node:path'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
-import { AGENT_NAV_ATTR, AgentNavProvider, useAgentNavRegistry } from '../src/canvas/agentnav'
+import {
+  AGENT_NAV_ATTR, AgentNavProvider, agentNavProps, useAgentNavRegistry, useProvideAgentNav,
+} from '../src/canvas/agentnav'
 import type { AgentNavMenu } from '../src/canvas/agentnav'
 import { AgentName } from '../src/canvas/identity'
+import { SenderChip } from '../src/App'
 import { ObjectMenuBoundary } from '../src/canvas/contextmenu'
 import { resetConvos } from '../src/convo'
 import { forgetPins } from '../src/canvas/pins'
@@ -357,4 +360,134 @@ uiTest('§5 marking a target changes its menu and nothing else — the click sti
     await flush(2); await advance(800, 50); await flush(2)
     const after = c.el.querySelector('.cc-head-left')?.getAttribute('data-copy-agent-name')
     assert.notEqual(after, before, 'the jump chip still jumps on a plain click')
+  })
+
+// ================================================================ §7 and §8
+// TWO SHAPES THE MARKER COULD NOT SERVE, both found by textmenu in independent
+// review of f0d33d9 (2026-09-19) by measurement, and neither visible to §3 or
+// §4. They are regression cases for ONE root cause with two faces.
+//
+// THE ROOT CAUSE, since it is not obvious from either symptom:
+// `ObjectMenuBoundary` used to pass the COPY OBJECT to `open` as the anchor,
+// and `open` bounds BOTH of its lookups — the copy object AND the navigation
+// marker — by that anchor. So the marker was only ever reachable when the copy
+// object CONTAINED it. Four shapes exist among the marked targets:
+//
+//   marker and copy object ON THE SAME ELEMENT  — contains(itself), worked
+//   copy object is an ANCESTOR of the marker    — worked (.eye-tab-jump)
+//   marker is an ANCESTOR of the copy object    — BROKE  (§7, SenderChip)
+//   no copy object above the marker AT ALL      — BROKE  (§8, docket head)
+//
+// The fix anchors on whichever of the two is OUTER, and stops `open`
+// discarding the nav entries when there is no copy object at all.
+//
+// ⚠ §7 MOUNTS THE REAL COMPONENT, not a replica of its markup. A replica would
+// have re-encoded my own reading of the nesting, and the nesting IS the bug.
+
+/** publishes a builder into the registry exactly as OrgCanvas does */
+function Registrar({ entries }: { entries: string[] }) {
+  useProvideAgentNav((id) => entries.map((label) => ({ label, onSelect: () => { void id } })))
+  return null
+}
+
+uiTest('§7 a marker ABOVE its copy object still offers the whole menu (App.tsx SenderChip)',
+  async (t) => {
+    const nodes = new Map<string, unknown>([['worker', mkNode('worker')]])
+    const jumped: string[] = []
+    const v = await mountView(
+      <AgentNavProvider>
+        <ObjectMenuBoundary className="app">
+          <Registrar entries={['Open desk', 'Open inbox']} />
+          <SenderChip id="worker" nodes={nodes as never}
+            onFocusAgent={(id: string) => { jumped.push(id) }} />
+        </ObjectMenuBoundary>
+      </AgentNavProvider>, (h) => h)
+    t.after(() => v.unmount())
+    await flush(2)
+
+    const button = v.el.querySelector('button.cc-name-jump') as HTMLElement | null
+    assert.ok(button, 'the real SenderChip rendered its navigating button')
+    // PIN THE INVERTED NESTING ITSELF. If SenderChip is ever rewritten to put
+    // both attributes on one element, this case would keep passing for the
+    // wrong reason — so assert the shape it is defending against.
+    assert.equal(button!.getAttribute(AGENT_NAV_ATTR), 'worker',
+      'the outer button carries the marker')
+    assert.equal(button!.getAttribute('data-copy-agent-name'), null,
+      'and NOT the copy attribute — that is on an inner element')
+    const inner = button!.querySelector('[data-copy-agent-name]')
+    assert.ok(inner, 'the copy object is INSIDE the marked button — the inverted shape')
+
+    // right-click the inner span, which is what a real pointer lands on
+    const have = await menuOf(inner!, 'the sender chip')
+    assert.equal(have[0], 'Copy agent name',
+      `the copy entry is still first — have ${JSON.stringify(have)}`)
+    assert.ok(have.includes('Open desk') && have.includes('Open inbox'),
+      `and the agent menu is reachable, not copy-only — have ${JSON.stringify(have)}`)
+    // the filed symptom, written down so a regression reads unmistakably
+    assert.notDeepEqual(have, ['Copy agent name'],
+      'THE REPORTED BUG: an inbox sender chip offering copy-only')
+
+    await inAct(() => { button!.click() })
+    await flush(2)
+    assert.deepEqual(jumped, ['worker'], 'and the primary click still navigates')
+  })
+
+uiTest('§8 a marker with NO copy object above it offers the whole menu (docket question head)',
+  async (t) => {
+    // The docket question head's button carries the marker, and the nearest
+    // `data-copy-ticket-title` is a SIBLING of the question box rather than an
+    // ancestor of the button — so there is no copy object above it at all.
+    // Before the fix this opened NOTHING: not even "Copy agent name".
+    const v = await mountView(
+      <AgentNavProvider>
+        <ObjectMenuBoundary className="app">
+          <Registrar entries={['Open desk', 'Open inbox']} />
+          <div className="mailer-head docket-pane-head" data-copy-ticket-title="a ticket" />
+          <div className="docket-question-box">
+            <div className="docket-question-head">
+              <button className="cc-name cc-name-jump" {...agentNavProps('worker')}>worker</button>
+            </div>
+          </div>
+        </ObjectMenuBoundary>
+      </AgentNavProvider>, (h) => h)
+    t.after(() => v.unmount())
+    await flush(2)
+
+    const button = v.el.querySelector('button.cc-name-jump') as HTMLElement | null
+    assert.ok(button, 'the question head button rendered')
+    // PROVE THE PRECONDITION rather than assuming it: this case is only
+    // meaningful while there is genuinely no copy object above the marker.
+    assert.equal(button!.closest('[data-copy-agent-name], [data-copy-ticket-title]'), null,
+      'precondition: there is genuinely NO copy object above this marker')
+
+    const have = await menuOf(button!, 'the docket question head')
+    assert.ok(have.includes('Open desk') && have.includes('Open inbox'),
+      `the agent menu is offered — have ${JSON.stringify(have)}`)
+    assert.equal(have[0], 'Copy agent name',
+      'and it is the CANONICAL menu, copy entry included — a target without a '
+      + 'copy object must not receive the menu minus its first entry. '
+      + `have ${JSON.stringify(have)}`)
+  })
+
+// ------------------------------- §9 EVERY MARKED TARGET ANSWERS AT ALL
+// textmenu's suggestion, and the assertion that would have caught BOTH of the
+// findings above in one line. §3 compares ENTRIES, but `continue`s past any
+// target whose agent has no reference row — so a target that opened NOTHING
+// could slip past it. This asks the weaker question of EVERY marked target
+// without exception: is the right-click taken, and does a menu appear.
+uiTest('§9 every marked target on screen opens a menu AT ALL, entries aside',
+  async (t) => {
+    const c = await mountCanvas(t, [mkNode('boss', { children: [mkNode('worker', { parent: 'boss' })] })])
+    await openDesk(c, 'worker')
+    await openTray(c.el)
+    const targets = [...c.el.querySelectorAll('[' + AGENT_NAV_ATTR + ']')] as HTMLElement[]
+    assert.ok(targets.length > 0, 'the canvas renders marked targets to check')
+    for (const el of targets) {
+      const what = `${el.className || el.tagName} -> ${el.getAttribute(AGENT_NAV_ATTR)}`
+      assert.equal(await rightClick(el), true,
+        `a marked target (${what}) must TAKE the right-click`)
+      assert.ok(menuEl(), `a marked target (${what}) must OPEN a menu`)
+      assert.ok(labels().length > 0, `a marked target (${what}) must offer entries`)
+      await esc()
+    }
   })

@@ -97,7 +97,7 @@ import type { CSSProperties, HTMLAttributes, KeyboardEvent as ReactKeyboardEvent
   ReactNode, SyntheticEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useSurfaceDocument } from '../popout'
-import { agentNavAt, useAgentNavRegistry } from './agentnav'
+import { AGENT_NAV_ATTR, agentNavElementAt, useAgentNavRegistry } from './agentnav'
 import { useEsc } from './shared'
 import type { ToastFn } from '../types'
 
@@ -138,6 +138,17 @@ function copyObjectAt(target: EventTarget | null, within?: Element): Element | n
   return object && (!within || within.contains(object)) ? object : null
 }
 
+/** `Copy agent name`, built from a navigation marker instead of a copy object,
+ *  for the targets that carry no copy object of their own. Kept beside
+ *  `objectCopyEntry` so the two labels and the two toasts cannot drift. */
+function agentCopyEntry(el: Element, name: string, toast?: ToastFn): MenuItem {
+  return { label: 'Copy agent name', onSelect: () => {
+    void copyToClipboard(el, name).then(ok => toast?.([
+      ok ? 'copied agent name' : 'could not copy — clipboard unavailable',
+    ]))
+  } }
+}
+
 function objectCopyEntry(object: Element, toast?: ToastFn): MenuItem {
   const agent = object.getAttribute('data-copy-agent-name')
   const label = agent !== null ? 'Copy agent name' : 'Copy ticket title'
@@ -160,8 +171,18 @@ export function ObjectMenuBoundary({ children, toast, onContextMenu, ...props }:
   const menu = useContextMenu(feedback)
   return <CopyFeedback.Provider value={feedback}>
     <div {...props} onContextMenu={e => {
+      // ANCHOR ON THE OUTER OF THE TWO. `open` bounds BOTH its lookups by the
+      // anchor, so anchoring on the inner element makes the outer one
+      // unreachable. Passing the copy object unconditionally therefore left
+      // two shapes broken: a marker ABOVE its copy object (App.tsx SenderChip,
+      // marker on the button and the copy attribute on an inner span) was
+      // inert and offered copy-only, and a marker with NO copy object above it
+      // at all (the docket question head) opened no menu whatsoever. Both
+      // found by measurement in review, textmenu 2026-09-19.
       const object = copyObjectAt(e.target)
-      if (object) menu.open(e, [], object)
+      const nav = agentNavElementAt(e.target)
+      const anchor = nav && (!object || nav.contains(object)) ? nav : object
+      if (anchor) menu.open(e, [], anchor)
       onContextMenu?.(e)
     }}>{children}</div>
     {menu.node}
@@ -309,13 +330,24 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
     // agentnav.tsx explains why it is a registry. A surface that already
     // passes the menu in `entries` does not carry the marker, so these two
     // paths never both fire and the entries are never doubled.
-    const navId = agentNavAt(e.target, el)
-    const navEntries = navId && !entriesList.length ? (agentNav?.current?.(navId) ?? []) : []
+    const navEl = entriesList.length ? null : agentNavElementAt(e.target, el)
+    const navId = navEl?.getAttribute(AGENT_NAV_ATTR) || null
+    const navEntries = navId ? (agentNav?.current?.(navId) ?? []) : []
+    // A MARKED TARGET WITH NO COPY OBJECT STILL GETS THE WHOLE MENU. Dropping
+    // to `entriesList` here (empty, for such a target) offered nothing at all.
+    // The copy entry is synthesized from the marker because `Copy agent name`
+    // comes from the copy OBJECT, never from the builder — so without this a
+    // target lacking a copy object would offer the canonical menu minus its
+    // first entry, which is not the canonical menu. The marker's value is the
+    // agent name at every call site carrying both attributes, so the entry is
+    // identical to the one the copy object would have produced.
     const list: MenuEntry[] = object
       ? [objectCopyEntry(object, feedback),
          ...(navEntries.length ? ['sep' as const, ...navEntries] : []),
          ...(entriesList.length ? ['sep' as const, ...entriesList] : [])]
-      : entriesList
+      : (navEntries.length && navEl && navId
+          ? [agentCopyEntry(navEl, navId, feedback), 'sep' as const, ...navEntries]
+          : entriesList)
     // nothing to offer is not a menu: the browser's own stands
     if (!list.some((x) => x !== 'sep')) return
     e.preventDefault()
