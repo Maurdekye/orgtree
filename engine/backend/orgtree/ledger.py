@@ -13959,9 +13959,16 @@ class Org:
                     staffed_to: str | None = None) -> dict[str, Any]:
         """THE docket status update. Always carries both lists (either may be
         empty, not both — Astra ruling 2026-09-05, no status-only bypass),
-        moves `docket_at` and `last_updater`, and restates the manual flag:
-        an update that does not pass attention=true CLEARS a standing flag,
-        because the latest update is the complete current statement.
+        and moves `docket_at` and `last_updater`.
+
+        ⚠ AN UPDATE NO LONGER CLEARS A STANDING ATTENTION FLAG (user ruling
+        2026-09-19). It used to: the rule was "the latest update is the
+        complete current statement", so any later update took the flag down —
+        and fixing a ticket's title silently dropped the question the user was
+        still looking at. Only four things take it down now: the user replying,
+        the user dismissing it, an explicit `attention: false` from an agent,
+        and the item being superseded. An update that does not mention the flag
+        leaves it exactly where it is.
 
         AN UPDATE CLAIMS THE ASSIGNMENT (user ruling 2026-09-05 21:02, via
         Astra 21:15). Assignment is ownership, and the agent writing the status
@@ -14583,19 +14590,30 @@ class Org:
                                       "by": self._work_actor(actor),
                                       "set_rev": it["manual_attention_rev"]}
             changes["manual_attention"] = {"set_rev": it["manual_attention_rev"]}
-        elif prev:
+        elif attention is False and prev:
+            # ⚠ ONLY AN EXPLICIT `attention: false` TAKES THE FLAG DOWN HERE
+            # (user ruling 2026-09-19). Until then ANY later update cleared a
+            # standing flag — the rule was "the latest update is the complete
+            # current statement" — which meant fixing a ticket's title silently
+            # dropped the question the user was still looking at. The user's
+            # words: only their own reply, their own dismissal, or an explicit
+            # clearing by an agent should clear it.
+            #
+            # So an update that simply does not mention the flag now LEAVES IT
+            # STANDING, and `attention: false` is the explicit clearing. That
+            # spelling is not invented here: `work_addendum` has always read
+            # `attention: false` as the retraction, and this makes the two paths
+            # agree instead of one clearing on silence and the other on intent.
+            #
             # ⚠ AN AMENDMENT COUNTS AS RESTATING THE FLAG, and reaches this
             # branch only when there was none to amend — which is refused far
             # above. So an amending update never falls through to the clear.
             it["manual_attention"] = None
             changes["manual_attention"] = {"cleared_set_rev": prev.get("set_rev"),
-                                           "by": "status update",
+                                           "by": "explicit retraction",
                                            # the text that came down, kept on
                                            # the row that took it down
-                                           # (W-flag-question) — this is the
-                                           # QUIETEST of the four clearers, and
-                                           # was the only one that left no
-                                           # trace of the sentence at all
+                                           # (W-flag-question)
                                            **self._work_attention_archive(prev)}
         self._work_hist(it, actor, "update",
                         {"changes": changes, "done": len(done), "next": len(nxt)})

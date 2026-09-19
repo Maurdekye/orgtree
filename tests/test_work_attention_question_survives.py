@@ -22,10 +22,20 @@ WHAT THIS SUITE PINS:
   §1  THE DEFECT, and its fix, on the route it was reported on: a user reply.
       The question survives on the clearing row, and the ANSWER is on that row
       beside it — so `orgtree_work get` alone shows the pair.
-  §2  THE OTHER THREE ROUTES THAT TAKE A FLAG DOWN. There are four, not one, and
+  §2  THE OTHER ROUTES THAT TAKE A FLAG DOWN. There is more than one, and
       fixing the reported one while the others kept losing the text would just
-      move the defect. A dismissal, an ordinary status update and an agent's
-      retraction all keep it now, under the SAME key.
+      move the defect. A dismissal, an explicit `attention: false` on an update
+      and an agent's retraction on an addendum all keep it now, under the SAME
+      key.
+
+      ⚠ ONE OF THE ORIGINAL FOUR IS GONE (user ruling 2026-09-19). An ordinary
+      update that simply did not restate the flag used to clear it — the
+      quietest clearer, and the reason a title fix could silently drop a
+      question the user was still reading. It no longer clears anything; that
+      route now needs an explicit `attention: false`. What used to be
+      `test_an_ordinary_status_update_keeps_it` is therefore split in two: the
+      explicit retraction still keeps the text, and the ordinary update is
+      pinned as a NON-clearer.
   §3  NOTHING ELSE CHANGED. The identical-re-raise refusal after a dismissal
       still works, the 1500-character limit on `attention_reason` is untouched,
       and when the flag may be raised is untouched.
@@ -224,13 +234,19 @@ class EveryRouteThatTakesAFlagDown(QuestionBase):
         # and the pre-existing record is still there beside it
         self.assertEqual(self.item(wid)['dismissals'][0]['reason'], QUESTION)
 
-    def test_an_ordinary_status_update_keeps_it(self):
-        """THE QUIETEST CLEARER, and the one that left no trace at all: an
-        update that does not restate the flag takes it down, and a reader had
-        nothing but `cleared_set_rev` to go on."""
+    def test_an_explicit_retraction_on_update_keeps_it(self):
+        """WAS "the quietest clearer": an update that merely did not restate
+        the flag took it down, leaving a reader nothing but `cleared_set_rev`.
+
+        The user removed that route on 2026-09-19 — an unrelated update no
+        longer clears anything (see test_an_ordinary_update_is_no_longer_a
+        _clearer below). What remains on this route is the EXPLICIT
+        `attention: false`, and it must still keep the question text, which is
+        what this suite exists for.
+        """
         wid = self.flagged()
         self.org.work_update(self.agent, wid, ['built it', 'moved on'],
-                             ['next thing'])
+                             ['next thing'], attention=False)
         self.assertIsNone(self.item(wid)['manual_attention'])
         # ⚠ THE CLEAR, NOT THE RAISE. Raising writes `changes.manual_attention`
         # too (with `set_rev`); only the clear carries `cleared_set_rev`.
@@ -240,8 +256,28 @@ class EveryRouteThatTakesAFlagDown(QuestionBase):
         self.assertEqual(len(rows), 1)
         cleared = rows[0]['changes']['manual_attention']
         self.assertEqual(cleared['reason'], QUESTION)
-        self.assertEqual(cleared['by'], 'status update')
+        self.assertEqual(cleared['by'], 'explicit retraction')
         self.assertIsNotNone(cleared['cleared_set_rev'])
+
+    def test_an_ordinary_update_is_no_longer_a_clearer(self):
+        """The route this suite used to call the quietest clearer is gone.
+
+        User ruling 2026-09-19: only their own reply, their own dismissal, or
+        an agent's explicit `attention: false` may take a flag down. An update
+        that does not mention the flag leaves it standing — so a title fix no
+        longer drops a question the user is still reading.
+        """
+        wid = self.flagged()
+        self.org.work_update(self.agent, wid, ['built it', 'moved on'],
+                             ['next thing'])
+        standing = self.item(wid)['manual_attention']
+        self.assertIsNotNone(standing)
+        self.assertEqual(standing['reason'], QUESTION)
+        # and no clearing row was written at all
+        rows = [h for h in self.item(wid)['history'] if h.get('op') == 'update'
+                and 'cleared_set_rev' in ((h.get('changes') or {})
+                                          .get('manual_attention') or {})]
+        self.assertEqual(rows, [])
 
     def test_an_agent_retraction_keeps_it(self):
         """The fourth route, added by the sibling ticket — it was written
@@ -404,7 +440,8 @@ class MutationControls(QuestionBase):
     def test_control_the_update_route_assertion_can_fail(self):
         wid = self.flagged()
         self.bare_archive()
-        self.org.work_update(self.agent, wid, ['built it'], ['x'])
+        self.org.work_update(self.agent, wid, ['built it'], ['x'],
+                             attention=False)
         rows = [h for h in self.item(wid)['history'] if h.get('op') == 'update'
                 and 'cleared_set_rev' in ((h.get('changes') or {})
                                           .get('manual_attention') or {})]

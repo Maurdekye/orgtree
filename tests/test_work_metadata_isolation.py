@@ -317,18 +317,106 @@ class DocumentedSideEffectsStillFire(unittest.TestCase):
                          ["owner", "participants"])
         self.assertEqual(after["participants"], [])
 
-    def test_a_later_update_clears_a_standing_attention_flag(self):
-        """Documented in the tool description: "A later update without it
-        clears the flag", because the latest update is the complete current
-        statement. This is the one remaining field an unrelated edit still
-        touches, and it is deliberate."""
+    def test_an_explicit_attention_false_still_clears_the_flag(self):
+        """An agent may still take its own flag down — deliberately.
+
+        This is the surviving half of what used to be
+        test_a_later_update_clears_a_standing_attention_flag. See
+        AttentionSurvivesUnrelatedEdits below for the half the user reversed.
+        """
         org, slug, manager, workers = fixture()
         org.work_update(manager, slug, ["done a thing"], ["next thing"],
                         attention=True, attention_reason="please confirm",
                         owner=workers[0])
         self.assertTrue(snapshot(org, manager, slug)["manual_attention"])
 
+        org.work_update(manager, slug, attention=False, owner=workers[0])
+
+        self.assertFalse(snapshot(org, manager, slug)["manual_attention"])
+
+
+class AttentionSurvivesUnrelatedEdits(unittest.TestCase):
+    """The user's 2026-09-19 ruling, in their own words: "only the user
+    replying / dismissing with no comment, or an explicit clearing of the
+    attention by an agent should clear it".
+
+    Until then ANY later update took a standing flag down, on the rule that the
+    latest update is the complete current statement. That made the flag the one
+    field an unrelated edit still moved — the same shape as the assign bug this
+    ticket started from, and the reason fixing a ticket's title could silently
+    drop a question the user was still reading.
+
+    I had originally kept that behaviour and pinned it, because it was
+    documented contract and the ticket said to keep documented consequences.
+    The user overruled it. These tests are that reversal.
+    """
+
+    def _flagged(self):
+        org, slug, manager, workers = fixture()
+        org.work_update(manager, slug, ["done a thing"], ["next thing"],
+                        attention=True, attention_reason="please confirm",
+                        owner=workers[0])
+        self.assertTrue(snapshot(org, manager, slug)["manual_attention"])
+        return org, slug, manager, workers
+
+    def test_a_title_edit_leaves_the_flag_standing(self):
+        """The exact case in the user's complaint."""
+        org, slug, manager, workers = self._flagged()
+        before = snapshot(org, manager, slug)
+
         org.work_update(manager, slug, title="Title B", owner=workers[0])
+
+        after = snapshot(org, manager, slug)
+        self.assertEqual(sorted(f for f in TRACKED if before[f] != after[f]),
+                         ["title"])
+        self.assertTrue(after["manual_attention"])
+
+    def test_an_ordinary_progress_update_leaves_the_flag_standing(self):
+        """Not just metadata edits: a real status update does not clear it
+        either. The user named three clearers and this is not one of them."""
+        org, slug, manager, workers = self._flagged()
+
+        org.work_update(manager, slug, ["more done"], ["more next"],
+                        owner=workers[0])
+
+        flag = snapshot(org, manager, slug)["manual_attention"]
+        self.assertTrue(flag)
+        self.assertEqual(flag["reason"], "please confirm")
+
+    def test_the_reason_survives_untouched_across_several_updates(self):
+        """A flag that survives but loses its sentence would be the same defect
+        wearing a different shape."""
+        org, slug, manager, workers = self._flagged()
+
+        org.work_update(manager, slug, title="Title B", owner=workers[0])
+        org.work_update(manager, slug, status="in_progress", owner=workers[0])
+        org.work_update(manager, slug, ["more"], ["next"], owner=workers[0])
+
+        flag = snapshot(org, manager, slug)["manual_attention"]
+        self.assertEqual(flag["reason"], "please confirm")
+
+    def test_a_user_reply_still_clears_it(self):
+        """Clearer one of three, named by the user."""
+        org, slug, manager, _workers = self._flagged()
+
+        org.work_clear_attention_on_user_reply(slug)
+
+        self.assertFalse(snapshot(org, manager, slug)["manual_attention"])
+
+    def test_a_user_dismissal_still_clears_it(self):
+        """Clearer two of three, named by the user."""
+        org, slug, manager, _workers = self._flagged()
+        set_rev = org.work_get(manager, slug)["manual_attention"]["set_rev"]
+
+        org.work_dismiss_attention(slug, set_rev)
+
+        self.assertFalse(snapshot(org, manager, slug)["manual_attention"])
+
+    def test_an_explicit_agent_retraction_still_clears_it(self):
+        """Clearer three of three, named by the user."""
+        org, slug, manager, workers = self._flagged()
+
+        org.work_update(manager, slug, attention=False, owner=workers[0])
 
         self.assertFalse(snapshot(org, manager, slug)["manual_attention"])
 
