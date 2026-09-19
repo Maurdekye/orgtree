@@ -72,18 +72,18 @@ def _node(slug: str, nid: str):
 
 
 def requested(slug: str, nid: str) -> bool:
-    with store.DOC_LOCK:
-        n = _node(slug, nid)
-        return bool(n and n.get("halt"))
+    # lock-free like `blocked` below, for the same incident-measured reason
+    n = _node(slug, nid)
+    return bool(n and n.get("halt"))
 
 
 def org_killswitch(slug: str) -> dict[str, Any] | None:
     """The org-level emergency latch record ({at, by}), or None."""
-    with store.DOC_LOCK:
-        try:
-            return store.cached_org(slug).d.get("killswitch") or None
-        except LedgerError:
-            return None
+    # lock-free like `blocked` below, for the same incident-measured reason
+    try:
+        return store.cached_org(slug).d.get("killswitch") or None
+    except LedgerError:
+        return None
 
 
 def blocked(slug: str, nid: str) -> str | None:
@@ -92,17 +92,24 @@ def blocked(slug: str, nid: str) -> str | None:
     asked by every gate in this module, so the org latch covers exactly the
     wake/admission surface the per-agent halt already covers — a gate that
     consulted `requested` alone would be a path the latch does not close."""
-    with store.DOC_LOCK:
-        try:
-            org = store.cached_org(slug)
-        except LedgerError:
-            return None
-        n = org.nodes.get(nid)
-        if n is not None and n.get("halt"):
-            return "halt"
-        if org.d.get("killswitch"):
-            return "killswitch"
+    # ⚠ NO DOC_LOCK, deliberately (state-access rearchitecture, incident
+    # 2026-09-19: a user message send stalled for minutes). The snapshot is
+    # seq-gated and torn-proof without a caller's lock, and every mutating
+    # door re-checks halt/killswitch under ITS OWN lock on the resident
+    # document — this predicate is a pre-gate, and the lock it used to take
+    # never extended to the action anyway. What the lock DID do under swarm
+    # load was convoy: a snapshot rebuild that fell back to a full parse ran
+    # inside it and stalled every write for tens of seconds.
+    try:
+        org = store.cached_org(slug)
+    except LedgerError:
         return None
+    n = org.nodes.get(nid)
+    if n is not None and n.get("halt"):
+        return "halt"
+    if org.d.get("killswitch"):
+        return "killswitch"
+    return None
 
 
 def _states(slug: str, nid: str, st) -> list[dict]:

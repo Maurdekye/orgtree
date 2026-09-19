@@ -165,26 +165,90 @@ def _migration_allowed() -> bool:
 class _InstrumentedDocLock(profiling.TimedRLock):
     """`profiling.TimedRLock` (per-REQUEST lock_wait_ms / mutate_ms, the
     Condition protocol, the substitutability contract its own docstring
-    pins) composed with the rearchitecture's two additions: per-OPERATION
-    wait/held aggregates (stateprobe), and the resident release hook that
-    enforces the discard property for every write cycle at the one place
-    all of them pass through. Subclassed rather than re-implemented so
-    test_write_route_timing's pins hold for the object actually installed.
+    pins) composed with the rearchitecture's additions: FIFO admission,
+    per-OPERATION wait/held aggregates (stateprobe), and the resident
+    release hook that enforces the discard property for every write cycle
+    at the one place all of them pass through. Subclassed rather than
+    re-implemented so test_write_route_timing's pins hold for the object
+    actually installed.
+
+    ⚠ FIFO IS A CORRECTNESS PROPERTY HERE, measured the hard way (incident
+    2026-09-19: a single message send waited 28 s while seventeen
+    tight-loop writers each re-acquired the lock the instant they released
+    it — a bare RLock hands the lock back to the releasing thread before a
+    sleeping waiter can wake, so a NEW arrival starves exactly when the
+    system is busiest, which the user experiences as "one message will not
+    send"). The admission gate below grants strictly in arrival order: the
+    inner RLock is only ever acquired by the thread the gate has admitted,
+    so it never contends and inherits the gate's fairness.
 
     Held-time accounting across `Condition.wait` follows the parent's rule:
     the wait ends the hold window for both reporters (asleep is not held),
-    and the restore opens a fresh one."""
+    and the restore opens a fresh one — and re-queues at the TAIL, fairly."""
 
-    __slots__ = ("_tls",)
+    __slots__ = ("_tls", "_gate", "_queue", "_owner", "_seq")
 
     def __init__(self) -> None:
         super().__init__()
         self._tls = threading.local()
+        self._gate = threading.Condition(threading.Lock())
+        self._queue: list[int] = []
+        self._owner: int | None = None
+        self._seq = 0
+
+    # --------------------------------------------------- FIFO admission
+    def _admit(self, blocking: bool, timeout: float) -> bool:
+        me = threading.get_ident()
+        with self._gate:
+            if self._owner == me:
+                return True                      # reentrant: already admitted
+            if not blocking:
+                if self._owner is None and not self._queue:
+                    self._owner = me
+                    return True
+                return False
+            self._seq += 1
+            ticket = self._seq
+            self._queue.append(ticket)
+            deadline = (time.monotonic() + timeout) if timeout and timeout > 0 else None
+            while self._owner is not None or self._queue[0] != ticket:
+                rest = None if deadline is None else deadline - time.monotonic()
+                if rest is not None and rest <= 0:
+                    self._queue.remove(ticket)
+                    self._gate.notify_all()
+                    return False
+                self._gate.wait(rest)
+            self._queue.pop(0)
+            self._owner = me
+            return True
+
+    def _yield_gate(self) -> None:
+        with self._gate:
+            self._owner = None
+            self._gate.notify_all()
 
     def acquire(self, blocking: bool = True, timeout: float = -1) -> bool:
         outer = getattr(self._held, "depth", 0) == 0
         t0 = time.perf_counter() if outer else 0.0
-        ok = super().acquire(blocking, timeout)
+        if not self._admit(blocking, timeout):
+            if outer:
+                waited = (time.perf_counter() - t0) * 1000.0
+                # a failed wait is still a wait — both reporters see it,
+                # exactly as the parent records a failed timed acquire
+                stateprobe.record("doc_lock_wait", ms=waited)
+                profiling.add("lock_wait_ms", waited)
+            return False
+        if outer:
+            # the QUEUE is where waiting happens now (the gate admits in
+            # arrival order and the inner lock never contends), so the gate
+            # wait is what lock_wait_ms means — billed here because the
+            # parent can only see its own, uncontended, acquire
+            profiling.add("lock_wait_ms", (time.perf_counter() - t0) * 1000.0)
+        ok = super().acquire(blocking, timeout)   # uncontended by admission
+        if not ok:
+            if outer:
+                self._yield_gate()
+            return False
         if ok and outer:
             now = time.perf_counter()
             self._tls.wait_ms = (now - t0) * 1000.0
@@ -192,10 +256,11 @@ class _InstrumentedDocLock(profiling.TimedRLock):
         return ok
 
     def release(self) -> None:
-        if getattr(self._held, "depth", 0) == 1:
-            # outermost, still owning the lock: run the resident release
-            # check first (it must see a world no other writer can be
-            # mutating), then record the hold
+        outermost = getattr(self._held, "depth", 0) == 1
+        if outermost:
+            # still owning the lock: run the resident release check first
+            # (it must see a world no other writer can be mutating), then
+            # record the hold
             try:
                 _on_doc_lock_release()
             except Exception:
@@ -208,15 +273,21 @@ class _InstrumentedDocLock(profiling.TimedRLock):
                                   ms=(time.perf_counter() - held_at) * 1000.0)
                 self._tls.held_at = None
         super().release()
+        if outermost:
+            self._yield_gate()
 
     # ------------------------------------------------ threading.Condition
     def _release_save(self) -> Any:
         # a Condition.wait ends the hold for BOTH reporters — asleep is not
-        # held, and the parent closes its own window the same way
+        # held, and the parent closes its own window the same way. The gate
+        # is surrendered too; the restore re-queues at the tail.
         self._tls.held_at = None
-        return super()._release_save()
+        state = super()._release_save()
+        self._yield_gate()
+        return state
 
     def _acquire_restore(self, state: Any) -> None:
+        self._admit(True, -1)
         super()._acquire_restore(state)
         self._tls.held_at = time.perf_counter()
         self._tls.wait_ms = 0.0
@@ -2204,7 +2275,7 @@ def _load_section(slug: str, sect: str, snap_logs: dict[str, Any]) -> Any:
 
 
 def _load_lazy(conn: sqlite3.Connection, slug: str,
-               preload: Iterable[str] = ()) -> LazyDoc:
+               preload: Iterable[str] = (), *, txn_open: bool = False) -> LazyDoc:
     """Load eager rows plus an optional coherent set of lazy sections.
 
     Ordinary loads pass no ``preload`` and retain S1's owner-selective lazy
@@ -2223,7 +2294,8 @@ def _load_lazy(conn: sqlite3.Connection, slug: str,
     d = LazyDoc(slug)
     preloaded: dict[str, Any] = {}
     preload_snaps: dict[str, Any] = {}
-    conn.execute("BEGIN")
+    if not txn_open:
+        conn.execute("BEGIN")
     try:
         raw_order = _meta_get(conn, _META_KEY_ORDER)
         key_order: list[str] = cast("list[str]", json.loads(raw_order)) if raw_order else []
@@ -4044,6 +4116,13 @@ _changed_nodes: dict[str, set[str]] = {}
 #: to be a full reload.
 _changed_all: set[str] = set()
 _snap_gates: dict[str, threading.Lock] = {}
+#: per-slug snapshot REBUILD mutex — herd suppression, not coherence. Under
+#: sustained writes every request used to find the cache stale and re-parse
+#: the document in parallel; N concurrent 11 MB parses dilute each other
+#: under the GIL into tens of seconds apiece (measured: 25 concurrent loads
+#: at ~20 s each where one alone costs ~100 ms). One rebuilder works, the
+#: rest wait and are served its result.
+_rebuild_locks: dict[str, threading.Lock] = {}
 
 
 def _snap_gate(slug: str) -> threading.Lock:
@@ -4052,6 +4131,14 @@ def _snap_gate(slug: str) -> threading.Lock:
         if gate is None:
             gate = _snap_gates[slug] = threading.Lock()
         return gate
+
+
+def _rebuild_mutex(slug: str) -> threading.Lock:
+    with _changed_lock:
+        m = _rebuild_locks.get(slug)
+        if m is None:
+            m = _rebuild_locks[slug] = threading.Lock()
+        return m
 
 
 def _publish_changes(slug: str, changes: SaveChanges) -> None:
@@ -4116,6 +4203,42 @@ def _bump_org_seq(slug: str) -> None:
 # exists for read only eager fields (nodes, watchdogs, kiosk, workspace).
 _doc_cache_lock = threading.Lock()
 _doc_cache: dict[str, tuple[int, "Org"]] = {}
+
+
+def _load_pinned(slug: str) -> tuple[Org, int]:
+    """A full snapshot load whose view PROVABLY equals its recorded seq.
+
+    The old rule — cache a full load only if `org_seq` did not move across
+    it — starves the cache under sustained writes: the first snapshot can
+    never form, every gate read re-parses the document, and concurrent
+    parses dilate each other under the GIL (the 2026-09-19 message-send
+    incident's mechanism). Pinning closes it: the seq is read and the read
+    transaction's WAL view is pinned INSIDE the per-slug snapshot gate, so
+    no save can commit between the two — the loaded document is exactly the
+    state at `seq_pin` and is always cacheable. The gate is held only for
+    the pin (microseconds), not the parse; accumulated change sets die here
+    too, superseded by the full view."""
+    slug = _safe_slug(slug)
+    _ensure_migrated(slug)
+    if not os.path.exists(_db_path(slug)):
+        raise LedgerError(f"no such org: {slug!r}")
+    t0 = time.perf_counter()
+    with _POOL.acquire(slug) as conn:
+        with _snap_gate(slug):
+            with _changed_lock:
+                _changed_all.discard(slug)
+                _changed_keys.pop(slug, None)
+                _changed_nodes.pop(slug, None)
+            seq_pin = org_seq(slug)
+            conn.execute("BEGIN")
+            _meta_get(conn, "schema_version")     # first read pins the view
+        doc = _load_lazy(conn, slug, txn_open=True)
+    t1 = time.perf_counter()
+    org = Org(cast("OrgDoc", doc))
+    stateprobe.record("load_doc", ms=(t1 - t0) * 1000.0,
+                      nbytes=getattr(doc, "_eager_bytes", 0))
+    stateprobe.record("org_init", ms=(time.perf_counter() - t1) * 1000.0)
+    return org, seq_pin
 
 
 def _assemble_snapshot(slug: str, prev: Org) -> tuple[Org, int] | None:
@@ -4256,6 +4379,11 @@ def _assemble_snapshot(slug: str, prev: Org) -> tuple[Org, int] | None:
         except BaseException as e:
             # whatever was drained can no longer be trusted to be complete
             _publish_changes_unknown(slug)
+            # the bail REASON is operational gold: two bails per swarm run
+            # were invisible until this row existed, and each one costs the
+            # next reader a full parse — a reason that recurs is a bug to fix
+            stateprobe.record("snapshot_bail",
+                              detail={"reason": f"{type(e).__name__}: {e}"[:200]})
             if not isinstance(e, (_AssembleBail, LedgerError, sqlite3.Error,
                                   KeyError, ValueError, TypeError, OSError)):
                 raise
@@ -4269,64 +4397,192 @@ class _AssembleBail(Exception):
 def cached_org(slug: str) -> Org:
     """The org as of its last save, shared and read-only. A dict lookup
     while `org_seq` is unchanged; a section-granular refresh — re-reading
-    only what saves actually changed — when it moved; one real full load
-    only on first build or when a change set is unknown."""
-    seq = org_seq(slug)
+    only what saves actually changed — when it moved; one gate-pinned full
+    load on first build or when a change set is unknown. Rebuilds of either
+    kind run under a per-slug mutex: concurrent readers wait for one
+    rebuilder's result instead of parsing in parallel (the herd is the
+    2026-09-19 incident's amplifier), and every waiter is served a snapshot
+    at least as fresh as its own arrival."""
+    arrival = org_seq(slug)
     with _doc_cache_lock:
         hit = _doc_cache.get(slug)
-    if hit is not None and hit[0] == seq:
+    if hit is not None and hit[0] == arrival:
         return hit[1]
-    if hit is not None and STORE_BACKEND == "sqlite":
-        assembled = _assemble_snapshot(slug, hit[1])
-        if assembled is not None:
-            org2, seq2 = assembled
-            org2._shared_snapshot = True   # type: ignore[attr-defined]
-            with _doc_cache_lock:
-                cur = _doc_cache.get(slug)
-                if cur is None or cur[0] <= seq2:
-                    _doc_cache[slug] = (seq2, org2)
-            return org2
-    seq = org_seq(slug)
-    try:
-        # ⚠ residency SUPPRESSED for this load: under a held DOC_LOCK,
-        # `load_org` serves the mutable RESIDENT write document, and
-        # publishing that as the shared read snapshot would hand every
-        # reader a view that mutates under them. Still `load_org` (not the
-        # raw loader) so tests that inject a fixture by patching it keep
-        # working.
-        _hold_track.suppress_resident = True
+    if STORE_BACKEND != "sqlite":
+        # the JSON backend keeps the historical semantics: fresh load,
+        # cache only when the seq held still across it
         try:
             org = load_org(slug)
-        finally:
-            _hold_track.suppress_resident = False
-    except Exception:
+        except Exception:
+            with _doc_cache_lock:
+                _doc_cache.pop(slug, None)
+            raise
+        org._shared_snapshot = True   # type: ignore[attr-defined]
+        if org_seq(slug) == arrival:
+            with _doc_cache_lock:
+                _doc_cache[slug] = (arrival, org)
+        return org
+    with _rebuild_mutex(slug):
+        # the rebuilder ahead of us may already have served our need
         with _doc_cache_lock:
-            _doc_cache.pop(slug, None)
-        raise
-    # the mark first-use helpers honor (perf-review round 2): the
-    # incarnation minters used to memoize their freshly-minted ids onto
-    # whatever org they were handed — correct for a request-private load,
-    # a contract violation on this shared one. A marked org is never
-    # stamped; the mint's own save bumps the seq, so the next cached_org
-    # call reloads and the fresh snapshot carries the minted value anyway.
-    org._shared_snapshot = True   # type: ignore[attr-defined]
-    if org_seq(slug) == seq:
-        # unchanged across our read — cache under the seq we started from
-        # (a save that landed mid-load just costs one more load next call),
-        # and only now may an `unknown` change-set flag be retired: this
-        # snapshot re-read everything, so nothing unknown is baked stale
-        # into it. Keys accumulated before this load stay — a later refresh
-        # re-reading them is a wasted small read, never a wrong one.
+            hit = _doc_cache.get(slug)
+        if hit is not None and hit[0] >= arrival:
+            return hit[1]
+        if hit is not None:
+            assembled = _assemble_snapshot(slug, hit[1])
+            if assembled is not None:
+                org2, seq2 = assembled
+                # the mark first-use helpers honor (perf-review round 2):
+                # a marked org is never stamped by the incarnation minters —
+                # the mint's own save bumps the seq and the next refresh
+                # carries the minted value instead
+                org2._shared_snapshot = True   # type: ignore[attr-defined]
+                with _doc_cache_lock:
+                    cur = _doc_cache.get(slug)
+                    if cur is None or cur[0] <= seq2:
+                        _doc_cache[slug] = (seq2, org2)
+                return org2
+        try:
+            org, seq_pin = _load_pinned(slug)
+        except LedgerError:
+            # No database on disk. `load_org` is the historical door here and
+            # stays one so tests that inject a fixture document by patching
+            # it keep working; production reaches this only to raise the same
+            # "no such org" the pinned load just did. Residency suppressed:
+            # the shared snapshot must never be the mutable write document.
+            _hold_track.suppress_resident = True
+            try:
+                org = load_org(slug)
+            except Exception:
+                with _doc_cache_lock:
+                    _doc_cache.pop(slug, None)
+                raise
+            finally:
+                _hold_track.suppress_resident = False
+            org._shared_snapshot = True   # type: ignore[attr-defined]
+            if org_seq(slug) == arrival:
+                with _doc_cache_lock:
+                    _doc_cache[slug] = (arrival, org)
+            return org
+        except Exception:
+            with _doc_cache_lock:
+                _doc_cache.pop(slug, None)
+            raise
+        org._shared_snapshot = True   # type: ignore[attr-defined]
         with _doc_cache_lock:
-            _doc_cache[slug] = (seq, org)
-        with _changed_lock:
-            _changed_all.discard(slug)
-    return org
+            cur = _doc_cache.get(slug)
+            if cur is None or cur[0] <= seq_pin:
+                _doc_cache[slug] = (seq_pin, org)
+        return org
 
 
 #: slugs handed a resident during the CURRENT thread's lock hold — what the
 #: release hook checks. Thread-local because holds are per-thread.
 _hold_track = threading.local()
+
+#: a freshly parsed, settled document waiting to become the resident —
+#: produced under the rebuild mutex (never under DOC_LOCK), consumed and
+#: advanced to currency under DOC_LOCK. See write_org's cold path.
+_warm_pending: dict[str, Org] = {}
+
+
+def _advance_resident(slug: str, d: LazyDoc) -> bool:
+    """Bring a gate-pinned document up to the present, under DOC_LOCK.
+
+    The pin guarantees `d` equals the state at its pin seq; every commit
+    since then published its change set to the accumulator (the gate
+    invariant), and no further save can land while DOC_LOCK is held — so
+    re-reading exactly the accumulated rows makes `d` exactly current.
+    Returns False when the delta cannot be trusted (an unknown change set):
+    the caller falls back to the in-lock load rather than guessing."""
+    with _changed_lock:
+        if slug in _changed_all:
+            _changed_all.discard(slug)
+            _changed_keys.pop(slug, None)
+            _changed_nodes.pop(slug, None)
+            return False
+        keys = _changed_keys.pop(slug, set())
+        nids = _changed_nodes.pop(slug, set())
+    if not keys and not nids:
+        return True
+    try:
+        with _POOL.acquire(slug) as conn:
+            conn.execute("BEGIN")
+            try:
+                for k in keys:
+                    if k == "nodes":
+                        continue
+                    row = conn.execute("SELECT val FROM doc WHERE key=?",
+                                       (k,)).fetchone()
+                    if k in LAZY_SECTIONS:
+                        # stay lazy: drop any materialized copy and let the
+                        # next touch read fresh rows; presence re-derived
+                        if dict.__contains__(d, k):
+                            dict.__delitem__(d, k)
+                        d._snap_logs.pop(k, None)
+                        if row is not None:
+                            d._snap_doc[k] = cast(str, row[0])
+                            dict.__setitem__(d, k, json.loads(cast(str, row[0])))
+                            d._present.discard(k)
+                        else:
+                            d._snap_doc.pop(k, None)
+                            if k in DICT_LOGS:
+                                present = bool(conn.execute(
+                                    "SELECT 1 FROM log_d WHERE sect=? LIMIT 1",
+                                    (k,)).fetchone()) or _meta_get(
+                                        conn, _META_OWNERS + k) is not None
+                            else:
+                                present = bool(conn.execute(
+                                    "SELECT 1 FROM log_l WHERE sect=? LIMIT 1",
+                                    (k,)).fetchone())
+                            if present:
+                                d._present.add(k)
+                            else:
+                                d._present.discard(k)
+                        continue
+                    if row is not None:
+                        d._snap_doc[k] = cast(str, row[0])
+                        dict.__setitem__(d, k, json.loads(cast(str, row[0])))
+                    else:
+                        d._snap_doc.pop(k, None)
+                        if dict.__contains__(d, k):
+                            dict.__delitem__(d, k)
+                if nids:
+                    nodes = dict.get(d, "nodes")
+                    if not isinstance(nodes, dict):
+                        raise _AssembleBail("nodes not a dict during advance")
+                    for nid in nids:
+                        row = conn.execute("SELECT val FROM nodes WHERE id=?",
+                                           (nid,)).fetchone()
+                        if row is not None:
+                            dict.__setitem__(nodes, nid,
+                                             json.loads(cast(str, row[0])))
+                            d._snap_nodes[nid] = cast(str, row[0])
+                        else:
+                            if dict.__contains__(nodes, nid):
+                                dict.__delitem__(nodes, nid)
+                            d._snap_nodes.pop(nid, None)
+                raw_order = _meta_get(conn, _META_KEY_ORDER)
+                conn.execute("COMMIT")
+            except BaseException:
+                if conn.in_transaction:
+                    with contextlib.suppress(Exception):
+                        conn.execute("ROLLBACK")
+                raise
+        if raw_order:
+            order = cast("list[str]", json.loads(raw_order))
+            docish = set(d._snap_doc)
+            d._key_order = [k for k in order
+                            if k in docish or k == "nodes"
+                            or (k in LAZY_SECTIONS and k in d._present)]
+        stateprobe.record("resident_advance", nbytes=len(keys) + len(nids),
+                          detail={"keys": sorted(keys)[:8], "nodes": len(nids)})
+        return True
+    except Exception as e:
+        stateprobe.record("snapshot_bail",
+                          detail={"reason": f"advance {type(e).__name__}: {e}"[:200]})
+        _publish_changes_unknown(slug)
+        return False
 
 
 def _settle_marks(d: LazyDoc) -> None:
@@ -4442,7 +4698,38 @@ def write_org(slug: str) -> Generator[Org]:
         with DOC_LOCK:
             yield load_org(slug)
         return
+    # COLD-START WITHOUT THE WORLD STOPPED (incident 2026-09-19): when the
+    # resident is absent, the 11 MB parse used to run inside the lock — one
+    # such load under swarm contention measured as a 20-second global stall
+    # that queued every write behind it, which is exactly the shape of "a
+    # message would not send for minutes"; and a naive load-then-install
+    # retry can never install under sustained writes (the seq always moves),
+    # so seventeen threads spin full parses that dilate each other under
+    # the GIL. The bounded construction: one thread (rebuild mutex) parses
+    # a gate-PINNED document lock-free, then takes the lock and ADVANCES it
+    # to currency by re-reading exactly the rows the accumulator says were
+    # committed after the pin — few rows, milliseconds, and complete by the
+    # gate invariant — and yields inside that same hold.
+    if _resident.get(slug) is None:
+        # Lock ORDER: DOC_LOCK may be held while touching the rebuild mutex
+        # (a legacy reader calling cached_org under its own lock), so the
+        # mutex must NEVER be held while waiting on DOC_LOCK — the parse
+        # runs under the mutex alone and hands its result to the locked
+        # section through a pending slot.
+        with _rebuild_mutex(slug):
+            if _resident.get(slug) is None and slug not in _warm_pending:
+                warm, _seq_pin = _load_pinned(slug)
+                if isinstance(warm.d, LazyDoc):
+                    _settle_marks(warm.d)
+                    _warm_pending[slug] = warm
     with DOC_LOCK:
+        if _resident.get(slug) is None:
+            warm2 = _warm_pending.pop(slug, None)
+            if warm2 is not None \
+                    and _advance_resident(slug, cast(LazyDoc, warm2.d)):
+                _resident[slug] = warm2
+        else:
+            _warm_pending.pop(slug, None)
         yield load_org(slug)
 
 
