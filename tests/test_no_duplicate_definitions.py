@@ -115,10 +115,36 @@ def classify(node: ast.AST, name: str) -> str:
 
 
 def legitimate(kinds: tuple[str, ...]) -> bool:
-    """Is a same-name group one of Python's by-design patterns?"""
+    """Is a same-name group one of Python's by-design patterns?
+
+    ⚠ IT IS NOT ENOUGH TO SEE THE RIGHT DECORATORS — THE SHAPE HAS TO BE RIGHT
+    TOO, and an earlier version of this function got that wrong in both
+    directions it could. It asked "does this group contain an overload?" and
+    "are these all property-ish?", which excused two genuine collisions:
+
+        @property def value  +  @property def value
+            two real definitions, the second silently replacing the first.
+            Every decorator looks right; the shape is the hazard.
+
+        @overload def f  +  def f  +  def f
+            one stub and TWO implementations. The second implementation wins
+            and the first is discarded, exactly as in the incident.
+
+    So the shapes are counted, not merely recognised. An overload group may
+    have any number of stubs but AT MOST ONE implementation; a property group
+    may have at most one `@property` alongside its accessors.
+    """
+    if not kinds:
+        return False
     if any(k == "overload" for k in kinds):
-        return True
-    return bool(kinds) and all(k in ("property", "accessor") for k in kinds)
+        # stubs are free; more than one real implementation is a collision
+        return sum(1 for k in kinds if k != "overload") <= 1
+    if all(k in ("property", "accessor") for k in kinds):
+        # `<= 1` rather than `== 1`: a body holding only accessors is odd but
+        # not this hazard (the property may be built by other means), whereas
+        # TWO `@property` of one name is precisely it.
+        return sum(1 for k in kinds if k == "property") <= 1
+    return False
 
 
 def python_files() -> list[Path]:
@@ -408,6 +434,92 @@ class Classification(unittest.TestCase):
                     "    def f(self, x): return x\n")
                 self.assertEqual(len(groups), 1)
                 self.assertTrue(legitimate(groups[0][1]), groups)
+
+    def test_the_right_decorators_in_the_wrong_SHAPE_are_not_excused(self) -> None:
+        """THE HOLE THAT WAS ACTUALLY IN THIS FILE, found by reading it back.
+
+        Both of these carry decorators that make a group look by-design, and
+        both are the real hazard: a definition silently replacing an earlier
+        one. An earlier `legitimate()` asked only whether the right decorators
+        were PRESENT, and excused both. Recognising a pattern is not the same
+        as checking its shape.
+        """
+        cases = {
+            "two @property of one name — the second replaces the first": (
+                "class C:\n"
+                "    @property\n"
+                "    def value(self): return 1\n"
+                "    @property\n"
+                "    def value(self): return 2\n"),
+            "one overload stub and TWO implementations": (
+                "from typing import overload\n"
+                "class C:\n"
+                "    @overload\n"
+                "    def f(self, x: int) -> int: ...\n"
+                "    def f(self, x): return x\n"
+                "    def f(self, x): return x * 2\n"),
+            "two @cached_property of one name": (
+                "from functools import cached_property\n"
+                "class C:\n"
+                "    @cached_property\n"
+                "    def v(self): return 1\n"
+                "    @cached_property\n"
+                "    def v(self): return 2\n"),
+        }
+        for label, src in cases.items():
+            with self.subTest(case=label):
+                groups = self._groups(src)
+                self.assertEqual(len(groups), 1, f"{label}: {groups}")
+                self.assertFalse(
+                    legitimate(groups[0][1]),
+                    f"{label} was excused as by-design, but the later "
+                    f"definition silently replaces the earlier one")
+
+    def test_the_genuinely_by_design_shapes_still_pass(self) -> None:
+        """The other half of the same rule — tightening must not over-tighten.
+
+        A guard that starts failing on correct code is a guard somebody
+        deletes, so the shapes that ARE by-design are pinned beside the ones
+        that are not.
+        """
+        cases = {
+            "overload stubs with exactly one implementation": (
+                "from typing import overload\n"
+                "class C:\n"
+                "    @overload\n"
+                "    def f(self, x: int) -> int: ...\n"
+                "    @overload\n"
+                "    def f(self, x: str) -> str: ...\n"
+                "    def f(self, x): return x\n"),
+            "overload stubs with no implementation (stub-file style)": (
+                "from typing import overload\n"
+                "class C:\n"
+                "    @overload\n"
+                "    def f(self, x: int) -> int: ...\n"
+                "    @overload\n"
+                "    def f(self, x: str) -> str: ...\n"),
+            "one property with both accessors": (
+                "class C:\n"
+                "    @property\n"
+                "    def v(self): return self._v\n"
+                "    @v.setter\n"
+                "    def v(self, x): self._v = x\n"
+                "    @v.deleter\n"
+                "    def v(self): del self._v\n"),
+            "accessors only, property built elsewhere": (
+                "class C:\n"
+                "    @v.setter\n"
+                "    def v(self, x): self._v = x\n"
+                "    @v.deleter\n"
+                "    def v(self): del self._v\n"),
+        }
+        for label, src in cases.items():
+            with self.subTest(case=label):
+                groups = self._groups(src)
+                self.assertEqual(len(groups), 1, f"{label}: {groups}")
+                self.assertTrue(
+                    legitimate(groups[0][1]),
+                    f"{label} is correct Python and must not be flagged")
 
     def test_a_plain_redefinition_is_NOT_legitimate(self) -> None:
         """The hazard itself, in every form it takes."""
