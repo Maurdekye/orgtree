@@ -17765,6 +17765,11 @@ def _run_one_turn_recorded(slug: str, nid: str,
     carrier_segs: list[dict[str, Any]] | None = (
         _freezable_segments(text.get("segs")) if isinstance(text, dict) else None)
     carrier_mail_ids = text.get('mail_ids') if isinstance(text, dict) else None
+    # Distinct from `resumed` below, which is `bool(retry_payload)` and means
+    # a retry of a FAILED ATTEMPT. This one means reconcile() is replaying a
+    # turn the backend's death interrupted.
+    is_restart_replay = (bool(text.get("restart_replay"))
+                         if isinstance(text, dict) else False)
     if isinstance(text, dict):
         is_cmd = bool(text.get("cmd"))
         turn_view = carrier_view or ""
@@ -17775,7 +17780,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
     if _trec is not None:
         # the attempt's inputs, as counts (turnlog header)
         _trec.set(cmd=is_cmd, ping=is_ping, toks=len(toks),
-                  text_len=len(text), resumed=bool(retry_payload))
+                  text_len=len(text), resumed=bool(retry_payload),
+                  restart_replay=is_restart_replay)
     try:
         # blocked on a turn slot is NOT running (№12) — the UI shows it hollow
         if is_cmd:
@@ -24711,6 +24717,7 @@ def send_message(slug: str, nid: str, text: str,
                  sender: str = "",
                  ping_reason: str | None = None,
                  segments: list[dict[str, Any]] | None = None,
+                 restart_replay: bool = False,
                  _inventory: NativeInventory | None = None) -> dict[str, Any]:
     """The send door. `check_ping_reason` runs FIRST and outside halt admission:
     a reason the event table cannot type must be refused at the call, before
@@ -24720,7 +24727,8 @@ def send_message(slug: str, nid: str, text: str,
     recipient's turn. See `check_ping_reason` and `_ping_drive`."""
     check_ping_reason(ping_reason)
     return _admit_message(slug, nid, text, command, wake, mail_ping, idle_only,
-                          view, sender, ping_reason, segments, _inventory)
+                          view, sender, ping_reason, segments,
+                          restart_replay=restart_replay, _inventory=_inventory)
 
 
 @halt.admission
@@ -24732,6 +24740,7 @@ def _admit_message(slug: str, nid: str, text: str,
                    sender: str = "",
                    ping_reason: str | None = None,
                    segments: list[dict[str, Any]] | None = None,
+                   restart_replay: bool = False,
                    _inventory: NativeInventory | None = None) -> dict[str, Any]:
     """Drive a node with a nudge; returns immediately. EVERY substantive message
     — user and agent alike — is MAIL (user ruling: the direct-message channel
@@ -24793,6 +24802,13 @@ def _admit_message(slug: str, nid: str, text: str,
     # "no projection was composed", and a caller that brought a composition has
     # by definition composed one — so the two cannot coincide.
     _segs: dict[str, Any] = {"segs": segments} if segments else {}
+    # Rides the carrier dict so it reaches `_run_one_turn` without a new
+    # parameter on every hop between here and there. `_segs` is spread into
+    # every carrier this door builds EXCEPT the command one, which is correct
+    # by construction: `reconcile` drops command markers rather than replaying
+    # them, so a command turn is never a restart replay.
+    if restart_replay:
+        _segs["restart_replay"] = True
     # a FROZEN node runs nothing: mail stays safe in its mailbox (not drained)
     # until the org-wide ▶ resume. Both freeze kinds land here — the usage
     # limit and, since 2026-08-06, the connection backoff, which reuses the
@@ -31695,6 +31711,7 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
                 _rtext, _rview, _rsegs = _restart_replay(inf, _boot_build())
                 recovery_result = send_message(slug, nid, _rtext,
                          view=_rview, segments=_rsegs,
+                         restart_replay=True,
                          _inventory=inventory)
             except Exception:
                 if observer:
