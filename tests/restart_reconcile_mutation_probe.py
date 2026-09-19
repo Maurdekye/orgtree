@@ -27,8 +27,19 @@ THE MUTANTS, and what each one is a stand-in for:
       still coerces, and is simply wrong on every replay.
   M5  the flag is stamped on every carrier instead of only the replayed one.
   M6  the field is undeclared, so coercion drops it off the record.
-  M7  the spend pops on TRUTHINESS instead of identity -- the exact defect
-      this harness could not have found, see below.
+  M7  the spend decides ownership on TRUTHINESS instead of identity -- the
+      exact defect this harness could not have found, see below.
+  M8  identity by `at` alone: two markers that both lack an `at` compare
+      equal and a different turn's marker is spent.
+  M9  identity by full equality alone: a marker edited in place reads as a
+      different turn, so its seat is dropped and its work is lost.
+  M10 dispatch the stale replay anyway instead of dropping it -- the user
+      ruling of 2026-09-19, deleted.
+  M11 drop the replay but leave the seat uncounted.  The subtlest one here:
+      `undispatched = inflight[dispatched:]` is a POSITIONAL SLICE, so a
+      bare `continue` does not merely forget the dropped seat, it shifts the
+      restore window and puts back the marker of a LATER seat that really
+      was dispatched.  That seat then replays a second time.
 
 ⚠ WHAT THIS HARNESS CANNOT DO, AND THE PROOF IS ITS OWN HISTORY.  It reported
 6 mutants, 6 killed, 0 survivors -- and a real blocking defect sailed straight
@@ -36,9 +47,14 @@ through it, because the defect was a GUARD THAT WAS NOT THERE.  Mutation
 testing perturbs the code that was written; it has no way to express "the
 check nobody wrote".  restart-mail found that one by reading the fix against
 its own `finally` block and noticing the two touched a marker with different
-care.  So read 6/6 as "the tests cover the lines the fix has", never as "the
-fix is right".  M7 exists only because the guard now exists to be mutated --
-which is exactly the limitation, stated from the inside.
+care.  So read N/N as "the tests cover the lines the fix has", never as "the
+fix is right".
+
+M7 through M11 exist only because the code they mutate now exists -- which is
+the same limitation, stated from the inside each time.  M11 is the one worth
+reading: no suite here caught it until one was written for it specifically,
+because every other test in this set puts the affected seat LAST in the loop,
+where a misaligned restore window has nothing behind it to damage.
 
 ⚠ THIS HARNESS EDITS FILES IN THE WORKING TREE.  Every original is held in
 memory and restored in a `finally`, and the run ends by re-checking every
@@ -62,6 +78,11 @@ FLAG = [sys.executable, '-B', 'tools/run-python-verification.py',
         '--repo-root', '.', 'tests/test_restart_replay_turnlog.py']
 RACE = [sys.executable, '-B', 'tools/run-python-verification.py',
         '--repo-root', '.', 'tests/restart_reconcile_spend_race_probe.py']
+IDENT = [sys.executable, '-B', 'tools/run-python-verification.py',
+         '--repo-root', '.', 'tests/test_restart_marker_identity.py']
+SETTLE = [sys.executable, '-B', 'tools/run-python-verification.py',
+          '--repo-root', '.',
+          'tests/test_restart_dropped_replay_settles_seat.py']
 
 MUTANTS = [
     {
@@ -88,7 +109,7 @@ MUTANTS = [
         'command': PROBE,
         'edits': [
             (SUP,
-             '                if _cur == inf:\n',
+             '                if _ours:\n',
              '                if False:\n'),
         ],
     },
@@ -129,11 +150,63 @@ MUTANTS = [
     },
     {
         'id': 'M7',
-        'what': 'the spend pops on truthiness instead of identity',
+        'what': 'the spend decides ownership on truthiness, not identity',
         'catches': 'the spend race, restart_reconcile_spend_race_probe.py',
         'command': RACE,
         'edits': [
-            (SUP, '                if _cur == inf:\n', '                if _cur:\n'),
+            (SUP,
+             '                _ours = _marker_is_same(_cur, inf)\n',
+             '                _ours = bool(_cur)\n'),
+        ],
+    },
+    {
+        'id': 'M8',
+        'what': 'identify a marker by `at` alone, dropping the legacy fallback',
+        'catches': 'the at-less collision, marker identity §2',
+        'command': IDENT,
+        'edits': [
+            (SUP,
+             '    if inf.get("at") is not None:\n'
+             '        return cur.get("at") == inf.get("at")\n'
+             '    return cur == inf\n',
+             '    return cur.get("at") == inf.get("at")\n'),
+        ],
+    },
+    {
+        'id': 'M9',
+        'what': 'identify a marker by full equality alone, dropping the `at` branch',
+        'catches': 'the in-place edit, marker identity §1',
+        'command': IDENT,
+        'edits': [
+            (SUP,
+             '    if inf.get("at") is not None:\n'
+             '        return cur.get("at") == inf.get("at")\n'
+             '    return cur == inf\n',
+             '    return cur == inf\n'),
+        ],
+    },
+    {
+        'id': 'M10',
+        'what': 'dispatch the stale replay anyway instead of dropping it',
+        'catches': 'the user ruling itself -- the race probe\'s DROP check',
+        'command': RACE,
+        'edits': [
+            (SUP,
+             '            if not _ours and _cur:\n',
+             '            if False and _cur:\n'),
+        ],
+    },
+    {
+        'id': 'M11',
+        'what': 'drop the replay but leave the seat uncounted, so the '
+                'restore window misaligns',
+        'catches': 'the settled-seat suite -- and NOTHING ELSE does, which '
+                   'is why that suite exists',
+        'command': SETTLE,
+        'edits': [
+            (SUP,
+             '                dispatched += 1\n                continue\n',
+             '                continue\n'),
         ],
     },
     {
@@ -190,7 +263,7 @@ def main():
 
     print('=== BASELINE: the unmutated tree must be green ===')
     baseline = {}
-    for command in ([PROBE, FLAG, RACE] if only is None else
+    for command in ([PROBE, FLAG, RACE, IDENT, SETTLE] if only is None else
                     [wanted[0]['command']]):
         key = ' '.join(command[-2:])
         code, out = _run(command)

@@ -31440,6 +31440,51 @@ def _condemnable(n: NodeDoc, seen: Mapping[str, str]) -> bool:
             and n["session_id"] not in seen)
 
 
+def _marker_is_same(cur: Any, inf: Any) -> bool:
+    """Is the marker on disk NOW the one this dispatch collected?
+
+    `reconcile` collects markers under DOC_LOCK, releases the lock, and then
+    spends each one immediately before its own dispatch. Every dispatch in
+    between is a whole turn, so a live agent can message a seat the loop has
+    not reached yet; that seat starts a real turn and writes itself a NEW
+    marker. This predicate is what tells the two apart, and BOTH answers now
+    carry weight: true spends the marker and replays, false SKIPS the seat
+    entirely and drops the interrupted turn (user ruling 2026-09-19).
+
+    ⚠ `at` FIRST, FULL EQUALITY ONLY WHEN THERE IS NO `at`. Each half alone
+    is wrong, in opposite directions:
+
+    * `at` is the turn's start time, so it is what "the same turn" MEANS.
+      Equality asks a stricter question than the guard does — whether the
+      marker is byte-identical — and any edit to a marker that kept its `at`
+      would read as a different turn. Since a false "different" now DROPS the
+      replay rather than merely leaking it, asking the stricter question is
+      the more expensive mistake.
+    * but a marker written by an older build carries no `at`, and comparing
+      `None == None` would make two DIFFERENT turns compare equal — spending
+      a running turn's marker, the unsafe direction. With no `at` to identify
+      it by, nothing less than full equality will do.
+
+    ⚠ NO KNOWN LIVE PATH EDITS A MARKER IN PLACE, and this docstring does not
+    claim one. `desktop_import.py:461-462` does pop `cache_attempt` and
+    rewrite `text` on an existing `inflight`, but it runs inside
+    `_prepare_document` against a STAGED document during the V1→V2 import,
+    before that org is published and reconcilable — so it cannot fall between
+    a collection and its spend. Every other write replaces the whole dict or
+    sets it to None. The `at` branch is therefore written for the case where
+    such an edit ever DOES fall inside that window, not for one that does
+    today. Saying otherwise would be this file's own original defect — a
+    comment asserting a property the code does not have — committed again.
+    (Reviewed by restart-mail, 2026-09-19, which traced the staging and
+    corrected an earlier version of this note that claimed a live hazard.)
+    """
+    if not isinstance(cur, dict) or not isinstance(inf, dict):
+        return False
+    if inf.get("at") is not None:
+        return cur.get("at") == inf.get("at")
+    return cur == inf
+
+
 def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -> list[str]:
     """№31 eager pass at startup: any ledger-live node that has demonstrably run
     before (cost > 0) but whose transcript is gone cannot resume — say so now,
@@ -31690,7 +31735,6 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
     dispatched = 0
     try:
         for nid, inf in ([] if latched else inflight):
-            print(f"[orgtree] {slug}/{nid}: resuming the turn interrupted by shutdown")
             # SPEND THIS ONE MARKER, NOW, IMMEDIATELY BEFORE ITS OWN DISPATCH.
             # The erasure and the dispatch it pays for are adjacent, so the
             # doc is never in a state where a marker is neither present nor
@@ -31722,21 +31766,51 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
             # marker was already gone before any dispatch, so a newly written
             # one was simply left alone. The window is one THIS fix opened.
             # Reproduced: tests/restart_reconcile_spend_race_probe.py.
-            # Compared by VALUE rather than by `at` alone, so a marker written
-            # by an older build with no `at` cannot make two different turns
-            # look like one turn.
+            # See `_marker_is_same` for why identity is `at` first.
             with store.DOC_LOCK:
                 _spend = store.load_org(slug)
                 _cur = (_spend.node(nid).get("inflight")
                         if nid in _spend.nodes else None)
-                if _cur == inf:
+                _ours = _marker_is_same(_cur, inf)
+                if _ours:
                     _spend.node(nid).pop("inflight", None)
                     store.save_org(_spend)
-                elif _cur:
-                    # NOT silent. The whole incident behind this ticket was a
-                    # marker disappearing with nothing recording that it had.
-                    print(f"[orgtree] {slug}/{nid}: a newer turn owns this "
-                          f"node's marker; leaving it and replaying anyway")
+            if not _ours and _cur:
+                # ⚠ A NEWER TURN HAS ALREADY STARTED — DROP THE OLD REPLAY.
+                # USER RULING 2026-09-19: "if restart recovery discovers that
+                # an agent has already started a newer turn before its
+                # interrupted turn is replayed, skip the older interrupted
+                # replay. Do not queue or dispatch that stale replay after
+                # the newer turn." The agent has moved on; delivering the
+                # pre-restart drive behind its current work would inject
+                # stale instructions into a turn that never asked for them.
+                # This REPLACES the earlier behaviour, which dispatched the
+                # replay anyway and let it queue behind the running turn.
+                # The newer marker is left exactly as its own turn wrote it
+                # — we neither spend it nor restore over it.
+                # NOT SILENT: the incident behind this whole ticket was a
+                # marker disappearing with nothing recording that it had, so
+                # a DROP most certainly says so.
+                print(f"[orgtree] {slug}/{nid}: a newer turn started before "
+                      f"this replay could run; dropping the interrupted turn")
+                # ⚠ COUNTED AS SETTLED, and this is load-bearing. The
+                # `finally` below restores `inflight[dispatched:]` — every
+                # seat this loop has not resolved. A skipped seat IS
+                # resolved: leaving it in that slice would let the `finally`
+                # write the stale marker back the moment the newer turn ends
+                # and clears its own, and the next boot would replay exactly
+                # the turn this ruling says to drop.
+                dispatched += 1
+                continue
+            # ⚠ THE MARKER-ABSENT CASE IS DELIBERATELY NOT A SKIP. `_cur` is
+            # None when the marker is simply gone — not when a newer turn
+            # owns it — and the ruling above is scoped to "an agent has
+            # already started a newer turn". Absence is not that, so this
+            # still replays, exactly as it did before the ruling. Narrowing
+            # it further would be me extending a user decision past what it
+            # says; if absence should also drop the replay, that is a
+            # separate decision to take deliberately.
+            print(f"[orgtree] {slug}/{nid}: resuming the turn interrupted by shutdown")
             observer = recovery_observer if nid in recovery_seats else None
             if observer:
                 observer(nid,'before')

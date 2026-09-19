@@ -133,6 +133,13 @@ def run(arm: str) -> dict:
 
     org = store.load_org(slug)
     after = {n: (org.node(n).get("inflight") or {}).get("at") for n in NODES}
+    # ⚠ CLOSE THE POOL, or the run is reported as SKIPPED rather than PASSED.
+    # The connection this arm opened keeps a handle on the org's .db inside
+    # the TemporaryDirectory; interpreter-exit cleanup then raises WinError 32
+    # and `run-python-verification.py` classifies the module `skip`. A probe
+    # whose PASS is silently downgraded is a probe that can hide a failure,
+    # which matters more here than the stray temp folder does.
+    store._POOL.close_all(slug)
     return {
         "arm": arm,
         "dispatched": dispatched,
@@ -157,10 +164,16 @@ def main() -> int:
     # THE CLAIM: a marker written by a DIFFERENT, still-running turn is not
     # reconcile's to spend and must survive the pass.
     victim_survived = concurrent["victim_marker_after"] == NEW_AT
-    # The second harm: the OLD text is replayed onto a node that is now
-    # running a fresh turn.
+    # ⚠ THE SECOND HARM IS NOW A FAILURE, NOT A FOOTNOTE (user ruling
+    # 2026-09-19). When this probe was written, replaying the old text onto a
+    # node already running a fresh turn was reported as DOUBLE DRIVE and left
+    # to the owner's judgement -- the shipped behaviour queued it behind the
+    # running turn. The user has since ruled that the stale replay must be
+    # SKIPPED, not queued, so both of these must now hold: the old text is
+    # never sent, and the seat is never dispatched at all.
     old_text_replayed = "OLD-INTERRUPTED-TURN" in (
         concurrent["victim_replay_text"] or "")
+    victim_dispatched = VICTIM in concurrent["dispatched"]
 
     print("\n================ VERDICT ================")
     if not control_ok:
@@ -185,9 +198,26 @@ def main() -> int:
               "as idle. This is the exact failure 427ae61 set out to fix, "
               "re-entered through the spend it added.")
         rc = 1
-    if old_text_replayed:
-        print(f"ALSO      the OLD interrupted text was replayed onto {VICTIM} "
-              "while its new turn was running -> DOUBLE DRIVE")
+    if old_text_replayed or victim_dispatched:
+        # ⚠ THE LABEL IS "DROP", NOT "SKIP", AND THAT IS NOT COSMETIC.
+        # run-python-verification.py classifies a module by scanning its
+        # OUTPUT: `re.search(r"\bSKIP(?:PED)?\b", text, re.IGNORECASE)` marks
+        # the whole run `skip`. Printing the word here downgraded this
+        # probe's PASS to SKIPPED and took it out of the passed count --
+        # measured, not guessed. A probe that reports itself as not-run is
+        # exactly the sort of control this ticket keeps finding.
+        print(f"DROP      the OLD interrupted turn was still delivered to "
+              f"{VICTIM} while its new turn was running -> STALE REPLAY")
+        print(f"          dispatched={concurrent['dispatched']}, "
+              f"replay_text={concurrent['victim_replay_text']!r}")
+        print("          The user ruled 2026-09-19 that a replay must be "
+              "DROPPED, not queued, once a newer turn has started. A seat "
+              "whose marker belongs to another turn must not be dispatched "
+              "at all.")
+        rc = 1
+    else:
+        print(f"DROP      the OLD interrupted turn was discarded rather than "
+              f"queued behind {VICTIM}'s newer turn -> OK")
     print("=========================================")
     return rc
 
