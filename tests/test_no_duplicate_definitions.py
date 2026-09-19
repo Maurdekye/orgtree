@@ -52,13 +52,32 @@ correct-looking decorators:
   * two `@value.setter` of one name (review finding f1) — the second rebuilds
     the property and DISCARDS the first setter function. A flat `accessor`
     classification could not tell that from the by-design `setter` + `deleter`
-    pair, which is why `classify` reports the accessor KIND.
+    pair, which is why `classify` reports the accessor KIND;
+  * `@property` plus `@value.getter` of one name (review finding f4) —
+    `@property` IS the getter, so `value.getter(f)` builds a new property
+    around `f` and the original `@property` function becomes unreachable.
+    Two labels, one slot. Counting them in separate buckets was f1 one door
+    along, which is why the getter is now counted WITH the property.
 
-So `legitimate` counts: at most one `@property`, at most one accessor of each
-kind, at most one non-stub implementation in an overload group. The
+So `legitimate` counts: at most one getter (`@property` and `@name.getter`
+together), at most one accessor of each other kind, at most one non-stub
+implementation in an overload group, at most one single-dispatch base. The
 false-alarm direction is guarded just as deliberately, because a guard that
 cries wolf on textbook `functools` usage is one somebody switches off — and
 then every real collision is missed.
+
+⚠ ONE LIMIT OF THE SINGLE-DISPATCH EXEMPTION, STATED RATHER THAN LEFT SILENT.
+`@name.register` is recognised only on a group named `_`, the documented
+idiom. `register` is a very common method name — `@routes.register`,
+`@handlers.register` — and a NAME-KEYED registry stores the second `def
+handle` over the first, so exempting on the decorator alone would wave through
+a real silent replacement (review finding f5). The base cannot be checked
+instead, because registrations legitimately appear without their base in the
+same body. The cost of keying on `_` is that single-dispatch implementations
+sharing some OTHER name are reported; the remedy is to name them `_` as the
+documentation does, or to add a reviewed `EXEMPT` row. That direction is
+deliberate: this guard would rather say something you can answer than stay
+silent about a replacement.
 
 WHAT THE TREE ACTUALLY CONTAINS. Measured across `engine/`, `tests/` and
 `tools/` — 359 Python files — before this guard was written: ZERO duplicates of
@@ -148,7 +167,20 @@ def classify(node: ast.AST, name: str) -> str:
             # implementation. The documented idiom names every one of them
             # `_`, so idiomatic single dispatch puts several `def _` in one
             # class body. See the module docstring's fourth pattern.
-            return "dispatch"
+            #
+            # ⚠ THE NAME IS WHAT ESTABLISHES THIS IS SINGLE DISPATCH, not the
+            # decorator. `register` is an extremely common method name —
+            # `@routes.register`, `@handlers.register`, `@plugins.register` —
+            # and a NAME-KEYED registry stores the second `def handle` over
+            # the first, so both the class attribute and the registry entry
+            # point at the later one and the earlier body is unreachable.
+            # That is review finding f5, and it is the accessor branch's
+            # `base == name` check missing from the one branch that lacked
+            # it: recognising a decorator is not evidence of what it does.
+            # We cannot check the base here (registrations may legitimately
+            # appear without their base in the same body), so the idiomatic
+            # `_` is the evidence used instead.
+            return "dispatch" if name == "_" else "plain"
         if tail in _ACCESSORS and "." in dec:
             base = dec.rsplit(".", 1)[0]
             if base == name:
@@ -181,7 +213,9 @@ def legitimate(kinds: tuple[str, ...]) -> bool:
 
     So the shapes are counted, not merely recognised. An overload group may
     have any number of stubs but AT MOST ONE implementation; a property group
-    may have at most one `@property` alongside its accessors.
+    may have at most one GETTER — `@property` and `@name.getter` are the same
+    slot, which is review finding f4 — and at most one accessor of each other
+    kind.
     """
     if not kinds:
         return False
@@ -202,14 +236,24 @@ def legitimate(kinds: tuple[str, ...]) -> bool:
         return sum(1 for k in kinds if k == "singledispatch") <= 1
 
     if all(k == "property" or k.startswith("accessor:") for k in kinds):
-        # At most one `@property` — two of them is a plain replacement.
-        if sum(1 for k in kinds if k == "property") > 1:
+        # At most one GETTER — and `@property` IS a getter. `value.getter(f)`
+        # returns a NEW property built around `f`, keeping only fset and fdel
+        # from the old one, so `@property` + `@value.getter` on one name is
+        # two getters and the first function's body is reachable from
+        # nowhere. That is review finding f4, and it is f1 one door along:
+        # `property` and `accessor:getter` fill the SAME slot in the property
+        # that gets built, so counting them in separate buckets was the same
+        # conflation that let two `@value.setter` through.
+        if sum(1 for k in kinds if k in ("property", "accessor:getter")) > 1:
             return False
-        # AND at most one accessor OF EACH KIND. `setter` + `deleter` is the
-        # by-design pair; `setter` + `setter` is finding f1 — the second
-        # rebuilds the property and discards the first function, silently.
-        # Counting `accessor` as one bucket could not tell those apart.
+        # AND at most one accessor OF EACH REMAINING KIND. `setter` +
+        # `deleter` is the by-design pair; `setter` + `setter` is finding f1 —
+        # the second rebuilds the property and discards the first function,
+        # silently. Counting `accessor` as one bucket could not tell those
+        # apart.
         for accessor in _ACCESSORS:
+            if accessor == "getter":
+                continue  # counted with `property` above — one slot, not two
             if sum(1 for k in kinds if k == f"accessor:{accessor}") > 1:
                 return False
         # The `@property` bound stays `<= 1` rather than `== 1` on purpose: a
@@ -594,6 +638,34 @@ class Classification(unittest.TestCase):
                 "    @area.register\n"
                 "    def _(self, s: int): return s\n"
                 "    def _(self): return None\n"),
+            # ── review finding f4: `@property` IS the getter ──
+            # Measured, not argued: running this class gives
+            # `C().value == "SECOND getter"`, and the property left behind
+            # holds exactly ONE function. The first body is reachable from
+            # nowhere — not from the class dict, not from fget/fset/fdel.
+            "@property with @value.getter — two getters, one slot": (
+                "class C:\n"
+                "    @property\n"
+                "    def value(self): return 'FIRST getter'\n"
+                "    @value.getter\n"
+                "    def value(self): return 'SECOND getter'\n"),
+            "@v.getter twice with no @property — still two getters": (
+                "class C:\n"
+                "    @v.getter\n"
+                "    def v(self): return 1\n"
+                "    @v.getter\n"
+                "    def v(self): return 2\n"),
+            # ── review finding f5: `register` is not proof of single dispatch ──
+            # A name-keyed registry stores the second `def handle` over the
+            # first, so BOTH the class attribute and the registry entry point
+            # at the later one. Measured by running it: `C().handle()` and
+            # `routes.by_name['handle']` are both the second handler.
+            "a registry's @x.register on a real method name, not the `_` idiom": (
+                "class C:\n"
+                "    @routes.register\n"
+                "    def handle(self): return 'FIRST handler'\n"
+                "    @routes.register\n"
+                "    def handle(self): return 'SECOND handler'\n"),
         }
         for label, src in cases.items():
             with self.subTest(case=label):
@@ -663,6 +735,18 @@ class Classification(unittest.TestCase):
                 "    def _(self, s: int): return s\n"
                 "    @area.register\n"
                 "    def _(self, s: str): return len(s)\n"),
+            # ── the other half of review finding f4 ──
+            # Counting `@property` and `@name.getter` in one slot must not
+            # become "a getter is never allowed". A getter and a setter are
+            # DISTINCT slots and remain by-design, with or without an
+            # `@property` in the body. This is the over-tightening direction
+            # of the f4 fix, pinned beside the hazard it closes.
+            "accessors only, a getter and a setter": (
+                "class C:\n"
+                "    @v.getter\n"
+                "    def v(self): return self._v\n"
+                "    @v.setter\n"
+                "    def v(self, x): self._v = x\n"),
         }
         for label, src in cases.items():
             with self.subTest(case=label):
