@@ -96,8 +96,8 @@ from . import reservations
 from . import ledger as ledger_mod
 from . import (accounts, antigravity_limits, appsettings, bridgeauth,
                codex_limits, codex_route, limits, net,
-               providers, quickstaff, restart_wake, sandbox, staffcache,
-               stateprobe, store, subproxy, supervisor, warmpool)
+               providers, quickstaff, restart_wake, sandbox, slowtrace,
+               staffcache, stateprobe, store, subproxy, supervisor, warmpool)
 from . import statepreview
 from .ledger import (LedgerError, Org, StaleRevError, USER, VIS_LEVELS,
                      actor_of, norm_dirs, norm_tools)
@@ -164,7 +164,9 @@ _PROFILE_TIMING_ROUTE = "/api/desktop/profile-timing"
 #: profile dict is merged in AFTER these — excluding them from that merge
 #: (rather than relying on merge order) means a handler cannot clobber `seq`
 #: or any other reserved field no matter what it stashes under that name.
-_PROFILE_RESERVED_FIELDS = frozenset({"seq", "route", "handler_ms", "total_ms", "bytes"})
+_PROFILE_RESERVED_FIELDS = frozenset({"seq", "route", "handler_ms", "total_ms",
+                                      "bytes", "unattributed_ms", "pid", "ts",
+                                      "instance", "method", "status", "inflight"})
 # Only known stage measurements may leave a handler profile dictionary. A
 # closed allowlist prevents future callers from exposing numeric prompt, mail,
 # credential, or token values by choosing an arbitrary field name.
@@ -176,6 +178,22 @@ _PROFILE_RESERVED_FIELDS = frozenset({"seq", "route", "handler_ms", "total_ms", 
 # `org_load_ms` were already allowed and, before this, were populated by one
 # route (`history_page`) and by no write at all.
 _PROFILE_ALLOWED_FIELDS = frozenset({
+    "load_snapshot_ms", "tree_ms", "annotate_ms",
+    "lock_wait_ms", "org_load_ms", "chat_read_ms", "history_work_ms",
+    "org_save_ms", "mutate_ms",
+    # The paired thread-CPU readings (profiling.cpu_field): wall minus CPU per
+    # stage is the off-CPU share — the GIL-convoy/scheduler time the
+    # 2026-09-19 interference control proved the wall stages alone hide
+    # (org_save_ms 5063 ms of which CPU was 46.9 ms).
+    "org_load_cpu_ms", "org_save_cpu_ms", "mutate_cpu_ms",
+    "chat_read_cpu_ms", "history_work_cpu_ms",
+})
+#: Wall-clock stage fields that decompose handler time; the emit computes
+#: `unattributed_ms = handler_ms - sum(present wall stages)` from exactly
+#: this set, so time no stage claims is EXPLICIT in every record instead of
+#: an exercise for the reader (user decision 2026-09-19). CPU fields are
+#: excluded: they re-measure the same intervals on a different clock.
+_PROFILE_WALL_STAGE_FIELDS = frozenset({
     "load_snapshot_ms", "tree_ms", "annotate_ms",
     "lock_wait_ms", "org_load_ms", "chat_read_ms", "history_work_ms",
     "org_save_ms", "mutate_ms",
@@ -392,17 +410,24 @@ class AccessRecord:
         # themselves are `def` and run in the threadpool, but they are not
         # here. A wrong count would cost a misleading log field, never
         # correctness.
-        profile = {} if _PROFILE_TIMING else None
-        profile_token = None
-        if profile is not None:
-            scope.setdefault("state", {})["profile_timing"] = profile
-            # The same dict, reachable two ways. `request.state` is how a
-            # HANDLER gets it — it has a request. `profiling.bind` is how the
-            # places that actually spend the time get it: `store.load_org`,
-            # `store.save_org` and `store.DOC_LOCK` are called from eighteen
-            # modules and have no request to ask. Bound here, on the
-            # OUTERMOST middleware, so the whole stack is inside the window.
-            profile_token = profiling.bind(profile)
+        #
+        # ⚠ ALWAYS BOUND, not only while the operator toggle is on (user
+        # decision 2026-09-19: every slow request gets durable attribution).
+        # The toggle now gates only the VERBOSE surfaces — the printed
+        # profile line and the in-memory ring — while the stage dict itself
+        # is collected for every request so `slowtrace` can attribute a slow
+        # one that nobody was watching for. The per-request cost of the
+        # always-on half is one contextvar bind plus a handful of dict adds
+        # at the stage sites, measured in `test_latency_tier1`.
+        profile: dict[str, Any] = {}
+        scope.setdefault("state", {})["profile_timing"] = profile
+        # The same dict, reachable two ways. `request.state` is how a
+        # HANDLER gets it — it has a request. `profiling.bind` is how the
+        # places that actually spend the time get it: `store.load_org`,
+        # `store.save_org` and `store.DOC_LOCK` are called from eighteen
+        # modules and have no request to ask. Bound here, on the
+        # OUTERMOST middleware, so the whole stack is inside the window.
+        profile_token = profiling.bind(profile)
         # storage-boundary attribution (stateprobe): the label must be the
         # route TEMPLATE, which exists only after routing — so it is resolved
         # lazily at record time, and the concrete path can never leak into a
@@ -478,7 +503,8 @@ def _access_emit(scope: ASGIScope, status: int, handler_ms: float,
     print(f"[orgtree.access] {stamp} {method} {route} {status} "
           f"handler={handler_ms:.0f}ms total={total_ms:.0f}ms "
           f"bytes={nbytes} inflight={depth}", flush=True)
-    if profile is not None and _PROFILE_TIMING:
+    slow_trace = handler_ms >= slowtrace.THRESHOLD_MS
+    if profile is not None and (_PROFILE_TIMING or slow_trace):
         # Build the printed projection from the same allowlisted values as the
         # retrievable sink.  A future handler must not be able to smuggle a
         # prompt, mail body, credential, token, or non-finite value into the
@@ -502,9 +528,25 @@ def _access_emit(scope: ASGIScope, status: int, handler_ms: float,
         if (_PROFILE_TOOL_FIELD not in _PROFILE_RESERVED_FIELDS
                 and isinstance(verb, str) and verb in _profile_tool_names()):
             safe_profile[_PROFILE_TOOL_FIELD] = verb
+        # Time no stage claims, explicit in every record (user decision
+        # 2026-09-19). Deliberately UNCLAMPED: a negative value says the wall
+        # stages overlap (two brackets covering the same interval), which is
+        # an attribution bug worth seeing, not rounding to hide.
+        unattributed = handler_ms - sum(
+            v for k, v in safe_profile.items()
+            if k in _PROFILE_WALL_STAGE_FIELDS)
         record = {"route": route, "handler_ms": round(handler_ms, 3),
                   "total_ms": round(total_ms, 3), "bytes": nbytes,
+                  "unattributed_ms": round(unattributed, 3),
                   **safe_profile}
+        if slow_trace:
+            # Durable, toggle-independent, bounded — the whole point: a slow
+            # request nobody was watching for is attributable hours later,
+            # from a cold engine (user decision 2026-09-19).
+            slowtrace.emit({**record, "method": method, "status": status,
+                            "instance": INSTANCE, "inflight": depth})
+        if not _PROFILE_TIMING:
+            return _slow_alarm(route, method, handler_ms, nbytes, depth)
         print("[orgtree.profile] " + route + " " +
               json.dumps(record, sort_keys=True), flush=True)
         # Same call already sits behind the caller's `except Exception: pass`
@@ -545,6 +587,11 @@ def _access_emit(scope: ASGIScope, status: int, handler_ms: float,
                                      "handler_ms": round(handler_ms, 3),
                                      "total_ms": round(total_ms, 3),
                                      "bytes": nbytes, **safe_profile})
+    return _slow_alarm(route, method, handler_ms, nbytes, depth)
+
+
+def _slow_alarm(route: str, method: str, handler_ms: float,
+                nbytes: int, depth: int) -> None:
     if handler_ms < _SLOW_MS:
         return
     # The alarm. Rate-limited per route by a TIME WINDOW rather than by a set
@@ -640,6 +687,21 @@ def state_access_control(body: ProfileTimingControl) -> dict[str, Any]:
     """Live enable/disable for the storage-boundary probe (no restart)."""
     stateprobe.set_enabled(body.enabled)
     return {"enabled": stateprobe.enabled()}
+
+
+@app.get("/api/diagnostics/slow-requests", dependencies=[Depends(_profile_operator_only)])
+def slow_requests(n: int = 200) -> dict[str, Any]:
+    """The durable slow-request attribution (slowtrace): newest rows oldest
+    first plus per-(route, tool) rankings, worst total first. Rows exist for
+    every request over the threshold since install, across restarts and
+    regardless of the profiling toggle — this is the door the user's
+    decision of 2026-09-19 names for 'which operation was slow, where did
+    its time go, and how much of it is unattributed'. Same operator-only
+    gate and privacy boundary as the other diagnostics: templates, verbs
+    and finite numbers, never a path or content."""
+    rows = slowtrace.tail(max(1, min(int(n), 2000)))
+    return {"threshold_ms": slowtrace.THRESHOLD_MS, "path": slowtrace.path(),
+            "rows": rows, "rankings": slowtrace.rankings(rows)}
 
 
 @app.put("/api/desktop/profile-timing", dependencies=[Depends(_profile_operator_only)])
@@ -2321,8 +2383,12 @@ def org_node_detail(slug: str, nid: str, request: Request) -> dict[str, Any]:
 
 def _org_view(slug: str, request: Request,
               detail_node: str | None) -> dict[str, Any]:
-    profile = (getattr(request.state, "profile_timing", None)
-               if _PROFILE_TIMING else None)
+    # Always populated when the middleware bound a dict (which is every HTTP
+    # request since the 2026-09-19 universal-tracing decision): a slow tree
+    # build must decompose in the durable trace even when nobody had the
+    # verbose profiling toggle on. Direct in-process callers have no bound
+    # dict and skip the bookkeeping exactly as before.
+    profile = getattr(request.state, "profile_timing", None)
     try:
         _stage = time.perf_counter()
         org = store.load_org_snapshot(slug, ("org_inbox",))

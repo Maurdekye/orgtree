@@ -65,6 +65,18 @@ _CURRENT: ContextVar["dict[str, Any] | None"] = ContextVar(
 #: adding a third document-IO stage later cannot silently start counting as
 #: mutation time.
 _IO_FIELDS = ("org_load_ms", "org_save_ms")
+_IO_CPU_FIELDS = ("org_load_cpu_ms", "org_save_cpu_ms")
+
+
+def cpu_field(field: str) -> str:
+    """`org_save_ms` -> `org_save_cpu_ms`. The paired CPU reading exists
+    because wall time alone cannot distinguish work from starvation: the
+    2026-09-19 interference control measured an `org_save_ms` of 5063 ms whose
+    thread spent 46.9 ms of CPU — the difference was the GIL convoy, and the
+    stage timer alone attributed it to storage. Wall minus CPU per stage is
+    the off-CPU (scheduler/GIL/IO-wait) share, recorded where the time is
+    spent so no reader has to re-derive it from a profiler."""
+    return field[:-3] + "_cpu_ms" if field.endswith("_ms") else field + "_cpu"
 
 #: One profile dict CAN have two writers. A managed tool call (`orgtree_hire`,
 #: `orgtree_retire` — see `toolwait.invoke`) runs on its own thread and may
@@ -144,15 +156,20 @@ def snapshot(profile: "dict[str, Any] | None") -> "dict[str, Any]":
 
 @contextlib.contextmanager
 def stage(field: str) -> Generator[None]:
-    """Time this block into `field`. A no-op when capture is off."""
+    """Time this block into `field`, wall AND thread-CPU (see `cpu_field`).
+    A no-op when capture is off. `thread_time` is per-thread CPU, which is
+    correct here because a stage runs entirely on the thread that opened it —
+    the same reason the pair is meaningful as an off-CPU decomposition."""
     if _CURRENT.get() is None:
         yield
         return
     started = time.perf_counter()
+    cpu0 = time.thread_time()
     try:
         yield
     finally:
         add(field, (time.perf_counter() - started) * 1000.0)
+        add(cpu_field(field), (time.thread_time() - cpu0) * 1000.0)
 
 
 @contextlib.contextmanager
@@ -173,9 +190,9 @@ def detached() -> Generator[None]:
         _CURRENT.reset(token)
 
 
-def _io_total(profile: "dict[str, Any]") -> float:
+def _io_total(profile: "dict[str, Any]", fields: tuple[str, ...] = _IO_FIELDS) -> float:
     total = 0.0
-    for field in _IO_FIELDS:
+    for field in fields:
         try:
             total += float(profile.get(field, 0.0))
         except (TypeError, ValueError):
@@ -242,6 +259,8 @@ class TimedRLock:
             if profile is not None:
                 held.since = time.perf_counter()
                 held.io = _io_total(profile)
+                held.cpu_since = time.thread_time()
+                held.io_cpu = _io_total(profile, _IO_CPU_FIELDS)
             else:
                 held.since = None
         return True
@@ -261,6 +280,11 @@ class TimedRLock:
                 # whose mutation is genuinely nothing. A negative millisecond
                 # count would be a worse answer than zero.
                 add("mutate_ms", max(0.0, inside - io))
+                cpu_inside = (time.thread_time()
+                              - float(getattr(held, "cpu_since", 0.0))) * 1000.0
+                io_cpu = _io_total(profile, _IO_CPU_FIELDS) \
+                    - float(getattr(held, "io_cpu", 0.0))
+                add("mutate_cpu_ms", max(0.0, cpu_inside - io_cpu))
             held.since = None
         self._lock.release()
 

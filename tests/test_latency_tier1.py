@@ -230,5 +230,140 @@ class SafeSlugMemo(unittest.TestCase):
                 store._safe_slug("plain-org")     # uncached -> real check runs
 
 
+class SlowTraceAttribution(unittest.TestCase):
+    """The universal tracing decision (2026-09-19): durable stage attribution
+    for every slow request, explicit unattributed time, wall-vs-CPU on the
+    write stages, privacy boundary intact, bounded retention — each proven
+    by DELIBERATE delays and controls, not by reading the code."""
+
+    @classmethod
+    def setUpClass(cls):
+        import types
+        from orgtree import api, slowtrace
+        cls.api, cls.slowtrace, cls.types = api, slowtrace, types
+        org = store.create_org("slowtrace-" + str(time.time_ns()))
+        cls.slug = org.d["slug"]
+        org.hire(ledger.USER, None, "luna", 0, "boss", charter="the boss")
+        store.save_org(org)
+        from starlette.testclient import TestClient
+        cls.client = TestClient(api.app)
+
+    @classmethod
+    def tearDownClass(cls):
+        store._POOL.close_all(cls.slug)
+
+    def setUp(self):
+        self._threshold = self.slowtrace.THRESHOLD_MS
+        self.slowtrace.THRESHOLD_MS = 100.0
+        self._before = len(self.slowtrace.tail(2000))
+
+    def tearDown(self):
+        self.slowtrace.THRESHOLD_MS = self._threshold
+
+    def _new_rows(self):
+        rows = self.slowtrace.tail(2000)
+        return rows[self._before:]
+
+    def test_delay_inside_the_save_stage_is_attributed_to_it_with_cpu_split(self):
+        real = store._save_org
+
+        def slow_save(org):
+            time.sleep(0.25)
+            return real(org)
+
+        with patch.object(store, "_save_org", side_effect=slow_save):
+            r = self.client.post(f"/api/orgs/{self.slug}/nodes/boss/scope",
+                                 json={"charter": "traced charter"})
+        self.assertEqual(r.status_code, 200, r.text[:200])
+        rows = [x for x in self._new_rows() if "org_save_ms" in x]
+        self.assertTrue(rows, "no durable row carried the save stage")
+        row = rows[-1]
+        self.assertGreaterEqual(row["org_save_ms"], 240,
+                                "the deliberate in-stage delay was not attributed")
+        # the sleep spends wall, not CPU: the pair is what separates work
+        # from starvation (the astra tracing gap)
+        self.assertLess(row.get("org_save_cpu_ms", 0.0), 100)
+        self.assertLess(abs(row["unattributed_ms"]),
+                        row["handler_ms"] * 0.5,
+                        "most of the request should be attributed to stages")
+
+    def test_delay_outside_every_stage_lands_in_unattributed(self):
+        from orgtree import supervisor as sup
+        real = sup.primed_restart
+
+        def slow_primed():
+            time.sleep(0.25)
+            return real()
+
+        with patch.object(sup, "primed_restart", side_effect=slow_primed):
+            with self.api._tree_cache_lock:
+                self.api._tree_cache.clear()
+            r = self.client.get(f"/api/orgs/{self.slug}")
+        self.assertEqual(r.status_code, 200)
+        rows = [x for x in self._new_rows()
+                if x.get("route") == "/api/orgs/{slug}"]
+        self.assertTrue(rows, "no durable row for the delayed tree request")
+        self.assertGreaterEqual(rows[-1]["unattributed_ms"], 200,
+                                "out-of-stage time must be EXPLICIT, not vanish")
+
+    def test_rows_exist_with_profiling_toggle_off_and_carry_worker_ready_ids(self):
+        self.assertFalse(self.api._PROFILE_TIMING,
+                         "suite assumes the verbose toggle is off (its default)")
+        rows = self._new_rows()
+        if not rows:                       # ensure at least one slow row
+            real = store._save_org
+            with patch.object(store, "_save_org",
+                              side_effect=lambda o: (time.sleep(0.15), real(o))[1]):
+                self.client.post(f"/api/orgs/{self.slug}/nodes/boss/scope",
+                                 json={"charter": "toggle-off trace"})
+            rows = self._new_rows()
+        self.assertTrue(rows, "durable tracing must not depend on the toggle")
+        for field in ("pid", "instance", "seq", "ts", "route"):
+            self.assertIn(field, rows[-1])
+
+    def test_smuggled_profile_field_never_reaches_the_durable_row(self):
+        scope = {"type": "http", "method": "GET",
+                 "route": self.types.SimpleNamespace(path="/api/test-smuggle")}
+        poisoned = {"org_save_ms": 42.0, "secret_leak": 123.0,
+                    "mail_body_len": 999.0}
+        self.api._access_emit(scope, 200, 600.0, 601.0, 10, 1, poisoned)
+        rows = [x for x in self._new_rows()
+                if x.get("route") == "/api/test-smuggle"]
+        self.assertTrue(rows)
+        self.assertIn("org_save_ms", rows[-1])
+        self.assertNotIn("secret_leak", rows[-1])
+        self.assertNotIn("mail_body_len", rows[-1])
+
+    def test_retention_is_bounded_by_rotation(self):
+        st = self.slowtrace
+        old_max = st._MAX_BYTES
+        st._MAX_BYTES = 2000
+        try:
+            for i in range(60):
+                st.emit({"route": "/api/rotation-test", "handler_ms": 500.0,
+                         "total_ms": 500.0, "bytes": 0, "unattributed_ms": 0.0})
+            size = os.path.getsize(st.path())
+            self.assertLess(size, 2 * 2000 + 500,
+                            "current file must stay near the cap")
+            self.assertTrue(os.path.exists(st.path() + ".1"),
+                            "rotation must keep exactly one previous file")
+        finally:
+            st._MAX_BYTES = old_max
+
+    def test_always_on_tracing_overhead_is_negligible_on_the_hot_path(self):
+        self.client.get(f"/api/orgs/{self.slug}")     # ensure cache filled
+        lat = []
+        for _ in range(60):
+            t0 = time.perf_counter()
+            r = self.client.get(f"/api/orgs/{self.slug}")
+            lat.append((time.perf_counter() - t0) * 1000.0)
+            self.assertEqual(r.status_code, 200)
+        lat.sort()
+        p50 = lat[len(lat) // 2]
+        print(f"[overhead] cache-hit GET p50 with always-on tracing: {p50:.2f}ms")
+        self.assertLess(p50, 25,
+                        "always-on tracing must not make the hot path slow")
+
+
 if __name__ == "__main__":
     unittest.main()
