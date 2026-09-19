@@ -129,8 +129,9 @@ def _compute() -> dict[str, Any]:
     # ⚠ THE UNION, NOT JUST WHAT DISCOVERY OFFERS. An organization can hold a
     # tier the provider document does not currently list, and answering "no
     # efforts" for it would silently drop the effort submenu rather than say
-    # anything. The three static tables are the complete set of tiers that have
-    # an effort contract at all; an OpenRouter favorite has none by definition.
+    # anything. The static tables plus discovered OpenRouter favorites cover
+    # the known tier vocabulary; `efforts` below also derives the OpenRouter
+    # contract for an organization-held tier absent from this document.
     for tier in sorted(set(_tiers_in(doc)) | set(providers.CODEX_TIERS)
                        | set(providers.ANTIGRAVITY_TIERS) | set(providers.CLAUDE_TIERS)):
         try:
@@ -173,7 +174,9 @@ def _supported_efforts(tier: str) -> list[str]:
         return [e for e in Org.EFFORTS if providers.antigravity_effort(tier, e) == e]
     if tier in providers.CLAUDE_TIERS:
         return list(Org.EFFORTS)
-    return []  # No advertised effort contract for an OpenRouter favorite.
+    if openrouter.is_tier(tier):
+        return list(Org.EFFORTS)
+    return []
 
 
 # ------------------------------------------------------------------- the door
@@ -326,7 +329,10 @@ def reset_for_tests() -> None:
 
 # ------------------------------------------------------- pure derivations
 def efforts(snap: dict[str, Any], tier: str) -> list[str]:
-    return list(snap["efforts"].get(tier) or [])
+    offered = snap["efforts"].get(tier)
+    if offered is None and openrouter.is_tier(tier):
+        return list(Org.EFFORTS)
+    return list(offered or [])
 
 
 def catalog_ids(snap: dict[str, Any]) -> frozenset[str] | None:

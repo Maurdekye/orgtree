@@ -388,3 +388,20 @@ test('every rendered row is selectable, in Request and in Direct alike', async t
     } finally { await view.unmount() }
   }
 })
+
+test('OpenRouter quick staffing exposes all standard efforts and forwards the choice', async t => {
+  const sent = captureFetch(t)
+  const p = preview()
+  p.models = [{ tier: 'or-vendor-live', seat: 2,
+    efforts: ['low', 'medium', 'high', 'xhigh', 'max'] }]
+  const entry = quickStaffEntry('org', 'openrouter-effort', p, () => {})
+  const view = await mountView(<Fixture entries={[entry]} />, h => h)
+  try {
+    await open(); await key(named('Staff\u2026'), 'ArrowRight')
+    await hover('or-vendor-live')
+    assert.deepEqual(rowsUnder('or-vendor-live'), ['low', 'medium', 'high', 'xhigh', 'max'])
+    await inAct(() => { named('max').click() }); await flush()
+    assert.equal(sent.at(-1)!.tier, 'or-vendor-live')
+    assert.equal(sent.at(-1)!.effort, 'max')
+  } finally { await view.unmount() }
+})

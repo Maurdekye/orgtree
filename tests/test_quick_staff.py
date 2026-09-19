@@ -123,6 +123,40 @@ class QuickStaffTests(unittest.TestCase):
                     self.assertEqual(item["owner"]["node"], r.json()["node"])
                     self.assertEqual(item["status"], "open")
 
+    def test_openrouter_immediate_effort_is_stored_and_effective(self):
+        self.org.d["tiers"]["or-live"] = 1
+        self.offered["providers"].append({"id": "openrouter", "hire_enabled": True,
+            "tiers": [{"tier": "or-live", "model": "vendor/live", "seat": 1}]})
+        store.save_org(self.org)
+        appsettings.set_quick_staff_behavior("top_level")
+        with patch.object(quickstaff.openrouter, "refresh_catalog",
+                          return_value=[{"id": "vendor/live"}]), \
+             patch.object(quickstaff, "supported_efforts",
+                          return_value=list(ledger.Org.EFFORTS)):
+            r = self.send(self.selection("or-live", "max"))
+        self.assertEqual(r.status_code, 200, r.text)
+        current = self.loaded()
+        node = current.node(r.json()["node"])
+        self.assertEqual(node["scope"].get("effort"), "max")
+        self.assertEqual(current.effective_effort(r.json()["node"]), "max")
+
+    def test_openrouter_effort_omission_keeps_the_existing_default(self):
+        self.org.d["tiers"]["or-live"] = 1
+        self.offered["providers"].append({"id": "openrouter", "hire_enabled": True,
+            "tiers": [{"tier": "or-live", "model": "vendor/live", "seat": 1}]})
+        store.save_org(self.org)
+        appsettings.set_quick_staff_behavior("top_level")
+        with patch.object(quickstaff.openrouter, "refresh_catalog",
+                          return_value=[{"id": "vendor/live"}]), \
+             patch.object(quickstaff, "supported_efforts",
+                          return_value=list(ledger.Org.EFFORTS)):
+            r = self.send(self.selection("or-live"))
+        self.assertEqual(r.status_code, 200, r.text)
+        current = self.loaded()
+        node = current.node(r.json()["node"])
+        self.assertNotIn("effort", node["scope"])
+        self.assertEqual(current.effective_effort(r.json()["node"]), ledger.Org.DEFAULT_EFFORT)
+
     def test_under_assignee_immediate_staffing_notifies_previous_assignee(self):
         appsettings.set_quick_staff_behavior("under_assignee")
         body = self.selection("haiku", "high") | {"account": "claude/primary"}
@@ -661,6 +695,19 @@ class QuickStaffEligibilityTests(unittest.TestCase):
                           return_value={"efforts": {model: ["medium"]}}):
             self.assertEqual(staffcache._supported_efforts("luna"), ["medium"])
         self.assertNotIn("xhigh", staffcache._supported_efforts("flash"))
+
+    def test_openrouter_tiers_offer_the_standard_effort_vocabulary(self):
+        """OpenRouter is a Claude Code lane, not an effort-less fallback.
+
+        The old blanket fallback returned [], which made the renderer omit the
+        effort layer before any request could carry a selected value.
+        """
+        with patch.object(staffcache.providers, "codex_model_inventory",
+                          side_effect=AssertionError("OpenRouter must not use Codex inventory")):
+            self.assertEqual(staffcache._supported_efforts("or-vendor-live"),
+                             list(ledger.Org.EFFORTS))
+        self.assertEqual(staffcache.efforts({"efforts": {}}, "or-vendor-live"),
+                         list(ledger.Org.EFFORTS))
 
     def test_quickstaff_reads_efforts_from_the_snapshot_and_probes_nothing(self):
         """The contract is unchanged; WHERE the probe happens is the fix. A
