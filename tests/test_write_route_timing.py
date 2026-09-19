@@ -448,6 +448,44 @@ class ReadRoutesReportExactlyWhatTheyDidBefore(WriteTimingBase):
         self.assertNotIn('mutate_ms', row,
                          f'a read route takes no document lock: {row}')
 
+    def test_the_snapshot_loader_does_not_bill_the_load_it_delegates(self):
+        """⚠ THE CASE ABOVE CANNOT SEE THIS ONE, and that is why this exists.
+
+        `load_org_snapshot` only delegates to `load_org` on the JSON backend;
+        under SQLite (the default, and what these tests run on) it goes
+        straight to `_load_sqlite_org` and never touches the guarded path at
+        all. So the HTTP case above passes whether or not the suppression is
+        there — measured: removing it left every test in this module green.
+
+        The backend is pinned here instead, at the seam itself, with the
+        matching positive control beside it: `load_org` on the SAME patched
+        backend must still bill itself, or "no org_load_ms" would prove
+        nothing more than that nothing was ever measured.
+        """
+        from orgtree import profiling
+        sentinel = object()
+
+        def one(profile, call):
+            token = profiling.bind(profile)
+            try:
+                with patch.object(store, 'STORE_BACKEND', 'json'), \
+                        patch.object(store, '_load_org', lambda slug: sentinel):
+                    self.assertIs(call(), sentinel)
+            finally:
+                profiling.unbind(token)
+
+        billed: dict = {}
+        one(billed, lambda: store.load_org(self.slug))
+        self.assertGreater(billed.get('org_load_ms', -1.0), -1.0,
+                           'positive control: a direct load_org must bill itself')
+
+        suppressed: dict = {}
+        one(suppressed, lambda: store.load_org_snapshot(self.slug, ()))
+        self.assertNotIn(
+            'org_load_ms', suppressed,
+            'the caller already reports this load as load_snapshot_ms; billing '
+            f'it again would double-report one parse: {suppressed}')
+
 
 class ManagedToolsReportTheWorkTheyReallyDid(WriteTimingBase):
     """§6. `orgtree_hire`, `orgtree_retire` and the rest of MANAGED_WAIT_TOOLS
