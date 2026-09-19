@@ -1,6 +1,6 @@
 import { BrowserWindow, shell, type Session } from 'electron'
 import { attachEditMenu } from './editmenu'
-import { externalHttpUrl, scopedHeaders, trustedUiUrl } from './policy'
+import { externalHttpUrl, isHoldingUrl, scopedHeaders, trustedUiUrl } from './policy'
 
 /** Origin/token sources may be live getters: after a boot-engine recovery the
  *  desktop re-attaches with a NEW per-boot token (usually the same origin,
@@ -11,7 +11,7 @@ type Live = string | (() => string)
 const live = (value: Live): string => typeof value === 'function' ? value() : value
 
 export function assertNativeSender(event: Electron.IpcMainInvokeEvent, main: BrowserWindow | undefined, origin: string): void {
-  if (!main || event.sender !== main.webContents || event.senderFrame !== main.webContents.mainFrame || !trustedUiUrl(event.senderFrame.url, origin)) throw new Error('Native operation refused for this document')
+  if (!main || event.sender !== main.webContents || event.senderFrame !== main.webContents.mainFrame || (!trustedUiUrl(event.senderFrame.url, origin) && !isHoldingUrl(event.senderFrame.url))) throw new Error('Native operation refused for this document')
 }
 
 export function configureEngineSession(session: Session, liveOrigin: Live, liveToken: Live): (window: BrowserWindow, portal?: boolean) => void {

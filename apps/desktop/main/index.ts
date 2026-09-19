@@ -1191,6 +1191,10 @@ else {
       if (main.isMaximized()) main.unmaximize(); else main.maximize()
     })
     handle('desktop:window-close', () => { main?.close() })
+    handle('desktop:window-refresh', async () => {
+      if (windowLoadRecovery?.isFailed) await windowLoadRecovery.retryNow('user refresh')
+      else if (main && !main.isDestroyed()) main.webContents.reload()
+    })
     // Deliberately NOT the desktop:window-* handlers above: those act on the
     // main window, and a popout's controls must never reach it.
     handle('desktop:popout-state', name => typeof name === 'string' ? popouts.state(name) : null)

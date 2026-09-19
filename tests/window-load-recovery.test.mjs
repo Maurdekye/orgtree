@@ -287,10 +287,42 @@ test('the holding page carries nothing it cannot load without the engine', () =>
   assert.doesNotMatch(html, /https?:\/\//, 'and no external reference of any kind')
 })
 
+test('the holding page renders the persistent window controls shell across error states', () => {
+  const detail = 'errorCode=-102 ERR_CONNECTION_REFUSED url=http://127.0.0.1:21350/o/orgtree'
+  const html = holdingPageHtml(detail)
+  assert.match(html, /<header class="orgbar fallback-orgbar native-header">/, 'persistent header')
+  assert.match(html, /<h2>Orgtree<\/h2>/, 'header title')
+  assert.match(html, /<div class="window-controls" role="group" aria-label="Window controls">/, 'window controls group')
+  assert.match(html, /aria-label="Refresh app view"/, 'refresh control')
+  assert.match(html, /aria-label="Minimize window"/, 'minimize control')
+  assert.match(html, /aria-label="Maximize window"/, 'maximize control')
+  assert.match(html, /aria-label="Close window"/, 'close control')
+  assert.match(html, /errorCode=-102 ERR_CONNECTION_REFUSED url=http:\/\/127\.0\.0\.1:21350\/o\/orgtree/, 'preserves error detail')
+  assert.match(html, /Orgtree lost its connection to the engine\./, 'reconnecting headline')
+  assert.match(html, /\.orgbar\{[^}]*-webkit-app-region:drag/, 'header is drag region')
+  assert.match(html, /\.window-controls\{[^}]*-webkit-app-region:no-drag/, 'controls are no-drag')
+  assert.match(html, /main\{[^}]*-webkit-app-region:no-drag/, 'content is no-drag')
+})
+
 test('the holding page escapes the error text it is handed', () => {
   const html = holdingPageHtml('<img src=x onerror=alert(1)>')
   assert.doesNotMatch(html, /<img/, 'an Electron error description is not trusted markup')
   assert.match(html, /&lt;img/)
+})
+
+test('WindowLoadRecovery retryNow triggers an immediate navigation retry', async () => {
+  const h = harness({ serving: false })
+  h.contents.fire('did-fail-load', -102, 'ERR_CONNECTION_REFUSED', 'http://127.0.0.1:21350/', true)
+  await h.flush()
+  assert.equal(h.recovery.isFailed, true)
+  assert.equal(h.recovery.retryAttempt, 0)
+  assert.equal(h.pending().length, 1)
+
+  // Triggering retryNow before timer fires resets attempt and navigates
+  h.setServing(true)
+  await h.recovery.retryNow('user clicked refresh')
+  await h.flush()
+  assert.equal(h.recovery.isFailed, false, 'recovered via user refresh')
 })
 
 // ------------------------------------------------------------ THE INCIDENT

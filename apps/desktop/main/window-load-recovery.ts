@@ -112,15 +112,35 @@ export function holdingPageHtml(detail: string, stranded = false): string {
   return `<!doctype html><html><head><meta charset="utf-8">`
     + `<title>Orgtree — reconnecting</title><style>`
     + `body{margin:0;background:#1a1a1a;color:#eee;font-family:monospace;`
-    + `min-height:100vh;display:flex;align-items:center;justify-content:center}`
-    + `main{padding:32px;max-width:560px}`
-    + `h2{color:#f66;margin:0 0 12px;font-size:18px}`
+    + `min-height:100vh;display:flex;flex-direction:column;box-sizing:border-box}`
+    + `.orgbar{display:flex;align-items:center;justify-content:space-between;`
+    + `padding:6px 0 6px 14px;border-bottom:1px solid rgba(255,255,255,0.08);`
+    + `-webkit-app-region:drag;box-sizing:border-box;width:100%}`
+    + `.orgbar h2{margin:0;font-size:15px;font-weight:600;color:#eee;-webkit-app-region:drag}`
+    + `.window-controls{display:flex;flex:0 0 auto;flex-wrap:nowrap;height:28px;margin-left:4px;-webkit-app-region:no-drag}`
+    + `.window-control{flex:0 0 46px;width:46px;height:100%;padding:0;border:0;border-radius:0;`
+    + `background:transparent;color:#999;display:grid;place-items:center;font-size:15px;cursor:pointer;-webkit-app-region:no-drag}`
+    + `.window-control:hover{background:rgba(255,255,255,0.08);color:#eee}`
+    + `.window-control.close:hover{background:#c42b1c;color:#fff}`
+    + `.window-control svg{width:1em;height:1em;fill:currentColor}`
+    + `main{margin:auto;padding:32px;max-width:560px;-webkit-app-region:no-drag}`
+    + `main h2{color:#f66;margin:0 0 12px;font-size:18px}`
     + `p{margin:0 0 8px;line-height:1.5}`
     + `.d{opacity:.6;font-size:13px;white-space:pre-wrap}`
     + `${stranded ? '' : '.s{margin-top:16px;opacity:.6;font-size:13px}'
       + '.s::after{content:"";animation:dots 1.5s steps(4,end) infinite}'
       + '@keyframes dots{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}}'}`
-    + `</style></head><body><main>`
+    + `</style></head><body>`
+    + `<header class="orgbar fallback-orgbar native-header">`
+    + `<h2>Orgtree</h2>`
+    + `<div class="window-controls" role="group" aria-label="Window controls">`
+    + `<button type="button" class="window-control" aria-label="Refresh app view" title="Refresh app view"><svg viewBox="0 0 24 24"><path d="M12 6v3l4-4-4-4v3c-4.42 0-8 3.58-8 8 0 1.57.46 3.03 1.24 4.26L6.7 14.8c-.45-.83-.7-1.79-.7-2.8 0-3.31 2.69-6 6-6zm6.76 1.74L17.3 9.2c.44.84.7 1.79.7 2.8 0 3.31-2.69 6-6 6v-3l-4 4 4 4v-3c4.42 0 8-3.58 8-8 0-1.57-.46-3.03-1.24-4.26z"/></svg></button>`
+    + `<button type="button" class="window-control" aria-label="Minimize window" title="Minimize window"><svg viewBox="0 0 24 24"><path d="M19 13H5v-2h14v2z"/></svg></button>`
+    + `<button type="button" class="window-control" aria-label="Maximize window" title="Maximize window"><svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14z"/></svg></button>`
+    + `<button type="button" class="window-control close" aria-label="Close window" title="Close window"><svg viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>`
+    + `</div>`
+    + `</header>`
+    + `<main>`
     + `<h2>${escapeHtml(message)}</h2>`
     + `<p>${escapeHtml(sub)}</p>`
     + `<p class="d">${escapeHtml(detail)}</p>`
@@ -218,6 +238,15 @@ export class WindowLoadRecovery {
     this.clear()
     this.attempt = 0
     void this.retry('engine reported ready')
+  }
+
+  /** Trigger an immediate retry, e.g. from user clicking refresh on the holding page. */
+  async retryNow(why = 'user refresh'): Promise<void> {
+    if (!this.failed || this.stranded) return
+    if (this.hooks.suspended?.()) return
+    this.clear()
+    this.attempt = 0
+    await this.retry(why)
   }
 
   /** Wire this to the webContents' `did-finish-load`, which is the only thing

@@ -48,3 +48,45 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
   }
   contextBridge.exposeInMainWorld('orgtreeDesktop', bridge)
 }
+
+if (process.isMainFrame && location.protocol === 'data:') {
+  const wireHoldingControls = () => {
+    const refreshBtn = document.querySelector('[aria-label="Refresh app view"]')
+    const minBtn = document.querySelector('[aria-label="Minimize window"]')
+    const maxBtn = document.querySelector('[aria-label="Maximize window"], [aria-label="Restore window"]')
+    const closeBtn = document.querySelector('[aria-label="Close window"]')
+
+    const updateMaxState = (maximized: boolean) => {
+      const btn = document.querySelector('[aria-label="Maximize window"], [aria-label="Restore window"]')
+      if (!btn) return
+      btn.setAttribute('aria-label', maximized ? 'Restore window' : 'Maximize window')
+      btn.setAttribute('title', maximized ? 'Restore window' : 'Maximize window')
+      btn.innerHTML = maximized
+        ? '<svg viewBox="0 0 24 24"><path d="M3 5v14h14v-2H5V5H3zm18-4H7c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V3c0-1.1-.9-2-2-2zm0 16H7V3h14v14z"/></svg>'
+        : '<svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14z"/></svg>'
+    }
+
+    if (refreshBtn) refreshBtn.addEventListener('click', () => { void ipcRenderer.invoke('desktop:window-refresh').catch(() => location.reload()) })
+    if (minBtn) minBtn.addEventListener('click', () => { void ipcRenderer.invoke('desktop:window-minimize').catch(() => {}) })
+    if (maxBtn) maxBtn.addEventListener('click', () => { void ipcRenderer.invoke('desktop:window-toggle-maximize').catch(() => {}) })
+    if (closeBtn) closeBtn.addEventListener('click', () => { void ipcRenderer.invoke('desktop:window-close').catch(() => {}) })
+
+    void ipcRenderer.invoke('desktop:window-controls-state').then((state: { maximized?: boolean } | null) => {
+      if (state && typeof state.maximized === 'boolean') updateMaxState(state.maximized)
+    }).catch(() => {})
+
+    ipcRenderer.on('desktop:event', (_e, event: DesktopEvent) => {
+      if (event?.type === 'window-state') {
+        const data = event.data as { maximized?: boolean } | undefined
+        if (data && typeof data.maximized === 'boolean') updateMaxState(data.maximized)
+      }
+    })
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', wireHoldingControls)
+  } else {
+    wireHoldingControls()
+  }
+}
+
