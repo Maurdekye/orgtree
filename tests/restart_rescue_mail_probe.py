@@ -39,9 +39,39 @@ route while the marker route was broken, which is precisely the composition
 this item exists to measure.  So the same stranding is replayed four ways:
 
     --arm both          marker and drain record both present (production shape)
-    --arm marker-only   the drain record is removed: only MARKER can deliver
+    --arm marker-only   the drain record is removed; MARKER is the route that
+                        rescues the seat  (read the warning below -- the record
+                        does NOT stay removed, and that is not a defect)
     --arm drain-only    the marker is removed: only DRAIN can deliver
     --arm none          both removed: NOTHING may deliver  <- negative control
+
+⚠ `marker-only` DOES NOT STAY MARKER-ONLY, AND THE ARM IS STILL VALID.  Found by
+whiteout in review (2026-09-19) and confirmed here against the code and against a
+finished run's data root -- it is written down rather than quietly relied on,
+because an earlier version of this table claimed "only MARKER can deliver" and
+that sentence was simply false.
+
+The arm deletes the victim's `mail_drain` record, and then the marker route's own
+replay puts it straight back.  `reconcile` replays by calling `send_message`
+(supervisor.py:31862) and does not pass `wake=False`; `send_message` defaults to
+`wake=True` and, at supervisor.py:24845-24847, calls `maildrain.request` for any
+node whose mailbox is non-empty.  At exactly that moment the victim's mailbox
+holds the message the restart fold-back just returned to it (§C prints
+`"mailbox": 1`), so `maildrain.request` mints a fresh record and the caller saves
+it.  A finished `marker-only` run ends with `mail_drain={"ids": [...]}` on disk.
+
+WHY THE ARM STILL MEASURES WHAT IT CLAIMS.  The re-mint is CAUSED BY the marker
+route firing -- it cannot exist unless `reconcile` already reached the replay --
+so it can never deliver on its own.  And by the time the record exists the seat is
+mid-turn and stays that way: the stand-in CLI holds its turn open for the rest of
+the run, which is why `victim_turns` is 1 and not 2.  **That is the isolation, and
+it is worth saying out loud because it is not obvious: the arm is isolated by the
+ORDER of events and by the held turn, not by the record staying deleted.**
+
+WHAT ACTUALLY LICENSES THE ARM IS M1, NOT THE DELETION.  Break the marker route
+(mutant M1, the pre-fix `reconcile`) and `marker-only` goes RED while `drain-only`
+stays green.  A deletion that the product undoes proves nothing by itself; a
+mutant that reddens exactly one arm does.
 
 `none` is not decoration.  Without it a green run cannot tell delivery from a
 fixture that queued nothing, because a probe that never queues anything and a
@@ -102,6 +132,7 @@ Run it explicitly; `unittest discover` does not pick it up.  Phases `seed`,
 """
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -383,10 +414,18 @@ if len(sys.argv) > 4 and sys.argv[1] == 'boot':
         if removed:
             store.save_org(o)
     store._POOL.close_all(SLUG)
-    print('\u00a7D  arm %r: removed %s from the victim; the only route left is '
-          '%s' % (arm, removed or 'nothing',
-                  {'both': 'either', 'marker-only': 'MARKER',
-                   'drain-only': 'DRAIN', 'none': 'NONE'}[arm]))
+    # \u26a0 "the route that rescues", NOT "the only route left".  For `marker-only`
+    # the deleted record comes BACK a moment later, minted by the replay's own
+    # `send_message` (see the module docstring).  Saying "only MARKER" here was
+    # false for every instant after dispatch, and a probe that misdescribes its
+    # own fixture is the thing this whole line of tickets keeps being bitten by.
+    print('\u00a7D  arm %r: removed %s from the victim; the route that rescues '
+          'the seat is %s' % (arm, removed or 'nothing',
+                              {'both': 'either', 'marker-only': 'MARKER',
+                               'drain-only': 'DRAIN', 'none': 'NONE'}[arm]))
+    if arm == 'marker-only':
+        print('    (the mail_drain record is re-minted by the replay\'s own '
+              'send; it cannot deliver independently -- see the docstring)')
 
     dumps.mkdir(parents=True, exist_ok=True)
     script = root.parent / 'dump.py'
@@ -500,6 +539,16 @@ def _run_arm(arm, kill_at, hold, settle):
         raise SystemExit('the queued message never reached the delivery '
                          'journal, so the restart fold-back would not be '
                          'exercised: %s' % hello)
+    # And the durable demand must exist BEFORE the kill, for the same reason.
+    # §C raises a NO DEMAND fault when the record is missing after the restart,
+    # and that fault names the PRODUCT.  Without this gate a seed that never
+    # minted one at all would produce the identical fault, blaming the engine
+    # for losing a record that was never there.  Found by whiteout in review.
+    if not hello['mail_drain']:
+        seed.kill()
+        raise SystemExit('the seed never minted a durable mail_drain record, '
+                         'so §C could not tell a product failure from a '
+                         'fixture that never armed the drain route: %s' % hello)
 
     print('\u00a7B  killing the engine the way the guardian does, then running '
           'the startup pass and killing THAT inside dispatch #%d' % kill_at)
@@ -574,7 +623,40 @@ def _run_arm(arm, kill_at, hold, settle):
     result = json.loads(out_path.read_text(encoding='utf-8'))
     result['state_at_seed'] = hello
     result['dispatched_before_the_kill'] = seen
+    result['box'] = str(box)
     return result
+
+
+def _sweep_boxes(results, keep_all):
+    """Remove each clean arm's temp box; KEEP every box worth reading.
+
+    ⚠ THE ASYMMETRY IS THE WHOLE DESIGN, and unconditional cleanup would be the
+    wrong fix.  Every earlier version leaked its box: whiteout counted 114
+    `restart-rescue-probe-*` directories in %TEMP% before its review run, each
+    holding a whole org document, three process logs and the per-seat stdin
+    dumps.  But a box is also the only account of what an arm actually did --
+    whiteout confirmed the `mail_drain` re-mint by opening a finished run's data
+    root read-only, and an arm that broke unexpectedly is exactly the one whose
+    evidence must survive.
+
+    ⚠ AND IT IS SWEPT AFTER THE VERDICT, NOT INSIDE THE ARM, because the arm
+    does not know what it was supposed to do.  `none` not delivering is a PASS
+    and `both` not delivering is a BREAK, and only `_verdict` holds that
+    expectation.  An earlier draft of this swept inside `_run_arm` on a `faults`
+    key that does not exist there (it is `faults_after_the_killed_pass`), which
+    would have deleted the box of every measured break in the run -- the exact
+    evidence it is meant to preserve.
+    """
+    for arm, r in results.items():
+        box = r.get('box')
+        if not box or not os.path.isdir(box):
+            continue
+        broke = bool(r.get('faults_after_the_killed_pass')) or (
+            r['delivered'] is not (arm != 'none'))
+        if keep_all or broke:
+            print('    (arm %s: box kept for inspection -- %s)' % (arm, box))
+            continue
+        shutil.rmtree(box, ignore_errors=True)
 
 
 def _verdict(results):
@@ -610,8 +692,11 @@ def _verdict(results):
         r = results[arm]
         good = r['delivered']
         ok &= good
-        route = {'both': 'either route', 'marker-only': 'the MARKER route '
-                 'alone', 'drain-only': 'the DRAIN route alone'}[arm]
+        # "rescued by", not "the only route left" -- see §D and the docstring:
+        # `marker-only`'s deleted record is re-minted by the replay's own send,
+        # so the claim that survives is about which route RESCUED the seat.
+        route = {'both': 'either route', 'marker-only': 'rescued by MARKER '
+                 'alone', 'drain-only': 'rescued by DRAIN alone'}[arm]
         print('DELIVERY  arm `%s` (%s): %d turn(s), message in %s, %d time(s) '
               'in the first  -> %s'
               % (arm, route, r['victim_turns'],
@@ -659,6 +744,9 @@ def main():
         # never collapse into one exit code.  Say which, in the machine line.
         aborted = str(exc)
     ok = _verdict(results) if aborted is None else False
+    # An aborted run keeps EVERY box: it established nothing, so the question is
+    # always "what went wrong", and the boxes are the only place that is written.
+    _sweep_boxes(results, keep_all=aborted is not None)
     # ONE machine-readable line, so a mutation harness never has to guess what
     # this run meant from prose.
     print('\nRESULT_JSON ' + json.dumps({
