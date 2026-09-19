@@ -180,22 +180,59 @@ async function canvas(t: { after: (fn: () => void | Promise<void>) => void }) {
       ? { id: doc, node: 'a1', title: doc, body: 'body', at: DOCS[0]!.at }
       : { documents: [], total: 0 } } as Response
   }) as typeof fetch
+  /** ⚠ GIVE THE CANVAS A REAL VIEWPORT. jsdom reports every rect as 0x0, so
+   *  the opening camera's fit lands on a degenerate zoom and the canvas can
+   *  settle BELOW `Z_MINI`, where the product deliberately renders the chips
+   *  as inert spans with no click handler. The click then does nothing and
+   *  the test blames the product for a dead click it never made. Measured:
+   *  that alone accounted for 9 failures in 60 idle runs. Same stub as
+   *  fitview.test.tsx. */
+  const realRect = window.HTMLElement.prototype.getBoundingClientRect
+  window.HTMLElement.prototype.getBoundingClientRect = function () {
+    return this.classList.contains('viewport')
+      ? ({ x: 0, y: 0, left: 0, top: 0, width: 1400, height: 900, right: 1400, bottom: 900,
+          toJSON: () => ({}) } as DOMRect)
+      : realRect.call(this)
+  }
   const off = registerWindow({ id: 'popped-d1', kind: 'doc', org: SLUG, editable: false,
     window: {} as unknown as Window, redock: () => {},
     identity: () => ({ document: 'd1' }), reveal: () => revealed.push('d1') })
   const view = await mountView(
     <OrgCanvas tree={tree()} op={() => Promise.resolve({} as never)} slug={SLUG}
       toast={() => {}} mailEvt={null} />, (el) => el)
-  t.after(async () => { off(); await view.unmount(); globalThis.fetch = oldFetch; localStorage.clear() })
+  t.after(async () => { off(); await view.unmount(); globalThis.fetch = oldFetch
+    window.HTMLElement.prototype.getBoundingClientRect = realRect; localStorage.clear() })
   await inAct(async () => { await flush(10) })
   const chips = [...view.el.querySelectorAll('.doc-chip')] as HTMLElement[]
   assert.equal(chips.length, DOCS.length, 'both presentation cards must be on the canvas to be clicked')
-  return { view, chips, revealed, fetched }
+  /** Click the nth card the way a user does: whatever node is ON SCREEN at
+   *  that moment. ⚠ DO NOT hold an element across a click and press it again.
+   *  A re-render between the two presses replaces the chip's DOM node, and a
+   *  click on the detached one never reaches React's delegated listener — so
+   *  the test sees no second reveal and blames the product. That was a real
+   *  flake here: 10 failures in 60 idle runs, 36 in 60 under load, and every
+   *  single failure had `isConnected === false` on the held node. The
+   *  assertion below is what keeps it from coming back silently. */
+  const clickChip = async (n: number) => {
+    let chip: HTMLElement | undefined
+    for (let tries = 0; tries < 20; tries++) {
+      const live = [...view.el.querySelectorAll('.doc-chip')] as HTMLElement[]
+      chip = live[n]
+      if (chip?.isConnected && !chip.classList.contains('inert')) break
+      chip = undefined
+      await inAct(async () => { await flush(10) })
+    }
+    assert.ok(chip, `card ${n} never became a live, non-inert chip to click`)
+    // nothing may be awaited between the query and the press, or the node
+    // this resolved can be replaced before it is clicked
+    await inAct(async () => { chip.click(); await flush(10) })
+  }
+  return { view, chips, clickChip, revealed, fetched }
 }
 
 test('§5 a presentation already in a window is revealed, and no second reader opens', async (t) => {
-  const { view, chips, revealed, fetched } = await canvas(t)
-  await inAct(async () => { chips[0]!.click(); await flush(10) })
+  const { view, clickChip, revealed, fetched } = await canvas(t)
+  await clickChip(0)
 
   assert.deepEqual(revealed, ['d1'], 'the click must surface the window that already has this presentation')
   assert.equal(fetched.includes('d1'), false,
@@ -204,13 +241,13 @@ test('§5 a presentation already in a window is revealed, and no second reader o
 
   // clicking it again is the reported dead click: it must keep working, not
   // become a no-op because some state already says d1
-  await inAct(async () => { chips[0]!.click(); await flush(10) })
+  await clickChip(0)
   assert.deepEqual(revealed, ['d1', 'd1'], 'every click must raise the window, not just the first')
 })
 
 test('§6 a presentation with no window of its own opens exactly as before', async (t) => {
-  const { view, chips, revealed, fetched } = await canvas(t)
-  await inAct(async () => { chips[1]!.click(); await flush(10) })
+  const { view, clickChip, revealed, fetched } = await canvas(t)
+  await clickChip(1)
 
   assert.equal(fetched.includes('d2'), true, 'the reader must open here, as it always has')
   assert.ok(view.el.querySelector('.gallery-modal'), 'and be on screen')
