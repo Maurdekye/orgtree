@@ -285,20 +285,52 @@ Real API doors, concurrent schedules:
    answer question, mark mail read, save agent settings) measured
    end-to-end at the HTTP door before/after under concurrent load.
 
-## 7. Rust evaluation (user addition 2026-09-19)
+## 7. Rust evaluation (user addition 2026-09-19, "ala
+`rebuild-the-backend-in-rust-with-an-opengl-rende`")
 
-Deliverable: a component table from the Phase 0 decomposition —
-parse/materialize, serialize, lock wait, SQLite IO, dispatch/framework,
-renderer — with, per component: measured share of the hot operations'
-latency; what a Rust rewrite would plausibly change (serde parse/dump
-~5–15× on the same bytes; locks/IO/WAL semantics unchanged; no GIL);
-and what the Python rearchitecture already removes (the bytes themselves).
-Preliminary shape from §1: ~85–90 % of today's write-cycle cost is
-avoidable *work* (parsing/serializing unchanged data + queueing), which
-Phases A–D remove rather than accelerate; the residual per-write CPU after
-A–D is KB-scale JSON work where Rust's advantage is microseconds. The
-full quantified table lands with the measurements; recommendation follows
-the evidence. Evaluation only — no rewrite work under this item.
+Measured on the user's machine against a coherent copy of the live 101 MB
+org, at the real HTTP door (uvicorn, full middleware stack), main
+`cb702e7` versus this branch at `261e360`. The question, per the user: if
+and how much would a Rust backend alleviate the slowness — evaluated
+against the actual proposal (Rust behind the existing HTTP+WS JSON
+contract), component by component.
+
+### The component table
+
+| cost component | baseline share of a write op | what the Python rearchitecture did | what Rust would add on top |
+|---|---|---|---|
+| JSON parse of the document (11.19 MB/load, 124 ms; 3–6 loads/call) | ~55 % | **Removed the work**: resident document + section refresh — a warm cycle parses 0 bytes, a snapshot refresh parses only what changed (KBs) | serde parses the same bytes ~3–10× faster — it would have made the *waste* cheaper (≈30–70 ms/cycle instead of ≈250 ms). Applied to the rearchitected access pattern it accelerates KB-scale work: **microseconds** |
+| JSON serialize on save (11 MB re-dumped to find a 6 KB change, 81–100 ms) | ~30 % | **Removed the work**: access-scoped save dumps 6 KB for a one-node change | same shape as above: big factor on work that no longer exists |
+| `Org.__init__` whole-tree construction (54.6 ms/load) | ~15 % | Paid **once per process** (residency), and skipped for carried nodes on snapshot refreshes | Rust structs would build faster, but a cost paid once per process is not on the hot path in either language |
+| lock queueing under concurrency (p50 2,257 ms at 8 writers — the experienced stall) | dominant under load | Cycle shrank 333→~5 ms, so the same global-lock discipline now clears 31.6 ops/s instead of 3.15 | **None intrinsically** — queueing is architecture, not language. A Rust port of the *old* access pattern would have queued the same way; the fix was not loading/serializing the world per write, which is language-independent |
+| SQLite commit (WAL, `synchronous=FULL` fsync) | 1–3 ms/write | unchanged (correctness boundary) | **Zero** — same library, same disk, same fsync |
+| HTTP/framework/dispatch/verb bookkeeping | ~9 ms/verb residual (13.9 ms door vs ~5 ms storage cycle) | untouched so far | Real: axum/actix + serde validation typically cut framework overhead 5–20×, plausibly ~2–4 ms/verb total. Matters at sustained >100 ops/s; invisible below that |
+| CPU-parallel reads under load (org-tree render p50 519 ms under 8 writers; annotate + ~1 MB payload build, GIL-crowded) | the remaining visible UI cost | not yet addressed (next target: seq-validated annotated-tree cache — the same section-refresh idea one level up) | **Genuine**: no GIL means concurrent tree builds/annotates parallelize across cores. This is the one component where Rust buys something the current architecture has not already reached — though the planned Python-side cache attacks the same number from the other side (build once per change instead of per request) |
+| renderer / OpenGL half | out of backend scope | — | unmeasured; the item's own coordinator analysis stands (renderer profile still INFERRED — a Chrome trace is the precursor, not a rewrite) |
+
+### Reading of the table
+
+The baseline slowness was ~90 % *avoidable work* — parsing and serializing
+megabytes nobody asked for, under one lock — and that is now removed in
+Python: 10.0× concurrent throughput and 9–13× on the user-named UI
+operations, measured at the door. A Rust rewrite executing the OLD access
+pattern would have delivered roughly 3–10× on the same waste (serde speed)
+and none of the queueing fix; a Rust rewrite of the NEW access pattern
+would take the residual ~14 ms write op to perhaps 2–4 ms and would
+genuinely parallelize CPU-heavy concurrent reads. Against that stand the
+proposal's own recorded costs: ~120k lines including an MCP tool surface
+whose exact behavior (refusals included) every agent is written against,
+and the storage/fsync floor it cannot move.
+
+**Recommendation** (evaluation only; implementation needs explicit user
+authorization): do not start the Rust backend for performance. The
+measured bottleneck was access-pattern, not language, and its removal is
+already delivered and verifiable in the beta. Revisit only if, after the
+swarm retest plus the tree-payload cache and Phases C/D land, the product
+still needs sustained >100 write ops/s or sub-5 ms verbs — those are the
+regimes where the remaining language-bound ~10 ms and the GIL become the
+binding constraint. The OpenGL frontend half remains ungated by any of
+this and still wants its profiling pass first.
 
 ## 8. Risks
 
