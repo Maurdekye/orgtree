@@ -421,6 +421,14 @@ class DataRootDesync(RuntimeError):
     """
 
 
+#: The exact input strings of the last PASSING `_assert_synced_data_root`.
+#: The check's verdict is a deterministic function of these four strings
+#: (`devguard.validate_root` reads LIVE/ORGTREE_DATA/LEGACY; the desync half
+#: canonicalizes ORGTREE_DATA against DATA_ROOT), so an identical tuple may
+#: skip re-validation. A failing check caches nothing.
+_ROOT_SYNC_OK: tuple[str, str, str, str] | None = None
+
+
 def _assert_synced_data_root() -> None:
     """Refuse operations when os.environ['ORGTREE_DATA'] disagrees with DATA_ROOT.
 
@@ -431,9 +439,22 @@ def _assert_synced_data_root() -> None:
 
     If ORGTREE_DATA is unset or empty in the environment, this passes (the standard
     production case defaulting to ~/orgtree).
+
+    ⚠ Memoized on the exact input strings, and that memo is load-bearing for
+    latency: the two `os.path.realpath` calls are native calls INSIDE every
+    write hold, and under interpreter contention each native return re-enters
+    the GIL convoy — a line trace of a 5.12 s stretched write (2026-09-19,
+    beta.1 interference control) put 3.56 s in this guard alone. The strings
+    never change in a healthy process; any change re-runs the full check, so
+    the test-isolation semantics are exactly preserved.
     """
-    devguard.validate_root(DATA_ROOT)
+    global _ROOT_SYNC_OK
     env = os.environ.get("ORGTREE_DATA")
+    key = (env or "", DATA_ROOT, os.environ.get(devguard.LIVE) or "",
+           os.environ.get(devguard.LEGACY) or "")
+    if _ROOT_SYNC_OK == key:
+        return
+    devguard.validate_root(DATA_ROOT)
     if env and env.strip():
         if os.path.normcase(os.path.realpath(env.strip())) != os.path.normcase(os.path.realpath(DATA_ROOT)):
             raise DataRootDesync(
@@ -441,6 +462,7 @@ def _assert_synced_data_root() -> None:
                 f"os.environ['ORGTREE_DATA'] ({env!r})! store was imported before "
                 f"ORGTREE_DATA was set in the environment."
             )
+    _ROOT_SYNC_OK = key
 
 
 def owner_file(root: str | None = None) -> str:
@@ -592,6 +614,16 @@ def _orgs_dir() -> str:
     return d
 
 
+#: Slugs whose containment check already passed, keyed with the orgs dir
+#: they passed against. Containment is pure path arithmetic on the two
+#: strings, so a verdict never changes for the same key — but the arithmetic
+#: runs `os.path.abspath` natively inside hot write paths, and each native
+#: return under interpreter contention re-enters the GIL convoy (1.55 s of a
+#: 5.12 s stretched write in the 2026-09-19 line trace). Rejections are NOT
+#: cached: they raise, and the shape check still runs on every call.
+_SAFE_SLUG_OK: dict[tuple[str, str], bool] = {}
+
+
 def _safe_slug(slug: str) -> str:
     """A slug is a FILE NAME, and every public entry point takes it straight
     off the wire (`/api/orgs/{slug}`). Starlette's path converter is `[^/]+`,
@@ -603,8 +635,13 @@ def _safe_slug(slug: str) -> str:
     the second check is what keeps this correct if the slug charset ever
     widens."""
     _slug_shape(slug)
-    if not _slug_contained(slug, _orgs_dir()):
-        raise LedgerError(f"invalid org slug: {slug!r}")
+    orgs_dir = _orgs_dir()
+    if not _SAFE_SLUG_OK.get((slug, orgs_dir)):
+        if not _slug_contained(slug, orgs_dir):
+            raise LedgerError(f"invalid org slug: {slug!r}")
+        if len(_SAFE_SLUG_OK) > 512:
+            _SAFE_SLUG_OK.clear()
+        _SAFE_SLUG_OK[(slug, orgs_dir)] = True
     return slug
 
 

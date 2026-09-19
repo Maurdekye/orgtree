@@ -547,31 +547,71 @@ def _halt(slug: str, nid: str, actor: str, *, timeout=None) -> dict[str, Any]:
             raise
     sup.notify(slug, nid, "halting")
     deadline = time.monotonic() + (SETTLE_TIMEOUT if timeout is None else timeout)
+    # ⚠ THE SETTLE POLL MUST NOT CYCLE THE DOCUMENT LOCK (beta.1 wave finding,
+    # 2026-09-19: four parallel halts of busy agents took 66.6 s wall — every
+    # 50 ms poll re-joined the FIFO admission queue behind agent writes, twice
+    # per iteration counting the Condition re-acquire, and added its own queue
+    # pressure). `_settled` reads only supervisor runtime state, so the poll
+    # runs lock-free; the lock is taken to CAPTURE arriving carriers (only
+    # when a lock-free peek says any exist — durability for mid-settle
+    # arrivals is preserved) and ONCE at the end to commit phase=halted. The
+    # commit re-checks `_settled` under the lock: a worker registering between
+    # the lock-free check and the acquisition returns us to the poll instead
+    # of committing a halt that is not settled. `_cut` still re-kills straggler
+    # process trees, throttled to ~500 ms — its own brief lock use is the
+    # registry snapshot, not a load-capable hold.
+    last_cut = -1.0
     while True:
-        _cut(slug, nid, st)
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
-            n = org.node(nid)
-            _capture(org, nid, st)
-            if _settled(slug, nid, st):
-                n["halt"]["phase"] = "halted"
-                n["halt"].setdefault("at", now())
-                n.pop("remote_controlled", None)
-                if n.get("inflight"):
-                    n["halt"]["interrupted_turn"] = n.pop("inflight")
-                store.save_org(org)
-                result = {"node": nid, "halted": True, "settled": True,
-                          "queued": len(n.get("halt_queue") or []),
-                          "status": "halted; no turn can run until explicit unhalt"}
-                break
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return {"node": nid, "halted": False, "settled": False,
-                        "halting": True, "status": "admission is blocked; the active "
-                        "turn is still settling — halt has not completed"}
-            _changed.wait(min(.05, remaining))
+        now_m = time.monotonic()
+        if now_m - last_cut >= 0.5:
+            _cut(slug, nid, st)
+            last_cut = now_m
+        if _pending_carriers(slug, nid, st):
+            with store.DOC_LOCK:
+                org = store.load_org(slug)
+                _capture(org, nid, st)
+        if _settled(slug, nid, st):
+            with store.DOC_LOCK:
+                org = store.load_org(slug)
+                n = org.node(nid)
+                _capture(org, nid, st)
+                if _settled(slug, nid, st):
+                    n["halt"]["phase"] = "halted"
+                    n["halt"].setdefault("at", now())
+                    n.pop("remote_controlled", None)
+                    if n.get("inflight"):
+                        n["halt"]["interrupted_turn"] = n.pop("inflight")
+                    store.save_org(org)
+                    result = {"node": nid, "halted": True, "settled": True,
+                              "queued": len(n.get("halt_queue") or []),
+                              "status": "halted; no turn can run until explicit unhalt"}
+                    break
+            continue
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return {"node": nid, "halted": False, "settled": False,
+                    "halting": True, "status": "admission is blocked; the active "
+                    "turn is still settling — halt has not completed"}
+        time.sleep(min(.05, remaining))
     sup.notify(slug, nid, "halted")
     return result
+
+
+def _pending_carriers(slug: str, nid: str, st) -> bool:
+    """Lock-free peek at exactly the runtime fields `_capture(org, nid, st)`
+    would sweep from this `st`, so the settle poll only pays a document-lock
+    pass when there is actually something to make durable."""
+    from . import supervisor as sup
+    with sup._state_lock:
+        if (st.get("queue") or st.get("steer")
+                or st.get("halt_steering_carriers")
+                or st.get("halt_aux_carriers")
+                or st.get("halt_pending_carrier") is not None):
+            return True
+        for entry in st.get("steer_limbo") or []:
+            if entry.get("carriers"):
+                return True
+    return False
 
 
 def recover(org) -> bool:
