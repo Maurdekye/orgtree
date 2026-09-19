@@ -31460,6 +31460,18 @@ def _marker_is_same(cur: Any, inf: Any) -> bool:
       would read as a different turn. Since a false "different" now DROPS the
       replay rather than merely leaking it, asking the stricter question is
       the more expensive mistake.
+
+      ⚠ THE ASSUMPTION THIS BRANCH RESTS ON, STATED RATHER THAN LEFT IMPLICIT:
+      that two turns ON THE SAME NODE cannot share an `at`. It is written by
+      `now_iso` — `ledger.now`, MILLISECOND resolution since the user ruling
+      of 2026-07-31 — and a node runs one turn at a time, each of which
+      spawns a process, so consecutive turns on one seat are milliseconds
+      apart at the very least. This is an ARGUMENT, not a measurement. If
+      `at` ever loses resolution, or a marker is ever copied forward onto a
+      genuinely new turn, this branch would call two different turns the same
+      one and spend a running turn's marker. Whoever changes either of those
+      owns this line. (Resolution and reasoning supplied by restart-mail in
+      review; verified here against `ledger.now` and the write site.)
     * but a marker written by an older build carries no `at`, and comparing
       `None == None` would make two DIFFERENT turns compare equal — spending
       a running turn's marker, the unsafe direction. With no `at` to identify
