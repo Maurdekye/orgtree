@@ -42,7 +42,6 @@ from __future__ import annotations
 import os
 import subprocess
 import threading
-import time
 from typing import Any, Final
 
 from . import openrouter, providers
@@ -250,6 +249,15 @@ def forget_probe() -> None:
 
 # ── per-harness availability ───────────────────────────────────────────────
 
+#: the sentence BOTH harnesses show when the gateway key is absent. One
+#: string, because it is one condition: neither CLI can run an OpenRouter
+#: agent without it, and two differently-worded copies of the same problem
+#: would read as two problems.
+_NO_KEY: Final = (
+    "no OpenRouter API key is set — add one in the OpenRouter section of "
+    "App settings")
+
+
 def _state(state: str, why: str, **extra: Any) -> dict[str, Any]:
     return {"state": state, "available": state == AVAILABLE, "why": why,
             **extra}
@@ -313,11 +321,6 @@ def codex_state() -> dict[str, Any]:
                       version=st.get("version"), path=exe)
     return _state(AVAILABLE, "installed and ready",
                   version=st.get("version"), path=exe)
-
-
-_NO_KEY: Final = (
-    "no OpenRouter API key is set — add one in the OpenRouter section of "
-    "App settings")
 
 
 def _on_path(exe: str) -> bool:
@@ -404,14 +407,18 @@ def resolve(stored: object) -> str:
     deliberately NOT shared with this path.
     """
     want = canonical(stored)
-    state = availability()[want]
+    # ONE reading, shared by the decision and by the sentence. Re-asking per
+    # harness would let the refusal describe a machine that had changed
+    # between the two questions — a message contradicting its own verdict is
+    # worse than a stale one, because it makes the reader doubt the verdict.
+    states = availability()
+    state = states[want]
     if state["available"]:
         return want
-    other = [h for h in HARNESSES if h != want]
-    alt = ("; ".join(f"{LABEL[h]} is available, but this agent is set to "
-                     f"{LABEL[want]} and is not moved automatically"
-                     for h in other if availability()[h]["available"])
-           or "")
+    alt = "; ".join(f"{LABEL[h]} is available, but this agent is set to "
+                    f"{LABEL[want]} and is not moved automatically"
+                    for h in HARNESSES
+                    if h != want and states[h]["available"])
     raise HarnessUnavailable(
         f"turn failed: this agent runs on OpenRouter through {LABEL[want]}, "
         f"which is not available — {state['why']}"
