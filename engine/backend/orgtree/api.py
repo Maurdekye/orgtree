@@ -10875,19 +10875,51 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
         # Halt must wait OUTSIDE DOC_LOCK: the target's cleanup owns that
         # same lock. These idempotent lifecycle operations own their saves;
         # the receipt honestly names this PRE-transaction coverage.
+        #
+        # BATCHED ADMISSION (2026-09-19, approved tier-1 scope): `nodes` takes
+        # a LIST and the whole group is one call — authority for every target
+        # is checked in one lock pass, and for a batch HALT every target's
+        # process tree is interrupted FIRST, so their turns terminate in
+        # parallel and each settle confirms an already-dying process instead
+        # of waiting in line behind its siblings' settles (the wave-2
+        # four-agent halt batch cost 66.6 s mostly by exactly that
+        # serialization). Per-node failures land in that node's result slot;
+        # they do not fail the siblings. The single-`node` form and its
+        # result shape are unchanged.
         with _op_inflight(body):
             try:
+                raw_nodes = a.get("nodes")
+                if raw_nodes is not None and not isinstance(raw_nodes, list):
+                    raise LedgerError("nodes must be a list of node ids")
+                targets = ([str(x) for x in raw_nodes if str(x)]
+                           if raw_nodes else [str(a.get("node") or "")])
+                if not targets:
+                    raise LedgerError("halt/unhalt needs a node or a nodes list")
                 with store.DOC_LOCK:
                     org = store.load_org(body.org)
-                    target = str(a.get("node") or "")
-                    org._require_authority(body.node, target)
+                    for target in targets:
+                        org._require_authority(body.node, target)
                     rcpt = _op_admit(org, body, a)
                     if rcpt is not None and "replay" in rcpt:
                         return cast("dict[str, Any]", rcpt["replay"])
-                if body.tool == "orgtree_halt":
-                    result = supervisor.halt.halt(body.org, target, body.node)
-                else:
-                    result = supervisor.halt.unhalt(body.org, target, body.node)
+                halting = body.tool == "orgtree_halt"
+                if halting and len(targets) > 1:
+                    for target in targets:
+                        supervisor.halt._cut(body.org, target,
+                                             supervisor.state(body.org, target))
+
+                def _one(target: str) -> dict[str, Any]:
+                    op = (supervisor.halt.halt if halting
+                          else supervisor.halt.unhalt)
+                    try:
+                        return op(body.org, target, body.node)
+                    except LedgerError as e:
+                        if len(targets) == 1:
+                            raise
+                        return {"node": target, "error": str(e)}
+                per_node = {target: _one(target) for target in targets}
+                result = (per_node[targets[0]] if len(targets) == 1
+                          else {"batch": len(targets), "nodes": per_node})
             except LedgerError as e:
                 raise HTTPException(422, str(e)) from e
             with store.DOC_LOCK:

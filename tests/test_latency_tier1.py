@@ -230,6 +230,91 @@ class SafeSlugMemo(unittest.TestCase):
                 store._safe_slug("plain-org")     # uncached -> real check runs
 
 
+class BatchedLifecycle(unittest.TestCase):
+    """halt/unhalt accept `nodes` (approved tier-1 scope): one call, one
+    authority pass, parallel pre-interrupt on batch halt, per-node results
+    that isolate failures. The single-`node` form keeps its exact shape."""
+
+    def setUp(self):
+        from orgtree import api
+        self.api = api
+        self.slug = "batch-" + str(time.time_ns())
+        org = store.create_org(self.slug)
+        org.hire(ledger.USER, None, "luna", 0, "boss")
+        org.hire(ledger.USER, "boss", "luna", 0, "w1")
+        org.hire(ledger.USER, "boss", "luna", 0, "w2")
+        store.save_org(org)
+        self.stack = ExitStack()
+        from orgtree import supervisor as sup, warmpool
+        self.sup = sup
+        self.stack.enter_context(patch.object(sup, "_cancel_working_cache"))
+        self.stack.enter_context(patch.object(warmpool, "kill_node"))
+        self.stack.enter_context(patch.object(warmpool, "poke"))
+        self.stack.enter_context(patch.object(sup, "notify"))
+        self.stack.enter_context(patch.object(sup, "_wd_kill_tree"))
+
+    def tearDown(self):
+        self.stack.close()
+        store._POOL.close_all(self.slug)
+
+    def _call(self, tool, args):
+        from types import SimpleNamespace
+        return self.api.agent_call(
+            self.api.AgentCall(org=self.slug, node="boss",
+                               tool=tool, args=args),
+            SimpleNamespace(state=SimpleNamespace()))
+
+    def test_batch_halt_then_batch_unhalt_round_trip(self):
+        r = self._call("orgtree_halt", {"nodes": ["w1", "w2"]})
+        self.assertEqual(r["batch"], 2)
+        for nid in ("w1", "w2"):
+            self.assertTrue(r["nodes"][nid]["halted"], r["nodes"][nid])
+            self.assertTrue(store.load_org(self.slug).node(nid).get("halt"))
+        r = self._call("orgtree_unhalt", {"nodes": ["w1", "w2"]})
+        self.assertEqual(r["batch"], 2)
+        for nid in ("w1", "w2"):
+            self.assertTrue(r["nodes"][nid]["unhalted"], r["nodes"][nid])
+            self.assertFalse(store.load_org(self.slug).node(nid).get("halt"))
+
+    def test_batch_halt_interrupts_every_target_before_the_first_settle(self):
+        cut_order = []
+        real_cut = self.sup.halt._cut
+
+        def spy_cut(slug, nid, st, **kw):
+            cut_order.append(nid)
+            return real_cut(slug, nid, st, **kw)
+
+        with patch.object(self.sup.halt, "_cut", side_effect=spy_cut):
+            r = self._call("orgtree_halt", {"nodes": ["w1", "w2"]})
+        self.assertTrue(all(x["halted"] for x in r["nodes"].values()))
+        # the batch pre-cut touches BOTH targets before either settle's own
+        # cuts begin — the parallel-termination property
+        self.assertEqual(cut_order[:2], ["w1", "w2"],
+                         f"pre-cut did not cover the batch first: {cut_order}")
+
+    def test_per_node_failure_isolates(self):
+        self._call("orgtree_halt", {"node": "w1"})
+        r = self._call("orgtree_unhalt", {"nodes": ["w1", "w2"]})
+        self.assertTrue(r["nodes"]["w1"]["unhalted"])
+        # w2 was never halted: its slot reports that, nobody raises
+        self.assertFalse(r["nodes"]["w2"].get("unhalted", False))
+
+    def test_single_node_shape_is_unchanged(self):
+        r = self._call("orgtree_halt", {"node": "w1"})
+        self.assertNotIn("batch", r)
+        self.assertTrue(r["halted"] and r["settled"])
+        r = self._call("orgtree_unhalt", {"node": "w1"})
+        self.assertNotIn("batch", r)
+        self.assertTrue(r["unhalted"])
+
+    def test_authority_is_checked_for_every_target_before_anything_runs(self):
+        from fastapi import HTTPException
+        with self.assertRaises((ledger.LedgerError, HTTPException)):
+            self._call("orgtree_halt", {"nodes": ["w1", "boss"]})
+        # nothing happened to w1 either: the refusal preceded all action
+        self.assertFalse(store.load_org(self.slug).node("w1").get("halt"))
+
+
 class SharedSnapshotTreeView(unittest.TestCase):
     """The tree view now builds over the SHARED refreshed snapshot
     (store.cached_org) instead of a fresh whole-document parse per rebuild.

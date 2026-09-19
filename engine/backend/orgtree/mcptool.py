@@ -2144,10 +2144,17 @@ TOOLS: list[dict[str, Any]] = [
             "watchdogs, checkups, restarts, rehire and model/account changes "
             "cannot wake it. Interrupt is different: orgtree_interrupt keeps "
             "its immediate boundary semantics and allows pending mail to run. "
-            "Cannot halt yourself, a peer, or a superior."),
+            "Cannot halt yourself, a peer, or a superior. To halt SEVERAL "
+            "descendants pass `nodes` instead: one call, every target's "
+            "process interrupted first so their turns terminate in parallel, "
+            "per-node results (a failure on one does not fail the others)."),
         "inputSchema": {"type": "object",
-                        "properties": {"node": {"type": "string"}},
-                        "required": ["node"]},
+                        "properties": {
+                            "node": {"type": "string"},
+                            "nodes": {"type": "array",
+                                      "items": {"type": "string"},
+                                      "description": "batch form: halt every "
+                                      "listed descendant in one call"}}},
     },
     {
         "name": "orgtree_unhalt",
@@ -2156,10 +2163,15 @@ TOOLS: list[dict[str, Any]] = [
             "turn has fully ended. Preserved pending work resumes through "
             "ordinary delivery once; other lifecycle/account holds still "
             "apply. An idle agent with no waking work stays idle. Repeating "
-            "unhalt does not create another turn."),
+            "unhalt does not create another turn. To release SEVERAL "
+            "descendants pass `nodes` instead: one call, per-node results."),
         "inputSchema": {"type": "object",
-                        "properties": {"node": {"type": "string"}},
-                        "required": ["node"]},
+                        "properties": {
+                            "node": {"type": "string"},
+                            "nodes": {"type": "array",
+                                      "items": {"type": "string"},
+                                      "description": "batch form: unhalt "
+                                      "every listed descendant in one call"}}},
     },
     {
         "name": "orgtree_reallocate",
