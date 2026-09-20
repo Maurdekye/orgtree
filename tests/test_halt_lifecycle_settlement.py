@@ -210,6 +210,59 @@ class HaltReachesATerminalState(HaltBase):
         self.assertNotIn("settling", self.org().node(self.nid)["halt"])
         self.assertIsNone(halt.operation(self.slug, self.nid))
 
+    def test_a_disagreeing_settle_check_cannot_spin_past_the_deadline(self):
+        """`ed54b13` (2026-09-20) made the settle poll check `_settled`
+        lock-free and re-check it under the lock. When those two disagree — a
+        worker registering in between, which a provider event stream
+        re-entering `halt.callback` does routinely — the arm `continue`d
+        straight back to the top, skipping both the deadline test and the
+        sleep. The call then spins hot and never honours its own timeout,
+        which matches the coordinator's report that later halts did not
+        return within 60 s. Before that commit the settled check only ever
+        ran under the lock, so this path did not exist."""
+        calls: list[bool] = []
+
+        def flapping(slug, nid, st):
+            # ⚠ KEYED ON THE LOCK, NOT ON A CALL COUNTER. An alternating
+            # counter looked equivalent and was not: the background settler
+            # calls `_settled` too, so a second caller shifted the parity and
+            # the foreground could see the same answer twice. This says
+            # exactly what the disagreement IS — settled to a caller that
+            # does not hold the document lock, not settled to the one
+            # re-checking under it — and it says it the same way however many
+            # threads ask.
+            answer = not store.DOC_LOCK._is_owned()   # noqa: SLF001
+            calls.append(answer)
+            return answer
+
+        answered: list[dict] = []
+        # `_start_settler` is stubbed out: this test is about the FOREGROUND
+        # loop honouring its deadline, and a real settler would put a second
+        # thread into the same patched predicate for no added coverage. The
+        # settler's own behaviour is covered by the tests above.
+        thread = threading.Thread(
+            target=lambda: answered.append(
+                halt.halt(self.slug, self.nid, timeout=0.3)), daemon=True)
+        with patch.object(halt, "_settled", side_effect=flapping), \
+             patch.object(halt, "_start_settler",
+                          return_value={"operation_id": "halt-stub",
+                                        "state": "settling"}):
+            thread.start()
+            thread.join(20)
+            spinning = thread.is_alive()
+        # the patch is gone before the assertion, so a spinning loop can
+        # escape rather than staying hot for the rest of the module
+        thread.join(15)
+        self.assertFalse(spinning,
+                         "the settle loop never reached its deadline")
+        self.assertTrue(answered)
+        self.assertFalse(answered[0]["halted"])
+        self.assertTrue(answered[0]["halting"])
+        # it really did exercise the disagreement, many times over
+        self.assertIn(True, calls)
+        self.assertIn(False, calls)
+        self.assertGreater(len(calls), 3)
+
     def test_negative_control_without_the_settler_it_stays_halting(self):
         """THE PRE-FIX SHAPE. With the handoff removed, the foreground loop is
         again the only thing that can publish `halted` — so a turn that

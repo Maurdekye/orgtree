@@ -679,7 +679,21 @@ def _halt(slug: str, nid: str, actor: str, *, timeout=None) -> dict[str, Any]:
                 if _settled(slug, nid, st):
                     result = _publish_halted(org, nid)
                     break
-            continue
+            # ⚠ NO `continue` HERE, AND ITS ABSENCE IS THE FIX. The lock-free
+            # check said settled and the re-check under the lock disagreed —
+            # a worker registered in between. `ed54b13` sent that arm straight
+            # back to the top of the loop, which is ABOVE both the deadline
+            # test and the sleep, so a node whose worker count flickers (a
+            # provider event stream re-entering `halt.callback`, which is
+            # ordinary traffic) spins this loop hot and the call stops
+            # honouring its own timeout entirely. Measured: 274,000 round
+            # trips in six seconds against a 0.3 s deadline. That is the
+            # coordinator's 2026-09-20 observation that later halts "did not
+            # return within 60s". Before `ed54b13` the settled check only ever
+            # ran under the lock, so the two answers could not disagree and
+            # every iteration reached the deadline. Falling through costs one
+            # 50 ms sleep and keeps the call bounded by the deadline it was
+            # given.
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             # ⚠ NEVER RETURN AN AMBIGUOUS "still halting" WITH NOBODY BEHIND
