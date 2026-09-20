@@ -3,7 +3,7 @@
 This bounded package builds on source-inventory commit
 83b2fe414ff416418b4bd45bc7a27bfbb16350fd and frozen v6 design
 b830a69bd71b0cee052e78acfe1ceff6b399532765db7ed55d05a253f0f84dfd.
-It supplies a checked contract format, a populated reservation family and
+It supplies a checked contract format, reservation and material-read families, and
 public-boundary conformance fixtures. **P01 remains incomplete.** It changes no
 backend entry point, database, permission, receipt, dependency or product behavior.
 
@@ -95,14 +95,17 @@ Important source behavior is retained:
   fixture proving that the change is discarded, including after a later save
   and a cold reload.
 
-At this revision two registration sites and fourteen dispatch witnesses map to
-these variants. The remaining 307 registrations, 211 dispatch witnesses and all
-15 connection candidates are pending. Source-backed reservation/item authority
-and legacy receipt semantics are specified; the shared authentication and
-runtime wrapper, physical contacts, native conflicts, full malformed-input
-parity and runtime probes remain unresolved. There are 589 unresolved
-witness/dimension obligations, down from 611 by resolving two facets used by
-eleven variants. These counts are not numbers of runtime operations.
+Within the reservation family, two registration sites and fourteen dispatch
+witnesses map to these variants. Source-backed reservation/item authority and legacy receipt
+semantics are specified; shared wrappers, physical contacts, native conflicts,
+full malformed-input parity and runtime probes remain unresolved. The paired
+material-read package now adds two tool cards and two more dispatch witnesses.
+Across both families, 305 registrations, 209 dispatch witnesses, all 15 storage
+candidates and 68 dimension occurrences remain pending (597 obligations).
+The count increased by eight because four source witnesses became detailed
+contracts exposing twelve unresolved dimension occurrences; it is not a count
+of runtime operations or a progress percentage. See material-read-boundary.md
+for executable current-disclosure, local response and transitive-write evidence.
 
 `reservation-boundary.json` binds to the canonical hash of this registry and
 requires both aliases and every variant. It records complete top-level and

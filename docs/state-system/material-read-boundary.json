@@ -1,0 +1,145 @@
+{
+  "schema": "orgtree.material-read-boundary/v1",
+  "source_contract_sha256": "bdd26114335b3185666d84a6b176209832e9d12ba8a54af3633e73e6739a962b",
+  "qualification": {
+    "runtime_census": false,
+    "conversion_authorized": false
+  },
+  "tools": {
+    "orgtree_read_scratch": "material.scratch",
+    "orgtree_read_transcript": "material.transcript"
+  },
+  "shapes": {
+    "scratch_directory": [
+      "dir",
+      "access",
+      "entries"
+    ],
+    "scratch_file": [
+      "file",
+      "access",
+      "content"
+    ],
+    "scratch_missing": [
+      "error",
+      "access"
+    ],
+    "transcript": [
+      "node",
+      "busy",
+      "access",
+      "occupancy",
+      "occupancy_estimated",
+      "messages"
+    ],
+    "message": [
+      "role",
+      "text",
+      "tools"
+    ],
+    "item_access": [
+      "via",
+      "item",
+      "title",
+      "standing",
+      "held_from",
+      "derived",
+      "note"
+    ]
+  },
+  "limits": {
+    "directory_entries": 200,
+    "file_characters": 20000,
+    "message_characters": 1200,
+    "last_default": 30,
+    "last_min": 1,
+    "last_max": 80
+  },
+  "last_cases": [
+    {
+      "name": "absent",
+      "args": {},
+      "want": 30
+    },
+    {
+      "name": "null",
+      "args": {
+        "last": null
+      },
+      "want": 30
+    },
+    {
+      "name": "empty",
+      "args": {
+        "last": ""
+      },
+      "want": 30
+    },
+    {
+      "name": "zero",
+      "args": {
+        "last": 0
+      },
+      "want": 1
+    },
+    {
+      "name": "negative",
+      "args": {
+        "last": -20
+      },
+      "want": 1
+    },
+    {
+      "name": "large",
+      "args": {
+        "last": 999
+      },
+      "want": 80
+    },
+    {
+      "name": "fraction",
+      "args": {
+        "last": 2.9
+      },
+      "want": 2
+    },
+    {
+      "name": "numeric_text",
+      "args": {
+        "last": " 3.9 "
+      },
+      "want": 3
+    },
+    {
+      "name": "boolean",
+      "args": {
+        "last": true
+      },
+      "want": 1
+    }
+  ],
+  "invalid_last": [
+    "nope",
+    "Infinity",
+    "-Infinity",
+    "NaN",
+    "1e400",
+    [],
+    {}
+  ],
+  "native_obligations": [
+    "effective_output_fence",
+    "immutable_identity",
+    "exclude_returning_current_holder",
+    "closed_item_policy",
+    "indexed_item_predicates",
+    "full_wire_parity",
+    "complete_contacts"
+  ],
+  "observed_sidecars": [
+    "transcript-records.sqlite3",
+    "chat-window-index.sqlite3",
+    "reply-events.sqlite3"
+  ],
+  "scope": "Legacy HTTP adapter, synthetic local SQLite/files, selected real transcript sidecars. No live census, complete call graph, sandbox/provider discovery, native or Rust execution, or concurrency qualification."
+}

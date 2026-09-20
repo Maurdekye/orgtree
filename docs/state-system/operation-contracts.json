@@ -1246,6 +1246,657 @@
         }
       ],
       "open_questions": []
+    },
+    "material.authority": {
+      "dimension": "authority",
+      "status": "specified",
+      "facts": [
+        "This facet specifies legacy read-material authorization, not native Effective fencing. Both tools call the same _agent_read_access before reading content; shared middleware/transport and operator/bridge paths remain separately unresolved.",
+        "The public agent path authenticates org/node/generation, requires a live unreplaced caller, and checks halt/killswitch before these reads. The tool-specific read then obtains a seq-guarded cached org, without a document transaction around content production.",
+        "Self wins first; strict descendant ancestry wins second, even for an archived target. Otherwise the shared-item route checks the active work_items collection, current holder/reviewer/participant standing, and the target node name in the holder roster except its last row. Creator, org visibility and unrelated-item membership do not independently grant material access.",
+        "The item access disclosure includes via,item,title,standing,held_from,derived,note. Stored holder rows survive history folding. An absent roster is derived from surviving assign history/current owner without persisting it.",
+        "Once a route authorizes the target, the adapter exposes that target scratch namespace or bounded transcript; it does not filter returned content by work-item tags. The item is an authorization witness, not a content selector. Any finer native content policy requires an explicit design/product ruling.",
+        "Legacy limits must remain visible: work_items is a storage-placement test, not status!=done; a done item still in that collection can grant until archive. A returning current holder also appearing earlier in its roster can match. _work_actor_node extracts the node string without checking born or generation, despite roster rows carrying born. These are source observations, not approved native permissions.",
+        "Membership is recomputed for the next call after a saved removal/archive. The legacy implementation does not revalidate while file/transcript content is being produced, and does not acquire an output claim. A successful initial check therefore is not proof that a later restriction became Effective safely."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9365,
+          "end": 9407,
+          "sha256": "4e84976c256a5cab7b04b29656199d5e89fa9c18cd7dca56291b321771bfc6f1"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10715,
+          "end": 10767,
+          "sha256": "a382a751762e5ec0342362674c1fcc83b341cef27c8dd9722355c787aa3262e6"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 1320,
+          "end": 1347,
+          "sha256": "367e69dfe7ea56869cc5fb818fda4563088a469caa0297d957c071574daaee4c"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 11015,
+          "end": 11016,
+          "sha256": "04fc6e0ec4625a663738e8a32e03ace93db4f1bb119218ff644cb3fdffb8949f"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 11154,
+          "end": 11195,
+          "sha256": "e9f1a427dda4b6e4d0ea25dfbae95923015b2a21e501f60a2348e5abbeb5d8b7"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 11538,
+          "end": 11711,
+          "sha256": "7b9a4072313c91406cabd70a01ba649105755ef1f850a921cbbcbace7e45866d"
+        }
+      ],
+      "open_questions": []
+    },
+    "material.predicates": {
+      "dimension": "predicates",
+      "status": "specified",
+      "facts": [
+        "Read predicates are authenticated caller liveness/generation and runtime halt state; self identity or the target parent chain; otherwise active item membership, current role, and previous roster membership. Content is reached only after _agent_read_access returns.",
+        "Legacy item matching searches active items in stored order and takes the latest matching target in each prior roster. The first granting item supplies the disclosure; full-org active-item scans are existing cost, not a native query plan.",
+        "The native contract must close authorization with the disclosed output and immutable identity using the approved affected-consumer fence. No source-bound assertion here authorizes a global read lock or repeats legacy name-only/returning-holder holes."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9365,
+          "end": 9407,
+          "sha256": "4e84976c256a5cab7b04b29656199d5e89fa9c18cd7dca56291b321771bfc6f1"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10715,
+          "end": 10767,
+          "sha256": "a382a751762e5ec0342362674c1fcc83b341cef27c8dd9722355c787aa3262e6"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 1320,
+          "end": 1347,
+          "sha256": "367e69dfe7ea56869cc5fb818fda4563088a469caa0297d957c071574daaee4c"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 11015,
+          "end": 11016,
+          "sha256": "04fc6e0ec4625a663738e8a32e03ace93db4f1bb119218ff644cb3fdffb8949f"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 11154,
+          "end": 11195,
+          "sha256": "e9f1a427dda4b6e4d0ea25dfbae95923015b2a21e501f60a2348e5abbeb5d8b7"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 11538,
+          "end": 11711,
+          "sha256": "7b9a4072313c91406cabd70a01ba649105755ef1f850a921cbbcbace7e45866d"
+        }
+      ],
+      "open_questions": []
+    },
+    "material.receipt": {
+      "dimension": "receipt",
+      "status": "specified",
+      "facts": [
+        "Both tools are classified NONE and return before the public document receipt admission/save path. An accepted orgtree_op_call envelope is unwrapped but these reads file no applied receipt, perform no original-key replay, and reevaluate authority/content on every retry.",
+        "The wrapper still refuses envelope op_key/op_epoch, missing inner key/args, missing epoch and nested receipt verbs. A present read key is not admitted against epoch/key syntax by these early-return branches. A current-epoch lookup without an applied receipt reports unknown/unsupported_operation and creates no fence.",
+        "No-receipt is not no-write: filesystem creation and transcript/reply sidecar writes can occur. Idempotency, current-disclosure and native/Rust conformance remain subject to their own gates."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9266,
+          "end": 9339,
+          "sha256": "36dd4dfcac3ea3084cb606455db449a9b9cf6da1b8f66457c77f86e2d7b2f067"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9410,
+          "end": 9432,
+          "sha256": "3fe44c1bb6452af1885de2407c5e0ba5a7bf5b45513891f3ef1329a019451f70"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10473,
+          "end": 10536,
+          "sha256": "ad5d186c5a0805f3d3664618b628f5bf1f3bbdc3491e4ff37245e46954051983"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10679,
+          "end": 10800,
+          "sha256": "1608088a37aceefa139948f308af9c8a6825ed6fcf32e1f7be450bfd95851e7b"
+        },
+        {
+          "path": "engine/backend/orgtree/halt.py",
+          "start": 107,
+          "end": 125,
+          "sha256": "6407b7cf2b43cbd9a6315d54352dfdeffca5d285462b778a1332a45120398a8a"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 143,
+          "end": 152,
+          "sha256": "8555f80da89ca10974f89a52a7bce7cad0b7cc90d5c99cea34c1a652a82916aa"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10567,
+          "end": 10677,
+          "sha256": "53e1cb9657b429c67fc83d7beba1dbb5eccce8684eaea78fe67c3356caa914f6"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10983,
+          "end": 11035,
+          "sha256": "93f109a91b853f7adbe89e9f98640db65c3dc1a21bd25ff83d748b8ce2b22609"
+        }
+      ],
+      "open_questions": []
+    },
+    "material.reads": {
+      "dimension": "reads",
+      "status": "unresolved",
+      "facts": [
+        "The read door consults cached org snapshots for caller/halt/target/item/ancestry. Scratch resolves an OS realpath beneath the shared lineage scratch root, checks isdir/isfile, enumerates the whole directory before a 200-name slice, or reads the whole UTF-8 replacement-decoded file before a 20000-character slice.",
+        "scratch_dir additionally checks disk placement through sandbox.on_disk (which can load org state) and can reload org data on directory creation. Disk-backed UNC resolution, sandbox ownership, storage-pool/cache misses and every transitive helper are not an exhaustive contact map yet.",
+        "read_chat calls chat_window.read_window and unique_cards. The current transcript stack consults provider files, prompt/import sidecars, retained transcript records, projection cache, assistant state, runtime state and reply snapshots. The bounded fixture witnesses three SQLite surfaces; it does not enumerate every provider/import/sandbox branch."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10935,
+          "end": 11035,
+          "sha256": "ef521f971cc95102c694d561369420c368c9a08bcaa547cc55e19b8a0d70467a"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 3142,
+          "end": 3148,
+          "sha256": "c1bd17f73a387c8bcdce9f740dd3a7dc7f310424c56df447d34d97c327b9e7e7"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 3338,
+          "end": 3358,
+          "sha256": "0d0e7d254200c7bd147f2ab9c2c35ae04db6fd8aa692e403fa46680d93cad4b1"
+        },
+        {
+          "path": "engine/backend/orgtree/chat_window.py",
+          "start": 342,
+          "end": 490,
+          "sha256": "2dfcf1e4cec75c2e12bf75cefdd11a8ac0a37a3c552be4cb596ebdbe01995637"
+        },
+        {
+          "path": "engine/backend/orgtree/transcript_records.py",
+          "start": 35,
+          "end": 94,
+          "sha256": "ccdec50dfa6ff747203ef2e440d58cdda1c1c189f97eb55d5e659a90be5503ec"
+        },
+        {
+          "path": "engine/backend/orgtree/transcript_records.py",
+          "start": 411,
+          "end": 435,
+          "sha256": "d09d83c6ef26e63434a8e15253aeacfe665945f5724ba46d1dcd959a0756899d"
+        },
+        {
+          "path": "engine/backend/orgtree/reply_events.py",
+          "start": 11,
+          "end": 22,
+          "sha256": "678cadf468726c9415b9e9b519f039297691c3695d4f188704f85e7216bd348b"
+        },
+        {
+          "path": "engine/backend/orgtree/reply_events.py",
+          "start": 133,
+          "end": 153,
+          "sha256": "b1db607da2c165f920b5c7861e3bbfca022f8f99f9ea4ab32fb55ce8c7f4409e"
+        },
+        {
+          "path": "engine/backend/orgtree/reply_events.py",
+          "start": 193,
+          "end": 244,
+          "sha256": "38c63284a3574fb026f8fb80837217d881f69e3c00a993f5db67a2a517637177"
+        },
+        {
+          "path": "engine/backend/orgtree/sandbox.py",
+          "start": 400,
+          "end": 408,
+          "sha256": "2d60e44a96e3cf8318d776a44c12b36d25b872574846d27dd0228a6a0fc7332e"
+        },
+        {
+          "path": "engine/backend/orgtree/sandbox.py",
+          "start": 591,
+          "end": 609,
+          "sha256": "3865cb7f96c704ffafa5cb7517311d3ec74d6da1e2d25cfa4aa40e802236026c"
+        }
+      ],
+      "open_questions": [
+        "Complete the transitive/provider/import/sandbox and cache-hit/miss contact census, including all file reads and document accesses, before P02 closes this facet."
+      ]
+    },
+    "material.writes": {
+      "dimension": "writes",
+      "status": "unresolved",
+      "facts": [
+        "The early API branch has no explicit org save or operation receipt, but a cold transcript helper mints reply/transcript incarnation identifiers under DOC_LOCK and saves the org. The shared snapshot is not stamped, so the same call can repeat reply-incarnation save cycles before the next fresh snapshot. Warm pre-minted fixture reads avoid these org saves; neither case files an operation receipt.",
+        "scratch_dir creates a missing lineage directory and attempts sandbox ownership repair, with exceptions swallowed. No atomic transaction couples that directory or ownership attempt to the earlier read authorization.",
+        "Transcript reads can initialize/write transcript-records.sqlite3, chat-window-index.sqlite3 and reply-events.sqlite3 in separate SQLite connections and transactions, independently of the cold org identity saves. Ingestion/retained quote data is not automatically disposable projection data. Runtime caches can also change."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10935,
+          "end": 11035,
+          "sha256": "ef521f971cc95102c694d561369420c368c9a08bcaa547cc55e19b8a0d70467a"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 3142,
+          "end": 3148,
+          "sha256": "c1bd17f73a387c8bcdce9f740dd3a7dc7f310424c56df447d34d97c327b9e7e7"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 3338,
+          "end": 3358,
+          "sha256": "0d0e7d254200c7bd147f2ab9c2c35ae04db6fd8aa692e403fa46680d93cad4b1"
+        },
+        {
+          "path": "engine/backend/orgtree/chat_window.py",
+          "start": 342,
+          "end": 490,
+          "sha256": "2dfcf1e4cec75c2e12bf75cefdd11a8ac0a37a3c552be4cb596ebdbe01995637"
+        },
+        {
+          "path": "engine/backend/orgtree/transcript_records.py",
+          "start": 35,
+          "end": 94,
+          "sha256": "ccdec50dfa6ff747203ef2e440d58cdda1c1c189f97eb55d5e659a90be5503ec"
+        },
+        {
+          "path": "engine/backend/orgtree/transcript_records.py",
+          "start": 411,
+          "end": 435,
+          "sha256": "d09d83c6ef26e63434a8e15253aeacfe665945f5724ba46d1dcd959a0756899d"
+        },
+        {
+          "path": "engine/backend/orgtree/reply_events.py",
+          "start": 11,
+          "end": 22,
+          "sha256": "678cadf468726c9415b9e9b519f039297691c3695d4f188704f85e7216bd348b"
+        },
+        {
+          "path": "engine/backend/orgtree/reply_events.py",
+          "start": 133,
+          "end": 153,
+          "sha256": "b1db607da2c165f920b5c7861e3bbfca022f8f99f9ea4ab32fb55ce8c7f4409e"
+        },
+        {
+          "path": "engine/backend/orgtree/reply_events.py",
+          "start": 193,
+          "end": 244,
+          "sha256": "38c63284a3574fb026f8fb80837217d881f69e3c00a993f5db67a2a517637177"
+        },
+        {
+          "path": "engine/backend/orgtree/sandbox.py",
+          "start": 400,
+          "end": 408,
+          "sha256": "2d60e44a96e3cf8318d776a44c12b36d25b872574846d27dd0228a6a0fc7332e"
+        },
+        {
+          "path": "engine/backend/orgtree/sandbox.py",
+          "start": 591,
+          "end": 609,
+          "sha256": "3865cb7f96c704ffafa5cb7517311d3ec74d6da1e2d25cfa4aa40e802236026c"
+        }
+      ],
+      "open_questions": [
+        "Complete physical write/effect coverage and native placement for every transitive branch; no cross-database atomicity has been established."
+      ]
+    },
+    "material.conflicts": {
+      "dimension": "conflicts",
+      "status": "unresolved",
+      "facts": [
+        "No org-wide DOC_LOCK spans these tools from authority to response. Cold identity mints do individually take DOC_LOCK and save; snapshot publication, transcript SQLite transactions and runtime locks have their own boundaries. Those boundaries do not make authorization plus disclosure atomic.",
+        "Plain transcript calls wait on a four-reader per-event-loop limiter before executing their fresh agent identity/state checks. The legacy route recognizes the plain tool name; an OP_CALL-wrapped read uses the general worker path. Neither path grants a durable output fence.",
+        "Native conversion must use the approved narrow authorization/output protocol, current immutable identities and bounded indexed item lookups, and must prove disjoint reads/writers remain independent."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10935,
+          "end": 11035,
+          "sha256": "ef521f971cc95102c694d561369420c368c9a08bcaa547cc55e19b8a0d70467a"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 3142,
+          "end": 3148,
+          "sha256": "c1bd17f73a387c8bcdce9f740dd3a7dc7f310424c56df447d34d97c327b9e7e7"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 3338,
+          "end": 3358,
+          "sha256": "0d0e7d254200c7bd147f2ab9c2c35ae04db6fd8aa692e403fa46680d93cad4b1"
+        },
+        {
+          "path": "engine/backend/orgtree/chat_window.py",
+          "start": 342,
+          "end": 490,
+          "sha256": "2dfcf1e4cec75c2e12bf75cefdd11a8ac0a37a3c552be4cb596ebdbe01995637"
+        },
+        {
+          "path": "engine/backend/orgtree/transcript_records.py",
+          "start": 35,
+          "end": 94,
+          "sha256": "ccdec50dfa6ff747203ef2e440d58cdda1c1c189f97eb55d5e659a90be5503ec"
+        },
+        {
+          "path": "engine/backend/orgtree/transcript_records.py",
+          "start": 411,
+          "end": 435,
+          "sha256": "d09d83c6ef26e63434a8e15253aeacfe665945f5724ba46d1dcd959a0756899d"
+        },
+        {
+          "path": "engine/backend/orgtree/reply_events.py",
+          "start": 11,
+          "end": 22,
+          "sha256": "678cadf468726c9415b9e9b519f039297691c3695d4f188704f85e7216bd348b"
+        },
+        {
+          "path": "engine/backend/orgtree/reply_events.py",
+          "start": 133,
+          "end": 153,
+          "sha256": "b1db607da2c165f920b5c7861e3bbfca022f8f99f9ea4ab32fb55ce8c7f4409e"
+        },
+        {
+          "path": "engine/backend/orgtree/reply_events.py",
+          "start": 193,
+          "end": 244,
+          "sha256": "38c63284a3574fb026f8fb80837217d881f69e3c00a993f5db67a2a517637177"
+        },
+        {
+          "path": "engine/backend/orgtree/sandbox.py",
+          "start": 400,
+          "end": 408,
+          "sha256": "2d60e44a96e3cf8318d776a44c12b36d25b872574846d27dd0228a6a0fc7332e"
+        },
+        {
+          "path": "engine/backend/orgtree/sandbox.py",
+          "start": 591,
+          "end": 609,
+          "sha256": "3865cb7f96c704ffafa5cb7517311d3ec74d6da1e2d25cfa4aa40e802236026c"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9266,
+          "end": 9339,
+          "sha256": "36dd4dfcac3ea3084cb606455db449a9b9cf6da1b8f66457c77f86e2d7b2f067"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9410,
+          "end": 9432,
+          "sha256": "3fe44c1bb6452af1885de2407c5e0ba5a7bf5b45513891f3ef1329a019451f70"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10473,
+          "end": 10536,
+          "sha256": "ad5d186c5a0805f3d3664618b628f5bf1f3bbdc3491e4ff37245e46954051983"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10679,
+          "end": 10800,
+          "sha256": "1608088a37aceefa139948f308af9c8a6825ed6fcf32e1f7be450bfd95851e7b"
+        },
+        {
+          "path": "engine/backend/orgtree/halt.py",
+          "start": 107,
+          "end": 125,
+          "sha256": "6407b7cf2b43cbd9a6315d54352dfdeffca5d285462b778a1332a45120398a8a"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 143,
+          "end": 152,
+          "sha256": "8555f80da89ca10974f89a52a7bce7cad0b7cc90d5c99cea34c1a652a82916aa"
+        }
+      ],
+      "open_questions": [
+        "Implement and qualify Effective restriction races, recycled identities, returning current-holder exclusion and bounded native predicates; retain explicit legacy/native differences rather than copying defects."
+      ]
+    },
+    "material.effects": {
+      "dimension": "effects",
+      "status": "unresolved",
+      "facts": [
+        "These tool branches do not intentionally send mail or start a provider. Scratch may create directories and call sandbox chown_agent; for sandboxed orgs that helper invokes Docker chown. This test package spies that effect and never starts a container.",
+        "Transcript reads can lazily import durable records, persist quote identities, update derived caches/order and volatile runtime state. The source name read must not hide these effects."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10935,
+          "end": 11035,
+          "sha256": "ef521f971cc95102c694d561369420c368c9a08bcaa547cc55e19b8a0d70467a"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 3142,
+          "end": 3148,
+          "sha256": "c1bd17f73a387c8bcdce9f740dd3a7dc7f310424c56df447d34d97c327b9e7e7"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 3338,
+          "end": 3358,
+          "sha256": "0d0e7d254200c7bd147f2ab9c2c35ae04db6fd8aa692e403fa46680d93cad4b1"
+        },
+        {
+          "path": "engine/backend/orgtree/chat_window.py",
+          "start": 342,
+          "end": 490,
+          "sha256": "2dfcf1e4cec75c2e12bf75cefdd11a8ac0a37a3c552be4cb596ebdbe01995637"
+        },
+        {
+          "path": "engine/backend/orgtree/transcript_records.py",
+          "start": 35,
+          "end": 94,
+          "sha256": "ccdec50dfa6ff747203ef2e440d58cdda1c1c189f97eb55d5e659a90be5503ec"
+        },
+        {
+          "path": "engine/backend/orgtree/transcript_records.py",
+          "start": 411,
+          "end": 435,
+          "sha256": "d09d83c6ef26e63434a8e15253aeacfe665945f5724ba46d1dcd959a0756899d"
+        },
+        {
+          "path": "engine/backend/orgtree/reply_events.py",
+          "start": 11,
+          "end": 22,
+          "sha256": "678cadf468726c9415b9e9b519f039297691c3695d4f188704f85e7216bd348b"
+        },
+        {
+          "path": "engine/backend/orgtree/reply_events.py",
+          "start": 133,
+          "end": 153,
+          "sha256": "b1db607da2c165f920b5c7861e3bbfca022f8f99f9ea4ab32fb55ce8c7f4409e"
+        },
+        {
+          "path": "engine/backend/orgtree/reply_events.py",
+          "start": 193,
+          "end": 244,
+          "sha256": "38c63284a3574fb026f8fb80837217d881f69e3c00a993f5db67a2a517637177"
+        },
+        {
+          "path": "engine/backend/orgtree/sandbox.py",
+          "start": 400,
+          "end": 408,
+          "sha256": "2d60e44a96e3cf8318d776a44c12b36d25b872574846d27dd0228a6a0fc7332e"
+        },
+        {
+          "path": "engine/backend/orgtree/sandbox.py",
+          "start": 591,
+          "end": 609,
+          "sha256": "3865cb7f96c704ffafa5cb7517311d3ec74d6da1e2d25cfa4aa40e802236026c"
+        }
+      ],
+      "open_questions": [
+        "Inventory all conditional helpers and external effects with P02 probes; retain failure/recovery outcomes rather than claiming exactly-once from these fixtures."
+      ]
+    },
+    "material.wire": {
+      "dimension": "wire",
+      "status": "unresolved",
+      "facts": [
+        "The local tool adapter shapes are executable in material-read-boundary.json and tests/test_state_material_reads.py. Scratch returns dir/access/entries, file/access/content, or error/access (missing path is HTTP200); path escape and text-container errors are HTTP422 detail. OS errors are not converted to missing-path success.",
+        "Transcript returns node,busy,access,occupancy,occupancy_estimated,messages. Each projected message retains only role,text,tools, truncates text to 1200 characters, defaults absent tools to [], and preserves an explicit tools:null. The outer last slice remains even when read_chat supplies extra rows.",
+        "last defaults to30 for missing/null/empty, coerces through int then float-to-int, and clamps to1..80; malformed or nonfinite values return422. node/path use shared text normalization: null restores default, scalars stringify, containers refuse. The card schema is stricter than the gateway coercion.",
+        "The scratch path is stripped, leading separators removed, then realpath-resolved with a separator-anchored containment check. Its 20000/200/1200 bounds constrain returned characters or entries, not underlying IO or all nested response bytes."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9266,
+          "end": 9339,
+          "sha256": "36dd4dfcac3ea3084cb606455db449a9b9cf6da1b8f66457c77f86e2d7b2f067"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9410,
+          "end": 9432,
+          "sha256": "3fe44c1bb6452af1885de2407c5e0ba5a7bf5b45513891f3ef1329a019451f70"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10473,
+          "end": 10536,
+          "sha256": "ad5d186c5a0805f3d3664618b628f5bf1f3bbdc3491e4ff37245e46954051983"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10679,
+          "end": 10800,
+          "sha256": "1608088a37aceefa139948f308af9c8a6825ed6fcf32e1f7be450bfd95851e7b"
+        },
+        {
+          "path": "engine/backend/orgtree/halt.py",
+          "start": 107,
+          "end": 125,
+          "sha256": "6407b7cf2b43cbd9a6315d54352dfdeffca5d285462b778a1332a45120398a8a"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 143,
+          "end": 152,
+          "sha256": "8555f80da89ca10974f89a52a7bce7cad0b7cc90d5c99cea34c1a652a82916aa"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10983,
+          "end": 11035,
+          "sha256": "93f109a91b853f7adbe89e9f98640db65c3dc1a21bd25ff83d748b8ce2b22609"
+        }
+      ],
+      "open_questions": [
+        "Full provider/projector, middleware/operator/bridge/error serializer and Rust/native wire parity remain unqualified; selected adapter fixtures do not close those branches."
+      ]
+    },
+    "material.contacts": {
+      "dimension": "instrumentation",
+      "status": "unresolved",
+      "facts": [
+        "Fixture-only sqlite3 connection/statement observation identifies actual sidecar reads/writes and separate commits for one synthetic local transcript. It records no production data and does not enable runtime census.",
+        "Production profiling/contact logging must still label operation identity, exact physical/logical surfaces, read/write/predicate modes, transaction membership, atomicity/lock domains and waits with the approved privacy/overhead controls."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10935,
+          "end": 11035,
+          "sha256": "ef521f971cc95102c694d561369420c368c9a08bcaa547cc55e19b8a0d70467a"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 3142,
+          "end": 3148,
+          "sha256": "c1bd17f73a387c8bcdce9f740dd3a7dc7f310424c56df447d34d97c327b9e7e7"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 3338,
+          "end": 3358,
+          "sha256": "0d0e7d254200c7bd147f2ab9c2c35ae04db6fd8aa692e403fa46680d93cad4b1"
+        },
+        {
+          "path": "engine/backend/orgtree/chat_window.py",
+          "start": 342,
+          "end": 490,
+          "sha256": "2dfcf1e4cec75c2e12bf75cefdd11a8ac0a37a3c552be4cb596ebdbe01995637"
+        },
+        {
+          "path": "engine/backend/orgtree/transcript_records.py",
+          "start": 35,
+          "end": 94,
+          "sha256": "ccdec50dfa6ff747203ef2e440d58cdda1c1c189f97eb55d5e659a90be5503ec"
+        },
+        {
+          "path": "engine/backend/orgtree/transcript_records.py",
+          "start": 411,
+          "end": 435,
+          "sha256": "d09d83c6ef26e63434a8e15253aeacfe665945f5724ba46d1dcd959a0756899d"
+        },
+        {
+          "path": "engine/backend/orgtree/reply_events.py",
+          "start": 11,
+          "end": 22,
+          "sha256": "678cadf468726c9415b9e9b519f039297691c3695d4f188704f85e7216bd348b"
+        },
+        {
+          "path": "engine/backend/orgtree/reply_events.py",
+          "start": 133,
+          "end": 153,
+          "sha256": "b1db607da2c165f920b5c7861e3bbfca022f8f99f9ea4ab32fb55ce8c7f4409e"
+        },
+        {
+          "path": "engine/backend/orgtree/reply_events.py",
+          "start": 193,
+          "end": 244,
+          "sha256": "38c63284a3574fb026f8fb80837217d881f69e3c00a993f5db67a2a517637177"
+        },
+        {
+          "path": "engine/backend/orgtree/sandbox.py",
+          "start": 400,
+          "end": 408,
+          "sha256": "2d60e44a96e3cf8318d776a44c12b36d25b872574846d27dd0228a6a0fc7332e"
+        },
+        {
+          "path": "engine/backend/orgtree/sandbox.py",
+          "start": 591,
+          "end": 609,
+          "sha256": "3865cb7f96c704ffafa5cb7517311d3ec74d6da1e2d25cfa4aa40e802236026c"
+        }
+      ],
+      "open_questions": [
+        "Implement P02 complete runtime instrumentation and drift/unknown-contact refusal, then native concurrency/negative controls; fixture observations are neither a full census nor conversion authorization."
+      ]
     }
   },
   "contracts": {
@@ -1940,6 +2591,120 @@
           "sha256": "d66a2b4efa181bbe055dde8852c9ecbbf4b73f515a64ab787e631eba3b1086a8"
         }
       ]
+    },
+    "material.scratch": {
+      "entry_ids": [
+        "580b74aa76bf6dc91cdb2a2f22956234730e9538690e8b723f6736c9ae0f6379"
+      ],
+      "tools": [
+        "orgtree_read_scratch"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "domain_mode": "read",
+      "dimensions": {
+        "authority": [
+          "material.authority"
+        ],
+        "reads": [
+          "material.reads"
+        ],
+        "writes": [
+          "material.writes"
+        ],
+        "predicates": [
+          "material.predicates"
+        ],
+        "conflicts": [
+          "material.conflicts"
+        ],
+        "wire": [
+          "material.wire"
+        ],
+        "receipt": [
+          "material.receipt"
+        ],
+        "effects": [
+          "material.effects"
+        ],
+        "instrumentation": [
+          "material.contacts"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2317,
+          "end": 2339,
+          "sha256": "c8a46db9787d62990c1885fde83965de402fe0e2f978124cf0e0f7b194d9f68f"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10935,
+          "end": 11035,
+          "sha256": "ef521f971cc95102c694d561369420c368c9a08bcaa547cc55e19b8a0d70467a"
+        }
+      ]
+    },
+    "material.transcript": {
+      "entry_ids": [
+        "34abf79fddaed91cfd7d958ff0f705ac3a72bad814c4925019cd484638d8a2cc"
+      ],
+      "tools": [
+        "orgtree_read_transcript"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "domain_mode": "conditional_write",
+      "dimensions": {
+        "authority": [
+          "material.authority"
+        ],
+        "reads": [
+          "material.reads"
+        ],
+        "writes": [
+          "material.writes"
+        ],
+        "predicates": [
+          "material.predicates"
+        ],
+        "conflicts": [
+          "material.conflicts"
+        ],
+        "wire": [
+          "material.wire"
+        ],
+        "receipt": [
+          "material.receipt"
+        ],
+        "effects": [
+          "material.effects"
+        ],
+        "instrumentation": [
+          "material.contacts"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2290,
+          "end": 2316,
+          "sha256": "f242490e1966b8d28de879eaf240f421464c4664147d6c4006b1739cf48c8795"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10935,
+          "end": 11035,
+          "sha256": "ef521f971cc95102c694d561369420c368c9a08bcaa547cc55e19b8a0d70467a"
+        }
+      ]
     }
   },
   "wire_cases": [
@@ -2207,6 +2972,24 @@
       },
       "contract": "reservation.release",
       "domain_mode": "write"
+    },
+    {
+      "name": "material.scratch",
+      "entry_id": "580b74aa76bf6dc91cdb2a2f22956234730e9538690e8b723f6736c9ae0f6379",
+      "args": {
+        "node": "reader"
+      },
+      "contract": "material.scratch",
+      "domain_mode": "read"
+    },
+    {
+      "name": "material.transcript",
+      "entry_id": "34abf79fddaed91cfd7d958ff0f705ac3a72bad814c4925019cd484638d8a2cc",
+      "args": {
+        "node": "reader"
+      },
+      "contract": "material.transcript",
+      "domain_mode": "conditional_write"
     }
   ],
   "limits": [
@@ -2214,7 +2997,8 @@
     "The first mapped family has eleven reservation variants; its transitive/native/wire/contact gaps remain explicit.",
     "Registration sites are not a runtime operation denominator.",
     "Source assertions and selector checks do not establish public result parity, native isolation or actual atomicity.",
-    "The reservation boundary suite executes the current public API against disposable SQLite state with provider wakes replaced by spies. It is legacy conformance evidence, not a live census or PostgreSQL/Rust qualification."
+    "The reservation boundary suite executes the current public API against disposable SQLite state with provider wakes replaced by spies. It is legacy conformance evidence, not a live census or PostgreSQL/Rust qualification.",
+    "Paired material-read fixtures pin legacy authenticated behavior and expose known native differences. Sidecar observations are synthetic and incomplete; no runtime-census or conversion gate is passed."
   ],
   "entries": [
     {
@@ -4047,17 +4831,47 @@
     },
     {
       "id": "34abf79fddaed91cfd7d958ff0f705ac3a72bad814c4925019cd484638d8a2cc",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "material.transcript"
+      ],
+      "reason": "Paired material-read source contract; native/current-disclosure and transitive gaps remain explicit.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2290,
+          "end": 2316,
+          "sha256": "f242490e1966b8d28de879eaf240f421464c4664147d6c4006b1739cf48c8795"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10935,
+          "end": 11035,
+          "sha256": "ef521f971cc95102c694d561369420c368c9a08bcaa547cc55e19b8a0d70467a"
+        }
+      ]
     },
     {
       "id": "580b74aa76bf6dc91cdb2a2f22956234730e9538690e8b723f6736c9ae0f6379",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "material.scratch"
+      ],
+      "reason": "Paired material-read source contract; native/current-disclosure and transitive gaps remain explicit.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2317,
+          "end": 2339,
+          "sha256": "c8a46db9787d62990c1885fde83965de402fe0e2f978124cf0e0f7b194d9f68f"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10935,
+          "end": 11035,
+          "sha256": "ef521f971cc95102c694d561369420c368c9a08bcaa547cc55e19b8a0d70467a"
+        }
+      ]
     },
     {
       "id": "f011a70eb84897a54ab57cd764f4a6b35231703ecb7c71f9a3b730951fc45211",
@@ -4749,10 +5563,19 @@
     },
     {
       "id": "948bfa38c3862d4f0d6594d2cc86cafabe2e9368ffd7e1e94029d2b941168295",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "material.transcript"
+      ],
+      "reason": "Exact transcript-only selector; other read-shaped tools and shared ingress remain pending.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10709,
+          "end": 10709,
+          "sha256": "c4a03f1f8c7c350a6d43f650c6b581dc2b46dc270374cd532eb5754b3adfea49"
+        }
+      ]
     },
     {
       "id": "5130d500254a34437bdfe3b4df9a26c77c916df85cf2cfb855b1709568e8990b",
@@ -4833,10 +5656,19 @@
     },
     {
       "id": "2f2d2b992546c1808c302f93d843ce25ef3b89296273501098e5517d4efbb9bb",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "material.transcript"
+      ],
+      "reason": "Exact transcript-only selector; other read-shaped tools and shared ingress remain pending.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10983,
+          "end": 10983,
+          "sha256": "b7a7b604ba351f9290e34a3ddfbb2a79eb0d1b63b9632439c8ac1fe146bb4a21"
+        }
+      ]
     },
     {
       "id": "1438d95c72db48eda6644ebbba47c715b73416a06b414f5f78362f2cc6dc6077",
