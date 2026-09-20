@@ -46,6 +46,24 @@ _halters: dict[tuple[str, str], int] = {}
 _changed = threading.Condition(store.DOC_LOCK)
 SETTLE_TIMEOUT = 20.0  # leave room inside the agent tool transport's 30s timeout
 
+# ---------------------------------------------------- the durable settler
+# ⚠ WHY THIS EXISTS. `_halt` used to publish `halted` ONLY from inside its own
+# bounded loop. Miss the 20s window and the loop was gone, and nothing
+# anywhere re-evaluated settlement again except `recover()`, which runs at
+# backend startup. So a node that settled 21 seconds after the request stayed
+# durably `halting` until the next restart — measured on the live org
+# 2026-09-20, five agents still `halting` 27 minutes after an 11-way halt,
+# with every later stop/interrupt/retire failing on top of it (docket
+# fix-agents-stuck-halting-and-non-json-stop-error).
+#
+# So a halt that does not finish in the foreground hands off to a NAMED,
+# QUERYABLE operation that keeps killing and keeps checking until it settles.
+# The caller gets that operation's id back instead of an ambiguous "still
+# halting" with nobody behind it.
+_settlers: dict[tuple[str, str], dict[str, Any]] = {}
+SETTLER_POLL = 0.25       # first re-check interval after the foreground gave up
+SETTLER_POLL_MAX = 5.0    # …backing off to this, so a long settle is not a spin
+
 
 # ------------------------------------------------- the three gate predicates
 # `blocked` is asked by EVERY agent tool call, before the verb runs, and it
@@ -459,6 +477,16 @@ def _cut_state(slug: str, nid: str, st, *, halting: bool = True) -> None:
     for p in (proc, compact, remote, *auxiliary):
         if p is not None:
             sup._wd_kill_tree(p)
+    # ⚠ A REPEAT CUT ON AN ALREADY-DEAD PROCESS MUST BE CHEAP. `_cut` runs on
+    # every settle poll, and each teardown here costs a `taskkill` spawn plus
+    # bounded waits. Unguarded, five simultaneous halts re-paid all of it
+    # twice a second, which is why a halt that should have returned in 20 s
+    # had not returned in 60 (coordinator measurement, 2026-09-20).
+    # `_wd_kill_tree` above already early-returns on a dead handle;
+    # `AppServerClient.close` now does its own liveness check before the OS
+    # work; and `warmpool.halt_kill` is asked only when the pool says it has
+    # something left. Nothing alive is ever skipped: every guard is a
+    # liveness test, not a "we tried once" memo.
     if codex is not None:
         codex.client.close()
     if agy is not None:
@@ -466,7 +494,8 @@ def _cut_state(slug: str, nid: str, st, *, halting: bool = True) -> None:
     if compact_client is not None:
         compact_client.close()
     sup._cancel_working_cache(slug, nid)
-    warmpool.halt_kill(slug, nid)
+    if not warmpool.halt_settled(slug, nid):
+        warmpool.halt_kill(slug, nid)
 
 
 def _settled(slug: str, nid: str, st) -> bool:
@@ -478,23 +507,88 @@ def _settled(slug: str, nid: str, st) -> bool:
     return all(_state_settled(runtime) for runtime in _states(slug, nid, st))
 
 
+def _handles(st) -> list[tuple[str, Any]]:
+    """Every process handle this runtime state owns, each with the lane it
+    belongs to. MUST be called with `supervisor._state_lock` held.
+
+    These are the agent CLI and provider processes — the ones the user's halt
+    ruling is about. `halt.halt` does not report `halted` until every one of
+    them has been confirmed gone by `poll()`, not merely asked to die."""
+    handles: list[tuple[str, Any]] = [
+        ("cli", st.get("proc")),
+        ("compact", st.get("halt_compact_proc")),
+        ("remote_control", st.get("halt_remote_proc")),
+    ]
+    handles.extend(("cli_fork", p) for p in st.get("halt_aux_procs") or [])
+    compact_client = st.get("halt_compact_client")
+    if compact_client is not None:
+        handles.append(("compact_app_server", compact_client.proc))
+    codex = st.get("codex_turn")
+    if codex is not None:
+        handles.append(("codex_app_server", codex.client.proc))
+    agy = st.get("antigravity_turn")
+    if agy is not None:
+        handles.append(("antigravity", agy.proc))
+    return [(kind, p) for kind, p in handles if p is not None]
+
+
 def _state_settled(st) -> bool:
     from . import supervisor as sup
     with sup._state_lock:
         if st.get("busy") or st.get("proc_control") or st.get("cache_keepalive"):
             return False
-        handles = [st.get("proc"), st.get("halt_compact_proc"), st.get("halt_remote_proc")]
-        handles.extend(st.get("halt_aux_procs") or [])
-        compact_client = st.get("halt_compact_client")
-        if compact_client is not None:
-            handles.append(compact_client.proc)
-        codex = st.get("codex_turn")
-        if codex is not None:
-            handles.append(codex.client.proc)
-        agy = st.get("antigravity_turn")
-        if agy is not None:
-            handles.append(agy.proc)
-        return all(p is None or p.poll() is not None for p in handles)
+        return all(p.poll() is not None for _kind, p in _handles(st))
+
+
+def surviving(slug: str, nid: str, st=None) -> list[dict[str, Any]]:
+    """The agent CLI/provider processes still alive after a cut pass, by pid.
+
+    This is the explicit tracking the halt ruling asks for. A halt that has
+    not completed says exactly WHICH process is keeping it open rather than
+    reporting an unqualified "still settling", so the condition is actionable
+    instead of ambiguous."""
+    from . import supervisor as sup
+    if st is None:
+        st = sup.state(slug, nid)
+    alive: list[dict[str, Any]] = []
+    with store.DOC_LOCK:
+        runtimes = _states(slug, nid, st)
+    for runtime in runtimes:
+        with sup._state_lock:
+            handles = _handles(runtime)
+        for kind, p in handles:
+            if p.poll() is None:
+                alive.append({"kind": kind, "pid": getattr(p, "pid", None)})
+    return alive
+
+
+def blocking(slug: str, nid: str, st=None) -> list[str]:
+    """Plain sentences naming everything that is not settled yet. Empty means
+    settled. Written for a person reading an API response, not a log."""
+    from . import supervisor as sup, warmpool
+    if st is None:
+        st = sup.state(slug, nid)
+    reasons: list[str] = []
+    with store.DOC_LOCK:
+        count = _workers.get((slug, nid)) or 0
+        runtimes = _states(slug, nid, st)
+    if count:
+        reasons.append(f"{count} turn worker(s) have not finished cleanup")
+    if not warmpool.halt_settled(slug, nid):
+        reasons.append("a warm-pool process for this agent is still alive")
+    for runtime in runtimes:
+        with sup._state_lock:
+            if runtime.get("busy"):
+                reasons.append("the turn is still marked busy")
+            if runtime.get("proc_control"):
+                reasons.append("a process-control operation is in progress")
+            if runtime.get("cache_keepalive"):
+                reasons.append("a cache keepalive process is still running")
+    for rec in surviving(slug, nid, st):
+        reasons.append(f"the {rec['kind']} process (pid {rec['pid']}) "
+                       f"is still running")
+    # de-duplicate while keeping the order a reader sees them in
+    return list(dict.fromkeys(reasons))
 
 
 def halt(slug: str, nid: str, actor: str = USER, *, timeout=None) -> dict[str, Any]:
@@ -573,28 +667,157 @@ def _halt(slug: str, nid: str, actor: str, *, timeout=None) -> dict[str, Any]:
         if _settled(slug, nid, st):
             with store.DOC_LOCK:
                 org = store.load_org(slug)
-                n = org.node(nid)
                 _capture(org, nid, st)
                 if _settled(slug, nid, st):
-                    n["halt"]["phase"] = "halted"
-                    n["halt"].setdefault("at", now())
-                    n.pop("remote_controlled", None)
-                    if n.get("inflight"):
-                        n["halt"]["interrupted_turn"] = n.pop("inflight")
-                    store.save_org(org)
-                    result = {"node": nid, "halted": True, "settled": True,
-                              "queued": len(n.get("halt_queue") or []),
-                              "status": "halted; no turn can run until explicit unhalt"}
+                    result = _publish_halted(org, nid)
                     break
             continue
         remaining = deadline - time.monotonic()
         if remaining <= 0:
+            # ⚠ NEVER RETURN AN AMBIGUOUS "still halting" WITH NOBODY BEHIND
+            # IT. Before this handoff the foreground loop was the only thing
+            # that could ever publish `halted`, so missing this deadline left
+            # the node durably `halting` until the backend restarted —
+            # measured on the live org 2026-09-20, five agents still halting
+            # 27 minutes later. The operation below owns the rest of the
+            # transition, names what is keeping it open, and is queryable.
+            op = _start_settler(slug, nid)
             return {"node": nid, "halted": False, "settled": False,
-                    "halting": True, "status": "admission is blocked; the active "
-                    "turn is still settling — halt has not completed"}
+                    "halting": True, "operation": op,
+                    "surviving_processes": op.get("surviving") or [],
+                    "blocking": op.get("blocking") or [],
+                    "status": "admission is blocked and the provider processes "
+                    "have been killed; halt has not completed yet — operation "
+                    + str(op.get("operation_id"))
+                    + " is finishing it asynchronously"}
         time.sleep(min(.05, remaining))
     sup.notify(slug, nid, "halted")
     return result
+
+
+def _publish_halted(org, nid: str) -> dict[str, Any]:
+    """Under DOC_LOCK, with settlement ALREADY PROVEN by `_settled`: commit
+    the durable `halted` phase and save.
+
+    Only ever called behind `_settled`, which is what makes this the point at
+    which the user's halt semantic is satisfied — admission closed, every
+    agent CLI/provider process confirmed gone by `poll()` rather than merely
+    asked to die, and the turn's own cleanup finished — and not one moment
+    earlier. Two call sites now share it: the foreground loop and the
+    background settler, so they cannot drift into publishing different
+    things."""
+    n = org.node(nid)
+    n["halt"]["phase"] = "halted"
+    n["halt"].setdefault("at", now())
+    n["halt"].pop("settling", None)
+    n.pop("remote_controlled", None)
+    if n.get("inflight"):
+        n["halt"]["interrupted_turn"] = n.pop("inflight")
+    store.save_org(org)
+    return {"node": nid, "halted": True, "settled": True,
+            "queued": len(n.get("halt_queue") or []),
+            "status": "halted; no turn can run until explicit unhalt"}
+
+
+def operation(slug: str, nid: str) -> dict[str, Any] | None:
+    """The live settle operation for this node, or None. Refreshed on read,
+    so a caller polling it sees what is blocking NOW rather than the list
+    that was true when the operation started."""
+    with store.DOC_LOCK:
+        op = _settlers.get((slug, nid))
+        if op is None:
+            return None
+        snapshot = dict(op)
+    snapshot["blocking"] = blocking(slug, nid)
+    snapshot["surviving"] = surviving(slug, nid)
+    return snapshot
+
+
+def _start_settler(slug: str, nid: str) -> dict[str, Any]:
+    """Hand the unfinished transition to a named background operation.
+
+    IDEMPOTENT: a second halt — or a retire, or the desktop's stop button
+    pressed again — against a node already settling JOINS the operation that
+    is running instead of starting a second one. That is what lets repeat
+    lifecycle calls be answered structurally rather than racing."""
+    key = (slug, nid)
+    with store.DOC_LOCK:
+        existing = _settlers.get(key)
+        if existing is not None and existing.get("state") == "settling":
+            op, fresh = existing, False
+        else:
+            op = {"operation_id": "halt-" + uuid.uuid4().hex[:12],
+                  "operation": "halt", "node": nid, "state": "settling",
+                  "requested_at": now(), "polls": 0}
+            _settlers[key] = op
+            fresh = True
+        snapshot = dict(op)
+    snapshot["blocking"] = blocking(slug, nid)
+    snapshot["surviving"] = surviving(slug, nid)
+    # Durable, so the operation is visible to anything reading the org doc
+    # rather than only to a caller holding this process's return value.
+    with store.DOC_LOCK:
+        org = store.load_org(slug)
+        n = org.nodes.get(nid)
+        if n is not None and n.get("halt"):
+            n["halt"]["settling"] = {"operation_id": snapshot["operation_id"],
+                                     "since": op["requested_at"],
+                                     "blocking": snapshot["blocking"]}
+            store.save_org(org)
+    if fresh:
+        threading.Thread(target=_settle_loop, args=(slug, nid, op),
+                         name=f"halt-settle-{slug}-{nid}", daemon=True).start()
+    return snapshot
+
+
+def _settle_loop(slug: str, nid: str, op: dict[str, Any]) -> None:
+    """Keep cutting and keep checking until the node is genuinely settled.
+
+    Every pass re-runs the SAME `_cut` the foreground loop runs, because a
+    process can still be spawning or re-parenting between passes and "it was
+    dead once" is not the guarantee halt owes. The loop ends only by
+    publishing `halted`, by the halt being released (unhalt, or the node
+    going away), or by a newer operation replacing this one."""
+    from . import supervisor as sup
+    st = sup.state(slug, nid)
+    delay = SETTLER_POLL
+    while True:
+        with store.DOC_LOCK:
+            if _settlers.get((slug, nid)) is not op:
+                return                      # superseded by a newer operation
+            n = _node(slug, nid)
+            if n is None or not n.get("halt"):
+                op["state"] = "released"
+                _settlers.pop((slug, nid), None)
+                return
+        try:
+            _cut(slug, nid, st)
+        except Exception as e:              # noqa: BLE001
+            # A kill that fails is recorded and RETRIED. It must never end
+            # the operation: ending it is exactly how the node got stuck.
+            op["last_error"] = f"{type(e).__name__}: {e}"
+        published = None
+        if _settled(slug, nid, st):
+            with store.DOC_LOCK:
+                org = store.load_org(slug)
+                n = org.nodes.get(nid)
+                if n is not None and n.get("halt"):
+                    _capture(org, nid, st)
+                    if _settled(slug, nid, st):
+                        published = _publish_halted(org, nid)
+                        op["state"] = "halted"
+                        op["completed_at"] = now()
+                        if _settlers.get((slug, nid)) is op:
+                            _settlers.pop((slug, nid), None)
+        elif _pending_carriers(slug, nid, st):
+            with store.DOC_LOCK:
+                _capture(store.load_org(slug), nid, st)
+        op["polls"] = int(op.get("polls") or 0) + 1
+        if published is not None:
+            sup.notify(slug, nid, "halted")
+            return
+        time.sleep(delay)
+        delay = min(SETTLER_POLL_MAX, delay * 1.5)
 
 
 def _pending_carriers(slug: str, nid: str, st) -> bool:
@@ -627,6 +850,9 @@ def recover(org) -> bool:
         if _settled(slug, nid, st):
             n["halt"]["phase"] = "halted"
             n["halt"].setdefault("at", now())
+            # the settle operation that was recorded before the restart has
+            # no thread behind it any more, and this IS its completion
+            n["halt"].pop("settling", None)
             if n.get("inflight"):
                 n["halt"]["interrupted_turn"] = n.pop("inflight")
             changed = True

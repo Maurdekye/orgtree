@@ -25246,7 +25246,19 @@ def interrupt_turn(slug: str, nid: str) -> dict[str, Any]:
     """Manual ⏸ from the user: stop the node's current response via the CLI's
     control_request interrupt (the ONLY sanctioned interrupt — message delivery
     never interrupts, user ruling). The process stays alive; queued mail
-    delivers at the now-immediate result boundary."""
+    delivers at the now-immediate result boundary.
+
+    ⚠ THIS FUNCTION MUST NOT RAISE FOR A DEAD OR DYING PROVIDER. It is the
+    single choke point for the desktop's ⏸, `orgtree_interrupt`, and — through
+    `interrupt_before_archive` — retire, dissolve and rescind. On 2026-09-20 a
+    halt had already killed five agents' app-servers while their turns were
+    still registered, so `codex_turn.interrupt()` below wrote to a dead pipe
+    and raised a bare `OSError: [Errno 22] Invalid argument`. Retire and
+    dissolve returned that errno verbatim, `orgtree_interrupt` became a
+    plain-text `Internal Server Error`, and the desktop fed that text to
+    `JSON.parse`. The provider-side fixes make that specific write typed, and
+    the guards here make the whole class structural: a lane that cannot be
+    asked to stop is a RESULT saying so, with a reason, never an exception."""
     st = state(slug, nid)
     with _state_lock:
         operation_id = str(st.get("lifecycle_operation_id") or "")
@@ -25293,24 +25305,34 @@ def interrupt_turn(slug: str, nid: str) -> dict[str, Any]:
         if isinstance(readiness_event, threading.Event):
             readiness_event.set()
         return _result(True)
-    if codex_turn is not None:
-        # the codex lane's graceful stop: turn/interrupt on the live session
-        # (the turn completes with status "interrupted", C.3)
-        if codex_turn.interrupt():
+    def _ask(turn: Any, lane: str) -> dict[str, Any]:
+        """One lane's stop request, turned into a result rather than a raise.
+        `RuntimeError` covers the codex lane's whole `CodexServerError` family;
+        `OSError`/`ValueError` cover a pipe that broke under the request."""
+        try:
+            asked = bool(turn.interrupt())
+        except (OSError, ValueError, RuntimeError) as e:
+            with _state_lock:
+                st.pop("interrupted", None)
+            return _result(False, f"the {lane} lane could not be asked to stop "
+                                  f"({type(e).__name__}: {e}); its process is "
+                                  f"gone or its pipe is closed, so turn cleanup "
+                                  f"is what remains")
+        if asked:
             return _result(True)
         with _state_lock:
             st.pop("interrupted", None)
         return _result(False, "the turn was already over")
+    if codex_turn is not None:
+        # the codex lane's graceful stop: turn/interrupt on the live session
+        # (the turn completes with status "interrupted", C.3)
+        return _ask(codex_turn, "codex")
     if antigravity_turn is not None:
         # the antigravity lane's stop: the process tree is killed — the
         # conversation store already holds the turn so far (measured), and
         # the leg books an interrupted completed turn from the per-request
         # usage it had seen
-        if antigravity_turn.interrupt():
-            return _result(True)
-        with _state_lock:
-            st.pop("interrupted", None)
-        return _result(False, "the turn was already over")
+        return _ask(antigravity_turn, "antigravity")
     if proc is None:
         return _result(False, "the turn is admitted but no provider call is active")
     if proc.poll() is not None:
@@ -25327,10 +25349,14 @@ def interrupt_turn(slug: str, nid: str) -> dict[str, Any]:
             "request": {"subtype": "interrupt"}}) + "\n")
         proc.stdin.flush()
         return _result(True)
-    except (OSError, ValueError) as e:   # ValueError = stdin already closed
+    # ValueError = stdin already closed; AttributeError = the handle was
+    # replaced by None between the snapshot above and the write. Windows
+    # reports a pipe whose reader has been killed as OSError(22), not
+    # BrokenPipeError, so there is nothing narrower worth catching here.
+    except (OSError, ValueError, AttributeError) as e:
         with _state_lock:
             st.pop("interrupted", None)
-        return _result(False, str(e))
+        return _result(False, f"{type(e).__name__}: {e}")
 
 
 WALL_MEMORY = "last_wall"
@@ -26274,14 +26300,40 @@ def interrupt_before_archive(slug: str, org: Org, nid: str,
         return []
     targets = [nid] + org.descendants(nid, live_only=True)
     interrupted: list[str] = []
+    warnings: list[str] = []
     for t in targets:
         st = state(slug, t)
         with _state_lock:
             st["queue"].clear()
             st["steer"] = []
-        if interrupt_turn(slug, t).get("interrupted"):
+        # ⚠ AN ARCHIVE IS NOT CANCELLED BY A FAILED INTERRUPT. `interrupt_turn`
+        # is defensive now, but this is the ONE call site where a raise would
+        # be worst — it would abort retire/dissolve/rescind before the ledger
+        # op even ran, which is exactly what the user hit: an already-killed
+        # codex app-server turned retire and dissolve into a bare
+        # `[Errno 22] Invalid argument` and the seat could not be freed at
+        # all. A lane that cannot be asked to stop becomes a warning and the
+        # reap below still runs; it never stops the archive.
+        try:
+            asked = bool(interrupt_turn(slug, t).get("interrupted"))
+        except Exception as e:                             # noqa: BLE001
+            warnings.append(
+                f'"{t}" could not be sent an interrupt '
+                f"({type(e).__name__}: {e}); its process tree is reaped below "
+                f"and the archive proceeds")
+            asked = False
+            with _state_lock:
+                st["interrupted"] = True
+        # ⚠ `or busy` IS THE SECOND HALF OF THE SAME FIX. This list decides
+        # who gets the settle wait and the fallback process reap below. A
+        # node whose interrupt was REFUSED because its provider process is
+        # already dead — the precise shape of the stuck-halting agents — used
+        # to be skipped here, so the archive committed while its turn worker
+        # was still registered and still holding cleanup open. A turn that is
+        # still busy needs that reap whether or not anyone could ask it to
+        # stop.
+        if asked or state(slug, t)["busy"]:
             interrupted.append(t)
-    warnings: list[str] = []
     for t in interrupted:
         deadline = time.monotonic() + timeout
         while state(slug, t)["busy"] and time.monotonic() < deadline:

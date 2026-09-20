@@ -746,6 +746,45 @@ async def _validation_error(  # type: ignore[unused-function]  # registered by t
                         content={"detail": fix(jsonable_encoder(exc.errors()))})
 
 
+@app.exception_handler(Exception)
+async def _unhandled_error(  # type: ignore[unused-function]  # registered by the decorator
+        request: Request, exc: Exception) -> Response:
+    """Answer an unhandled handler exception in JSON, like every other error.
+
+    ⚠ WITHOUT THIS THE BODY IS THE BARE TEXT `Internal Server Error`. That is
+    Starlette's default 500 — `text/plain`, no JSON anywhere — and the desktop
+    parses error bodies as JSON, so on 2026-09-20 a stop that hit an
+    unhandled `OSError` showed the user
+    `Unexpected token 'I', "Internal S"... is not valid JSON` instead of
+    anything about the agent they were trying to stop. Two defects sat behind
+    that one sentence and both are fixed: the client no longer assumes JSON
+    (apps/desktop/renderer/src/api.ts) and the server no longer answers in
+    plain text.
+
+    The status stays 500 and NOTHING IS SWALLOWED — deliberately not logged
+    here either. Starlette's `ServerErrorMiddleware` sends this response and
+    then re-raises, which is what puts the traceback in the server log, and
+    it is the OUTERMOST layer of this app (every middleware in this file
+    appears inside it in a live traceback). A `print_exc` here would print
+    the same stack a second time for every 500. What changes is only the
+    SHAPE of the body. `detail` is the same key every `HTTPException` on this
+    app already uses, so every existing client reads this with the code it
+    already has. The exception's own text is included because an operator
+    reading a failed stop needs to know it was `[Errno 22] Invalid argument`,
+    not merely that something went wrong — and these are local, single-user
+    backends, not a public service with an attacker reading error strings."""
+    from fastapi.responses import JSONResponse
+    kind = type(exc).__name__
+    text = str(exc).strip()
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"{kind}: {text}" if text else kind,
+                 "error": {"type": kind, "message": text,
+                           "path": str(request.url.path),
+                           "method": request.method,
+                           "unhandled": True}})
+
+
 def _encodable(v: Any) -> Any:
     """Replace UNPAIRED SURROGATES anywhere in a decoded request body.
 
@@ -5362,18 +5401,48 @@ def node_steer_state(slug: str, nid: str) -> dict[str, Any]:
 @app.post("/api/orgs/{slug}/nodes/{nid}/interrupt")
 def node_interrupt(slug: str, nid: str) -> dict[str, Any]:
     """Manual ⏸: stop the node's current response (the only sanctioned
-    interrupt — message delivery never interrupts, user ruling)."""
+    interrupt — message delivery never interrupts, user ruling).
+
+    IDEMPOTENT AGAINST A HALT IN PROGRESS. Pressing ⏸ on an agent that is
+    already halting used to be answered by whatever the provider lane did
+    next — on 2026-09-20 that was an unhandled `OSError` and a plain-text
+    `Internal Server Error`. It is now always a result, and when a halt owns
+    the node the result SAYS SO: `halt` carries the phase, the settle
+    operation's id, and the plain-sentence list of what is still blocking,
+    so a second press reports the state of the first request instead of
+    racing it."""
     try:
         org = store.load_org(slug)
-        org.node(nid)
+        node = org.node(nid)
     except LedgerError as e:
         raise HTTPException(404, str(e))
-    return supervisor.interrupt_turn(slug, nid)
+    out = supervisor.interrupt_turn(slug, nid)
+    rec = node.get("halt")
+    if rec:
+        phase = str(rec.get("phase") or "")
+        out["halt"] = {"phase": phase,
+                       "requested_at": rec.get("requested_at"),
+                       "operation": supervisor.halt.operation(slug, nid),
+                       "blocking": (supervisor.halt.blocking(slug, nid)
+                                    if phase != "halted" else [])}
+        out.setdefault("reason", (
+            "this agent is already halted; no turn can run until an explicit "
+            "unhalt" if phase == "halted" else
+            "a halt is already settling this agent; the interrupt was applied "
+            "on top of it and changes nothing about that halt"))
+    return out
 
 
 @app.post("/api/orgs/{slug}/nodes/{nid}/halt")
 def node_halt(slug: str, nid: str) -> dict[str, Any]:
-    """Close all turn admission, then await abrupt termination and cleanup."""
+    """Close all turn admission, kill the agent's CLI/provider processes,
+    confirm they are gone, and only then report `halted`.
+
+    A halt that does not complete inside this request is NOT left ambiguous:
+    the reply carries `operation` (a named background settle operation that
+    owns the rest of the transition), `blocking` (plain sentences naming what
+    is still open) and `surviving_processes` (kind and pid). Calling it again
+    while that operation runs joins it rather than starting a second one."""
     try:
         return supervisor.halt.halt(slug, nid)
     except LedgerError as e:

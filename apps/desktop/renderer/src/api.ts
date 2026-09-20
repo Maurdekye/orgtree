@@ -85,6 +85,58 @@ const timeoutSignal = (ms: number): AbortSignal | undefined => {
   return typeof f === 'function' ? f(ms) : undefined
 }
 
+/** How much of a non-JSON body is worth putting in front of a person. Long
+ *  enough for a real sentence, short enough that an HTML error page does not
+ *  become the error message. */
+const BODY_EXCERPT = 300
+
+/** Turn ANY failed response into a readable Error — JSON body or not.
+ *
+ *  ⚠ THIS EXISTS BECAUSE THE OLD CODE ASSUMED JSON. `if (!r.ok) r.json()`
+ *  was every error path in this file, and a backend 500 from an unhandled
+ *  exception answers `Internal Server Error` as `text/plain`. Feeding that
+ *  to `r.json()` rejects with the parser's own complaint, so the user
+ *  pressing stop on a stuck agent was shown
+ *  `Unexpected token 'I', "Internal S"... is not valid JSON` — a message
+ *  about our parser, with nothing in it about the agent or the failure
+ *  (user report 2026-09-20).
+ *
+ *  The body is read ONCE as text and parsed defensively, in this order:
+ *  the backend's `detail` (every `HTTPException` on the server uses it, and
+ *  so does the server's new catch-all 500 handler), then a `message`/`error`
+ *  string, then the raw text, then `statusText`, then the bare status. The
+ *  status code is always prefixed, so "500" is visible even when the body
+ *  is empty — an empty body used to produce `new Error('')`, which renders
+ *  as no message at all. */
+const failure = async (r: Response): Promise<Error> => {
+  let text = ''
+  try { text = await r.text() } catch { /* body already consumed or torn */ }
+  const trimmed = text.trim()
+  let detail = ''
+  if (trimmed) {
+    try {
+      const parsed: unknown = JSON.parse(trimmed)
+      if (typeof parsed === 'string') detail = parsed
+      else if (parsed && typeof parsed === 'object') {
+        const b = parsed as { detail?: unknown; message?: unknown; error?: unknown }
+        for (const v of [b.detail, b.message, b.error]) {
+          if (typeof v === 'string' && v.trim()) { detail = v.trim(); break }
+          // FastAPI validation errors put an array of objects in `detail`
+          if (v && typeof v === 'object') { detail = JSON.stringify(v).slice(0, BODY_EXCERPT); break }
+        }
+      }
+    } catch {
+      // not JSON: the body itself is the most informative thing we have
+      detail = trimmed.slice(0, BODY_EXCERPT)
+    }
+  }
+  if (!detail) detail = r.statusText || 'request failed'
+  const e = new Error(`${r.status}: ${detail}`)
+  // kept for callers that want to branch on the status rather than the prose
+  Object.assign(e, { status: r.status, body: trimmed.slice(0, BODY_EXCERPT) })
+  return e
+}
+
 // the one wire-boundary cast in the app: runtime JSON is untyped, and each
 // endpoint's declared Promise<T> return type is the contract that types it.
 // T infers from that declared return at every call site - no `any` escapes.
@@ -97,9 +149,7 @@ export const req = <T,>(path: string, init?: RequestInit,
     // call it rode in on failed
     noteInstance(r)
     if (!r.ok) {
-      return r.json().then((b: { detail?: string }) => {
-        throw new Error(b.detail || r.statusText)
-      })
+      return failure(r).then((e) => { throw e })
     }
     // the client's G2 (see livebus.ts): every successful mutation THIS tab
     // makes wakes every mounted polled surface — centrally, so no call site
@@ -115,7 +165,17 @@ export const req = <T,>(path: string, init?: RequestInit,
       forgetNodeDetail()
       bumpLive()
     }
-    return r.json() as Promise<T>
+    // A 2xx whose body is not JSON is still our bug to report readably, not
+    // the JSON parser's to announce. The body is already being consumed by
+    // json(), so this cannot quote it — it names the status and the content
+    // type instead, which is what tells an operator "the backend answered,
+    // and it answered with something that is not our protocol".
+    return (r.json() as Promise<T>).catch((e: unknown) => {
+      throw new Error(
+        `${r.status}: the backend's reply was not JSON `
+        + `(content-type ${r.headers.get('Content-Type') || 'unset'}): `
+        + (e instanceof Error ? e.message : String(e)))
+    })
   })
 
 export const listOrgs = (): Promise<OrgListEntry[]> => req('/api/orgs')
@@ -192,9 +252,7 @@ export const getTree = (slug: string): Promise<TreePayload | null> => {
       return hit.tree
     }
     if (!r.ok) {
-      return r.json().then((b: { detail?: string }) => {
-        throw new Error(b.detail || r.statusText)
-      })
+      return failure(r).then((e) => { throw e })
     }
     const etag = r.headers.get('ETag')
     return r.json().then((raw: TreePayload) => {
@@ -300,8 +358,17 @@ export const interruptNode = (
   slug: string, nid: string,
 ): Promise<{ interrupted: boolean; reason?: string }> =>
   req(`/api/orgs/${slug}/nodes/${nid}/interrupt`, { method: 'POST' })
+/** A halt that does not finish inside the request now hands off to a named
+ *  background operation instead of answering an unowned "still halting":
+ *  `operation` identifies it, `blocking` says in plain sentences what is
+ *  keeping it open, and `surviving_processes` names the pids. All three are
+ *  optional — an older engine sends none of them and the `halted`/`settled`
+ *  pair reads exactly as it always did. */
 export const haltNode = (slug: string, nid: string): Promise<{
   halted: boolean; settled: boolean; halting?: boolean; status: string
+  operation?: { operation_id: string; state: string; requested_at: string }
+  blocking?: string[]
+  surviving_processes?: { kind: string; pid: number | null }[]
 }> => req(`/api/orgs/${slug}/nodes/${nid}/halt`, { method: 'POST' })
 export const unhaltNode = (slug: string, nid: string): Promise<{
   unhalted: boolean; status?: string
