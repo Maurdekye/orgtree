@@ -483,10 +483,19 @@ def _cut_state(slug: str, nid: str, st, *, halting: bool = True) -> None:
     # twice a second, which is why a halt that should have returned in 20 s
     # had not returned in 60 (coordinator measurement, 2026-09-20).
     # `_wd_kill_tree` above already early-returns on a dead handle;
-    # `AppServerClient.close` now does its own liveness check before the OS
-    # work; and `warmpool.halt_kill` is asked only when the pool says it has
-    # something left. Nothing alive is ever skipped: every guard is a
-    # liveness test, not a "we tried once" memo.
+    # and `AppServerClient.close` now does its own liveness check before the
+    # OS work. Nothing alive is ever skipped: the guard is a liveness test,
+    # not a "we tried once" memo.
+    #
+    # ⚠ `warmpool.halt_kill` IS NOT GUARDED, and that is deliberate — a first
+    # attempt at this wrapped it in `if not warmpool.halt_settled(...)` and
+    # broke `test_a_warm_process_removed_from_pool_still_blocks_halt_until_
+    # reaped`. Its teardown bookkeeping (`_end_teardown`, which is what drops
+    # a reaped process out of `warmpool._terminating`) only runs INSIDE that
+    # call, so skipping it on the settled pass leaks the entry forever. It is
+    # already cheap on a settled node: `kill_node` returns at once with no
+    # pool entry, `_wd_kill_tree` early-returns on a dead handle, and
+    # `_reap`'s `wait()` on an already-exited process returns immediately.
     if codex is not None:
         codex.client.close()
     if agy is not None:
@@ -494,8 +503,7 @@ def _cut_state(slug: str, nid: str, st, *, halting: bool = True) -> None:
     if compact_client is not None:
         compact_client.close()
     sup._cancel_working_cache(slug, nid)
-    if not warmpool.halt_settled(slug, nid):
-        warmpool.halt_kill(slug, nid)
+    warmpool.halt_kill(slug, nid)
 
 
 def _settled(slug: str, nid: str, st) -> bool:

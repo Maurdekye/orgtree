@@ -108,32 +108,52 @@ const BODY_EXCERPT = 300
  *  status code is always prefixed, so "500" is visible even when the body
  *  is empty — an empty body used to produce `new Error('')`, which renders
  *  as no message at all. */
-const failure = async (r: Response): Promise<Error> => {
-  let text = ''
-  try { text = await r.text() } catch { /* body already consumed or torn */ }
-  const trimmed = text.trim()
-  let detail = ''
-  if (trimmed) {
-    try {
-      const parsed: unknown = JSON.parse(trimmed)
-      if (typeof parsed === 'string') detail = parsed
-      else if (parsed && typeof parsed === 'object') {
-        const b = parsed as { detail?: unknown; message?: unknown; error?: unknown }
-        for (const v of [b.detail, b.message, b.error]) {
-          if (typeof v === 'string' && v.trim()) { detail = v.trim(); break }
-          // FastAPI validation errors put an array of objects in `detail`
-          if (v && typeof v === 'object') { detail = JSON.stringify(v).slice(0, BODY_EXCERPT); break }
-        }
-      }
-    } catch {
-      // not JSON: the body itself is the most informative thing we have
-      detail = trimmed.slice(0, BODY_EXCERPT)
-    }
+/** The server's own words out of a parsed error body, or '' if it has none. */
+const stated = (parsed: unknown): string => {
+  if (typeof parsed === 'string') return parsed.trim()
+  if (!parsed || typeof parsed !== 'object') return ''
+  const b = parsed as { detail?: unknown; message?: unknown; error?: unknown }
+  for (const v of [b.detail, b.message, b.error]) {
+    if (typeof v === 'string' && v.trim()) return v.trim()
+    // a FastAPI validation error puts an array of objects on `detail`
+    if (v && typeof v === 'object') return JSON.stringify(v).slice(0, BODY_EXCERPT)
   }
-  if (!detail) detail = r.statusText || 'request failed'
-  const e = new Error(`${r.status}: ${detail}`)
+  return ''
+}
+
+const failure = async (r: Response): Promise<Error> => {
+  let text: string | null = null
+  let parsed: unknown
+  // ⚠ `typeof r.text === 'function'` IS FOR THE TEST DOUBLES, not for real
+  // responses. Every browser/Node `Response` has `text()`; a dozen suites in
+  // apps/desktop/renderer/tests hand-roll a minimal stub with `json()` and
+  // nothing else, and reading a body through an accessor they do not have
+  // would turn every one of their error assertions into a different message.
+  // Nothing is hidden by the fallback: the real non-JSON path is measured
+  // against a real `Response` in tests/stopnonjson.test.tsx.
+  if (typeof r.text === 'function') {
+    try { text = await r.text() } catch { text = null }
+    if (text && text.trim()) {
+      try { parsed = JSON.parse(text) } catch { parsed = undefined }
+    }
+  } else if (typeof r.json === 'function') {
+    try { parsed = await r.json() } catch { parsed = undefined }
+  }
+  // ⚠ WHEN THE SERVER STATED A REASON, THAT REASON IS THE WHOLE MESSAGE —
+  // byte for byte what `b.detail || r.statusText` produced before. Every
+  // error string this app shows comes through here, so decorating the normal
+  // case would change hundreds of user-visible messages to fix one broken
+  // one. The status is prefixed ONLY where the alternative is a body that
+  // cannot say what it is, such as a bare `Internal Server Error`.
+  const detail = stated(parsed)
+  const body = (text ?? '').trim()
+  const message = detail
+    || (body ? `${r.status}: ${body.slice(0, BODY_EXCERPT)}` : '')
+    || r.statusText
+    || `HTTP ${r.status}`
+  const e = new Error(message)
   // kept for callers that want to branch on the status rather than the prose
-  Object.assign(e, { status: r.status, body: trimmed.slice(0, BODY_EXCERPT) })
+  Object.assign(e, { status: r.status, body: body.slice(0, BODY_EXCERPT) })
   return e
 }
 

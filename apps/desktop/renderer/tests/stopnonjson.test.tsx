@@ -60,15 +60,32 @@ test('the same guard covers interrupt, the other verb the stop button reaches', 
   })
 })
 
-test('a JSON error body still reads exactly as it always did', async () => {
+test('a JSON error body reads BYTE FOR BYTE as it always did', async () => {
+  // The compatibility guarantee, asserted rather than hoped for. Every error
+  // string this app shows passes through `failure`, so the normal case — the
+  // server stated a reason — must come out undecorated, exactly as
+  // `b.detail || r.statusText` produced it.
   const detail = 'halt is still settling — wait for the active turn to end'
   await withFetch(() => new Response(JSON.stringify({ detail }), {
     status: 409, headers: { 'Content-Type': 'application/json' },
   }), async () => {
     const e = await haltNode('org', 'worker').then(
       () => { throw new Error('resolved') }, (err: unknown) => err as Error)
-    assert.match(e.message, /409: /)
-    assert.ok(e.message.endsWith(detail), e.message)
+    assert.equal(e.message, detail)
+  })
+})
+
+test('a stub response exposing only json() is read the same way', async () => {
+  // Most suites in this folder hand-roll a Response with `json()` and no
+  // `text()`. `failure` must still find the detail through it.
+  const detail = 'no capacity on that account'
+  await withFetch(() => ({
+    ok: false, status: 409, statusText: 'err', headers: new Headers(),
+    json: async () => ({ detail }),
+  } as unknown as Response), async () => {
+    const e = await haltNode('org', 'worker').then(
+      () => { throw new Error('resolved') }, (err: unknown) => err as Error)
+    assert.equal(e.message, detail)
   })
 })
 
@@ -80,7 +97,7 @@ test('an empty error body still says something', async () => {
     const e = await haltNode('org', 'worker').then(
       () => { throw new Error('resolved') }, (err: unknown) => err as Error)
     assert.ok(e.message.trim().length > 3, JSON.stringify(e.message))
-    assert.match(e.message, /^502: /)
+    assert.match(e.message, /502/)
   })
 })
 
@@ -103,6 +120,7 @@ test('the status code rides on the error for callers that branch on it', async (
     const e = await haltNode('org', 'worker').then(
       () => { throw new Error('resolved') }, (err: unknown) => err as Error)
     assert.equal((e as Error & { status?: number }).status, 409)
+    assert.match(e.message, /Conflict/)
   })
 })
 

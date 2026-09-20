@@ -1324,7 +1324,18 @@ class CodexTurn:
         #: halt worker registration and pinning the node in `halting`.
         #: Registering LATE is safe and deliberate: `add_exit_listener` fires
         #: at once if the process is already gone.
-        self.client.add_exit_listener(self._server_exited)
+        #:
+        #: ⚠ `getattr` BECAUSE OF TEST DOUBLES, NOT BECAUSE THE REAL CLIENT
+        #: MIGHT LACK IT. `AppServerClient` always has this method; the
+        #: several stand-in clients in tests/ implement only the handful of
+        #: calls each one needs, and an unconditional call turned three
+        #: unrelated suites into AttributeErrors. Nothing is hidden by the
+        #: fallback: the wiring itself is measured against a REAL client over
+        #: a real child process in tests/test_halt_lifecycle_settlement.py,
+        #: which fails if this registration is removed or renamed.
+        _listen = getattr(self.client, "add_exit_listener", None)
+        if callable(_listen):
+            _listen(self._server_exited)
 
     def _tool_result(self, rec: dict[str, Any]) -> None:
         """The client's per-request sink (captured at admission, so a record
@@ -1732,7 +1743,9 @@ class CodexTurn:
         and no lifecycle verb should ever learn about it as a stack trace."""
         if not (self.thread_id and self.turn_id):
             return False
-        if self.client.exited():
+        # same test-double tolerance as the exit listener in `__init__`
+        _exited = getattr(self.client, "exited", None)
+        if callable(_exited) and _exited():
             return False
         try:
             self.client.request("turn/interrupt", {
