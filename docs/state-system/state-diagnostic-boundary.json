@@ -1,0 +1,138 @@
+{
+  "schema": "orgtree.state-diagnostic-boundary/v1",
+  "source_contract_sha256": "cb363613288791047e07bd37b609b554c0a2c63b944c4ff84a8f38bf23b281c5",
+  "qualification": {
+    "runtime_census": false,
+    "conversion_authorized": false
+  },
+  "tools": {
+    "orgtree_state_inspect": "diagnostic.inspect",
+    "orgtree_capabilities": "diagnostic.capabilities"
+  },
+  "shapes": {
+    "inspection": [
+      "actor",
+      "visibility",
+      "nodes"
+    ],
+    "node": [
+      "id",
+      "title",
+      "state",
+      "parent",
+      "generation",
+      "model",
+      "provider",
+      "grant",
+      "seat_cost",
+      "free",
+      "archived_at",
+      "bearer_state",
+      "account_binding",
+      "scope",
+      "frozen",
+      "pending_switch",
+      "last_status",
+      "mail_blocked"
+    ],
+    "account_binding": [
+      "present",
+      "missing",
+      "provider"
+    ],
+    "scope": [
+      "org_visibility",
+      "permission_mode",
+      "tools",
+      "mcp"
+    ],
+    "tools": [
+      "bash",
+      "web",
+      "edit",
+      "subagents"
+    ],
+    "frozen": [
+      "provider",
+      "cause",
+      "pool",
+      "until_ts"
+    ],
+    "pending_switch": [
+      "from",
+      "tier",
+      "crossing",
+      "at"
+    ],
+    "last_status": [
+      "status",
+      "at"
+    ],
+    "mail_blocked": [
+      "reason",
+      "since",
+      "queued"
+    ],
+    "capabilities": [
+      "actor",
+      "surface",
+      "operations",
+      "operator_only",
+      "agent_only",
+      "scope"
+    ],
+    "capability_scope": [
+      "org_visibility",
+      "permission_mode"
+    ]
+  },
+  "visibility": [
+    "self",
+    "team",
+    "subtree",
+    "full"
+  ],
+  "false_flags": [
+    false,
+    null,
+    0,
+    "",
+    " false ",
+    "0",
+    "NO",
+    "null",
+    "None",
+    []
+  ],
+  "true_flags": [
+    true,
+    1,
+    "true",
+    "yes",
+    "anything",
+    [
+      1
+    ]
+  ],
+  "operator_only": [
+    "rescind",
+    "delete",
+    "reseed"
+  ],
+  "agent_only": [
+    "orgtree_swap",
+    "orgtree_self_subjugate",
+    "orgtree_move"
+  ],
+  "receipt_coverage": "",
+  "native_obligations": [
+    "effective_output_fence",
+    "generation_revalidation",
+    "invalid_visibility_refusal",
+    "indexed_visibility_and_funding_reads",
+    "complete_contacts",
+    "full_wire_parity",
+    "receipt_classification"
+  ],
+  "scope": "Disposable real agent HTTP and existing migrated SQLite, local source-bound catalogue. No ASGI lifecycle, native service, migration, live census or native concurrency qualification."
+}

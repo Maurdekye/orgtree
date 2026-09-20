@@ -22,8 +22,9 @@ specific unresolved questions. The domain classification is `read` for scratch
 and `conditional_write` for transcript; domain mode is never a complete
 physical contact classification.
 
-Current totals are four mapped registration sites, sixteen mapped dispatch
-witnesses and zero closed storage candidates. There are 597 pending obligations:
+At this package's first landing there were four mapped registration sites,
+sixteen mapped dispatch witnesses and zero closed storage candidates, with
+597 pending obligations:
 305 registrations, 209 dispatch witnesses, 15 connection candidates and 68
 dimension occurrences. That is eight more than the preceding 589 because this
 package replaces four pending source witnesses with two detailed contracts
@@ -37,6 +38,8 @@ tools/shapes/cases, changed limits, dropped native obligations, stale registry
 bindings and claims that these tests authorize census or conversion. The
 existing reservation fixture changes only its registry digest; its response
 expectations are unchanged.
+
+Current expanded registry totals are maintained in operation-contracts.md.
 
 ## Authority and observable responses
 

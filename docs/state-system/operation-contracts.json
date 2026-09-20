@@ -1897,6 +1897,857 @@
       "open_questions": [
         "Implement P02 complete runtime instrumentation and drift/unknown-contact refusal, then native concurrency/negative controls; fixture observations are neither a full census nor conversion authorization."
       ]
+    },
+    "diagnostic.authority": {
+      "dimension": "authority",
+      "status": "specified",
+      "facts": [
+        "Legacy source contract for structural inspection and capability reporting only. The real agent HTTP door authenticates the org/node/generation, refuses archived/replaced callers and halt/killswitch, then these branches load an independent org and require the named caller live. Frozen-profile middleware additionally rejects non-loopback non-bridge clients before the diagnostic. Neither branch adds an operator identity or grants a permission.",
+        "Inspection visibility is self; team (self plus siblings sharing the same parent, not the parent or children); subtree (self plus recursive descendants); or full (rooted tree). The helper falls back to team for an empty value, but Org construction backfills a missing visibility with full before the public branch runs. These legacy defaults are distinct. Explicit hidden or unknown targets refuse as one whole request before any _safe_node call. Item membership and material-read audience grants do not broaden this structural visibility.",
+        "include_archived controls the visible universe as well as explicit target eligibility. Live-only output finally filters state exactly equal to live. The selected node row may still carry its parent id even when the parent row itself is outside visibility; that existing structural reference is not authority to inspect the parent.",
+        "Capability operations are the install-wide available_tools catalogue, not a filtered list of actions authorized for this actor/target. Restricted scope is displayed separately. Subsequent real dispatch repeats its ordinary authority checks.",
+        "Legacy deficiencies remain explicit: an unrecognized nonempty visibility falls through to full, and current generation/visibility is not fenced through completed output. The native design must not adopt these as acceptable default authority."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 294,
+          "end": 333,
+          "sha256": "e792a1f6df60ee1bcb040a8c5d408f211184eb04a67209cc62149370071d1b66"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9316,
+          "end": 9339,
+          "sha256": "114f6530ccf48f0b2e4e78d6445246aef29e1f2a8b87eb1786e7248c9e6081e8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9467,
+          "end": 9477,
+          "sha256": "0ada12c9eb38cb22f164e48177a86e95e5c9aec15128aa39bb34a4e1bad9ad67"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10715,
+          "end": 10800,
+          "sha256": "935ffa00b2fd10edde1cd94ed91cbe066114ae706fdc1d4b8f059b7b3ba1a608"
+        },
+        {
+          "path": "engine/backend/orgtree/halt.py",
+          "start": 107,
+          "end": 125,
+          "sha256": "6407b7cf2b43cbd9a6315d54352dfdeffca5d285462b778a1332a45120398a8a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10859,
+          "end": 10879,
+          "sha256": "1a3c4e7f727769dd397ca5b2e466500c7e395034e3676adf86206e4d38f1f78c"
+        },
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 29,
+          "end": 158,
+          "sha256": "925e3f9e5bce2b523eda36106c16dd46ba633edbcad5f002004c9e61de1f83e4"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 708,
+          "end": 744,
+          "sha256": "34e2c07b13f53247d1739af5af38711d1daef6c3e246fdd5e3a1fbffa01a53be"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 1241,
+          "end": 1313,
+          "sha256": "f03adc5e1a64e95b4345707f9e4a53b95a3378bc6c66500f9d047b32a19a80b7"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 1393,
+          "end": 1398,
+          "sha256": "2192719e66c5d5e0b7f7b3c8c8d22155634a45abe41ed7b9ad6d6d84e51cf6ec"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 1928,
+          "end": 1930,
+          "sha256": "28d5574d3e63b2b60cb3f1c67f1ccf646ba773d95fb1b1927301a751ee9ba43c"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9506,
+          "end": 9538,
+          "sha256": "9cace8b45da75d9cc385abbbd51506d6ba3195681315557f273547fac9769e5d"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2498,
+          "end": 2567,
+          "sha256": "8acde065b6159baa898e3b2c19ac68129c373cba008435d3dc0ee000f1f205d1"
+        },
+        {
+          "path": "engine/backend/orgtree/deployment.py",
+          "start": 15,
+          "end": 81,
+          "sha256": "ddca494f9879feba96d81e1970a34d24fdcbd3980a226dff80ff2fadb59e6d81"
+        },
+        {
+          "path": "engine/backend/orgtree/providers.py",
+          "start": 170,
+          "end": 194,
+          "sha256": "f67a662fb4062fe9b53307e2b81c6cee1e1a06d32e9070c879ba54b99f560717"
+        },
+        {
+          "path": "engine/backend/orgtree/openrouter.py",
+          "start": 374,
+          "end": 376,
+          "sha256": "edfd348ecf8eacfbbe8f0d6126959ec978efa9778747cf024221e7013b8becc6"
+        }
+      ],
+      "open_questions": []
+    },
+    "diagnostic.predicates": {
+      "dimension": "predicates",
+      "status": "specified",
+      "facts": [
+        "Caller liveness/generation and halt state; current visibility; current parent edges, child ordering and archive states define structural eligibility. Explicit targets intersect the computed visible set and retain request order and duplicates. Empty targets, including a list containing only empty strings, mean all visible rows.",
+        "A node grant/free projection also reads its current tier price and immediate non-archived children grants and prices; those children may be outside the requested output. Returned free is not a one-row read or a promise of spend authority. Archived rows return free:null.",
+        "Legacy children scans all node rows without an index argument, descendants recursively invokes it, and ordinary load_org materializes all eager nodes even for one target. Those costs are obligations for indexed native reads, never native acceptance criteria."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10859,
+          "end": 10879,
+          "sha256": "1a3c4e7f727769dd397ca5b2e466500c7e395034e3676adf86206e4d38f1f78c"
+        },
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 29,
+          "end": 158,
+          "sha256": "925e3f9e5bce2b523eda36106c16dd46ba633edbcad5f002004c9e61de1f83e4"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 708,
+          "end": 744,
+          "sha256": "34e2c07b13f53247d1739af5af38711d1daef6c3e246fdd5e3a1fbffa01a53be"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 1241,
+          "end": 1313,
+          "sha256": "f03adc5e1a64e95b4345707f9e4a53b95a3378bc6c66500f9d047b32a19a80b7"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 1393,
+          "end": 1398,
+          "sha256": "2192719e66c5d5e0b7f7b3c8c8d22155634a45abe41ed7b9ad6d6d84e51cf6ec"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 1928,
+          "end": 1930,
+          "sha256": "28d5574d3e63b2b60cb3f1c67f1ccf646ba773d95fb1b1927301a751ee9ba43c"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 2330,
+          "end": 2438,
+          "sha256": "fc072ebbad4d017aff0cf0330d6c8562c305d58309d645375255c6f5c2577730"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 3363,
+          "end": 3387,
+          "sha256": "c1423ff474848d1560b30b7cea08dbe74c673bf9be1f17c34231e573999b938d"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 3624,
+          "end": 3651,
+          "sha256": "4479a7d4394686e560f8accf0d041376562d56fb58e185b5c32617e8720dcfd2"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 4027,
+          "end": 4112,
+          "sha256": "8eeb86385ab4b17f5ef57bd1c2cf69ada99eeaac8b2409ea9303c87adc24b71a"
+        }
+      ],
+      "open_questions": []
+    },
+    "diagnostic.receipt": {
+      "dimension": "receipt",
+      "status": "specified",
+      "facts": [
+        "Neither diagnostic is present in the current legacy coverage table: coverage returns the empty unknown string, not the explicit NONE class. Their early dispatch branches nevertheless return before receipt admission/save. This classifier gap is recorded, not silently relabeled.",
+        "A syntactically accepted OP_CALL unwrap executes these reads freshly on each retry; no applied receipt is recorded, no duplicate is replayed and an unsupported-operation lookup cannot fence the key. Missing required wrapper data/nested wrappers still refuse. No fresh-operation namespace or native replay policy is inferred from that omission."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10473,
+          "end": 10536,
+          "sha256": "ad5d186c5a0805f3d3664618b628f5bf1f3bbdc3491e4ff37245e46954051983"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10567,
+          "end": 10677,
+          "sha256": "53e1cb9657b429c67fc83d7beba1dbb5eccce8684eaea78fe67c3356caa914f6"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 143,
+          "end": 213,
+          "sha256": "c2bcfb355066e92dd0c9ff38a3322e5d4af25d62c56b3163679babe16ce6bdf2"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 237,
+          "end": 266,
+          "sha256": "07cb03836a1fe1f525901429ab4b4d6bc142f711edf44df9fc1013ac1abaca2d"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10859,
+          "end": 10879,
+          "sha256": "1a3c4e7f727769dd397ca5b2e466500c7e395034e3676adf86206e4d38f1f78c"
+        },
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 29,
+          "end": 158,
+          "sha256": "925e3f9e5bce2b523eda36106c16dd46ba633edbcad5f002004c9e61de1f83e4"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 708,
+          "end": 744,
+          "sha256": "34e2c07b13f53247d1739af5af38711d1daef6c3e246fdd5e3a1fbffa01a53be"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 1241,
+          "end": 1313,
+          "sha256": "f03adc5e1a64e95b4345707f9e4a53b95a3378bc6c66500f9d047b32a19a80b7"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 1393,
+          "end": 1398,
+          "sha256": "2192719e66c5d5e0b7f7b3c8c8d22155634a45abe41ed7b9ad6d6d84e51cf6ec"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 1928,
+          "end": 1930,
+          "sha256": "28d5574d3e63b2b60cb3f1c67f1ccf646ba773d95fb1b1927301a751ee9ba43c"
+        }
+      ],
+      "open_questions": []
+    },
+    "diagnostic.reads": {
+      "dimension": "reads",
+      "status": "unresolved",
+      "facts": [
+        "Agent authentication and halt checks use cached_org; the diagnostic branch separately calls load_org. For SQLite, _load_sqlite_org takes pooled connections and _load_lazy reads eager doc and all nodes in a short BEGIN/COMMIT snapshot before projecting. Unnamed lazy sections, if reached, can observe a later revision.",
+        "Inspection reads structural/operational node fields, tier prices and child grant totals; provider_of uses static membership/prefix checks. Capabilities reads the MCP cards plus deployment profile and desktop-managed environment selectors. Ordinary capability reporting does not probe provider CLIs or network services.",
+        "The SQL fixture attaches to actual pooled acquisitions and retains only statement verbs, recognized table labels and a boolean for the known all-node SELECT. It distinguishes output size from underlying materialization without retaining SQL values."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 294,
+          "end": 333,
+          "sha256": "e792a1f6df60ee1bcb040a8c5d408f211184eb04a67209cc62149370071d1b66"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9316,
+          "end": 9339,
+          "sha256": "114f6530ccf48f0b2e4e78d6445246aef29e1f2a8b87eb1786e7248c9e6081e8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9467,
+          "end": 9477,
+          "sha256": "0ada12c9eb38cb22f164e48177a86e95e5c9aec15128aa39bb34a4e1bad9ad67"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10715,
+          "end": 10800,
+          "sha256": "935ffa00b2fd10edde1cd94ed91cbe066114ae706fdc1d4b8f059b7b3ba1a608"
+        },
+        {
+          "path": "engine/backend/orgtree/halt.py",
+          "start": 107,
+          "end": 125,
+          "sha256": "6407b7cf2b43cbd9a6315d54352dfdeffca5d285462b778a1332a45120398a8a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10859,
+          "end": 10879,
+          "sha256": "1a3c4e7f727769dd397ca5b2e466500c7e395034e3676adf86206e4d38f1f78c"
+        },
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 29,
+          "end": 158,
+          "sha256": "925e3f9e5bce2b523eda36106c16dd46ba633edbcad5f002004c9e61de1f83e4"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 708,
+          "end": 744,
+          "sha256": "34e2c07b13f53247d1739af5af38711d1daef6c3e246fdd5e3a1fbffa01a53be"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 1241,
+          "end": 1313,
+          "sha256": "f03adc5e1a64e95b4345707f9e4a53b95a3378bc6c66500f9d047b32a19a80b7"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 1393,
+          "end": 1398,
+          "sha256": "2192719e66c5d5e0b7f7b3c8c8d22155634a45abe41ed7b9ad6d6d84e51cf6ec"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 1928,
+          "end": 1930,
+          "sha256": "28d5574d3e63b2b60cb3f1c67f1ccf646ba773d95fb1b1927301a751ee9ba43c"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9506,
+          "end": 9538,
+          "sha256": "9cace8b45da75d9cc385abbbd51506d6ba3195681315557f273547fac9769e5d"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2498,
+          "end": 2567,
+          "sha256": "8acde065b6159baa898e3b2c19ac68129c373cba008435d3dc0ee000f1f205d1"
+        },
+        {
+          "path": "engine/backend/orgtree/deployment.py",
+          "start": 15,
+          "end": 81,
+          "sha256": "ddca494f9879feba96d81e1970a34d24fdcbd3980a226dff80ff2fadb59e6d81"
+        },
+        {
+          "path": "engine/backend/orgtree/providers.py",
+          "start": 170,
+          "end": 194,
+          "sha256": "f67a662fb4062fe9b53307e2b81c6cee1e1a06d32e9070c879ba54b99f560717"
+        },
+        {
+          "path": "engine/backend/orgtree/openrouter.py",
+          "start": 374,
+          "end": 376,
+          "sha256": "edfd348ecf8eacfbbe8f0d6126959ec978efa9778747cf024221e7013b8becc6"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 2330,
+          "end": 2438,
+          "sha256": "fc072ebbad4d017aff0cf0330d6c8562c305d58309d645375255c6f5c2577730"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 3363,
+          "end": 3387,
+          "sha256": "c1423ff474848d1560b30b7cea08dbe74c673bf9be1f17c34231e573999b938d"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 3624,
+          "end": 3651,
+          "sha256": "4479a7d4394686e560f8accf0d041376562d56fb58e185b5c32617e8720dcfd2"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 4027,
+          "end": 4112,
+          "sha256": "8eeb86385ab4b17f5ef57bd1c2cf69ada99eeaac8b2409ea9303c87adc24b71a"
+        }
+      ],
+      "open_questions": [
+        "Complete middleware, legacy input, schema/pool cold paths, JSON backend and malformed-state contacts under P02; the synthetic SQL witness is not a full runtime census."
+      ]
+    },
+    "diagnostic.writes": {
+      "dimension": "writes",
+      "status": "unresolved",
+      "facts": [
+        "These two leaf adapters do not call save_org or mutate the document. An already-created/migrated SQLite fixture proves no domain save, DML or org-sequence change during its measured read window. Volatile caches/probe state are outside that domain assertion.",
+        "Do not turn this into a universal no-write claim: load_org calls _ensure_migrated, which can finish an interrupted migration or invoke migrate_org for legacy JSON under the existing ownership gate. Pool/schema initialization, caches and request diagnostics also require separate accounting. This package never runs a migration or startup lifecycle."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10859,
+          "end": 10879,
+          "sha256": "1a3c4e7f727769dd397ca5b2e466500c7e395034e3676adf86206e4d38f1f78c"
+        },
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 29,
+          "end": 158,
+          "sha256": "925e3f9e5bce2b523eda36106c16dd46ba633edbcad5f002004c9e61de1f83e4"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 708,
+          "end": 744,
+          "sha256": "34e2c07b13f53247d1739af5af38711d1daef6c3e246fdd5e3a1fbffa01a53be"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 1241,
+          "end": 1313,
+          "sha256": "f03adc5e1a64e95b4345707f9e4a53b95a3378bc6c66500f9d047b32a19a80b7"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 1393,
+          "end": 1398,
+          "sha256": "2192719e66c5d5e0b7f7b3c8c8d22155634a45abe41ed7b9ad6d6d84e51cf6ec"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 1928,
+          "end": 1930,
+          "sha256": "28d5574d3e63b2b60cb3f1c67f1ccf646ba773d95fb1b1927301a751ee9ba43c"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 2330,
+          "end": 2438,
+          "sha256": "fc072ebbad4d017aff0cf0330d6c8562c305d58309d645375255c6f5c2577730"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 3363,
+          "end": 3387,
+          "sha256": "c1423ff474848d1560b30b7cea08dbe74c673bf9be1f17c34231e573999b938d"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 3624,
+          "end": 3651,
+          "sha256": "4479a7d4394686e560f8accf0d041376562d56fb58e185b5c32617e8720dcfd2"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 4027,
+          "end": 4112,
+          "sha256": "8eeb86385ab4b17f5ef57bd1c2cf69ada99eeaac8b2409ea9303c87adc24b71a"
+        }
+      ],
+      "open_questions": [
+        "Inventory/qualify all migration, cold-schema, request-diagnostic and cache writes before native physical-contact closure; preserve restore/refusal behavior."
+      ]
+    },
+    "diagnostic.conflicts": {
+      "dimension": "conflicts",
+      "status": "unresolved",
+      "facts": [
+        "The ordinary diagnostic leaf loads outside DOC_LOCK and holds no single transaction from identity check through output. _load_lazy protects its eager snapshot, not the preceding authenticated-generation check or later disclosure. Cache/pool/SQLite admission may impose separate waits.",
+        "A narrowed inspection still computes full visibility and free amounts. Native execution must read the actual affected topology/visibility/generation/archive/catalog/child facts with the approved output claim/fence; it must not add an org-wide visibility/version lock to replace these scans.",
+        "The legacy controlled race fixtures mutate only disposable state between defined source boundaries. They show stale-generation and restriction-during-projection windows; they are not native concurrency success tests."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 294,
+          "end": 333,
+          "sha256": "e792a1f6df60ee1bcb040a8c5d408f211184eb04a67209cc62149370071d1b66"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9316,
+          "end": 9339,
+          "sha256": "114f6530ccf48f0b2e4e78d6445246aef29e1f2a8b87eb1786e7248c9e6081e8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9467,
+          "end": 9477,
+          "sha256": "0ada12c9eb38cb22f164e48177a86e95e5c9aec15128aa39bb34a4e1bad9ad67"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10715,
+          "end": 10800,
+          "sha256": "935ffa00b2fd10edde1cd94ed91cbe066114ae706fdc1d4b8f059b7b3ba1a608"
+        },
+        {
+          "path": "engine/backend/orgtree/halt.py",
+          "start": 107,
+          "end": 125,
+          "sha256": "6407b7cf2b43cbd9a6315d54352dfdeffca5d285462b778a1332a45120398a8a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10859,
+          "end": 10879,
+          "sha256": "1a3c4e7f727769dd397ca5b2e466500c7e395034e3676adf86206e4d38f1f78c"
+        },
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 29,
+          "end": 158,
+          "sha256": "925e3f9e5bce2b523eda36106c16dd46ba633edbcad5f002004c9e61de1f83e4"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 708,
+          "end": 744,
+          "sha256": "34e2c07b13f53247d1739af5af38711d1daef6c3e246fdd5e3a1fbffa01a53be"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 1241,
+          "end": 1313,
+          "sha256": "f03adc5e1a64e95b4345707f9e4a53b95a3378bc6c66500f9d047b32a19a80b7"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 1393,
+          "end": 1398,
+          "sha256": "2192719e66c5d5e0b7f7b3c8c8d22155634a45abe41ed7b9ad6d6d84e51cf6ec"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 1928,
+          "end": 1930,
+          "sha256": "28d5574d3e63b2b60cb3f1c67f1ccf646ba773d95fb1b1927301a751ee9ba43c"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 2330,
+          "end": 2438,
+          "sha256": "fc072ebbad4d017aff0cf0330d6c8562c305d58309d645375255c6f5c2577730"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 3363,
+          "end": 3387,
+          "sha256": "c1423ff474848d1560b30b7cea08dbe74c673bf9be1f17c34231e573999b938d"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 3624,
+          "end": 3651,
+          "sha256": "4479a7d4394686e560f8accf0d041376562d56fb58e185b5c32617e8720dcfd2"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 4027,
+          "end": 4112,
+          "sha256": "8eeb86385ab4b17f5ef57bd1c2cf69ada99eeaac8b2409ea9303c87adc24b71a"
+        }
+      ],
+      "open_questions": [
+        "Specify and qualify indexed native read predicates, exact current-disclosure consumers and generation/restriction race protection, plus disjoint-reader/writer schedules, at the native gates."
+      ]
+    },
+    "diagnostic.wire": {
+      "dimension": "wire",
+      "status": "unresolved",
+      "facts": [
+        "The fixture pins the local structural fields and nested allowlists, role/visibility metadata, request order/duplicates, archived filtering and selected malformed argument refusals. Private account identity becomes present/missing/provider facts; charter, session, mail, transcript, directories and status summaries are omitted.",
+        "nodes must be a list when supplied; each element is then stringified, empty strings removed by inspect_state, and all targets checked together. nodes takes precedence over node even when empty. node uses shared text normalization. include_archived uses shared string-aware flag semantics, not plain bool of a string.",
+        "Capabilities returns actor,surface,operations,operator_only,agent_only,scope. The catalogue follows standard/frozen policy and desktop alias replacement, preserves order and has no provider availability guarantee. Topology/operator metadata cannot elevate the caller.",
+        "Allowed operational field values are projected as currently stored with selected bool/int/string coercions; this is an allowlist of fields, not recursive secret sanitization or a byte limit. Restored/malformed field types and complete middleware/error/Rust parity remain unresolved."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 294,
+          "end": 333,
+          "sha256": "e792a1f6df60ee1bcb040a8c5d408f211184eb04a67209cc62149370071d1b66"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9316,
+          "end": 9339,
+          "sha256": "114f6530ccf48f0b2e4e78d6445246aef29e1f2a8b87eb1786e7248c9e6081e8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9467,
+          "end": 9477,
+          "sha256": "0ada12c9eb38cb22f164e48177a86e95e5c9aec15128aa39bb34a4e1bad9ad67"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10715,
+          "end": 10800,
+          "sha256": "935ffa00b2fd10edde1cd94ed91cbe066114ae706fdc1d4b8f059b7b3ba1a608"
+        },
+        {
+          "path": "engine/backend/orgtree/halt.py",
+          "start": 107,
+          "end": 125,
+          "sha256": "6407b7cf2b43cbd9a6315d54352dfdeffca5d285462b778a1332a45120398a8a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10859,
+          "end": 10879,
+          "sha256": "1a3c4e7f727769dd397ca5b2e466500c7e395034e3676adf86206e4d38f1f78c"
+        },
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 29,
+          "end": 158,
+          "sha256": "925e3f9e5bce2b523eda36106c16dd46ba633edbcad5f002004c9e61de1f83e4"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 708,
+          "end": 744,
+          "sha256": "34e2c07b13f53247d1739af5af38711d1daef6c3e246fdd5e3a1fbffa01a53be"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 1241,
+          "end": 1313,
+          "sha256": "f03adc5e1a64e95b4345707f9e4a53b95a3378bc6c66500f9d047b32a19a80b7"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 1393,
+          "end": 1398,
+          "sha256": "2192719e66c5d5e0b7f7b3c8c8d22155634a45abe41ed7b9ad6d6d84e51cf6ec"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 1928,
+          "end": 1930,
+          "sha256": "28d5574d3e63b2b60cb3f1c67f1ccf646ba773d95fb1b1927301a751ee9ba43c"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9506,
+          "end": 9538,
+          "sha256": "9cace8b45da75d9cc385abbbd51506d6ba3195681315557f273547fac9769e5d"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2498,
+          "end": 2567,
+          "sha256": "8acde065b6159baa898e3b2c19ac68129c373cba008435d3dc0ee000f1f205d1"
+        },
+        {
+          "path": "engine/backend/orgtree/deployment.py",
+          "start": 15,
+          "end": 81,
+          "sha256": "ddca494f9879feba96d81e1970a34d24fdcbd3980a226dff80ff2fadb59e6d81"
+        },
+        {
+          "path": "engine/backend/orgtree/providers.py",
+          "start": 170,
+          "end": 194,
+          "sha256": "f67a662fb4062fe9b53307e2b81c6cee1e1a06d32e9070c879ba54b99f560717"
+        },
+        {
+          "path": "engine/backend/orgtree/openrouter.py",
+          "start": 374,
+          "end": 376,
+          "sha256": "edfd348ecf8eacfbbe8f0d6126959ec978efa9778747cf024221e7013b8becc6"
+        }
+      ],
+      "open_questions": [
+        "Complete schema/type/malformed-state, operator/bridge/middleware and Rust/native wire parity. Legacy broadening on corrupt visibility is not an approved native fallback."
+      ]
+    },
+    "diagnostic.effects": {
+      "dimension": "effects",
+      "status": "unresolved",
+      "facts": [
+        "Normal diagnostic leaves do not intentionally send mail, wake/launch a process, inspect a transcript or change provider/account credentials. available_tools only evaluates deployment environment and transforms local card definitions.",
+        "Transitive storage acquisition can encounter migration/recovery guards before the nominal read. Request profiling and in-memory caching are separate effects. The tests prohibit provider process/network and domain-save paths only within their declared disposable measured window."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10859,
+          "end": 10879,
+          "sha256": "1a3c4e7f727769dd397ca5b2e466500c7e395034e3676adf86206e4d38f1f78c"
+        },
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 29,
+          "end": 158,
+          "sha256": "925e3f9e5bce2b523eda36106c16dd46ba633edbcad5f002004c9e61de1f83e4"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 708,
+          "end": 744,
+          "sha256": "34e2c07b13f53247d1739af5af38711d1daef6c3e246fdd5e3a1fbffa01a53be"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 1241,
+          "end": 1313,
+          "sha256": "f03adc5e1a64e95b4345707f9e4a53b95a3378bc6c66500f9d047b32a19a80b7"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 1393,
+          "end": 1398,
+          "sha256": "2192719e66c5d5e0b7f7b3c8c8d22155634a45abe41ed7b9ad6d6d84e51cf6ec"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 1928,
+          "end": 1930,
+          "sha256": "28d5574d3e63b2b60cb3f1c67f1ccf646ba773d95fb1b1927301a751ee9ba43c"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9506,
+          "end": 9538,
+          "sha256": "9cace8b45da75d9cc385abbbd51506d6ba3195681315557f273547fac9769e5d"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2498,
+          "end": 2567,
+          "sha256": "8acde065b6159baa898e3b2c19ac68129c373cba008435d3dc0ee000f1f205d1"
+        },
+        {
+          "path": "engine/backend/orgtree/deployment.py",
+          "start": 15,
+          "end": 81,
+          "sha256": "ddca494f9879feba96d81e1970a34d24fdcbd3980a226dff80ff2fadb59e6d81"
+        },
+        {
+          "path": "engine/backend/orgtree/providers.py",
+          "start": 170,
+          "end": 194,
+          "sha256": "f67a662fb4062fe9b53307e2b81c6cee1e1a06d32e9070c879ba54b99f560717"
+        },
+        {
+          "path": "engine/backend/orgtree/openrouter.py",
+          "start": 374,
+          "end": 376,
+          "sha256": "edfd348ecf8eacfbbe8f0d6126959ec978efa9778747cf024221e7013b8becc6"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 2330,
+          "end": 2438,
+          "sha256": "fc072ebbad4d017aff0cf0330d6c8562c305d58309d645375255c6f5c2577730"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 3363,
+          "end": 3387,
+          "sha256": "c1423ff474848d1560b30b7cea08dbe74c673bf9be1f17c34231e573999b938d"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 3624,
+          "end": 3651,
+          "sha256": "4479a7d4394686e560f8accf0d041376562d56fb58e185b5c32617e8720dcfd2"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 4027,
+          "end": 4112,
+          "sha256": "8eeb86385ab4b17f5ef57bd1c2cf69ada99eeaac8b2409ea9303c87adc24b71a"
+        }
+      ],
+      "open_questions": [
+        "Complete transitive cold/legacy/recovery/diagnostic effects and their failure semantics before conversion; no effect/atomicity conclusion follows solely from a read-shaped tool."
+      ]
+    },
+    "diagnostic.instrumentation": {
+      "dimension": "instrumentation",
+      "status": "unresolved",
+      "facts": [
+        "P01 records source-backed predicates and fixture-only actual pooled SQL contacts. No production logger is enabled and no live data, statement values or credentials are recorded by the test observer.",
+        "P02 still requires the complete logical-operation denominator, actual physical/logical contacts and transaction/lock/wait accounting, including cache hits, hidden eager loads and failures. These tests do not measure latency, CPU/GIL capacity or native storage concurrency."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10859,
+          "end": 10879,
+          "sha256": "1a3c4e7f727769dd397ca5b2e466500c7e395034e3676adf86206e4d38f1f78c"
+        },
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 29,
+          "end": 158,
+          "sha256": "925e3f9e5bce2b523eda36106c16dd46ba633edbcad5f002004c9e61de1f83e4"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 708,
+          "end": 744,
+          "sha256": "34e2c07b13f53247d1739af5af38711d1daef6c3e246fdd5e3a1fbffa01a53be"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 1241,
+          "end": 1313,
+          "sha256": "f03adc5e1a64e95b4345707f9e4a53b95a3378bc6c66500f9d047b32a19a80b7"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 1393,
+          "end": 1398,
+          "sha256": "2192719e66c5d5e0b7f7b3c8c8d22155634a45abe41ed7b9ad6d6d84e51cf6ec"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 1928,
+          "end": 1930,
+          "sha256": "28d5574d3e63b2b60cb3f1c67f1ccf646ba773d95fb1b1927301a751ee9ba43c"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 2330,
+          "end": 2438,
+          "sha256": "fc072ebbad4d017aff0cf0330d6c8562c305d58309d645375255c6f5c2577730"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 3363,
+          "end": 3387,
+          "sha256": "c1423ff474848d1560b30b7cea08dbe74c673bf9be1f17c34231e573999b938d"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 3624,
+          "end": 3651,
+          "sha256": "4479a7d4394686e560f8accf0d041376562d56fb58e185b5c32617e8720dcfd2"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 4027,
+          "end": 4112,
+          "sha256": "8eeb86385ab4b17f5ef57bd1c2cf69ada99eeaac8b2409ea9303c87adc24b71a"
+        }
+      ],
+      "open_questions": [
+        "Implement the approved P02 complete contact/profile/loss/drift instrumentation and native negative controls; runtime_census and conversion_authorized remain false."
+      ]
     }
   },
   "contracts": {
@@ -2705,6 +3556,120 @@
           "sha256": "ef521f971cc95102c694d561369420c368c9a08bcaa547cc55e19b8a0d70467a"
         }
       ]
+    },
+    "diagnostic.inspect": {
+      "entry_ids": [
+        "5cda2cb679e314e96e0addd228e9dd6fce031223069ce0ca851f295e522b50b8"
+      ],
+      "tools": [
+        "orgtree_state_inspect"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "domain_mode": "read",
+      "dimensions": {
+        "authority": [
+          "diagnostic.authority"
+        ],
+        "reads": [
+          "diagnostic.reads"
+        ],
+        "writes": [
+          "diagnostic.writes"
+        ],
+        "predicates": [
+          "diagnostic.predicates"
+        ],
+        "conflicts": [
+          "diagnostic.conflicts"
+        ],
+        "wire": [
+          "diagnostic.wire"
+        ],
+        "receipt": [
+          "diagnostic.receipt"
+        ],
+        "effects": [
+          "diagnostic.effects"
+        ],
+        "instrumentation": [
+          "diagnostic.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2247,
+          "end": 2263,
+          "sha256": "cbb24e1a2d4ee5dca7fd009cb3b8d4863665a7b7f8d559ecccb1c26c25a46e0d"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10859,
+          "end": 10879,
+          "sha256": "1a3c4e7f727769dd397ca5b2e466500c7e395034e3676adf86206e4d38f1f78c"
+        }
+      ]
+    },
+    "diagnostic.capabilities": {
+      "entry_ids": [
+        "fd3accb2d43bd7a43bcf198e0c49e8a61bcdfe0ddfed59495cb487a489fc69d0"
+      ],
+      "tools": [
+        "orgtree_capabilities"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "domain_mode": "read",
+      "dimensions": {
+        "authority": [
+          "diagnostic.authority"
+        ],
+        "reads": [
+          "diagnostic.reads"
+        ],
+        "writes": [
+          "diagnostic.writes"
+        ],
+        "predicates": [
+          "diagnostic.predicates"
+        ],
+        "conflicts": [
+          "diagnostic.conflicts"
+        ],
+        "wire": [
+          "diagnostic.wire"
+        ],
+        "receipt": [
+          "diagnostic.receipt"
+        ],
+        "effects": [
+          "diagnostic.effects"
+        ],
+        "instrumentation": [
+          "diagnostic.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2264,
+          "end": 2271,
+          "sha256": "c1ef972e5d5491d31c47db795accf4161e64b6cc20fe5509759a0098c4d83314"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10859,
+          "end": 10879,
+          "sha256": "1a3c4e7f727769dd397ca5b2e466500c7e395034e3676adf86206e4d38f1f78c"
+        }
+      ]
     }
   },
   "wire_cases": [
@@ -2990,6 +3955,20 @@
       },
       "contract": "material.transcript",
       "domain_mode": "conditional_write"
+    },
+    {
+      "name": "diagnostic.inspect",
+      "entry_id": "5cda2cb679e314e96e0addd228e9dd6fce031223069ce0ca851f295e522b50b8",
+      "args": {},
+      "contract": "diagnostic.inspect",
+      "domain_mode": "read"
+    },
+    {
+      "name": "diagnostic.capabilities",
+      "entry_id": "fd3accb2d43bd7a43bcf198e0c49e8a61bcdfe0ddfed59495cb487a489fc69d0",
+      "args": {},
+      "contract": "diagnostic.capabilities",
+      "domain_mode": "read"
     }
   ],
   "limits": [
@@ -2998,7 +3977,8 @@
     "Registration sites are not a runtime operation denominator.",
     "Source assertions and selector checks do not establish public result parity, native isolation or actual atomicity.",
     "The reservation boundary suite executes the current public API against disposable SQLite state with provider wakes replaced by spies. It is legacy conformance evidence, not a live census or PostgreSQL/Rust qualification.",
-    "Paired material-read fixtures pin legacy authenticated behavior and expose known native differences. Sidecar observations are synthetic and incomplete; no runtime-census or conversion gate is passed."
+    "Paired material-read fixtures pin legacy authenticated behavior and expose known native differences. Sidecar observations are synthetic and incomplete; no runtime-census or conversion gate is passed.",
+    "Structural diagnostic contracts characterize current visibility, projection and catalogue behavior only. Unknown receipt classification, corrupt visibility and in-flight disclosure remain explicit gaps; no runtime/native gates pass."
   ],
   "entries": [
     {
@@ -4810,17 +5790,47 @@
     },
     {
       "id": "5cda2cb679e314e96e0addd228e9dd6fce031223069ce0ca851f295e522b50b8",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "diagnostic.inspect"
+      ],
+      "reason": "Authenticated structural diagnostic contract; native disclosure and full contact closure remain unresolved.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2247,
+          "end": 2263,
+          "sha256": "cbb24e1a2d4ee5dca7fd009cb3b8d4863665a7b7f8d559ecccb1c26c25a46e0d"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10859,
+          "end": 10879,
+          "sha256": "1a3c4e7f727769dd397ca5b2e466500c7e395034e3676adf86206e4d38f1f78c"
+        }
+      ]
     },
     {
       "id": "fd3accb2d43bd7a43bcf198e0c49e8a61bcdfe0ddfed59495cb487a489fc69d0",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "diagnostic.capabilities"
+      ],
+      "reason": "Authenticated structural diagnostic contract; native disclosure and full contact closure remain unresolved.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2264,
+          "end": 2271,
+          "sha256": "c1ef972e5d5491d31c47db795accf4161e64b6cc20fe5509759a0098c4d83314"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10859,
+          "end": 10879,
+          "sha256": "1a3c4e7f727769dd397ca5b2e466500c7e395034e3676adf86206e4d38f1f78c"
+        }
+      ]
     },
     {
       "id": "609b0199025a0a83070be35388f5340e9515576032719ef8d1cbc71e415c7c57",
@@ -5614,17 +6624,35 @@
     },
     {
       "id": "70f6812afed3fda345b4a5613ddcc0899357b3336d501fcd17376a1580b87d2d",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "diagnostic.inspect"
+      ],
+      "reason": "Exact diagnostic-only selector; shared preview branch and HTTP door remain pending.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10868,
+          "end": 10868,
+          "sha256": "b8b76add9198dd99469647dda3211bd74a5545daaf92f41540d351f6ed91f4dd"
+        }
+      ]
     },
     {
       "id": "1ace2609fbb6a9b56ffc08e598c2d11cdf6153c49506c863c6653aaab08dfcaf",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "diagnostic.capabilities"
+      ],
+      "reason": "Exact diagnostic-only selector; shared preview branch and HTTP door remain pending.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10878,
+          "end": 10878,
+          "sha256": "0c9c3eae0a93ab240923a4dce6e20c0e232607c3a0cb580ac27a97c3bcfb1fd1"
+        }
+      ]
     },
     {
       "id": "db081ae22cbb49bafb7e3f8c570877bcc552823591de73357183633b0b9b7dd3",

@@ -3,8 +3,9 @@
 This bounded package builds on source-inventory commit
 83b2fe414ff416418b4bd45bc7a27bfbb16350fd and frozen v6 design
 b830a69bd71b0cee052e78acfe1ceff6b399532765db7ed55d05a253f0f84dfd.
-It supplies a checked contract format, reservation and material-read families, and
-public-boundary conformance fixtures. **P01 remains incomplete.** It changes no
+It supplies a checked contract format, reservation, material-read and structural
+diagnostic families, and public-boundary conformance fixtures.
+**P01 remains incomplete.** It changes no
 backend entry point, database, permission, receipt, dependency or product behavior.
 
 ## Two separate questions
@@ -100,12 +101,14 @@ witnesses map to these variants. Source-backed reservation/item authority and le
 semantics are specified; shared wrappers, physical contacts, native conflicts,
 full malformed-input parity and runtime probes remain unresolved. The paired
 material-read package now adds two tool cards and two more dispatch witnesses.
-Across both families, 305 registrations, 209 dispatch witnesses, all 15 storage
-candidates and 68 dimension occurrences remain pending (597 obligations).
-The count increased by eight because four source witnesses became detailed
-contracts exposing twelve unresolved dimension occurrences; it is not a count
-of runtime operations or a progress percentage. See material-read-boundary.md
-for executable current-disclosure, local response and transitive-write evidence.
+The structural-diagnostic package adds two further tool cards and two individual
+dispatch witnesses. Across all three families, 303 registrations, 207 dispatch
+witnesses, all 15 storage candidates and 80 dimension occurrences remain pending
+(605 obligations). Each new pair of tools replaced four pending source witnesses
+with detailed contracts exposing twelve unresolved dimension occurrences; this
+is not a runtime operation count or a progress percentage. See
+material-read-boundary.md and state-diagnostic-boundary.md for the executable
+authority, local response and transitive storage evidence and their limits.
 
 `reservation-boundary.json` binds to the canonical hash of this registry and
 requires both aliases and every variant. It records complete top-level and
