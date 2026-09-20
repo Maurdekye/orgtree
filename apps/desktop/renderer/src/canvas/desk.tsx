@@ -2173,10 +2173,30 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   // this desk's own writes are recognised by value (anchorEcho) and change
   // nothing; and the whole thing disarms when the reader re-sticks to the
   // tail, or a settle window after the flight ends.
+  //
+  // ⚠ AND THE EVENT IS NOT THE MOVEMENT (independent review, 2026-09-20).
+  // A native scroller moves the moment scrollTop is assigned or
+  // scrollIntoView runs — reply navigation does exactly that — but the
+  // scroll EVENT reporting it is delivered asynchronously, coalesced, a
+  // task later. A page landing inside that gap used to find the anchor
+  // still describing the pre-move position and write it back, erasing a
+  // move the reader had already made; the event then arrived carrying the
+  // hold's own value, so the echo check read the theft as an echo. The
+  // hold therefore never trusts the anchor against the live viewport:
+  // knownTop below records every position this desk has ACCOUNTED FOR (a
+  // delivered event, its own write, a capture), and a hold that finds the
+  // viewport anywhere else re-captures there instead of asserting — that
+  // difference IS the reader's (or the browser's own scroll anchoring's)
+  // not-yet-reported movement (transcriptprepend §7/§8).
   const growAnchor = useRef<{ row: HTMLElement | null; offset: number; fromBottom: number } | null>(null)
   /** the scrollTop this desk itself just wrote — the next scroll event
    *  carrying this value is our own hold's echo, not the reader moving */
   const anchorEcho = useRef<number | null>(null)
+  /** the last scroll position this desk has accounted for: every delivered
+   *  scroll event, every hold write and every capture records it. A hold
+   *  that reads anything else is looking at native movement whose event has
+   *  not arrived yet, and must yield to it. */
+  const knownTop = useRef<number | null>(null)
   const anchorRaf = useRef<number | null>(null)
   const anchorSettleLeft = useRef(0)
   /** the latest render's `loadingOlder`, for the scroll handler and the
@@ -2188,6 +2208,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   const captureAnchor = (): { row: HTMLElement | null; offset: number; fromBottom: number } | null => {
     const el = scroller.current
     if (!el) return null
+    knownTop.current = el.scrollTop   // a capture accepts the position as truth
     const at = readerAnchor(el)
     return { row: at?.row ?? null, offset: at?.offset ?? 0,
       fromBottom: el.scrollHeight - el.scrollTop }
@@ -2201,13 +2222,27 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
     const el = scroller.current
     const anchor = growAnchor.current
     if (!el || !anchor || stickRef.current) return
+    // the viewport is somewhere this desk never put it and no event has
+    // reported: the reader moved natively (a wheel's scroll, navigation's
+    // scrollIntoView) — or the browser's own scroll anchoring already did
+    // this hold's job — since the last delivered event. Either way the
+    // position on screen is the truth and the recorded anchor is stale:
+    // re-capture where the reader IS and hold that. Writing the stale
+    // anchor here is how a landing page used to undo a move whose scroll
+    // event was still in flight (transcriptprepend §7/§8).
+    if (knownTop.current !== null && Math.abs(el.scrollTop - knownTop.current) > 1) {
+      growAnchor.current = captureAnchor()
+      return
+    }
     const alive = !!anchor.row && anchor.row.isConnected
     const want = alive
       ? anchor.row!.offsetTop - anchor.offset
       : el.scrollHeight - anchor.fromBottom
     if (Math.abs(el.scrollTop - want) > 1) {
-      anchorEcho.current = Math.max(0, Math.min(want, el.scrollHeight - el.clientHeight))
+      const clamped = Math.max(0, Math.min(want, el.scrollHeight - el.clientHeight))
+      anchorEcho.current = clamped
       el.scrollTop = want
+      knownTop.current = clamped
     }
     if (!alive) growAnchor.current = captureAnchor()
   }
@@ -3297,6 +3332,10 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
             const echo = anchorEcho.current !== null
               && Math.abs(e.currentTarget.scrollTop - anchorEcho.current) <= 1
             anchorEcho.current = null
+            // a delivered event accounts for the position it reports — from
+            // here on, a hold finding the viewport elsewhere knows it moved
+            // natively again without this desk having heard yet
+            knownTop.current = e.currentTarget.scrollTop
             if (growAnchor.current && !echo) {
               if (stickRef.current) { growAnchor.current = null; stopSettle() }
               else if (loadingOlderRef.current) growAnchor.current = captureAnchor()

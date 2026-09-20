@@ -42,11 +42,26 @@
 //      hold is row-relative), and §6 that jumping to the bottom mid-flight
 //      still wins over the landing page — the pin, not the anchor.
 //
+//   §7/§8 THE UNDELIVERED EVENT (independent review, 2026-09-20). A native
+//      scroller MOVES the instant scrollTop is assigned or scrollIntoView
+//      runs, but delivers the scroll event asynchronously, coalesced. A page
+//      landing inside that gap found the anchor still describing the
+//      pre-move position, wrote it back — undoing a move the reader had
+//      already made — and the late event then carried the hold's own value,
+//      which the echo check waved through. §7 races a plain scrollTop move
+//      against the landing; §8 races scrollIntoView({block:'center'}), the
+//      exact call reply navigation makes. Both run with the browser's own
+//      scroll anchoring modelled (see below), the environment the review
+//      reproduced the race in.
+//
 // ⚠ LAYOUT IS MODELLED, as in deskhistory.test.tsx: jsdom computes no layout,
 // so offsets are installed on the prototype and scrollTop clamps and fires
 // `scroll` like a real scroller. Heights are DELIBERATELY UNEQUAL per row
 // (40/80/120/160 by seq) so any restore that reasons in average or bottom
 // distances instead of the reader's own row is caught by arithmetic, not luck.
+// §1–§6 keep the original synchronous event dispatch (delivery order is not
+// what they test); §7/§8 flip `asyncScroll` and `anchored` on to model the
+// real browser's asynchronous delivery and native scroll anchoring.
 //
 // Run:  node apps/desktop/renderer/tests/run.mjs transcriptprepend
 
@@ -84,9 +99,71 @@ const contentH = (el: Element) =>
 
 let writes: { from: number; to: number }[] = []
 
+/** REAL DELIVERY IS ASYNCHRONOUS (§7/§8): the scroller's position changes the
+ *  moment it is written, but the browser dispatches the scroll EVENT later —
+ *  and coalesced, so one event reports only the final position. Off by
+ *  default: §1–§6 were reviewed with synchronous dispatch and delivery order
+ *  is not what they test. flushScroll() is the browser's delayed dispatch. */
+let asyncScroll = false
+const pendingScroll = new Set<HTMLElement>()
+const fireScroll = (el: HTMLElement) =>
+  el.dispatchEvent(new W.Event('scroll', { bubbles: false, cancelable: false }))
+const emitScroll = (el: HTMLElement) => {
+  if (asyncScroll) pendingScroll.add(el)
+  else fireScroll(el)
+}
+const flushScroll = () => {
+  const due = [...pendingScroll]
+  pendingScroll.clear()
+  due.forEach(fireScroll)
+}
+
+/** CHROMIUM'S OWN SCROLL ANCHORING, modelled (§7/§8): at layout, the browser
+ *  keeps its anchor node — the first row in view — visually still by
+ *  adjusting scrollTop when layout above it changes, and reports the
+ *  adjustment through an (async, coalesced) scroll event of its own. Reads
+ *  of scrollTop are the model's layout flush, exactly as a forced layout is
+ *  in the real engine. Off by default so §1–§6 keep proving the desk's hold
+ *  with no browser help, as reviewed. */
+let anchored = false
+const anchorSel = new WeakMap<Element, { row: Element; top: number } | null>()
+const offsetOf = (scroller: Element, row: Element) => {
+  let at = 0
+  for (const r of rowsIn(scroller)) { if (r === row) return at; at += rowH(r) }
+  return at
+}
+const pickAnchor = (scroller: Element, top: number) => {
+  let at = 0
+  for (const r of rowsIn(scroller)) {
+    const h = rowH(r)
+    if (at + h > top) return { row: r, top: at }
+    at += h
+  }
+  return null
+}
+const settleAnchoring = (el: HTMLElement): number => {
+  let cur = tops.get(el) ?? 0
+  if (anchored) {
+    const sel = anchorSel.get(el)
+    if (sel && sel.row.isConnected && el.contains(sel.row)) {
+      const delta = offsetOf(el, sel.row) - sel.top
+      if (delta !== 0) {
+        cur = Math.max(0, cur + delta)
+        tops.set(el, cur)
+        emitScroll(el)
+      }
+    }
+    anchorSel.set(el, pickAnchor(el, cur))
+  }
+  return cur
+}
+
 function layout(): () => void {
   writes = []
   grown.clear()
+  asyncScroll = false
+  anchored = false
+  pendingScroll.clear()
   const proto = W.HTMLElement.prototype as unknown as Record<string, unknown>
   const saved: Record<string, PropertyDescriptor | undefined> = {}
   const put = (name: string, d: PropertyDescriptor) => {
@@ -109,7 +186,7 @@ function layout(): () => void {
     get(this: HTMLElement) {
       if (!isScroller(this)) return 0
       // a browser CLAMPS a stored offset the moment the content shrinks
-      return Math.min(tops.get(this) ?? 0, contentH(this) - VIEW_H)
+      return Math.min(settleAnchoring(this), contentH(this) - VIEW_H)
     },
     set(this: HTMLElement, v: number) {
       if (!isScroller(this)) return
@@ -119,11 +196,24 @@ function layout(): () => void {
       writes.push({ from: cur, to: next })
       if (next === cur) return
       tops.set(this, next)
-      this.dispatchEvent(new W.Event('scroll', { bubbles: false, cancelable: false }))
+      // scrolling re-selects the browser's anchor node at the new position
+      if (anchored) anchorSel.set(this, pickAnchor(this, next))
+      emitScroll(this)
     },
   })
+  // block:'center' the way reply navigation calls it (desk.tsx locateReply):
+  // the scroller MOVES NOW; the event is emitScroll's business — delivered
+  // later when §8 models the real browser
+  put('scrollIntoView', { value(this: HTMLElement) {
+    const s = this.closest('.msgs') as HTMLElement | null
+    if (!s || !isRow(this)) return
+    s.scrollTop = offsetOf(s, this) - (VIEW_H - rowH(this)) / 2
+  }, writable: true })
   return () => {
     grown.clear()
+    asyncScroll = false
+    anchored = false
+    pendingScroll.clear()
     for (const [name, d] of Object.entries(saved)) {
       if (d) Object.defineProperty(proto, name, d)
       else delete proto[name]
@@ -350,5 +440,65 @@ test('§6 GUARD: jumping to the bottom while a page is in flight ends at the '
     await d.settle()
     assert.equal(d.atBottom(), true,
       'the landing page pulled a bottom-following reader back into history')
+  } finally { await d.unmount(); restore() }
+})
+
+// ──────────── §7 a native move whose scroll event has not been delivered
+test('§7 ASYNC EVENT RACE: a move made just before the page lands is kept — '
+  + 'the landing must not restore the pre-move anchor', async () => {
+  const restore = layout()
+  const d = await desk(300)
+  try {
+    await parked(d)
+    d.transport.holdAll = true
+    await d.scrollTo(150)          // delivered: arms the anchor, starts the page
+    assert.ok(d.transport.held.length > 0, 'fixture: a page request is in flight')
+    // from here the browser is real: the scroller moves NOW, the event
+    // arrives LATER and coalesced, and native scroll anchoring is on
+    asyncScroll = true
+    anchored = true
+    d.s.scrollTop = 260            // the reader's move — its event is now in flight
+    const before = sight(d.s)
+    assert.ok(before.id, 'fixture: a row is on screen')
+    d.transport.holdAll = false
+    await inAct(async () => { d.transport.release(); await flush(12) })   // the page lands FIRST…
+    await inAct(async () => { flushScroll(); await flush(4) })            // …the event arrives after
+    await d.settle()
+    const after = sight(d.s)
+    assert.ok(d.rows() > 8, `fixture: the page landed (${d.rows()} rows)`)
+    assert.deepEqual(after, before,
+      `the landing undid a move its event had not reported yet: `
+      + `${before.id}@${before.offset} -> ${after.id}@${after.offset}`)
+  } finally { await d.unmount(); restore() }
+})
+
+// ─────────────── §8 navigation's scrollIntoView racing the landing page
+test('§8 NAVIGATION RACE: scrollIntoView just before the page lands is kept — '
+  + 'reply navigation must not be undone by the landing', async () => {
+  const restore = layout()
+  const d = await desk(300)
+  try {
+    await parked(d)
+    d.transport.holdAll = true
+    await d.scrollTo(150)          // delivered: arms the anchor, starts the page
+    assert.ok(d.transport.held.length > 0, 'fixture: a page request is in flight')
+    asyncScroll = true
+    anchored = true
+    // reply navigation centres the located row exactly like this (desk.tsx
+    // locateReply) — the scroller moves now, the event arrives later
+    const target = rowsIn(d.s)
+      .find(r => r.getAttribute('data-reply-event') === 'e297') as HTMLElement
+    assert.ok(target, 'fixture: the navigation target is rendered')
+    target.scrollIntoView({ block: 'center' })
+    const before = sight(d.s)
+    assert.ok(before.id, 'fixture: a row is on screen')
+    d.transport.holdAll = false
+    await inAct(async () => { d.transport.release(); await flush(12) })
+    await inAct(async () => { flushScroll(); await flush(4) })
+    await d.settle()
+    const after = sight(d.s)
+    assert.deepEqual(after, before,
+      `the landing undid the navigation: `
+      + `${before.id}@${before.offset} -> ${after.id}@${after.offset}`)
   } finally { await d.unmount(); restore() }
 })
