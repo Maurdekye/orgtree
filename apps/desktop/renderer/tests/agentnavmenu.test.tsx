@@ -674,6 +674,43 @@ uiTest('§11.2 f5: the same row keeps its OWN menu everywhere the marker is not'
       + `be the over-correction this case exists to catch. have ${JSON.stringify(have)}`)
   })
 
+uiTest('§11.3 f5: a registry that cannot answer for the id does NOT swallow the '
+  + 'row\'s own menu', async (t) => {
+    // THE OVER-CORRECTION, pinned. "The more specific target wins" must mean
+    // "wins when it has something to offer" — an agent the registry holds no
+    // entries for is not a reason to leave the user with a menu missing the
+    // row's actions. Found by mutating `navEntries.length > 0` to `true` and
+    // noticing nothing failed; this case is what fails now.
+    const nodes = new Map<string, unknown>([['peer-one', mkNode('peer-one')]])
+    const v = await mountView(
+      <AgentNavProvider>
+        <ObjectMenuBoundary className="app">
+          <Registrar entries={[]} />
+          <MailList delivered={[{
+            id: 'r1', from: 'peer-one', kind: 'message',
+            body: 'the body of the first mail', at: '2026-09-05T10:00:00Z',
+          }] as never}
+            sender={(id: string) => <SenderChip id={id} nodes={nodes as never}
+              onFocusAgent={() => { /* not this section's subject */ }} />} />
+        </ObjectMenuBoundary>
+      </AgentNavProvider>, (h) => h)
+    t.after(() => v.unmount())
+    await flush(2)
+
+    const rowEl = v.el.querySelector('.mailrow') as HTMLElement | null
+    assert.ok(rowEl, 'the real mail row rendered')
+    const chip = rowEl!.querySelector('[' + AGENT_NAV_ATTR + ']') as HTMLElement | null
+    assert.ok(chip, 'precondition: the row still contains a MARKED target')
+
+    const have = await menuOf(chip!.querySelector('[data-copy-agent-name]') ?? chip!,
+      'the sender chip with an unanswerable registry')
+    assert.ok(have.includes('Open') && have.includes('Copy message text'),
+      'the row\'s own menu survives, because the agent menu had nothing to '
+      + `offer — have ${JSON.stringify(have)}`)
+    assert.equal(have[0], 'Copy agent name',
+      `and the copy entry still leads — have ${JSON.stringify(have)}`)
+  })
+
 // ------------------------------------------------------------------- §12
 // f6 — THE COPY ENTRY IS UNCONDITIONAL FOR A MARKED TARGET, exactly as it is
 // for a copy object. Measured by textmenu on the landed branch: a marked
