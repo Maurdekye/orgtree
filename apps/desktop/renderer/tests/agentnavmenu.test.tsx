@@ -711,6 +711,103 @@ uiTest('§11.3 f5: a registry that cannot answer for the id does NOT swallow the
       `and the copy entry still leads — have ${JSON.stringify(have)}`)
   })
 
+// ⚠ §11.4/§11.5 EXIST BECAUSE §11.1 AND §11.3 PRESS THE WRONG ELEMENT TO
+// REACH THIS ARM. `open` builds its list in two arms — one for a press that
+// finds a copy object, one for a press that does not — and BOTH of them end
+// in `...surfaceEntries`, which is what stops an unanswerable registry
+// swallowing the surface's own menu. §11.3 pins that on the copy-object arm.
+// Nothing pinned it on the other one: textmenu's finding f1 measured that
+// deleting `...surfaceEntries` from the NO-COPY-OBJECT arm alone leaves all
+// 2216 tests green, while deleting it from BOTH is caught by 57.
+//
+// THE REASON THE OTHER CASES CANNOT SEE IT, which is the part worth keeping:
+// they press `chip.querySelector('[data-copy-agent-name]')`, the inner span.
+// `copyObjectAt` is `closest`, so that press finds a copy object and takes
+// the object arm every single time. The MARKED element is the outer button,
+// and its copy attribute is on a DESCENDANT — so a press on the button finds
+// nothing above it and takes the other arm. Three green cases on the real
+// MailList, and none of them ever entered the arm f6 created.
+//
+// Written by textmenu as review probe R0/R1/R2 (artifact r6), executed there
+// before it was filed, folded in here after cc6872b landed.
+
+uiTest('§11.4 f5/f6: an unanswerable registry does not swallow the row menu on '
+  + 'the NO-COPY-OBJECT arm either', async (t) => {
+    const nodes = new Map<string, unknown>([['peer-one', mkNode('peer-one')]])
+    const v = await mountView(
+      <AgentNavProvider>
+        <ObjectMenuBoundary className="app">
+          {/* mounted and publishing, but holding nothing for this agent */}
+          <Registrar entries={[]} />
+          <MailList delivered={[{
+            id: 'r1', from: 'peer-one', kind: 'message',
+            body: 'the body of the first mail', at: '2026-09-05T10:00:00Z',
+          }] as never}
+            sender={(id: string) => <SenderChip id={id} nodes={nodes as never}
+              onFocusAgent={() => { /* not this section's subject */ }} />} />
+        </ObjectMenuBoundary>
+      </AgentNavProvider>, (h) => h)
+    t.after(() => v.unmount())
+    await flush(2)
+
+    const rowEl = v.el.querySelector('.mailrow') as HTMLElement | null
+    assert.ok(rowEl, 'the real mail row rendered')
+    const chip = rowEl!.querySelector('[' + AGENT_NAV_ATTR + ']') as HTMLElement | null
+    assert.ok(chip, 'the row contains a marked target')
+    // THE PRECONDITIONS ARE THE WHOLE BASIS OF THIS CASE. Keep them: the
+    // moment SenderChip's markup moves the copy attribute onto the button,
+    // this press silently starts taking the OTHER arm and the case passes for
+    // the wrong reason — which is exactly how the hole got here.
+    assert.equal(chip!.closest('[data-copy-agent-name], [data-copy-ticket-title]'), null,
+      'precondition: no copy object at or above the marked button, so a press '
+      + 'ON it takes the NO-COPY-OBJECT arm of `open`')
+    assert.ok(chip!.querySelector('[data-copy-agent-name]'),
+      'precondition: …but there IS one below it — the element §11.1 and §11.3 '
+      + 'press instead, which is why they take the other arm')
+
+    const have = await menuOf(chip!, 'the marked chip BUTTON with an unanswerable registry')
+    assert.equal(have[0], 'Copy agent name',
+      `the copy entry leads — have ${JSON.stringify(have)}`)
+    assert.ok(have.includes('Open') && have.includes('Copy message text'),
+      'the ROW\'s own menu survives on this arm too. Dropping `...surfaceEntries` '
+      + 'from the no-copy-object arm is what this catches, and nothing else in '
+      + `the suite did. have ${JSON.stringify(have)}`)
+  })
+
+uiTest('§11.5 f5: …and when the registry CAN answer, that same arm drops the '
+  + 'row menu, exactly as the object arm does', async (t) => {
+    // the other half of the ruling on the same arm. Without it, §11.4 could be
+    // satisfied by weakening the precedence rule instead of by keeping both.
+    const nodes = new Map<string, unknown>([['peer-one', mkNode('peer-one')]])
+    const v = await mountView(
+      <AgentNavProvider>
+        <ObjectMenuBoundary className="app">
+          <Registrar entries={['Open desk', 'Open inbox']} />
+          <MailList delivered={[{
+            id: 'r1', from: 'peer-one', kind: 'message',
+            body: 'the body of the first mail', at: '2026-09-05T10:00:00Z',
+          }] as never}
+            sender={(id: string) => <SenderChip id={id} nodes={nodes as never}
+              onFocusAgent={() => { /* not this section's subject */ }} />} />
+        </ObjectMenuBoundary>
+      </AgentNavProvider>, (h) => h)
+    t.after(() => v.unmount())
+    await flush(2)
+
+    const rowEl = v.el.querySelector('.mailrow') as HTMLElement | null
+    assert.ok(rowEl, 'the real mail row rendered')
+    const chip = rowEl!.querySelector('[' + AGENT_NAV_ATTR + ']') as HTMLElement | null
+    assert.ok(chip, 'the row contains a marked target')
+    assert.equal(chip!.closest('[data-copy-agent-name], [data-copy-ticket-title]'), null,
+      'precondition: still the NO-COPY-OBJECT arm')
+
+    const have = await menuOf(chip!, 'the marked chip BUTTON with an answering registry')
+    assert.ok(have.includes('Open desk') && have.includes('Open inbox'),
+      `the agent menu was served — have ${JSON.stringify(have)}`)
+    assert.ok(!have.includes('Copy message text'),
+      `and the row menu is not mixed into it — have ${JSON.stringify(have)}`)
+  })
+
 // ------------------------------------------------------------------- §12
 // f6 — THE COPY ENTRY IS UNCONDITIONAL FOR A MARKED TARGET, exactly as it is
 // for a copy object. Measured by textmenu on the landed branch: a marked
