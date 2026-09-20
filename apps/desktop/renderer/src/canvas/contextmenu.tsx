@@ -324,29 +324,52 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
     if (nativeMenuPreferred({ target: e.target, currentTarget: el })) return
     const entriesList = (typeof entries === 'function' ? entries() : entries)
     const object = copyObjectAt(e.target, el)
-    // THE CANONICAL AGENT MENU, for a navigation target that has no menu of
-    // its own (user scope expansion 2026-09-19). Built here rather than by
-    // each surface so that every target reaches the SAME implementation —
-    // agentnav.tsx explains why it is a registry. A surface that already
-    // passes the menu in `entries` does not carry the marker, so these two
-    // paths never both fire and the entries are never doubled.
-    const navEl = entriesList.length ? null : agentNavElementAt(e.target, el)
+    // THE CANONICAL AGENT MENU, for any navigation target under the press
+    // (user scope expansion 2026-09-19). Built here rather than by each
+    // surface so that every target reaches the SAME implementation —
+    // agentnav.tsx explains why it is a registry.
+    //
+    // ⚠ THE LOOKUP IS UNCONDITIONAL, and it did not used to be. It read
+    // `entriesList.length ? null : agentNavElementAt(...)`, on the stated
+    // belief that "a surface that already passes the menu in `entries` does
+    // not carry the marker, so these two paths never both fire". That is true
+    // of the SURFACE and false of its DESCENDANTS: a mail list row passes
+    // `rowMenu(m)` and draws a marked `SenderChip` inside it, so a right-click
+    // on the chip raised the ROW's menu and the agent was unreachable
+    // (measured 2026-09-20: `["Copy agent name","Open","Copy message text"]`).
+    // USER RULING 2026-09-20: the agent menu WINS for a press directly on the
+    // marked target; a press elsewhere on the row keeps the row's own menu;
+    // the two are never combined and there is no submenu.
+    const navEl = agentNavElementAt(e.target, el)
     const navId = navEl?.getAttribute(AGENT_NAV_ATTR) || null
     const navEntries = navId ? (agentNav?.current?.(navId) ?? []) : []
-    // A MARKED TARGET WITH NO COPY OBJECT STILL GETS THE WHOLE MENU. Dropping
-    // to `entriesList` here (empty, for such a target) offered nothing at all.
-    // The copy entry is synthesized from the marker because `Copy agent name`
-    // comes from the copy OBJECT, never from the builder — so without this a
-    // target lacking a copy object would offer the canonical menu minus its
-    // first entry, which is not the canonical menu. The marker's value is the
-    // agent name at every call site carrying both attributes, so the entry is
-    // identical to the one the copy object would have produced.
+    // `agentNavElementAt` is `closest`, so a non-null answer already MEANS
+    // "the press started at or inside the marked target" — that is the whole
+    // of the more-specific-target test, and no separate containment check is
+    // needed. The surface's own entries are dropped only when the agent menu
+    // actually has something to offer: a registry that cannot answer for this
+    // id must not silently swallow the row's menu.
+    const navWins = navEntries.length > 0
+    const surfaceEntries = navWins ? [] : entriesList
+    // A MARKED TARGET WITH NO COPY OBJECT GETS THE COPY ENTRY UNCONDITIONALLY,
+    // exactly as a copy object does. It used to sit inside the
+    // `navEntries.length` guard, so a marked target whose builder answered
+    // nothing offered NOTHING — not even `Copy agent name` — while the same
+    // agent on a target that HAD a copy object still offered it. That made
+    // `AgentNavHost`'s docstring ("an unknown id leaves the target the
+    // copy-only menu it has today") false for one shape. The entry is
+    // synthesized from the marker because `Copy agent name` comes from the
+    // copy OBJECT and never from the builder; the marker's value is the agent
+    // name at every call site carrying both attributes, so it is identical to
+    // the one the copy object would have produced.
     const list: MenuEntry[] = object
       ? [objectCopyEntry(object, feedback),
          ...(navEntries.length ? ['sep' as const, ...navEntries] : []),
-         ...(entriesList.length ? ['sep' as const, ...entriesList] : [])]
-      : (navEntries.length && navEl && navId
-          ? [agentCopyEntry(navEl, navId, feedback), 'sep' as const, ...navEntries]
+         ...(surfaceEntries.length ? ['sep' as const, ...surfaceEntries] : [])]
+      : (navEl && navId
+          ? [agentCopyEntry(navEl, navId, feedback),
+             ...(navEntries.length ? ['sep' as const, ...navEntries] : []),
+             ...(surfaceEntries.length ? ['sep' as const, ...surfaceEntries] : [])]
           : entriesList)
     // nothing to offer is not a menu: the browser's own stands
     if (!list.some((x) => x !== 'sep')) return

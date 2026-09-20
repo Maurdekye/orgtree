@@ -39,13 +39,18 @@ import path from 'node:path'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
+import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
-  AGENT_NAV_ATTR, AgentNavProvider, agentNavProps, useAgentNavRegistry, useProvideAgentNav,
+  AGENT_NAV_ATTR, AgentNavProvider, agentNavElementAt, agentNavProps,
+  useAgentNavRegistry, useProvideAgentNav,
 } from '../src/canvas/agentnav'
 import type { AgentNavMenu } from '../src/canvas/agentnav'
 import { AgentName } from '../src/canvas/identity'
 import { SenderChip } from '../src/App'
-import { ObjectMenuBoundary } from '../src/canvas/contextmenu'
+import { MailList } from '../src/canvas/mail'
+import { ObjectMenuBoundary, useContextMenu } from '../src/canvas/contextmenu'
+import type { MenuEntry } from '../src/canvas/contextmenu'
 import { resetConvos } from '../src/convo'
 import { forgetPins } from '../src/canvas/pins'
 import { setCrowdPilesOn } from '../src/canvas/shared'
@@ -390,6 +395,28 @@ function Registrar({ entries }: { entries: string[] }) {
   return null
 }
 
+/** §13's fixture: TWO surfaces, and a React child of one rendered into the DOM
+ *  of the other. Surface A owns the `contextmenu` handler and passes its own
+ *  entries; surface B carries the navigation marker and hosts the portal. A
+ *  press on the portaled child therefore runs A's handler (React bubbles
+ *  through the REACT tree) while `e.target` sits in the DOM under B's marker
+ *  (`closest` walks the DOM). That divergence is exactly what `within` is
+ *  for, and it cannot be built without a real portal — which is why this is a
+ *  component and not a hand-assembled DOM. */
+function PortalCrossing({ entries }: { entries: MenuEntry[] }) {
+  const [host, setHost] = useState<HTMLElement | null>(null)
+  const menu = useContextMenu()
+  return <>
+    <div className="surface-b" {...agentNavProps('worker')}>
+      <div className="portal-host" ref={setHost} />
+    </div>
+    <div className="surface-a" onContextMenu={(e) => { menu.open(e, entries) }}>
+      {host && createPortal(<div className="portaled-press">press</div>, host)}
+    </div>
+    {menu.node}
+  </>
+}
+
 uiTest('§7 a marker ABOVE its copy object still offers the whole menu (App.tsx SenderChip)',
   async (t) => {
     const nodes = new Map<string, unknown>([['worker', mkNode('worker')]])
@@ -539,4 +566,242 @@ uiTest('§10 a copy object ABOVE the marker keeps the whole menu, copy entry fir
       `the copy entry is first — have ${JSON.stringify(have)}`)
     assert.ok(have.includes('Open desk') && have.includes('Open inbox'),
       `and the agent menu came with it — have ${JSON.stringify(have)}`)
+  })
+
+// ══════════════════════════════════════════════════════ §11, §12, §13
+// THE THREE LOOSE ENDS carried out of the parent item
+// (`three-loose-ends-from-the-agent-navigation-menu`). Each section states
+// which finding it is and what was actually measured, because two of the
+// three were NOT measured when they were filed.
+
+// ------------------------------------------------------------------- §11
+// f5 — WHICH MENU WINS WHEN A MARKED TARGET SITS INSIDE A ROW THAT HAS ITS
+// OWN MENU. User ruling 2026-09-20: the agent menu wins for a right-click
+// directly ON the agent-name target; a right-click elsewhere on the row
+// keeps the row's own menu. Not both, and no submenu.
+//
+// ⚠ THIS IS THE SHAPE `open`'s OWN COMMENT SAID COULD NOT HAPPEN. It read
+// "a surface that already passes the menu in `entries` does not carry the
+// marker, so these two paths never both fire". That is true of the SURFACE
+// and false of its DESCENDANTS: the mail list row passes `rowMenu(m)` and
+// draws a `SenderChip` inside it, and the chip carries the marker. The old
+// `entriesList.length ? null : …` guard is what made the row win.
+//
+// ⚠ MOUNTS THE REAL `MailList`, not a replica of a row. The nesting and the
+// row's own handler are the whole subject, so a hand-built row would only
+// re-encode my reading of them.
+
+uiTest('§11.1 f5: the sender chip inside a REAL mail row offers the agent menu, '
+  + 'and the row menu is not mixed into it', async (t) => {
+    const nodes = new Map<string, unknown>([['peer-one', mkNode('peer-one')]])
+    const v = await mountView(
+      <AgentNavProvider>
+        <ObjectMenuBoundary className="app">
+          <Registrar entries={['Open desk', 'Open inbox']} />
+          <MailList delivered={[{
+            id: 'r1', from: 'peer-one', kind: 'message',
+            body: 'the body of the first mail', at: '2026-09-05T10:00:00Z',
+          }] as never}
+            sender={(id: string) => <SenderChip id={id} nodes={nodes as never}
+              onFocusAgent={() => { /* navigation is §5's subject */ }} />} />
+        </ObjectMenuBoundary>
+      </AgentNavProvider>, (h) => h)
+    t.after(() => v.unmount())
+    await flush(2)
+
+    // PROVE THE SHAPE FIRST. Without these the case could pass for the wrong
+    // reason — a row that stopped carrying its own menu, or a chip that lost
+    // its marker, would both look like success.
+    const rowEl = v.el.querySelector('.mailrow') as HTMLElement | null
+    assert.ok(rowEl, 'the real mail row rendered')
+    const chip = rowEl!.querySelector('[' + AGENT_NAV_ATTR + ']') as HTMLElement | null
+    assert.ok(chip, 'precondition: the row contains a MARKED navigation target')
+    assert.notEqual(chip, rowEl,
+      'precondition: the marker is on a DESCENDANT of the row, not the row itself')
+
+    // the row's own menu, established as a live fact rather than assumed
+    const rowHave = await menuOf(rowEl!.querySelector('.l2') as Element,
+      'the mail row body')
+    assert.ok(rowHave.includes('Open') && rowHave.includes('Copy message text'),
+      `precondition: the row really does have a menu of its own — have ${JSON.stringify(rowHave)}`)
+
+    // THE RULING. Right-click lands on the inner span a real pointer would hit.
+    const inner = chip!.querySelector('[data-copy-agent-name]') ?? chip!
+    const have = await menuOf(inner, 'the sender chip inside the row')
+    assert.equal(have[0], 'Copy agent name',
+      `the copy entry leads — have ${JSON.stringify(have)}`)
+    assert.ok(have.includes('Open desk') && have.includes('Open inbox'),
+      `the AGENT menu is what was served — have ${JSON.stringify(have)}`)
+    // the measured pre-ruling behaviour, written down so a regression to it
+    // reads unmistakably rather than as a shuffled list
+    assert.ok(!have.includes('Copy message text'),
+      'and the ROW menu is NOT mixed in — the ruling forbids combining them. '
+      + `have ${JSON.stringify(have)}`)
+    assert.ok(!have.includes('Reply'),
+      `no row entry survives on the marked target — have ${JSON.stringify(have)}`)
+  })
+
+uiTest('§11.2 f5: the same row keeps its OWN menu everywhere the marker is not',
+  async (t) => {
+    const nodes = new Map<string, unknown>([['peer-one', mkNode('peer-one')]])
+    const v = await mountView(
+      <AgentNavProvider>
+        <ObjectMenuBoundary className="app">
+          <Registrar entries={['Open desk', 'Open inbox']} />
+          <MailList delivered={[{
+            id: 'r1', from: 'peer-one', kind: 'message',
+            body: 'the body of the first mail', at: '2026-09-05T10:00:00Z',
+          }] as never}
+            sender={(id: string) => <SenderChip id={id} nodes={nodes as never}
+              onFocusAgent={() => { /* not this section's subject */ }} />} />
+        </ObjectMenuBoundary>
+      </AgentNavProvider>, (h) => h)
+    t.after(() => v.unmount())
+    await flush(2)
+
+    const rowEl = v.el.querySelector('.mailrow') as HTMLElement | null
+    assert.ok(rowEl, 'the real mail row rendered')
+    const body = rowEl!.querySelector('.l2') as HTMLElement | null
+    assert.ok(body, 'the row has a second line to press that is not the chip')
+    assert.equal(body!.closest('[' + AGENT_NAV_ATTR + ']'), null,
+      'precondition: this press is genuinely OUTSIDE the marked target')
+
+    const have = await menuOf(body!, 'the mail row away from the chip')
+    assert.ok(have.includes('Open') && have.includes('Copy message text'),
+      `the ROW's own menu still stands — have ${JSON.stringify(have)}`)
+    assert.ok(!have.includes('Open desk'),
+      'and the agent menu did NOT leak onto the rest of the row — that would '
+      + `be the over-correction this case exists to catch. have ${JSON.stringify(have)}`)
+  })
+
+// ------------------------------------------------------------------- §12
+// f6 — THE COPY ENTRY IS UNCONDITIONAL FOR A MARKED TARGET, exactly as it is
+// for a copy object. Measured by textmenu on the landed branch: a marked
+// target with NO copy object whose builder returns `[]` offered NOTHING —
+// not even `Copy agent name` — while the same agent on a target that DOES
+// have a copy object still offered the copy entry. `AgentNavHost`'s docstring
+// in OrgCanvas.tsx says an unknown id leaves the target "the copy-only menu
+// it has today", and that sentence was false for this one shape.
+//
+// The chosen fix is the first of the two the item offered: HOIST the copy
+// entry out of the `navEntries.length` guard, so the no-copy-object arm is
+// structurally parallel to the object arm and the docstring becomes true
+// again. This case is what fails if it is ever put back inside the guard.
+uiTest('§12 f6: a marked target whose builder answers nothing still offers '
+  + 'Copy agent name', async (t) => {
+    const v = await mountView(
+      <AgentNavProvider>
+        <ObjectMenuBoundary className="app">
+          {/* the registry ANSWERS — it is mounted and publishing — but it
+              holds no such agent, which is the `AgentNavHost` case: an id
+              the canvas map does not hold. A test with no registry at all
+              would be §1 again and would prove something weaker. */}
+          <Registrar entries={[]} />
+          <div className="docket-question-box">
+            <div className="docket-question-head">
+              <button className="cc-name cc-name-jump" {...agentNavProps('ghost')}>ghost</button>
+            </div>
+          </div>
+        </ObjectMenuBoundary>
+      </AgentNavProvider>, (h) => h)
+    t.after(() => v.unmount())
+    await flush(2)
+
+    const button = v.el.querySelector('button.cc-name-jump') as HTMLElement | null
+    assert.ok(button, 'the marked button rendered')
+    assert.equal(button!.closest('[data-copy-agent-name], [data-copy-ticket-title]'), null,
+      'precondition: there is genuinely NO copy object above this marker')
+
+    const have = await menuOf(button!, 'a marked target the registry cannot answer for')
+    assert.deepEqual(have, ['Copy agent name'],
+      'the copy-only menu the docstring promises — not an empty one. '
+      + `have ${JSON.stringify(have)}`)
+  })
+
+uiTest('§12.1 f6: …and the copy object arm is unchanged, so the two arms agree',
+  async (t) => {
+    // the SAME unanswerable agent, this time WITH a copy object above the
+    // marker. This arm already behaved; it is here so the two are compared in
+    // one run rather than across two files.
+    const v = await mountView(
+      <AgentNavProvider>
+        <ObjectMenuBoundary className="app">
+          <Registrar entries={[]} />
+          <span data-copy-agent-name="ghost" className="eye-tab">
+            <button className="eye-tab-jump" type="button" {...agentNavProps('ghost')}>go</button>
+          </span>
+        </ObjectMenuBoundary>
+      </AgentNavProvider>, (h) => h)
+    t.after(() => v.unmount())
+    await flush(2)
+
+    const button = v.el.querySelector('button.eye-tab-jump') as HTMLElement | null
+    assert.ok(button, 'the jump button rendered')
+    const have = await menuOf(button!, 'a marked target with a copy object above it')
+    assert.deepEqual(have, ['Copy agent name'],
+      `both arms offer exactly the copy entry — have ${JSON.stringify(have)}`)
+  })
+
+// ------------------------------------------------------------------- §13
+// f7 — THE `within` BOUND ON `agentNavElementAt`, which the function's own
+// docstring calls the portal-safety rule: "a press inside one surface must
+// never find another surface's target through a portal."
+//
+// ⚠ WHAT WAS MEASURED BEFORE, AND WHAT IS MEASURED HERE. textmenu measured
+// that DELETING the bound leaves the whole renderer suite green (mutation N5,
+// SURVIVED). That established "nothing would tell you the bound had stopped
+// being there" — NOT "the bound is load-bearing". This section closes the
+// second half by BUILDING the portal DOM rather than reasoning about it: a
+// surface that passes its own entries, whose React child is portaled into a
+// container that sits inside a DIFFERENT, marked surface. React bubbles the
+// event through the REACT tree, so the handler runs with `currentTarget` on
+// surface A while `e.target` lives in the DOM under surface B — and
+// `closest` walks the DOM. Without the bound, A serves B's agent menu.
+//
+// ⚠ AND THE HONEST LIMIT, so this is not read as more than it is: no portal
+// target in the product today sits inside a marked element (they are
+// `document.body`, `.popout-notices`, and the pin/modal hosts — audited
+// 2026-09-20). So the bound is load-bearing for a CONSTRUCTIBLE shape, not
+// for one the app currently produces. It matters more after the f5 ruling
+// than before it: the nav lookup used to run only when a surface passed NO
+// entries, and now it runs on every right-click every surface takes.
+uiTest('§13 f7: a press inside a portal does not reach another surface\'s '
+  + 'marked target through the DOM', async (t) => {
+    const surfaceEntries = [{ label: 'Surface A action', onSelect: () => {} }]
+    const v = await mountView(
+      <AgentNavProvider>
+        <Registrar entries={['Open desk', 'Open inbox']} />
+        <PortalCrossing entries={surfaceEntries} />
+      </AgentNavProvider>, (h) => h)
+    t.after(() => v.unmount())
+    await flush(2)
+
+    const marked = v.el.querySelector('[' + AGENT_NAV_ATTR + ']') as HTMLElement | null
+    assert.ok(marked, 'surface B rendered its marked target')
+    const inside = v.el.querySelector('.portaled-press') as HTMLElement | null
+    assert.ok(inside, 'surface A portaled a child into surface B')
+    // PROVE THE CROSSING ITSELF. If the portal ever stops landing inside the
+    // marked element this case becomes vacuous, and would keep passing.
+    assert.ok(marked!.contains(inside!),
+      'precondition: the portaled press really is a DOM DESCENDANT of the marker')
+    const surfaceA = v.el.querySelector('.surface-a') as HTMLElement | null
+    assert.ok(surfaceA, 'surface A rendered')
+    assert.equal(surfaceA!.contains(inside!), false,
+      'precondition: …and is NOT a DOM descendant of the surface handling the press')
+
+    const have = await menuOf(inside!, 'a press inside the portal')
+    assert.deepEqual(have, ['Surface A action'],
+      'the press got its OWN surface\'s menu. Deleting the `within` bound from '
+      + '`agentNavElementAt` makes this serve the OTHER surface\'s agent menu, '
+      + `which is the portal leak the docstring forbids. have ${JSON.stringify(have)}`)
+
+    // THE DIRECT HALF, at the function rather than through the menu: the same
+    // element, asked with and without the bound, must answer differently.
+    // Without this a reader cannot tell whether the case above is about the
+    // bound or about some other part of `open`.
+    assert.equal(agentNavElementAt(inside!, surfaceA!), null,
+      'bounded by surface A, the marker is out of reach')
+    assert.equal(agentNavElementAt(inside!), marked,
+      'and UNBOUNDED it is found — so the bound is what did the work, and this '
+      + 'case is not passing for an unrelated reason')
   })

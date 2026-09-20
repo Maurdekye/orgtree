@@ -285,7 +285,15 @@ function AgentListMenuHost({ render, map, op, slug, toast }: {
  *  An unknown id yields NO entries rather than a stub menu — the same rule
  *  agentmenu.tsx applies to a handler a surface cannot offer. The target then
  *  keeps the copy-only menu it has today, which is the honest answer for a
- *  name this tree does not hold. */
+ *  name this tree does not hold.
+ *
+ *  ⚠ THAT LAST SENTENCE WAS FALSE FOR ONE SHAPE until 2026-09-20, and it is
+ *  a comment worth not trusting on its word. A marked target with NO copy
+ *  object above it offered nothing at all — not even `Copy agent name` —
+ *  because `open` built the copy entry only when the builder had answered.
+ *  `contextmenu.tsx` now hoists that entry out of the guard, so both arms are
+ *  structurally parallel and this paragraph is true for every shape;
+ *  agentnavmenu.test.tsx §12/§12.1 hold the two arms to the same answer. */
 function AgentNavHost({ map, op, slug, toast, goTo, build }: {
   map: Map<string, CanvasNode>
   op: OpFn

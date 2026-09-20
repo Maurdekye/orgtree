@@ -31,6 +31,16 @@
 // canonical menu themselves (the Agents List row, the agent card, the desk
 // header) must NOT carry `data-agent-nav`, or `useContextMenu` would append a
 // second copy of the entries they already passed it.
+//
+// ⚠ BUT A MARKED TARGET MAY SIT INSIDE A SURFACE THAT HAS ITS OWN MENU, AND
+// THEN THE MARKER WINS (user ruling 2026-09-20). The rule above is about the
+// surface ITSELF, not about its descendants: a mail list row passes its own
+// `rowMenu` and draws a marked sender chip inside it. A right-click directly
+// on the chip raises the AGENT menu; a right-click elsewhere on the row
+// raises the ROW's menu. The two are never combined and there is no submenu.
+// `open` decides this — the more specific target wins — and it is the reason
+// the nav lookup there is unconditional rather than gated on the surface
+// having passed no entries.
 
 import { createContext, useContext, useMemo, useRef } from 'react'
 import type { ReactNode } from 'react'
@@ -93,7 +103,18 @@ export function useAgentNavRegistry(): { readonly current: AgentNavMenu | null }
  *  compare its position against the copy object's: whichever of the two is
  *  the OUTER one has to be the anchor, since the anchor bounds both lookups.
  *  Anchoring on the inner one leaves the outer unreachable, which is how a
- *  marker sitting above its copy object went silently inert. */
+ *  marker sitting above its copy object went silently inert.
+ *
+ *  ⚠ `within` IS ASSERTED, and it was not until 2026-09-20. Deleting it left
+ *  the whole renderer suite green (textmenu's mutation N5), so the file stated
+ *  a portal-safety rule nothing defended. agentnavmenu.test.tsx §13 now builds
+ *  the crossing with a real `createPortal` — surface A handles the press,
+ *  surface B holds the marker and hosts the portal — and fails when the bound
+ *  is removed. HONEST LIMIT: no portal target in the app today lands inside a
+ *  marked element, so the bound is load-bearing for a CONSTRUCTIBLE shape
+ *  rather than for one the product currently produces. It matters more since
+ *  the precedence ruling: this lookup used to run only for a surface that
+ *  passed no entries, and now runs on every right-click every surface takes. */
 export function agentNavElementAt(target: EventTarget | null, within?: Element): Element | null {
   const el = (target as Element | null)?.closest?.('[' + AGENT_NAV_ATTR + ']')
   if (!el || (within && !within.contains(el))) return null
