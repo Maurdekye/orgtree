@@ -1,0 +1,282 @@
+"""Source contract checks and unsafe-control refusals; no live state or PG."""
+from __future__ import annotations
+
+import contextlib
+import copy
+import io
+import json
+from pathlib import Path
+import sys
+import subprocess
+import tempfile
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tools"))
+import state_operation_contracts as contracts
+
+
+class ContractCoverage(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.document = contracts.load(ROOT / "docs/state-system/operation-contracts.json")
+        cls.source = contracts.inventory.scan(ROOT)
+
+    def validate(self, document=None):
+        return contracts.validate(self.document if document is None else document, self.source, ROOT)
+
+    def rejects(self, edit, fragment):
+        document = copy.deepcopy(self.document)
+        edit(document)
+        result = self.validate(document)
+        self.assertFalse(result["valid"], result)
+        self.assertFalse(result["contract_coverage_complete"])
+        self.assertTrue(any(fragment in error for error in result["errors"]), result["errors"])
+        self.assertEqual(result["qualification"], contracts.GATES)
+
+    def test_repository_contracts_are_valid_but_not_complete(self):
+        result = self.validate()
+        self.assertTrue(result["valid"], result["errors"])
+        self.assertFalse(result["contract_coverage_complete"])
+        self.assertGreater(result["summary"]["entries"]["pending"], 0)
+        self.assertGreater(result["summary"]["storage"]["pending"], 0)
+        self.assertEqual(result["contracts"], 11)
+        self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
+
+    def test_each_required_dimension_is_enforced(self):
+        for dimension in contracts.DIMENSIONS:
+            with self.subTest(dimension=dimension):
+                self.rejects(lambda d: d["contracts"]["reservation.acquire"]["dimensions"].pop(dimension),
+                             "missing or unknown fields")
+
+    def test_omitted_entry_is_not_covered_by_family(self):
+        self.rejects(lambda d: d["entries"].pop(), "missing witnesses")
+
+    def test_omitted_action_witness_refuses(self):
+        self.rejects(lambda d: d["dispatch"].pop(), "missing witnesses")
+
+    def test_omitted_storage_factory_refuses(self):
+        self.rejects(lambda d: d["storage"].pop(), "missing witnesses")
+
+    def test_duplicate_entry_cannot_pad_coverage(self):
+        self.rejects(lambda d: d["entries"].append(d["entries"][0]), "duplicate witness")
+
+    def test_unknown_entry_cannot_replace_real_one(self):
+        self.rejects(lambda d: d["entries"][0].update(id="fabricated"), "unknown witness")
+
+    def test_no_concrete_route_exclusion_escape(self):
+        identity = next(r["site_id"] for r in self.source["registrations"] if r["kind"] == "http")
+        def edit(d):
+            row = next(r for r in d["entries"] if r["id"] == identity)
+            row.update(disposition="excluded", reason="claim it is not a route",
+                       source_refs=d["contracts"]["reservation.acquire"]["source_refs"])
+        self.rejects(edit, "concrete entry cannot be excluded")
+
+    def test_mapping_unrelated_entry_to_reservation_is_not_coverage(self):
+        def edit(d):
+            row = next(r for r in d["entries"] if r["disposition"] == "pending")
+            row.update(disposition="mapped", contracts=["reservation.acquire"],
+                       source_refs=d["contracts"]["reservation.acquire"]["source_refs"])
+        self.rejects(edit, "entry binding missing or unrelated")
+
+    def test_tool_binding_is_checked_against_source(self):
+        self.rejects(lambda d: d["contracts"]["reservation.acquire"].update(tools=["orgtree_move"]),
+                     "entry/tool binding mismatch")
+
+    def test_declared_action_cannot_disappear(self):
+        def edit(d):
+            for c in d["contracts"].values():
+                if c["action"] == "acquire":
+                    c["action"] = "unexpected"
+        self.rejects(edit, "action coverage drift")
+
+    def test_wrong_facet_dimension_refuses(self):
+        self.rejects(lambda d: d["contracts"]["reservation.acquire"]["dimensions"].update(reads=["legacy-lock"]),
+                     "wrong-dimension facet")
+
+    def test_erased_unknown_does_not_create_specified_contract(self):
+        self.rejects(lambda d: d["facets"]["contacts"].update(status="specified"),
+                     "specified facet has open questions")
+
+    def test_unknown_without_question_refuses(self):
+        self.rejects(lambda d: d["facets"]["contacts"].update(open_questions=[]),
+                     "unresolved facet needs a concrete question")
+
+    def test_pending_entry_cannot_pretend_to_have_contract(self):
+        def edit(d):
+            next(r for r in d["entries"] if r["disposition"] == "pending")["contracts"] = ["reservation.acquire"]
+        self.rejects(edit, "pending witness must not pretend")
+
+    def test_old_source_pin_refuses(self):
+        self.rejects(lambda d: d.update(source_inventory_sha256="0" * 64), "binding is stale")
+
+    def test_anchor_digest_refuses(self):
+        self.rejects(lambda d: d["facets"]["actor"]["source_refs"][0].update(sha256="0" * 64),
+                     "stale source span")
+
+    def test_unpinned_path_and_invalid_span_refuse(self):
+        self.rejects(lambda d: d["facets"]["actor"]["source_refs"][0].update(path="../../escape.py"),
+                     "unpinned source path")
+        self.rejects(lambda d: d["facets"]["actor"]["source_refs"][0].update(start=0),
+                     "invalid source span")
+
+    def test_fabricated_qualification_refuses(self):
+        for gate in contracts.GATES:
+            with self.subTest(gate=gate):
+                self.rejects(lambda d: d["qualification"].update({gate: True}), "cannot be elevated")
+
+    def test_orphan_contract_and_facet_refuse(self):
+        self.rejects(lambda d: d["contracts"].update(orphan=copy.deepcopy(d["contracts"]["reservation.acquire"])),
+                     "orphan contracts")
+        self.rejects(lambda d: d["facets"].update(orphan=copy.deepcopy(d["facets"]["actor"])), "orphan facets")
+
+    def test_unsafe_conditional_list_becomes_ambiguous(self):
+        self.rejects(lambda d: d["contracts"]["reservation.list-read"].update(when={"always": True}),
+                     "zero/multiple/wrong contracts")
+
+    def test_conditional_domain_write_cannot_be_labelled_read(self):
+        self.rejects(lambda d: d["contracts"]["reservation.list-scope"].update(domain_mode="read"),
+                     "domain-mode mismatch")
+
+    def test_missing_alias_selector_case_refuses(self):
+        alias = next(r["site_id"] for r in self.source["registrations"]
+                     if r.get("names") == ["orgtree_resource_reservation"])
+        def edit(d):
+            d["wire_cases"] = [r for r in d["wire_cases"] if r["entry_id"] != alias]
+        self.rejects(edit, "contract/entry pairs missing")
+
+    def test_conditions_are_data_not_python_code(self):
+        self.rejects(lambda d: d["contracts"]["reservation.acquire"].update(when={"eval": "raise SystemExit"}),
+                     "unknown condition")
+
+    def test_complete_cli_refuses_current_registry(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            code = contracts.main(["--repo", str(ROOT), "--require-complete"])
+        self.assertEqual(code, 3)
+        self.assertFalse(json.loads(output.getvalue())["contract_coverage_complete"])
+
+    def test_real_cli_works_with_the_provisioned_isolated_interpreter(self):
+        result = subprocess.run([sys.executable, "-B", str(ROOT / "tools/state_operation_contracts.py"),
+                                 "--repo", str(ROOT), "--require-complete"],
+                                cwd=ROOT, capture_output=True, text=True, timeout=45)
+        self.assertEqual(result.returncode, 3, result.stderr)
+        self.assertTrue(json.loads(result.stdout)["valid"])
+
+    def test_read_only_cli_does_not_refresh_stale_files(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "contracts.json"
+            path.write_text('{"schema": "broken"}', encoding="utf-8")
+            before = path.read_bytes()
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                code = contracts.main(["--repo", str(ROOT), "--contracts", str(path)])
+            self.assertIn(code, (1, 2))
+            self.assertEqual(before, path.read_bytes())
+
+    def test_json_duplicate_keys_and_nonfinite_numbers_refuse(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "duplicate.json"
+            for text in ('{"a":1,"a":2}', '{"a":NaN}'):
+                path.write_text(text, encoding="utf-8")
+                with self.assertRaises(ValueError):
+                    contracts.load(path)
+
+
+class SourceInvalidation(unittest.TestCase):
+    def test_complete_synthetic_contract_still_cannot_authorize_runtime(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            backend = root / "engine/backend"
+            backend.mkdir(parents=True)
+            text = '@app.get("/fixture")\ndef read():\n    return {}\n'
+            (backend / "api.py").write_text(text, encoding="utf-8")
+            source = contracts.inventory.scan(root)
+            identity = source["registrations"][0]["site_id"]
+            span = {"path": "engine/backend/api.py", "start": 1, "end": 3,
+                    "sha256": contracts.inventory.fingerprint(text)}
+            facets = {d: {"dimension": d, "status": "specified", "facts": ["Synthetic assertion."],
+                          "source_refs": [span], "open_questions": []} for d in contracts.DIMENSIONS}
+            doc = {"schema": contracts.SCHEMA, "source_inventory_sha256": contracts.digest(source),
+                   "qualification": dict(contracts.GATES), "entries": [
+                       {"id": identity, "disposition": "mapped", "contracts": ["fixture"],
+                        "reason": "Synthetic route.", "source_refs": [span]}],
+                   "dispatch": [], "storage": [], "facets": facets,
+                   "contracts": {"fixture": {"entry_ids": [identity], "tools": [], "action": None,
+                       "action_normalization": "identity", "when": {"always": True}, "domain_mode": "read",
+                       "dimensions": {d: [d] for d in contracts.DIMENSIONS}, "source_refs": [span]}},
+                   "wire_cases": [{"name": "fixture", "entry_id": identity, "args": {},
+                                   "contract": "fixture", "domain_mode": "read"}],
+                   "limits": ["Synthetic schema fixture, not a real semantic claim."]}
+            result = contracts.validate(doc, source, root)
+            self.assertTrue(result["valid"], result["errors"])
+            self.assertTrue(result["contract_coverage_complete"])
+            self.assertEqual(result["qualification"], contracts.GATES)
+
+    def test_refreshing_inventory_alone_does_not_reapprove_contract(self):
+        # A helper's new write does not need to be a recognized registration.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            backend = root / "engine/backend"
+            backend.mkdir(parents=True)
+            file = backend / "worker.py"
+            file.write_text("def helper():\n    return 1\n", encoding="utf-8")
+            old = contracts.inventory.scan(root)
+            doc = {"schema": contracts.SCHEMA, "source_inventory_sha256": contracts.digest(old),
+                   "qualification": dict(contracts.GATES), "entries": [], "dispatch": [], "storage": [],
+                   "facets": {}, "contracts": {}, "wire_cases": [], "limits": ["Synthetic schema fixture only."]}
+            file.write_text("def helper():\n    global value\n    value = 2\n", encoding="utf-8")
+            fresh = contracts.inventory.scan(root)
+            result = contracts.validate(doc, fresh, root)
+            self.assertFalse(result["valid"])
+            self.assertIn("source inventory binding is stale", result["errors"])
+
+    def test_unknown_registration_never_imports_backend(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            backend = root / "engine/backend"
+            backend.mkdir(parents=True)
+            (backend / "factory.py").write_text("raise RuntimeError('must not execute')\ninstall_hidden_factory()\n", encoding="utf-8")
+            result = contracts.inventory.scan(root)
+            self.assertEqual(result["summary"]["modules"], 1)
+
+
+class ReservationSelectorConformance(unittest.TestCase):
+    """Call only the existing pure document helper on synthetic data."""
+    @classmethod
+    def setUpClass(cls):
+        import import_provenance  # noqa: F401
+        from orgtree import opreceipts, reservations
+        cls.reservations, cls.receipts = reservations, opreceipts
+        cls.document = contracts.load(ROOT / "docs/state-system/operation-contracts.json")
+        cls.entry = cls.document["contracts"]["reservation.list-read"]["entry_ids"][0]
+
+    def test_list_read_and_scope_write_follow_actual_helper(self):
+        d = {}
+        r = self.reservations
+        r.execute(d, "owner", {"action": "acquire", "resource": "fixture", "candidate": "a"*40,
+                             "base": "b"*40, "lease_s": 1, "stale_s": 1}, now_ts=100)
+        before = copy.deepcopy(d)
+        args = {"action": "list", "candidate": None, "base": None}
+        self.assertEqual(contracts.select(self.document, self.entry, args), ["reservation.list-read"])
+        r.execute(d, "owner", args, now_ts=105)
+        self.assertEqual(d, before)
+        args.update(candidate="c"*40, base="b"*40)
+        self.assertEqual(contracts.select(self.document, self.entry, args), ["reservation.list-scope"])
+        result = r.execute(d, "owner", args, now_ts=105)
+        self.assertEqual(d["reservations"][0]["state"], "stale")
+        self.assertEqual(len(result["stale"]), 1)
+
+    def test_empty_candidate_is_write_branch_even_when_it_refuses(self):
+        args = {"action": "list", "candidate": ""}
+        self.assertEqual(contracts.select(self.document, self.entry, args), ["reservation.list-scope"])
+        with self.assertRaises(self.reservations.ReservationError):
+            self.reservations.execute({}, "owner", args, now_ts=100)
+
+    def test_domain_reads_are_still_receipt_capable(self):
+        for tool in ("orgtree_reservation", "orgtree_resource_reservation"):
+            for action in ("list", "landing", "overlap"):
+                self.assertEqual(self.receipts.coverage(tool, {"action": action}), self.receipts.TX_POST)
+
+
+if __name__ == "__main__":
+    unittest.main()
