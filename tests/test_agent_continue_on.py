@@ -141,7 +141,12 @@ class DeadlockThisTicketRemoves(_Base):
         self.assertIn(("turn_started",),
                       [c.args[2:] for c in notified.call_args_list])
 
-    def test_a_rebind_after_that_unstick_is_refused_as_mid_turn(self):
+    def test_a_rebind_after_that_unstick_queues_for_the_turn_boundary(self):
+        # ⚠ CONTRACT REVERSED (user, 2026-09-20, `queue-account-rebinds-for-
+        # mid-turn-agents`): this used to assert the mid-turn refusal. A valid
+        # account rebind against a busy node is now ACCEPTED AS QUEUED, in
+        # parity with queued model/provider switches — the active turn keeps
+        # its account, and the intent is durable until the boundary applies it.
         self._freeze()
         with patch.object(supervisor, "send_message",
                           return_value={"accepted": True}), \
@@ -149,12 +154,17 @@ class DeadlockThisTicketRemoves(_Base):
             self.call("orgtree_unstick", {"node": "worker"})
         supervisor.state(self.slug, "worker")["busy"] = True
         try:
-            with self.assertRaises(api.HTTPException) as caught:
-                self.call("orgtree_retool", {"node": "worker",
-                                             "account": self.target["id"]})
-            self.assertIn("mid-turn", str(caught.exception.detail))
+            out = self.call("orgtree_retool", {"node": "worker",
+                                               "account": self.target["id"]})
         finally:
             supervisor.state(self.slug, "worker")["busy"] = False
+        self.assertTrue((out.get("account_binding") or {}).get("queued"),
+                        f"a valid mid-turn rebind queues, not refuses: {out}")
+        fresh = self.node()
+        self.assertEqual(fresh["account"], self.source["id"],
+                         "the active turn keeps its account")
+        self.assertEqual(fresh["pending_account"]["account"],
+                         self.target["id"], "the queued intent is durable")
 
 
 class AgentContinueOnTests(_Base):
