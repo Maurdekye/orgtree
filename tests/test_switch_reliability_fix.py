@@ -400,7 +400,7 @@ class DurableInflightGuardsRebind(unittest.TestCase):
         registry.set_auth(row["id"], "authenticated")
         return registry.get_account(row["id"])
 
-    def test_bare_rebind_refuses_on_a_recorded_inflight_turn(self):
+    def test_rebind_queues_on_a_recorded_inflight_turn(self):
         source, target = self._account("src"), self._account("tgt")
         slug = "f-inflight-refuse"
         org = ledger.Org.create(slug)
@@ -412,13 +412,76 @@ class DurableInflightGuardsRebind(unittest.TestCase):
         st.update(busy=False, responding=False, queue=[])   # process died
         store.save_org(org)
 
-        with self.assertRaises(RuntimeError) as ctx:
-            supervisor.assign_account(slug, "worker", target["id"],
-                                      actor="USER")
-        self.assertIn("in-flight", str(ctx.exception))
+        out = supervisor.assign_account(slug, "worker", target["id"],
+                                        actor="USER")
+        self.assertTrue(out["queued"])
+        self.assertEqual(out["pending_account"], target["id"])
         fresh = store.load_org(slug).node("worker")
-        self.assertEqual(fresh["account"], source["id"], "nothing half-applied")
+        self.assertEqual(fresh["account"], source["id"], "active turn unchanged")
+        self.assertEqual(fresh["pending_account"]["account"], target["id"])
         self.assertIn("inflight", fresh)
+
+    def test_queued_rebind_replaces_and_current_account_cancels(self):
+        source, first, second = (self._account("src3"), self._account("tgt3"),
+                                 self._account("tgt4"))
+        slug = "f-inflight-replace"
+        org = ledger.Org.create(slug)
+        org.hire(ledger.USER, None, "opus", 0, "worker")
+        n = org.node("worker")
+        n["account"] = source["id"]
+        n["inflight"] = {"at": "2026-09-16T00:00:00Z", "text": "work"}
+        supervisor.state(slug, "worker").update(busy=False, responding=False,
+                                                  queue=[])
+        store.save_org(org)
+        supervisor.assign_account(slug, "worker", first["id"], actor="USER")
+        out = supervisor.assign_account(slug, "worker", second["id"], actor="USER")
+        self.assertTrue(out["queued"])
+        self.assertEqual(out["replaced"], first["id"])
+        out = supervisor.assign_account(slug, "worker", source["id"], actor="USER")
+        self.assertFalse(out["queued"])
+        self.assertEqual(out["cancelled"], second["id"])
+        self.assertNotIn("pending_account", store.load_org(slug).node("worker"))
+
+    def test_queued_rebind_applies_through_the_boundary_writer(self):
+        source, target = self._account("src5"), self._account("tgt5")
+        slug = "f-inflight-apply"
+        org = ledger.Org.create(slug)
+        org.hire(ledger.USER, None, "opus", 0, "worker")
+        n = org.node("worker")
+        n["account"] = source["id"]
+        n["inflight"] = {"at": "2026-09-16T00:00:00Z", "text": "work"}
+        supervisor.state(slug, "worker").update(busy=False, responding=False,
+                                                  queue=[])
+        store.save_org(org)
+        supervisor.assign_account(slug, "worker", target["id"], actor="USER")
+        with store.DOC_LOCK:
+            live = store.load_org(slug)
+            live.node("worker").pop("inflight", None)
+            changed = supervisor._apply_pending_switch_locked(live, slug,
+                                                               "worker")
+            self.assertTrue(changed)
+            self.assertEqual(live.node("worker")["account"], target["id"])
+            self.assertNotIn("pending_account", live.node("worker"))
+            store.save_org(live)
+
+    def test_invalid_rebind_does_not_replace_a_valid_queue(self):
+        source, target = self._account("src6"), self._account("tgt6")
+        slug = "f-inflight-invalid"
+        org = ledger.Org.create(slug)
+        org.hire(ledger.USER, None, "opus", 0, "worker")
+        n = org.node("worker")
+        n["account"] = source["id"]
+        n["inflight"] = {"at": "2026-09-16T00:00:00Z", "text": "work"}
+        supervisor.state(slug, "worker").update(busy=False, responding=False,
+                                                  queue=[])
+        store.save_org(org)
+        supervisor.assign_account(slug, "worker", target["id"], actor="USER")
+        with self.assertRaises(Exception):
+            supervisor.assign_account(slug, "worker", "not-an-account",
+                                      actor="USER")
+        fresh = store.load_org(slug).node("worker")
+        self.assertEqual(fresh["account"], source["id"])
+        self.assertEqual(fresh["pending_account"]["account"], target["id"])
 
     def test_recovery_path_still_proceeds_over_a_stale_marker(self):
         # allow_frozen (what /continue-on and auto-fallback pass) owns the

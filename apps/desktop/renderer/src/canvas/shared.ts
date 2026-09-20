@@ -689,6 +689,7 @@ export interface CanvasNode {
   inflight_at?: string | null
   /** D-234: the model switch queued behind the running turn (TreeNode's) */
   pending_switch?: PendingSwitch | null
+  pending_account?: { account: string; from: string; by: string; at: string } | null
   last_denials?: TreeNode['last_denials']
   last_approvals?: TreeNode['last_approvals']
   turns?: TreeNode['turns']
@@ -982,6 +983,18 @@ export const queuedSwitchTitle = (n: {
   const who = p.by === USER ? 'the user' : p.by
   return `model switch QUEUED by ${who}: ${n.tier ?? '?'} → ${p.tier} applies `
     + 'when the current turn ends — interrupt the turn to apply it now'
+}
+
+/** Account rebind queued behind a live turn; the bound account remains the
+ * source of truth until the boundary applies this intent. */
+export const queuedAccountTitle = (n: {
+  account?: string | null
+  pending_account?: { account: string; by: string } | null
+}): string => {
+  const p = n.pending_account
+  if (!p) return ''
+  const who = p.by === USER ? 'the user' : p.by
+  return `account rebind QUEUED by ${who}: ${n.account ?? 'primary'} → ${p.account} applies when the current turn ends`
 }
 export const EXTERN = '@extern'      // the org-inbox audience grantor sentinel
 /** the ledger's own hand — mirrors ledger.SYSTEM. Mail wearing this `from`

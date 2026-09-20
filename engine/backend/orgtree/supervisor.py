@@ -8144,7 +8144,8 @@ ACCOUNT_LANE_DOCTRINE = (
     "emails never redirect billing. Omit the field on a hire to inherit the "
     "org default; omit it on a rehire or retool to keep the stored binding. "
     "A retool account change is strictly downward, never on yourself, and "
-    "is refused while the agent is mid-turn. Moving a Codex agent, including "
+    "is queued while the agent is mid-turn; the active turn keeps its current "
+    "account and the change applies at the boundary. Moving a Codex agent, including "
     "back to primary, archives the old session as a readable knowledge "
     "bearer and starts fresh. Primary restores ambient authentication and "
     "existing fallback rules; it does not promise available capacity. "
@@ -13382,8 +13383,43 @@ def _apply_pending_switch_locked(o2: Org, slug: str, nid: str,
     hands it to `drive_unfrozen_by_switch`. Without that the node ends live,
     unfrozen and idle with its interrupted work discarded and nothing ever
     re-driving it."""
+    changed = False
+    # Account rebinds share the model switch's boundary: the running process
+    # is never repointed, and the durable intent is consumed exactly once
+    # before any successor carrier is admitted.  Keep this ahead of the model
+    # switch so a queued account is the newest account choice when both doors
+    # were used during one turn.
+    if nid in o2.nodes and o2.node(nid).get("pending_account"):
+        _ap = dict(o2.node(nid).pop("pending_account") or {})
+        changed = True  # consuming durable intent is itself a document change
+        _aa = str(_ap.get("account") or "primary")
+        _account_applied = False
+        try:
+            _reb = finish_switch_binding(o2, slug, nid, _aa,
+                                          str(_ap.get("by") or "USER"))
+            if _reb:
+                changed = True
+            _account_applied = True
+            o2._log("account_assign", str(_ap.get("by") or "USER"),
+                    {"node": nid, "account": _aa,
+                     "queued_at": _ap.get("at"), "via": "queued_retool"}, [])
+        except Exception as _e:  # boundary must never break turn bookkeeping
+            reason = str(_e)
+            kept = str(o2.node(nid).get("account") or "primary")
+            o2._log("account_queue_dropped", str(_ap.get("by") or "USER"),
+                    {"node": nid, "account": _aa, "reason": reason,
+                     "queued_at": _ap.get("at")},
+                    [f"the queued account rebind of {nid} was DROPPED at "
+                     f"the end of its turn: {reason}. It stays on {kept}."])
+            changed = True
+        # The account may have been selected together with a queued model
+        # switch.  The rebind is the newest account intent, so carry it into
+        # that switch's atomic finish rather than letting the older choice
+        # overwrite it.
+        if _account_applied and nid in o2.nodes and o2.node(nid).get("pending_switch"):
+            o2.node(nid)["pending_switch"]["account"] = _aa
     if nid not in o2.nodes or not o2.node(nid).get("pending_switch"):
-        return False
+        return changed
     # multi-account D2d, checked BEFORE the ledger pops and applies: an
     # accountless cross-provider switch on a bound node (queued before this
     # feature, or against a binding that appeared meanwhile) is a RECORDED
@@ -13437,7 +13473,7 @@ def _apply_pending_switch_locked(o2: Org, slug: str, nid: str,
         return True
     r = o2.apply_pending_switch(nid)
     if r is None:
-        return False
+        return changed
     if wake is not None and r.get("resume_stale_freeze"):
         wake.extend(str(x) for x in r["resume_stale_freeze"])
     if not r.get("dropped"):
@@ -14075,10 +14111,6 @@ def assign_account(slug: str, nid: str, account_id: str, *,
     parked process for the OLD account a non-match by construction."""
     from . import warmpool
     st = state(slug, nid)
-    if st.get("busy") or st.get("responding"):
-        raise RuntimeError(
-            f"{nid} is mid-turn — reassignment is a session boundary and "
-            f"never repoints a live session; retry when the turn ends")
     # a caller mid-transaction (the agent-tool dispatch) passes its OWN org
     # — mutating a fresh load and saving it would be clobbered by the
     # caller's later save of its stale copy. With `org` given, the caller
@@ -14097,22 +14129,9 @@ def assign_account(slug: str, nid: str, account_id: str, *,
             raise RuntimeError(
                 "sandboxed orgs are container-managed — accounts do not "
                 "apply (declared exemption, design D2a)")
-        # F (2026-09-16): the in-memory busy gate above dies with the process,
-        # but the seat's durable `inflight` marker survives a backend death
-        # mid-turn — and the startup reconcile deliberately skips FROZEN nodes
-        # when replaying it. A bare rebind through that window would repoint a
-        # session that still owes a turn. Refused like the busy gate (the
-        # ledger's switch_model already reads this marker for the same
-        # reason); recovery paths (allow_frozen) proceed — they own the
-        # release and the replay of exactly that interrupted work.
-        if node.get("inflight") and not allow_frozen:
-            raise RuntimeError(
-                f"{nid} has an in-flight turn recorded (possibly interrupted "
-                f"by a backend restart) — reassignment is a session boundary "
-                f"and never repoints a session that still owes a turn; retry "
-                f"when the turn ends or has been reconciled, or recover a "
-                f"frozen seat with {_continue_verb(actor)} / "
-                f"`orgtree_unstick`")
+        # A durable `inflight` marker survives a backend death mid-turn. It is
+        # handled by the same queue below; recovery paths (allow_frozen) still
+        # own release and replay of interrupted work.
         # Frozen-node policy (see docstring). Distinguish the kinds explicitly,
         # then refuse a bare rebind on a usage-limit freeze BEFORE any mutation
         # — nothing below has run, so the node is untouched. `_auth_freeze` is
@@ -14137,6 +14156,38 @@ def assign_account(slug: str, nid: str, account_id: str, *,
         tier = str(node.get("model") or "")
         row = registry.validate_selection(slug, tier, account_id)
         previous = str(node.get("account") or "")
+        _busy_now = bool(st.get("busy") or st.get("responding") or node.get("inflight"))
+        if _busy_now and not allow_frozen:
+            requested = row["id"] or "primary"
+            pending = node.get("pending_account")
+            if previous == row["id"]:
+                node.pop("pending_account", None)
+                if pending:
+                    org._log("account_queue_cancelled", actor,
+                              {"node": nid, "was": pending.get("account"),
+                               "kept": requested}, [])
+                out = {"account": row["name"], "label": row["name"],
+                       "previous_account": previous or None, "queued": False}
+                if pending:
+                    out["cancelled"] = pending.get("account")
+                if not _caller_owns_save:
+                    store.save_org(org)
+                return out
+            replaced = pending.get("account") if pending else None
+            node["pending_account"] = {"account": requested,
+                                        "from": previous or "primary",
+                                        "by": actor, "at": now_iso()}
+            org._log("account_queued", actor,
+                      {"node": nid, "from": previous or "primary",
+                       "to": requested, "replaced": replaced}, [])
+            out = {"account": row["name"], "label": row["name"],
+                   "previous_account": previous or None, "queued": True,
+                   "pending_account": requested, "replaced": replaced,
+                   "cache_namespace_changed": True,
+                   "session_boundary": row["provider"] in ("openai", "google")}
+            if not _caller_owns_save:
+                store.save_org(org)
+            return out
         changed = previous != row["id"]
         try:
             prev_hash, prev_comp = warmpool.identity_snapshot(org, nid)
@@ -32041,7 +32092,8 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
         # replays — active_only gates only the generic mail revive.)
         switch_wake: list[str] = []
         queued = [k for k, n in org.nodes.items()
-                  if n["state"] == "live" and n.get("pending_switch")]
+                  if n["state"] == "live"
+                  and (n.get("pending_switch") or n.get("pending_account"))]
         if queued:
             for nid in queued:
                 _apply_pending_switch_locked(org, slug, nid, wake=switch_wake)

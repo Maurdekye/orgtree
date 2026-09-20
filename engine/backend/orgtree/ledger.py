@@ -10436,6 +10436,9 @@ class Org:
                 # D-234: a switch queued behind the running turn — the card
                 # wears it until the boundary applies (or a cancel clears) it
                 "pending_switch": n.get("pending_switch"),
+                # account rebind queued behind the running turn; applied by
+                # the same boundary finalizer as pending_switch
+                "pending_account": n.get("pending_account"),
                 "last_denials": n.get("last_denials") or [],
                 # codex lane (2026-09-05): approvals the seam answered
                 # "accept". Absent when the lane cannot report it — a `[]`

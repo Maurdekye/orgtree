@@ -1566,7 +1566,12 @@ TOOLS: list[dict[str, Any]] = [
             "how your team works is yours to direct, and re-stating it as you "
             "learn what the work needs is expected, not a liberty. Your OWN "
             "charter, scope, tools and mode are your superior's to set: ask "
-            "them with orgtree_message."),
+            "them with orgtree_message. When the target is mid-turn, a valid "
+            "account change is accepted as queued: the active turn keeps its "
+            "current account and the new binding applies at the turn boundary. "
+            "A later valid request replaces the queued account; requesting the "
+            "current account cancels it. The result includes `queued`, "
+            "`pending_account`, and `replaced` when applicable."),
         "inputSchema": {
             "type": "object",
             "properties": {

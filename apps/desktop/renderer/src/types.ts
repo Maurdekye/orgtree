@@ -329,6 +329,14 @@ export interface PendingSwitch {
   crossing: boolean
 }
 
+/** Account rebind requested during a live turn; applied at its boundary. */
+export interface PendingAccount {
+  account: string
+  from: string
+  by: string
+  at: string
+}
+
 export interface TreeNode {
   /** §4.8 — `false` means this is an ARCHIVED seat's SUMMARY: its
    *  supervisor-derived runtime fields were refilled from the payload's
@@ -416,6 +424,7 @@ export interface TreeNode {
   /** D-234: the switch queued behind the running turn; null/absent once it
    *  applied, was cancelled, or the node was idle when asked */
   pending_switch?: PendingSwitch | null
+  pending_account?: PendingAccount | null
   last_denials: Denial[]
   /** codex lane (2026-09-05): last turn's APPROVED escalations, same row
    *  shape as last_denials; absent when the lane cannot report it */
