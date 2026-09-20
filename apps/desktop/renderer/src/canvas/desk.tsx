@@ -1732,15 +1732,6 @@ function readerAnchor(el: HTMLElement): { row: HTMLElement; offset: number } | n
   return null
 }
 
-/** the identity of the OLDEST rendered row — the one thing that changes when,
- *  and only when, an older page is actually prepended. Live rows append,
- *  expanding content resizes; neither touches this. */
-function oldestRowKey(rows: readonly ChatMessage[]): string | null {
-  const m = rows[0]
-  if (!m) return null
-  return String(m.row_id ?? m.native_event_id ?? m.event_id ?? m.assistant_id ?? m.seq ?? '')
-}
-
 function ctxTargetElement(root: Element | null,
   target: { id?: string; el: Element } | null): Element | null {
   if (!target) return null
@@ -2137,92 +2128,138 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   // every row carries markdown and tool chips. The server stamps `seq` as the
   // PRE-slice ordinal, so messages[0].seq > 0 means older rows exist.
   const loadingOlder = convo.loadingOlder
-  // distance-from-bottom is invariant when older rows are PREPENDED, so it is
-  // the anchor that keeps the reader's place instead of jumping them down
-  // ⚠ AND IT IS SPENT ON THE PREPEND IT WAS TAKEN FOR, AND NOTHING ELSE.
+  // distance-from-bottom is invariant when older rows are PREPENDED, so it
+  // LOOKS like the anchor that keeps the reader's place. It is not — see the
+  // history below — and what actually holds is the reader's own row at its
+  // own scrollport offset, re-asserted for as long as a page request is in
+  // the air plus a short settle window after it lands.
   //
-  // Two wrong versions of this preceded the right one, and both are worth
-  // knowing about because they fail in opposite directions.
+  // Four wrong versions preceded this one, and each is worth knowing about
+  // because each failed somewhere the previous fix could not see.
   //
   // A PLAIN NUMBER was consumed by the FIRST render after it was recorded —
-  // and that render is almost always the `loadingOlder: true` state change,
-  // which happens while the page is still in flight and nothing has been
-  // prepended yet. It restored the offset the reader was already at, cleared
-  // itself, and by the time the rows landed there was nothing left: the reader
-  // was left wherever the prepend shoved them (measured: 1600px from the
-  // newest message before the page, 2400px after).
+  // almost always the `loadingOlder: true` state change, before anything had
+  // been prepended. It restored the offset the reader was already at, and by
+  // the time the rows landed there was nothing left (measured: 1600px from
+  // the newest message before the page, 2400px after).
   //
-  // KEYING IT ON THE HEIGHT fixed that and broke something else, which
+  // KEYING IT ON THE HEIGHT fixed that and broke the other direction, which
   // independent review caught: while a page is pending, ANY growth looks like
-  // the prepend. A live row arriving or a tool chip expanding — both of which
-  // grow the content BELOW the reader — consumed the anchor, moved them toward
-  // the newest message by the appended height, and left the real prepend
-  // unanchored when it finally landed.
+  // the prepend — a live row arriving grows the content BELOW the reader,
+  // consumed the anchor there, and left the real prepend unanchored.
   //
-  // So the gate is the OLDEST RENDERED ROW's identity, which changes when and
-  // only when an older page is really prepended, and the restore holds the
-  // reader's own row at its own offset rather than a distance from the bottom
-  // — because a single commit can add rows above AND below them, and only the
-  // row-relative measure is invariant under both.
-  const growAnchor = useRef<
-    { row: HTMLElement | null; offset: number; fromBottom: number; oldest: string | null }
-  | null>(null)
-  /** the oldest rendered row of the CURRENT render, for the effect to compare
-   *  against the one the anchor was taken at */
-  const oldestKeyRef = useRef<string | null>(null)
-  useLayoutEffect(() => {
+  // KEYING IT ON THE OLDEST RENDERED ROW's identity fixed that and still
+  // failed twice over, which is what the user reported as the view drifting
+  // "progressively earlier" through history (2026-09-20):
+  //   · the trigger band is 240px tall and a wheel emits MANY scroll events
+  //     inside it — the first armed the anchor and started the page, and
+  //     every later one had its loadOlder() refused by the store, whose
+  //     refusal handler nulled the LIVE anchor. The page landed with nothing
+  //     to restore against, on essentially every wheel-driven load;
+  //   · on the first flight of a visit the store's `paged` flag is still
+  //     false, so a poll landing mid-flight installs the raw slid tail (a
+  //     busy agent appends a row, the window evicts the top one). The oldest
+  //     row changes with NO prepend, the "prepend landed" branch spent the
+  //     anchor on it, and the real page again landed unanchored.
+  //
+  // The one-shot shape itself is what kept failing, so the anchor is no
+  // longer spent on a detected prepend at all. While ARMED it is re-applied
+  // on every commit (the layout effect below) and on every animation frame
+  // (armSettle), so a mid-flight tail slide, the prepend itself, and layout
+  // that settles late — markdown re-measuring, an image arriving — all
+  // resolve to the same statement: the reader's row stays where it was. A
+  // scroll the reader makes themselves re-captures the anchor at their new
+  // place, because their movement is the truth (transcriptprepend §5);
+  // this desk's own writes are recognised by value (anchorEcho) and change
+  // nothing; and the whole thing disarms when the reader re-sticks to the
+  // tail, or a settle window after the flight ends.
+  const growAnchor = useRef<{ row: HTMLElement | null; offset: number; fromBottom: number } | null>(null)
+  /** the scrollTop this desk itself just wrote — the next scroll event
+   *  carrying this value is our own hold's echo, not the reader moving */
+  const anchorEcho = useRef<number | null>(null)
+  const anchorRaf = useRef<number | null>(null)
+  const anchorSettleLeft = useRef(0)
+  /** the latest render's `loadingOlder`, for the scroll handler and the
+   *  settle loop — both outlive the render that armed them */
+  const loadingOlderRef = useRef(false)
+  loadingOlderRef.current = loadingOlder
+  /** the reader's row and offset RIGHT NOW (plus the bottom distance the
+   *  fallback needs); null only before anything renders */
+  const captureAnchor = (): { row: HTMLElement | null; offset: number; fromBottom: number } | null => {
     const el = scroller.current
-    // ⚠ THE ANCHOR IS RESTORED BEFORE ANYTHING ELSE MEASURES.
-    // `fillViewport` can ask for another page, and `loadOlder` records the
-    // next anchor as `scrollHeight - scrollTop` — so running it first had it
-    // measuring the offset this render STARTED with, before the restore below
-    // moved the reader. It then overwrote the anchor it was standing on: the
-    // restore computed `scrollHeight - (scrollHeight - staleTop)` and put the
-    // reader back at the un-restored offset, i.e. left them where the prepend
-    // had shoved them instead of where they were reading. Measured: 1600px
-    // from the newest message before a page settled, 2400px after.
+    if (!el) return null
+    const at = readerAnchor(el)
+    return { row: at?.row ?? null, offset: at?.offset ?? 0,
+      fromBottom: el.scrollHeight - el.scrollTop }
+  }
+  /** re-assert the armed anchor: the reader's own row back at its own offset.
+   *  The distance-from-bottom fallback is ONLY for a row that left the DOM
+   *  (the tail window slid past it) — and it immediately re-bases on whatever
+   *  row is under the reader after the write, so the fallback arithmetic,
+   *  which mixed heights would skew, is never applied twice in a row. */
+  const holdAnchor = () => {
+    const el = scroller.current
     const anchor = growAnchor.current
-    if (!stickRef.current && el && anchor) {
-      if (oldestKeyRef.current !== anchor.oldest) {
-        // THE PREPEND LANDED — the oldest rendered row is not the one it was.
-        // Hold the reader's own row where it was on screen; fall back to the
-        // distance from the bottom only if that row is no longer rendered,
-        // which is the best remaining guess.
-        if (anchor.row && anchor.row.isConnected) {
-          el.scrollTop = anchor.row.offsetTop - anchor.offset
-        } else {
-          el.scrollTop = el.scrollHeight - anchor.fromBottom
-        }
-        growAnchor.current = null
-      } else if (!loadingOlder) {
-        // the request settled and prepended nothing, so this anchor has no
-        // page left to answer for — and an anchor that outlives its page is
-        // exactly the trap described below
-        growAnchor.current = null
-      }
+    if (!el || !anchor || stickRef.current) return
+    const alive = !!anchor.row && anchor.row.isConnected
+    const want = alive
+      ? anchor.row!.offsetTop - anchor.offset
+      : el.scrollHeight - anchor.fromBottom
+    if (Math.abs(el.scrollTop - want) > 1) {
+      anchorEcho.current = Math.max(0, Math.min(want, el.scrollHeight - el.clientHeight))
+      el.scrollTop = want
     }
+    if (!alive) growAnchor.current = captureAnchor()
+  }
+  /** how many frames the hold survives the flight settling. Late layout
+   *  displaces the reader just as surely as the prepend did, and none of it
+   *  re-renders React, so the hold has to ride FRAMES, not commits. ~400ms
+   *  covers what a landed page does to itself; anything later belongs to the
+   *  browser's own scroll anchoring. */
+  const SETTLE_FRAMES = 24
+  const stopSettle = () => {
+    if (anchorRaf.current !== null) { cancelAnimationFrame(anchorRaf.current); anchorRaf.current = null }
+  }
+  const armSettle = () => {
+    anchorSettleLeft.current = SETTLE_FRAMES
+    if (anchorRaf.current !== null) return
+    const tick = () => {
+      anchorRaf.current = null
+      if (!growAnchor.current || stickRef.current) return
+      holdAnchor()
+      if (loadingOlderRef.current) anchorSettleLeft.current = SETTLE_FRAMES
+      else if (--anchorSettleLeft.current <= 0) { growAnchor.current = null; return }
+      anchorRaf.current = requestAnimationFrame(tick)
+    }
+    anchorRaf.current = requestAnimationFrame(tick)
+  }
+  // the loop must not outlive the desk: an armed tick re-schedules itself,
+  // and after unmount nothing else would ever stop it
+  useEffect(() => stopSettle, [])   // eslint-disable-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => {
+    // ⚠ THE ANCHOR IS RE-ASSERTED BEFORE ANYTHING ELSE MEASURES.
+    // `fillViewport` can ask for another page, and `loadOlder` captures the
+    // next anchor from the live DOM — so running it first had it measuring
+    // the offset this render STARTED with, before the hold below moved the
+    // reader back to where they were reading. Measured: 1600px from the
+    // newest message before a page settled, 2400px after.
+    holdAnchor()
     fillViewportRef.current()
     if (stickRef.current) {
       // ⚠ AND THE ANCHOR DIES HERE (user bug 2026-09-12: "scrolling up forces
-      // the view back to the bottom"). `growAnchor` is a DISTANCE FROM THE
-      // BOTTOM, recorded so that prepended rows do not move the reader. While
-      // the reader is stuck at the tail there is nothing to preserve — the
-      // pin below is the whole behaviour — but the branch used to `return`
-      // without clearing it, so an anchor captured at the bottom (where the
-      // distance IS the viewport height) simply waited. The moment the reader
-      // scrolled up, `stickRef` went false, the next render took the branch
-      // below, and it restored them to the exact distance-from-bottom it had
-      // recorded: the bottom. Tall desks hit this on the FIRST scroll, because
-      // `fillViewport` issues a `loadOlder` for every screen it still needs
-      // while the reader sits at the tail. An anchor that outlives the visit
-      // it belongs to is not an anchor, it is a trap.
+      // the view back to the bottom"). While the reader is stuck at the tail
+      // there is nothing to preserve — the pin below is the whole behaviour —
+      // but the branch used to `return` without clearing it, so an anchor
+      // captured at the bottom simply waited, and the reader's first upward
+      // scroll was restored straight back to the bottom it had recorded. Tall
+      // desks hit this on the FIRST scroll, because `fillViewport` issues a
+      // `loadOlder` for every screen it still needs while the reader sits at
+      // the tail. An anchor that outlives the visit it belongs to is not an
+      // anchor, it is a trap.
       growAnchor.current = null
+      stopSettle()
       pin(); calcPin(); return
     }
-    // (no second restore here on purpose: `fillViewport` above may have just
-    // recorded the anchor for a page that is still IN FLIGHT, and consuming
-    // it now would spend it on a prepend that has not happened yet — leaving
-    // the real one unanchored.)
     calcPin()   // FR-20: content growth moves the target without a scroll event
   })
   // seq is the PRE-slice ordinal, so a non-zero first seq means older rows exist
@@ -2365,14 +2402,26 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
     if (!el) return
     // …and it is not RECORDED while stuck either, for the same reason it is
     // cleared above: a reader at the tail is pinned there, so the only thing
-    // this anchor could ever restore them to is the bottom they never left.
-    const at = stickRef.current ? null : readerAnchor(el)
-    growAnchor.current = stickRef.current ? null : {
-      row: at?.row ?? null, offset: at?.offset ?? 0,
-      fromBottom: el.scrollHeight - el.scrollTop,
-      oldest: oldestKeyRef.current,
+    // this anchor could ever hold them to is the bottom they never left.
+    growAnchor.current = stickRef.current ? null : captureAnchor()
+    const accepted = storeLoadOlder(slug, node.id, count ?? transcriptViewport(el).page, count !== undefined)
+    if (growAnchor.current && (accepted || loadingOlderRef.current)) armSettle()
+    else if (!accepted) {
+      // nothing took the request and nothing is in the air: an armed anchor
+      // would outlive any page it could answer for.
+      //
+      // ⚠ THE `loadingOlderRef` HALF ABOVE IS A FIX, NOT AN OPTIMISATION. The
+      // refusal used to clear the anchor UNCONDITIONALLY — and the common
+      // refusal is "a page is already in flight", reached by the second,
+      // third, nth scroll event inside the 240px trigger band, i.e. by every
+      // wheel that ever crossed it. Each one destroyed the live anchor of the
+      // flight in progress, the landing restored nothing, and the reader was
+      // shoved a full page backward through history (transcriptprepend §1).
+      // A refused re-trigger during a flight now leaves the anchor exactly as
+      // the re-capture above set it: at the reader's newest position.
+      growAnchor.current = null
+      stopSettle()
     }
-    if (!storeLoadOlder(slug, node.id, count ?? transcriptViewport(el).page, count !== undefined)) growAnchor.current = null
   }
 
   const fillViewportRef = useRef<() => void>(() => {})
@@ -2551,10 +2600,6 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   // what the payload still holds, not a list of what this desk drew, and
   // keeping a key one poll too long costs nothing — sweeping one that is still
   // on screen cost the operator their desk.
-  // what the growAnchor gate compares against — see growAnchor's note. Set
-  // during render so the layout effect, which runs after it, reads THIS
-  // render's oldest row while the anchor still holds the one it was taken at.
-  oldestKeyRef.current = oldestRowKey(viewMessages)
   const liveFoldKeys = foldKeysOf(chat?.messages ?? [], live_feed, rawPendMail, pending)
   const pruneFolds = folds.prune
   useEffect(() => {
@@ -3241,6 +3286,22 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
             // desk is drawing (user report 2026-09-12)
             if (!wasStuck && stickRef.current) collapseWindow(slug, node.id, viewportRows())
             calcPin()
+            // an armed anchor follows the READER, not the request. A scroll
+            // event that is not our own hold's echo is the reader moving:
+            // while the flight is up, re-capture at their new place so the
+            // landing holds where they ARE (transcriptprepend §5); once it
+            // has settled, their first movement releases the hold. The echo
+            // check is what lets the settle loop's own writes through — in a
+            // real browser they arrive here as scroll events, and treating
+            // them as the reader would disarm the hold it is part of.
+            const echo = anchorEcho.current !== null
+              && Math.abs(e.currentTarget.scrollTop - anchorEcho.current) <= 1
+            anchorEcho.current = null
+            if (growAnchor.current && !echo) {
+              if (stickRef.current) { growAnchor.current = null; stopSettle() }
+              else if (loadingOlderRef.current) growAnchor.current = captureAnchor()
+              else { growAnchor.current = null; stopSettle() }
+            }
             // within a screen of the top: page in the previous window
             if (!stickRef.current && e.currentTarget.scrollTop < Math.min(240, e.currentTarget.clientHeight / 2) && hasOlder) loadOlder()
           }}>
