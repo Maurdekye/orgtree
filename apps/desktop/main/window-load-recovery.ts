@@ -107,7 +107,7 @@ export function holdingPageHtml(detail: string, stranded = false): string {
     ? 'Orgtree lost its engine and could not reattach automatically.'
     : 'Orgtree lost its connection to the engine.'
   const sub = stranded
-    ? 'Your agents and their work are safe on disk. Restart Orgtree to restore the interface.'
+    ? 'Your agents and their work are safe on disk. Refresh app view restarts Orgtree to rebuild the interface.'
     : 'Reconnecting automatically — your agents keep running while this window is away.'
   return `<!doctype html><html><head><meta charset="utf-8">`
     + `<title>Orgtree — reconnecting</title><style>`
@@ -263,6 +263,12 @@ export class WindowLoadRecovery {
   /** Test seam: true while the window is known not to be showing the UI. */
   get isFailed(): boolean { return this.failed }
   get retryAttempt(): number { return this.attempt }
+  /** True once the engine moved to an origin this window cannot be pointed
+   *  at. `retryNow` deliberately refuses to act then — so the refresh route
+   *  must branch on THIS and rebuild the window instead (review W1,
+   *  2026-09-20): an enabled control that silently does nothing is the
+   *  defect, not a policy. */
+  get isStranded(): boolean { return this.stranded }
 
   private async enterFailed(detail: string): Promise<void> {
     this.failed = true

@@ -52,6 +52,14 @@ test('renderer keeps interactive controls out of drag regions and offers top/bot
   assert.match(app, /orgPanel\(false\)/)
   assert.match(controls, /aria-label="Minimize window"/)
   assert.match(controls, /aria-label="Refresh app view"/)
+  // W1 (2026-09-20): the refresh control's DEFAULT action is the renderer-
+  // local reload, and the crash fallback renders the control WITH that
+  // default — together with the boundary test's seam click, this is what
+  // makes an inert crash-fallback refresh a failing test rather than a
+  // silent regression.
+  assert.match(controls, /onRefresh = \(\) => window\.location\.reload\(\)/)
+  const crashBoundary = read('apps/desktop/renderer/src/CrashBoundary.tsx')
+  assert.match(crashBoundary, /<WindowControls \/>/)
   assert.match(controls, /aria-label=\{state\.maximized \? 'Restore window' : 'Maximize window'\}/)
   assert.match(controls, /aria-label="Close window"/)
   assert.match(app, /!desktop\(\) && <button type="button" className="iconbtn" title="refresh app view"/)

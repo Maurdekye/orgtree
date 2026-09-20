@@ -1192,6 +1192,21 @@ else {
     })
     handle('desktop:window-close', () => { main?.close() })
     handle('desktop:window-refresh', async () => {
+      // ⚠ STRANDED IS NOT MERELY FAILED (review W1, 2026-09-20). Once the
+      // engine has moved, retryNow refuses to act — the preload origin is
+      // baked into the window's launch arguments, and re-pointing the window
+      // is the exact thing the recovery exists to never do — which left the
+      // holding page's enabled Refresh control a silent no-op in precisely
+      // the state whose page offers it. Take the SAME reconstruction path
+      // the changed-origin engine recovery already takes: persist the
+      // layout, then relaunch so the fresh process bakes the new origin into
+      // a fresh window. Nothing here navigates the current window anywhere.
+      if (windowLoadRecovery?.isStranded) {
+        await saveWindowLayout()
+        app.relaunch()
+        app.quit()
+        return
+      }
       if (windowLoadRecovery?.isFailed) await windowLoadRecovery.retryNow('user refresh')
       else if (main && !main.isDestroyed()) main.webContents.reload()
     })

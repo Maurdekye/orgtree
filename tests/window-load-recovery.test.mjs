@@ -261,8 +261,50 @@ test('an engine that moved port STRANDS the window and says so, rather than retr
   assert.deepEqual(h.loads, [], 'it does NOT navigate a window whose preload origin is baked in')
   assert.deepEqual(h.pending(), [], 'and it stops retrying, because retrying cannot work')
   const last = h.holding[h.holding.length - 1]
-  assert.match(last, /Restart Orgtree/, 'the user is told the one thing that does work')
+  assert.match(last, /Refresh app view restarts Orgtree/,
+    'the user is told the one control that does work — and it must actually work (W1)')
   assert.doesNotMatch(last, /Reconnecting automatically/, 'and is NOT told to wait for something that will not happen')
+})
+
+test('W1: a stranded recovery says so, and retryNow alone stays inert — the refresh route must rebuild', async () => {
+  // The re-review's exact finding: the stranded holding page renders an
+  // ENABLED refresh control, but retryNow() returns at its stranded guard, so
+  // a handler that only calls retryNow leaves the click doing nothing at all.
+  const h = harness()
+  h.contents.fire('did-fail-load', -102, 'ERR_CONNECTION_REFUSED', 'http://127.0.0.1:21350/', true)
+  await h.flush()
+  h.setOrigin('http://127.0.0.1:40001')
+  h.setServing(true)
+  await h.tick()
+  assert.equal(h.recovery.isStranded, true, 'the state the refresh route must branch on is exposed')
+  assert.equal(h.recovery.isFailed, true, 'stranded is a failed state, so ordering matters in the handler')
+  const loads = h.loads.length, holding = h.holding.length, records = h.records.length
+  await h.recovery.retryNow('user clicked refresh')
+  await h.flush()
+  assert.equal(h.loads.length, loads, 'no navigation — a stranded window must never be re-pointed')
+  assert.equal(h.holding.length, holding, 'no re-render')
+  assert.equal(h.records.length, records, 'no record')
+  assert.deepEqual(h.pending(), [], 'no timer')
+  assert.equal(h.recovery.isFailed, true, 'and nothing pretended to recover')
+})
+
+test('W1: the refresh route REBUILDS a stranded window instead of calling the guarded retry', () => {
+  const main = read('apps/desktop/main/index.ts')
+  const preload = read('apps/desktop/preload/index.ts')
+  // the holding page's refresh control reaches the main process...
+  assert.match(preload, /refreshBtn\.addEventListener\('click', \(\) => \{ void ipcRenderer\.invoke\('desktop:window-refresh'\)/,
+    'the holding page control invokes the refresh route')
+  // ...and the handler branches on STRANDED before the failed/healthy routes,
+  // taking the established changed-origin reconstruction path — persist the
+  // layout, relaunch, quit — never navigating the fixed-preload window to a
+  // foreign origin. Removing this branch (the inert-refresh mutation the
+  // review reproduced) is exactly what makes this match fail.
+  assert.match(main,
+    /handle\('desktop:window-refresh', async \(\) => \{[\s\S]*?if \(windowLoadRecovery\?\.isStranded\) \{[\s\S]*?await saveWindowLayout\(\)[\s\S]*?app\.relaunch\(\)[\s\S]*?app\.quit\(\)[\s\S]*?return[\s\S]*?\}[\s\S]*?if \(windowLoadRecovery\?\.isFailed\) await windowLoadRecovery\.retryNow\('user refresh'\)/,
+    'stranded refresh takes the reconstruction path, checked before the retryNow branch')
+  // and the reconstruction path it mirrors is still there to mirror
+  assert.match(main, /else \{ await saveWindowLayout\(\); app\.relaunch\(\); app\.quit\(\) \}/,
+    'the changed-origin engine recovery this reuses')
 })
 
 // ------------------------------------------------------------------ the details

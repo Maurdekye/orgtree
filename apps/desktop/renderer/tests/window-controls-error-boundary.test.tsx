@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import CrashBoundary from '../src/CrashBoundary'
+import { WindowControls } from '../src/window-controls'
 import type { DesktopBridge, DesktopControlsState, DesktopEvent } from '../../../../packages/contracts'
 
 function setupDesktopBridge(initialMaximized = false) {
@@ -125,6 +126,30 @@ test('CrashBoundary renders persistent window controls shell outside replaceable
     await act(async () => { maxBtn.click() })
     await act(async () => { closeBtn.click() })
     assert.deepEqual(bridge.calls, ['minimize', 'toggle-maximize', 'close'])
+
+    // Refresh ACTS too (review W1, 2026-09-20: presence alone proved nothing).
+    // jsdom's location.reload is non-configurable, so the click is proven at
+    // the component's own seam: the same control the fallback renders fires
+    // its refresh action when clicked — an unwired or inert button leaves the
+    // counter at zero and fails here. The fallback's instance uses the
+    // DEFAULT action, and tests/window-controls.test.mjs pins that default to
+    // the renderer-local reload and pins CrashBoundary to the default.
+    let refreshed = 0
+    const seamContainer = document.createElement('div')
+    document.body.appendChild(seamContainer)
+    const seamRoot = createRoot(seamContainer)
+    try {
+      await act(async () => {
+        seamRoot.render(<WindowControls onRefresh={() => { refreshed += 1 }} />)
+      })
+      const seamRefresh = seamContainer.querySelector('[aria-label="Refresh app view"]') as HTMLButtonElement | null
+      assert.ok(seamRefresh, 'the control renders at the seam')
+      await act(async () => { seamRefresh.click() })
+      assert.equal(refreshed, 1, 'the refresh control fires its action when clicked')
+    } finally {
+      await act(async () => { seamRoot.unmount() })
+      seamContainer.remove()
+    }
 
     // Maximize/restore state tracking updates the control
     const restoreBtn = document.querySelector('[aria-label="Restore window"]') as HTMLButtonElement | null
