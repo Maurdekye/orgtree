@@ -663,10 +663,29 @@ def _halt(slug: str, nid: str, actor: str, *, timeout=None) -> dict[str, Any]:
     # process trees, throttled to ~500 ms — its own brief lock use is the
     # registry snapshot, not a load-capable hold.
     last_cut = -1.0
+    cut_error: str | None = None
     while True:
         now_m = time.monotonic()
         if now_m - last_cut >= 0.5:
-            _cut(slug, nid, st)
+            # ⚠ A FAILING KILL PASS MUST NOT BECOME A FAILING HALT. `_cut`
+            # reaches across every provider lane and into the warm pool, and
+            # anything down there that raises unexpectedly used to come
+            # straight out of `halt.halt()` — an unstructured 500 from the
+            # halt endpoint, which is the failure this docket exists to
+            # remove, arriving by a different route than the one it was
+            # reported for. (A live example: `warmpool._classify_kill`'s
+            # diagnostic print died of `UnicodeEncodeError` on the engine's
+            # cp1252 piped stdout, because `halt_kill` passes a reason the
+            # closed death list does not carry. Fixed there too; this is the
+            # layer that makes the CLASS of fault non-fatal.) The error is
+            # recorded, reported, and retried on the next pass — the settle
+            # loop already guards `_cut` the same way in the background
+            # settler, and the two now agree.
+            try:
+                _cut(slug, nid, st)
+                cut_error = None
+            except Exception as e:                  # noqa: BLE001
+                cut_error = f"{type(e).__name__}: {e}"
             last_cut = now_m
         if _pending_carriers(slug, nid, st):
             with store.DOC_LOCK:
@@ -704,10 +723,14 @@ def _halt(slug: str, nid: str, actor: str, *, timeout=None) -> dict[str, Any]:
             # 27 minutes later. The operation below owns the rest of the
             # transition, names what is keeping it open, and is queryable.
             op = _start_settler(slug, nid)
+            if cut_error:
+                op = dict(op, last_kill_error=cut_error)
             return {"node": nid, "halted": False, "settled": False,
                     "halting": True, "operation": op,
                     "surviving_processes": op.get("surviving") or [],
-                    "blocking": op.get("blocking") or [],
+                    "blocking": ((op.get("blocking") or [])
+                                 + ([f"the last kill pass failed ({cut_error})"]
+                                    if cut_error else [])),
                     "status": "admission is blocked and the provider processes "
                     "have been killed; halt has not completed yet — operation "
                     + str(op.get("operation_id"))

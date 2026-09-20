@@ -1833,12 +1833,48 @@ def _journal_exit_once(wp: WarmProcess, reason: str | None = None) -> None:
 def _classify_kill(slug: str, nid: str, reason: str) -> str:
     cls = KILL_REASON_CLASS.get(reason)
     if cls is None:
-        print(f"[orgtree] warmpool ⚠ UNLISTED KILL REASON {reason!r} for "
-              f"{slug}/{nid} — a warm process is being torn down outside "
-              f"the closed death list; this is a defect to report, not a "
-              f"style issue")
+        _warn_unlisted_kill(slug, nid, reason)
         return "UNLISTED"
     return cls
+
+
+def _warn_unlisted_kill(slug: str, nid: str, reason: str) -> None:
+    """Shout about an unlisted teardown — WITHOUT being able to break the
+    teardown it is shouting about.
+
+    ⚠ THIS DIAGNOSTIC USED TO KILL ITS OWN CALLER, and it is reachable from
+    the halt path today. `halt_kill` passes the reason `"halted"`, which is
+    not in `KILL_REASON_CLASS`, so every durable halt that kills a warm
+    process lands here. The message carries `⚠` and `—`, and the engine's
+    stdout is a PIPE from the desktop: measured on this machine, the bundled
+    interpreter reports `sys.stdout.encoding == 'cp1252'` when piped, and
+    printing those characters to it raises `UnicodeEncodeError`. That
+    exception propagates `_journal_proc` → `_journal_exit_once` → `kill_node`
+    → `warmpool.halt_kill` → `halt._cut_state` → `halt._cut` → out of
+    `halt.halt()` itself — a 500 from the halt endpoint, which is a second
+    route to the very failure docket
+    fix-agents-stuck-halting-and-non-json-stop-error exists to remove.
+
+    So the text is unchanged and the delivery is defensive: the message is
+    retried ASCII-clean if the console cannot spell it, and nothing escapes.
+    An unenumerated teardown must be loud, but never load-bearing.
+
+    ⚠ THE REASON `"halted"` IS STILL UNLISTED and this does NOT paper over
+    that. It is reported as a finding on the docket item rather than
+    classified here: `KILL_REASON_CLASS`'s own header says the authoritative
+    vocabulary lives in the D-201 register entry, so picking a class for
+    halt is that register's call, not a guess to slip into a bug fix."""
+    message = (f"[orgtree] warmpool ⚠ UNLISTED KILL REASON {reason!r} for "
+               f"{slug}/{nid} — a warm process is being torn down outside "
+               f"the closed death list; this is a defect to report, not a "
+               f"style issue")
+    try:
+        print(message)
+    except Exception:                               # noqa: BLE001
+        try:
+            print(message.encode("ascii", "replace").decode("ascii"))
+        except Exception:                           # noqa: BLE001
+            pass
 
 
 def _kill_proc(wp: WarmProcess) -> None:

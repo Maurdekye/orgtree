@@ -32,6 +32,7 @@ the pre-fix shape and asserts the SYMPTOM appears, so the passing tests
 beside it are not passing vacuously.
 """
 from contextlib import ExitStack
+import io
 import os
 from pathlib import Path
 import subprocess
@@ -49,6 +50,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine/backend"))
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from orgtree import codexrun, halt, ledger, store, supervisor as sup, warmpool
+
+#: captured before any test patches it out — the pooled-claim test below needs
+#: the REAL teardown, not the stub the other tests run against
+_real_kill_node = warmpool.kill_node
 
 
 #: a synthetic child that just blocks. Stands in for an agent CLI or a
@@ -263,6 +268,54 @@ class HaltReachesATerminalState(HaltBase):
         self.assertIn(False, calls)
         self.assertGreater(len(calls), 3)
 
+    def test_a_failing_kill_pass_is_reported_not_raised(self):
+        """`_cut` reaches every provider lane and the warm pool. Anything down
+        there that raises unexpectedly used to come straight out of
+        `halt.halt()` as an unstructured 500 — the same failure this docket
+        exists to remove, arriving by a different route."""
+        self.st["busy"] = True
+        self.addCleanup(lambda: self.st.__setitem__("busy", False))
+        boom = UnicodeEncodeError("charmap", "⚠", 0, 1,
+                                  "character maps to <undefined>")
+        with patch.object(halt, "_cut", side_effect=boom), \
+             patch.object(halt, "_start_settler",
+                          return_value={"operation_id": "halt-stub",
+                                        "state": "settling"}):
+            result = halt.halt(self.slug, self.nid, timeout=0.3)
+        self.assertFalse(result["halted"])
+        self.assertTrue(result["halting"])
+        self.assertEqual(result["operation"]["last_kill_error"][:19],
+                         "UnicodeEncodeError:")
+        self.assertTrue(any("last kill pass failed" in b
+                            for b in result["blocking"]), result["blocking"])
+        # the negative control: unguarded, that side effect raises
+        with patch.object(halt, "_cut", side_effect=boom):
+            with self.assertRaises(UnicodeEncodeError):
+                halt._cut(self.slug, self.nid, self.st)
+
+    def test_an_unlisted_kill_reason_cannot_break_the_teardown(self):
+        """MEASURED, not hypothetical, and it is on the halt path today.
+
+        `warmpool.halt_kill` passes the reason `"halted"`, which is not in
+        `KILL_REASON_CLASS`, so every durable halt that kills a warm process
+        reaches the UNLISTED diagnostic. That message carries `⚠` and `—`,
+        and the engine's stdout is a pipe from the desktop: this interpreter
+        reports cp1252 when piped, and those characters cannot be encoded to
+        it. The exception used to travel `_journal_proc` →
+        `_journal_exit_once` → `kill_node` → `halt_kill` → `halt._cut` → out
+        of `halt.halt()`."""
+        self.assertNotIn("halted", warmpool.KILL_REASON_CLASS,
+                         "if 'halted' has been classified, this test's "
+                         "premise is gone and it should be revisited")
+        cp1252 = io.TextIOWrapper(io.BytesIO(), encoding="cp1252",
+                                  errors="strict")
+        # the negative control first: the message really is unencodable there
+        with self.assertRaises(UnicodeEncodeError):
+            print("[orgtree] warmpool ⚠ UNLISTED — x", file=cp1252)
+        with patch("sys.stdout", cp1252):
+            cls = warmpool._classify_kill(self.slug, self.nid, "halted")
+        self.assertEqual(cls, "UNLISTED")
+
     def test_negative_control_without_the_settler_it_stays_halting(self):
         """THE PRE-FIX SHAPE. With the handoff removed, the foreground loop is
         again the only thing that can publish `halted` — so a turn that
@@ -467,6 +520,74 @@ class CodexProcessDeathEndsTheTurn(HaltBase):
         turn = self.turn(client)
         self.kill(client.proc)
         self.assertFalse(turn.interrupt())
+
+    def test_a_halt_settles_a_node_parked_before_provider_admission(self):
+        """THE POOLED / PRE-PROVIDER-ADMISSION CASE, asked for by name.
+
+        A node can be mid-turn with NO `CodexTurn` bound yet: it has claimed a
+        warm app-server and is blocked inside `client.request(...)` — an
+        `initialize`, a `thread/resume`, a `turn/start` that has not been
+        answered. `halt._cut_state` reads `st["codex_turn"]`, which is None
+        here, so nothing on that path touches this process; the warm pool is
+        the only thing that can reach it.
+
+        This drives the REAL wait against a REAL pooled app-server child, not
+        a stand-in for one: the worker below calls `client.request` on a
+        server that answers nothing, exactly as a pre-admission turn does.
+        What must happen is that `warmpool.halt_kill` force-kills the claimed
+        serving process, `request`'s own `proc.poll()` check then raises
+        `CodexServerGone` so the worker unwinds, and the node reaches
+        `halted` — with the process confirmed gone first."""
+        client = self.client()
+        wp = warmpool.CodexWarmProc(self.slug, self.nid, client, "sid-1",
+                                    "ihash-1")
+        wp.claimed = True          # mid-turn: claimed, serving, not parked
+        with warmpool._pool_lock:
+            warmpool._serving[(self.slug, self.nid)] = wp
+        self.addCleanup(lambda: warmpool._serving.pop((self.slug, self.nid),
+                                                      None))
+        self.addCleanup(lambda: warmpool._terminating.pop(
+            (self.slug, self.nid), None))
+
+        entered = threading.Event()
+        outcome: list[str] = []
+
+        @halt.worker
+        def pre_admission(slug, nid):
+            self.st["busy"] = True
+            entered.set()
+            try:
+                # the real pre-admission wait: this server answers nothing,
+                # so the only way out is the process dying
+                client.request("initialize", {}, 60)
+                outcome.append("answered")
+            except codexrun.CodexServerGone:
+                outcome.append("server-gone")
+            except Exception as e:                       # noqa: BLE001
+                outcome.append(f"{type(e).__name__}: {e}")
+            finally:
+                self.st["busy"] = False
+
+        thread = threading.Thread(target=pre_admission,
+                                  args=(self.slug, self.nid), daemon=True)
+        thread.start()
+        self.assertTrue(entered.wait(5))
+        self.assertIsNone(self.st.get("codex_turn"),
+                          "this case is defined by there being no bound turn")
+
+        with patch.object(warmpool, "kill_node", _real_kill_node):
+            result = halt.halt(self.slug, self.nid, timeout=15)
+        thread.join(20)
+        self.assertFalse(thread.is_alive(),
+                         "the pre-admission wait never ended")
+        self.assertEqual(outcome, ["server-gone"])
+        self.assertIsNotNone(client.proc.poll(),
+                             "the pooled app-server was left running")
+        self.assertTrue(result["halted"], result)
+        self.assertEqual(self.phase(), "halted")
+        with warmpool._pool_lock:
+            self.assertNotIn((self.slug, self.nid), warmpool._serving)
+            self.assertNotIn((self.slug, self.nid), warmpool._terminating)
 
     def test_interrupt_turn_over_a_real_dead_server_is_a_result(self):
         """The whole chain end to end on real handles: a killed app-server,
