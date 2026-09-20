@@ -859,7 +859,7 @@
       "failures": [
         {
           "id": "python-backend::tests/test_desktop_maintenance.py::(whole module)",
-          "note": "KNOWN CAUSE. Same defect http-cover fixed in tests/test_engine_http.py (landed 2026-09-19 as 73f7ba2, now on main). The module spawns a child with the bundled engine/runtime/python.exe, whose python313._pth makes the runtime ignore PYTHONPATH and suppress the implicit cwd entry for a -c script, so cwd=engine/ does not put engine/ on the child's sys.path and `import launch` cannot resolve. What worked there: pass ORGTREE_TEST_CHECKOUT into the child env, have the child prepend <checkout>/engine/backend, <checkout>/engine and <checkout> to sys.path, then assert launch.__file__ is inside the checkout so a silent import from the INSTALLED app fails loudly instead of passing. MEASURED in test_engine_http.py; NOT YET APPLIED here, so treat the fix as a strong lead rather than a verified one.",
+          "note": "MEASURED. Root cause of this and of tests/test_service_host.py: engine/runtime/python313._pth REPLACES sys.path[0], and the entries it lists are python313.zip, '.', Lib/site-packages, ../backend, ../mailhub and ../../ - that is engine/backend, engine/mailhub and the repo root, but NOT engine/ itself. Both launch.py and startup_progress.py live in engine/, so neither can be imported by a child run under that runtime. THE INVOCATION FORM IS IRRELEVANT: measured both ways against a sibling module in a temp dir, and [sys.executable, '-c', code] and [sys.executable, <script path>] both give sys.path[0] = '...runtime/python313.zip' and both raise ModuleNotFoundError - so the usual 'a script path puts its own directory on sys.path' does not save it (measured by delta-lock 2026-09-20 while reviewing this refresh; my own earlier note attributed the suppression to the -c form specifically, which was under-general). The same defect was fixed in tests/test_engine_http.py at 73f7ba2, now on main: pass ORGTREE_TEST_CHECKOUT into the child env, have the child prepend <checkout>/engine/backend, <checkout>/engine and <checkout> to sys.path, then assert launch.__file__ is inside the checkout so a silent import from the INSTALLED app fails loudly instead of passing. That fix is verified for test_engine_http.py and NOT YET APPLIED here.",
           "file": "tests/test_desktop_maintenance.py",
           "test": "(whole module: assertion_failure)",
           "kind": "leaf",
@@ -872,7 +872,7 @@
         },
         {
           "id": "python-backend::tests/test_desktop_native_memory.py::(whole module)",
-          "note": "THE FAILURE IS STABLE BUT ITS ERROR TEXT IS NOT. Two recordings 14 minutes apart at the SAME commit produced different text, and `compare` flags it [error text differs]. The message is a ResourceWarning naming a sqlite3.Connection object address, which changes every run. So do not read a changed error string here as a new problem - the module fails every time (re-confirmed by the record pass), only the wording moves. http-cover verified 2026-09-20 that it fails on clean origin/main with no feature branch applied.",
+          "note": "MEASURED. THE FAILURE IS STABLE BUT ITS ERROR TEXT IS NOT. Two recordings 14 minutes apart at the SAME commit produced different text, and `compare` flags it [error text differs]. The message is a ResourceWarning naming a sqlite3.Connection object address, which changes every run. So do not read a changed error string here as a new problem - the module fails every time (re-confirmed by the record pass), only the wording moves. http-cover verified 2026-09-20 that it fails on clean origin/main with no feature branch applied.",
           "file": "tests/test_desktop_native_memory.py",
           "test": "(whole module: assertion_failure)",
           "kind": "leaf",
@@ -921,7 +921,7 @@
         },
         {
           "id": "python-backend::tests/test_native_fork_profile.py::(whole module)",
-          "note": "http-cover verified 2026-09-20 that this fails on clean origin/main (measured at both 44b6176 and ef14fc1) with no feature branch applied. It was twice suspected of being a regression from the openrouter-harness branch during review and was cleared both times by running it on the untouched base.",
+          "note": "MEASURED. http-cover verified 2026-09-20 that this fails on clean origin/main (measured at both 44b6176 and ef14fc1) with no feature branch applied. It was twice suspected of being a regression from the openrouter-harness branch during review and was cleared both times by running it on the untouched base.",
           "file": "tests/test_native_fork_profile.py",
           "test": "(whole module: assertion_failure)",
           "kind": "leaf",
@@ -958,7 +958,7 @@
         },
         {
           "id": "python-backend::tests/test_quick_hire_wake_reason.py::(whole module)",
-          "note": "ERROR TEXT IS NOT DETERMINISTIC, for a different reason than test_desktop_native_memory: the assertion prints a SET ('unstuck' not found in {...}) and Python set ordering varies per process, so `compare` reports [error text differs] between two runs at the same commit. The failure itself is stable.",
+          "note": "MEASURED. ERROR TEXT IS NOT DETERMINISTIC, for a different reason than test_desktop_native_memory: the assertion prints a SET ('unstuck' not found in {...}) and Python set ordering varies per process, so `compare` reports [error text differs] between two runs at the same commit. The failure itself is stable.",
           "file": "tests/test_quick_hire_wake_reason.py",
           "test": "(whole module: assertion_failure)",
           "kind": "leaf",
@@ -983,7 +983,7 @@
         },
         {
           "id": "python-backend::tests/test_service_host.py::(whole module)",
-          "note": "Same CLASS as tests/test_desktop_maintenance.py - a child process cannot import a repo module (here 'startup_progress') - so the ORGTREE_TEST_CHECKOUT + sys.path fix noted there is the first thing to try. INFERRED from the error shape alone: http-cover did not confirm this module spawns its child the same way.",
+          "note": "MEASURED, and by a stricter route than first recorded. This module spawns differently from tests/test_desktop_maintenance.py - test_service_host.py runs [sys.executable, <path>/engine/launch.py] (a script path) while test_desktop_maintenance.py runs [sys.executable, '-c', code] with cwd=engine/ - so the mechanism originally inferred here should NOT have transferred. It transfers anyway: engine/runtime/python313._pth replaces sys.path[0] outright and does not list engine/, where startup_progress.py lives, so the script-path form loses the import too. Measured both ways by delta-lock 2026-09-20 while reviewing this refresh; the earlier note said this was inferred from the error shape alone and that caveat no longer applies. See the test_desktop_maintenance.py note for the fix that worked in tests/test_engine_http.py; it is still NOT applied here.",
           "file": "tests/test_service_host.py",
           "test": "(whole module: assertion_failure)",
           "kind": "leaf",
