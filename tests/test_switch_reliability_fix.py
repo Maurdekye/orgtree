@@ -23,6 +23,15 @@ Covered here:
   and per account, and an account move on a session-boundary lane archives the
   session outright); the archive case mints lifecycle.session_rebound, which
   warns that retained context is replay, not turns that ran.
+- R1 (queued-rebind review, 2026-09-20): a queued account rebind and a queued
+  model switch are composed BY REQUEST ORDER at the boundary. An older rebind
+  never overwrites a newer explicit model/account choice, a rebind that rides
+  a switch is validated against the switch TARGET, and the door refuses a
+  rebind that cannot run an already-queued switch target.
+- R2 (same review): a queued STANDALONE rebind applied at the boundary keeps
+  `assign_account`'s frozen-node policy — an auth/credential freeze is thawed
+  in the same transaction and woken exactly once after persistence; a movable
+  usage-limit freeze turns the rebind into a recorded drop, never a strand.
 """
 import os
 import sys
@@ -521,6 +530,274 @@ class NonCrossedNarrationHonesty(unittest.TestCase):
         self.assertNotIn("context is intact", text)
         self.assertIn("cache namespace", text)
         self.assertIn("local restart", text)
+
+
+class BoundaryAccountSwitchComposition(unittest.TestCase):
+    """R1: the queued rebind and the queued switch compose by REQUEST ORDER,
+    validated against the switch TARGET — never by which door wrote first."""
+
+    T1 = "2026-09-20T00:00:01.000Z"
+    T2 = "2026-09-20T00:00:02.000Z"
+
+    def setUp(self):
+        path = registry.registry_path()
+        if os.path.exists(path):
+            os.unlink(path)
+
+    _seq = 0
+
+    def _account(self, provider, label):
+        BoundaryAccountSwitchComposition._seq += 1
+        row = registry.create_account(
+            provider, label,
+            {"kind": "managed",
+             "path": os.path.join(_ROOT, f"{provider}-{label}-{self._seq}")})
+        registry.set_auth(row["id"], "authenticated")
+        return registry.get_account(row["id"])
+
+    def _worker(self, slug, source_id, grant=10):
+        org = ledger.Org.create(slug)
+        org.hire(ledger.USER, None, "opus", grant, "worker")
+        org.node("worker")["account"] = source_id
+        return org
+
+    def _events(self, org, op):
+        return [e for e in org.d["events"] if e.get("op") == op]
+
+    def test_older_rebind_rides_a_newer_accountless_switch(self):
+        src = self._account("claude", "src")
+        b = self._account("claude", "b")
+        org = self._worker("r1-merge", src["id"])
+        n = org.node("worker")
+        n["pending_account"] = {"account": b["id"], "from": src["id"],
+                                "by": "USER", "at": self.T1}
+        n["pending_switch"] = {"tier": "sonnet", "from": "opus", "by": "USER",
+                               "at": self.T2, "crossing": False}
+        supervisor._apply_pending_switch_locked(org, "r1-merge", "worker",
+                                                wake=[])
+        fresh = org.node("worker")
+        self.assertEqual(fresh["model"], "sonnet")
+        self.assertEqual(fresh["account"], b["id"],
+                         "the rebind account rides the switch's atomic finish")
+        self.assertNotIn("pending_account", fresh)
+        self.assertNotIn("pending_switch", fresh)
+        self.assertEqual(len(self._events(org, "account_queue_into_switch")), 1)
+        self.assertEqual(self._events(org, "account_queue_dropped"), [])
+
+    def test_newer_switch_with_account_supersedes_older_rebind(self):
+        src = self._account("claude", "src")
+        b = self._account("claude", "b")
+        c = self._account("claude", "c")
+        org = self._worker("r1-supersede", src["id"])
+        n = org.node("worker")
+        n["pending_account"] = {"account": b["id"], "from": src["id"],
+                                "by": "USER", "at": self.T1}
+        n["pending_switch"] = {"tier": "sonnet", "from": "opus", "by": "USER",
+                               "at": self.T2, "crossing": False,
+                               "account": c["id"]}
+        supervisor._apply_pending_switch_locked(org, "r1-supersede", "worker",
+                                                wake=[])
+        fresh = org.node("worker")
+        self.assertEqual(fresh["model"], "sonnet")
+        self.assertEqual(fresh["account"], c["id"],
+                         "the newer explicit model/account choice wins")
+        drops = self._events(org, "account_queue_dropped")
+        self.assertEqual(len(drops), 1)
+        self.assertEqual(drops[0]["detail"].get("superseded_by_switch"),
+                         "sonnet")
+
+    def test_older_claude_rebind_never_breaks_a_newer_cross_provider_switch(self):
+        # the review's exact reproduction: the older Claude rebind used to
+        # overwrite the OpenAI account and take the whole Astra switch down
+        # with a provider mismatch
+        src = self._account("claude", "src")
+        b = self._account("claude", "b")
+        d = self._account("openai", "d")
+        org = self._worker("r1-crossing", src["id"])
+        n = org.node("worker")
+        n.pop("session_unrun", None)
+        n["pending_account"] = {"account": b["id"], "from": src["id"],
+                                "by": "USER", "at": self.T1}
+        n["pending_switch"] = {"tier": "astra", "from": "opus", "by": "USER",
+                               "at": self.T2, "crossing": True,
+                               "account": d["id"]}
+        supervisor._apply_pending_switch_locked(org, "r1-crossing", "worker",
+                                                wake=[])
+        fresh = org.node("worker")
+        self.assertEqual(fresh["model"], "astra", "the later switch applied")
+        self.assertEqual(fresh["account"], d["id"],
+                         "on ITS OWN OpenAI account, not the older rebind's")
+        self.assertEqual(self._events(org, "switch_queue_dropped"), [],
+                         "the cross-provider switch must not be dropped")
+        self.assertEqual(len(self._events(org, "account_queue_dropped")), 1)
+
+    def test_newer_rebind_overrides_the_queued_switch_account(self):
+        src = self._account("claude", "src")
+        b = self._account("claude", "b")
+        c = self._account("claude", "c")
+        org = self._worker("r1-override", src["id"])
+        n = org.node("worker")
+        n["pending_switch"] = {"tier": "sonnet", "from": "opus", "by": "USER",
+                               "at": self.T1, "crossing": False,
+                               "account": c["id"]}
+        n["pending_account"] = {"account": b["id"], "from": src["id"],
+                                "by": "USER", "at": self.T2}
+        supervisor._apply_pending_switch_locked(org, "r1-override", "worker",
+                                                wake=[])
+        fresh = org.node("worker")
+        self.assertEqual(fresh["model"], "sonnet")
+        self.assertEqual(fresh["account"], b["id"],
+                         "the newer rebind is the newest account intent")
+        merged = self._events(org, "account_queue_into_switch")
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0]["detail"].get("replaced"), c["id"])
+
+    def test_newer_incompatible_rebind_drops_and_the_switch_proceeds(self):
+        src = self._account("claude", "src")
+        b = self._account("claude", "b")
+        d = self._account("openai", "d")
+        org = self._worker("r1-incompatible", src["id"])
+        n = org.node("worker")
+        n.pop("session_unrun", None)
+        n["pending_switch"] = {"tier": "astra", "from": "opus", "by": "USER",
+                               "at": self.T1, "crossing": True,
+                               "account": d["id"]}
+        n["pending_account"] = {"account": b["id"], "from": src["id"],
+                                "by": "USER", "at": self.T2}
+        supervisor._apply_pending_switch_locked(org, "r1-incompatible",
+                                                "worker", wake=[])
+        fresh = org.node("worker")
+        self.assertEqual(fresh["model"], "astra")
+        self.assertEqual(fresh["account"], d["id"],
+                         "the valid queued switch is not disturbed")
+        drops = self._events(org, "account_queue_dropped")
+        self.assertEqual(len(drops), 1)
+        self.assertIn("cannot run the queued switch target astra",
+                      drops[0]["detail"]["reason"])
+
+    def test_door_refuses_a_rebind_incompatible_with_the_queued_switch(self):
+        src = self._account("claude", "src")
+        b = self._account("claude", "b")
+        d = self._account("openai", "d")
+        slug = "r1-door"
+        org = self._worker(slug, src["id"])
+        n = org.node("worker")
+        n["inflight"] = {"at": "2026-09-20T00:00:00Z", "text": "work"}
+        n["pending_switch"] = {"tier": "astra", "from": "opus", "by": "USER",
+                               "at": self.T1, "crossing": True,
+                               "account": d["id"]}
+        supervisor.state(slug, "worker").update(busy=False, responding=False,
+                                                queue=[])
+        store.save_org(org)
+        with self.assertRaises(RuntimeError) as ctx:
+            supervisor.assign_account(slug, "worker", b["id"], actor="USER")
+        self.assertIn("queued switch", str(ctx.exception))
+        fresh = store.load_org(slug).node("worker")
+        self.assertEqual(fresh["account"], src["id"], "active binding untouched")
+        self.assertNotIn("pending_account", fresh)
+        self.assertEqual(fresh["pending_switch"]["account"], d["id"],
+                         "the already-valid queued switch is untouched")
+
+
+class BoundaryRebindFreezeParity(unittest.TestCase):
+    """R2: the boundary apply of a standalone queued rebind keeps
+    `assign_account`'s frozen-node policy, and its wake fires exactly once,
+    after persistence."""
+
+    def setUp(self):
+        path = registry.registry_path()
+        if os.path.exists(path):
+            os.unlink(path)
+
+    _seq = 0
+
+    def _account(self, label):
+        BoundaryRebindFreezeParity._seq += 1
+        row = registry.create_account(
+            "claude", label,
+            {"kind": "managed",
+             "path": os.path.join(_ROOT, f"claude-r2-{label}-{self._seq}")})
+        registry.set_auth(row["id"], "authenticated")
+        return registry.get_account(row["id"])
+
+    def test_boundary_rebind_thaws_an_auth_freeze_and_reports_the_wake(self):
+        src, tgt = self._account("src"), self._account("tgt")
+        org = ledger.Org.create("r2-thaw")
+        org.hire(ledger.USER, None, "opus", 0, "worker")
+        n = org.node("worker")
+        n["account"] = src["id"]
+        n["frozen"] = {"at": "2026-09-20T00:00:00Z", "cause": "auth",
+                       "account": src["id"]}
+        n["pending_account"] = {"account": tgt["id"], "from": src["id"],
+                                "by": "USER", "at": "2026-09-20T00:00:01.000Z"}
+        wake, account_wake = [], []
+        supervisor._apply_pending_switch_locked(
+            org, "r2-thaw", "worker", wake=wake, account_wake=account_wake)
+        fresh = org.node("worker")
+        self.assertEqual(fresh["account"], tgt["id"], "the rebind applied")
+        self.assertNotIn("frozen", fresh, "the auth freeze was thawed")
+        self.assertEqual(account_wake, [("auth_thaw", "worker")],
+                         "the caller is told to wake the node after its save")
+        self.assertEqual(wake, [])
+        logs = [e for e in org.d["events"] if e.get("op") == "account_assign"
+                and e.get("detail", {}).get("via") == "queued_retool"]
+        self.assertEqual(len(logs), 1)
+        self.assertTrue(logs[0]["detail"].get("auth_thawed"))
+
+    def test_boundary_rebind_on_a_usage_limit_freeze_is_a_recorded_drop(self):
+        src, tgt = self._account("src"), self._account("tgt")
+        org = ledger.Org.create("r2-limit")
+        org.hire(ledger.USER, None, "opus", 0, "worker")
+        n = org.node("worker")
+        n["account"] = src["id"]
+        frozen = {"at": "2026-09-20T00:00:00Z", "limit": True,
+                  "account": src["id"], "resume_texts": ["resume"]}
+        n["frozen"] = frozen
+        n["pending_account"] = {"account": tgt["id"], "from": src["id"],
+                                "by": "USER", "at": "2026-09-20T00:00:01.000Z"}
+        account_wake = []
+        supervisor._apply_pending_switch_locked(
+            org, "r2-limit", "worker", wake=[], account_wake=account_wake)
+        fresh = org.node("worker")
+        self.assertEqual(fresh["account"], src["id"],
+                         "a bare rebind cannot clear a usage limit — parity "
+                         "with the immediate door's refusal")
+        self.assertEqual(fresh.get("frozen"), frozen, "freeze untouched")
+        self.assertNotIn("pending_account", fresh, "intent consumed exactly once")
+        self.assertEqual(account_wake, [])
+        drops = [e for e in org.d["events"]
+                 if e.get("op") == "account_queue_dropped"]
+        self.assertEqual(len(drops), 1)
+        self.assertIn("usage limit", drops[0]["detail"]["reason"])
+
+    def test_startup_reconcile_wakes_a_thawed_rebind_exactly_once(self):
+        src, tgt = self._account("src"), self._account("tgt")
+        slug = "r2-reconcile"
+        org = ledger.Org.create(slug)
+        org.hire(ledger.USER, None, "opus", 0, "worker")
+        n = org.node("worker")
+        n["account"] = src["id"]
+        n["frozen"] = {"at": "2026-09-20T00:00:00Z", "cause": "auth",
+                       "account": src["id"]}
+        n["pending_account"] = {"account": tgt["id"], "from": src["id"],
+                                "by": "USER", "at": "2026-09-20T00:00:01.000Z"}
+        store.save_org(org)
+        with patch.object(supervisor, "drive_auth_thaw") as thaw, \
+                patch.object(supervisor, "drive_account_unpark") as unpark, \
+                patch.object(supervisor, "drive_unfrozen_by_switch") as sw, \
+                patch.object(supervisor, "send_message") as send:
+            supervisor.reconcile(slug)
+        fresh = store.load_org(slug).node("worker")
+        self.assertEqual(fresh["account"], tgt["id"])
+        self.assertNotIn("frozen", fresh)
+        self.assertNotIn("pending_account", fresh)
+        thaw.assert_called_once_with(slug, "worker")
+        unpark.assert_not_called()
+        sw.assert_not_called()
+        # no generic restart revive doubles the thaw wake for this node
+        self.assertEqual([c for c in send.call_args_list
+                          if c.args[:2] == (slug, "worker")], [],
+                         "the thaw wake is the ONE drive this node gets")
 
 
 if __name__ == "__main__":

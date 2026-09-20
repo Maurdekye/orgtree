@@ -13369,8 +13369,130 @@ def drive_unfrozen_by_switch(slug: str, nids: Iterable[str]) -> None:
             print(f"[orgtree] {slug}/{t}: unfrozen-by-switch wake failed")
 
 
+def _apply_pending_account_locked(o2: Org, slug: str, nid: str) -> dict[str, Any]:
+    """Consume `nid`'s queued account rebind at the turn boundary, on the doc
+    the caller holds under DOC_LOCK (the caller saves). Returns
+    ``{"changed": bool, "auth_thaw": bool, "unpark": bool}``; the wake flags
+    are driven by the caller AFTER its save, off the lock, exactly like the
+    immediate doors.
+
+    R1 (review 2026-09-20): with a model switch ALSO queued, the two intents
+    are composed BY REQUEST ORDER — never by which door wrote first — and
+    nothing is applied here: the winning account rides the switch's own
+    atomic finish, so there is no intermediate rebind whose session archive
+    the switch would immediately repeat. A rebind queued AFTER the switch
+    overrides the switch's account choice, validated against the switch
+    TARGET; a rebind queued BEFORE a switch that names its own account is
+    superseded by that newer complete choice; a rebind that cannot run the
+    queued target is a recorded drop. Every outcome is logged — a queued
+    rebind is never silently forgotten — and never a raise (this runs inside
+    the turn's shared finally).
+
+    R2: a STANDALONE rebind applied here preserves `assign_account`'s
+    frozen-node policy (coordinator ruling 2026-09-16): a movable USAGE-LIMIT
+    freeze refuses the move as a recorded drop — rebinding cannot clear a
+    limit and would strand the node frozen on the new account — while an
+    AUTH/CREDENTIAL freeze (cause auth/balance, or untrusted) is thawed in
+    the same transaction, because the freeze named a dead credential the
+    rebind just replaced. Usage-limit freezes, account parks and halts stay
+    distinct throughout."""
+    out: dict[str, Any] = {"changed": False, "auth_thaw": False, "unpark": False}
+    if nid not in o2.nodes or not o2.node(nid).get("pending_account"):
+        return out
+    node = o2.node(nid)
+    _ap = dict(node.pop("pending_account") or {})
+    out["changed"] = True  # consuming durable intent is itself a document change
+    _aa = str(_ap.get("account") or "primary")
+    _by = str(_ap.get("by") or "USER")
+    kept = str(node.get("account") or "primary")
+
+    def _drop(reason: str, line: str, **detail: Any) -> None:
+        o2._log("account_queue_dropped", _by,
+                {"node": nid, "account": _aa, "reason": reason,
+                 "queued_at": _ap.get("at"), **detail}, [line])
+        print(f"[orgtree] {slug}/{nid}: queued account rebind DROPPED — "
+              f"{reason}")
+
+    _pend_sw = node.get("pending_switch")
+    if isinstance(_pend_sw, dict) and _pend_sw.get("tier"):
+        sw_tier = str(_pend_sw.get("tier") or "")
+        sw_acct = _pend_sw.get("account") or None
+        # Both stamps come from the same clock (`ledger.now`, millisecond
+        # ISO), so string order is request order. A missing stamp reads as
+        # oldest; a tie keeps the switch's own complete tier+account choice.
+        rebind_newer = str(_ap.get("at") or "") > str(_pend_sw.get("at") or "")
+        if sw_acct and not rebind_newer:
+            _drop(f"superseded by the later queued switch to {sw_tier}, "
+                  f"which names its own account {sw_acct}",
+                  f"the queued account rebind of {nid} to {_aa} was "
+                  f"SUPERSEDED at the end of its turn by the later queued "
+                  f"switch to {sw_tier} on {sw_acct}.",
+                  superseded_by_switch=sw_tier)
+            return out
+        # The rebind is the effective account intent — it rides the switch's
+        # atomic finish, so it must be able to run the switch TARGET.
+        try:
+            registry.validate_selection(slug, sw_tier, _aa)
+        except Exception as _e:  # noqa: BLE001 — recorded drop, never a raise
+            _drop(f"it cannot run the queued switch target {sw_tier}: {_e}",
+                  f"the queued account rebind of {nid} to {_aa} was DROPPED "
+                  f"at the end of its turn: it cannot run the queued switch "
+                  f"target {sw_tier}. The queued switch proceeds with its "
+                  f"own account choice.")
+            return out
+        _pend_sw["account"] = _aa
+        o2._log("account_queue_into_switch", _by,
+                {"node": nid, "account": _aa, "queued_at": _ap.get("at"),
+                 "switch_to": sw_tier, "replaced": sw_acct}, [])
+        return out
+    # STANDALONE rebind — `assign_account` parity, recorded drops for what
+    # the immediate door would refuse.
+    _fz0 = node.get("frozen")
+    _auth_fz = isinstance(_fz0, dict) and (
+        _fz0.get("cause") in ("auth", "balance") or bool(_fz0.get("untrusted")))
+    _limit_fz = (isinstance(_fz0, dict) and bool(_fz0.get("limit"))
+                 and not _auth_fz and _fz0.get("cause") != "account")
+    if _limit_fz:
+        _drop(f"{nid} is frozen by a usage limit — moving its account cannot "
+              f"clear that and would leave it frozen on the new account; use "
+              f"a switch-and-release recovery, or release it in place first",
+              f"the queued account rebind of {nid} to {_aa} was DROPPED at "
+              f"the end of its turn: a usage-limit freeze arrived first, and "
+              f"a bare rebind cannot clear it. It stays on {kept}.")
+        return out
+    previous = str(node.get("account") or "")
+    try:
+        _reb = finish_switch_binding(o2, slug, nid, _aa, _by)
+    except Exception as _e:  # boundary must never break turn bookkeeping
+        reason = str(_e)
+        _drop(reason,
+              f"the queued account rebind of {nid} was DROPPED at "
+              f"the end of its turn: {reason}. It stays on {kept}.")
+        return out
+    out["unpark"] = bool(_reb.get("unparked"))
+    node = o2.node(nid)  # a session archive above may have re-fetched it
+    changed_binding = previous != str(node.get("account") or "")
+    # AUTH/CREDENTIAL thaw (`assign_account` parity): the freeze named a dead
+    # credential and the rebind replaced it with a valid one — cleared in
+    # THIS transaction; the caller wakes the node after its save.
+    _fzn = node.get("frozen")
+    if (isinstance(_fzn, dict) and changed_binding
+            and (_fzn.get("cause") in ("auth", "balance")
+                 or bool(_fzn.get("untrusted")))):
+        node.pop("frozen", None)
+        node.pop("parked_run", None)
+        out["auth_thaw"] = True
+    o2._log("account_assign", _by,
+            {"node": nid, "account": _aa, "queued_at": _ap.get("at"),
+             "via": "queued_retool",
+             **({"auth_thawed": True} if out["auth_thaw"] else {}),
+             **({"unparked": True} if out["unpark"] else {})}, [])
+    return out
+
+
 def _apply_pending_switch_locked(o2: Org, slug: str, nid: str,
-                                 wake: list[str] | None = None) -> bool:
+                                 wake: list[str] | None = None,
+                                 account_wake: list[tuple[str, str]] | None = None) -> bool:
     """D-234: apply the model switch queued behind `nid`'s turn, on the doc
     the caller already holds under DOC_LOCK (the caller saves). True when the
     doc changed. The transcript copy a crossing owes the successor rides the
@@ -13382,42 +13504,26 @@ def _apply_pending_switch_locked(o2: Org, slug: str, nid: str,
     cannot drive — the caller passes a list and, after releasing the lock,
     hands it to `drive_unfrozen_by_switch`. Without that the node ends live,
     unfrozen and idle with its interrupted work discarded and nothing ever
-    re-driving it."""
+    re-driving it.
+
+    `account_wake` (R2, review 2026-09-20): same contract for what a queued
+    STANDALONE rebind cleared — ("auth_thaw"|"unpark", nid) tuples the caller
+    hands to `drive_auth_thaw`/`drive_account_unpark` after its save."""
     changed = False
     # Account rebinds share the model switch's boundary: the running process
     # is never repointed, and the durable intent is consumed exactly once
-    # before any successor carrier is admitted.  Keep this ahead of the model
-    # switch so a queued account is the newest account choice when both doors
-    # were used during one turn.
-    if nid in o2.nodes and o2.node(nid).get("pending_account"):
-        _ap = dict(o2.node(nid).pop("pending_account") or {})
-        changed = True  # consuming durable intent is itself a document change
-        _aa = str(_ap.get("account") or "primary")
-        _account_applied = False
-        try:
-            _reb = finish_switch_binding(o2, slug, nid, _aa,
-                                          str(_ap.get("by") or "USER"))
-            if _reb:
-                changed = True
-            _account_applied = True
-            o2._log("account_assign", str(_ap.get("by") or "USER"),
-                    {"node": nid, "account": _aa,
-                     "queued_at": _ap.get("at"), "via": "queued_retool"}, [])
-        except Exception as _e:  # boundary must never break turn bookkeeping
-            reason = str(_e)
-            kept = str(o2.node(nid).get("account") or "primary")
-            o2._log("account_queue_dropped", str(_ap.get("by") or "USER"),
-                    {"node": nid, "account": _aa, "reason": reason,
-                     "queued_at": _ap.get("at")},
-                    [f"the queued account rebind of {nid} was DROPPED at "
-                     f"the end of its turn: {reason}. It stays on {kept}."])
-            changed = True
-        # The account may have been selected together with a queued model
-        # switch.  The rebind is the newest account intent, so carry it into
-        # that switch's atomic finish rather than letting the older choice
-        # overwrite it.
-        if _account_applied and nid in o2.nodes and o2.node(nid).get("pending_switch"):
-            o2.node(nid)["pending_switch"]["account"] = _aa
+    # before any successor carrier is admitted. R1: the queued rebind and the
+    # queued switch are composed BY REQUEST ORDER inside the helper — with a
+    # switch queued, the winning account rides that switch's atomic finish
+    # below instead of rebinding twice.
+    _acct = _apply_pending_account_locked(o2, slug, nid)
+    if _acct["changed"]:
+        changed = True
+    if account_wake is not None:
+        if _acct["auth_thaw"]:
+            account_wake.append(("auth_thaw", nid))
+        if _acct["unpark"]:
+            account_wake.append(("unpark", nid))
     if nid not in o2.nodes or not o2.node(nid).get("pending_switch"):
         return changed
     # multi-account D2d, checked BEFORE the ledger pops and applies: an
@@ -14173,6 +14279,23 @@ def assign_account(slug: str, nid: str, account_id: str, *,
                 if not _caller_owns_save:
                     store.save_org(org)
                 return out
+            # R1 door-side (review 2026-09-20): a queued model switch is the
+            # node's EFFECTIVE boundary target — accept only a rebind that
+            # can run it, so the boundary never has to compose an invalid
+            # tier/account pair. Refused BEFORE any mutation: the active
+            # binding and the already-valid queued switch are untouched.
+            _psw = node.get("pending_switch")
+            if isinstance(_psw, dict) and _psw.get("tier"):
+                try:
+                    registry.validate_selection(slug, str(_psw["tier"]),
+                                                account_id)
+                except ValueError as _e:
+                    raise RuntimeError(
+                        f"{nid} has a queued switch to {_psw['tier']}; the "
+                        f"requested account cannot run that target: {_e} "
+                        f"Choose an account compatible with the queued "
+                        f"switch, or cancel/replace the queued switch "
+                        f"first.") from _e
             replaced = pending.get("account") if pending else None
             node["pending_account"] = {"account": requested,
                                         "from": previous or "primary",
@@ -21749,6 +21872,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
         # boundary and rides out as `follow`, so the node continues instead
         # of ending live-but-idle with nothing ever re-driving it.
         _switch_wake: list[str] = []
+        _account_wake: list[tuple[str, str]] = []
         try:
             with store.DOC_LOCK:
                 o2 = store.load_org(slug)
@@ -21773,7 +21897,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
                 # pardon, while `ran_sid` names the session this turn
                 # actually ran — the bearer's now — so that spend is a no-op.
                 if _apply_pending_switch_locked(o2, slug, nid,
-                                                wake=_switch_wake):
+                                                wake=_switch_wake,
+                                                account_wake=_account_wake):
                     changed = True
                 if changed:
                     store.save_org(o2)
@@ -21786,6 +21911,13 @@ def _run_one_turn_recorded(slug: str, nid: str,
             pass
         if _switch_wake:
             drive_unfrozen_by_switch(slug, _switch_wake)
+        # R2: wake what the queued REBIND cleared — an auth thaw or an
+        # account unpark — AFTER the save and off the lock, exactly like the
+        # immediate doors. A node never appears in both lists: the standalone
+        # rebind path and the switch path are mutually exclusive per node.
+        for _kind, _t in dict.fromkeys(_account_wake):
+            (drive_auth_thaw if _kind == "auth_thaw"
+             else drive_account_unpark)(slug, _t)
         if pardon_pending:
             # …however the turn ended: if the CLI wrote a transcript for the
             # session it ran, the pardon is spent (see spend_unrun_pardon)
@@ -32091,12 +32223,14 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
         # dispatch below wakes them, unconditionally like the inflight
         # replays — active_only gates only the generic mail revive.)
         switch_wake: list[str] = []
+        account_wake: list[tuple[str, str]] = []
         queued = [k for k, n in org.nodes.items()
                   if n["state"] == "live"
                   and (n.get("pending_switch") or n.get("pending_account"))]
         if queued:
             for nid in queued:
-                _apply_pending_switch_locked(org, slug, nid, wake=switch_wake)
+                _apply_pending_switch_locked(org, slug, nid, wake=switch_wake,
+                                             account_wake=account_wake)
             store.save_org(org)
         # delivery-journal fold-back: batches drained for a turn whose
         # delivery never confirmed — the backend died in between. The mail
@@ -32366,6 +32500,19 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
         print(f"[orgtree] {slug}: waking {_sw} — a queued provider switch "
               f"cleared their stale freeze at startup")
         drive_unfrozen_by_switch(slug, _sw)
+    # R2: wake nodes whose queued REBIND thawed an auth freeze or cleared an
+    # account park at startup — once, after persistence, and never on top of
+    # an inflight replay or a switch wake (either of those already drives the
+    # node, and a second carrier here would be the duplicate resume).
+    if not latched:
+        for _kind, _t in dict.fromkeys(account_wake):
+            if _t in resumed or _t in _sw:
+                continue
+            print(f"[orgtree] {slug}/{_t}: waking — a queued account rebind "
+                  + ("thawed its auth freeze" if _kind == "auth_thaw"
+                     else "cleared its account park") + " at startup")
+            (drive_auth_thaw if _kind == "auth_thaw"
+             else drive_account_unpark)(slug, _t)
     # state-audit SH-4: the condemned nodes' superiors get their DRIVE now,
     # off the lock — one wake per superior however many of its reports were
     # condemned (the durable mail above already carries the per-node detail).
@@ -32384,6 +32531,7 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
             print(f"[orgtree] {slug}/{_usup}: unrecoverable-report drive "
                   f"failed — the durable mail still waits in its box")
     for nid in [r for r in revive if r not in _sw
+                and r not in {t for _, t in account_wake}
                 and (not active_only or maildrain.pending(org, r))]:
         print(f"[orgtree] {slug}/{nid}: driving mail that waited across restart")
         send_message(slug, nid,
