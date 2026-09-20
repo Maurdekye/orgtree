@@ -543,6 +543,25 @@ def now() -> str:
     return d.strftime("%Y-%m-%dT%H:%M:%S.") + f"{d.microsecond // 1000:03d}Z"
 
 
+def next_config_seq(node: dict[str, Any]) -> int:
+    """The node's durable ACCEPTANCE counter for queued configuration intents
+    (R1a, review 2026-09-20). Both queue writers — the queued model switch and
+    the queued account rebind — already accept requests in a definite order
+    under the document lock, but they used to stamp only `now()`, and two
+    acceptances inside the same millisecond (or across a wall-clock step
+    backwards) then compared as if that order were unknown, which silently
+    reversed newest-valid-wins at the boundary. This counter is allocated
+    under the same lock and persists with the document, so the boundary
+    compares intents by the order they were ACCEPTED; the `at` stamps stay on
+    the records for display only. Never reset: replacement writes a fresh
+    record with a fresh seq, cancellation pops the record, and a record from
+    a pre-seq build simply has no `seq` (the boundary's documented wall-clock
+    fallback covers exactly that pair)."""
+    seq = int(node.get("config_seq") or 0) + 1
+    node["config_seq"] = seq
+    return seq
+
+
 #: this backend process's boot stamp in `now()` format, memoised for
 #: `Ledger._boot_at` (see `node_ask`'s per-process linger bound)
 _BOOT_AT: str | None = None
@@ -4762,6 +4781,10 @@ class Org:
             replaced = pend["tier"] if pend else None
             n["pending_switch"] = {"tier": tier, "from": old, "by": actor,
                                    "at": now(), "crossing": crossed,
+                                   # R1a: the acceptance order, allocated
+                                   # under the caller's DOC_LOCK — what the
+                                   # boundary compares; `at` is display only
+                                   "seq": next_config_seq(n),
                                    # multi-account D2d: the account chosen
                                    # WITH a cross-provider switch (validated
                                    # at the door; the ledger is pure and

@@ -55,7 +55,8 @@ from . import (accounts, agentauth, antigravity_limits, appsettings,
 from .fleet_walk import fleet_walk
 from .desktop_native import NativeInventory
 from .ledger import (EXTERN, SYSTEM, USER, LedgerError, Org, expand_mcp,
-                     freeze_describes_provider, now as now_iso)
+                     freeze_describes_provider, next_config_seq,
+                     now as now_iso)
 from .schema import (Denial, FrozenInfo, InflightInfo, KioskCfg, MailEntry,
                      NodeDoc, NoticeEntry, TurnStat)
 
@@ -13417,10 +13418,20 @@ def _apply_pending_account_locked(o2: Org, slug: str, nid: str) -> dict[str, Any
     if isinstance(_pend_sw, dict) and _pend_sw.get("tier"):
         sw_tier = str(_pend_sw.get("tier") or "")
         sw_acct = _pend_sw.get("account") or None
-        # Both stamps come from the same clock (`ledger.now`, millisecond
-        # ISO), so string order is request order. A missing stamp reads as
-        # oldest; a tie keeps the switch's own complete tier+account choice.
-        rebind_newer = str(_ap.get("at") or "") > str(_pend_sw.get("at") or "")
+        # R1a (review 2026-09-20): both queue writers allocate a durable
+        # per-node acceptance sequence under DOC_LOCK (`ledger.
+        # next_config_seq`) — THAT is the request order, immune to two
+        # acceptances inside one millisecond and to a wall clock stepping
+        # backwards between them. Wall-clock stamps are display only. A
+        # record from a pre-seq build has no sequence, and for that pair the
+        # acceptance order genuinely is not recorded: the documented fallback
+        # is the old stamp comparison — missing stamp reads as oldest, tie
+        # keeps the switch's own complete tier+account choice.
+        _ap_seq, _sw_seq = _ap.get("seq"), _pend_sw.get("seq")
+        if isinstance(_ap_seq, int) and isinstance(_sw_seq, int):
+            rebind_newer = _ap_seq > _sw_seq
+        else:
+            rebind_newer = str(_ap.get("at") or "") > str(_pend_sw.get("at") or "")
         if sw_acct and not rebind_newer:
             _drop(f"superseded by the later queued switch to {sw_tier}, "
                   f"which names its own account {sw_acct}",
@@ -13583,6 +13594,7 @@ def _apply_pending_switch_locked(o2: Org, slug: str, nid: str,
     if wake is not None and r.get("resume_stale_freeze"):
         wake.extend(str(x) for x in r["resume_stale_freeze"])
     if not r.get("dropped"):
+        _pre_binding = str(o2.node(nid).get("account") or "")
         _fsb = finish_switch_binding(o2, slug, nid, _p_acct,
                                      str(_pend.get("by") or "USER"))
         if _fsb.get("unparked"):
@@ -13591,6 +13603,35 @@ def _apply_pending_switch_locked(o2: Org, slug: str, nid: str,
             # said out loud rather than silently; any later mail drives it
             print(f"[orgtree] {slug}/{nid}: queued switch's account choice "
                   f"cleared an account park (node wakes on its next mail)")
+        # R2 continuation (review 2026-09-20): an account change carried BY
+        # the switch keeps the standalone rebind's auth recovery. The freeze
+        # named a credential this transition just replaced, and the ledger's
+        # own clear covers only a provider CROSSING (`resume_stale_freeze`,
+        # woken above via `wake`) — a same-provider composed change used to
+        # land the new binding, consume both queues, and leave the node
+        # stranded on the dead credential's freeze with no wake at all. The
+        # two clears are mutually exclusive by construction (the crossing
+        # already popped `frozen`, so this test sees nothing), which is what
+        # keeps the contract at exactly ONE wake after the caller's save.
+        # Usage-limit freezes, account parks, halts and unrelated holds are
+        # untouched: the test below matches only auth/balance/untrusted.
+        _n2 = o2.node(nid)
+        _fz2 = _n2.get("frozen")
+        if (str(_n2.get("account") or "") != _pre_binding
+                and isinstance(_fz2, dict)
+                and (_fz2.get("cause") in ("auth", "balance")
+                     or bool(_fz2.get("untrusted")))):
+            _n2.pop("frozen", None)
+            _n2.pop("parked_run", None)
+            if account_wake is not None:
+                account_wake.append(("auth_thaw", nid))
+            o2._log("account_assign", str(_pend.get("by") or "USER"),
+                    {"node": nid, "account": str(_n2.get("account") or ""),
+                     "via": "queued_switch", "auth_thawed": True},
+                    [f"the account change {nid} carried with its queued "
+                     f"switch replaced the credential its freeze named — "
+                     f"thawed in the same transaction; it wakes once the "
+                     f"boundary saves."])
     if r.get("old_session"):
         export_predecessor_transcript(o2, nid,
                                       old_sid=cast(str, r["old_session"]),
@@ -14260,10 +14301,43 @@ def assign_account(slug: str, nid: str, account_id: str, *,
                 f"releases it with a live capacity check on the target, or "
                 f"`orgtree_unstick` to release it in place first.")
         tier = str(node.get("model") or "")
-        row = registry.validate_selection(slug, tier, account_id)
         previous = str(node.get("account") or "")
         _busy_now = bool(st.get("busy") or st.get("responding") or node.get("inflight"))
-        if _busy_now and not allow_frozen:
+        _queue_door = _busy_now and not allow_frozen
+        # R1b (review 2026-09-20): with a switch already queued on a busy
+        # node, the accepted account will run the switch TARGET, never the
+        # current model — so the EFFECTIVE destination is what the selection
+        # is validated against, ONCE, before any mutation. The reverse
+        # request order (queue the cross-provider switch first, then rebind
+        # to an account for its destination) used to be refused against the
+        # CURRENT tier before the target check below could run. The one
+        # exception: a selector that resolves, on the current tier, to the
+        # account the node is bound to RIGHT NOW is the explicit cancellation
+        # of a queued rebind — judged on the current binding, whatever the
+        # queued destination, so cancellation never requires an account that
+        # can run a tier the node is not on yet.
+        _psw = node.get("pending_switch") if _queue_door else None
+        _sw_tier = str(_psw.get("tier") or "") if isinstance(_psw, dict) else ""
+        row = None
+        if _sw_tier:
+            try:
+                row = registry.validate_selection(slug, _sw_tier, account_id)
+            except ValueError as _sw_e:
+                try:
+                    _cur_row = registry.validate_selection(slug, tier, account_id)
+                except ValueError:
+                    _cur_row = None
+                if _cur_row is None or previous != _cur_row["id"]:
+                    raise RuntimeError(
+                        f"{nid} has a queued switch to {_sw_tier}; the "
+                        f"requested account cannot run that target: {_sw_e} "
+                        f"Choose an account compatible with the queued "
+                        f"switch, or cancel/replace the queued switch "
+                        f"first.") from _sw_e
+                row = _cur_row      # the explicit current-account cancellation
+        if row is None:
+            row = registry.validate_selection(slug, tier, account_id)
+        if _queue_door:
             requested = row["id"] or "primary"
             pending = node.get("pending_account")
             if previous == row["id"]:
@@ -14279,27 +14353,13 @@ def assign_account(slug: str, nid: str, account_id: str, *,
                 if not _caller_owns_save:
                     store.save_org(org)
                 return out
-            # R1 door-side (review 2026-09-20): a queued model switch is the
-            # node's EFFECTIVE boundary target — accept only a rebind that
-            # can run it, so the boundary never has to compose an invalid
-            # tier/account pair. Refused BEFORE any mutation: the active
-            # binding and the already-valid queued switch are untouched.
-            _psw = node.get("pending_switch")
-            if isinstance(_psw, dict) and _psw.get("tier"):
-                try:
-                    registry.validate_selection(slug, str(_psw["tier"]),
-                                                account_id)
-                except ValueError as _e:
-                    raise RuntimeError(
-                        f"{nid} has a queued switch to {_psw['tier']}; the "
-                        f"requested account cannot run that target: {_e} "
-                        f"Choose an account compatible with the queued "
-                        f"switch, or cancel/replace the queued switch "
-                        f"first.") from _e
             replaced = pending.get("account") if pending else None
             node["pending_account"] = {"account": requested,
                                         "from": previous or "primary",
-                                        "by": actor, "at": now_iso()}
+                                        "by": actor, "at": now_iso(),
+                                        # R1a: acceptance order under this
+                                        # DOC_LOCK; `at` is display only
+                                        "seq": next_config_seq(node)}
             org._log("account_queued", actor,
                       {"node": nid, "from": previous or "primary",
                        "to": requested, "replaced": replaced}, [])
