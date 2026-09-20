@@ -760,12 +760,10 @@ class BoundaryAccountSwitchComposition(unittest.TestCase):
                          "a rolled-back clock cannot demote the later acceptance")
         self.assertEqual(self._events(org, "account_queue_dropped"), [])
 
-    def test_legacy_and_mixed_records_fall_back_to_the_stamp_rule(self):
-        # records persisted by a pre-seq build carry no sequence, and for
-        # that pair the acceptance order genuinely is not recorded: the
-        # documented fallback is the old stamp comparison, tie keeping the
-        # switch's own complete choice — pinned here so the compatibility
-        # rule cannot drift silently
+    def test_legacy_ties_use_stamps_but_a_sequenced_record_beats_legacy(self):
+        # BOTH-legacy is the one genuinely ambiguous pair (round 3): neither
+        # record carries an acceptance number, so the documented old stamp
+        # rule applies — tie keeps the switch's own complete choice.
         src = self._account("claude", "src")
         b = self._account("claude", "b")
         c = self._account("claude", "c")
@@ -783,19 +781,90 @@ class BoundaryAccountSwitchComposition(unittest.TestCase):
                          "legacy tie keeps the switch's complete choice")
         drops = self._events(org, "account_queue_dropped")
         self.assertEqual(len(drops), 1)
-        # MIXED pair — one record seq'd, its partner legacy: the pair still
-        # has no comparable acceptance record, so the same stamp rule holds
-        org2 = self._worker("r1a-mixed", src["id"])
+        # A MIXED pair's order is KNOWN (round 3, R1a-upgrade): a sequenced
+        # record was accepted by a post-upgrade writer and a record without
+        # one predates the upgrade — stamps must not overrule that, in
+        # EITHER direction, whatever they claim.
+        org2 = self._worker("r1a-mixed-rebind", src["id"])
         n2 = org2.node("worker")
         n2["pending_switch"] = {"tier": "sonnet", "from": "opus", "by": "USER",
                                 "at": self.T2, "crossing": False,
                                 "account": c["id"]}
         n2["pending_account"] = {"account": b["id"], "from": src["id"],
-                                 "by": "USER", "at": self.T1, "seq": 7}
-        supervisor._apply_pending_switch_locked(org2, "r1a-mixed", "worker",
-                                                wake=[])
-        self.assertEqual(org2.node("worker")["account"], c["id"],
-                         "a lone sequence has nothing to compare against")
+                                 "by": "USER", "at": self.T1, "seq": 1}
+        supervisor._apply_pending_switch_locked(org2, "r1a-mixed-rebind",
+                                                "worker", wake=[])
+        self.assertEqual(org2.node("worker")["account"], b["id"],
+                         "the sequenced rebind is the post-upgrade acceptance")
+        org3 = self._worker("r1a-mixed-switch", src["id"])
+        n3 = org3.node("worker")
+        n3["pending_switch"] = {"tier": "sonnet", "from": "opus", "by": "USER",
+                                "at": self.T1, "crossing": False,
+                                "seq": 1, "account": c["id"]}
+        n3["pending_account"] = {"account": b["id"], "from": src["id"],
+                                 "by": "USER", "at": self.T2}
+        supervisor._apply_pending_switch_locked(org3, "r1a-mixed-switch",
+                                                "worker", wake=[])
+        self.assertEqual(org3.node("worker")["account"], c["id"],
+                         "the sequenced switch is the post-upgrade acceptance")
+        self.assertEqual(len(self._events(org3, "account_queue_dropped")), 1)
+
+    def test_writers_sequence_a_legacy_counterpart_before_their_own(self):
+        # R1a-upgrade, through the REAL doors: a record persisted by a
+        # pre-seq build is ordered FIRST by whichever writer runs next, so
+        # the pair leaves the door fully sequenced even when the new
+        # acceptance arrives under a rolled-back clock.
+        src = self._account("claude", "src")
+        b = self._account("claude", "b")
+        c = self._account("claude", "c")
+        # direction 1: legacy SWITCH, then the account door accepts a rebind
+        slug = "r1a-upg-rebind"
+        org = self._worker(slug, src["id"])
+        n = org.node("worker")
+        n["inflight"] = {"at": "2026-09-20T00:00:00Z", "text": "work"}
+        n["pending_switch"] = {"tier": "sonnet", "from": "opus", "by": "USER",
+                               "at": self.T2, "crossing": False,
+                               "account": c["id"]}
+        supervisor.state(slug, "worker").update(busy=False, responding=False,
+                                                queue=[])
+        store.save_org(org)
+        with patch.object(supervisor, "now_iso", return_value=self.T1):
+            out = supervisor.assign_account(slug, "worker", b["id"],
+                                            actor="USER")
+        self.assertTrue(out.get("queued"))
+        o2 = store.load_org(slug)
+        n2 = o2.node("worker")
+        self.assertEqual(n2["pending_switch"].get("seq"), 1,
+                         "the earlier legacy acceptance is ordered first")
+        self.assertEqual(n2["pending_account"].get("seq"), 2)
+        supervisor._apply_pending_switch_locked(o2, slug, "worker", wake=[])
+        self.assertEqual(o2.node("worker")["account"], b["id"],
+                         "the door-accepted rebind wins despite its older stamp")
+        # direction 2: legacy REBIND, then the ledger switch door accepts
+        slug2 = "r1a-upg-switch"
+        org2 = self._worker(slug2, src["id"])
+        n3 = org2.node("worker")
+        n3["inflight"] = {"at": "2026-09-20T00:00:00Z", "text": "work"}
+        n3["pending_account"] = {"account": b["id"], "from": src["id"],
+                                 "by": "USER", "at": self.T2}
+        store.save_org(org2)
+        with patch.object(ledger, "now", return_value=self.T1):
+            with store.DOC_LOCK:
+                o3 = store.load_org(slug2)
+                r = o3.switch_model(ledger.USER, "worker", "sonnet",
+                                    account=c["id"])
+                store.save_org(o3)
+        self.assertTrue(r.get("queued"))
+        o4 = store.load_org(slug2)
+        n4 = o4.node("worker")
+        self.assertEqual(n4["pending_account"].get("seq"), 1)
+        self.assertEqual(n4["pending_switch"].get("seq"), 2)
+        supervisor._apply_pending_switch_locked(o4, slug2, "worker", wake=[])
+        fresh = o4.node("worker")
+        self.assertEqual(fresh["model"], "sonnet")
+        self.assertEqual(fresh["account"], c["id"],
+                         "the newer switch's complete choice supersedes")
+        self.assertEqual(len(self._events(o4, "account_queue_dropped")), 1)
 
     def test_real_writers_stamp_acceptance_order_immune_to_the_clock(self):
         # the re-review's probe, through the ACTUAL doors: freeze the wall
@@ -882,27 +951,82 @@ class BoundaryAccountSwitchComposition(unittest.TestCase):
         self.assertEqual(landed["model"], "astra")
         self.assertEqual(landed["account"], e["id"])
 
-    def test_door_primary_selector_targets_the_queued_destination(self):
-        src = self._account("claude", "src")
+    def test_primary_rebind_for_the_destination_is_not_a_cancellation(self):
+        # round 3, R1b-primary, the review's exact case: a node running on
+        # its CURRENT provider's ambient has previous == "", and the
+        # destination's ambient also resolves to id "" — the two are
+        # different accounts on different providers, and comparing bare ids
+        # turned the explicit openai/primary request into a false
+        # cancellation that let the switch keep its own account.
         d = self._account("openai", "d")
-        slug = "r1b-primary"
-        org = self._worker(slug, src["id"])
-        n = org.node("worker")
+        for selector in ("openai/primary", "primary"):
+            with self.subTest(selector=selector):
+                slug = f"r1b-ambient-{selector.replace('/', '-')}"
+                org = ledger.Org.create(slug)
+                org.hire(ledger.USER, None, "opus", 10, "worker")
+                n = org.node("worker")   # UNBOUND: the claude ambient
+                n["inflight"] = {"at": "2026-09-20T00:00:00Z", "text": "work"}
+                n["config_seq"] = 1
+                n["pending_switch"] = {"tier": "astra", "from": "opus",
+                                       "by": "USER", "at": self.T1,
+                                       "crossing": True, "seq": 1,
+                                       "account": d["id"]}
+                supervisor.state(slug, "worker").update(
+                    busy=False, responding=False, queue=[])
+                store.save_org(org)
+                out = supervisor.assign_account(slug, "worker", selector,
+                                                actor="USER")
+                self.assertTrue(out.get("queued"),
+                                "the destination's ambient is a DIFFERENT "
+                                "account, never the current-account cancel")
+                self.assertNotIn("cancelled", out)
+                o2 = store.load_org(slug)
+                n2 = o2.node("worker")
+                self.assertEqual(n2["pending_account"]["account"],
+                                 "openai/primary",
+                                 "stored QUALIFIED so the choice keeps its provider")
+                self.assertNotIn("account", n2, "active binding untouched")
+                # and the boundary lands the switch on the ambient the user
+                # named, not on the switch's own earlier account choice
+                n2.pop("session_unrun", None)
+                supervisor._apply_pending_switch_locked(o2, slug, "worker",
+                                                        wake=[])
+                landed = o2.node("worker")
+                self.assertEqual(landed["model"], "astra")
+                self.assertNotIn("account", landed,
+                                 "ambient binding: no registry account bound")
+                self.assertTrue(landed.get("account_primary"))
+
+    def test_current_ambient_still_cancels_a_queued_rebind(self):
+        # POSITIVE CONTROL for the identity fix: naming the node's ACTUAL
+        # current ambient — claude/primary on a claude tier — is still the
+        # explicit cancellation of a queued rebind, judged on the current
+        # binding even under a queued crossing.
+        d = self._account("openai", "d")
+        e = self._account("openai", "e")
+        slug = "r1b-ambient-cancel"
+        org = ledger.Org.create(slug)
+        org.hire(ledger.USER, None, "opus", 10, "worker")
+        n = org.node("worker")   # UNBOUND: the claude ambient
         n["inflight"] = {"at": "2026-09-20T00:00:00Z", "text": "work"}
-        n["config_seq"] = 1     # the hand-written switch record's allocation
+        n["config_seq"] = 2
         n["pending_switch"] = {"tier": "astra", "from": "opus", "by": "USER",
                                "at": self.T1, "crossing": True,
                                "seq": 1, "account": d["id"]}
+        n["pending_account"] = {"account": e["id"], "from": "primary",
+                                "by": "USER", "at": self.T1, "seq": 2}
         supervisor.state(slug, "worker").update(busy=False, responding=False,
                                                 queue=[])
         store.save_org(org)
-        out = supervisor.assign_account(slug, "worker", "primary",
+        out = supervisor.assign_account(slug, "worker", "claude/primary",
                                         actor="USER")
-        self.assertTrue(out.get("queued"),
-                        "`primary` resolves against the destination provider")
+        self.assertFalse(out.get("queued"))
+        self.assertEqual(out.get("cancelled"), e["id"])
         fresh = store.load_org(slug).node("worker")
-        self.assertEqual(fresh["pending_account"]["account"], "primary")
-        self.assertEqual(fresh["account"], src["id"], "binding untouched")
+        self.assertNotIn("pending_account", fresh)
+        self.assertNotIn("account", fresh, "binding untouched")
+        self.assertEqual(fresh["pending_switch"]["account"], d["id"],
+                         "cancellation touches nothing but the rebind queue")
 
     def test_door_current_account_cancellation_survives_a_queued_crossing(self):
         # naming the account the node is bound to RIGHT NOW is the explicit

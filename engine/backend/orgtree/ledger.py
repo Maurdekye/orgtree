@@ -4779,6 +4779,13 @@ class Org:
             Org(json.loads(json.dumps(self.d))).switch_model(
                 actor, nid, tier, _queued={"at": now(), "by": actor})
             replaced = pend["tier"] if pend else None
+            # R1a-upgrade (round 3): a pre-seq queued rebind was ACCEPTED
+            # before this switch — order it FIRST under the same lock, so a
+            # mixed pair never reaches the boundary and stamps never decide.
+            _ap_rec = n.get("pending_account")
+            if (isinstance(_ap_rec, dict)
+                    and not isinstance(_ap_rec.get("seq"), int)):
+                _ap_rec["seq"] = next_config_seq(n)
             n["pending_switch"] = {"tier": tier, "from": old, "by": actor,
                                    "at": now(), "crossing": crossed,
                                    # R1a: the acceptance order, allocated

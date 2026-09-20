@@ -13422,14 +13422,21 @@ def _apply_pending_account_locked(o2: Org, slug: str, nid: str) -> dict[str, Any
         # per-node acceptance sequence under DOC_LOCK (`ledger.
         # next_config_seq`) — THAT is the request order, immune to two
         # acceptances inside one millisecond and to a wall clock stepping
-        # backwards between them. Wall-clock stamps are display only. A
-        # record from a pre-seq build has no sequence, and for that pair the
-        # acceptance order genuinely is not recorded: the documented fallback
-        # is the old stamp comparison — missing stamp reads as oldest, tie
-        # keeps the switch's own complete tier+account choice.
+        # backwards between them. Wall-clock stamps are display only.
+        # R1a-upgrade (round 3): each writer also sequences a pre-seq
+        # COUNTERPART before allocating its own, so a mixed pair only exists
+        # when no post-upgrade writer has touched the node — and then the
+        # order is still KNOWN: a sequenced record was accepted by a
+        # post-upgrade writer, a record without one predates the upgrade.
+        # Stamps decide nothing in a mixed pair. Only a BOTH-legacy pair is
+        # genuinely ambiguous, and only there does the documented old stamp
+        # rule apply — missing stamp reads as oldest, tie keeps the switch's
+        # own complete tier+account choice.
         _ap_seq, _sw_seq = _ap.get("seq"), _pend_sw.get("seq")
         if isinstance(_ap_seq, int) and isinstance(_sw_seq, int):
             rebind_newer = _ap_seq > _sw_seq
+        elif isinstance(_ap_seq, int) or isinstance(_sw_seq, int):
+            rebind_newer = isinstance(_ap_seq, int)
         else:
             rebind_newer = str(_ap.get("at") or "") > str(_pend_sw.get("at") or "")
         if sw_acct and not rebind_newer:
@@ -14338,9 +14345,25 @@ def assign_account(slug: str, nid: str, account_id: str, *,
         if row is None:
             row = registry.validate_selection(slug, tier, account_id)
         if _queue_door:
-            requested = row["id"] or "primary"
+            # An AMBIENT selection is stored QUALIFIED (round 3, R1b-primary):
+            # "primary" alone loses which provider's ambient was chosen, and
+            # the destination's ambient is exactly what a rebind aimed at a
+            # queued crossing names. A qualified selector re-validates
+            # honestly everywhere later — including as a recorded drop if the
+            # switch it was aimed at is gone by the boundary.
+            requested = row["id"] or f"{row['provider']}/primary"
             pending = node.get("pending_account")
-            if previous == row["id"]:
+            # R1b-primary (round 3): two AMBIENT bindings share the empty id
+            # but are the same account only when the PROVIDER matches too —
+            # current claude/primary and a requested openai/primary collided
+            # as "" == "" and turned an explicit destination choice into a
+            # false cancellation. A bound id is globally unique on its own;
+            # the ambient case additionally compares the provider (the
+            # current binding's ambient is the CURRENT tier's).
+            _is_current = (previous == row["id"]
+                           and (bool(previous)
+                                or row["provider"] == providers.provider_of(tier)))
+            if _is_current:
                 node.pop("pending_account", None)
                 if pending:
                     org._log("account_queue_cancelled", actor,
@@ -14354,6 +14377,14 @@ def assign_account(slug: str, nid: str, account_id: str, *,
                     store.save_org(org)
                 return out
             replaced = pending.get("account") if pending else None
+            # R1a-upgrade (round 3): a pre-seq counterpart was ACCEPTED before
+            # this door ran — order it FIRST under the same lock, so the pair
+            # leaves here fully sequenced and the boundary never has to guess
+            # a mixed pair's order from wall-clock stamps.
+            _psw_rec = node.get("pending_switch")
+            if (isinstance(_psw_rec, dict) and _psw_rec.get("tier")
+                    and not isinstance(_psw_rec.get("seq"), int)):
+                _psw_rec["seq"] = next_config_seq(node)
             node["pending_account"] = {"account": requested,
                                         "from": previous or "primary",
                                         "by": actor, "at": now_iso(),
