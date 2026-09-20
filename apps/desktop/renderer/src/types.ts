@@ -1662,6 +1662,10 @@ export interface ProvidersPayload {
 /** GET/PUT /api/app-settings/runtime — machine behavior, never org state. */
 export interface RuntimeSettingsPayload {
   quick_staff_behavior?: 'request' | 'under_assignee' | 'top_level'
+  /** Default off: Request staffing offers no account choice until the user
+   *  turns on "Include account selection when requesting staffing". Absent
+   *  from an older engine, which also reads as off. */
+  quick_staff_request_accounts?: boolean
   git_periodic_fetch_enabled: boolean
   warming_enabled: boolean
   /** Default on: real 20-minute checkups replace disposable cache reads. */

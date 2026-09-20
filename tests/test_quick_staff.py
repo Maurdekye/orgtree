@@ -53,6 +53,7 @@ class QuickStaffTests(unittest.TestCase):
         p.start(); self.addCleanup(p.stop)
         self.neutralize_staff_cache()
         appsettings.set_quick_staff_behavior("request")
+        appsettings.set_quick_staff_request_accounts(False)
 
     def neutralize_staff_cache(self):
         """Compute availability on every read, as this code did before the warm
@@ -359,6 +360,74 @@ class QuickStaffTests(unittest.TestCase):
         r = self.client.put("/api/app-settings/runtime", headers=HEADERS, json={"quick_staff_behavior": "bad"})
         self.assertEqual(r.status_code, 422)
 
+    def test_request_account_option_defaults_off_and_preserves_the_flow(self):
+        # A configuration saved BEFORE the option existed has no stored value,
+        # and that absence must read as OFF — asserted against the raw document
+        # rather than whatever this process happens to have written.
+        with patch.object(appsettings, "load",
+                          return_value={"runtime": {"quick_staff_behavior": "request"}}):
+            self.assertFalse(appsettings.quick_staff_request_accounts())
+        with self.assertRaises(ValueError):
+            appsettings.set_quick_staff_request_accounts("on")  # type: ignore[arg-type]
+        settings = self.client.get("/api/app-settings/runtime", headers=HEADERS).json()
+        self.assertIs(settings["quick_staff_request_accounts"], False)
+        # OFF: the request flow is exactly what it was — no account rows in the
+        # preview, and naming an account is still the pinning refusal.
+        for model in self.preview()["models"]:
+            self.assertNotIn("accounts", model)
+        r = self.send(self.selection("haiku") | {"account": "claude/primary"})
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("cannot pin an account", r.json()["detail"])
+        item = self.loaded()._work_find(self.item)[0]
+        self.assertEqual(item["status"], "backlogged")
+        self.assertNotIn("quick_staff_receipts", item)
+
+    def test_request_account_option_on_offers_validates_and_carries_the_choice(self):
+        r = self.client.put("/api/app-settings/runtime", headers=HEADERS,
+                            json={"quick_staff_request_accounts": True})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.addCleanup(appsettings.set_quick_staff_request_accounts, False)
+        self.assertIs(r.json()["quick_staff_request_accounts"], True)
+        self.assertTrue(appsettings.quick_staff_request_accounts())
+        rows = {m["tier"]: m for m in self.preview()["models"]}
+        # Both offered lanes are account lanes here, so each row carries the
+        # same eligibility answer the immediate modes read.
+        for tier, provider in (("haiku", "claude"), ("luna", "openai")):
+            values = [a["value"] for a in rows[tier]["accounts"]]
+            self.assertIn(f"{provider}/primary", values)
+        account = rows["haiku"]["accounts"][0]["value"]
+        r = self.send(self.selection("haiku", "high") | {"account": account})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertIn(f"suggested account {account}", r.json()["message"])
+        current = self.loaded()
+        self.assertEqual(len(current.nodes), 1)          # a request, never a hire
+        item = current._work_find(self.item)[0]
+        self.assertEqual(item["status"], "open")
+        self.assertEqual(item["owner"]["node"], self.owner)
+        self.assertIn(f"Suggested account: {account}.", str(current.d))
+        receipt = next(iter(item["quick_staff_receipts"].values()))
+        self.assertEqual(receipt["selection"]["account"], account)
+
+    def test_request_account_option_on_still_refuses_what_cannot_run(self):
+        appsettings.set_quick_staff_request_accounts(True)
+        self.addCleanup(appsettings.set_quick_staff_request_accounts, False)
+        with patch.object(quickstaff, "eligible_accounts",
+                          return_value=[{"value": "claude-4", "id": "claude-4"}]):
+            r = self.send(self.selection("haiku") | {"account": "claude-9"})
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("cannot run this model right now", r.json()["detail"])
+        with patch.object(quickstaff.staffcache, "tier_needs_account", return_value=False):
+            r = self.send(self.selection("haiku") | {"account": "claude/primary"})
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("routed key", r.json()["detail"])
+        # an account still requires a model to hang on, exactly as in Direct
+        r = self.send(self.selection() | {"account": "claude/primary"})
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("Select a model before choosing an account", r.json()["detail"])
+        # none of the refusals moved the ticket or wrote a receipt
+        item = self.loaded()._work_find(self.item)[0]
+        self.assertEqual(item["status"], "backlogged")
+        self.assertNotIn("quick_staff_receipts", item)
 
     def test_request_does_not_consult_actor_hire_gates(self):
         # Each failing instrument fires in Direct, while Request must not

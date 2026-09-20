@@ -4550,6 +4550,7 @@ async def openrouter_favorite(body: OpenRouterFavorite) -> dict[str, Any]:
 
 class RuntimePreference(Body):
     quick_staff_behavior: Literal["request", "under_assignee", "top_level"] | None = None
+    quick_staff_request_accounts: bool | None = None
     # `enabled` is the established process-warming wire key. Keep it stable;
     # the explicit second key lets either control change without rewriting the
     # other durable value.
@@ -4564,6 +4565,7 @@ class RuntimePreference(Body):
 def _runtime_preferences() -> dict[str, Any]:
     return {
         "quick_staff_behavior": appsettings.quick_staff_behavior(),
+        "quick_staff_request_accounts": appsettings.quick_staff_request_accounts(),
         "git_periodic_fetch_enabled": appsettings.git_periodic_fetch_enabled(),
         "warming_enabled": warmpool.warm_enabled(),
         "working_checkups_enabled": appsettings.working_checkups_enabled(),
@@ -4599,12 +4601,16 @@ async def runtime_preference(body: RuntimePreference) -> dict[str, Any]:
             and body.idle_docket_reminders_enabled is None
             and body.blocked_docket_reminders_enabled is None
             and body.git_periodic_fetch_enabled is None
-            and body.quick_staff_behavior is None):
+            and body.quick_staff_behavior is None
+            and body.quick_staff_request_accounts is None):
         raise HTTPException(422, "one runtime setting is required")
     try:
         if body.quick_staff_behavior is not None:
             await run_in_threadpool(appsettings.set_quick_staff_behavior,
                                     body.quick_staff_behavior)
+        if body.quick_staff_request_accounts is not None:
+            await run_in_threadpool(appsettings.set_quick_staff_request_accounts,
+                                    body.quick_staff_request_accounts)
         if body.enabled is not None:
             await run_in_threadpool(warmpool.set_enabled, body.enabled)
         if body.working_checkups_enabled is not None:
@@ -6204,10 +6210,13 @@ def quick_staff_select(slug: str, wid: str, body: QuickStaffSelection) -> dict[s
                 raise LedgerError("Immediate staffing requires a model. Reopen Staff… and select one.")
             if body.account and not body.tier:
                 raise LedgerError("Select a model before choosing an account.")
-            if body.account and ctx["mode"] == "request":
+            if (body.account and ctx["mode"] == "request"
+                    and not appsettings.quick_staff_request_accounts()):
                 # Request staffing hands the choice to the assignee, which hires
                 # on its own authority. Naming an account here would look like a
-                # binding and bind nothing.
+                # binding and bind nothing — unless the user has turned on
+                # "Include account selection when requesting staffing", which
+                # carries the account as an explicit SUGGESTION in the request.
                 raise LedgerError("Request staffing cannot pin an account — the "
                                   "assignee makes that choice when it hires.")
             if body.tier:
@@ -6225,6 +6234,10 @@ def quick_staff_select(slug: str, wid: str, body: QuickStaffSelection) -> dict[s
                     text += f" Suggested model: {body.tier}."
                 if body.effort is not None:
                     text += f" Suggested effort: {body.effort}."
+                if body.account:
+                    # A suggestion, not a binding: the assignee hires on its own
+                    # authority and may choose differently.
+                    text += f" Suggested account: {body.account}."
                 # everything the undo needs, read BEFORE the first mutation
                 undo = {"status": item.get("status"),
                         "done": list(item.get("done_so_far") or []),
@@ -6238,7 +6251,9 @@ def quick_staff_select(slug: str, wid: str, body: QuickStaffSelection) -> dict[s
                 if not mailed.get("deferred"):
                     drive.append(nid)
                 undo["mail"] = mailed.get("id")
-                result = {"message": f"Staffing requested from {nid}; ticket moved to Open.",
+                result = {"message": f"Staffing requested from {nid}"
+                          + (f" (suggested account {body.account})" if body.account else "")
+                          + "; ticket moved to Open.",
                           "requested_from": nid, "mail": mailed.get("id")}
             else:
                 # Keep the assignee that owned the ticket before the immediate

@@ -57,6 +57,24 @@ def set_quick_staff_behavior(value: str) -> None:
         _save(doc)
 
 
+def quick_staff_request_accounts() -> bool:
+    """Whether Request staffing offers a suggested-account choice (the
+    "Include account selection when requesting staffing" option, user
+    2026-09-20). Strictly `is True` so a configuration saved before the option
+    existed — or any non-boolean residue — reads as OFF, the required default.
+    """
+    return load().get("runtime", {}).get("quick_staff_request_accounts") is True
+
+
+def set_quick_staff_request_accounts(value: bool) -> None:
+    if not isinstance(value, bool):
+        raise ValueError("unknown Include-account-selection value")
+    with _LOCK:
+        doc = load(strict=True)
+        doc["runtime"]["quick_staff_request_accounts"] = value
+        _save(doc)
+
+
 def openrouter_harness() -> str:
     """Which CLI a NEWLY HIRED OpenRouter agent is given (user ruling
     2026-09-19).

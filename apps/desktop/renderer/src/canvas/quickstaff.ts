@@ -60,15 +60,20 @@ export function quickStaffEntry(org: string, item: string, preview: QuickStaffPr
   }
   // An account layer appears only where there is a real choice to make: one
   // eligible account that the tier row would take anyway is not a choice, and
-  // an OpenRouter lane has no account at all.
+  // an OpenRouter lane has no account at all. In REQUEST mode the tier row
+  // sends no account at all — the rows exist only when the "Include account
+  // selection when requesting staffing" option put them in the payload, and
+  // then even a single account is a real choice: suggest it, or don't.
   const choosableAccounts = (m: QuickStaffModel): StaffingAccount[] => {
     const accounts = m.accounts ?? []
+    if (preview.mode === 'request') return accounts
     return accounts.length && !(accounts.length === 1 && m.default_ok !== false) ? accounts : []
   }
   const accountRows = (m: QuickStaffModel, effort?: string): MenuItem[] =>
     choosableAccounts(m).map(a => ({
       label: accountLabel(a),
-      title: `staff on ${a.value}`,
+      // a request carries the account as a suggestion; the assignee decides
+      title: preview.mode === 'request' ? `suggest ${a.value}` : `staff on ${a.value}`,
       onSelect: () => { void select(m.tier, effort, a.value) },
     }))
   // ⚠ NO DISABLED ROWS (user ruling 2026-09-15). The old menu rendered every

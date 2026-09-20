@@ -1,14 +1,19 @@
 import { useEffect, useState } from 'react'
 import { getRuntimeSettings, req } from '../api'
 import type { RuntimeSettingsPayload } from '../types'
-import { SetGroup, SetRow } from './settingskit'
+import { SetGroup, SetRow, SetToggle } from './settingskit'
 
 export function QuickStaffSetting() {
   const [mode, setMode] = useState<string | null>(null)
+  const [accounts, setAccounts] = useState<boolean | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   useEffect(() => { let live = true
-    getRuntimeSettings().then(p => { if (live) setMode(p.quick_staff_behavior ?? 'request') })
+    getRuntimeSettings().then(p => { if (live) {
+      setMode(p.quick_staff_behavior ?? 'request')
+      // absent (older engine, or never stored) reads as OFF — the default
+      setAccounts(p.quick_staff_request_accounts === true)
+    } })
       .catch((e: Error) => { if (live) setError(e.message) })
     return () => { live = false }
   }, [])
@@ -27,6 +32,16 @@ export function QuickStaffSetting() {
         <option value="top_level">Staff immediately (top level)</option>
       </select>
     </SetRow>
+    <SetToggle label="Include account selection when requesting staffing"
+      checked={accounts === true} disabled={accounts === null || busy}
+      hint="Off: a staffing request names no account. On: the request menu also offers the eligible accounts, and the chosen one is carried as a suggestion — the assignee still hires on its own authority."
+      onChange={value => { setBusy(true)
+        req<RuntimeSettingsPayload>('/api/app-settings/runtime', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ quick_staff_request_accounts: value }),
+        }).then(p => { setAccounts(p.quick_staff_request_accounts === true); setError('') })
+          .catch((err: Error) => setError(err.message)).finally(() => setBusy(false))
+      }} />
     {error && <p role="alert">{error}</p>}
   </SetGroup>
 }

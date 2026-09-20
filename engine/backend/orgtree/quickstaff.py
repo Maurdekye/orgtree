@@ -326,6 +326,8 @@ def check_choice(org: Org, item: dict[str, Any], ctx: dict[str, Any], tier: str,
             kiosk=bool(org.d.get("kiosk")), snap=snap)
         for model in offers:
             if model["tier"] == tier:
+                if account:
+                    _check_request_account(org, tier, account, snap)
                 return model
         raise LedgerError("That model is not currently offered for Request staffing. Reopen Staff….")
     blocked = tier_block(org, item, ctx, tier)
@@ -351,6 +353,22 @@ def check_choice(org: Org, item: dict[str, Any], ctx: dict[str, Any], tier: str,
     return None
 
 
+def _check_request_account(org: Org, tier: str, account: str,
+                           snap: dict[str, Any] | None) -> None:
+    """A SUGGESTED account obeys the rules a binding one does.
+
+    The request carries it as prose and the assignee may choose differently,
+    but the menu offered only accounts that could run the tier, so the commit
+    re-asks the same question — same source, same refusal texts as the
+    immediate modes, so the two doors cannot drift apart.
+    """
+    if not staffcache.tier_needs_account(tier):
+        raise LedgerError("That model runs on a routed key, not an account. Reopen Staff….")
+    choices = eligible_accounts(org, tier, snap)
+    if not any(c["value"] == account or c["id"] == account for c in choices):
+        raise LedgerError("That account cannot run this model right now. Reopen Staff….")
+
+
 def preview(org: Org, wid: str,
             request_offers: list[dict[str, Any]] | None = None,
             snap: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -366,8 +384,20 @@ def preview(org: Org, wid: str,
     result["availability"] = {"at": snap["at"], "stale": bool(snap.get("stale")),
                               "errors": list(snap["errors"])}
     if result["mode"] == "request":
-        result["models"] = (request_offers if request_offers is not None
-                            else request_models(kiosk=bool(org.d.get("kiosk")), snap=snap))
+        offers = (request_offers if request_offers is not None
+                  else request_models(kiosk=bool(org.d.get("kiosk")), snap=snap))
+        if appsettings.quick_staff_request_accounts():
+            # "Include account selection when requesting staffing" (user
+            # 2026-09-20, default off): each offer carries the accounts that
+            # could run it, from the SAME eligibility source the immediate
+            # modes read, so the menu and the commit cannot disagree. A
+            # routed-key lane has no account and gets no rows, and an offer is
+            # never withheld over accounts — the request itself stays open to
+            # the assignee's own choice.
+            for model in offers:
+                if staffcache.tier_needs_account(model["tier"]):
+                    model["accounts"] = eligible_accounts(org, model["tier"], snap)
+        result["models"] = offers
         return result
     choices = []
     # ONE trial source for every tier (`HireProbe`) — this loop is where the
