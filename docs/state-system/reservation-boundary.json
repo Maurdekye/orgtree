@@ -1,0 +1,320 @@
+{
+  "schema": "orgtree.reservation-boundary/v1",
+  "source_contract_sha256": "78643ce1d818698933441a60e9e3729d2de5ba0a2cf9d3116a856205f6f33292",
+  "qualification": {
+    "runtime_census": false,
+    "conversion_authorized": false
+  },
+  "tools": [
+    "orgtree_reservation",
+    "orgtree_resource_reservation"
+  ],
+  "variants": {
+    "reservation.list-read": {
+      "action": "list",
+      "fresh_fields": [
+        "reservations",
+        "count",
+        "stale"
+      ],
+      "row_fields": [
+        "id",
+        "owner",
+        "item",
+        "resource",
+        "candidate",
+        "base",
+        "paths",
+        "state",
+        "created_at",
+        "updated_at",
+        "expires_at",
+        "heartbeat_at"
+      ],
+      "state": "held"
+    },
+    "reservation.list-scope": {
+      "action": "list",
+      "fresh_fields": [
+        "reservations",
+        "count",
+        "stale"
+      ],
+      "row_fields": [
+        "id",
+        "owner",
+        "item",
+        "resource",
+        "candidate",
+        "base",
+        "paths",
+        "state",
+        "created_at",
+        "updated_at",
+        "expires_at",
+        "heartbeat_at",
+        "stale_reason"
+      ],
+      "state": "stale"
+    },
+    "reservation.landing": {
+      "action": "landing",
+      "fresh_fields": [
+        "landed",
+        "count"
+      ],
+      "row_fields": [
+        "id",
+        "owner",
+        "item",
+        "resource",
+        "candidate",
+        "base",
+        "paths",
+        "state",
+        "created_at",
+        "updated_at",
+        "expires_at",
+        "heartbeat_at",
+        "integration_receipt",
+        "landed_at"
+      ],
+      "state": "landed"
+    },
+    "reservation.overlap": {
+      "action": "overlap",
+      "fresh_fields": [
+        "overlaps",
+        "count"
+      ],
+      "row_fields": [
+        "id",
+        "owner",
+        "item",
+        "resource",
+        "candidate",
+        "base",
+        "paths",
+        "state",
+        "created_at",
+        "updated_at",
+        "expires_at",
+        "heartbeat_at"
+      ],
+      "state": "held"
+    },
+    "reservation.acquire": {
+      "action": "acquire",
+      "fresh_fields": [
+        "reservation",
+        "replayed"
+      ],
+      "row_fields": [
+        "id",
+        "owner",
+        "item",
+        "resource",
+        "candidate",
+        "base",
+        "paths",
+        "state",
+        "created_at",
+        "updated_at",
+        "expires_at",
+        "heartbeat_at"
+      ],
+      "state": "held"
+    },
+    "reservation.renew": {
+      "action": "renew",
+      "fresh_fields": [
+        "reservation",
+        "renewed"
+      ],
+      "row_fields": [
+        "id",
+        "owner",
+        "item",
+        "resource",
+        "candidate",
+        "base",
+        "paths",
+        "state",
+        "created_at",
+        "updated_at",
+        "expires_at",
+        "heartbeat_at"
+      ],
+      "state": "held"
+    },
+    "reservation.recover": {
+      "action": "recover",
+      "fresh_fields": [
+        "reservation",
+        "recovered"
+      ],
+      "row_fields": [
+        "id",
+        "owner",
+        "item",
+        "resource",
+        "candidate",
+        "base",
+        "paths",
+        "state",
+        "created_at",
+        "updated_at",
+        "expires_at",
+        "heartbeat_at",
+        "recovered_by",
+        "recovered_reason"
+      ],
+      "state": "recovered"
+    },
+    "reservation.invalidate": {
+      "action": "invalidate",
+      "fresh_fields": [
+        "reservation",
+        "stale"
+      ],
+      "row_fields": [
+        "id",
+        "owner",
+        "item",
+        "resource",
+        "candidate",
+        "base",
+        "paths",
+        "state",
+        "created_at",
+        "updated_at",
+        "expires_at",
+        "heartbeat_at",
+        "stale_reason"
+      ],
+      "state": "stale"
+    },
+    "reservation.release": {
+      "action": "release",
+      "fresh_fields": [
+        "reservation",
+        "released",
+        "release_receipt",
+        "notified"
+      ],
+      "row_fields": [
+        "id",
+        "owner",
+        "item",
+        "resource",
+        "candidate",
+        "base",
+        "paths",
+        "state",
+        "created_at",
+        "updated_at",
+        "expires_at",
+        "heartbeat_at",
+        "release_receipt",
+        "successor"
+      ],
+      "state": "released"
+    },
+    "reservation.release-notify": {
+      "action": "release",
+      "fresh_fields": [
+        "reservation",
+        "released",
+        "release_receipt",
+        "notified",
+        "delivery"
+      ],
+      "row_fields": [
+        "id",
+        "owner",
+        "item",
+        "resource",
+        "candidate",
+        "base",
+        "paths",
+        "state",
+        "created_at",
+        "updated_at",
+        "expires_at",
+        "heartbeat_at",
+        "release_receipt",
+        "successor"
+      ],
+      "state": "released"
+    },
+    "reservation.land": {
+      "action": "land",
+      "fresh_fields": [
+        "reservation",
+        "integration_receipt",
+        "landed"
+      ],
+      "row_fields": [
+        "id",
+        "owner",
+        "item",
+        "resource",
+        "candidate",
+        "base",
+        "paths",
+        "state",
+        "created_at",
+        "updated_at",
+        "expires_at",
+        "heartbeat_at",
+        "integration_receipt",
+        "landed_at"
+      ],
+      "state": "landed"
+    }
+  },
+  "receipt": {
+    "replay_fields": [
+      "replayed",
+      "op_id",
+      "at",
+      "tool",
+      "outcome",
+      "receipt",
+      "status"
+    ],
+    "class": "transaction+post",
+    "post_expected": [
+      "drive"
+    ],
+    "post_observed": "unknown",
+    "max_list_rows": 128,
+    "nested_fields": [
+      "id",
+      "owner",
+      "item",
+      "resource",
+      "candidate",
+      "base",
+      "paths",
+      "state",
+      "release_receipt",
+      "successor",
+      "integration_receipt",
+      "landed_at",
+      "expires_at"
+    ],
+    "top_scalar_fields": [
+      "landed",
+      "released",
+      "recovered",
+      "release_receipt",
+      "integration_receipt",
+      "replayed",
+      "notified",
+      "stale",
+      "count"
+    ]
+  },
+  "scope": "Current public HTTP /api/agent and both reservation tools on synthetic state. Shared wrapper, malformed numeric extremes, actual transport, concurrency, native locking and migration remain unqualified."
+}

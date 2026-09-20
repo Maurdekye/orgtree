@@ -8,11 +8,15 @@
   "facets": {
     "actor": {
       "dimension": "authority",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
-        "The authenticated API adapter requires the caller node to be live before reservation execution.",
-        "Item visibility is delegated to Org._work_get_for; hidden and nonexistent items share refusal.",
-        "The exact transitive authority/contact set is not closed by citing that callback."
+        "The reservation branch requires a live caller. Shared authentication, halt/killswitch, kiosk and receipt gates are separate wrapper obligations; this facet closes only reservation/item authority.",
+        "Item lookup trims the submitted slug, scans work_items then work_items_archive, and matches the exact slug; it never resolves an old opaque ID to a new name. Archived items remain eligible for this metadata access.",
+        "Visibility is USER, the stored owner or creator node, a strict ancestor of owner (or creator while unowned), an explicit participant, or the named reviewer. Stored actor objects resolve by node string here; this is the legacy rule, not a claim of born-identity fencing.",
+        "Ancestry reads parent links from the anchor toward USER with a cycle guard. Org visibility alone grants no docket access. The item owner/creator/reviewer, participants, and necessary parent links are the predicate read set.",
+        "The reservation adapter converts both missing and unreadable item lookup to false; its refusal is identical for either. Naming a resource permits only the contention projection of HELD rows, never item-read or mutation authority.",
+        "Renew/release/land require exact reservation ownership, not merely item visibility. Recover of a HELD claim instead checks stored lease/heartbeat and owner liveness, and returns only contention metadata to an unrelated caller.",
+        "A release successor must be live and able to read a nonempty associated item. These checks are necessary but not sufficient: post_mail also enforces addressing, and its refusal must roll back the entire release."
       ],
       "source_refs": [
         {
@@ -29,14 +33,66 @@
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
+          "start": 11015,
+          "end": 11016,
+          "sha256": "04fc6e0ec4625a663738e8a32e03ace93db4f1bb119218ff644cb3fdffb8949f"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 11041,
+          "end": 11042,
+          "sha256": "4aad179e3b8c96caea17b2b2d7399b2e5ca96be5f517caeb01ee5d968b547934"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 11192,
+          "end": 11200,
+          "sha256": "5b2e58ed823e8b783c1d165692e7e223ed70bbcc6ca6f5c6617a21ed36b16acd"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 11285,
+          "end": 11316,
+          "sha256": "6b91c5995ff3b33cb138382b1fe51ef6c42c0c1bdc93fab2ded6a6f63dcac9c7"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 11494,
+          "end": 11519,
+          "sha256": "20d74d816998c1ce219e183d7cb009aed0c09957d66a682e83e28087f4d83048"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
           "start": 11716,
           "end": 11753,
           "sha256": "38ad20cec5614c406331e26821a5a2ff7ddce1e2ea85473ab4ebf23595617356"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 1320,
+          "end": 1347,
+          "sha256": "367e69dfe7ea56869cc5fb818fda4563088a469caa0297d957c071574daaee4c"
+        },
+        {
+          "path": "engine/backend/orgtree/reservations.py",
+          "start": 238,
+          "end": 287,
+          "sha256": "0ce6a1383115623ef3331d6212c62e63d8e31c4751d28427b1d66106889fb1c3"
+        },
+        {
+          "path": "engine/backend/orgtree/reservations.py",
+          "start": 434,
+          "end": 525,
+          "sha256": "3a31fb6ec0945627ceff6b30c7f7fe66c860934c29f03cccae9591bf46fb87ef"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 2540,
+          "end": 2573,
+          "sha256": "cc82f43ef001eb7ddf0f5824b47750c5671a00ee4fa906267418f8d3236c999a"
         }
       ],
-      "open_questions": [
-        "Close the full _work_find/_work_can_read ancestry, archive and reviewer/participant read set."
-      ]
+      "open_questions": []
     },
     "wrapper-reads": {
       "dimension": "reads",
@@ -68,7 +124,8 @@
       "status": "unresolved",
       "facts": [
         "Both public reservation names are TX_POST for every action, including domain-read list/landing/overlap.",
-        "Original-key operation receipt/log writes must be distinguished from reservation-domain writes."
+        "Original-key operation receipt/log writes must be distinguished from reservation-domain writes.",
+        "The public boundary fixtures demonstrate that a keyed domain-read call can append a receipt without changing reservations; physical storage contacts and save fanout remain for P02."
       ],
       "source_refs": [
         {
@@ -121,7 +178,10 @@
         "action = str(args.get('action') or '').strip().lower(); the alias reaches the identical adapter.",
         "_safe and _contention are separate allowlisted result projections; no arbitrary args echoed.",
         "Declared paths normalize slash runs/trailing separators without resolving or opening paths.",
-        "Selector fixtures exercise dispatch conditions only; complete result/error/default wire fixtures remain required."
+        "Selector fixtures exercise dispatch conditions only; complete result/error/default wire fixtures remain required.",
+        "reservation-boundary.json pins full fresh top-level and nested reservation field sets for all eleven variants and both aliases; public API tests compare these sets and semantic values, rather than only selecting a branch.",
+        "Current canonical action normalization, finite lease defaults/bounds, path separator deduplication, absent/null distinctions, text-container refusal, privacy projections, rollback and keyed receipt shapes are executable boundary fixtures.",
+        "Scalar coercion is asymmetric: candidate is an API text key but base/resource/item/successor are helper-normalized. Equal helper meaning is not automatically equal keyed fingerprint. Full malformed numeric/container and all shared wrapper refusals remain outside this tranche."
       ],
       "source_refs": [
         {
@@ -150,19 +210,32 @@
         }
       ],
       "open_questions": [
-        "Pin full canonical request/result/refusal/default/numeric parity through the public API."
+        "Complete malformed numeric/container and shared-wrapper result/refusal parity beyond the reviewed boundary fixtures; carry native and Rust versions through the same cases."
       ]
     },
     "receipt-common": {
       "dimension": "receipt",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
-        "TX_POST only proves the document-covered effect, not the successor's later wake.",
-        "Fingerprint is full SHA256 of canonical tool/node/generation/args, so the alias name is part of call identity.",
-        "result_slice is an allowlist with bounded nested reservation/overlap summaries, not full returned data.",
-        "A native original-key replay must precede new execution predicates; current disclosure still applies."
+        "This specifies the current legacy reservation receipt contract. Native original-key custody/exact-result retention and runtime proof remain separate unqualified v6 work; no current receipt is represented as a complete saved response.",
+        "Both aliases and every action are transaction+post. A bare unkeyed call files no operation receipt. A keyed call must use orgtree_op_call with inner tool/args/key/epoch; envelope key fields, missing epoch, and nested receipt verbs refuse before dispatch.",
+        "Admission occurs within write_org, after caller existence/halt/killswitch checks but before reservation predicates. A retained same-key replay therefore bypasses current reservation state/item predicates. Current authentication still runs before this point; native disclosure revalidation is not claimed to exist in this legacy branch.",
+        "Fingerprint is full SHA256 of canonical tool/node/generation/normalized args. Tool aliases are distinct identities. Admission normalizes only the API text-key set first; the helper later strips/lowers action, so action spelling variants can select the same domain operation yet conflict under one key.",
+        "Admission checks key syntax, custody epoch and key age before looking for a retained row. A retained different fingerprint conflicts; a matching fence or foreign generation refuses; otherwise the row replays. Only an absent row reaches the newer-schema and eviction-watermark refusals. Receipts are found across generations and classified at their original generation and fingerprint subject.",
+        "Accepted replay returns exactly replayed/op_id/at/tool/outcome/receipt/status, not the original result and not a second helper call, save or wake. It does not repeat a post-commit effect whose prior outcome is unknown.",
+        "Immediately before save, the API appends an applied receipt in the same org transaction as reservation state and any release mail/audience changes. Refusal or a pre-commit save exception leaves none durable. The process sequence witness advances after save while the lock remains held.",
+        "The stored result is a scalar allowlist plus restricted reservation/overlap rows, capped at 128 list entries; created/updated/heartbeat timestamps, stale reasons, contention view tags and arbitrary data are omitted. Landing-query rows and stale-ID lists are not retained; count may describe more rows than the slice stores.",
+        "Post-effects list drive for this receipt class and observed is the literal unknown, even for domain-read actions. Release carrier delivery is added only after filing and saving, so it is absent from the receipt result.",
+        "Receipt schema/coverage are 1; keys permit 60-second future skew. More than 500 rows trim to 400 and raise from_ms strictly beyond the greatest evicted mint, never lower it. Retained matching rows can replay even below this watermark while epoch/age/generation checks hold; the watermark guards admission only when the row is absent.",
+        "Lookup classifies a retained row before answering. A current-epoch absent eligible reservation key is durably fenced and returns not_applied; its delayed original refuses. Under an old epoch, a matching applied row is positive evidence, but an absent row is unknown and no new fence is written. No lookup/custody classification permits executing an absent old key after uncertain restore."
       ],
       "source_refs": [
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 82,
+          "end": 121,
+          "sha256": "92434c0bc5a48e75dd8355777d5d632afd6094cf37ffb1f23b4d24fcf97134cc"
+        },
         {
           "path": "engine/backend/orgtree/opreceipts.py",
           "start": 125,
@@ -177,14 +250,84 @@
         },
         {
           "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 268,
+          "end": 280,
+          "sha256": "e29940267a61f49af8ebe15c4a8d32443aefb3948d1bd565de186bf54b37ea3d"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
           "start": 344,
           "end": 400,
           "sha256": "a319f2739ce351dd5ad974b98a6ad5807f2b17ca1169b26a35553ae39df25cb8"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 477,
+          "end": 505,
+          "sha256": "b8e64d3979816b1ef17edd45ad63f893b7606dbbe7f41aa588e8859e237cf72c"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 556,
+          "end": 610,
+          "sha256": "8bc12c73bdd6255c7099274ea51cf3514ca7f2691544a0770ac8c6f991ba1c37"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 658,
+          "end": 814,
+          "sha256": "b9410016d10017f99d38602fcd46d67d26e6d5a28d26a3c0d1924b41232f0187"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9316,
+          "end": 9339,
+          "sha256": "114f6530ccf48f0b2e4e78d6445246aef29e1f2a8b87eb1786e7248c9e6081e8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10321,
+          "end": 10426,
+          "sha256": "928eab402f7dd1604d228875f3cf9d33b1699e72deaebf6d1d14165e01c0cb83"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10473,
+          "end": 10536,
+          "sha256": "ad5d186c5a0805f3d3664618b628f5bf1f3bbdc3491e4ff37245e46954051983"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10539,
+          "end": 10677,
+          "sha256": "20595b4d53ff998fc7deea5ac32f9239b217c223f4f58c361a0bc4cd1fece64d"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10770,
+          "end": 10811,
+          "sha256": "241559d72bcbd2cfd87e1f60b8698a0c5f836242eb59ec90c7f46664f8ab526f"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11259,
+          "end": 11276,
+          "sha256": "d3a3b3cff9d448f415aa1759b5d924681c998eb2bd6916966cceea27b9f8591f"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12213,
+          "end": 12241,
+          "sha256": "194f856bb6237d66cb34d1a3b779d1e2b80c0f118e1ca270d58332e7ca11c43d"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12303,
+          "end": 12328,
+          "sha256": "a503c893250f99036c7c15802739121a4064210932e65670f0d487341fac052f"
         }
       ],
-      "open_questions": [
-        "Pin public replay/refusal/unknown-commit behavior and legacy retention before assigning native exact-result claims."
-      ]
+      "open_questions": []
     },
     "no-domain-effect": {
       "dimension": "effects",
@@ -1091,7 +1234,7 @@
       "dimension": "predicates",
       "status": "specified",
       "facts": [
-        "Candidate mismatch marks the temporary helper row stale THEN raises; public persistence/rollback must be tested, never inferred.",
+        "Candidate mismatch marks the temporary helper row stale then raises. The public API returns 422 and the next write and cold reload retain the original HELD row; the boundary fixture proves discard after refusal.",
         "Another same-key LANDED row replays; other same-key states refuse. This is a report of Git landing, not a Git command."
       ],
       "source_refs": [
@@ -2070,7 +2213,8 @@
     "Every static entry/dispatch/connection witness is accounted for; pending is not semantic coverage.",
     "The first mapped family has eleven reservation variants; its transitive/native/wire/contact gaps remain explicit.",
     "Registration sites are not a runtime operation denominator.",
-    "Source assertions and selector checks do not establish public result parity, native isolation or actual atomicity."
+    "Source assertions and selector checks do not establish public result parity, native isolation or actual atomicity.",
+    "The reservation boundary suite executes the current public API against disposable SQLite state with provider wakes replaced by spies. It is legacy conformance evidence, not a live census or PostgreSQL/Rust qualification."
   ],
   "entries": [
     {

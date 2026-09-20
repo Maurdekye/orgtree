@@ -3,9 +3,9 @@
 This bounded package builds on source-inventory commit
 83b2fe414ff416418b4bd45bc7a27bfbb16350fd and frozen v6 design
 b830a69bd71b0cee052e78acfe1ceff6b399532765db7ed55d05a253f0f84dfd.
-It supplies a checked contract format and an initial populated reservation
-family. **P01 remains incomplete.** It changes no backend entry point,
-database, permission, receipt, dependency or product behavior.
+It supplies a checked contract format, a populated reservation family and
+public-boundary conformance fixtures. **P01 remains incomplete.** It changes no
+backend entry point, database, permission, receipt, dependency or product behavior.
 
 ## Two separate questions
 
@@ -63,7 +63,7 @@ Independent review, canonical result/refusal fixtures, native conflict tests and
 observed contact comparison remain necessary. Filling every field with plausible
 text is not semantic verification.
 
-## Initial reservation contracts
+## Reservation contracts and public boundary
 
 Both tool names bind the same eleven variants: ordinary list, scope-checking
 list, landing query, overlap query, acquire, renew, recover, invalidate,
@@ -91,14 +91,68 @@ Important source behavior is retained:
 - A successful release can stage mail/authority effects and a later wake.
   A RELEASED retry returns notified:null. LANDED is terminal and refuses release.
 - land reports a Git action; it runs no Git command. A scope mismatch mutates
-  the helper's temporary row before raising; public save/rollback must be pinned.
+  the helper's temporary row before raising. The public refusal now has a
+  fixture proving that the change is discarded, including after a later save
+  and a cold reload.
 
 At this revision two registration sites and fourteen dispatch witnesses map to
 these variants. The remaining 307 registrations, 211 dispatch witnesses and all
-15 connection candidates are pending. The reservation family's transitive
-authority, wrapper contacts, native conflicts, complete result formats,
-receipt behavior and runtime probes are also explicitly unresolved. There are
-611 unresolved witness/dimension obligations; this is not 611 runtime operations.
+15 connection candidates are pending. Source-backed reservation/item authority
+and legacy receipt semantics are specified; the shared authentication and
+runtime wrapper, physical contacts, native conflicts, full malformed-input
+parity and runtime probes remain unresolved. There are 589 unresolved
+witness/dimension obligations, down from 611 by resolving two facets used by
+eleven variants. These counts are not numbers of runtime operations.
+
+`reservation-boundary.json` binds to the canonical hash of this registry and
+requires both aliases and every variant. It records complete top-level and
+reservation-row field sets for each chosen fresh-response fixture, plus the
+legacy receipt projection. It is not a schema for every possible response:
+terminal replay, malformed inputs and shared-wrapper variants still need
+coverage before the wire facet can be closed. The fixture checker refuses a
+missing variant/alias, stale binding, extra top-level field or forged
+qualification. Registry source hashes separately catch implementation drift.
+
+`tests/test_state_reservation_boundary.py` runs the real `/api/agent` HTTP door
+through authentication, dispatch, legacy receipt admission, document mutation
+and SQLite commit/reload. Every organization and credential is synthetic, under
+temporary data and home roots. The app lifecycle is not started; provider
+wakes, delivery text and the UI mail hint are spies. Nothing connects to a live
+organization or PostgreSQL. The suite establishes:
+
+- Both tool names produce the expected fresh shape and values for all eleven
+  variants. Selected normalization, lease, path and absent/null cases are pinned.
+- Docket participants, reviewers, creators and relevant ancestors can read
+  reservation metadata, including archived-item placement. Unrelated callers
+  receive only the HELD contention projection when they name the resource;
+  that projection confers no mutation authority.
+- A successor's item access alone does not make it addressable. A failed
+  `post_mail` check discards the reservation release. Successful release commits
+  reservation, mail, reply-audience grant and keyed receipt before the wake.
+- An injected exception before save leaves no domain/mail/grant/receipt change.
+  An injected wake failure after commit leaves durable state, and keyed retry
+  reports the receipt without repeating the wake. This does not prove eventual
+  delivery, crash recovery or exactly-once external effects.
+- Keyed reads may append receipts even when reservation data is unchanged.
+  Retried requests return a receipt envelope, not the original full response.
+  Alias, normalized-argument and action-spelling fingerprints are distinguished.
+- The legacy replay path checks authentication but precedes fresh item
+  authorization; a captured result remains in the replay after item access is
+  revoked. This records existing behavior, not a waiver of v6 current-disclosure
+  checks. Native conversion must assess that deliberate difference explicitly.
+- A lookup fences an eligible absent key before its delayed original executes.
+  After custody epoch rotation, an existing applied receipt remains positive
+  evidence, while absence is unknown and writes no new fence.
+- Receipt lists keep at most 128 projected rows per result. The receipt log's
+  500-to-400 eviction rule advances its watermark past the greatest evicted
+  mint time, including future-skew and later backwards-clock cases. A still
+  retained matching receipt can replay even below that watermark.
+
+The reservation cap still counts 512 retained rows across the organization,
+including terminal rows. Its native conflict/admission policy has not been
+chosen or qualified. Similarly, the legacy receipt watermark is an existing
+mechanism to model, not permission to add a shared write gate to the new system.
+The packet's native per-owner custody and narrow conflicts remain required.
 
 ## Deliberate failing controls
 
@@ -107,8 +161,11 @@ cases; duplicate or substitute witnesses; map a route to an unrelated contract;
 forge qualification; erase unresolved status; overlap conditional branches; and
 label scope-checking list read-only. Each must be rejected. A helper write and
 an unknown registration invalidate prior source evidence. Source scanning never
-imports the backend. The only product calls in the conformance tests are the
-existing pure reservation/receipt helpers on synthetic data.
+imports the backend. Public-boundary tests additionally substitute two unsafe
+behaviors in the isolated test process: saving a helper mutation before its
+refusal, and ignoring a committed replay. Each must fail the same assertion
+that passes against the unchanged implementation; a marker proves that the
+intended unsafe branch actually ran. These controls change no product files.
 
 Continue P01 by resolving entries/facets and full wire/receipt fixtures under
 review. The preserved http-cover census implementation is input to P02, not
