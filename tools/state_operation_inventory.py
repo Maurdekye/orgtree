@@ -29,6 +29,10 @@ REGISTRATION_CALLS = {"add_api_route", "add_route", "add_websocket_route",
 TASK_CALLS = {"create_task", "ensure_future", "run_in_executor", "submit",
               "call_soon", "call_soon_threadsafe", "call_later", "call_at",
               "to_thread"}
+# `to_thread(func, /, *args, **kwargs)` takes its callable POSITIONAL-ONLY, so a
+# `func=` keyword is forwarded TO that callable and is not the callable itself.
+# These names therefore read the position and never the keyword.
+POSITIONAL_ONLY_CALLS = {"to_thread"}
 CALLBACK_KEYS = {"callback", "on_exit", "on_result", "on_message", "on_event",
                  "on_input", "on_late", "on_error", "on_complete"}
 DATABASE_ROOTS = {"sqlite3", "apsw", "psycopg", "psycopg2", "duckdb", "sqlcipher3"}
@@ -77,6 +81,19 @@ def argument(call: ast.Call, key: str, position: int | None = None) -> ast.AST |
     if position is not None and len(call.args) > position:
         return call.args[position]
     return None
+
+
+def positional(call: ast.Call, position: int) -> ast.AST | None:
+    """The argument at `position`, never a keyword of the same parameter name.
+
+    For a positional-only parameter a same-named keyword belongs to the CALLEE,
+    so reading it would name the wrong target. A `*expansion` at or before the
+    position makes the index undeterminable and stays unresolved rather than
+    reporting the expansion itself as a target.
+    """
+    if any(isinstance(value, ast.Starred) for value in call.args[:position + 1]):
+        return None
+    return call.args[position] if len(call.args) > position else None
 
 
 class ModuleInventory(ast.NodeVisitor):
@@ -213,9 +230,12 @@ class ModuleInventory(ast.NodeVisitor):
                 "run_in_executor": ("func", 1), "submit": ("fn", 0),
                 "call_soon": ("callback", 0), "call_soon_threadsafe": ("callback", 0),
                 "call_later": ("callback", 1), "call_at": ("callback", 1),
+                # The key names the CPython parameter; for a positional-only one
+                # it is documentation, never a keyword this pass will match.
                 "to_thread": ("func", 0),
             }[method]
-            target = argument(node, key, position)
+            target = (positional(node, position) if method in POSITIONAL_ONLY_CALLS
+                      else argument(node, key, position))
             self.registration("registration_call" if method in REGISTRATION_CALLS else "task",
                               node, mechanism=name, target=expression(target),
                               call_expression=expression(node),

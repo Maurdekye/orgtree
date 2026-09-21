@@ -5,6 +5,7 @@ separate gate, not an inference from these static tests.
 """
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import copy
 import importlib.util
@@ -108,6 +109,42 @@ async def recover(repair):
         # The dynamic hand-off is kept as an unresolved obligation, not dropped.
         self.assertEqual([r["resolution"] for r in rows],
                          ["expression", "expression", "unresolved"])
+
+    def test_to_thread_target_is_the_handler_cpython_actually_calls(self):
+        # `to_thread(func, /, ...)` takes its callable POSITIONAL-ONLY, so
+        # `func=` is forwarded to that callable. Rather than restate what this
+        # scanner believes, run the real asyncio.to_thread and let CPython say
+        # which handler executes, then require the recorded target to be it.
+        called = []
+        def chosen_handler(**forwarded):
+            called.append(("chosen_handler", sorted(forwarded)))
+        def other_handler(**forwarded):  # pragma: no cover - must never run
+            called.append(("other_handler", sorted(forwarded)))
+        asyncio.run(asyncio.to_thread(chosen_handler, func=other_handler))
+        self.assertEqual(called, [("chosen_handler", ["func"])])
+
+        self.source("import asyncio\n"
+                    "async def hand_off():\n"
+                    " await asyncio.to_thread(chosen_handler, func=other_handler)\n")
+        row, = [r for r in self.scan()["registrations"] if r["kind"] == "task"]
+        self.assertEqual(row["target"], called[0][0])
+        self.assertEqual(row["resolution"], "expression")
+
+    def test_to_thread_without_a_determinable_positional_target_stays_unresolved(self):
+        self.source('''
+import asyncio
+async def forms(handlers, chosen, rest):
+ await asyncio.to_thread(*handlers)
+ await asyncio.to_thread(func=only_a_keyword)
+ await asyncio.to_thread(**everything)
+ await asyncio.to_thread(chosen, *rest, func=forwarded)
+''')
+        rows = [r for r in self.scan()["registrations"] if r["kind"] == "task"]
+        # An expansion is not a target, and a forwarded `func=` is not one
+        # either; only the real positional callable is reported.
+        self.assertEqual([r["target"] for r in rows], [None, None, None, "chosen"])
+        self.assertEqual([r["resolution"] for r in rows],
+                         ["unresolved", "unresolved", "unresolved", "expression"])
 
     def test_anyio_run_sync_is_not_claimed_as_a_to_thread_task(self):
         # This pass matches call NAMES. `anyio.to_thread.run_sync` is a different
