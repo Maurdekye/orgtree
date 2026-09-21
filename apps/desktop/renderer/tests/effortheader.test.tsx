@@ -32,7 +32,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { DeskChat } from '../src/canvas/desk'
 import { NodeSquare } from '../src/canvas/cards'
-import { EFFORT_LEVELS, EffortLevelBadge, OrgDefaultEffort, nonDefaultEffort } from '../src/canvas/effort'
+import { EFFORT_LEVELS, EffortLevelBadge, OrgDefaultEffort, nonDefaultEffort, resolveOrgDefault } from '../src/canvas/effort'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { OpResult } from '../src/types'
 
@@ -129,6 +129,56 @@ test('§1f with no org default in hand, nothing is claimed', () => {
   assert.equal(nonDefaultEffort(agent('xhigh', 'xhigh'), ''), null)
   assert.equal(nonDefaultEffort(agent('xhigh', 'xhigh'), null), null)
   assert.equal(nonDefaultEffort(agent('xhigh', 'xhigh'), undefined), null)
+})
+
+/* ─── §1x the org-default resolver ───────────────────────────────────────── */
+//
+// ⚠ THIS SECTION EXISTS BECAUSE THE FIRST CANDIDATE (0dbede2) GOT IT WRONG.
+// The provider read `tree.default_effort || tree.effort_default || ''`, and
+// `||` cannot tell "unset" from "unsupported": a truthy junk override
+// short-circuited it and took the authoritative fallback with it, so the
+// resolver had nothing left and EVERY agent in the org went silent — including
+// validly configured ones. The backend does the opposite there, clamping to
+// DEFAULT_EFFORT, which is exactly the fallback that was discarded.
+
+test('§1x1 resolveOrgDefault mirrors effective_effort\'s chain', () => {
+  // a supported override wins outright
+  assert.equal(resolveOrgDefault('low', 'high'), 'low')
+  // no override at all falls through to what "" resolves to
+  assert.equal(resolveOrgDefault('', 'high'), 'high')
+  assert.equal(resolveOrgDefault(null, 'high'), 'high')
+  assert.equal(resolveOrgDefault(undefined, 'high'), 'high')
+  // ⚠ THE REGRESSION: an UNSUPPORTED override must fall through too, exactly
+  // as the backend clamps it, and must NOT swallow the fallback
+  assert.equal(resolveOrgDefault('ludicrous', 'high'), 'high',
+    'an unsupported org override swallowed the authoritative fallback')
+  // only when NEITHER field names a level is there nothing to compare against
+  assert.equal(resolveOrgDefault('ludicrous', 'nonsense'), '')
+  assert.equal(resolveOrgDefault('ludicrous', ''), '')
+  assert.equal(resolveOrgDefault(null, null), '')
+})
+
+test('§1x2 an unsupported ORG override is NOT the same rule as an unsupported '
+  + 'AGENT setting', () => {
+  // the distinction the fix must preserve. On the ORG it means "fall through",
+  // because the default is a fact about what everyone else runs at. On the
+  // AGENT it means "no configured level to report", and the silence is
+  // deliberate — the backend clamps that agent to DEFAULT_EFFORT, so there is
+  // no chosen level for a card to name.
+  const org = resolveOrgDefault('ludicrous', 'high')
+  assert.equal(org, 'high', 'the org override did not fall through')
+  assert.equal(nonDefaultEffort(agent('xhigh', 'xhigh'), org), 'xhigh',
+    'a validly configured agent went silent under a junk ORG override')
+  assert.equal(nonDefaultEffort(agent('ludicrous', 'high'), org), null,
+    'a junk AGENT setting was advertised as a deliberate configuration')
+})
+
+test('§1x3 the resolved default is what silence is measured against', () => {
+  // an agent sitting at the level the org REALLY defaults to stays quiet, even
+  // though the org's own field is junk and only the fallback names that level
+  const org = resolveOrgDefault('ludicrous', 'high')
+  assert.equal(nonDefaultEffort(agent('high', 'high'), org), null,
+    'an agent at the resolved ordinary default was badged as non-default')
 })
 
 test('§1g the level list is the composer control\'s list, in order', () => {
@@ -375,6 +425,67 @@ test('§4c changing the INHERITED org default changes both surfaces too',
       'the two surfaces disagreed about the new default')
     assert.match(onD!.getAttribute('title') ?? '', /below the org default, xhigh/)
   })
+
+test('§4d an unsupported ORG override blanks NEITHER surface — the regression, '
+  + 'rendered', async (t: TestContext) => {
+    // ⚠ THE BEHAVIOURAL FORM OF §1x, through the real components rather than
+    // the rule alone. In candidate 0dbede2 both of these rendered nothing at
+    // all: the provider's `||` discarded `effort_default`, so the context
+    // carried an unsupported value and every card in the org disappeared.
+    // Here the org's own field is junk and only `effort_default` names the
+    // real ordinary default (high), and a validly configured xhigh agent must
+    // still be described — on the card AND in the desk header.
+    const orgDefault = resolveOrgDefault('ludicrous', 'high')
+    installFetch(new FakeServer())
+    const n = agent('xhigh', 'xhigh')
+    const c = await card(n, 'norm', orgDefault)
+    t.after(() => c.unmount())
+    const d = await mountView(desk(n, orgDefault), (el) => el)
+    t.after(() => d.unmount())
+    await flush()
+    const onC = onCard(c.el), onD = onDesk(d.el)
+    assert.ok(onC, 'the canvas card went blank under a junk org override')
+    assert.ok(onD, 'the desk header went blank under a junk org override')
+    assert.equal(onC!.getAttribute('data-effort-level'), 'xhigh')
+    assert.equal(onD!.getAttribute('data-effort-level'), 'xhigh')
+    // and both measure against the RESOLVED default, so they name `high`
+    assert.equal(onC!.getAttribute('title'), onD!.getAttribute('title'))
+    assert.match(onD!.getAttribute('title') ?? '', /above the org default, high/)
+  })
+
+test('§4e …and an agent AT the resolved default is still silent on both',
+  async (t: TestContext) => {
+    // the control for §4d: falling through to the fallback must not turn into
+    // "badge everything". The same junk override, an agent sitting at the real
+    // ordinary default, and both surfaces say nothing.
+    const orgDefault = resolveOrgDefault('ludicrous', 'high')
+    installFetch(new FakeServer())
+    const n = agent('high', 'high')
+    const c = await card(n, 'norm', orgDefault)
+    t.after(() => c.unmount())
+    const d = await mountView(desk(n, orgDefault), (el) => el)
+    t.after(() => d.unmount())
+    await flush()
+    assert.equal(onCard(c.el), null, 'the card badged an agent at the real default')
+    assert.equal(onDesk(d.el), null, 'the desk badged an agent at the real default')
+    assert.equal(c.el.querySelector('[data-effort-level]'), null)
+    assert.equal(d.el.querySelector('[data-effort-level]'), null)
+  })
+
+test('§4f the provider RESOLVES rather than falling back with ||', () => {
+  // ⚠ A SOURCE GUARD, and it earns its keep: the defect lived in OrgCanvas.tsx
+  // — a file this ticket may only touch for the import and the provider — and
+  // it was invisible to every component test, because those mount the context
+  // directly and never exercise the expression that fills it. jsdom cannot
+  // reach it either, so the shipped source is the only place it can be pinned.
+  const src = readFileSync(
+    path.join(__SRC_DIR__, 'canvas', 'OrgCanvas.tsx'), 'utf8')
+  assert.match(src,
+    /value=\{resolveOrgDefault\(tree\.default_effort,\s*tree\.effort_default\)\}/,
+    'the org-default provider no longer calls resolveOrgDefault with both fields')
+  assert.doesNotMatch(src, /OrgDefaultEffort\.Provider[\s\S]{0,120}\|\|/,
+    'a || fallback chain crept back into the org-default provider')
+})
 
 /* ─── §5 the far-scale presentations ─────────────────────────────────────── */
 

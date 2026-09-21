@@ -55,12 +55,21 @@ import type { CanvasNode } from './shared'
 export const EFFORT_LEVELS: readonly string[] =
   ['low', 'medium', 'high', 'xhigh', 'max']
 
-/** THE ORG'S ORDINARY DEFAULT, raw from the tree — `tree.default_effort ||
- *  tree.effort_default`. Empty string means "this render has not been told",
- *  which is NOT the same as "the default is unset": every real tree payload
- *  carries `effort_default`, and the helpers below decline to call anything
- *  non-default while the value is missing rather than guessing a level and
- *  being confidently wrong about which agents are unusual.
+/** one supported level, or not — the single validity test in this file, so
+ *  "is this a level orgtree offers" is asked the same way everywhere */
+const validLevel = (v: string | null | undefined): v is string =>
+  !!v && EFFORT_LEVELS.includes(v)
+
+/** THE ORG'S ORDINARY DEFAULT, ALREADY RESOLVED — the level an agent with no
+ *  setting of its own actually runs at. `''` means "this render has not been
+ *  told", and the helpers below then decline to call anything non-default
+ *  rather than guess a level and be confidently wrong about which agents are
+ *  unusual.
+ *
+ *  ⚠ RESOLVED, NOT RAW. Put `resolveOrgDefault(tree.default_effort,
+ *  tree.effort_default)` in here — never one of those fields on its own and
+ *  never an `||` of the two; see the function for why that is not the same
+ *  thing.
  *
  *  Provided once, in OrgCanvas, beside `OrgKillswitchContext` — that provider
  *  wraps every mount site of both surfaces (canvas cards, the canvas desk,
@@ -71,19 +80,39 @@ export const OrgDefaultEffort = createContext<string>('')
 
 export const useOrgDefaultEffort = (): string => useContext(OrgDefaultEffort)
 
-/** the org default as the RUNTIME would resolve it for an agent that has no
- *  setting of its own: `Org.effective_effort` with `scope.effort` empty. `''`
- *  only when the caller has no usable tree fact to resolve from. */
-export function resolveOrgDefault(raw: string | null | undefined): string {
-  const eff = raw || ''
-  if (!eff) return ''
-  return EFFORT_LEVELS.includes(eff)
-    ? eff
-    // an org-level value outside EFFORTS is clamped by the backend exactly
-    // like a node-level one, and this renderer cannot name what it clamps TO
-    // without hardcoding DEFAULT_EFFORT — so the render simply has no default
-    // to compare against, and says nothing.
-    : ''
+/**
+ * The org's ordinary default, resolved exactly as `ledger.Org.effective_effort`
+ * resolves it with `scope.effort` empty: the org's own `default_effort` when it
+ * names a supported level, else `effort_default`, which the payload ships as
+ * what `""` resolves to "so no UI string has to hardcode it".
+ *
+ * ⚠ THE TWO FIELDS ARE NOT INTERCHANGEABLE AND `||` CANNOT JOIN THEM. `||`
+ * cannot tell "unset" from "unsupported": a truthy but unsupported override
+ * short-circuits it and takes the authoritative fallback with it, leaving this
+ * function nothing to resolve from — and the backend does the OPPOSITE there,
+ * clamping to DEFAULT_EFFORT, which is precisely the fallback that was thrown
+ * away. Written the `||` way, one junk org field made the entire feature go
+ * silent for every agent in the org instead of degrading (measured 2026-09-21,
+ * caught in review of the first candidate).
+ *
+ * ⚠ AND THIS IS NOT THE INVALID-AGENT-SETTING RULE. An unsupported value on an
+ * AGENT means "no configured level to report", and silence there is deliberate.
+ * An unsupported value on the ORG means "fall through", because the org default
+ * is a fact about what everyone else runs at, not a claim this agent made.
+ *
+ * `''` only when neither field names a level this renderer supports. Note that
+ * `EFFORT_LEVELS` is hand-copied from the backend (`Org.EFFORTS` is not in the
+ * tree payload), so a level added server-side would land here as unrecognised;
+ * falling through to `effort_default` keeps the rest of the org described
+ * instead of blanking all of it, which is the best a stale list can do.
+ */
+export function resolveOrgDefault(
+  override: string | null | undefined,
+  fallback: string | null | undefined,
+): string {
+  if (validLevel(override)) return override
+  if (validLevel(fallback)) return fallback
+  return ''
 }
 
 /** What this agent's turns ACTUALLY launch at, preferring the server-derived
@@ -94,9 +123,8 @@ export function resolveOrgDefault(raw: string | null | undefined): string {
 function runningEffort(
   node: Pick<CanvasNode, 'effort_effective'>, own: string,
 ): string {
-  const derived = node.effort_effective || ''
-  if (EFFORT_LEVELS.includes(derived)) return derived
-  return EFFORT_LEVELS.includes(own) ? own : ''
+  if (validLevel(node.effort_effective)) return node.effort_effective
+  return validLevel(own) ? own : ''
 }
 
 /**
@@ -114,15 +142,19 @@ function runningEffort(
  *     ordinary default, which is not news;
  *   · this render was given no org default, so "non-default" is not a claim
  *     it can support.
+ *
+ * `orgDefault` is the ALREADY-RESOLVED default (see `resolveOrgDefault`); it is
+ * validated here rather than re-resolved, so a call site that hands over a raw
+ * field goes quiet instead of comparing against something the runtime would
+ * never use.
  */
 export function nonDefaultEffort(
   node: Pick<CanvasNode, 'scope' | 'effort_effective'>,
-  orgDefaultRaw: string | null | undefined,
+  orgDefault: string | null | undefined,
 ): string | null {
   const own = node.scope?.effort || ''
-  if (!EFFORT_LEVELS.includes(own)) return null
-  const orgDefault = resolveOrgDefault(orgDefaultRaw)
-  if (!orgDefault) return null
+  if (!validLevel(own)) return null
+  if (!validLevel(orgDefault)) return null
   const running = runningEffort(node, own)
   if (!running || running === orgDefault) return null
   return running
@@ -145,14 +177,14 @@ export function nonDefaultEffort(
 export function EffortLevelBadge({ node }: {
   node: Pick<CanvasNode, 'scope' | 'effort_effective'>
 }) {
-  const orgDefaultRaw = useOrgDefaultEffort()
-  const level = nonDefaultEffort(node, orgDefaultRaw)
+  const orgDefault = useOrgDefaultEffort()
+  const level = nonDefaultEffort(node, orgDefault)
+  // `level` is non-null only once nonDefaultEffort has validated BOTH it and
+  // `orgDefault`, so everything below is working with supported levels.
   if (!level) return null
-  const orgDefault = resolveOrgDefault(orgDefaultRaw)
   // "above"/"below" is exactly what the ticket's problem statement asks a
-  // reader to be able to tell at a glance. Both indexes are known-good here
-  // (`level` reached us through the runtime's own clamp, `orgDefault` through
-  // resolveOrgDefault), so the comparison is a fact rather than a guess.
+  // reader to be able to tell at a glance. Both indexes are known-good, so the
+  // comparison is a fact rather than a guess.
   const dir = EFFORT_LEVELS.indexOf(level) > EFFORT_LEVELS.indexOf(orgDefault)
     ? 'above' : 'below'
   const detail = `thinking effort — ${level}, set on this agent `
