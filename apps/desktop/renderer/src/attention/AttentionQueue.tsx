@@ -25,7 +25,7 @@ import { dismissWorkItemAttention, fileBase, getInbox, getWorkItems, markRead } 
 import { sendLinkedReply } from '../events/reply'
 import { DocketIcon, MailIcon, NotificationsActiveIcon, PsychologyIcon } from '../icons'
 import type { MailEntry, ToastFn, TreeNode, TreePayload, WorkItem } from '../types'
-import { md, orgPxc, usePolled } from '../canvas/shared'
+import { md, orgPxc, usePolledStatus } from '../canvas/shared'
 import type { MailRow } from '../canvas/shared'
 import { AgentName } from '../canvas/identity'
 import { focusByAttr } from './dom'
@@ -81,9 +81,40 @@ export function AttentionQueue({
   // other exists. `usePolled` also wakes on the livebus, so a mutation made
   // HERE lands in well under a poll interval.
   const [bump, setBump] = useState(0)
-  const work = usePolled(() => getWorkItems(slug, true, true), [slug], 5000, bump)
-  const box = usePolled(() => getInbox(slug), [slug], 5000, bump)
+  const workFeed = usePolledStatus(() => getWorkItems(slug, true, true), [slug], 5000, bump)
+  const boxFeed = usePolledStatus(() => getInbox(slug), [slug], 5000, bump)
+  const work = workFeed.value
+  const box = boxFeed.value
   const refetch = useCallback(() => setBump((n) => n + 1), [])
+
+  /**
+   * ⚠ WHAT THIS PANEL IS ENTITLED TO CLAIM. Two independent feeds, each of
+   * which may be current, still loading, unreadable, or showing something it
+   * can no longer refresh — and this is the one surface where getting that
+   * wrong is actively harmful, because "nothing is waiting" and "nothing could
+   * be read" look identical to a reader and mean opposite things.
+   *
+   * THE RULE: the confident empty statement requires BOTH feeds to have read
+   * successfully on their most recent attempt. Anything less says what is
+   * actually known instead — which feed could not be read, and whether what is
+   * on screen is a retained answer rather than a fresh one.
+   *
+   * Partial coverage is a real and useful state, not an error: if the tickets
+   * read and the mailbox did not, the ticket rows are shown AND the gap is
+   * named. Hiding usable rows because a different feed failed would be its own
+   * kind of lie.
+   */
+  const feeds = [
+    { name: 'tickets', status: workFeed.status },
+    { name: 'mail', status: boxFeed.status },
+  ] as const
+  const unavailable = feeds.filter((f) => f.status.unavailable)
+  const stale = feeds.filter((f) => f.status.stale)
+  const firstLoad = feeds.filter((f) => f.status.loading)
+  /** every feed answered on its most recent attempt — the ONLY state in which
+   *  an empty list may be reported as "nothing is waiting" */
+  const complete = unavailable.length === 0 && stale.length === 0 && firstLoad.length === 0
+  const listNames = (rows: readonly { name: string }[]) => rows.map((f) => f.name).join(' and ')
 
   const nodes = useMemo(() => attentionNodes(tree), [tree])
   const nodeMap = useMemo(
@@ -173,22 +204,41 @@ export function AttentionQueue({
     <div className="attn-wrap">
       <div className="attn-head">
         <h3><NotificationsActiveIcon fontSize="inherit" /> Needs attention</h3>
-        <span className="dim attn-counts" aria-live="polite">
-          {loading && !rows.length ? 'loading…'
-            : counts.total === 0 ? 'nothing is waiting'
-              : [
+        <span className={'dim attn-counts' + (stale.length || unavailable.length ? ' attn-stale' : '')}
+          aria-live="polite">
+          {/* the claim is made in order of how much is known, weakest first */}
+          {unavailable.length ? `${listNames(unavailable)} could not be read`
+            : firstLoad.length && !rows.length ? 'loading…'
+              : counts.total === 0
+                ? (complete ? 'nothing is waiting'
+                  : `nothing is waiting as of the last read — ${listNames(stale)} could not be refreshed`)
+                : [
                 counts.ticket ? `${counts.ticket} ticket${counts.ticket > 1 ? 's' : ''}` : '',
                 counts.mail ? `${counts.mail} urgent mail` : '',
                 counts.question ? `${counts.question} question${counts.question > 1 ? 's' : ''}` : '',
-              ].filter(Boolean).join(' · ')}
+                ].filter(Boolean).join(' · ')
+                  + (stale.length ? ` · ${listNames(stale)} could not be refreshed` : '')}
         </span>
       </div>
       <div className="attn-body">
         <div className="attn-list" role="listbox" aria-label="Needs attention"
           tabIndex={rows.length && !current ? 0 : -1}
           ref={listRef} onKeyDown={onListKey}>
-          {!rows.length && !loading &&
+          {/* ⚠ THE CONFIDENT SENTENCE IS GATED ON `complete`. Everything else
+              gets a statement about what could not be read, because an empty
+              list the panel cannot vouch for must never be drawn as reassurance. */}
+          {!rows.length && complete &&
             <div className="dim pad attn-empty">Nothing is waiting on you here.</div>}
+          {!rows.length && !complete && !!unavailable.length &&
+            <div className="dim pad attn-unavailable" role="status">
+              {listNames(unavailable)} could not be read, so this list is not
+              a statement about what is waiting on you.
+            </div>}
+          {!rows.length && !complete && !unavailable.length && !!stale.length &&
+            <div className="dim pad attn-stale-empty" role="status">
+              Nothing was waiting at the last successful read, but
+              {' '}{listNames(stale)} could not be refreshed since.
+            </div>}
           {rows.map((row) => (
             <div key={row.key} data-attn-row={row.key} data-attn-kind={row.kind}
               role="option" tabIndex={row.key === selected ? 0 : -1}
