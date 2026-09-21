@@ -202,3 +202,32 @@ test('events that cannot be asked for again are held until the renderer can list
   // and a window that closes mid-grace leaves no timer behind
   assert.match(main, /if \(record\.flushTimer\) \{ clearTimeout\(record\.flushTimer\); record\.flushTimer = undefined \}/)
 })
+
+// ------------------------------------------------------- real Electron
+
+test('real Electron probe: sender resolution, per-window popouts, discard and placement', async () => {
+  // The unit tests drive the registry through narrow interfaces, which proves
+  // the rules and says nothing about Electron. This runs the same rules
+  // against REAL BrowserWindows: real webContents ids, real mainFrame identity
+  // comparisons, a real destroy() releasing an organization, a real surplus
+  // window being discarded, and real getNormalBounds() through the placement
+  // store. Nothing here starts an engine, loads app UI, shows a window or
+  // touches user data.
+  const { spawnSync } = await import('node:child_process')
+  const { createRequire } = await import('node:module')
+  const os = await import('node:os')
+  const { build } = await import('esbuild')
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-multiwindow-probe-'))
+  const script = path.join(dir, 'probe.cjs')
+  await build({
+    entryPoints: [path.join(root, 'tests/multi-window-native.probe.ts')],
+    outfile: script, bundle: true, format: 'cjs', platform: 'node', external: ['electron'],
+  })
+  const electron = createRequire(import.meta.url)('electron')
+  const env = { ...process.env, ORGTREE_ELECTRON_TEST_ROOT: path.join(dir, 'profile') }
+  delete env.ELECTRON_RUN_AS_NODE
+  const res = spawnSync(electron, [script], { encoding: 'utf8', timeout: 60000, windowsHide: true, env })
+  assert.equal(res.status, 0, `native probe failed: ${res.stdout}\n${res.stderr}`)
+  assert.match(res.stdout, /MULTI_WINDOW_NATIVE_PASS/)
+})
