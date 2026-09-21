@@ -50,10 +50,10 @@ import { isModalPinned, ModalOverPins, PinFrame, pinnedModalBehind, raisePinnedM
 import { freeInsets, useCanvasAnchor } from './canvasanchor'
 import { charterLine } from '../archived'
 import { NodeDetailGate } from './nodedetailgate'
-import { contextMenuBelongsTo, useContextMenu } from './contextmenu'
+import { contextMenuBelongsTo, ObjectMenuBoundary, useContextMenu } from './contextmenu'
 import type { ContextMenuHandle, MenuEntry } from './contextmenu'
 import { AgentRetireConfirm, agentMenuEntries, continueFrozenOnAccount } from './agentmenu'
-import { AgentNavProvider, useProvideAgentNav } from './agentnav'
+import { AgentNavProvider, agentNavProps, useProvideAgentNav } from './agentnav'
 import type { RetireKind } from './agentmenu'
 import { useSurfaceDocument } from '../popout'
 
@@ -3348,8 +3348,52 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       {/* edge jump cards: the focused desk's off-screen coworkers, one per
           side at the neighbor's own elevation (pointerdown stopped — the
           pan pointer-capture would swallow the click, see above) */}
+      {/* ⭐ THE CARDS LIVE UNDER THEIR OWN `ObjectMenuBoundary` (docket item
+          `open-agent-context-menu-from-floating-neighbor-j`). A marked target
+          is only half of it: `contextmenu.tsx` serves the canonical agent menu
+          from a BOUNDARY's `onContextMenu`, and these cards are siblings of
+          the desk surface rather than descendants of it — they are positioned
+          against `.viewport`, while the desk's own targets sit inside
+          `movable-events`, which is a boundary (popout.tsx). So marking the
+          card without a boundary above it changed nothing: the press still
+          reached no handler at all. This is the same component, not a second
+          menu — it calls `menu.open`, which does the copy/nav lookup and
+          builds the entries from the registry.
+
+          `.edge-jumps` is `display: contents` (styles.css), so the wrapper is
+          not a box: the cards stay absolutely positioned against `.viewport`
+          exactly as before, and this is the same trick `movable-events` and
+          `desk-slot` already use. ⚠ The boundary is what makes the PRIMARY
+          CLICK untouched — it listens on `contextmenu` only, and the click
+          stays on the card. */}
+      <ObjectMenuBoundary className="edge-jumps">
       {edgeJumps.map((e) => (
         <button key={e.n.id}
+          /* ⭐ THE CARD NAMES AN AGENT, SO IT CARRIES THAT AGENT'S MENU (docket
+             item `open-agent-context-menu-from-floating-neighbor-j`). Both
+             attributes, exactly as the desk's own `NavChip` — the other jump
+             card — carries them: `data-copy-agent-name` is the copy object,
+             and `data-agent-nav` routes the press to the canonical agent menu
+             through `agentnav.tsx`'s registry, which OrgCanvas publishes just
+             above this tree. Neither was here, so a right-click on a floating
+             card raised NOTHING: no copy object for the boundary to draw for
+             and no marker for the registry to answer.
+
+             ⚠ AND THIS IS HALF THE FIX, NOT THE WHOLE OF IT — the press also
+             needs the `ObjectMenuBoundary` wrapped round these cards above.
+             The marker says WHICH AGENT; the boundary is what catches the
+             `contextmenu` event. Measured: with this marker and no boundary,
+             the card was still inert.
+
+             ⚠ THE MARKER IS WHAT MAKES THIS THE SAME MENU AS EVERYWHERE ELSE,
+             not a second one. The card holds no entry list, no labels and no
+             gating of its own — `useContextMenu().open` builds it from the
+             marker's agent at open time, so this surface cannot drift when a
+             source rule changes. The value is `e.n.id`, the agent the PRIMARY
+             CLICK jumps to, which is what keeps each card bound to its own
+             neighbor rather than to the focused desk. */
+          data-copy-agent-name={e.n.id}
+          {...agentNavProps(e.n.id)}
           /* the card's whole accent surface — highlight, hover/focus wash,
              the shed-form mail dot and the unread count — wears the JUMP
              TARGET's provider theme, never the focused desk's (user spec
@@ -3378,6 +3422,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
           {e.side === 'r' && <ChevronRightIcon fontSize="inherit" />}
         </button>
       ))}
+      </ObjectMenuBoundary>
       {/* the agent TRAY (user spec): every agent — tier token, name, context
           wheel, working state — in the nodes' own visual language; a row
           click glides to that agent. FR-16 (2026-08-11): listed by HIERARCHY

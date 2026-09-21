@@ -1364,6 +1364,13 @@ button.badge.audience-fold.alert {
    one card per side hugging the screen edge at the neighbor's own screen
    elevation (clamped into view); a click glides the camera to that desk.
    Screen-space HUD chrome, same layer as the zoomhud/tray. */
+/* the floating cards' `ObjectMenuBoundary` wrapper. NOT A BOX: the cards are
+   positioned against `.viewport` (`position: relative`), and a wrapper that
+   generated a box would become their containing block and drop them to the
+   top-left. `display: contents` keeps them exactly where they were while the
+   wrapper still carries the `contextmenu` handler that serves their menu —
+   the same trick `.movable-events` and `.desk-slot` already rely on. */
+.edge-jumps { display: contents; }
 .edge-jump {
   position: absolute; z-index: 7; transform: translateY(-50%);
   display: inline-flex; align-items: center; gap: 5px;
