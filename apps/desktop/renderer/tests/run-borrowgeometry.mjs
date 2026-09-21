@@ -53,12 +53,15 @@ for (const k of ['userData', 'sessionData', 'cache', 'temp', 'logs', 'crashDumps
 
 // THE TARGET BOUNDS. Deliberately not round numbers that a default could
 // coincide with, and deliberately far from the parent's own geometry.
-const TARGET = { x: 137, y: 163, width: 561, height: 421 }
+const TARGETS = [
+  { x: 137, y: 163, width: 561, height: 421 },
+  { x: 241, y: 271, width: 487, height: 389 },
+]
 
 app.whenReady().then(async () => {
   const win = new BrowserWindow({ width: 900, height: 800, show: false,
     webPreferences: { contextIsolation: true, sandbox: false } })
-  let gone = null, child = null, moved = null
+  let gone = null, child = null, moved = null, moves = 0
   win.webContents.on('render-process-gone', (_e, d) => { gone = d })
   win.webContents.on('console-message', (_e, lvl, msg) => {
     if (lvl >= 2) log('CONSOLE' + lvl + ': ' + String(msg).slice(0, 600)) })
@@ -76,8 +79,14 @@ app.whenReady().then(async () => {
   // to this process and therefore works even while the page is busy.
   win.on('page-title-updated', (_e, t) => {
     log('TITLE ' + t)
-    if (t !== 'MOVE-NOW' || !child || moved) return
+    // ⚠ REPEATABLE. The settle diagnostic is a SECOND move in the same run,
+    // and a one-shot guard here silently refused it — the phase reported
+    // 'main process never reported a move' and measured nothing. Each move
+    // uses its own target so a stale value cannot be mistaken for a fresh one.
+    if (t !== 'MOVE-NOW' || !child) return
     try {
+      const TARGET = TARGETS[Math.min(moves, TARGETS.length - 1)]
+      moves++
       child.setBounds(TARGET)
       // read BACK what the window manager actually granted — a monitor-fit or
       // a minimum size may adjust the request, and the assertion must be
@@ -97,7 +106,7 @@ app.whenReady().then(async () => {
     const out = await win.webContents
       .executeJavaScript('window.PROBE && JSON.stringify(window.PROBE)')
       .catch((e) => JSON.stringify({ evalError: String(e) }))
-    if (out) { last = out; try { write({ ...JSON.parse(out), requestedBounds: TARGET, grantedBounds: moved }) } catch (e) {} }
+    if (out) { last = out; try { write({ ...JSON.parse(out), requestedBounds: TARGETS, grantedBounds: moved }) } catch (e) {} }
     if (out && JSON.parse(out).done) break
     await new Promise((r) => setTimeout(r, 100))
   }

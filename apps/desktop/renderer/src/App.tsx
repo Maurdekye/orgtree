@@ -41,6 +41,7 @@ import { openOrgEffect, requestOpenOrg } from './shell/openorg'
 import { identityOrg, identityView } from './shell/identity'
 import { useOpenOrgs } from './shell/openorgs'
 import { readSkippedOrgs, restoreNotice, skippedPanels } from './shell/restorenotice'
+import { treeStatusOf } from './shell/treestatus'
 import type { SkippedPanel } from './shell/restorenotice'
 import { nativeWindows } from './desktop'
 import { DefaultsForm } from './shell/defaults'
@@ -685,6 +686,24 @@ export default function App() {
   // mid-flight therefore sets `pending`, and the settle handler runs exactly
   // one more fetch, which starts AFTER the change landed. Any number of
   // frames during one fetch collapse into that single trailing refetch.
+  // ── THE TREE READ'S OWN FRESHNESS, for Attention's completeness gate.
+  //
+  // Its question rows come out of THIS tree, not from its own feeds, so a gate
+  // that knew only about work and mail could print "nothing is waiting" with a
+  // question actually waiting — the one claim that gate exists to protect, and
+  // the reassuring one.
+  //
+  // ⚠ DERIVED FROM THE ACCEPTED READ, NOT FROM THE SHARED BANNER. `fetchOk`
+  // and `fetchErr` are shared with the organization-list poller and the error
+  // banner deliberately waits for TWO consecutive failures, so neither can
+  // stand in for this: an organization-list SUCCESS would clear a failed tree,
+  // and here the FIRST failure already matters. This rides the same single
+  // coalesced fetch — no second poller, no copied tree state.
+  const [treeRead, setTreeRead] = useState<{ at: number | null; error: string | null }>(
+    { at: null, error: null })
+  // a different organization is a different identity: its predecessor's
+  // success certifies nothing about it
+  useEffect(() => { setTreeRead({ at: null, error: null }) }, [slug])
   const treeBusy = useRef(false)
   const treePending = useRef<string | null>(null)
   // …and the slug the app actually wants right now, for the guard below.
@@ -717,6 +736,11 @@ export default function App() {
         // carries is an idempotent overwrite. With zero newer frames the
         // body is applied by reference, so an unchanged 304 keeps React's
         // Object.is render bail.
+        // ⚠ THE SAME APPLICABILITY TEST THAT DECIDES WHETHER TO PAINT IT IS
+        // WHAT CERTIFIES IT. A null body, or one for the organization we have
+        // since left, is not evidence about the tree on screen — so it must
+        // not refresh the freshness stamp either. A 304 that yields the
+        // applicable cached body IS a successful revalidation and does.
         if (t && wantSlug.current === want) {
           const replay = onBase(syncRef.current,
             (t as TreePayload & { sync_rev?: number }).sync_rev)
@@ -724,9 +748,17 @@ export default function App() {
             ? replay.reduce((acc, f) => applyPatchFrame(
                 acc, f as Extract<WsEvent, { type: 'node_stream' }>), t)
             : t)
+          setTreeRead({ at: Date.now(), error: null })
         }
         fetchOk()
-      }).catch(fetchErr).finally(() => {
+      }).catch((e: Error) => {
+        // a LATE failure for an organization we have left says nothing about
+        // the one we are looking at now
+        if (wantSlug.current === want) {
+          setTreeRead((r) => ({ ...r, error: e.message || 'unavailable' }))
+        }
+        fetchErr(e)
+      }).finally(() => {
         treeBusy.current = false
         const next = treePending.current
         treePending.current = null
@@ -992,6 +1024,12 @@ export default function App() {
     if (bound && bound !== slug) commitSlug(bound)
   }, [v3, identity, slug])
   const [viewMode, setViewMode] = useOrgViewMode(v3 ? slug : null)
+  // The freshness of the tree Attention reads its question rows out of. Owned
+  // here because the fetch is owned here; handed to the view through the
+  // canvas owner's slot closure once that prop lands. Absent means unknown on
+  // their side, which is safe for a stage and wrong as a shipped experience —
+  // so this is supplied rather than left to the default.
+  const treeStatus = treeStatusOf(treeRead, tree, slug)
   // which organizations already hold a window, so a Homepage row can say
   // "Already open" before it is clicked. A LABEL ONLY — `requestOrg` decides
   // atomically in the native registry either way (shell/openorgs.ts).

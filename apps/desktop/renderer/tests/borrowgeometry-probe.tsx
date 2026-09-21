@@ -133,6 +133,71 @@ async function attempt(n: number) {
   }
 }
 
+/** ⚠ A SEPARATE QUESTION FROM THE BORROW, and multi-window-design was right
+ *  that the first version conflated them. The immediate phase samples the
+ *  proxy in the same continuation as `setBounds` and then closes the child,
+ *  which establishes an IMMEDIATE mismatch and nothing about whether the
+ *  geometry would have propagated a moment later. So this phase moves the
+ *  window, lets propagation SETTLE across several poll intervals without
+ *  borrowing at all, and then compares three things: what the main process
+ *  says the bounds are, what the child sees about ITSELF, and what the parent
+ *  sees through the proxy it holds. Those three can disagree in different
+ *  ways and the difference matters — a parent-proxy that never updates is a
+ *  product-level read defect, whereas one that updates late is only a
+ *  sampling question. */
+async function settleDiagnostic() {
+  ;(window as unknown as { __MOVED?: Rect }).__MOVED = undefined
+  root.render(<MovableSurface kind={KIND} title="Probe" org={ORG} anchor={anchor}
+    sourceBox={() => ({ x: 20, y: 20, w: 420, h: 320 })}><Handle /></MovableSurface>)
+  await wait(200)
+  if (!entry() && !(await detach())) return { note: 'no child window' }
+  await wait(500)
+  const before = savedRect()
+  mark('MOVE-NOW')
+  for (let i = 0; i < 80 && !moved(); i++) await wait(25)
+  const actual = moved()
+  if (!actual) return { before, note: 'main process never reported a move' }
+
+  const w = entry()!.window
+  const readProxy = () => ({ screenX: w.screenX, screenY: w.screenY,
+    outerWidth: w.outerWidth, outerHeight: w.outerHeight })
+  const immediately = readProxy()
+  // let it settle across several 250 ms poll intervals — the window is NOT
+  // borrowed or closed here, so propagation has every chance
+  const samples: { afterMs: number; proxy: ReturnType<typeof readProxy>; saved: Rect | null }[] = []
+  for (const ms of [250, 500, 1000, 2000]) {
+    await wait(ms === 250 ? 250 : ms - samples[samples.length - 1]!.afterMs)
+    samples.push({ afterMs: ms, proxy: readProxy(), saved: savedRect() })
+  }
+  // and what the CHILD says about itself, which is a different question again
+  let childSelf: unknown = null
+  try {
+    childSelf = (w as unknown as { eval?: (s: string) => unknown }).eval
+      ? (w as unknown as { eval: (s: string) => unknown })
+        .eval('({screenX:screenX,screenY:screenY,outerWidth:outerWidth,outerHeight:outerHeight})')
+      : 'no cross-document eval'
+  } catch (e) { childSelf = 'blocked: ' + String(e) }
+
+  const settled = samples[samples.length - 1]!
+  const proxyEverUpdated = samples.some((s) =>
+    Math.abs(s.proxy.screenX - actual.x) <= 2 && Math.abs(s.proxy.outerWidth - actual.width) <= 2)
+  const pollEverRecorded = samples.some((s) => same(s.saved, actual))
+  entry()?.borrow!().release()
+  await wait(200)
+  root.render(<div>idle</div>)
+  await wait(200)
+  return {
+    before, nativeBounds: actual, immediately, samples, settled, childSelf,
+    proxyEverUpdated, pollEverRecorded,
+    verdict: proxyEverUpdated
+      ? 'the parent-held proxy DOES catch up — the immediate mismatch is a '
+        + 'propagation delay, not blindness, and the 250 ms poll would record it'
+      : 'the parent-held proxy NEVER caught up across 2s and four poll '
+        + 'intervals, so the 250 ms poll would not have recorded the move '
+        + 'either — in THIS harness',
+  }
+}
+
 async function run() {
   const tries: unknown[] = []
   let winner: Record<string, unknown> | null = null
@@ -145,6 +210,10 @@ async function run() {
   }
   PROBE.attempts = tries
   PROBE.D4 = winner ?? null
+  // the separate, narrower question — run after the borrow attempts so it
+  // cannot disturb them
+  mark('settle-diagnostic')
+  PROBE.settle = await settleDiagnostic()
   PROBE.D4_verdict = !winner
     ? 'NOT EXERCISED — the saved row was refreshed by the 250 ms poll before the '
       + 'borrow in every attempt, so no run observed the window actually ahead of '
