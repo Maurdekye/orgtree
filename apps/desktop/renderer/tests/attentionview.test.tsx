@@ -27,6 +27,7 @@ import { USER } from '../src/canvas/shared'
 import type { OpFn, TreePayload } from '../src/types'
 import { forgetModalPins, isModalPinned, pinModal, readModalPins } from '../src/canvas/modalpin'
 import { WINDOW_LAYOUT_KEY } from '../src/windowlayout'
+import { openSurfaces, registerWindow } from '../src/windowlife'
 import {
   attentionLayout, forgetAttentionMode, setAttentionLayout, setOrgView, SPLIT_MAX, SPLIT_MIN,
 } from '../src/attention/mode'
@@ -347,6 +348,65 @@ test('§7.1 closing that window releases the panel — the restore is not a latc
   assert.equal(shape().queue, false,
     'the closed window no longer holds a subtree open behind the canvas')
   assert.equal(shape().desk, false)
+  await v.unmount()
+  drop()
+})
+
+test('§7.1a a restore still in flight is NOT mistaken for a close', async () => {
+  reset()
+  const drop = withDesktopBridge()
+  savedWindow(QUEUE_KIND, true)
+  const v = await mountView(view(), () => shape())
+  await inAct(() => flush())
+
+  // ⚠ THE GAP THE RULE EXISTS FOR (multi-window-design, 2026-09-21). A restore
+  // is not instant: the surface waits for `ready`, opens a window, then waits
+  // for its stylesheets. Nothing is registered in the window registry yet and
+  // nothing is pinned — and the panel must still be there, or the restore it
+  // was mounted for is aborted by the thing that was supposed to receive it.
+  assert.equal(openSurfaces().some((s) => s.kind === QUEUE_KIND), false,
+    'nothing has registered: this is the unobserved-restore state, not a close')
+  assert.equal(isModalPinned(QUEUE_KIND, SLUG), false)
+
+  // renders for unrelated reasons must not release it either
+  await inAct(() => { setOrgView(SLUG, 'attention') })
+  await inAct(() => { setOrgView(SLUG, 'canvas') })
+  await inAct(() => flush())
+  assert.equal(shape().queue, true, 'still held, because the window is still recorded open')
+  await v.unmount()
+  drop()
+})
+
+test('§7.1b the registry\'s own lifecycle event releases it, with no other render', async () => {
+  reset()
+  const drop = withDesktopBridge()
+  savedWindow(QUEUE_KIND, true)
+  const v = await mountView(view(), () => shape())
+  await inAct(() => flush())
+  assert.equal(shape().queue, true)
+
+  // A REDOCK DOES BOTH THINGS AT ONCE: `closeSavedWindow` clears the row and
+  // the surface unregisters. This stands in for that pair, and it is the only
+  // thing that happens — no mode switch, no pin, no poll.
+  //
+  // ⚠ BOTH HALVES OF THE RULE ARE UNDER TEST HERE, and each was checked by
+  // deleting it. Remove the view's subscription to the window registry and
+  // nothing re-renders, so nothing looks: this fails. Latch the saved-layout
+  // read instead of taking it live and the re-render sees a stale answer:
+  // this fails too (along with §7.1 and §7.2).
+  const stop = registerWindow({
+    id: 'probe', kind: QUEUE_KIND, org: SLUG, editable: false,
+    window: globalThis.window, redock: () => {},
+  })
+  await inAct(() => flush())
+  assert.equal(shape().queue, true, 'while it is registered, the panel is held anyway')
+
+  await inAct(() => {
+    savedWindow(QUEUE_KIND, false)   // closeSavedWindow's half
+    stop()                           // the unregister's half
+  })
+  assert.equal(shape().queue, false,
+    'the registry event alone is enough to let the closed panel go')
   await v.unmount()
   drop()
 })

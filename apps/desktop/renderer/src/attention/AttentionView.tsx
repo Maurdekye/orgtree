@@ -60,8 +60,7 @@ export const DESK_KIND = 'attention-desk'
  *  surface registers with; asking it is what makes this reactive without a
  *  second copy of the truth. The org is part of the question — another
  *  organization's window of the same kind is not this one. */
-function useDetachedHere(org: string | null): { queue: boolean; desk: boolean } {
-  const revision = useSyncExternalStore(subscribeWindows, windowRevision, windowRevision)
+function useDetachedHere(org: string | null, revision: number): { queue: boolean; desk: boolean } {
   return useMemo(() => {
     const here = openSurfaces().filter((s) => s.org === org)
     return {
@@ -93,21 +92,52 @@ function useDetachedHere(org: string | null): { queue: boolean; desk: boolean } 
  * had closed as open.
  *
  * Read as a live question it is self-correcting: `closeSavedWindow` clears the
- * row the moment the window goes, so the next render of this component — a
- * mode switch, a pin, a poll — sees it gone and lets the subtree go with it.
+ * row the moment the window goes, so the next render of this component sees it
+ * gone and lets the subtree go with it.
  *
- * ⚠ THE RAW STRING IS THE DEPENDENCY, not a parse on every render. The saved
- * layout has no store to subscribe to, so the cheap read (one `getItem`) gates
- * the expensive one (`JSON.parse` + filter). An external write — which is
- * exactly what closing a window is — changes the string, and any later render
- * picks it up.
+ * ⚠ AN UNOBSERVED ASYNC RESTORE MUST NOT READ AS A CLOSE (multi-window-design,
+ * 2026-09-21). A restore is not instant: `MovableSurface` waits for its own
+ * `ready`, opens the window and then waits for its stylesheets, so there is a
+ * gap between this panel mounting and the surface appearing in the registry.
+ * Releasing the subtree in that gap would abort the very restore it was mounted
+ * for. THE THREE STATES ARE DISTINGUISHED BY TWO RENDERER-OWNED FACTS, not by a
+ * timer and not by a guess:
+ *
+ *   restore landed   the surface is in `windowlife`'s registry → `detached`
+ *                    holds the panel; this claim is no longer what keeps it
+ *   restore pending  the saved row still says open and nothing is registered →
+ *                    held HERE, which is exactly the gap above
+ *   window closed    `closeSavedWindow` cleared the row → released
+ *
+ * There is no fourth state, because `closeSavedWindow` is the ONLY writer of
+ * `open: false` (windowlayout.ts) and it is called from exactly two places in
+ * `MovableSurface`: `redock`, where the surface was registered, and the
+ * surface's own unmount, which cannot precede this panel's. A future third
+ * caller is the thing that would break this, which is why the audit is written
+ * down rather than merely performed.
+ *
+ * ⚠ IT TAKES TWO SIGNALS AND NEEDS BOTH — measured, not assumed. The release
+ * is driven by the window REGISTRY's own lifecycle event, and read from
+ * STORAGE:
+ *   · the view subscribes to `windowlife` once (`revision`, below) and hands
+ *     it to this reader, so a surface registering or unregistering re-renders
+ *     the view. A redock does `closeSavedWindow` AND the unregister in one go,
+ *     so that one event is the whole of a close.
+ *   · the re-render then re-reads the saved layout and sees the row gone.
+ * Removing EITHER leaves the closed panel mounted: deleting the subscription
+ * fails attentionview.test.tsx §7.1b (nothing re-renders, so nothing looks),
+ * and latching the read fails §7.1/§7.1b/§7.2. Both mutants were run.
+ *
+ * ⚠ THE RAW STRING IS WHAT KEYS THE READ, not a parse on every render. The
+ * saved layout has no store to subscribe to, so the cheap read (one `getItem`)
+ * gates the expensive one (`JSON.parse` + filter).
  *
  * ⚠ GATED ON `useRestoreWindows`. If this installation is not going to restore
  * windows at all, there is no window coming and nothing to hold a subtree open
  * for. It is the same hook `MovableSurface` itself gates its restore on, so the
  * two cannot disagree about whether a restore is going to happen.
  */
-function useAwaitingRestore(org: string | null): { queue: boolean; desk: boolean } {
+function useAwaitingRestore(org: string | null, revision: number): { queue: boolean; desk: boolean } {
   const restoreAllowed = useRestoreWindows()
   let raw: string | null = null
   try { raw = localStorage.getItem(WINDOW_LAYOUT_KEY) } catch { raw = null }
@@ -119,7 +149,7 @@ function useAwaitingRestore(org: string | null): { queue: boolean; desk: boolean
       desk: rows.some((r) => r.kind === DESK_KIND),
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [org, restoreAllowed, raw])
+  }, [org, restoreAllowed, raw, revision])
 }
 
 export interface AttentionViewProps {
@@ -153,8 +183,14 @@ export function AttentionView(props: AttentionViewProps) {
   // whether the view is the one on screen.
   const queuePinned = useModalPin(QUEUE_KIND, slug) !== null
   const deskPinned = useModalPin(DESK_KIND, slug) !== null
-  const detached = useDetachedHere(slug)
-  const awaiting = useAwaitingRestore(slug)
+  // ONE subscription to the renderer's window registry for this view, handed
+  // to both readers below. Both are questions about the live window lifecycle
+  // and both have to be recomputed when it moves; two subscriptions to the
+  // same store would be a second way to ask one question, and — measured —
+  // either alone hid the other's absence when the mutants were run.
+  const windows = useSyncExternalStore(subscribeWindows, windowRevision, windowRevision)
+  const detached = useDetachedHere(slug, windows)
+  const awaiting = useAwaitingRestore(slug, windows)
   const queueOut = detached.queue
   const deskOut = detached.desk
 
