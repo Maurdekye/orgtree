@@ -18,6 +18,7 @@
 // today's app, not a degraded v3 one.
 import { useEffect, useState } from 'react'
 import { desktop, windowIdentity } from '../desktop'
+import { onHeldEvent } from '../events/heldbus'
 import type { OrgWindowIdentity } from '../desktop'
 
 /** True when two identities describe the same window in the same state, so an
@@ -70,11 +71,18 @@ export function useWindowIdentity(): OrgWindowIdentity | null {
     }
     // the authoritative read, in case the synchronous seed was refused
     bridge.getWindowIdentity().then(adopt).catch(() => { /* the seed stands */ })
-    const off = bridge.onEvent((event) => {
+    // ⚠ THROUGH THE HELD BUS: `window-identity` is one of the four types native
+    // holds, so it is released by whichever listener attaches first — which is
+    // never this one. This type is the least damaging of the four to miss,
+    // because the seed and the read above can both rediscover the identity;
+    // but a TRANSFER of the notification duty cannot be rediscovered by a
+    // window that already read its identity once, and missing that leaves the
+    // app with no notification owner at all. See events/heldbus.ts.
+    const off = onHeldEvent('window-identity', (event) => {
       // ⚠ ownership TRANSFER arrives this way too, not only binding. When the
       // notification-owning window closes the duty moves, and the window that
       // gains it learns here — which is the only thing that starts its poll.
-      if ((event.type as string) === 'window-identity') adopt(event.data)
+      adopt(event.data)
     })
     return () => { alive = false; off() }
   }, [])

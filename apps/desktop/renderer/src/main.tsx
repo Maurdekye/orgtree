@@ -16,6 +16,17 @@ import './shell.css'
 import { startThemeSync } from './themes'
 import { startContrastSync } from './contrast'
 import { startAgentColorSync } from './agentcolors'
+import { startHeldEvents } from './events/heldbus'
+
+// ⚠ FIRST, AND BEFORE EVERY OTHER `onEvent` SUBSCRIPTION IN THIS DOCUMENT.
+// The preload sends `desktop:events-listening` from inside `onEvent`, so
+// whichever subscription attaches first is what ends native's holding — and
+// whatever native then sends reaches only the listeners that already exist.
+// `startThemeSync` below would otherwise be that first listener, and it cares
+// about `preferences` alone: the four held types would be delivered, on time
+// and correctly, to a document whose consumers for them are React effects that
+// have not run yet. This keeps them instead. See events/heldbus.ts.
+startHeldEvents()
 
 startThemeSync()
 startContrastSync()

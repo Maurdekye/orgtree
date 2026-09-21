@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { req } from './api'
 import { onLiveBump } from './livebus'
 import { desktop } from './desktop'
+import { onHeldEvent } from './events/heldbus'
 import type { NativeNotice } from './desktop'
 import type { NotificationIdentity } from '../../../../packages/contracts'
 import { notificationEnabled, notificationPreferences } from '../../../../packages/contracts/notifications'
@@ -200,13 +201,23 @@ export function useNativeNotifications(open: (notice: DesktopNotice) => void,
     // click branch below would filter with defaults and could reveal an item
     // whose category the user has muted. Load them directly instead.
     if (!owner) void loadPrefs()
+    // ⚠ THE TWO CHANNELS ARE SPLIT BY WHETHER NATIVE HOLDS THE TYPE, and the
+    // split is not cosmetic. `preferences` and `notification-poll` are live
+    // facts a renderer can simply re-read, so they take the ordinary
+    // subscription. `notification-click` is HELD — it is the one event in this
+    // hook that cannot be rediscovered, and it is the one most likely to
+    // arrive before this effect has ever run, because clicking a notification
+    // is what COLD-STARTS the window. It comes through the held bus, which was
+    // listening from the document's first statement and hands over whatever
+    // was waiting the moment this line runs. See events/heldbus.ts.
     const offNative = bridge.onEvent(event => {
       if (event.type === 'preferences') {
         prefsRevision++; prefs = notificationPreferences(event.data as Parameters<typeof notificationPreferences>[0]); prefsReady = true
         void poll(true); return
       }
       if (event.type === 'notification-poll') { void poll(); return }
-      if (event.type !== 'notification-click') return
+    })
+    const offClick = onHeldEvent('notification-click', (event) => {
       const n = event.data as NativeNotice
       if (!n || typeof n.id !== 'string' || typeof n.org !== 'string') return
       const request = ++click
@@ -223,6 +234,6 @@ export function useNativeNotifications(open: (notice: DesktopNotice) => void,
     const timer = owner && !bridge.syncNotifications
       ? setInterval(() => { void poll() }, 6000) : undefined
     const off = onLiveBump(() => { void poll(true) })
-    return () => { alive = false; clearInterval(timer); off(); offNative() }
+    return () => { alive = false; clearInterval(timer); off(); offNative(); offClick() }
   }, [bridge, owner])
 }

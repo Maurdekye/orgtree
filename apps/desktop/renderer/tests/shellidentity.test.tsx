@@ -21,6 +21,11 @@ import { identityOrg, identityView, ownsNotifications, readIdentity, sameIdentit
 import { nativeWindows, startupMode, windowIdentity } from '../src/desktop'
 import type { OrgWindowIdentity } from '../src/desktop'
 import { EMPTY_ISH, installBridge, removeBridge } from './shellbridge'
+// ⚠ the held bus, started exactly as main.tsx starts it. `window-identity`
+// and `notification-click` are held types, so their consumers subscribe
+// through the bus now and a single-slot `onEvent` fake would keep only one
+// of the document's two subscribers — see heldevents.ts.
+import { eventFanout, startBus } from './heldevents'
 import { pendingAttention, publishPending, resetPending, startPendingMirror } from '../src/pending-attention'
 import { useNativeNotifications } from '../src/notifications'
 import type { DesktopNotice } from '../src/notifications'
@@ -103,13 +108,15 @@ test('the identity is on screen at the FIRST render — no frame of the wrong vi
 })
 
 test('binding and ownership transfer both arrive as window-identity and are adopted', async () => {
-  let fire: ((e: { type: string; data: unknown }) => void) = () => {}
+  const fan = eventFanout()
+  const fire = fan.emit
   const home: OrgWindowIdentity = { windowId: 'w9', kind: 'homepage' }
   const bridge = installBridge({
     windowIdentity: home,
     getWindowIdentity: async () => home,
-    onEvent: (fn: typeof fire) => { fire = fn; return () => { fire = () => {} } },
+    onEvent: fan.onEvent,
   })
+  const stopBus = startBus()
   try {
     function View() {
       const id = useWindowIdentity()
@@ -139,7 +146,7 @@ test('binding and ownership transfer both arrive as window-identity and are adop
     await inAct(async () => { fire({ type: 'window-identity', data: { kind: 'org' } }); await flush() })
     assert.equal(v.last(), 'org:studio:true', 'an unparseable message is not evidence of anything')
     await v.unmount()
-  } finally { removeBridge(bridge) }
+  } finally { stopBus(); removeBridge(bridge) }
 })
 
 // --------------------------------------------- §3 one window does the work
@@ -156,13 +163,16 @@ async function notifyProbe(owner: boolean) {
   const original = globalThis.fetch
   const reads: string[] = [], delivered: DesktopNotice[] = [], synced: unknown[] = []
   const taskbar: unknown[] = [], opened: DesktopNotice[] = []
-  let fire: (e: { type: string; data: unknown }) => void = () => {}
+  const fan = eventFanout()
+  const fire = fan.emit
   const bridge = installBridge({
     notify: async (n: DesktopNotice) => { delivered.push(n); return true },
     syncNotifications: async (active: unknown) => { synced.push(active) },
     setPendingAttention: async (ids: unknown) => { taskbar.push(ids) },
-    onEvent: (fn: typeof fire) => { fire = fn; return () => { fire = () => {} } },
+    onEvent: fan.onEvent,
   })
+  // started before the component mounts, as main.tsx does
+  const stopBus = startBus()
   globalThis.fetch = async (url: unknown) => {
     reads.push(String(url))
     return { ok: true, headers: new Headers(),
@@ -177,7 +187,7 @@ async function notifyProbe(owner: boolean) {
     reads, delivered, synced, taskbar, opened, view,
     fireEvent: (e: { type: string; data: unknown }) => fire(e),
     async stop() {
-      await view.unmount(); globalThis.fetch = original; removeBridge(bridge); realClock()
+      await view.unmount(); globalThis.fetch = original; stopBus(); removeBridge(bridge); realClock()
     },
   }
 }

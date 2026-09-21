@@ -36,6 +36,7 @@ import { OrgStatusBar } from './shell/statusbar'
 import { HomepageView } from './shell/homepage'
 import { CreateOrgView } from './shell/createorg'
 import { OrgViewToggle } from './shell/modetoggle'
+import { onHeldEvent } from './events/heldbus'
 import { setOrgView, useOrgView } from './attention/mode'
 import type { OrgView } from './attention/mode'
 import { AttentionView } from './attention/AttentionView'
@@ -505,21 +506,22 @@ export default function App() {
   // has already shown the window and broadcasts the chosen org; making it
   // the active slug runs the ordinary switch path, which restores that
   // org's own saved pins, popouts and camera
-  useEffect(() => {
-    const bridge = desktop()
-    if (!bridge) return
-    return bridge.onEvent(event => {
-      if ((event.type as string) !== 'open-org') return
-      const org = (event.data as { org?: unknown } | null)?.org
-      if (typeof org !== 'string' || !org) return
-      // In v3 this event is resolved to its target window before delivery, so
-      // a bound window only ever receives its OWN organization and the event
-      // means "you are the one — come forward", not "become this". Binding a
-      // Homepage window is a `window-identity` change, never this.
-      if (nativeWindows()) return
-      setSlug(org)
-    })
-  }, [setSlug])
+  // ⚠ THROUGH THE HELD BUS, NOT `bridge.onEvent`. `open-org` is one of the four
+  // types native holds for a renderer that cannot rediscover them, and it
+  // releases that hold the instant ANY listener attaches — which, in this
+  // document, is `startThemeSync()` long before this effect runs. Subscribing
+  // here directly would be subscribing after the event had already been
+  // delivered to nobody. See events/heldbus.ts.
+  useEffect(() => onHeldEvent('open-org', (event) => {
+    const org = (event.data as { org?: unknown } | null)?.org
+    if (typeof org !== 'string' || !org) return
+    // In v3 this event is resolved to its target window before delivery, so
+    // a bound window only ever receives its OWN organization and the event
+    // means "you are the one — come forward", not "become this". Binding a
+    // Homepage window is a `window-identity` change, never this.
+    if (nativeWindows()) return
+    setSlug(org)
+  }), [setSlug])
   useEffect(() => {
     usageOpen.setIn(null, (isModalPinned('usage') && readModalOpen(null).some(r => r.kind === 'usage')) || restoreWindowKind('usage', null))
     setShowAccounts((isModalPinned('app-settings') && readModalOpen(null).some(r => r.kind === 'app-settings')) || restoreWindowKind('app-settings', null))
@@ -533,14 +535,11 @@ export default function App() {
   // own skipped panels, instead of as two notices about one restoration.
   const [skippedOrgs, setSkippedOrgs] = useState<string[]>([])
   const [missedPanels, setMissedPanels] = useState<SkippedPanel[]>([])
-  useEffect(() => {
-    const bridge = desktop()
-    if (!bridge) return
-    return bridge.onEvent((event) => {
-      if ((event.type as string) !== 'restore-skipped') return
-      setSkippedOrgs(readSkippedOrgs(event.data))
-    })
-  }, [])
+  // held, and for the sharpest reason of the four: `restore-skipped` is sent
+  // during startup restoration, which is precisely when a renderer's effects
+  // have not run yet (see events/heldbus.ts)
+  useEffect(() => onHeldEvent('restore-skipped',
+    (event) => { setSkippedOrgs(readSkippedOrgs(event.data)) }), [])
   const restoredOrg = useRef<string | null>(null)
   useEffect(() => {
     if (!tree || tree.slug !== slug || restoredOrg.current === slug) return
