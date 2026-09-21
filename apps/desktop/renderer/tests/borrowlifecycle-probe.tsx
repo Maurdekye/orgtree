@@ -59,7 +59,15 @@ let ctl: { open: () => void; redock: () => void } | null = null
 function Handle() {
   const s = useSurface()
   useEffect(() => { ctl = s ? { open: s.open, redock: s.redock } : null }, [s])
-  return <div className="probe-body" style={{ width: 300, height: 200 }}>surface</div>
+  return <div className="probe-body" style={{ width: 300, height: 200 }}>
+    surface
+    {/* AN UNSENT DRAFT. The composer's survival across a borrow is the whole
+        reason the surface is re-PLACED rather than re-created, and a value
+        check alone would not prove it: React can remount and restore a value
+        from props while destroying everything uncontrolled about the node.
+        So the probe holds the ELEMENT and compares identity. */}
+    <input className="probe-draft" defaultValue="" />
+  </div>
 }
 
 const host = document.getElementById('root')!
@@ -210,6 +218,75 @@ async function run() {
     h4.release()                          // leave nothing claiming a window
     await wait(200)
     PROBE.D4_releaseClearedRow = openRow() === false
+  }
+
+  // ------------------- D5 the draft and the composer survive a borrow intact
+  //
+  // multi-window-design asked for "unchanged draft/composer identity". Value
+  // equality is the weak half: React could remount the subtree and refill a
+  // controlled value while every uncontrolled thing about it — scroll,
+  // selection, focus, an IME composition — was destroyed. So this compares
+  // the NODE, and uses an uncontrolled input so a survived value can only
+  // mean the node itself survived.
+  mark('D5')
+  root.render(surfaceEl())
+  await frame()
+  if (!childWindow()) await detach()
+  await wait(400)
+  const draftBefore = (childWindow()!.document ?? document)
+    .querySelector<HTMLInputElement>('.probe-draft')
+    ?? document.querySelector<HTMLInputElement>('.probe-draft')
+  if (draftBefore) {
+    draftBefore.value = 'half-written message'
+    draftBefore.selectionStart = 4
+    draftBefore.selectionEnd = 4
+    const h5 = entry()!.borrow!() as BorrowedSurface
+    await wait(250)
+    const duringSameNode = draftBefore.isConnected
+    const duringValue = draftBefore.value
+    h5.restore()
+    for (let i = 0; i < 40 && !childWindow(); i++) await wait(100)
+    await wait(300)
+    const afterDoc = childWindow()?.document ?? document
+    const draftAfter = afterDoc.querySelector<HTMLInputElement>('.probe-draft')
+    PROBE.D5 = {
+      // ⚠ IDENTITY, not equality: the same element object came back, so the
+      // React subtree was re-placed and never re-created
+      sameNodeThroughout: draftAfter === draftBefore,
+      valueSurvivedBorrow: duringValue === 'half-written message',
+      valueSurvivedRestore: draftAfter?.value === 'half-written message',
+      stillConnectedWhileBorrowed: duringSameNode,
+      caretSurvived: draftAfter?.selectionStart === 4,
+    }
+  } else PROBE.D5 = { note: 'draft input not found; phase proves nothing' }
+
+  // ------------------------------- D6 a destination that is gone: release
+  //
+  // v3-effort-opus's case: the borrow ends and the desk has nowhere valid to
+  // go back to, because its agent's generation changed or its recorded
+  // destination is gone. `restore()` would resurrect a window with nowhere to
+  // be; doing nothing would leave the row claiming a window that does not
+  // exist. `release()` is the third answer and this is it executed.
+  mark('D6')
+  root.render(surfaceEl())
+  await frame()
+  if (!childWindow()) await detach()
+  await wait(400)
+  const h6 = entry()!.borrow!() as BorrowedSurface
+  await wait(200)
+  const beforeRelease = { open: openRow(), hasWindow: !!childWindow() }
+  h6.release()
+  await wait(400)
+  const afterRelease = { open: openRow(), hasWindow: !!childWindow() }
+  // and the handle is spent: restoring after releasing must do nothing
+  h6.restore()
+  await wait(500)
+  PROBE.D6 = {
+    beforeRelease, afterRelease,
+    rowClearedByRelease: afterRelease.open === false,
+    releaseDidNotReopen: afterRelease.hasWindow === false,
+    restoreAfterReleaseDidNothing: !childWindow(),
+    mutuallyExclusive: afterRelease.open === false && !childWindow(),
   }
 
   mark('done')
