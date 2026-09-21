@@ -111,9 +111,31 @@ export function AttentionQueue({
   const unavailable = feeds.filter((f) => f.status.unavailable)
   const stale = feeds.filter((f) => f.status.stale)
   const firstLoad = feeds.filter((f) => f.status.loading)
+  /**
+   * EVERY REASON THIS LIST MIGHT NOT BE THE WHOLE TRUTH, in one place.
+   *
+   * ⚠ A FEED STILL ON ITS FIRST READ IS A GAP TOO, and treating it as one only
+   * when the list happens to be EMPTY was a real hole (found by
+   * multi-window-design reading this source, 2026-09-21): with usable rows from
+   * the other feed the header fell straight through to the counts and never
+   * mentioned that half the queue had not arrived. "Some rows, and one source
+   * still loading" is exactly the partial coverage the requirement is about —
+   * pending and failed are different REASONS for the same incompleteness, and
+   * only the reason differs in what the user is told.
+   *
+   * Building one list also removes a sentence that could not be said: the old
+   * expression reached "…— could not be refreshed" with an empty feed name
+   * whenever the list was empty and the only gap was a pending first read.
+   */
+  const gaps = [
+    ...unavailable.map((f) => ({ name: f.name, why: 'could not be read' })),
+    ...stale.map((f) => ({ name: f.name, why: 'could not be refreshed' })),
+    ...firstLoad.map((f) => ({ name: f.name, why: 'is still loading' })),
+  ]
   /** every feed answered on its most recent attempt — the ONLY state in which
    *  an empty list may be reported as "nothing is waiting" */
-  const complete = unavailable.length === 0 && stale.length === 0 && firstLoad.length === 0
+  const complete = gaps.length === 0
+  const gapPhrase = gaps.map((g) => `${g.name} ${g.why}`).join(' · ')
   const listNames = (rows: readonly { name: string }[]) => rows.map((f) => f.name).join(' and ')
 
   const nodes = useMemo(() => attentionNodes(tree), [tree])
@@ -204,20 +226,21 @@ export function AttentionQueue({
     <div className="attn-wrap">
       <div className="attn-head">
         <h3><NotificationsActiveIcon fontSize="inherit" /> Needs attention</h3>
-        <span className={'dim attn-counts' + (stale.length || unavailable.length ? ' attn-stale' : '')}
+        <span className={'dim attn-counts' + (gaps.length ? ' attn-incomplete' : '')
+          + (stale.length ? ' attn-stale' : '')}
           aria-live="polite">
-          {/* the claim is made in order of how much is known, weakest first */}
-          {unavailable.length ? `${listNames(unavailable)} could not be read`
-            : firstLoad.length && !rows.length ? 'loading…'
-              : counts.total === 0
-                ? (complete ? 'nothing is waiting'
-                  : `nothing is waiting as of the last read — ${listNames(stale)} could not be refreshed`)
-                : [
-                counts.ticket ? `${counts.ticket} ticket${counts.ticket > 1 ? 's' : ''}` : '',
-                counts.mail ? `${counts.mail} urgent mail` : '',
-                counts.question ? `${counts.question} question${counts.question > 1 ? 's' : ''}` : '',
-                ].filter(Boolean).join(' · ')
-                  + (stale.length ? ` · ${listNames(stale)} could not be refreshed` : '')}
+          {/* ⚠ ONE EXPRESSION, AND THE GAPS ARE NAMED IN EVERY BRANCH THAT HAS
+              ANY. Rows and gaps are independent: usable rows do not make the
+              queue complete, and an empty list is only reassuring when nothing
+              is missing. */}
+          {rows.length
+            ? [
+              counts.ticket ? `${counts.ticket} ticket${counts.ticket > 1 ? 's' : ''}` : '',
+              counts.mail ? `${counts.mail} urgent mail` : '',
+              counts.question ? `${counts.question} question${counts.question > 1 ? 's' : ''}` : '',
+            ].filter(Boolean).join(' · ') + (gaps.length ? ` · ${gapPhrase}` : '')
+            : gaps.length ? `nothing to show yet — ${gapPhrase}`
+              : 'nothing is waiting'}
         </span>
       </div>
       <div className="attn-body">
@@ -238,6 +261,12 @@ export function AttentionQueue({
             <div className="dim pad attn-stale-empty" role="status">
               Nothing was waiting at the last successful read, but
               {' '}{listNames(stale)} could not be refreshed since.
+            </div>}
+          {!rows.length && !complete && !unavailable.length && !stale.length
+            && !!firstLoad.length &&
+            <div className="dim pad attn-loading" role="status">
+              Still reading {listNames(firstLoad)} — this is not yet a statement
+              about what is waiting on you.
             </div>}
           {rows.map((row) => (
             <div key={row.key} data-attn-row={row.key} data-attn-kind={row.kind}

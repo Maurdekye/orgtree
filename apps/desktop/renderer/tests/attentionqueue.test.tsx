@@ -390,6 +390,60 @@ test('§7.2 one feed fails and the other still has rows — shown, and the gap n
   await v.unmount()
 })
 
+/** hold one feed's FIRST request open for ever; the other answers from `server` */
+const hangOnly = (which: 'work-items' | 'inbox') => {
+  const good = (globalThis as unknown as { fetch: (u: string, i?: unknown) => unknown }).fetch
+  ;(globalThis as unknown as { fetch: unknown }).fetch = (url: string, init?: unknown) => {
+    const path = new URL(String(url), 'http://localhost').pathname
+    const hit = which === 'work-items' ? /\/work-items$/.test(path) : /\/inbox$/.test(path)
+    return hit ? new Promise(() => {}) : good(url, init)
+  }
+}
+
+test('§7.2a usable rows AND a feed still on its first read — the rows show and '
+  + 'the pending gap is named', async () => {
+  localStorage.clear()
+  installServer({ items: [flagged], pending: [] })
+  // the inbox never answers at all: not a failure, a first read still in flight
+  hangOnly('inbox')
+  const v = await mountView(panel(), titles)
+  await settle()
+
+  // ⚠ THE HOLE THIS CASE EXISTS FOR (found by multi-window-design reading the
+  // source, 2026-09-21). The "loading" branch used to be gated on the list
+  // being EMPTY, so with a usable ticket row the header fell straight through
+  // to the counts and never said half the queue had not arrived. Pending and
+  // failed are different REASONS for the same incompleteness; only what the
+  // user is told about them differs.
+  assert.deepEqual(titles(v.el), ['ticket:Cut over the index'],
+    'the feed that answered keeps serving its rows — a pending sibling must '
+    + 'not blank good data')
+  assert.match(text(v.el), /mail is still loading/,
+    'and the one that has not answered is named alongside the counts')
+  assert.ok(v.el.querySelector('.attn-incomplete'),
+    'the header marks itself incomplete, not merely un-stale')
+  assert.equal(v.el.querySelector('.attn-empty'), null)
+  await v.unmount()
+})
+
+test('§7.2b an empty list with only a PENDING feed never reaches the stale '
+  + 'sentence, which had no feed to name', async () => {
+  localStorage.clear()
+  installServer({ items: [], pending: [] })
+  hangOnly('inbox')
+  const v = await mountView(panel(), titles)
+  await settle()
+  assert.deepEqual(titles(v.el), [])
+  assert.equal(v.el.querySelector('.attn-empty'), null, 'no confident sentence')
+  assert.ok(v.el.querySelector('.attn-loading'), 'it says what it is still doing')
+  assert.match(text(v.el), /Still reading mail/)
+  // the old expression produced "…— could not be refreshed" with an EMPTY name
+  // here, because it reached the stale branch with nothing stale in it
+  assert.doesNotMatch(text(v.el), /could not be refreshed/,
+    'a pending read is not a failed refresh, and must not be described as one')
+  await v.unmount()
+})
+
 test('§7.3 recovery clears the warning and the confident sentence comes back',
   async () => {
   localStorage.clear()

@@ -49,18 +49,29 @@ function sources(): { name: string; text: string }[] {
   return out
 }
 
-/** call sites of `fn`, as "file:line", ignoring imports, the declaration
- *  itself, and prose in comments — a mention is not a call */
+/** Call sites of `fn`, as "file :: the calling line", ignoring imports, the
+ *  declaration itself, and prose in comments — a mention is not a call.
+ *
+ *  ⚠ NOT "file:line", WHICH IS WHAT THIS PINNED FIRST AND WAS WRONG. Merging a
+ *  dependency shifted every caller in popout.tsx by a couple of hundred lines
+ *  and fired §1 with nothing whatever having changed about WHO calls it. A
+ *  tripwire that cries on unrelated edits is one people learn to re-baseline
+ *  without reading, which is the opposite of the point.
+ *
+ *  The calling LINE is stable under edits elsewhere in the file and still says
+ *  which call is new, which is the only part that helps. Duplicates are kept
+ *  rather than deduped, so two identical call lines cannot hide a new one
+ *  behind an old one — the list's length is the count. */
 function callsOf(fn: string): string[] {
   const hits: string[] = []
   for (const { name, text } of sources()) {
-    text.split('\n').forEach((line, i) => {
+    text.split('\n').forEach((line) => {
       if (!line.includes(`${fn}(`)) return
       const trimmed = line.trim()
       if (trimmed.startsWith('import ') || trimmed.startsWith('*')
         || trimmed.startsWith('//') || trimmed.startsWith('/*')) return
       if (new RegExp(`(export\\s+)?function\\s+${fn}\\s*\\(`).test(line)) return
-      hits.push(`${name}:${i + 1}`)
+      hits.push(`${name} :: ${trimmed}`)
     })
   }
   return hits.sort()
@@ -79,22 +90,22 @@ to say why the new one is harmless. Do that, then update the set below.`
 
 test('§1 closeSavedWindow\'s callers are the three the audit accounts for', () => {
   assert.deepEqual(callsOf('closeSavedWindow'), [
-    // inside MovableSurface: the surface that owns the window
-    // ⚠ :315 IS GUARDED NOW — `if (!transient) closeSavedWindow(...)`. A
-    // borrowing surface deliberately does NOT flip the row, which NARROWS the
-    // set of writes rather than widening it, so the invariant below holds a
-    // fortiori. Nothing in Attention sets `borrow`.
-    'popout.tsx:315',   // redock — the surface was registered
-    'popout.tsx:546',   // the surface's own unmount
+    // inside MovableSurface: the surface that owns the window.
+    // ⚠ THE REDOCK CALL IS GUARDED — a BORROWING surface deliberately does not
+    // flip the row. That NARROWS the set of writes rather than widening it, so
+    // the invariant holds a fortiori; nothing in Attention sets `borrow`.
+    'popout.tsx :: if (!transient) closeSavedWindow(layoutKey)',
+    'popout.tsx :: closeSavedWindow(layoutKey)',   // the surface's own unmount
     // NOT in MovableSurface. Harmless for this feature because it closes rows
     // drawn from restoredWindows(...).filter(r => r.restore?.document), and an
     // attention-kind row never carries one — this view passes no `restore`.
-    'canvas/OrgCanvas.tsx:3655',
-  ].sort(), WHY('A caller of closeSavedWindow was added, removed or moved.'))
+    'canvas/OrgCanvas.tsx :: closeSavedWindow(row.key); '
+      + 'setRestoredDocs(old => old.filter(r => r.key !== row.key))',
+  ].sort(), WHY('A caller of closeSavedWindow was added or removed.'))
 })
 
 test('§2 saveWindow is not called from outside its own module', () => {
-  const outside = callsOf('saveWindow').filter((at) => !at.startsWith('windowlayout.ts:'))
+  const outside = callsOf('saveWindow').filter((at) => !at.startsWith('windowlayout.ts '))
   assert.deepEqual(outside, [], WHY(
     'saveWindow is exported, so `open: false` can be written WITHOUT going '
     + 'through closeSavedWindow. Until now nothing outside windowlayout.ts called '
