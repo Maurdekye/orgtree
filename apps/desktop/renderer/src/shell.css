@@ -1,0 +1,54 @@
+/* shell.css — the v3 desktop shell's own stylesheet.
+ *
+ * SEPARATE FROM styles.css ON PURPOSE. The v3 shell work runs beside the
+ * canonical desk/card/canvas work in another worktree, and styles.css is the
+ * file both of them would otherwise be editing at once. Everything the shell
+ * adds lives here; nothing here redefines a shared rule, so removing this one
+ * import returns the app to exactly today's appearance.
+ *
+ * Loaded AFTER styles.css (see main.tsx) so a shell rule can layer over a
+ * shared one without !important when it genuinely has to.
+ */
+
+/* ------------------------------------------------- organization list status
+ *
+ * `show-current-organization-statuses-immediately`. The row markup is in
+ * App.tsx's OrgRows; these are the two states it can be in when its numbers
+ * are not current. Both are deliberately QUIET — the list is still perfectly
+ * usable for navigation while its counts are catching up, and an alarm colour
+ * on an ordinary three-second refresh would cry wolf. */
+
+.org-freshness {
+  padding: 2px 8px 6px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* the ellipsis standing in for counts we have not got yet. Same tabular
+ * column as a real count, so nothing shifts when the number arrives. */
+.org-counts-loading {
+  opacity: .55;
+  font-variant-numeric: tabular-nums;
+}
+
+/* numbers we still have but can no longer vouch for. Dotted underline rather
+ * than a colour: it marks the claim as provisional without competing with the
+ * error colours that mean something is actually wrong. */
+.org-counts-stale {
+  opacity: .7;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--dim);
+}
+
+/* "Already open" beside an organization whose window exists elsewhere —
+ * selecting it focuses that window instead of binding this one. */
+.org-open-badge {
+  margin-left: 6px;
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 10px;
+  color: var(--dim);
+  white-space: nowrap;
+}

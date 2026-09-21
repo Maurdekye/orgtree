@@ -21,11 +21,13 @@ import {
   getAntigravityUsage, getAntigravityUsagePeek,
   getCodexUsage, getCodexUsagePeek, getOpenRouterUsage, getOpenRouterUsagePeek,
   getProviders, getTree, invalidateTreeCache,
-  getUsage, getUsagePeek, killAll, listOrgs,
+  getUsage, getUsagePeek, killAll,
   markRead, openWs,
   probeHub, putOrgMd,
   resumeFrozen, runOp, saveDefaults, saveHireDefaults, saveSettings,
 } from './api'
+import { orgFreshnessNote, useOrgStatus } from './orgstatus'
+import type { OrgFreshness } from './orgstatus'
 import { fmtFull, fmtWhen } from './timefmt'
 import { registryPlanName, registryProviderName } from './registrylabels'
 import { primaryEmail, usageIdentity } from './accountidentity'
@@ -275,19 +277,41 @@ export function ActiveAgentSummary({ tree, orgs = [] }: {
  * agents (`live`). Every row renders every cell so the columns line up when
  * idle; a public listing row (no `working` — deliberately omitted server-side)
  * shows its hired count alone rather than inventing a zero. */
-export function OrgRows({ orgs, slug, onPick, onDelete }: {
+export function OrgRows({ orgs, slug, onPick, onDelete, freshness = 'current',
+  ageMs = 0, openLabel }: {
   orgs: OrgListEntry[]; slug: string | null
   onPick: (slug: string) => void; onDelete: (org: OrgListEntry) => void
+  /** how old these rows' STATUS values are (`orgstatus.ts`). Defaults to
+   *  'current' so every caller that has no freshness to report — and every
+   *  test that mounts fixed rows — reads exactly as it always did. */
+  freshness?: OrgFreshness
+  ageMs?: number
+  /** slugs already open in another window, labelled instead of counted. Empty
+   *  in the browser, where there is only ever one window. */
+  openLabel?: (slug: string) => string | null
 }) {
+  // ⚠ THE SPINNER AND THE COUNTS ARE THE STATUS, and status is the one thing
+  // an unfresh snapshot may not assert. The spinner is the loudest claim in
+  // the row — an animation that says "a turn is executing now" — so it is
+  // suppressed whenever the numbers behind it predate the open or have stopped
+  // refreshing, rather than spinning on somebody's memory of three minutes
+  // ago. Names, ordering, kiosk badges and every navigation affordance are
+  // untouched: those are not status and they do not go stale on this timescale.
+  const current = freshness === 'current'
+  const staleTitle = freshness === 'loading'
+    ? 'checking current status…'
+    : `active / hired agents — from ${Math.round(ageMs / 1000)}s ago, not refreshing`
   return <>
-    {orgs.map((o) => (
+    {orgs.map((o) => {
+      const already = openLabel?.(o.slug) ?? null
+      return (
       <div key={o.slug} role="button" tabIndex={0}
         className={'org' + (o.slug === slug ? ' current' : '')
           + (o.kiosk_cfg || o.kiosk ? ' kiosk-org' : '')}
         onClick={() => onPick(o.slug)}
         onKeyDown={(e) => { if (e.key === 'Enter') onPick(o.slug) }}>
         <span className="org-activity">
-          {(o.working ?? 0) > 0 &&
+          {current && (o.working ?? 0) > 0 &&
             <span className="working-ct"
               title={`${o.working} agent${o.working === 1 ? '' : 's'} active — a turn executing now`}>
               <AutorenewIcon fontSize="inherit" className="cc-spin" /></span>}
@@ -296,9 +320,14 @@ export function OrgRows({ orgs, slug, onPick, onDelete }: {
           <span className="org-name-text">{o.name}</span>
           {(o.kiosk_cfg || o.kiosk) &&
             <span className="kiosk-badge" title="kiosk org"><PublicIcon fontSize="inherit" /></span>}
+          {already && <span className="org-open-badge">{already}</span>}
         </span>
-        <span className="org-counts dim" title="active / hired agents">
-          {typeof o.working === 'number' ? `${o.working}/${o.live}` : `${o.live}`}
+        <span className={'org-counts dim'
+          + (freshness === 'loading' ? ' org-counts-loading' : '')
+          + (freshness === 'stale' ? ' org-counts-stale' : '')}
+          title={current ? 'active / hired agents' : staleTitle}>
+          {freshness === 'loading' ? '…'
+            : typeof o.working === 'number' ? `${o.working}/${o.live}` : `${o.live}`}
         </span>
         {/* kiosk orgs delete like any other (user report 2026-07-31: the
             old !o.kiosk gate left NO UI path at all — the server already
@@ -307,7 +336,8 @@ export function OrgRows({ orgs, slug, onPick, onDelete }: {
         <button className="org-del"
           onClick={(e) => { e.stopPropagation(); onDelete(o) }}><DeleteIcon fontSize="inherit" /></button>
       </div>
-    ))}
+      )
+    })}
     {!orgs.length && <div className="dim pad">no organizations yet</div>}
   </>
 }
@@ -413,10 +443,6 @@ const slugFromPath = () => {
 export default function App() {
   // apply the stored desk text size before anything renders a desk
   useEffect(() => { setDeskDpi(deskDpi()) }, [])
-  const [orgs, setOrgs] = useState<OrgListEntry[]>([])
-  // false until the FIRST successful /api/orgs: first-run setup must never
-  // flash at an existing installation whose list simply hasn't loaded yet
-  const [orgsKnown, setOrgsKnown] = useState(false)
   const [slug, commitSlug] = useState<string | null>(() => slugFromPath() ?? (desktop() ? (() => { try { return localStorage.getItem('orgtree-desktop-last-org') } catch { return null } })() : null))   // /o/<slug> survives refresh
   const [tree, setTree] = useState<TreePayload | null>(null)
   const { request: setSlug, prompt: orgTransitionPrompt } = useOrgTransition(slug, commitSlug, BASE)
@@ -658,8 +684,19 @@ export default function App() {
     errStreak.current += 1
     if (errStreak.current >= ERROR_STREAK) setError(e.message)
   }, [])
-  const refreshOrgs = useCallback(() =>
-    listOrgs().then((o) => { setOrgs(o); setOrgsKnown(true); fetchOk() }).catch(fetchErr), [fetchOk, fetchErr])
+  // THE ONE ORG-LIST POLLER (`orgstatus.ts`). It replaces a `setInterval` with
+  // no leading call that was also switched off whenever an organization window
+  // had the list closed — the pair that made opening the list paint minutes-old
+  // counts and correct them three seconds later
+  // (`show-current-organization-statuses-immediately`). `active` is simply
+  // "the list is on screen": the browser's welcome page, or the drawer.
+  const orgListOpen = !slug || drawer
+  const orgStatus = useOrgStatus({ active: orgListOpen, onOk: fetchOk, onError: fetchErr })
+  const orgs = orgStatus.orgs
+  // false until the FIRST successful /api/orgs: first-run setup must never
+  // flash at an existing installation whose list simply hasn't loaded yet
+  const orgsKnown = orgStatus.known
+  const refreshOrgs = orgStatus.refresh
   // desktop preferences, only for the first-run gate below; the onboarding
   // card manages its own live copy once shown
   const [deskPrefs, setDeskPrefs] = useState<NativePreferences | null>(null)
@@ -742,7 +779,9 @@ export default function App() {
     run(s)
   }, [fetchOk, fetchErr])
 
-  useEffect(() => { refreshOrgs() }, [refreshOrgs])
+  // the mount fetch lives in useOrgStatus now — it refreshes on mount and on
+  // every change of visibility, so a second one here would only double the
+  // first request of the session
   useEffect(() => { const imported = () => { void refreshOrgs() }; window.addEventListener('orgtree:organizations-imported', imported); return () => window.removeEventListener('orgtree:organizations-imported', imported) }, [refreshOrgs])
   // G1 — THE TREE HEARTBEAT. Everything on screen that is not the conversation
   // — every card, credit meter, occupancy bar, roster row, resume timer and
@@ -793,12 +832,9 @@ export default function App() {
       document.removeEventListener('visibilitychange', onVisible)
     }
   }, [slug, refreshTree])
-  useEffect(() => {          // the org list/dashboard is LIVE while visible —
-    // kiosk spend/storage/caps move under it (agent turns, admin edits)
-    if (slug && !drawer) return
-    const t = setInterval(refreshOrgs, 3000)
-    return () => clearInterval(t)
-  }, [slug, drawer, refreshOrgs])
+  // the org list/dashboard stays LIVE while visible — kiosk spend/storage/caps
+  // move under it (agent turns, admin edits). That interval is `useOrgStatus`'s
+  // now, along with the leading call it used to be missing.
   useEffect(() => {          // kiosk: the single org IS the app — PUBLIC
     // builds only (BASE = /k/<token>). On the admin side orgs[0] can be a
     // kiosk org too (list_orgs carries the flag now), and a kiosk sorting
@@ -1008,8 +1044,15 @@ export default function App() {
         {showControls && <UpdateNotice />}
         {showControls && <WindowControls />}</h1>
       {slug && <button className="home" onClick={goHome}><HomeIcon fontSize="inherit" /> All organizations</button>}
+      {/* the list says how old its own numbers are, and says nothing at all
+          while they are current (`orgFreshnessNote`) */}
+      {orgFreshnessNote(orgStatus.freshness, orgStatus.ageMs, orgStatus.error) &&
+        <div className="dim org-freshness" role="status">
+          {orgFreshnessNote(orgStatus.freshness, orgStatus.ageMs, orgStatus.error)}
+        </div>}
       <nav>
         <OrgRows orgs={orgs} slug={slug} onPick={pick}
+          freshness={orgStatus.freshness} ageMs={orgStatus.ageMs}
           onDelete={(o) => setDoomedOrg(o)} />
       </nav>
       {!BASE && <NewOrg onCreate={(name, dirs, netAuto, netHubs) =>
