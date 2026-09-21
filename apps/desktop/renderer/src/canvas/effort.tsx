@@ -182,16 +182,17 @@ export function EffortLevelBadge({ node }: {
   // `level` is non-null only once nonDefaultEffort has validated BOTH it and
   // `orgDefault`, so everything below is working with supported levels.
   if (!level) return null
-  // "above"/"below" is exactly what the ticket's problem statement asks a
-  // reader to be able to tell at a glance. Both indexes are known-good, so the
-  // comparison is a fact rather than a guess.
-  const dir = EFFORT_LEVELS.indexOf(level) > EFFORT_LEVELS.indexOf(orgDefault)
-    ? 'above' : 'below'
-  const detail = `thinking effort — ${level}, set on this agent `
-    + `(${dir} the org default, ${orgDefault})`
+  // ⚠ THE NAME, AND NOTHING ELSE. The first candidate also carried the
+  // DIRECTION — an `above`/`below` class that coloured the chip, and a tooltip
+  // reading "(above the org default, medium)" — on the reasoning that the
+  // ticket's problem statement is about telling when an agent runs "above or
+  // below the default". The user ruled against it directly on the item
+  // (2026-09-21): "no just the effort name no need for extra info". So the card
+  // states the level and stops, and `orgDefault` is used for the one thing it
+  // is still needed for — deciding whether to appear at all.
+  const detail = `thinking effort — ${level}`
   return (
-    <span className={'badge effort-level ' + dir}
-      data-effort-level={level}
+    <span className="badge effort-level" data-effort-level={level}
       title={detail} aria-label={detail}>
       Effort {level}
     </span>

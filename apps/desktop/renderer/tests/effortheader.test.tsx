@@ -350,11 +350,12 @@ test('§4a both surfaces say the SAME thing about the same agent',
     assert.equal(onC.getAttribute('data-effort-level'), onD.getAttribute('data-effort-level'))
     assert.equal(onC.textContent, onD.textContent)
     assert.equal(onC.getAttribute('title'), onD.getAttribute('title'))
-    // the detail names the level, that it was set here, and what it is
-    // measured against — the last part is what makes "non-default" checkable
-    // by the reader rather than something they have to take on trust
-    assert.match(onD.getAttribute('title') ?? '', /\blow\b/)
-    assert.match(onD.getAttribute('title') ?? '', /below the org default, high/)
+    // the detail names the level and stops. It used to also say which side of
+    // the org default this was and what that default was; the user removed
+    // that on 2026-09-21 ("no just the effort name no need for extra info"),
+    // so this is an EXACT equality rather than a match — an assertion that
+    // fails if anything at all creeps back into the detail.
+    assert.equal(onD.getAttribute('title'), 'thinking effort — low')
   })
 
 test('§4b changing the agent\'s effort changes BOTH surfaces, live',
@@ -440,7 +441,11 @@ test('§4c changing the INHERITED org default changes both surfaces too',
     assert.equal(onC!.getAttribute('data-effort-level'), 'high')
     assert.equal(onC!.getAttribute('title'), onD!.getAttribute('title'),
       'the two surfaces disagreed about the new default')
-    assert.match(onD!.getAttribute('title') ?? '', /below the org default, xhigh/)
+    // The PROOF that both surfaces followed the org default to its new value
+    // is that they now render at all and name `high` (asserted just above) —
+    // this agent was silent while the default was still high. The detail no
+    // longer names the default, so it is not the carrier of that evidence.
+    assert.equal(onD!.getAttribute('title'), 'thinking effort — high')
   })
 
 test('§4d an unsupported ORG override blanks NEITHER surface — the regression, '
@@ -465,9 +470,13 @@ test('§4d an unsupported ORG override blanks NEITHER surface — the regression
     assert.ok(onD, 'the desk header went blank under a junk org override')
     assert.equal(onC!.getAttribute('data-effort-level'), 'xhigh')
     assert.equal(onD!.getAttribute('data-effort-level'), 'xhigh')
-    // and both measure against the RESOLVED default, so they name `high`
+    // Both measure against the RESOLVED default — which is what the f4
+    // regression was about — and the evidence for that is that they RENDER
+    // here at all: an unresolved '' default makes nonDefaultEffort return null
+    // and both surfaces go silent, which is exactly what 0dbede2 did. The
+    // detail itself names only the level (user ruling 2026-09-21).
     assert.equal(onC!.getAttribute('title'), onD!.getAttribute('title'))
-    assert.match(onD!.getAttribute('title') ?? '', /above the org default, high/)
+    assert.equal(onD!.getAttribute('title'), 'thinking effort — xhigh')
   })
 
 test('§4e …and an agent AT the resolved default is still silent on both',
@@ -551,12 +560,21 @@ test('the badge renders nothing at all — not an empty span — when silent',
     assert.equal(view.el.innerHTML, '', 'the silent badge still emitted markup')
   })
 
-test('above and below the default are distinguishable without reading the level',
+test('THE NAME AND NOTHING ELSE: no direction cue, either side of the default',
   async (t: TestContext) => {
-    // the ticket's problem statement is "difficult to tell when an agent is
-    // running above or below the default", so the direction is carried as a
-    // class (and in the detail) rather than left for the reader to work out
-    // from the level name and a default they cannot see.
+    // ⚠ THIS TEST USED TO ASSERT THE OPPOSITE. The first landed candidate
+    // carried the DIRECTION as well as the level — an `above`/`below` class
+    // colouring the chip, and "(above the org default, medium)" in the detail
+    // — reasoning from the ticket's problem statement, "difficult to tell when
+    // an agent is running above or below the default". The user ruled it out
+    // directly on the item (2026-09-21): "no just the effort name no need for
+    // extra info". So the assertion is inverted rather than deleted: the cue's
+    // ABSENCE is now the requirement, and a well-meaning future reader who
+    // re-derives the old reasoning from the problem statement fails here.
+    //
+    // `max` is above ORG_DEFAULT and `low` is below it, so if any direction
+    // signal existed in the class list, the text, or the detail, these two
+    // would differ in it. They must differ ONLY in the level they name.
     const hi = await mountView(
       <OrgDefaultEffort.Provider value={ORG_DEFAULT}>
         <EffortLevelBadge node={agent('max', 'max')} />
@@ -568,8 +586,27 @@ test('above and below the default are distinguishable without reading the level'
       </OrgDefaultEffort.Provider>, (el) => el)
     t.after(() => lo.unmount())
     await flush()
-    assert.ok(hi.el.querySelector('.badge.effort-level.above'))
-    assert.ok(lo.el.querySelector('.badge.effort-level.below'))
-    assert.equal(hi.el.querySelector('.badge.effort-level.below'), null)
-    assert.equal(lo.el.querySelector('.badge.effort-level.above'), null)
+    const above = hi.el.querySelector('.badge.effort-level')!
+    const below = lo.el.querySelector('.badge.effort-level')!
+    assert.ok(above, 'the above-default agent lost its card entirely')
+    assert.ok(below, 'the below-default agent lost its card entirely')
+    // identical class lists: no `.above`, no `.below`, and no replacement
+    assert.equal(above.className, below.className)
+    assert.equal(above.className, 'badge effort-level')
+    // the visible text and the detail name the level and stop. In particular
+    // the detail no longer names the org default — the card reports what this
+    // agent is, not what it is measured against.
+    assert.equal(above.textContent, 'Effort max')
+    assert.equal(below.textContent, 'Effort low')
+    assert.equal(above.getAttribute('title'), 'thinking effort — max')
+    assert.equal(below.getAttribute('title'), 'thinking effort — low')
+    assert.equal(above.getAttribute('aria-label'), 'thinking effort — max')
+    assert.equal(below.getAttribute('aria-label'), 'thinking effort — low')
+    for (const el of [above, below]) {
+      const all = el.outerHTML
+      for (const word of ['above', 'below', ORG_DEFAULT]) {
+        assert.equal(all.includes(word), false,
+          `the card still leaks "${word}" somewhere in its markup`)
+      }
+    }
   })

@@ -678,11 +678,11 @@ button.badge.serving-account.auth-unauthenticated { color: var(--dim); }
   color: var(--ink);
   border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
 }
-.badge.effort-level.above {
-  color: var(--agent-accent-text, var(--accent));
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-}
-.badge.effort-level.below { color: var(--dim); border-color: var(--line); }
+/* There were `.above` and `.below` variants here, colouring the chip by which
+   side of the org default the level sat on. The user removed that on
+   2026-09-21 ("no just the effort name no need for extra info"), so the card
+   has ONE appearance whatever the level — do not reintroduce a direction
+   colour without a ruling. */
 /* the retired-audience fold chip (2026-08-17): one toggle in every
    audience chip row, same collapse as the desk footer's retired reports */
 button.badge.retired-fold { cursor: pointer; font: inherit; font-size: inherit; }
