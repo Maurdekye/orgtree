@@ -4904,27 +4904,42 @@ async def accounts_usage(account_id: str) -> dict[str, Any]:
 
 @app.delete("/api/accounts/{account_id}")
 async def accounts_remove(account_id: str) -> dict[str, Any]:
-    """Remove a registry row. REFUSED while any node is bound to it (design
-    D5): explicit reassignment first — a removal that silently unbinds
-    agents would be the automatic movement the rules forbid. An apikey row's
-    secret material goes with it (token-store entry / minted key home): an
-    API key is re-pastable from the provider console, so disposal is safe
-    where a setup-token's never was."""
-    bound = _account_bindings().get(account_id, [])
-    if bound:
-        names = ", ".join(f"{b['org']}/{b['node']}" for b in bound[:8])
-        raise HTTPException(
-            422, f"account {account_id} has {len(bound)} bound agent(s) "
-                 f"({names}) — reassign them explicitly first")
+    """Remove a secondary account, REBINDING its agents to the provider's
+    primary first (user ticket 2026-09-21). One coordinated operation: every
+    stored binding to the row — live, halted, frozen, archived, and the queued
+    intents and org default that name it — moves to `<provider>/primary`, and
+    only then is the row removed.
+
+    This used to REFUSE while anything was bound ("reassign them explicitly
+    first"), which made the control unusable: the bindings the operator had to
+    clear by hand included archived ones no UI lists. The movement is no longer
+    silent or implicit — it is what the button says it does, it is disclosed in
+    the response, and every live node goes through `supervisor.assign_account`
+    so the session-boundary, park and thaw rules are the ones a hand-made
+    reassignment gets.
+
+    It is still REFUSED, with nothing changed, when the operation could not be
+    completed safely: a primary account, an org document that cannot be read,
+    or an agent whose provider needs a session boundary while its turn is still
+    running. An apikey row's secret material goes with it (token-store entry /
+    minted key home): an API key is re-pastable from the provider console, so
+    disposal is safe where a setup-token's never was."""
+    from . import account_removal
     try:
-        row = registry.get_account(account_id)
+        out = await asyncio.to_thread(
+            account_removal.remove_account_rebinding_agents,
+            account_id, actor=USER)
     except registry.UnknownAccount:
         raise HTTPException(404, f"no account {account_id!r}")
-    if not registry.remove_account(account_id):
-        raise HTTPException(404, f"no account {account_id!r}")
-    from . import apikey_accounts
-    apikey_accounts.forget_credentials(row)
-    return {"removed": account_id}
+    except account_removal.RemovalRefused as e:
+        raise HTTPException(422, str(e))
+    except account_removal.RemovalIncomplete as e:
+        raise HTTPException(500, str(e))
+    account_removal.announce(out["wakes"], out["rebound"])
+    for slug in out["orgs"]:
+        await hub.changed(slug)
+    return {"removed": out["removed"], "rebound": out["rebound"],
+            "orgs": out["orgs"]}
 
 
 class AccountEnabled(Body):

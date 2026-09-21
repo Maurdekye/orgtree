@@ -39,7 +39,12 @@ test('account rows distinguish unknown authentication from ready accounts', asyn
   assert.equal(saysReady(rows[1]), true)
 })
 
-test('usage marks stay out of management rows and bound accounts cannot be removed', async t => {
+// ⚠ THE SECOND HALF OF THIS CHANGED (user ticket 2026-09-21). Bound accounts
+// USED to be unremovable — the button was disabled until every binding had been
+// reassigned by hand. Removal now rebinds those agents to the provider's
+// primary itself, so the control is live on a bound row and both rows delete.
+// The usage-marks half is untouched.
+test('usage marks stay out of management rows and a bound account is removable', async t => {
   const { el, calls } = await setup(t, [
     account('one', 'authenticated', { fable: { until: 2000000000, provenance: 'inferred' } }, [{ org: 'mine', node: 'worker' }]),
     account('two'),
@@ -47,10 +52,13 @@ test('usage marks stay out of management rows and bound accounts cannot be remov
   const rows = el.querySelectorAll<HTMLElement>('.account-row')
   assert.doesNotMatch(rows[0].textContent || '', /inferred|limited until/i)
   const remove = (row: HTMLElement) => [...row.querySelectorAll('button')].find(b => /remove/i.test(b.textContent || ''))!
-  assert.equal(remove(rows[0]).disabled, true)
+  assert.equal(remove(rows[0]).disabled, false)
+  assert.match(remove(rows[0]).title, /move its 1 agent\(s\)/)
   assert.equal(remove(rows[1]).disabled, false)
-  await inAct(async () => { remove(rows[0]).click(); remove(rows[1]).click(); await flush() })
-  assert.deepEqual(calls.filter(c => c.method === 'DELETE').map(c => c.url), ['/api/accounts/two'])
+  await inAct(async () => { remove(rows[0]).click(); await flush() })
+  await inAct(async () => { remove(rows[1]).click(); await flush() })
+  assert.deepEqual(calls.filter(c => c.method === 'DELETE').map(c => c.url),
+    ['/api/accounts/one', '/api/accounts/two'])
 })
 
 // the Create-managed flow (visible created row + honest load failures)

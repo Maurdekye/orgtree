@@ -14225,6 +14225,7 @@ def assign_account(slug: str, nid: str, account_id: str, *,
                    actor: str,
                    org: Org | None = None, via: str = "manual",
                    allow_frozen: bool = False,
+                   immediate: bool = False,
                    notify_change: bool = True) -> dict[str, Any]:
     """Reassign a node's account binding — the ONE writer both surfaces call
     (design D2d). Authority is checked by the CALLER (operator token, or
@@ -14262,7 +14263,11 @@ def assign_account(slug: str, nid: str, account_id: str, *,
     For codex nodes reassignment is a SESSION BOUNDARY (codexrun §3.4:
     CODEX_HOME is never repointed live) — refused while the node is busy;
     the warm pool's cred component (account id + profile selector) makes a
-    parked process for the OLD account a non-match by construction."""
+    parked process for the OLD account a non-match by construction.
+
+    `immediate` opens the busy door for a rebind that owes NO session boundary
+    (account removal, 2026-09-21 — see `account_removal`). It changes nothing
+    else: the frozen policy, the validation and the disclosure are the same."""
     from . import warmpool
     st = state(slug, nid)
     # a caller mid-transaction (the agent-tool dispatch) passes its OWN org
@@ -14310,7 +14315,16 @@ def assign_account(slug: str, nid: str, account_id: str, *,
         tier = str(node.get("model") or "")
         previous = str(node.get("account") or "")
         _busy_now = bool(st.get("busy") or st.get("responding") or node.get("inflight"))
-        _queue_door = _busy_now and not allow_frozen
+        # `immediate` (account removal, user ticket 2026-09-21): the CALLER has
+        # established that this particular rebind owes NO session boundary —
+        # the binding can move while a turn runs, because the running process
+        # is never repointed (it keeps the credential its spawn resolved, and
+        # its usage attribution was captured at spawn from the resolved env's
+        # marker) and the NEXT turn resolves the new binding. It is not a
+        # general bypass: `account_removal.needs_session_boundary` is the only
+        # thing allowed to decide it, and where a boundary IS owed that module
+        # refuses the removal instead of passing this.
+        _queue_door = _busy_now and not allow_frozen and not immediate
         # R1b (review 2026-09-20): with a switch already queued on a busy
         # node, the accepted account will run the switch TARGET, never the
         # current model — so the EFFECTIVE destination is what the selection

@@ -59,9 +59,23 @@ export function AccountRegistrySection({ provider, registry, toast }: {
     } catch (e) { toast([e instanceof Error ? e.message : 'Could not refresh account']) }
     finally { setBusy(null) }
   }
+  /** Removing an account MOVES ITS AGENTS: the backend rebinds every stored
+   *  binding — live, halted, frozen and archived alike — to the provider's
+   *  primary account and only then removes the row. The reload is what makes
+   *  the removed account disappear and the moved agents show `default`; the
+   *  toast says how many moved, because a button that silently relocates
+   *  agents would be a worse surprise than the refusal it replaces. */
   const remove = async (row: AccountRow) => {
     setBusy(row.id)
-    try { await req(`/api/accounts/${row.id}`, { method: 'DELETE' }); await registry.reload() }
+    try {
+      const out = await req<{ removed: string; rebound?: { org: string; node: string }[] }>(
+        `/api/accounts/${row.id}`, { method: 'DELETE' })
+      await registry.reload()
+      const moved = out?.rebound?.length ?? 0
+      toast([moved > 0
+        ? `${accountIdentity(accountDisplayId(row), row.identity?.email)} removed — ${moved} agent(s) moved to ${LABELS[provider]} default`
+        : `${accountIdentity(accountDisplayId(row), row.identity?.email)} removed`])
+    }
     catch (e) { toast([e instanceof Error ? e.message : 'Could not remove account']) }
     finally { setBusy(null) }
   }
@@ -81,8 +95,16 @@ export function AccountRegistrySection({ provider, registry, toast }: {
             profileDir={row.credential.default_config ? undefined : row.credential.path} accountId={row.id}
             onRefresh={() => { void refresh(row) }} />}
           <button disabled={busy !== null} onClick={() => { void refresh(row) }}>refresh</button>
-          <button disabled={busy !== null || row.bound.length > 0}
-            title={row.bound.length > 0 ? 'Reassign its agents before removing this account' : 'Remove this account'}
+          {/* ⚠ NO LONGER DISABLED BY ITS BINDINGS (user ticket 2026-09-21).
+              Requiring every agent to be reassigned by hand first made this
+              control unusable — the bindings to clear included archived
+              agents no surface lists. The primary account itself stays
+              unremovable: it is what everything else is moved back to. */}
+          <button disabled={busy !== null || !!row.ambient}
+            title={row.ambient ? `The ${LABELS[provider]} default account cannot be removed`
+              : row.bound.length > 0
+                ? `Remove this account and move its ${row.bound.length} agent(s) to the ${LABELS[provider]} default account`
+                : 'Remove this account'}
             onClick={() => { void remove(row) }}>remove</button>
         </div>
         {row.origin_org && <div className="dim">Available only to {row.origin_org}</div>}
