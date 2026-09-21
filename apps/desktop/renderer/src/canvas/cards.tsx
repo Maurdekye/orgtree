@@ -33,6 +33,7 @@ import {
   AgentWorkstate, ContextWheel, deriveAgentVisualState, deriveTurnState, isUsageFrozen, DeskChat, DestinationBusy, LastTurnAge,
   MapModeIndicator, MapTurnAge, RouteBadge, ServingAccountBadge,
 } from './desk'
+import { EffortLevelBadge } from './effort'
 import { agentNavProps } from './agentnav'
 import { DocChips } from './docs'
 import { useContextMenu } from './contextmenu'
@@ -1835,6 +1836,16 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
               asserted in usageaccountcard.test.tsx rather than left to the
               gate above happening to stay where it is. */}
           <ServingAccountBadge account={node.serving_account} />
+          {/* NON-DEFAULT THINKING EFFORT (docket
+              `show-non-default-effort-level-on-agent-headers`), on the card's
+              badge row as on the desk's — the SAME component, reading the same
+              org default from context, so the two surfaces cannot disagree
+              about the level, the wording, or when it appears at all. Absent
+              whenever the agent is unset or at the ordinary default, and
+              absent as NOTHING rather than as an empty chip, so the row
+              reserves no space for it. Its far-zoom and map exclusions are the
+              ones this whole `.sq-badges` block already carries. */}
+          <EffortLevelBadge node={node} />
           {/* the lineage opens from the desk's own stack badge; out here the
               count is a sign. Same reason as the freeze chip above. */}
           {stackN > 0 &&

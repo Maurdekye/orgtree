@@ -7,6 +7,7 @@ import type { ReplyContext } from '../eventReply'
 import { ReplyPreview, ReplySourceProvider } from './replypreview'
 import { indexReplySources, ReplySourceContent } from './replysource'
 import { copyToClipboard, useContextMenu } from './contextmenu'
+import { EFFORT_LEVELS, EffortLevelBadge } from './effort'
 import { foldKeysOf, FoldProvider, sysFoldKey, thoughtFoldKey, toolFoldKey, useFold, useFoldState } from './foldstate'
 import { useChangedState } from '../changedstate'
 import { messageCopyText, toolCallCopyText, toolResultCopyText } from './copytext'
@@ -3207,6 +3208,15 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
             on a provider where more than one account is signed in. The desk
             is never far-zoom, so there is no exclusion to apply here. */}
         <ServingAccountBadge account={node.serving_account} />
+        {/* NON-DEFAULT THINKING EFFORT (docket
+            `show-non-default-effort-level-on-agent-headers`), in the same
+            metadata row as the MCP, cache-readiness, cost and account cards,
+            and mounted as the SAME component the canvas card mounts — one
+            source of truth for the level, the wording and the appear rule.
+            The composer's effort CONTROL below is untouched: this is a sign
+            saying the agent is not at the ordinary default, not a second
+            place to change it. */}
+        <EffortLevelBadge node={node} />
         </div>
       </div>
       {/* F-01: superior chip at the TOP. For a top-level agent the superior is
@@ -4627,7 +4637,10 @@ function SysLine({ m }: { m: ChatMessage }) {
 // the active dot to clear back to the CLI default. The permission-mode half
 // of Claude Code's bar is deliberately absent: org permissions decide what
 // agents can do.
-const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max']
+//
+// The level list itself now lives in `./effort`, which is also what the
+// non-default effort header card reads — so the control and the card can
+// never offer or describe different levels.
 
 // `effective` is what the next turn WILL run at, resolved server-side by
 // Org.effective_effort — the same call that builds the --effort flag, so the

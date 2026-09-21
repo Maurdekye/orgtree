@@ -661,6 +661,28 @@ button.badge.serving-account.state-limited { border-color: #46647a; color: var(-
 /* `unobserved` gates nothing and must render as itself rather than as ready */
 button.badge.serving-account.auth-unobserved,
 button.badge.serving-account.auth-unauthenticated { color: var(--dim); }
+/* NON-DEFAULT THINKING EFFORT (docket
+   `show-non-default-effort-level-on-agent-headers`) — a compact header card in
+   the same `.badge` vocabulary as the account, route, cost and lifecycle chips
+   beside it, so it INHERITS their three context sizes (10.5px, 9.5px in
+   `.sq-badges`, 10px in `.desk-body`) rather than restating them and drifting
+   out of step the way the account card did in 2.1.4-RC4.
+   A span, not a button: the level is changed in the composer's effort control
+   on the open desk, and a control out here would swallow the press that
+   focuses the agent (see ActionBadge in cards.tsx).
+   `above`/`below` is the direction against the org default — the ticket's
+   problem is precisely that you cannot tell which — so an agent pinned UP
+   wears the accent and one pinned DOWN reads quietly. Neither is the red of a
+   fault: both are deliberate configuration, not a warning. */
+.badge.effort-level {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
+}
+.badge.effort-level.above {
+  color: var(--agent-accent-text, var(--accent));
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.badge.effort-level.below { color: var(--dim); border-color: var(--line); }
 /* the retired-audience fold chip (2026-08-17): one toggle in every
    audience chip row, same collapse as the desk footer's retired reports */
 button.badge.retired-fold { cursor: pointer; font: inherit; font-size: inherit; }

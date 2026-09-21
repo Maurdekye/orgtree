@@ -29,6 +29,7 @@ import type {
   HireState, OpFn, Pile, Pt, Seg, Spring, StreamEvent, View, WorkLinkFn,
 } from './shared'
 import { ContextWheel, DeskChat, DestinationBusy, LineagePanel, OrgKillswitchContext, TrayStatus } from './desk'
+import { OrgDefaultEffort } from './effort'
 import { DocReader } from './docs'
 import { mailRefTarget, useRefRoutes, Written } from './reflinks'
 import type { ResolvedRef } from './reflinks'
@@ -2893,6 +2894,16 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   return (
     <AgentNavProvider>
     <OrgKillswitchContext.Provider value={!!tree.killswitch}>
+    {/* THE ORG'S ORDINARY THINKING EFFORT, for the non-default effort card on
+        the canvas cards and the desk headers. Provided once, here, because
+        this subtree contains every mount site of both surfaces — canvas
+        cards, the canvas desk, switchboard panels, the mobile sheet and
+        pinned desk windows — which is what makes "the two surfaces cannot
+        disagree" structural rather than a convention six call sites have to
+        keep. The fallback chain is `ledger.Org.effective_effort`'s own: the
+        org's override, else what "" resolves to, which the payload ships
+        precisely so no UI string hardcodes a level. */}
+    <OrgDefaultEffort.Provider value={tree.default_effort || tree.effort_default || ''}>
     <AgentSurfaceRoutesProvider value={agentSurfaceRoutes}>
     <DeskHosts map={map} slug={slug} treeSlug={tree.slug}><AgentNavHost
       map={map} op={op} slug={slug} toast={toast} goTo={goToAgent} build={trayRowMenu} /><div style={freeAnchor ?? undefined} className={'viewport' + (tree.sandboxed ? ' sandboxed' : '')
@@ -3805,6 +3816,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       })}
     </div></DeskHosts>
     </AgentSurfaceRoutesProvider>
+    </OrgDefaultEffort.Provider>
     </OrgKillswitchContext.Provider>
     </AgentNavProvider>
   )
