@@ -181,7 +181,11 @@ test('a window is registered BEFORE its document loads', () => {
   // itself - the document is loaded by the caller, after registration
   assert.doesNotMatch(build, /await [\w.]*loadURL/, 'the factory itself never awaits a navigation')
   assert.match(main, /const openWindow = async \(\{ kind, org \}: \{ kind: OrgWindowKind; org\?: string \}\) => \{\s*\r?\n\s*const record = buildMainWindow\(kind, org\)\s*\r?\n\s*await record\.window\.loadURL/)
-  assert.match(main, /ipcMain\.on\('desktop:window-identity-sync', event => \{/,
+  // ⚠ the identity is answered SYNCHRONOUSLY, before the bridge exists - and
+  // it lives in held-events.ts now, with the two channels that depend on the
+  // token it mints
+  assert.match(read('apps/desktop/main/held-events.ts'),
+    /ipc\.on\('desktop:window-identity-sync', \(event: \{ returnValue\?: unknown \}\) => \{/,
     'and the identity is answered synchronously, before the bridge exists')
 })
 
@@ -235,9 +239,43 @@ test('events that cannot be asked for again are held until there is somewhere to
   const attach = preload.indexOf("ipcRenderer.on('desktop:event', handler)")
   assert.ok(attach > 0 && attach < preload.indexOf("ipcRenderer.send('desktop:events-listening'"),
     'the listener is attached BEFORE native is told it exists')
-  const listening = main.slice(main.indexOf("ipcMain.on('desktop:events-listening'"), main.indexOf("ipcMain.on('desktop:window-identity-sync'"))
-  assert.match(listening, /resolveNativeSender\(/,
-    'and that signal is sender-resolved like every other native entry point')
+  // ⚠ THE THREE HELD-EVENT CHANNELS LIVE IN THEIR OWN MODULE NOW, and that
+  // is the point rather than an inconvenience: as closures inside
+  // app.whenReady() they were reachable by no test at all, which is how a dead
+  // acknowledgement survived a full review. index.ts calls the same function
+  // the composition fixture does.
+  const held = read('apps/desktop/main/held-events.ts')
+  assert.match(main, /registerHeldEventChannels\(ipcMain, \{/, 'index.ts registers them through that module')
+  assert.doesNotMatch(main, /ipcMain\.on\('desktop:events-listening'/, 'and no longer inline')
+  // ⚠ AND THE ORIGIN IS READ PER CALL, NOT CAPTURED. The engine's origin
+  // changes after a boot-engine recovery; a frozen string would keep
+  // validating against the dead one. A getter is the whole guard.
+  assert.match(main, /origin: \(\) => engine\.origin/, 'the host passes a getter, never a captured string')
+  assert.match(held, /origin\(\): string/)
+  assert.doesNotMatch(held, /origin: string/, 'no frozen origin may enter this module')
+  const listening = held.slice(held.indexOf("ipc.on('desktop:events-listening'"), held.indexOf("ipc.on('desktop:window-identity-sync'"))
+  // ⚠ SENDER-RESOLVED LIKE EVERY OTHER NATIVE ENTRY POINT - through ONE
+  // helper that all three channels share, which calls the REAL
+  // resolveNativeSender. What differs between them is only what they do with
+  // a refusal: the two `on` channels have no caller to reject so they
+  // swallow, the `handle` channel rejects the invoke. That difference is
+  // preserved behaviour, not an accident of the move.
+  assert.match(listening, /resolveRecord\(host, event\)/)
+  // resolved against the LIVE registry, with the origin read per call
+  assert.match(held, /const entry = resolveNativeSender\($/m)
+  assert.match(held, /host\.registry, host\.origin\(\)\)$/m)
+  assert.match(held, /import \{ resolveNativeSender \} from '\.\/org-windows'/,
+    'resolveNativeSender is IMPORTED and called here, not handed in')
+  // ⚠ AND THE HOST CANNOT SUPPLY JUDGEMENT. A host that could hand in a
+  // resolver, or the currency comparison, would let a fixture exercise its own
+  // permissiveness and call it coverage - which is the exact failure that let
+  // a dead acknowledgement pass a full review.
+  const host = held.slice(held.indexOf('export interface HeldEventHost'), held.indexOf('⚠ IS THE DOCUMENT THAT SENT THIS'))
+  assert.doesNotMatch(host, /resolve|currentDocument|trusted/i, 'nothing deciding trust crosses the host boundary')
+  assert.doesNotMatch(held, /export const currentDocument|export function currentDocument/,
+    'one currency rule, not re-exported for anyone to re-implement')
+  assert.equal(held.split('currentDocument(').length - 1, 2,
+    'asked by exactly the two paths that end the holding')
   // ⚠ AND A LATE ACK FROM THE OUTGOING DOCUMENT IS DROPPED, not deferred.
   // The old document may have sent its ack a moment before it was navigated
   // away from, and that message can still be in flight. Accepting it would
@@ -245,7 +283,7 @@ test('events that cannot be asked for again are held until there is somewhere to
   // the same loss, one message later. Deferring it to the new document
   // would assert the successor is listening, which is what nothing has
   // established yet.
-  assert.match(listening, /if \(record && currentDocument\(record, /,
+  assert.match(listening, /if \(record && currentDocument\(host, record, token\)\)/,
     'the acknowledgement is accepted only from the document currently showing')
 
   // ⚠ AND THE TOKEN IS READ FROM THE PLACE ELECTRON ACTUALLY PUTS IT. This
@@ -265,11 +303,21 @@ test('events that cannot be asked for again are held until there is somewhere to
   // is a SOURCE pin tying this handler to the measured ABI - not a claim that
   // it was executed. End-to-end receipt belongs to the shell composition
   // fixture, including the ack-only path with no take.
-  assert.match(listening, /ipcMain\.on\('desktop:events-listening', \(event, token: unknown\) =>/,
+  assert.match(listening, /ipc\.on\('desktop:events-listening', \(event: unknown, token: unknown\) =>/,
     'the token is the second callback argument, which is where it arrives')
   assert.doesNotMatch(listening, /\.args/, 'and never read off the event, where it does not exist')
-  assert.doesNotMatch(main, /as unknown as \{ args\?: unknown\[\] \}/,
-    'no handler anywhere invents an `args` property on an IPC event')
+  for (const file of [main, held]) {
+    assert.doesNotMatch(file, /as unknown as \{ args\?: unknown\[\] \}/,
+      'no handler anywhere invents an `args` property on an IPC event')
+  }
+  // ⚠ AND THE TAKE IS THE ONE THAT REJECTS. The two `on` channels have no
+  // caller to reject and stay silent; this one rejected before the move,
+  // through index.ts's `handle`, and must still. A shared helper that threw
+  // for a missing record would have changed identity-sync too - it answered
+  // with a real identity and an unstored token, and still does.
+  assert.match(held, /if \(!record\) throw new Error\('Native operation refused for this document'\)/)
+  assert.match(held, /if \(record\) host\.setToken\(record, token\)/,
+    'identity-sync stores the token only when there is a record, and answers either way')
 
   // ⚠ AND THE EVIDENCE IS PER-DOCUMENT. A listener belongs to a document, so a
   // navigation destroys the very thing that proved somebody was there — while
@@ -294,20 +342,24 @@ test('events that cannot be asked for again are held until there is somewhere to
   // They are the same question — "is the document asking me the one currently
   // showing?" — and when only one of them asked it, the other could unhold the
   // queue from a document on its way out AND carry the queue away with it.
-  assert.match(main, /const currentDocument = \(record: MainWindowRecord, token: unknown\): boolean =>/)
-  // exactly two CALLS — the acknowledgement and the take — so neither entry
+  assert.match(held, /const currentDocument = <W extends MainWindowLike & NativeSenderWindow, R, E>\(/)
+  // exactly two CALLS - the acknowledgement and the take - so neither entry
   // point can be guarded while the other is not. (The definition itself is
-  // `currentDocument = (` and so is not one of them.)
-  assert.equal(main.split('currentDocument(').length - 1, 2,
+  // `currentDocument = <` and so is not one of them.)
+  assert.equal(held.split('currentDocument(host,').length - 1, 2,
     'asked by exactly the two paths that end the holding')
-  assert.ok(main.includes('currentDocument(record,'), 'the acknowledgement asks it')
-  assert.ok(main.includes('currentDocument(caller, token)'), 'and so does the take')
-  const take = main.slice(main.indexOf("handle('desktop:take-pending-events'"))
-  assert.match(take.slice(0, 220), /currentDocument\(caller, token\) \? caller\.outbox\.drain\(\) : \[\]/)
+  // index.ts keeps no second COPY of the rule - it may name it in a comment,
+  // but it must neither define it nor call it, because one rule with two
+  // callers is what stopped the guarded-ack / unguarded-take defect recurring
+  assert.doesNotMatch(main, /const currentDocument\s*=/, 'index.ts does not redefine the rule')
+  assert.doesNotMatch(main, /currentDocument\(/, 'and never calls it behind the module back')
+  const take = held.slice(held.indexOf("ipc.handle('desktop:take-pending-events'"))
+  assert.match(take, /currentDocument\(host, record, token\) \? host\.drain\(record\) : \[\]/)
 
   // the token is minted where a document announces itself, and quoted back
-  assert.match(main, /const token = randomUUID\(\)/)
-  assert.match(main, /if \(record\) record\.documentToken = token/)
+  assert.match(held, /const token = randomUUID\(\)/)
+  assert.match(main, /setToken: \(record, token\) => \{ record\.documentToken = token \}/,
+    'the host stores it; the module decides when')
   assert.match(preload, /ipcRenderer\.send\('desktop:events-listening', documentToken\)/)
   assert.match(preload, /ipcRenderer\.invoke\('desktop:take-pending-events', documentToken\)/)
   // ⚠ and it never reaches page script: it is the preload's private evidence

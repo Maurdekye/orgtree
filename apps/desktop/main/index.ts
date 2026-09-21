@@ -12,6 +12,7 @@ import { configureTaskbar } from './taskbar'
 import { allowPrereleaseUpdates, desktopIdentity, readBuildChannel } from './build-channel'
 import { closeAction, HARNESS_LINKS, validateDataRoot } from './policy'
 import { configureArtifactSession, configureEngineSession, configureWindow, popoutRegistry, revealPopout } from './windows'
+import { registerHeldEventChannels } from './held-events'
 import { openOrg, orgWindowRegistry, planRestore, resolveNativeSender } from './org-windows'
 import { windowOutbox, type WindowOutbox } from './window-outbox'
 import { performClose } from './window-close'
@@ -386,20 +387,11 @@ else {
     if (!record || record.window.isDestroyed()) return
     if (record.outbox.offer(event)) record.window.webContents.send('desktop:event', event)
   }
-  /** ⚠ IS THE DOCUMENT THAT SENT THIS THE ONE CURRENTLY SHOWING? Both ways
-   *  of ending the holding ask exactly this, here, so they cannot drift apart
-   *  - which is how one of them came to be guarded and the other not. A token
-   *  is minted per document and quoted back by it; an empty current token
-   *  means no document has announced itself since the last commit, so nothing
-   *  can speak for this window yet. */
-  const currentDocument = (record: MainWindowRecord, token: unknown): boolean =>
-    typeof token === 'string' && !!token && token === record.documentToken
-  /** A listener exists: stop holding and SEND what was waiting. */
-  const deliverHeld = (record: MainWindowRecord) => {
-    for (const event of record.outbox.drain()) {
-      if (!record.window.isDestroyed()) record.window.webContents.send('desktop:event', event)
-    }
-  }
+  /** ⚠ `currentDocument` AND `deliverHeld` LIVE IN main/held-events.ts NOW,
+   *  with the three channels that use them. They are deliberately not
+   *  re-exported: one rule with exactly two callers is what stopped the
+   *  guarded-ack / unguarded-take defect recurring, and a second copy here
+   *  would be the first step back to it. */
   /** App-wide facts only - engine status, preferences, the updater. Anything
    *  naming an organization or a window belongs to sendTo. */
   const broadcastAll = (event: DesktopEvent) => { for (const id of records.keys()) sendTo(id, event) }
@@ -1521,45 +1513,34 @@ else {
     /** This window's own identity. Resolved SYNCHRONOUSLY because the shell
      *  derives its whole view from it and a promise makes the window paint the
      *  wrong one for a frame; the preload asks before it exposes the bridge. */
-    /** ⚠ THE RENDERER HAS A LISTENER NOW. This is the signal the outbox was
-     *  missing: native cannot see an `ipcRenderer.on` registration, so without
-     *  it the only options were to guess how long mounting takes or to hold
-     *  events for ever. Sent by the preload's `onEvent`, so EVERY renderer
-     *  that uses the bridge reports it — including the v2 one, which never
-     *  calls `takePendingWindowEvents`. */
-    // ⚠ THE TOKEN IS THE SECOND CALLBACK ARGUMENT, and that is not a style
-    // choice. `ipcMain.on` delivers what the renderer sent as the listener's
-    // trailing arguments — `(event, ...args)` — and an `IpcMainEvent` has NO
-    // `args` property at all, neither in the typings nor at runtime. Reading
-    // one off the event yields `undefined`, which this handler's own guard
-    // then correctly rejects, so the acknowledgement silently stops
-    // acknowledging and every held event waits for a take that a renderer
-    // using only `onEvent` never makes. Measured against real Electron 44 in
-    // tests/multi-window-native.probe.ts, which sends from a real renderer
-    // and pins both halves: `'args' in event === false`, and the token
-    // arriving second.
-    ipcMain.on('desktop:events-listening', (event, token: unknown) => {
-      try {
-        const entry = resolveNativeSender(event as unknown as Parameters<typeof resolveNativeSender>[0], windows, engine.origin)
-        const record = records.get(entry.id)
-        // ⚠ ONLY THE DOCUMENT CURRENTLY SHOWING MAY END THE HOLDING. A
-        // message from one on its way out would unhold the queue on the
-        // strength of a listener that no longer exists.
-        if (record && currentDocument(record, token)) deliverHeld(record)
-      } catch { /* an untrusted sender is refused exactly as everywhere else */ }
-    })
-    ipcMain.on('desktop:window-identity-sync', event => {
-      try {
-        const entry = resolveNativeSender(event as unknown as Parameters<typeof resolveNativeSender>[0], windows, engine.origin)
-        const record = records.get(entry.id)
-        // ⚠ THE DOCUMENT ANNOUNCES ITSELF HERE, once, and this is where its
-        // token is minted. Every later message it sends quotes it back, which
-        // is what lets a message from a document that has since been replaced
-        // be recognised for what it is rather than guessed at from timing.
-        const token = randomUUID()
-        if (record) record.documentToken = token
-        event.returnValue = { identity: windows.identity(entry.id) ?? null, token }
-      } catch { event.returnValue = { identity: null, token: '' } }
+    /** ⚠ THE THREE CHANNELS THAT DECIDE WHETHER A HELD EVENT IS EVER
+     *  RECEIVED, registered from their own module rather than inline here.
+     *
+     *  They used to be closures in this function, which meant the only way to
+     *  reach them was to boot the whole main process - so the acknowledgement
+     *  handler read the token off a property that does not exist and stayed
+     *  dead through a full review, because every test covering it exercised a
+     *  COPY of its shape. `main/held-events.ts` is the same code this process
+     *  runs, callable by the composition fixture against a real window, the
+     *  real preload and a real renderer.
+     *
+     *  ⚠ `origin` IS A GETTER, not a captured string: the engine's origin
+     *  changes after a boot-engine recovery, and these handlers have always
+     *  read it per call. Freezing it here would silently change validation
+     *  after recovery - the exact class of defect this move must not smuggle
+     *  in. `record`, `drain` and `send` are the live ones this file already
+     *  used; nothing about WHO IS TRUSTED crosses this boundary. */
+    registerHeldEventChannels(ipcMain, {
+      origin: () => engine.origin,
+      registry: windows,
+      record: id => records.get(id),
+      token: record => record.documentToken,
+      setToken: (record, token) => { record.documentToken = token },
+      drain: record => record.outbox.drain(),
+      // the same destroyed-window guard sendTo applies
+      send: (record, event) => {
+        if (!record.window.isDestroyed()) record.window.webContents.send('desktop:event', event)
+      },
     })
     handle('desktop:window-identity', caller => windows.identity(caller.id) ?? null)
     handle('desktop:open-homepage-window', async () => {
@@ -1581,20 +1562,6 @@ else {
       return { action: 'bound', windowId: caller.id, org: decision.org } as OrgOpenOutcome
     })
     handle('desktop:set-unsaved-creation', (caller, dirty) => { windows.setUnsavedCreation(caller.id, dirty === true) })
-    /** ⚠ WHAT ARRIVED BEFORE THE RENDERER COULD LISTEN. A notification click
-     *  or an organization to open can reach a window while its React tree is
-     *  still mounting, and `onEvent` only starts listening when the renderer
-     *  calls it - so those events used to fall into the gap. They are held
-     *  instead, and this is how the renderer collects them. Calling it also
-     *  stops the holding: from here on the window gets its events live. */
-    // ⚠ THE SAME QUESTION AS THE ACKNOWLEDGEMENT ABOVE, ASKED IN THE SAME
-    // PLACE. Both entry points end the holding, so both must establish that
-    // the document asking is the one currently showing - and this one does
-    // more damage when it is wrong, because it carries the queue away as well
-    // as unholding it. Refused for a departing document: the events stay held
-    // and its successor's acknowledgement becomes the delivery.
-    handle('desktop:take-pending-events', (caller, token) =>
-      currentDocument(caller, token) ? caller.outbox.drain() : [])
     /** Which organizations currently hold a window, so a Homepage can say
      *  so before the row is clicked. Read-only and app-wide: the answer is
      *  the same in every window, and it names organizations rather than
