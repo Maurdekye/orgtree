@@ -53,12 +53,18 @@ export type OrgOpenOutcome =
   | { action: 'pending'; org: string }
   | { action: 'refused'; org: string; reason: string }
 
-/** Restoration skipped something that no longer exists. `panels` carries the
- *  popout FRAME NAME — mapping that back to a panel kind is the renderer's
- *  job, since the renderer is what minted the name. */
+/** Restoration skipped something. NATIVE ORIGINATES ONLY THE ORGANIZATIONS.
+ *
+ *  ⚠ `panels` IS ALWAYS EMPTY and is kept only so the payload shape does not
+ *  change under anyone. Contract v2 had native validating panel targets too;
+ *  v3 removed that after multi-window-design pointed out it was a second
+ *  panel store wearing a different hat. The renderer holds the saved open-set
+ *  and is the only side that can resolve a panel's target against the
+ *  organization tree, so the panel half is originated here — see
+ *  `shell/restorenotice.ts`. */
 export interface RestoreSkipped {
   orgs: string[]
-  panels: { org: string; name: string }[]
+  panels: never[]
 }
 
 /** The v3 additions, as optional probes. */

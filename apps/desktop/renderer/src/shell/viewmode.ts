@@ -18,6 +18,21 @@ export type OrgViewMode = 'canvas' | 'attention'
 
 const KEY = 'orgtree-org-view'
 
+/** The change channel, shared with v3-attention-opus's `attention/mode`.
+ *
+ *  ⚠ WITHOUT THIS, TWO WRITERS ON ONE KEY DO NOT SEE EACH OTHER. A `storage`
+ *  event does NOT fire for a write made by the same document, so while both
+ *  modules exist a toggle in this header would move the stored value and the
+ *  other module would go on serving what it had. A plain `window` event is
+ *  the same idiom `orgtree:desk-rename` already uses.
+ *
+ *  ⚠ A PLAIN `Event`, NOT `CustomEvent`. The channel carries no payload, and
+ *  `CustomEvent` is not on the test harness's globals — v3-attention-opus
+ *  measured their first version dispatching nothing at all, with the
+ *  try/catch swallowing it. A signal that silently never fires is worse than
+ *  no signal, because everything downstream still looks wired up. */
+export const ORG_VIEW_EVENT = 'orgtree:org-view'
+
 const readAll = (): Record<string, OrgViewMode> => {
   try {
     const v: unknown = JSON.parse(localStorage.getItem(KEY) ?? '{}')
@@ -36,10 +51,17 @@ export const readOrgViewMode = (org: string | null): OrgViewMode =>
 export function writeOrgViewMode(org: string, mode: OrgViewMode): void {
   try {
     const all = readAll()
-    if (all[org] === mode) return
-    all[org] = mode
+    if ((all[org] ?? 'canvas') === mode) return
+    // ⚠ THE DEFAULT IS STORED AS ABSENCE, not as the string 'canvas'. That is
+    // the other module's invariant and the two must agree, or one of them
+    // reads a row the other deliberately deleted and they disagree about
+    // whether the organization has ever been set at all.
+    if (mode === 'canvas') delete all[org]
+    else all[org] = mode
     localStorage.setItem(KEY, JSON.stringify(all))
   } catch { /* the mode still works for this session */ }
+  // after the write, so a listener that re-reads sees the new value
+  try { window.dispatchEvent(new Event(ORG_VIEW_EVENT)) } catch { /* no DOM */ }
 }
 
 /** The mode for one organization. Canvas is the default and the answer for a
@@ -49,6 +71,17 @@ export function useOrgViewMode(org: string | null): [OrgViewMode, (m: OrgViewMod
   // an organization change re-reads rather than carrying the last one's mode
   // across: the setting belongs to the organization, not to the window
   useEffect(() => { setMode(readOrgViewMode(org)) }, [org])
+  // …and so does somebody else's write, while two modules share the key. The
+  // `storage` event covers other documents; this one covers this one.
+  useEffect(() => {
+    const sync = () => setMode(readOrgViewMode(org))
+    window.addEventListener(ORG_VIEW_EVENT, sync)
+    window.addEventListener('storage', sync)
+    return () => {
+      window.removeEventListener(ORG_VIEW_EVENT, sync)
+      window.removeEventListener('storage', sync)
+    }
+  }, [org])
   const set = useCallback((next: OrgViewMode) => {
     setMode(next)
     if (org) writeOrgViewMode(org, next)

@@ -40,6 +40,8 @@ import { useOrgViewMode } from './shell/viewmode'
 import { openOrgEffect, requestOpenOrg } from './shell/openorg'
 import { identityOrg, identityView } from './shell/identity'
 import { useOpenOrgs } from './shell/openorgs'
+import { readSkippedOrgs, restoreNotice, skippedPanels } from './shell/restorenotice'
+import type { SkippedPanel } from './shell/restorenotice'
 import { nativeWindows } from './desktop'
 import { DefaultsForm } from './shell/defaults'
 // moved out of this file so the v3 shell's compact header and bottom status
@@ -520,6 +522,22 @@ export default function App() {
     setShowAccounts((isModalPinned('app-settings') && readModalOpen(null).some(r => r.kind === 'app-settings')) || restoreWindowKind('app-settings', null))
     setShowDefaults((isModalPinned('defaults') && readModalOpen(null).some(r => r.kind === 'defaults')) || restoreWindowKind('defaults', null))
   }, [])
+  // NATIVE'S HALF of the restoration notice: the saved organization windows
+  // it did not open. It originates nothing else — contract v3 made the panel
+  // list always empty, because the renderer holds the saved open-set and is
+  // the only side that can resolve a panel's target. Held rather than
+  // toasted on arrival so it can be said ONCE, together with this window's
+  // own skipped panels, instead of as two notices about one restoration.
+  const [skippedOrgs, setSkippedOrgs] = useState<string[]>([])
+  const [missedPanels, setMissedPanels] = useState<SkippedPanel[]>([])
+  useEffect(() => {
+    const bridge = desktop()
+    if (!bridge) return
+    return bridge.onEvent((event) => {
+      if ((event.type as string) !== 'restore-skipped') return
+      setSkippedOrgs(readSkippedOrgs(event.data))
+    })
+  }, [])
   const restoredOrg = useRef<string | null>(null)
   useEffect(() => {
     if (!tree || tree.slug !== slug || restoredOrg.current === slug) return
@@ -535,6 +553,12 @@ export default function App() {
     const galleryNode = pinnedGallery?.agent ? flatNodes(tree).get(pinnedGallery.agent) : undefined
     setAgentGalleryId(galleryNode && galleryNode.generation === pinnedGallery?.generation ? galleryNode.id
       : restoredAgent(restoredWindows(slug).find(r => r.kind === 'agent-gallery'), flatNodes(tree)))
+    // THE RENDERER'S HALF is COMPUTED here because this is the first moment
+    // both facts exist: the saved open-set has just been read, and the tree
+    // that resolves its targets has just arrived. It is ANNOUNCED lower down,
+    // where `toast` is in scope — one notice for both halves rather than two
+    // about one restoration.
+    setMissedPanels(skippedPanels(restoredWindows(slug), flatNodes(tree)))
   }, [tree, slug])
   useEffect(() => {
     if (!nativeTarget || !tree || tree.slug !== nativeTarget.org || slug !== nativeTarget.org) return
@@ -576,6 +600,21 @@ export default function App() {
     setToasts((t) => [...t, { id, lines, undo }])
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 12000)
   }, [])
+
+  // ONE NOTICE FOR THE WHOLE RESTORATION, once both halves are known.
+  //
+  // ⚠ `restoreNotice` returns null when nothing was skipped, and that is the
+  // common case by a long way. A restoration notice that appears every launch
+  // is furniture; the point of this one is that seeing it means something
+  // really did not come back.
+  const restoreSaid = useRef(false)
+  useEffect(() => {
+    if (restoreSaid.current) return
+    const notice = restoreNotice(skippedOrgs, missedPanels)
+    if (!notice) return
+    restoreSaid.current = true
+    toast([notice])
+  }, [skippedOrgs, missedPanels, toast])
 
   // the error banner used to have no clearer at all: a transient fetch
   // failure set it and it sat there until F5, even once polling (below)
