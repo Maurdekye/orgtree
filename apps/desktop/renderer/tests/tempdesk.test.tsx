@@ -150,6 +150,50 @@ test('§2b IT KEEPS THE DESK WHILE THE CANVAS RE-RENDERS UNDER IT',
     assert.equal(borrowed(view.el), false, 'the desk did not come back')
   })
 
+test('§2c THE DESK IS MOVED, NOT REMOUNTED — so a half-typed draft survives',
+  async (t: TestContext) => {
+    // ⚠ THE PROPERTY EVERYTHING ELSE RESTS ON, and the one I promised to prove
+    // rather than assert in a comment. `DeskHost` renders exactly one
+    // `OwnedDeskChat` per agent and a borrow changes only which anchor it is
+    // placed into, so the React element is never unmounted and its DOM node is
+    // MOVED (appendChild relocates a node, it does not clone it). If that ever
+    // became a remount, the user's unsent message would vanish when they
+    // glanced at the desk — silently, and only for people mid-sentence.
+    setup()
+    const n = agent('theta')
+    const view = await mountView(scene(n, false), (el) => el)
+    t.after(() => view.unmount())
+    await flush()
+    const box = document.querySelector('textarea') as HTMLTextAreaElement | null
+    assert.ok(box, 'the desk rendered no composer to type into')
+    // identity of a live node inside the desk, captured before the borrow
+    const before = box!
+    // the composer is CONTROLLED, so the value has to go in through the native
+    // setter or React's own state never hears about it and re-renders the box
+    // back to empty — which is what my first version of this test measured
+    // (deskhistory.test.tsx uses the same idiom for the same reason)
+    await inAct(() => {
+      Object.getOwnPropertyDescriptor(W.HTMLTextAreaElement.prototype, 'value')!
+        .set!.call(before, 'half a sentence')
+      before.dispatchEvent(new W.Event('input', { bubbles: true }))
+    })
+    await flush()
+    await view.render(scene(n, true))
+    await flush()
+    const during = document.querySelector('textarea') as HTMLTextAreaElement | null
+    assert.ok(during, 'the borrowed desk has no composer')
+    assert.equal(during, before,
+      'the composer is a DIFFERENT element inside the modal — the desk was '
+      + 'remounted rather than moved, so anything unsent is gone')
+    assert.equal(during!.value, 'half a sentence', 'the draft did not survive the borrow')
+    await view.render(scene(n, false))
+    await flush()
+    const after = document.querySelector('textarea') as HTMLTextAreaElement | null
+    assert.equal(after, before, 'the desk was remounted on the way back')
+    assert.equal(after!.value, 'half a sentence',
+      'the draft did not survive the return')
+  })
+
 test('§3 Escape dismisses it, through the shared escape stack',
   async (t: TestContext) => {
     setup()

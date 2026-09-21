@@ -28,3 +28,4 @@ acl-fixtures-*/
 
 # probe roots: isolated Electron output (bundle, redirected app data, result.json)
 .probe-canvashide/
+.probe-tempdesk/
