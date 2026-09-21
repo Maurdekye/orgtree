@@ -6,12 +6,21 @@
 // silently corrected them three seconds later, because the poll it started on
 // open was a bare `setInterval` whose first call is one period away.
 //
-// Three properties are asserted here and each one is a separate half of the
-// fix: (1) opening asks AT ONCE, (2) rows taken before the open are never
-// presented as current status, (3) the row markup says which of loading /
-// stale / current it is showing. The fourth — that one request covers every
-// organization, so there is no serial per-org rollout — is a property of the
-// single `/api/orgs` call and is pinned at its source below.
+// The properties asserted here: (1) opening asks AT ONCE, (2) rows taken
+// before the open are never presented as current status, (3) the row markup
+// says which of loading / stale / current it is showing, (4) the renderer asks
+// once for the whole list rather than fanning out per organization, (5) the
+// two races a later source inspection named — a request already in flight when
+// the list opens, and an older completion landing after a newer one.
+//
+// ⚠ WHAT THESE DO NOT CLAIM. data-arch-astra verified in source (2026-09-21)
+// that `GET /api/orgs` is fresh per returned observation but is NOT an atomic
+// cross-organization snapshot: the documents are read serially and each
+// `working_count` takes its lock separately, `_scan_orgs` silently skips
+// failures, and a successful response carries no completeness marker. So
+// nothing below asserts that the list is complete or internally consistent,
+// because the renderer has no way to know that and no token to ask for it.
+// What it asserts is that the renderer never claims more than it was given.
 //
 // Run:  node apps/desktop/renderer/tests/run.mjs orgfreshness
 import { advance, flush, inAct, mountView, realClock, useFakeClock } from './harness'
@@ -237,4 +246,68 @@ test('the leading-call-less interval is gone from App', () => {
     'the bare interval whose first call was one period away must not come back')
   assert.match(app, /useOrgStatus\(\{ active: orgListOpen/,
     'App drives the one poller off whether the list is on screen')
+})
+
+// ------------------------------------- §5 the two races the source inspection named
+//
+// data-arch-astra verified in source (2026-09-21) that `GET /api/orgs` is
+// fresh per returned observation but is NOT an atomic cross-organization
+// snapshot: the documents are read serially and each `working_count` takes its
+// lock separately, so the two halves have different sample times and there is
+// no coverage token to ask for. Two consequences land squarely on the
+// renderer, and both are asserted here.
+
+test('a request ALREADY IN FLIGHT when the list opens does not count as the answer', async (t) => {
+  // it describes the world BEFORE the reader asked to see the world now
+  const issued: number[] = []
+  const pending: ((rows: OrgListEntry[]) => void)[] = []
+  const view = await probe(t, () => {
+    issued.push(Date.now())
+    return new Promise<OrgListEntry[]>((resolve) => { pending.push(resolve) })
+  })
+  await inAct(async () => { await flush() })
+  assert.equal(issued.length, 1, 'the mount read is in flight')
+
+  await advance(30_000)
+  await inAct(async () => { (view.el.querySelector('.open') as HTMLElement).click() })
+  assert.equal(issued.length, 2, 'opening issues its own read')
+
+  // the PRE-OPEN one comes back first, describing the old world
+  await inAct(async () => { pending[0]!([entry('a', { working: 9, live: 9 })]); await flush() })
+  assert.equal(view.last().freshness, 'loading',
+    'a pre-open completion is not the post-open answer, however recently it landed')
+
+  await inAct(async () => { pending[1]!([entry('a', { working: 1, live: 9 })]); await flush() })
+  assert.equal(view.last().freshness, 'current', 'and the post-open one is')
+})
+
+test('an older completion landing last does not pull the visible rows backwards', async (t) => {
+  const pending: ((rows: OrgListEntry[]) => void)[] = []
+  const view = await probe(t, () => new Promise<OrgListEntry[]>((resolve) => { pending.push(resolve) }), true)
+  await inAct(async () => { await flush() })
+  // two polls in flight, the second issued later
+  await advance(ORG_POLL_MS + 50)
+  assert.ok(pending.length >= 2, 'a second read was issued')
+  // the NEWER one settles first…
+  await inAct(async () => { pending[1]!([entry('new')]); await flush() })
+  assert.equal(view.last().rows, 'new')
+  // …and the older one settles after it, and is discarded
+  await inAct(async () => { pending[0]!([entry('old')]); await flush() })
+  assert.equal(view.last().rows, 'new',
+    'an out-of-order response is rejected rather than overwriting a newer observation')
+  assert.equal(view.last().freshness, 'current')
+})
+
+test('an organization that reports no working count is never rendered as zero', async (t) => {
+  // a public/kiosk listing omits `working` deliberately; absence is unknown,
+  // not idle, and the source inspection called that out explicitly
+  const el = await rows(t, 'current')
+  assert.equal(el.querySelector('.org-counts')!.textContent, '3/5')
+  const view = await mountView(
+    <OrgRows slug={null} onPick={() => {}} onDelete={() => {}}
+      orgs={[entry('public-row', { name: 'Public', live: 4 })]} />,
+    (e) => e)
+  t.after(async () => { await view.unmount() })
+  assert.equal(view.el.querySelector('.org-counts')!.textContent, '4',
+    'the hired count alone — an invented 0/4 would claim an idleness nobody reported')
 })
