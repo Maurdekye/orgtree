@@ -7,6 +7,7 @@ import type { ReplyContext } from '../eventReply'
 import { ReplyPreview, ReplySourceProvider } from './replypreview'
 import { indexReplySources, ReplySourceContent } from './replysource'
 import { copyToClipboard, useContextMenu } from './contextmenu'
+import { EFFORT_LEVELS, EffortLevelBadge } from './effort'
 import { foldKeysOf, FoldProvider, sysFoldKey, thoughtFoldKey, toolFoldKey, useFold, useFoldState } from './foldstate'
 import { useChangedState } from '../changedstate'
 import { messageCopyText, toolCallCopyText, toolResultCopyText } from './copytext'
@@ -1584,6 +1585,34 @@ export interface DeskChatProps {
   /** the org's px-per-credit (orgPxc) — the ask bar's scale */
   pxc?: number
   pub: boolean
+  /** IS THIS SLOT'S DESTINATION ON SCREEN AND REACHABLE RIGHT NOW? Default
+   *  true, so every existing call site is unaffected.
+   *
+   *  ⚠ IT IS ABOUT THIS DESTINATION, NEVER ABOUT WHICH ORG VIEW IS SELECTED.
+   *  A pinned window is eligible whatever view the org is in — it is
+   *  screen-space and survives the switch — while a canvas card behind a
+   *  presented Attention stage is not. The field was nearly named `active`,
+   *  which invited the wrong implementation: read the org mode, mark every
+   *  canvas slot inactive, and the still-visible pinned desk goes with it.
+   *
+   *  Only the desk REGISTRY reads it (deskhosts.tsx `pick`), to decide which
+   *  slot owns the one live desk. It draws nothing. */
+  eligible?: boolean
+  /** IS THIS REGISTRATION A VIEW MOUNTING, rather than the user asking for
+   *  this desk here? Absent means an ordinary claim, which competes exactly as
+   *  every claim does today.
+   *
+   *  ⚠ ONLY THE ATTENTION STAGE SETS THIS, and only while it IS the presented
+   *  stage: pinned or popped out, the user placed that panel, so it claims
+   *  normally. It exists so a view that merely mounted cannot take a desk away
+   *  from a destination the user can currently see, WITHOUT rewriting pin
+   *  ownership in general — the user ruled on the Attention view, not on that
+   *  (multi-window-design, 2026-09-21). An earlier design carried the fact on
+   *  the destination instead ("the user placed this") and changed behaviour for
+   *  an agent that is pinned and also open in an eye panel; the proposed patch
+   *  of labelling the eye panel placed was refused, correctly, for making the
+   *  field mean something false. */
+  claim?: 'automatic'
   bare?: boolean
   compact?: boolean
   compactAt?: number
@@ -3207,6 +3236,15 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
             on a provider where more than one account is signed in. The desk
             is never far-zoom, so there is no exclusion to apply here. */}
         <ServingAccountBadge account={node.serving_account} />
+        {/* NON-DEFAULT THINKING EFFORT (docket
+            `show-non-default-effort-level-on-agent-headers`), in the same
+            metadata row as the MCP, cache-readiness, cost and account cards,
+            and mounted as the SAME component the canvas card mounts — one
+            source of truth for the level, the wording and the appear rule.
+            The composer's effort CONTROL below is untouched: this is a sign
+            saying the agent is not at the ordinary default, not a second
+            place to change it. */}
+        <EffortLevelBadge node={node} />
         </div>
       </div>
       {/* F-01: superior chip at the TOP. For a top-level agent the superior is
@@ -4627,7 +4665,10 @@ function SysLine({ m }: { m: ChatMessage }) {
 // the active dot to clear back to the CLI default. The permission-mode half
 // of Claude Code's bar is deliberately absent: org permissions decide what
 // agents can do.
-const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max']
+//
+// The level list itself now lives in `./effort`, which is also what the
+// non-default effort header card reads — so the control and the card can
+// never offer or describe different levels.
 
 // `effective` is what the next turn WILL run at, resolved server-side by
 // Org.effective_effort — the same call that builds the --effort flag, so the

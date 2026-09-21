@@ -2578,7 +2578,7 @@
       "status": "unresolved",
       "facts": [
         "Normal diagnostic leaves do not intentionally send mail, wake/launch a process, inspect a transcript or change provider/account credentials. available_tools only evaluates deployment environment and transforms local card definitions.",
-        "Transitive storage acquisition can encounter migration/recovery guards before the nominal read. Request profiling and in-memory caching are separate effects. The tests prohibit provider process/network and domain-save paths only within their declared disposable measured window."
+        "Transitive storage acquisition can encounter migration/recovery guards before the nominal read. Request profiling and in-memory caching are separate effects. The measured diagnostic fixture directly blocks process launches, domain saves and transcript reads. Provider-network absence is source-inspection evidence, not a universal executable network prohibition."
       ],
       "source_refs": [
         {
@@ -2747,6 +2747,826 @@
       ],
       "open_questions": [
         "Implement the approved P02 complete contact/profile/loss/drift instrumentation and native negative controls; runtime_census and conversion_authorized remain false."
+      ]
+    },
+    "preview.authority": {
+      "dimension": "authority",
+      "status": "specified",
+      "facts": [
+        "This contract covers the authenticated orgtree_preview tool only. Existing agent authentication/generation/halt admission still runs; its separate leaf load requires the caller live. The actor is the authenticated seat, never a nested actor argument. The operator /ops preview surface is explicitly separate and remains a pending registration.",
+        "The public agent allowlist has thirteen spellings, including three pairs of aliases. One leading orgtree_ prefix is removed, with no case folding or whitespace trim. Agent move batches use operation=move with moves; the helper-only move_batch spelling and operator-only delete/rescind/reseed/promote/demote remain refused at this door.",
+        "The detached Org executes the ordinary ledger authority checks: management reach, self restrictions, grant ceilings, topology and capability checks are not bypassed by preview. Structural visibility is not management authority. The matrix exercises each admitted spelling and selected refusals; this does not claim all underlying transition predicates are fully specified.",
+        "Retool/set_scope account selection is checked before the shadow: never self, descendants only, validate_selection against the current target model. Directory translation also occurs before cloning. Switch previews run provider_hire_gate, check_switch_account and a live supervisor busy lookup before the ledger simulation. Those are real read/preflight adapters, not guaranteed pure in-memory calls.",
+        "The ordinary operator preview path has its own allowlist and DOC_LOCK scope; it does not expose agent-only topology operations. Selected HTTP authentication/refusal tests keep these surfaces distinct, without declaring the entire operator route covered."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9331,
+          "end": 9354,
+          "sha256": "114f6530ccf48f0b2e4e78d6445246aef29e1f2a8b87eb1786e7248c9e6081e8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9521,
+          "end": 9526,
+          "sha256": "efc514c65b779ec7735cc6818d3fb872af41e3d81349a6494cb598aeeb6086c1"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10730,
+          "end": 10815,
+          "sha256": "935ffa00b2fd10edde1cd94ed91cbe066114ae706fdc1d4b8f059b7b3ba1a608"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10874,
+          "end": 10948,
+          "sha256": "5a138c4364228c1d5c619f0ade3d772b7dff1318cc6b05cfe1dca3ea299732d3"
+        },
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 158,
+          "end": 295,
+          "sha256": "d01f4177250e5e29894b5d0e8b773006d385be13be540490c4fa8f9346a43fe5"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 3898,
+          "end": 3946,
+          "sha256": "26d6dd756580ad0809282ed9b44cca01b0421dc8da22cfb30e9513c8a2752f70"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4562,
+          "end": 4594,
+          "sha256": "bd353447776562fc7ba08f408584d797b7a71a1141efe593b40e52afd29e2f6e"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4693,
+          "end": 4803,
+          "sha256": "bfbd5a531a2db9e7f0ccff7a51a261327eb8c566707c8c59247805c70eb2fc73"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 5061,
+          "end": 5122,
+          "sha256": "5030dc00ceef9febd1f5d286c0bd147ff1bbe2375df7c05b4476cbe4cb24f779"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 5178,
+          "end": 5200,
+          "sha256": "0e742920bd3f2de7ca5f67dd454e3fd8216eade7b5a988f3151e090736d2489c"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 5424,
+          "end": 5490,
+          "sha256": "c969cbc1055f018f76236e8b4e217c5f799cfe04f932f6225ebe35bf79eda82a"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 5679,
+          "end": 5736,
+          "sha256": "506d4313147f6449b8e9c6d81b7bb9ddfd8d5fb5545727fc123f1697f5765df5"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 6189,
+          "end": 6201,
+          "sha256": "4b10a4c0404fc6ed58c0c1842ff5dc75d3fe462c2b7b67647ea4547aa58b222b"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 6508,
+          "end": 6619,
+          "sha256": "74b4d77644204da3969d19e0ba68edb53b008d2fb7a9afbe84a6be2418affb54"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 3034,
+          "end": 3120,
+          "sha256": "0abb333e9dccc371e6de41b9697150b31473ca769eb76edf945e6d6766b810cd"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 3251,
+          "end": 3308,
+          "sha256": "fb49f96b580d3beceb7189acf9a9697257f5ace495c88c1ea410533f8f06c545"
+        },
+        {
+          "path": "engine/backend/orgtree/registry.py",
+          "start": 449,
+          "end": 523,
+          "sha256": "ffbce217d99a76280af8ab02060fa7acdaf5ef1203b9328ffb9271a35e35ef6f"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 13153,
+          "end": 13176,
+          "sha256": "f3dca4713beedcb31f23aee07a672efedd5005b9d02af2b92ab6916a714b01ff"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 32758,
+          "end": 32791,
+          "sha256": "3432755af3bbb402340a60d92c5d73ce3e4501c6264dd99bd84647e773f6a2af"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13699,
+          "end": 13891,
+          "sha256": "a1c4e8c189fcd8955c8a10f982e5b4c1e1f74c78657e758a4f03e679fd9382e4"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13895,
+          "end": 13942,
+          "sha256": "e6c804499f98f1eed5c81542b32942dac2b2ad5db28f2a494b58f9af85784e50"
+        }
+      ],
+      "open_questions": []
+    },
+    "preview.receipt": {
+      "dimension": "receipt",
+      "status": "specified",
+      "facts": [
+        "Legacy orgtree_preview is absent from the receipt coverage table: coverage is empty unknown, not explicit NONE. Its early branch returns before receipt admission or save. Syntactically accepted receipt wrappers therefore simulate freshly; a supported-wrapper lookup for this tool reports unknown/unsupported and cannot fence the key.",
+        "A preview response applied:false is a simulation result, not a durable acceptance, reservation or future execution token. Repeating it after a real state change recomputes from current loaded state; it neither reserves credit nor executes the future operation."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9331,
+          "end": 9354,
+          "sha256": "114f6530ccf48f0b2e4e78d6445246aef29e1f2a8b87eb1786e7248c9e6081e8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9521,
+          "end": 9526,
+          "sha256": "efc514c65b779ec7735cc6818d3fb872af41e3d81349a6494cb598aeeb6086c1"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10730,
+          "end": 10815,
+          "sha256": "935ffa00b2fd10edde1cd94ed91cbe066114ae706fdc1d4b8f059b7b3ba1a608"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10874,
+          "end": 10948,
+          "sha256": "5a138c4364228c1d5c619f0ade3d772b7dff1318cc6b05cfe1dca3ea299732d3"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10488,
+          "end": 10551,
+          "sha256": "ad5d186c5a0805f3d3664618b628f5bf1f3bbdc3491e4ff37245e46954051983"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10582,
+          "end": 10692,
+          "sha256": "53e1cb9657b429c67fc83d7beba1dbb5eccce8684eaea78fe67c3356caa914f6"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 143,
+          "end": 213,
+          "sha256": "c2bcfb355066e92dd0c9ff38a3322e5d4af25d62c56b3163679babe16ce6bdf2"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 237,
+          "end": 266,
+          "sha256": "07cb03836a1fe1f525901429ab4b4d6bc142f711edf44df9fc1013ac1abaca2d"
+        }
+      ],
+      "open_questions": []
+    },
+    "preview.reads": {
+      "dimension": "reads",
+      "status": "unresolved",
+      "facts": [
+        "inspect_state projects before and after visibility over nodes and funding dependencies. isolated() JSON-serializes the entire Org document before constructing the shadow. On a LazyDoc this traverses items()/materialize_all and owner maps, so a narrow preview can read unrelated retained mail/history as well as every eager node.",
+        "The source-bound fixture observes actual pooled SQLite acquisitions and selected lazy-section materialization labels on disposable, already-migrated data. It retains no SQL values or payloads. Whole-document traversal and hidden sections are source/fixture evidence, not a measured clone-byte budget or a proposed native read strategy.",
+        "The eager SQLite snapshot does not make all separately loaded lazy sections or provider/registry/runtime observations one consistent transaction. Before projection and the isolated clone are sequential reads; pending native snapshot and output-fence requirements remain."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9331,
+          "end": 9354,
+          "sha256": "114f6530ccf48f0b2e4e78d6445246aef29e1f2a8b87eb1786e7248c9e6081e8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9521,
+          "end": 9526,
+          "sha256": "efc514c65b779ec7735cc6818d3fb872af41e3d81349a6494cb598aeeb6086c1"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10730,
+          "end": 10815,
+          "sha256": "935ffa00b2fd10edde1cd94ed91cbe066114ae706fdc1d4b8f059b7b3ba1a608"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10874,
+          "end": 10948,
+          "sha256": "5a138c4364228c1d5c619f0ade3d772b7dff1318cc6b05cfe1dca3ea299732d3"
+        },
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 158,
+          "end": 295,
+          "sha256": "d01f4177250e5e29894b5d0e8b773006d385be13be540490c4fa8f9346a43fe5"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 2010,
+          "end": 2018,
+          "sha256": "232754ad56fbfd90d245115cfb5f68bca50a3a868939e7a4ea4b63b63fe90519"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 2165,
+          "end": 2181,
+          "sha256": "cbe7adc655eb9f16170b6318a6689a2277900cd39dd9c332ac5172226905f02e"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 2298,
+          "end": 2438,
+          "sha256": "35327778929aaa88a38d0313a12442924ce30462890e98fce7505411f7e8df34"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 3363,
+          "end": 3387,
+          "sha256": "c1423ff474848d1560b30b7cea08dbe74c673bf9be1f17c34231e573999b938d"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 3624,
+          "end": 3651,
+          "sha256": "4479a7d4394686e560f8accf0d041376562d56fb58e185b5c32617e8720dcfd2"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 4027,
+          "end": 4112,
+          "sha256": "8eeb86385ab4b17f5ef57bd1c2cf69ada99eeaac8b2409ea9303c87adc24b71a"
+        },
+        {
+          "path": "engine/backend/orgtree/registry.py",
+          "start": 449,
+          "end": 523,
+          "sha256": "ffbce217d99a76280af8ab02060fa7acdaf5ef1203b9328ffb9271a35e35ef6f"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 13153,
+          "end": 13176,
+          "sha256": "f3dca4713beedcb31f23aee07a672efedd5005b9d02af2b92ab6916a714b01ff"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 32758,
+          "end": 32791,
+          "sha256": "3432755af3bbb402340a60d92c5d73ce3e4501c6264dd99bd84647e773f6a2af"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13699,
+          "end": 13891,
+          "sha256": "a1c4e8c189fcd8955c8a10f982e5b4c1e1f74c78657e758a4f03e679fd9382e4"
+        }
+      ],
+      "open_questions": [
+        "Complete transitive provider/settings/registry, cold storage and underlying ledger read sets for every preview variant; replace whole-document cloning with bounded native query/simulation semantics under the approved design."
+      ]
+    },
+    "preview.writes": {
+      "dimension": "writes",
+      "status": "unresolved",
+      "facts": [
+        "The leaf calls ordinary mutators on a JSON-detached Org, then drops it. Domain changes, queued model records, event logs, mail, audiences and warnings generated in that shadow are not persisted by the preview branch. Real HTTP fixtures compare whole disposable stored documents before/after successful and refused previews.",
+        "During the measured reallocation-preview call, the fixture directly blocks save_org, subprocess.Popen and supervisor.read_chat. Provider admission is stubbed throughout the HTTP fixture. These are scoped assertions, not a proof about every imported helper, network path or cold/migration path.",
+        "The preceding load_org can encounter migration/recovery and the preflight adapters can touch caches/settings/registry. Consequently domain_mode=read names the source-domain intention, not a universal physically read-only SQL/filesystem transaction."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9331,
+          "end": 9354,
+          "sha256": "114f6530ccf48f0b2e4e78d6445246aef29e1f2a8b87eb1786e7248c9e6081e8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9521,
+          "end": 9526,
+          "sha256": "efc514c65b779ec7735cc6818d3fb872af41e3d81349a6494cb598aeeb6086c1"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10730,
+          "end": 10815,
+          "sha256": "935ffa00b2fd10edde1cd94ed91cbe066114ae706fdc1d4b8f059b7b3ba1a608"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10874,
+          "end": 10948,
+          "sha256": "5a138c4364228c1d5c619f0ade3d772b7dff1318cc6b05cfe1dca3ea299732d3"
+        },
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 158,
+          "end": 295,
+          "sha256": "d01f4177250e5e29894b5d0e8b773006d385be13be540490c4fa8f9346a43fe5"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 2010,
+          "end": 2018,
+          "sha256": "232754ad56fbfd90d245115cfb5f68bca50a3a868939e7a4ea4b63b63fe90519"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 2165,
+          "end": 2181,
+          "sha256": "cbe7adc655eb9f16170b6318a6689a2277900cd39dd9c332ac5172226905f02e"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 2298,
+          "end": 2438,
+          "sha256": "35327778929aaa88a38d0313a12442924ce30462890e98fce7505411f7e8df34"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 3363,
+          "end": 3387,
+          "sha256": "c1423ff474848d1560b30b7cea08dbe74c673bf9be1f17c34231e573999b938d"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 3624,
+          "end": 3651,
+          "sha256": "4479a7d4394686e560f8accf0d041376562d56fb58e185b5c32617e8720dcfd2"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 4027,
+          "end": 4112,
+          "sha256": "8eeb86385ab4b17f5ef57bd1c2cf69ada99eeaac8b2409ea9303c87adc24b71a"
+        },
+        {
+          "path": "engine/backend/orgtree/registry.py",
+          "start": 449,
+          "end": 523,
+          "sha256": "ffbce217d99a76280af8ab02060fa7acdaf5ef1203b9328ffb9271a35e35ef6f"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 13153,
+          "end": 13176,
+          "sha256": "f3dca4713beedcb31f23aee07a672efedd5005b9d02af2b92ab6916a714b01ff"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 32758,
+          "end": 32791,
+          "sha256": "3432755af3bbb402340a60d92c5d73ce3e4501c6264dd99bd84647e773f6a2af"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13699,
+          "end": 13891,
+          "sha256": "a1c4e8c189fcd8955c8a10f982e5b4c1e1f74c78657e758a4f03e679fd9382e4"
+        }
+      ],
+      "open_questions": [
+        "Inventory all transitive cold/migration/probe/cache writes and full underlying mutator effects before physical-contact or native write closure."
+      ]
+    },
+    "preview.predicates": {
+      "dimension": "predicates",
+      "status": "unresolved",
+      "facts": [
+        "The outer allowlist/actor/scope and the current target hierarchy, live state, credit holdings, capability ceilings and account/provider compatibility determine whether the shadow operation is admitted. Changes in those facts after preview can change real execution; no claim or reservation is created.",
+        "Selected fixtures cover fractional grant rounding, lack of funds, cross-target authority, move-batch rollback, self-retirement with reports, scope escalation, audience actions and busy/durable-inflight switch queuing. These do not close the per-operation native invariant matrix.",
+        "Retool validates account against CURRENT model and does not call assign_account in its shadow. This differs from the landed rebind writer with its effective queued destination and account mutation. Switch simulation calls the ledger but does not finish supervisor account/session binding."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9331,
+          "end": 9354,
+          "sha256": "114f6530ccf48f0b2e4e78d6445246aef29e1f2a8b87eb1786e7248c9e6081e8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9521,
+          "end": 9526,
+          "sha256": "efc514c65b779ec7735cc6818d3fb872af41e3d81349a6494cb598aeeb6086c1"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10730,
+          "end": 10815,
+          "sha256": "935ffa00b2fd10edde1cd94ed91cbe066114ae706fdc1d4b8f059b7b3ba1a608"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10874,
+          "end": 10948,
+          "sha256": "5a138c4364228c1d5c619f0ade3d772b7dff1318cc6b05cfe1dca3ea299732d3"
+        },
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 158,
+          "end": 295,
+          "sha256": "d01f4177250e5e29894b5d0e8b773006d385be13be540490c4fa8f9346a43fe5"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 3898,
+          "end": 3946,
+          "sha256": "26d6dd756580ad0809282ed9b44cca01b0421dc8da22cfb30e9513c8a2752f70"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4562,
+          "end": 4594,
+          "sha256": "bd353447776562fc7ba08f408584d797b7a71a1141efe593b40e52afd29e2f6e"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4693,
+          "end": 4803,
+          "sha256": "bfbd5a531a2db9e7f0ccff7a51a261327eb8c566707c8c59247805c70eb2fc73"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 5061,
+          "end": 5122,
+          "sha256": "5030dc00ceef9febd1f5d286c0bd147ff1bbe2375df7c05b4476cbe4cb24f779"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 5178,
+          "end": 5200,
+          "sha256": "0e742920bd3f2de7ca5f67dd454e3fd8216eade7b5a988f3151e090736d2489c"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 5424,
+          "end": 5490,
+          "sha256": "c969cbc1055f018f76236e8b4e217c5f799cfe04f932f6225ebe35bf79eda82a"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 5679,
+          "end": 5736,
+          "sha256": "506d4313147f6449b8e9c6d81b7bb9ddfd8d5fb5545727fc123f1697f5765df5"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 6189,
+          "end": 6201,
+          "sha256": "4b10a4c0404fc6ed58c0c1842ff5dc75d3fe462c2b7b67647ea4547aa58b222b"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 6508,
+          "end": 6619,
+          "sha256": "74b4d77644204da3969d19e0ba68edb53b008d2fb7a9afbe84a6be2418affb54"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 3034,
+          "end": 3120,
+          "sha256": "0abb333e9dccc371e6de41b9697150b31473ca769eb76edf945e6d6766b810cd"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 3251,
+          "end": 3308,
+          "sha256": "fb49f96b580d3beceb7189acf9a9697257f5ace495c88c1ea410533f8f06c545"
+        },
+        {
+          "path": "engine/backend/orgtree/registry.py",
+          "start": 449,
+          "end": 523,
+          "sha256": "ffbce217d99a76280af8ab02060fa7acdaf5ef1203b9328ffb9271a35e35ef6f"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 13153,
+          "end": 13176,
+          "sha256": "f3dca4713beedcb31f23aee07a672efedd5005b9d02af2b92ab6916a714b01ff"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 32758,
+          "end": 32791,
+          "sha256": "3432755af3bbb402340a60d92c5d73ce3e4501c6264dd99bd84647e773f6a2af"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13699,
+          "end": 13891,
+          "sha256": "a1c4e8c189fcd8955c8a10f982e5b4c1e1f74c78657e758a4f03e679fd9382e4"
+        }
+      ],
+      "open_questions": [
+        "Specify the full native invariant read/write/predicate conflict sets for each underlying transition and resolve the documented preview-versus-real account/session differences before native parity acceptance."
+      ]
+    },
+    "preview.conflicts": {
+      "dimension": "conflicts",
+      "status": "unresolved",
+      "facts": [
+        "The agent leaf takes no DOC_LOCK around the entire simulation and owns no committed domain transaction. It must never be counted as native multi-owner atomic execution. Before/after are snapshots of a hypothetical transformation, not a lock over the affected real agents.",
+        "The operator preview currently holds DOC_LOCK while loading, probing and simulating. The pending operator route and native design must replace this shared serialization with explicit scoped reads; this package adds no lock or native execution.",
+        "Current generation/disclosure fences do not extend through the whole agent output. The earlier diagnostic gaps also apply to preview projections; pure detachment alone is not authorization-race protection."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9331,
+          "end": 9354,
+          "sha256": "114f6530ccf48f0b2e4e78d6445246aef29e1f2a8b87eb1786e7248c9e6081e8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9521,
+          "end": 9526,
+          "sha256": "efc514c65b779ec7735cc6818d3fb872af41e3d81349a6494cb598aeeb6086c1"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10730,
+          "end": 10815,
+          "sha256": "935ffa00b2fd10edde1cd94ed91cbe066114ae706fdc1d4b8f059b7b3ba1a608"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10874,
+          "end": 10948,
+          "sha256": "5a138c4364228c1d5c619f0ade3d772b7dff1318cc6b05cfe1dca3ea299732d3"
+        },
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 158,
+          "end": 295,
+          "sha256": "d01f4177250e5e29894b5d0e8b773006d385be13be540490c4fa8f9346a43fe5"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 2010,
+          "end": 2018,
+          "sha256": "232754ad56fbfd90d245115cfb5f68bca50a3a868939e7a4ea4b63b63fe90519"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 2165,
+          "end": 2181,
+          "sha256": "cbe7adc655eb9f16170b6318a6689a2277900cd39dd9c332ac5172226905f02e"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 2298,
+          "end": 2438,
+          "sha256": "35327778929aaa88a38d0313a12442924ce30462890e98fce7505411f7e8df34"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 3363,
+          "end": 3387,
+          "sha256": "c1423ff474848d1560b30b7cea08dbe74c673bf9be1f17c34231e573999b938d"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 3624,
+          "end": 3651,
+          "sha256": "4479a7d4394686e560f8accf0d041376562d56fb58e185b5c32617e8720dcfd2"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 4027,
+          "end": 4112,
+          "sha256": "8eeb86385ab4b17f5ef57bd1c2cf69ada99eeaac8b2409ea9303c87adc24b71a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13895,
+          "end": 13942,
+          "sha256": "e6c804499f98f1eed5c81542b32942dac2b2ad5db28f2a494b58f9af85784e50"
+        }
+      ],
+      "open_questions": [
+        "Define and qualify native consistent simulation reads, indexed predicates, current-output fences and independent progress without global locks."
+      ]
+    },
+    "preview.wire": {
+      "dimension": "wire",
+      "status": "unresolved",
+      "facts": [
+        "The fixture pins exactly operation/applied/result/before/after/changes at the top level; warnings live inside result when the ledger returns them. Before/after use structural inspection fields; changes are positional recursive paths rather than semantic node-ID patches.",
+        "The public agent default include_archived is True, evaluated with plain bool; a nonempty string such as false is truthy and explicit null is false. This intentionally records the legacy mismatch with state inspection string-aware flags and the pure helper default False.",
+        "Falsy nested args become an empty object before type checking; truthy non-dicts refuse. Nested text fields use _norm_args. Unknown retool fields are ignored by its whitelist, including account after prevalidation; nested actor does not change the caller.",
+        "Result sanitization removes a fixed case-insensitive set of private KEY names recursively and truncates list/tuple results to200. It is not value-sensitive redaction or a total byte limit; arbitrary strings and unlisted key names remain. Before/after node lists and diff length are not capped at200.",
+        "Selected malformed numeric inputs reach legacy 500 errors. The isolated simulation may otherwise report success without a visible diff (for example hidden charter/directory/account state). Neither result shape nor empty diff proves no hypothetical change."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9331,
+          "end": 9354,
+          "sha256": "114f6530ccf48f0b2e4e78d6445246aef29e1f2a8b87eb1786e7248c9e6081e8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9521,
+          "end": 9526,
+          "sha256": "efc514c65b779ec7735cc6818d3fb872af41e3d81349a6494cb598aeeb6086c1"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10730,
+          "end": 10815,
+          "sha256": "935ffa00b2fd10edde1cd94ed91cbe066114ae706fdc1d4b8f059b7b3ba1a608"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10874,
+          "end": 10948,
+          "sha256": "5a138c4364228c1d5c619f0ade3d772b7dff1318cc6b05cfe1dca3ea299732d3"
+        },
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 158,
+          "end": 295,
+          "sha256": "d01f4177250e5e29894b5d0e8b773006d385be13be540490c4fa8f9346a43fe5"
+        }
+      ],
+      "open_questions": [
+        "Complete all malformed-input, middleware/operator, account/session and Rust/native result parity, including bounded output and deliberate handling of current gaps."
+      ]
+    },
+    "preview.effects": {
+      "dimension": "effects",
+      "status": "unresolved",
+      "facts": [
+        "Shadow event/mail/audience mutations and returned drive hints are simulated data; the agent preview branch does not run the later save/wake/interrupt paths. Tests observe generated shadow mail yet prove its absence from the persisted org.",
+        "Provider hire admission is deliberately re-run for switch previews and may inspect installation/auth or refresh provider evidence; supplied non-primary accounts consult the registry, and directory translation reads sandbox context. The broad tool-card no-external-effects wording is not treated as a proof that these adapters are free of all effects.",
+        "Provider-gate outcomes are deterministic seams in these tests; native provider processes/network/auth are not executed or qualified. The diagnostic reviewer correction separately distinguishes test-blocked process/save/transcript paths from source-inspected network absence."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9331,
+          "end": 9354,
+          "sha256": "114f6530ccf48f0b2e4e78d6445246aef29e1f2a8b87eb1786e7248c9e6081e8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9521,
+          "end": 9526,
+          "sha256": "efc514c65b779ec7735cc6818d3fb872af41e3d81349a6494cb598aeeb6086c1"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10730,
+          "end": 10815,
+          "sha256": "935ffa00b2fd10edde1cd94ed91cbe066114ae706fdc1d4b8f059b7b3ba1a608"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10874,
+          "end": 10948,
+          "sha256": "5a138c4364228c1d5c619f0ade3d772b7dff1318cc6b05cfe1dca3ea299732d3"
+        },
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 158,
+          "end": 295,
+          "sha256": "d01f4177250e5e29894b5d0e8b773006d385be13be540490c4fa8f9346a43fe5"
+        },
+        {
+          "path": "engine/backend/orgtree/registry.py",
+          "start": 449,
+          "end": 523,
+          "sha256": "ffbce217d99a76280af8ab02060fa7acdaf5ef1203b9328ffb9271a35e35ef6f"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 13153,
+          "end": 13176,
+          "sha256": "f3dca4713beedcb31f23aee07a672efedd5005b9d02af2b92ab6916a714b01ff"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 32758,
+          "end": 32791,
+          "sha256": "3432755af3bbb402340a60d92c5d73ce3e4501c6264dd99bd84647e773f6a2af"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13699,
+          "end": 13891,
+          "sha256": "a1c4e8c189fcd8955c8a10f982e5b4c1e1f74c78657e758a4f03e679fd9382e4"
+        }
+      ],
+      "open_questions": [
+        "Finish provider/cache/registry/normalization failure and external-contact qualification; do not claim native or general no-network behavior from stubbed provider preflights."
+      ]
+    },
+    "preview.instrumentation": {
+      "dimension": "instrumentation",
+      "status": "unresolved",
+      "facts": [
+        "Source hashes, exact accepted/denied spellings, selected response shapes, complete stored-document equality and deliberate unsafe clone/save controls are executable P01 evidence. No production logger is enabled.",
+        "Fixture-only pool/lazy labels separate full materialization from response size. P02 still requires all logical operations, DB/table/transaction/atomicity/wait contacts and loss accounting, including provider preflights and failures; runtime_census/conversion_authorized remain false."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9331,
+          "end": 9354,
+          "sha256": "114f6530ccf48f0b2e4e78d6445246aef29e1f2a8b87eb1786e7248c9e6081e8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9521,
+          "end": 9526,
+          "sha256": "efc514c65b779ec7735cc6818d3fb872af41e3d81349a6494cb598aeeb6086c1"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10730,
+          "end": 10815,
+          "sha256": "935ffa00b2fd10edde1cd94ed91cbe066114ae706fdc1d4b8f059b7b3ba1a608"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10874,
+          "end": 10948,
+          "sha256": "5a138c4364228c1d5c619f0ade3d772b7dff1318cc6b05cfe1dca3ea299732d3"
+        },
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 158,
+          "end": 295,
+          "sha256": "d01f4177250e5e29894b5d0e8b773006d385be13be540490c4fa8f9346a43fe5"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 2010,
+          "end": 2018,
+          "sha256": "232754ad56fbfd90d245115cfb5f68bca50a3a868939e7a4ea4b63b63fe90519"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 2165,
+          "end": 2181,
+          "sha256": "cbe7adc655eb9f16170b6318a6689a2277900cd39dd9c332ac5172226905f02e"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 2298,
+          "end": 2438,
+          "sha256": "35327778929aaa88a38d0313a12442924ce30462890e98fce7505411f7e8df34"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 3363,
+          "end": 3387,
+          "sha256": "c1423ff474848d1560b30b7cea08dbe74c673bf9be1f17c34231e573999b938d"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 3624,
+          "end": 3651,
+          "sha256": "4479a7d4394686e560f8accf0d041376562d56fb58e185b5c32617e8720dcfd2"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 4027,
+          "end": 4112,
+          "sha256": "8eeb86385ab4b17f5ef57bd1c2cf69ada99eeaac8b2409ea9303c87adc24b71a"
+        }
+      ],
+      "open_questions": [
+        "Complete P02 actual contact/profile/loss/drift coverage and P03 native concurrency/failure gates before any conversion claim."
       ]
     }
   },
@@ -3670,6 +4490,87 @@
           "sha256": "1a3c4e7f727769dd397ca5b2e466500c7e395034e3676adf86206e4d38f1f78c"
         }
       ]
+    },
+    "preview.agent": {
+      "entry_ids": [
+        "609b0199025a0a83070be35388f5340e9515576032719ef8d1cbc71e415c7c57"
+      ],
+      "tools": [
+        "orgtree_preview"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "domain_mode": "read",
+      "dimensions": {
+        "authority": [
+          "preview.authority"
+        ],
+        "reads": [
+          "preview.reads"
+        ],
+        "writes": [
+          "preview.writes"
+        ],
+        "predicates": [
+          "preview.predicates"
+        ],
+        "conflicts": [
+          "preview.conflicts"
+        ],
+        "wire": [
+          "preview.wire"
+        ],
+        "receipt": [
+          "preview.receipt"
+        ],
+        "effects": [
+          "preview.effects"
+        ],
+        "instrumentation": [
+          "preview.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2272,
+          "end": 2289,
+          "sha256": "a8625bf27155b5514a413cf719c5f63e0b509944ca0bbfe03d0cb8f683e0bae8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9331,
+          "end": 9354,
+          "sha256": "114f6530ccf48f0b2e4e78d6445246aef29e1f2a8b87eb1786e7248c9e6081e8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9521,
+          "end": 9526,
+          "sha256": "efc514c65b779ec7735cc6818d3fb872af41e3d81349a6494cb598aeeb6086c1"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10730,
+          "end": 10815,
+          "sha256": "935ffa00b2fd10edde1cd94ed91cbe066114ae706fdc1d4b8f059b7b3ba1a608"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10874,
+          "end": 10948,
+          "sha256": "5a138c4364228c1d5c619f0ade3d772b7dff1318cc6b05cfe1dca3ea299732d3"
+        },
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 158,
+          "end": 295,
+          "sha256": "d01f4177250e5e29894b5d0e8b773006d385be13be540490c4fa8f9346a43fe5"
+        }
+      ]
     }
   },
   "wire_cases": [
@@ -3969,6 +4870,123 @@
       "args": {},
       "contract": "diagnostic.capabilities",
       "domain_mode": "read"
+    },
+    {
+      "name": "preview.reallocate",
+      "entry_id": "609b0199025a0a83070be35388f5340e9515576032719ef8d1cbc71e415c7c57",
+      "args": {
+        "operation": "reallocate"
+      },
+      "contract": "preview.agent",
+      "domain_mode": "read"
+    },
+    {
+      "name": "preview.move",
+      "entry_id": "609b0199025a0a83070be35388f5340e9515576032719ef8d1cbc71e415c7c57",
+      "args": {
+        "operation": "move"
+      },
+      "contract": "preview.agent",
+      "domain_mode": "read"
+    },
+    {
+      "name": "preview.swap",
+      "entry_id": "609b0199025a0a83070be35388f5340e9515576032719ef8d1cbc71e415c7c57",
+      "args": {
+        "operation": "swap"
+      },
+      "contract": "preview.agent",
+      "domain_mode": "read"
+    },
+    {
+      "name": "preview.swap_seats",
+      "entry_id": "609b0199025a0a83070be35388f5340e9515576032719ef8d1cbc71e415c7c57",
+      "args": {
+        "operation": "swap_seats"
+      },
+      "contract": "preview.agent",
+      "domain_mode": "read"
+    },
+    {
+      "name": "preview.self_subjugate",
+      "entry_id": "609b0199025a0a83070be35388f5340e9515576032719ef8d1cbc71e415c7c57",
+      "args": {
+        "operation": "self_subjugate"
+      },
+      "contract": "preview.agent",
+      "domain_mode": "read"
+    },
+    {
+      "name": "preview.subjugate",
+      "entry_id": "609b0199025a0a83070be35388f5340e9515576032719ef8d1cbc71e415c7c57",
+      "args": {
+        "operation": "subjugate"
+      },
+      "contract": "preview.agent",
+      "domain_mode": "read"
+    },
+    {
+      "name": "preview.retool",
+      "entry_id": "609b0199025a0a83070be35388f5340e9515576032719ef8d1cbc71e415c7c57",
+      "args": {
+        "operation": "retool"
+      },
+      "contract": "preview.agent",
+      "domain_mode": "read"
+    },
+    {
+      "name": "preview.set_scope",
+      "entry_id": "609b0199025a0a83070be35388f5340e9515576032719ef8d1cbc71e415c7c57",
+      "args": {
+        "operation": "set_scope"
+      },
+      "contract": "preview.agent",
+      "domain_mode": "read"
+    },
+    {
+      "name": "preview.retire",
+      "entry_id": "609b0199025a0a83070be35388f5340e9515576032719ef8d1cbc71e415c7c57",
+      "args": {
+        "operation": "retire"
+      },
+      "contract": "preview.agent",
+      "domain_mode": "read"
+    },
+    {
+      "name": "preview.dissolve",
+      "entry_id": "609b0199025a0a83070be35388f5340e9515576032719ef8d1cbc71e415c7c57",
+      "args": {
+        "operation": "dissolve"
+      },
+      "contract": "preview.agent",
+      "domain_mode": "read"
+    },
+    {
+      "name": "preview.revoke_dir",
+      "entry_id": "609b0199025a0a83070be35388f5340e9515576032719ef8d1cbc71e415c7c57",
+      "args": {
+        "operation": "revoke_dir"
+      },
+      "contract": "preview.agent",
+      "domain_mode": "read"
+    },
+    {
+      "name": "preview.switch_model",
+      "entry_id": "609b0199025a0a83070be35388f5340e9515576032719ef8d1cbc71e415c7c57",
+      "args": {
+        "operation": "switch_model"
+      },
+      "contract": "preview.agent",
+      "domain_mode": "read"
+    },
+    {
+      "name": "preview.audience",
+      "entry_id": "609b0199025a0a83070be35388f5340e9515576032719ef8d1cbc71e415c7c57",
+      "args": {
+        "operation": "audience"
+      },
+      "contract": "preview.agent",
+      "domain_mode": "read"
     }
   ],
   "limits": [
@@ -3978,7 +4996,8 @@
     "Source assertions and selector checks do not establish public result parity, native isolation or actual atomicity.",
     "The reservation boundary suite executes the current public API against disposable SQLite state with provider wakes replaced by spies. It is legacy conformance evidence, not a live census or PostgreSQL/Rust qualification.",
     "Paired material-read fixtures pin legacy authenticated behavior and expose known native differences. Sidecar observations are synthetic and incomplete; no runtime-census or conversion gate is passed.",
-    "Structural diagnostic contracts characterize current visibility, projection and catalogue behavior only. Unknown receipt classification, corrupt visibility and in-flight disclosure remain explicit gaps; no runtime/native gates pass."
+    "Structural diagnostic contracts characterize current visibility, projection and catalogue behavior only. Unknown receipt classification, corrupt visibility and in-flight disclosure remain explicit gaps; no runtime/native gates pass.",
+    "Agent preview simulates on a whole-document detached Org without durable acceptance; source-backed boundary fixtures do not qualify provider effects, account/session parity, native atomicity or the operator route."
   ],
   "entries": [
     {
@@ -5834,10 +6853,49 @@
     },
     {
       "id": "609b0199025a0a83070be35388f5340e9515576032719ef8d1cbc71e415c7c57",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "preview.agent"
+      ],
+      "reason": "Authenticated isolated-preview boundary; variant predicates and full native/contact/wire closure remain explicit.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2272,
+          "end": 2289,
+          "sha256": "a8625bf27155b5514a413cf719c5f63e0b509944ca0bbfe03d0cb8f683e0bae8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9331,
+          "end": 9354,
+          "sha256": "114f6530ccf48f0b2e4e78d6445246aef29e1f2a8b87eb1786e7248c9e6081e8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9521,
+          "end": 9526,
+          "sha256": "efc514c65b779ec7735cc6818d3fb872af41e3d81349a6494cb598aeeb6086c1"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10730,
+          "end": 10815,
+          "sha256": "935ffa00b2fd10edde1cd94ed91cbe066114ae706fdc1d4b8f059b7b3ba1a608"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10874,
+          "end": 10948,
+          "sha256": "5a138c4364228c1d5c619f0ade3d772b7dff1318cc6b05cfe1dca3ea299732d3"
+        },
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 158,
+          "end": 295,
+          "sha256": "d01f4177250e5e29894b5d0e8b773006d385be13be540490c4fa8f9346a43fe5"
+        }
+      ]
     },
     {
       "id": "34abf79fddaed91cfd7d958ff0f705ac3a72bad814c4925019cd484638d8a2cc",
@@ -6617,10 +7675,21 @@
     },
     {
       "id": "a10848538b2a56f4e5224b7b48d663a52d2171808cd900f674dac2884ac37b8f",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "diagnostic.inspect",
+        "diagnostic.capabilities",
+        "preview.agent"
+      ],
+      "reason": "Source-bound preview/diagnostic branch; underlying full transition/native obligations remain pending.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10874,
+          "end": 10875,
+          "sha256": "f5ee2e2b23272c220b49a7b19576875ce48da629749e2c44bbbe43305a6d940b"
+        }
+      ]
     },
     {
       "id": "7e13aaee0d4f3b068e6db6b8c442880f658b147dfae3519fc772fee9eed11e8f",
@@ -7780,17 +8849,35 @@
     },
     {
       "id": "9548d2483408212384a38b716ff8de2961dbe88b4095a97ca327414b1bc31c34",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "preview.agent"
+      ],
+      "reason": "Source-bound preview/diagnostic branch; underlying full transition/native obligations remain pending.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 228,
+          "end": 228,
+          "sha256": "c4b7e67674c131df4e5bfa8681c072e854bf9c1fda5f88edbf0b943b968127fb"
+        }
+      ]
     },
     {
       "id": "422242b670684efed0e666997312901bcb2e067af6d0502f911c783823c86635",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "preview.agent"
+      ],
+      "reason": "Source-bound preview/diagnostic branch; underlying full transition/native obligations remain pending.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 230,
+          "end": 230,
+          "sha256": "c2549d685fdbb71fbf4aaca1b3b301ce21f0accd3d90f8ebd71637017297a9ff"
+        }
+      ]
     },
     {
       "id": "2d642810bb69f6b539b39319719c8be007197e65fbf0e397620cf8b822686570",
@@ -7801,38 +8888,83 @@
     },
     {
       "id": "43ef3a07637300487eff6ed3e4b61bf2bca0ae8b34a0f82f17bb0fa3015c02b3",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "preview.agent"
+      ],
+      "reason": "Source-bound preview/diagnostic branch; underlying full transition/native obligations remain pending.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 236,
+          "end": 236,
+          "sha256": "4c73398db572ab6cf39006b1b73cf34d08fcc6438a67b2538ebf0b4ba0c9115c"
+        }
+      ]
     },
     {
       "id": "1fcb7d18de3831c4a0d7909d236ad1eeaf9536f849cd71d131b1d840a34a21e3",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "preview.agent"
+      ],
+      "reason": "Source-bound preview/diagnostic branch; underlying full transition/native obligations remain pending.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 239,
+          "end": 239,
+          "sha256": "e3ef114b7e9bd17885df345a6a623f0de2d593539a07f15e384099442a7da59f"
+        }
+      ]
     },
     {
       "id": "ec6e0752886e0c894da6e44a35200d186d476913b8a5783ff7e458931ea2c43d",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "preview.agent"
+      ],
+      "reason": "Source-bound preview/diagnostic branch; underlying full transition/native obligations remain pending.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 241,
+          "end": 241,
+          "sha256": "3510f1dfc2d1391b9102926fe9b6fa9b402ea6cd4db805ec314a3aa6f57d038e"
+        }
+      ]
     },
     {
       "id": "82f585a3484b73053ced59cc1767929232e74460cd41ca3495b2ee2bce642730",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "preview.agent"
+      ],
+      "reason": "Source-bound preview/diagnostic branch; underlying full transition/native obligations remain pending.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 249,
+          "end": 249,
+          "sha256": "e4313983e505c8b2b53a49e37836cdc0545c8876a04d6c3989cfed727eda6031"
+        }
+      ]
     },
     {
       "id": "52e95eddaedcadb98e2b5917751a8f165d45b2e019a0ef46b0daddb7bb46c11a",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "preview.agent"
+      ],
+      "reason": "Source-bound preview/diagnostic branch; underlying full transition/native obligations remain pending.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 251,
+          "end": 251,
+          "sha256": "9ade62bb042ed5ec0308e12dab9d1d8e4482740caba11e05910c02ceb1b2c71b"
+        }
+      ]
     },
     {
       "id": "7c1876f6c6a451e5a9f6e1d716e4bad698113ac23ce7749d8c13b661ee5ca6fe",
@@ -7871,38 +9003,83 @@
     },
     {
       "id": "8652b2107caf73367b18b5bbdf7aa219409576d2e77ceeca3a5208f2981fea4a",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "preview.agent"
+      ],
+      "reason": "Source-bound preview/diagnostic branch; underlying full transition/native obligations remain pending.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 263,
+          "end": 263,
+          "sha256": "135f30de9f8a59de8d37f7882214aa3f4a5d6ec4ec199c40f28987b38b4f38d3"
+        }
+      ]
     },
     {
       "id": "a060f1c15fae7a9dd75f9e30ca2ef3c3ecd05508a294c4cae95d0c83598f55bf",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "preview.agent"
+      ],
+      "reason": "Source-bound preview/diagnostic branch; underlying full transition/native obligations remain pending.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 265,
+          "end": 265,
+          "sha256": "dc2b1bf446872371b2ea28f80d4475e402f8b578d57b168f8b7dd69a00d80de1"
+        }
+      ]
     },
     {
       "id": "ae0c52a3ee11ad34862e1b9d358f1af60f0611057ffb345cc5ae6e0207618a86",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "preview.agent"
+      ],
+      "reason": "Source-bound preview/diagnostic branch; underlying full transition/native obligations remain pending.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 268,
+          "end": 268,
+          "sha256": "2118fc25c5ab8ab865599b49e7183f176287d00b47f9e940ff361cf7bdf3d2fd"
+        }
+      ]
     },
     {
       "id": "8a68a4e34fd9f183d05355fe45808d6c633b570943b5b9f67e0af027756d5367",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "preview.agent"
+      ],
+      "reason": "Source-bound preview/diagnostic branch; underlying full transition/native obligations remain pending.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 270,
+          "end": 270,
+          "sha256": "5ececfe8e4defb6da08ae91f3b18465b46ed07c7e09d5becd1ca7aa19990a5cf"
+        }
+      ]
     },
     {
       "id": "3be6dc41b5eb3c046c4b8ec8707b85af7f1ccb7e93cb9b18859c502af298218d",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "preview.agent"
+      ],
+      "reason": "Source-bound preview/diagnostic branch; underlying full transition/native obligations remain pending.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 273,
+          "end": 273,
+          "sha256": "96652634605a935b486330fdd102499ed40792b1b2db2c5300603802527bf511"
+        }
+      ]
     },
     {
       "id": "a3936d4b97070a0891e75ec8b85c303fab1a9daf837beecc2279bbcc1272383b",

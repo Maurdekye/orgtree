@@ -92,10 +92,10 @@ class DiagnosticBinding(unittest.TestCase):
         self.assertTrue(result['valid'],result['errors'])
         self.assertFalse(result['contract_coverage_complete'])
         self.assertEqual(result['qualification'],contracts.GATES)
-        self.assertEqual(result['summary']['entries']['mapped'],6)
-        self.assertEqual(result['summary']['dispatch']['mapped'],18)
+        self.assertEqual(result['summary']['entries']['mapped'],7)
+        self.assertEqual(result['summary']['dispatch']['mapped'],31)
         self.assertEqual(result['summary']['storage']['mapped'],0)
-        self.assertEqual(result['contracts'],15)
+        self.assertEqual(result['contracts'],16)
 
     def test_omissions_private_fields_stale_binding_and_gate_forgery_refuse(self):
         for edit in [lambda d:d['tools'].pop(CAPABILITIES),lambda d:d['visibility'].pop(),
