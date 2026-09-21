@@ -70,6 +70,14 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
     onEvent: listener => {
       const handler = (_event: Electron.IpcRendererEvent, event: DesktopEvent) => listener(event)
       ipcRenderer.on('desktop:event', handler)
+      // ⚠ TELL THE MAIN PROCESS A LISTENER NOW EXISTS. Native holds the events
+      // a renderer cannot rediscover — an organization to open, an item to
+      // reveal — until someone can actually receive them, and it has no way to
+      // see an `ipcRenderer.on` registration. Without this the fallback is a
+      // guess at how long mounting takes, and a renderer that attaches later
+      // than the guess is sent events into a void: delivered, by the main
+      // process's reckoning, and gone.
+      ipcRenderer.send('desktop:events-listening')
       return () => ipcRenderer.removeListener('desktop:event', handler)
     },
   }

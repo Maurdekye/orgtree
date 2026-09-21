@@ -367,12 +367,16 @@ else {
    *  events without limit. Oldest first: a stale navigation is the one worth
    *  dropping. */
   const HELD_EVENT_LIMIT = 64
-  /** How long after a document loads native waits for the renderer to ask for
-   *  what was held before giving up and sending it anyway. The v2 renderer
-   *  never asks, and its events would otherwise sit in the outbox for ever;
-   *  arriving late is strictly better than the events being dropped, which is
-   *  what happened before this existed. */
-  const HELD_EVENT_GRACE_MS = 2_000
+  /** ⚠ A LAST RESORT, NOT THE MECHANISM. The outbox is emptied when the
+   *  renderer attaches a listener (`desktop:events-listening`) or asks for
+   *  what was held (`takePendingWindowEvents`) — both of which are evidence
+   *  that somebody is there to receive it. This timer covers only the case
+   *  where neither ever happens, so that a window whose renderer never
+   *  arrives cannot hold events for the life of the process. It is long on
+   *  purpose: a short one is a guess at how long mounting takes, and a
+   *  renderer that attaches after the guess would be sent its events into a
+   *  void — delivered, by this process's reckoning, and gone. */
+  const HELD_EVENT_GRACE_MS = 60_000
   /** ⚠ ONE WINDOW, NAMED. Every org-specific event goes through here. */
   const sendTo = (id: string, event: DesktopEvent) => {
     const record = records.get(id)
@@ -384,7 +388,14 @@ else {
     }
     record.window.webContents.send('desktop:event', event)
   }
-  /** Stop holding and deliver whatever is waiting. */
+  /** Stop holding and SEND whatever is waiting, for a renderer that receives
+   *  events rather than collecting them. */
+  const deliverHeld = (record: MainWindowRecord) => {
+    for (const event of flushOutbox(record)) {
+      if (!record.window.isDestroyed()) record.window.webContents.send('desktop:event', event)
+    }
+  }
+  /** Stop holding and RETURN whatever is waiting, for a renderer that asks. */
   const flushOutbox = (record: MainWindowRecord): DesktopEvent[] => {
     if (record.flushTimer) { clearTimeout(record.flushTimer); record.flushTimer = undefined }
     record.flushed = true
@@ -1485,6 +1496,19 @@ else {
     /** This window's own identity. Resolved SYNCHRONOUSLY because the shell
      *  derives its whole view from it and a promise makes the window paint the
      *  wrong one for a frame; the preload asks before it exposes the bridge. */
+    /** ⚠ THE RENDERER HAS A LISTENER NOW. This is the signal the outbox was
+     *  missing: native cannot see an `ipcRenderer.on` registration, so without
+     *  it the only options were to guess how long mounting takes or to hold
+     *  events for ever. Sent by the preload's `onEvent`, so EVERY renderer
+     *  that uses the bridge reports it — including the v2 one, which never
+     *  calls `takePendingWindowEvents`. */
+    ipcMain.on('desktop:events-listening', event => {
+      try {
+        const entry = resolveNativeSender(event as unknown as Parameters<typeof resolveNativeSender>[0], windows, engine.origin)
+        const record = records.get(entry.id)
+        if (record) deliverHeld(record)
+      } catch { /* an untrusted sender is refused exactly as everywhere else */ }
+    })
     ipcMain.on('desktop:window-identity-sync', event => {
       try {
         const entry = resolveNativeSender(event as unknown as Parameters<typeof resolveNativeSender>[0], windows, engine.origin)
@@ -1774,11 +1798,7 @@ else {
         // once the grace runs out, which is late but not lost.
         window.webContents.on('did-finish-load', () => {
           if (record.flushed || record.flushTimer) return
-          record.flushTimer = setTimeout(() => {
-            for (const event of flushOutbox(record)) {
-              if (!window.isDestroyed()) window.webContents.send('desktop:event', event)
-            }
-          }, HELD_EVENT_GRACE_MS)
+          record.flushTimer = setTimeout(() => deliverHeld(record), HELD_EVENT_GRACE_MS)
         })
         window.on('close', event => {
           savePlacement(record)

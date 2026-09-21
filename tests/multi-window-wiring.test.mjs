@@ -210,6 +210,7 @@ test('the tray and a second instance route through the registry, never through o
 
 test('events that cannot be asked for again are held until the renderer can listen', () => {
   const main = read('apps/desktop/main/index.ts')
+  const preload = read('apps/desktop/preload/index.ts')
   // ⚠ ONLY the events a renderer has no way to rediscover. Window state,
   // popout state and main-window-shown are all re-readable through the
   // bridge, so holding them would only risk delivering a stale duplicate.
@@ -222,11 +223,24 @@ test('events that cannot be asked for again are held until the renderer can list
   // the renderer collects them and switches the window to live delivery
   assert.match(main, /handle\('desktop:take-pending-events', caller => flushOutbox\(caller\)\)/)
   assert.match(main, /record\.flushed = true/)
-  // ⚠ AND A RENDERER THAT NEVER ASKS STILL GETS THEM. The v2 renderer does not
-  // call this; without the grace its events would sit in the outbox for ever,
-  // which is worse than the dropping this replaced.
-  assert.match(main, /record\.flushTimer = setTimeout\(\(\) => \{/)
-  assert.match(main, /const HELD_EVENT_GRACE_MS = 2_000/)
+  // ⚠ DELIVERY IS TRIGGERED BY EVIDENCE THAT SOMEBODY IS LISTENING, not by a
+  // guess at how long mounting takes. "Sent anyway" after a short timer is not
+  // delivery when the listener is not attached yet: the events go into a void
+  // and this process counts them as delivered. The preload reports the moment
+  // a real listener exists, which covers EVERY renderer that uses the bridge
+  // including the v2 one that never calls takePendingWindowEvents.
+  assert.match(preload, /ipcRenderer\.send\('desktop:events-listening'\)/)
+  const attach = preload.indexOf("ipcRenderer.on('desktop:event', handler)")
+  assert.ok(attach > 0 && attach < preload.indexOf("ipcRenderer.send('desktop:events-listening')"),
+    'the listener is attached BEFORE native is told it exists')
+  assert.match(main, /ipcMain\.on\('desktop:events-listening', event => \{/)
+  const listening = main.slice(main.indexOf("ipcMain.on('desktop:events-listening'"), main.indexOf("ipcMain.on('desktop:window-identity-sync'"))
+  assert.match(listening, /resolveNativeSender\(/,
+    'and that signal is sender-resolved like every other native entry point')
+  assert.match(listening, /if \(record\) deliverHeld\(record\)/)
+  // the timer is only the last resort, for a renderer that never arrives at all
+  assert.match(main, /const HELD_EVENT_GRACE_MS = 60_000/)
+  assert.match(main, /record\.flushTimer = setTimeout\(\(\) => deliverHeld\(record\), HELD_EVENT_GRACE_MS\)/)
   // and a window that closes mid-grace leaves no timer behind
   assert.match(main, /if \(record\.flushTimer\) \{ clearTimeout\(record\.flushTimer\); record\.flushTimer = undefined \}/)
 })
