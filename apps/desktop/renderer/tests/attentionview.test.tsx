@@ -27,6 +27,7 @@ import { USER } from '../src/canvas/shared'
 import type { OpFn, TreePayload } from '../src/types'
 import { forgetModalPins, isModalPinned, pinModal, readModalPins } from '../src/canvas/modalpin'
 import { WINDOW_LAYOUT_KEY } from '../src/windowlayout'
+import { CurrentOrg } from '../src/popout'
 import { openSurfaces, registerWindow } from '../src/windowlife'
 import {
   attentionLayout, forgetAttentionMode, setAttentionLayout, setOrgView, SPLIT_MAX, SPLIT_MIN,
@@ -73,8 +74,19 @@ const reset = () => {
   installQuietServer()
 }
 
-const view = () => <AttentionView slug={SLUG} tree={tree()} op={op} toast={toast}
-  map={emptyMap()} />
+/** ⚠ WRAPPED IN `CurrentOrg`, AND IT IS LOAD-BEARING. `PinFrame` reads that
+ *  context (`useCurrentOrg`) and, when it is absent, renders
+ *  `pinnable={false}` with no `MovableSurface` at all — no pin, no popout.
+ *  Without this provider every "pinned" case below would exercise an ordinary
+ *  inline panel while `isModalPinned` answered true from the store, which is a
+ *  test that passes without touching the path it names. Found by the real
+ *  renderer probe (tests/attention-probe.tsx), not by jsdom.
+ *
+ *  The application provides it above OrgCanvas (App.tsx), so this matches the
+ *  host the view is mounted into rather than adding anything to it. */
+const view = () => <CurrentOrg.Provider value={SLUG}>
+  <AttentionView slug={SLUG} tree={tree()} op={op} toast={toast} map={emptyMap()} />
+</CurrentOrg.Provider>
 
 /** what is on screen ANYWHERE in the document — the pin layer is appended to
  *  document.body, outside the mount host, which is exactly the point */
@@ -352,30 +364,63 @@ test('§7.1 closing that window releases the panel — the restore is not a latc
   drop()
 })
 
-test('§7.1a a restore still in flight is NOT mistaken for a close', async () => {
+test('§7.1a a restore whose window cannot open is recorded closed BY THE '
+  + 'MACHINERY, and only then released', async () => {
   reset()
   const drop = withDesktopBridge()
   savedWindow(QUEUE_KIND, true)
   const v = await mountView(view(), () => shape())
   await inAct(() => flush())
 
-  // ⚠ THE GAP THE RULE EXISTS FOR (multi-window-design, 2026-09-21). A restore
-  // is not instant: the surface waits for `ready`, opens a window, then waits
-  // for its stylesheets. Nothing is registered in the window registry yet and
-  // nothing is pinned — and the panel must still be there, or the restore it
-  // was mounted for is aborted by the thing that was supposed to receive it.
-  assert.equal(openSurfaces().some((s) => s.kind === QUEUE_KIND), false,
-    'nothing has registered: this is the unobserved-restore state, not a close')
+  // jsdom does not implement `window.open`, so `MovableSurface`'s restore
+  // attempt fails at once and the surface records the window as closed. That
+  // is the correct outcome — there is no window coming, so there is nothing to
+  // hold a subtree for — and it is the view's ONLY release path: the row
+  // flipped, and this view read it.
+  assert.match(localStorage.getItem(WINDOW_LAYOUT_KEY) ?? '', /"open":false/,
+    'the surface, not this view, is what recorded the window closed')
+  assert.equal(openSurfaces().some((s) => s.kind === QUEUE_KIND), false)
   assert.equal(isModalPinned(QUEUE_KIND, SLUG), false)
 
-  // renders for unrelated reasons must not release it either
+  // ⚠ AND IT IS STILL MOUNTED FOR THE MOMENT — measured, and worth knowing.
+  // The two release signals are not symmetrical: the window REGISTRY publishes
+  // events (so a redock releases promptly, §7.1b), and the saved LAYOUT does
+  // not — `saveWindow` is a plain localStorage write that notifies nobody. A
+  // restore that fails WITHOUT ever registering a surface therefore flips the
+  // row with nothing to wake this view, and the subtree is released on the
+  // next render for any reason. The panel is inside a `display: none` stage
+  // and `deskEligible` is false throughout, so nothing is visible and its desk
+  // cannot take ownership meanwhile; in the running app a render is never far
+  // away (both feeds poll, and the tree updates). It is recorded here rather
+  // than papered over, because "it releases because something else re-renders"
+  // is exactly the kind of claim that should be written down or fixed.
+  assert.equal(shape().queue, true,
+    'held until something renders — the layout write notifies nobody')
+
   await inAct(() => { setOrgView(SLUG, 'attention') })
   await inAct(() => { setOrgView(SLUG, 'canvas') })
   await inAct(() => flush())
-  assert.equal(shape().queue, true, 'still held, because the window is still recorded open')
+  assert.equal(shape().queue, false, 'and the next render lets the subtree go')
   await v.unmount()
   drop()
 })
+
+// ⚠ WHAT THIS SUITE CANNOT HOLD, STATED RATHER THAN FAKED. The PENDING state —
+// the row still open, the window genuinely in flight, nothing registered yet —
+// is the one multi-window-design's refinement is about, and jsdom cannot
+// produce it: `window.open` fails instantly there, so a restore is never in
+// flight for any observable interval. An earlier version of §7.1a claimed to
+// test it and did not: before `CurrentOrg` was provided above, `PinFrame`
+// rendered `pinnable={false}` with no `MovableSurface` at all, so nothing ever
+// attempted a restore and the assertion passed over machinery that never ran.
+// The real renderer probe (tests/attention-probe.tsx) is what caught that.
+//
+// The in-flight guarantee is carried instead by two things that ARE checkable:
+// §7.1/§7.1b pin that the row flipping is the ONLY thing that releases the
+// subtree, and attentionaudit.test.tsx pins that nothing can flip an
+// attention-kind row except the surface that owns it. A restore in flight has
+// not flipped it, so it is held — by construction rather than by a timing test
+// that could only ever be a fake of one.
 
 test('§7.1b the registry\'s own lifecycle event releases it, with no other render', async () => {
   reset()

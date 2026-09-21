@@ -109,12 +109,43 @@ function useDetachedHere(org: string | null, revision: number): { queue: boolean
  *                    held HERE, which is exactly the gap above
  *   window closed    `closeSavedWindow` cleared the row → released
  *
- * There is no fourth state, because `closeSavedWindow` is the ONLY writer of
- * `open: false` (windowlayout.ts) and it is called from exactly two places in
- * `MovableSurface`: `redock`, where the surface was registered, and the
- * surface's own unmount, which cannot precede this panel's. A future third
- * caller is the thing that would break this, which is why the audit is written
- * down rather than merely performed.
+ * THE INVARIANT THAT MAKES THOSE THREE EXHAUSTIVE is not "there are two
+ * callers" — an earlier draft of this comment said that and it was wrong
+ * (finding f2, v3-ux-review-opus, 2026-09-21). It is:
+ *
+ *     NO CALLER CAN CLEAR AN ATTENTION-KIND ROW EXCEPT THE SURFACE THAT OWNS IT
+ *
+ * which is a sentence a grep can be checked against, and `attentionaudit.test.tsx`
+ * does check it. As it stands:
+ *   · `closeSavedWindow` has THREE callers, not two. Two are inside
+ *     `MovableSurface` — `redock`, where the surface was registered, and the
+ *     surface's own unmount, which cannot precede this panel's. The third is
+ *     OrgCanvas's restored-document reader, which closes rows drawn from
+ *     `restoredWindows(slug).filter(r => r.kind !== 'doc' && r.restore?.document)`
+ *     and so can only ever reach a row carrying `restore.document`. Neither
+ *     attention kind ever carries one: this view passes no `restore` at all.
+ *   · `saveWindow` is EXPORTED, so `open: false` could in principle be written
+ *     without going through `closeSavedWindow`. Nothing outside windowlayout.ts
+ *     calls it, so "the only writer" holds by convention, not by construction.
+ *   · `captureWindow` takes `open` as a parameter and could pass `false`. All
+ *     four of its call sites pass `true` explicitly.
+ *
+ * A new caller of any of the three is what would add a fourth state, and the
+ * audit test is what will say so at the moment it is added rather than long
+ * afterwards.
+ *
+ * ⚠ THE TWO SIGNALS ARE NOT SYMMETRICAL, and the asymmetry is worth knowing.
+ * The window REGISTRY publishes events, so anything that unregisters a surface
+ * — a redock above all — wakes this view at once. The saved LAYOUT does not:
+ * `saveWindow` is a plain localStorage write that notifies nobody. So a restore
+ * that fails WITHOUT ever registering a surface (no window opened, nothing to
+ * unregister) flips the row with nothing to wake this view, and the subtree is
+ * released on the next render for any reason rather than immediately.
+ * Harmless — the panel is inside a `display: none` stage and is ineligible for
+ * desk ownership throughout, and in the running app a render is never far away
+ * — but measured (attentionview.test.tsx §7.1a) rather than assumed, because
+ * "it releases because something else happens to re-render" is the kind of
+ * claim that should be written down or fixed, not left implicit.
  *
  * ⚠ IT TAKES TWO SIGNALS AND NEEDS BOTH — measured, not assumed. The release
  * is driven by the window REGISTRY's own lifecycle event, and read from
