@@ -126,6 +126,21 @@ export interface SavedOrgWindow {
   org?: string
 }
 
+/** WHAT AN ORDINARY LAUNCH OPENS.
+ *
+ *  `restore` (the default) reopens the windows that were open when the app was
+ *  last shut down, in their saved positions. `homepage` starts at a single
+ *  fresh Homepage instead and reopens nothing — the alternative the settled
+ *  behavior offers in App settings.
+ *
+ *  It is a shared app-wide value like every other preference: read and written
+ *  through the existing getPreferences/setPreferences, and every window sees
+ *  the same one. */
+export type StartupMode = 'restore' | 'homepage'
+export function isStartupMode(value: unknown): value is StartupMode {
+  return value === 'restore' || value === 'homepage'
+}
+
 /** Which organization names the native side accepts.
  *
  *  ⚠ THE CANONICAL EXISTING CONSTRAINT AND NOTHING ELSE. This is exactly the

@@ -26,6 +26,9 @@ export interface DesktopPreferences extends NotificationPreferences {
   automaticUpdates: boolean
   routineNotifications: boolean
   onboarded: boolean
+  /** Whether an ordinary launch reopens the windows that were open last time,
+   *  or starts at a fresh Homepage. See StartupMode. */
+  startupMode: StartupMode
 }
 export interface DesktopNotification {
   id: string; title: string; body: string; org: string; agent?: string; item?: string
@@ -39,7 +42,7 @@ export interface ViewTarget { kind: 'organization' | 'agent' | 'docket' | 'docum
 export interface WindowLease { key: string; epoch: number; owner: boolean }
 export interface DesktopWindowState { visible: boolean; restoreWindows: boolean }
 export interface DesktopControlsState extends DesktopWindowState { minimized: boolean; maximized: boolean }
-import type { OrgOpenOutcome, OrgWindowIdentity } from './desktop-window'
+import type { OrgOpenOutcome, OrgWindowIdentity, StartupMode } from './desktop-window'
 
 export interface DesktopEvent { type: 'engine-status' | 'engine-event' | 'preferences' | 'ownership' | 'update' | 'maintenance' | 'notification-click' | 'notification-poll' | 'main-window-shown' | 'window-state' | 'popout-state' | 'open-org' | 'window-identity' | 'restore-skipped' | 'open-orgs'; data: unknown }
 /** One popped-out desk or modal window, addressed by the frame name the

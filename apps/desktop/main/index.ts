@@ -12,8 +12,8 @@ import { configureTaskbar } from './taskbar'
 import { allowPrereleaseUpdates, desktopIdentity, readBuildChannel } from './build-channel'
 import { closeAction, HARNESS_LINKS, validateDataRoot } from './policy'
 import { configureArtifactSession, configureEngineSession, configureWindow, popoutRegistry, revealPopout } from './windows'
-import { openOrg, orgWindowRegistry, resolveNativeSender, type OrgWindowEntry } from './org-windows'
-import { HOMEPAGE_KEY, OrgPlacement, orgOfKey, placementKey } from './org-placement'
+import { openOrg, orgWindowRegistry, planRestore, resolveNativeSender } from './org-windows'
+import { OrgPlacement, orgOfKey, placementKey } from './org-placement'
 import type { OrgOpenOutcome, OrgWindowKind } from '../../../packages/contracts/desktop-window'
 import { detectHarnesses } from './harnesses'
 import { NativeNotifications, anyOrgtreeWindowFocused } from './notifications'
@@ -1844,11 +1844,15 @@ else {
         sendTo(record.id, { type: 'window-identity', data: identity })
         publishOpenOrgs()
       }
-      createMainWindow = async ({ kind, org }: { kind: OrgWindowKind; org?: string }) => {
+      /** Build it and load its document. The module-scoped alias below is how
+       *  the tray, `activate` and the bridge reach this from code defined
+       *  before the engine session existed. */
+      const openWindow = async ({ kind, org }: { kind: OrgWindowKind; org?: string }) => {
         const record = buildMainWindow(kind, org)
         await record.window.loadURL(engine.origin + routeFor(record.id))
         return record
       }
+      createMainWindow = openWindow
       requestOrgWindow = async (org: unknown, callerId: string | null): Promise<OrgOpenOutcome> => {
         const outcome = await openOrg(windows, org, callerId, {
           focus: entry => { const record = records.get(entry.id); if (record) revealWindow(record) },
@@ -1879,7 +1883,46 @@ else {
         }
         return outcome
       }
-      const first = await createMainWindow({ kind: 'homepage' })
+      /** WHAT AN ORDINARY LAUNCH OPENS (settled behavior; the alternative is
+       *  the startupMode preference).
+       *
+       *  ⚠ AN UNREADABLE ORGANIZATION LIST IS NOT AN EMPTY ONE, and this is
+       *  the case worth being careful about. `orgActivity()` answers null when
+       *  the engine is not serving yet, when the request times out, or when
+       *  the backend is simply having a bad morning - and treating that as
+       *  "none of these organizations exist" would silently drop every saved
+       *  window and greet the user with a bare Homepage on precisely the
+       *  launch where something was already wrong. A null answer restores
+       *  everything instead and lets each window report its own trouble.
+       *
+       *  ⚠ AND SKIPPING IS NOT FORGETTING. A window left out of this launch
+       *  keeps its saved position and its membership; only a real deletion
+       *  clears those. See OrgPlacement.forgetDeletedOrg. */
+      const openStartupWindows = async (): Promise<MainWindowRecord> => {
+        const saved = preferences.get().startupMode === 'homepage' ? [] : (placement?.sessionWindows() ?? [])
+        if (!saved.length) return openWindow({ kind: 'homepage' })
+        const rows = await engine.orgActivity()
+        const known = rows ? new Set(rows.map(row => row.slug)) : null
+        const plan = planRestore(
+          saved.map(key => { const org = orgOfKey(key); return org === undefined ? {} : { org } }),
+          org => known === null || known.has(org))
+        const opened: MainWindowRecord[] = []
+        for (const target of plan.windows) {
+          try { opened.push(await openWindow({ kind: target.org ? 'org' : 'homepage', org: target.org })) }
+          catch (error) { console.warn(`A saved window for ${target.org ?? 'the homepage'} could not be reopened`, error) }
+        }
+        const first = opened[0] ?? await openWindow({ kind: 'homepage' })
+        // ⚠ SAID, NEVER SKIPPED QUIETLY (ruling 2026-09-21). Window-scoped:
+        // the replacement Homepage hears about dropped organizations. Panels
+        // are absent because native does not know about them - the renderer
+        // validates its own targets and originates that half of the report.
+        if (plan.skippedOrgs.length) {
+          sendTo(first.id, { type: 'restore-skipped',
+            data: { orgs: plan.skippedOrgs, panels: [], notice: plan.notice } })
+        }
+        return first
+      }
+      const first = await openStartupWindows()
       engineReady = true
       if (installerUpgradePending) void requestInstallerUpgradeShutdown()
       if (!process.argv.includes('--background')) revealWindow(first)
