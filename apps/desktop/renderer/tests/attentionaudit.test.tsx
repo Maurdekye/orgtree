@@ -166,8 +166,27 @@ test('§4 the Attention panels record no `restore` payload, which is what makes 
 //
 // This pins the rule for THIS FEATURE'S OWN SUITES only. It is not a project
 // style rule and does not reach anyone else's tests.
+//
+// ⚠ IT PATROLS, IT DOES NOT ENFORCE — and knowing the difference is the whole
+// point, because a check believed to be exhaustive is worse than a check known
+// to be partial. It is a SINGLE-LINE regex, so at least two ordinary shapes walk
+// straight past it (v3-ux-review-opus, reviewing this very test):
+//
+//   const el = v.el.querySelector('.attn-empty')
+//   assert.equal(el, null)          // the assertion line names no DOM at all
+//
+//   assert.equal(                   // call and node on different lines, so
+//     v.el.querySelector('.x'),     // neither line matches both halves
+//     null)
+//
+// Both crash exactly as the flagged shape does. They are not caught, and a
+// green §5 therefore means "the common shape is absent", never "no assertion
+// can blow up". Chasing them would mean parsing rather than grepping, which is
+// a worse trade than saying plainly what this does not cover — so if you are
+// adding an assertion that touches the DOM, the rule in the header is yours to
+// follow, not this test's to catch.
 
-test('§5 no attention test hands a DOM node to an assertion as actual', () => {
+test('§5 the common DOM-node-as-actual shape is absent (patrolled, not enforced)', () => {
   const offenders: string[] = []
   for (const name of readdirSync(path.join(__SRC_DIR__, '..', 'tests'))) {
     if (!/^attention.*\.test\.tsx$/.test(name) && name !== 'polledstatus.test.tsx') continue
