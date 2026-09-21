@@ -231,9 +231,9 @@ test('events that cannot be asked for again are held until there is somewhere to
 
   // holding ends on evidence of a consumer, and on nothing else: a listener
   // attaching, or the renderer asking for what was held
-  assert.match(preload, /ipcRenderer\.send\('desktop:events-listening'\)/)
+  assert.match(preload, /ipcRenderer\.send\('desktop:events-listening', documentToken\)/)
   const attach = preload.indexOf("ipcRenderer.on('desktop:event', handler)")
-  assert.ok(attach > 0 && attach < preload.indexOf("ipcRenderer.send('desktop:events-listening')"),
+  assert.ok(attach > 0 && attach < preload.indexOf("ipcRenderer.send('desktop:events-listening'"),
     'the listener is attached BEFORE native is told it exists')
   const listening = main.slice(main.indexOf("ipcMain.on('desktop:events-listening'"), main.indexOf("ipcMain.on('desktop:window-identity-sync'"))
   assert.match(listening, /resolveNativeSender\(/,
@@ -245,24 +245,51 @@ test('events that cannot be asked for again are held until there is somewhere to
   // the same loss, one message later. Deferring it to the new document
   // would assert the successor is listening, which is what nothing has
   // established yet.
-  assert.match(listening, /if \(record && !record\.navigating\) deliverHeld\(record\)/)
-  assert.match(main, /record\.navigating = true/)
-  assert.match(main, /window\.webContents\.on\('did-navigate', \(\) => \{ record\.navigating = false \}\)/,
-    'and the flag clears on commit, so the new document speaks for itself')
-  assert.match(main, /handle\('desktop:take-pending-events', caller => caller\.outbox\.drain\(\)\)/)
+  assert.match(listening, /if \(record && currentDocument\(record, /,
+    'the acknowledgement is accepted only from the document currently showing')
 
   // ⚠ AND THE EVIDENCE IS PER-DOCUMENT. A listener belongs to a document, so a
   // navigation destroys the very thing that proved somebody was there — while
   // the outbox lives on the window and outlives every document it shows.
-  // Without the re-arm, a window that drained once sends live into every later
-  // navigation gap, which is the same loss through a different door. The
-  // sharpest case is a Homepage binding an organization: it navigates
-  // precisely because an org was opened, which is when a reveal for that org
-  // is most likely in flight.
-  assert.match(main, /window\.webContents\.on\('did-start-navigation', details => \{/)
-  assert.match(main, /if \(!details\.isMainFrame \|\| details\.isSameDocument\) return/,
-    'a same-document navigation destroys nothing and must NOT re-arm')
-  assert.match(main, /record\.outbox\.rearm\(\)/)
+  //
+  // ⚠ COMMIT, NOT NAVIGATION START. `did-navigate` fires when a main-frame
+  // navigation is DONE and never for an in-page one, so it marks the instant
+  // the old document is gone and the new one is showing with no listener yet.
+  // A navigation that FAILS never commits and so never fires it, which is
+  // exactly right: the old document is still there and already acknowledged.
+  // Re-arming at navigation START would hold on a promise the navigation might
+  // not keep, and then need every failure mode enumerated to let go again —
+  // which is how a latch wedges shut for the window's life.
+  assert.match(main, /window\.webContents\.on\('did-navigate', \(\) => \{/)
+  const commit = main.slice(main.indexOf("window.webContents.on('did-navigate'"))
+  assert.match(commit.slice(0, 400), /record\.documentToken = ''/)
+  assert.match(commit.slice(0, 400), /record\.outbox\.rearm\(\)/)
+  assert.doesNotMatch(main, /did-start-navigation/, 'holding starts at commit, not at navigation start')
+  assert.doesNotMatch(main, /record\.navigating/, 'and there is no latch to wedge')
+
+  // ⚠ BOTH WAYS OF ENDING THE HOLDING ASK THE SAME QUESTION, IN ONE PLACE.
+  // They are the same question — "is the document asking me the one currently
+  // showing?" — and when only one of them asked it, the other could unhold the
+  // queue from a document on its way out AND carry the queue away with it.
+  assert.match(main, /const currentDocument = \(record: MainWindowRecord, token: unknown\): boolean =>/)
+  // exactly two CALLS — the acknowledgement and the take — so neither entry
+  // point can be guarded while the other is not. (The definition itself is
+  // `currentDocument = (` and so is not one of them.)
+  assert.equal(main.split('currentDocument(').length - 1, 2,
+    'asked by exactly the two paths that end the holding')
+  assert.ok(main.includes('currentDocument(record,'), 'the acknowledgement asks it')
+  assert.ok(main.includes('currentDocument(caller, token)'), 'and so does the take')
+  const take = main.slice(main.indexOf("handle('desktop:take-pending-events'"))
+  assert.match(take.slice(0, 220), /currentDocument\(caller, token\) \? caller\.outbox\.drain\(\) : \[\]/)
+
+  // the token is minted where a document announces itself, and quoted back
+  assert.match(main, /const token = randomUUID\(\)/)
+  assert.match(main, /if \(record\) record\.documentToken = token/)
+  assert.match(preload, /ipcRenderer\.send\('desktop:events-listening', documentToken\)/)
+  assert.match(preload, /ipcRenderer\.invoke\('desktop:take-pending-events', documentToken\)/)
+  // ⚠ and it never reaches page script: it is the preload's private evidence
+  const bridge = preload.slice(preload.indexOf('const bridge: DesktopBridge = {'), preload.indexOf('contextBridge.exposeInMainWorld'))
+  assert.doesNotMatch(bridge, /documentToken,/, 'the token is not exposed on the bridge object')
 })
 
 // ------------------------------------------------------- real Electron

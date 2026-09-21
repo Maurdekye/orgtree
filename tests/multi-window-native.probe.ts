@@ -167,54 +167,66 @@ app.whenReady().then(async () => {
   assert.deepEqual(afterClose.restoreWindow('org:acme', [{ x: 0, y: 0, width: 1920, height: 1080 }])?.bounds,
     acme.getNormalBounds())
 
-  // ⚠ THE OUTBOX RE-ARM, AGAINST REAL NAVIGATIONS. The queue itself is pure
-  // and its rules are driven in window-outbox.test.mjs — but which Electron
-  // event fires, on which navigation, is exactly the part reading the source
-  // cannot settle, and getting it wrong reopens the loss silently. This wires
-  // it the way index.ts does and then really navigates a window.
+  // ⚠ READINESS AGAINST REAL NAVIGATION OUTCOMES. The queue itself is pure and
+  // its rules are driven in window-outbox.test.mjs — but WHICH Electron event
+  // fires, on which outcome, is exactly what reading the source cannot settle,
+  // and getting it wrong wedges the queue either open or shut. This wires it
+  // the way index.ts does: re-arm on COMMIT, and accept a readiness message
+  // only from the document currently showing.
   const navigating = hidden()
   const outbox = windowOutbox<{ type: string; data?: unknown }>({ hold: type => type === 'open-org' })
-  navigating.webContents.on('did-start-navigation', details => {
-    if (details.isMainFrame && !details.isSameDocument) outbox.rearm()
-  })
+  let documentToken = ''
+  // index.ts mints the token when a document announces itself; here the
+  // announcement is stood in for, because a probe window has no preload.
+  const announce = () => { documentToken = `doc-${Math.abs(navigating.webContents.getURL().length)}-${++announced}` ; return documentToken }
+  let announced = 0
+  const acknowledge = (token: string) => { if (token === documentToken) outbox.drain() }
+  navigating.webContents.on('did-navigate', () => { documentToken = ''; outbox.rearm() })
+
   await navigating.loadURL('data:text/html,<title>one</title>')
-  outbox.drain()                                    // this document acknowledged a listener
+  acknowledge(announce())                            // this document says it is listening
   assert.equal(outbox.offer({ type: 'open-org' }), true, 'live while that document is showing')
 
-  // a fresh document — the Homepage-binds-an-organization case
+  // A FRESH DOCUMENT — the case where a window navigates while an event for it
+  // is in flight.
+  const staleToken = documentToken
   await navigating.loadURL('data:text/html,<title>two</title>')
-  assert.equal(outbox.holding(), true, 'loadURL re-armed the outbox')
+  assert.equal(outbox.holding(), true, 'commit re-armed the outbox')
   assert.equal(outbox.offer({ type: 'open-org', data: 'mid-flight' }), false,
     'an event arriving during the load is held, not sent into the gap')
-  assert.deepEqual(outbox.drain().map(e => e.data), ['mid-flight'])
+  // ⚠ AND THE OUTGOING DOCUMENT CANNOT SPEAK FOR ITS SUCCESSOR. Its readiness
+  // message may still be in flight; accepting it would unhold the queue on the
+  // strength of a listener that no longer exists, and carry the queue away.
+  acknowledge(staleToken)
+  assert.equal(outbox.holding(), true, "the old document's late readiness is refused")
+  assert.equal(outbox.pending(), 1, 'and it takes nothing with it')
+  acknowledge(announce())
+  assert.deepEqual(outbox.drain().map(e => e.data), [], 'the new document drained it exactly once')
 
-  // a user pressing refresh
+  // A USER PRESSING REFRESH.
+  outbox.offer({ type: 'open-org', data: 'x' })
   await new Promise<void>(resolve => {
     navigating.webContents.once('did-finish-load', () => resolve())
     navigating.webContents.reload()
   })
   assert.equal(outbox.holding(), true, 'reload re-armed the outbox')
-  outbox.drain()
+  acknowledge(announce())
+  assert.equal(outbox.holding(), false)
 
-  // ⚠ THE ORDERING THE LATE-ACK GUARD DEPENDS ON, which only real Electron can
-  // settle. index.ts drops an acknowledgement that arrives while `navigating`
-  // is true, and clears that flag on 'did-navigate'. That is only safe if a
-  // NEW document's acknowledgement arrives AFTER its own 'did-navigate' — the
-  // preload runs once the frame has committed, so it should, but "should" is
-  // what a probe is for. If this ever fails, the flag must be cleared on
-  // 'dom-ready' instead and the guard revisited.
-  let committed = false, preloadRanAfterCommit: boolean | undefined
-  const ordering = hidden()
-  ordering.webContents.on('did-navigate', () => { committed = true })
-  ordering.webContents.on('console-message', event => {
-    if (event.message === 'orgtree-probe-document-ready' && preloadRanAfterCommit === undefined) {
-      preloadRanAfterCommit = committed
-    }
-  })
-  await ordering.loadURL('data:text/html,<script>console.log("orgtree-probe-document-ready")</script>')
-  assert.equal(preloadRanAfterCommit, true,
-    "a document's own scripts run after its navigation has committed, so its ack cannot be mistaken for the previous document's")
-  ordering.destroy()
+  // ⚠ A NAVIGATION THAT FAILS MUST NOT WEDGE THE QUEUE SHUT — the mirror of
+  // the gap above, and the reason readiness re-arms at COMMIT rather than at
+  // navigation start. A navigation that never commits leaves the OLD document
+  // on screen, still listening and already acknowledged; holding on the
+  // strength of a navigation that did not happen would mean its events never
+  // leave for the rest of the window's life.
+  const before = documentToken
+  await navigating.loadURL('http://127.0.0.1:9/never-serves-anything').catch(() => {})
+  assert.equal(documentToken, before, 'a failed navigation announced no new document')
+  assert.equal(outbox.holding(), false,
+    'and it did not re-arm, so the document still on screen keeps its readiness')
+  assert.equal(outbox.offer({ type: 'open-org' }), true,
+    'events still reach the document that is actually showing')
+  navigating.destroy()
 
   // ⚠ A SAME-DOCUMENT NAVIGATION MUST NOT RE-ARM, because nothing is destroyed
   // and the listener that acknowledged is still there. That case is NOT probed

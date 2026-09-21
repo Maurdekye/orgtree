@@ -158,3 +158,65 @@ test('the tray-retention rule belongs to the LAST window only', () => {
     assert.equal(h.state.quit, false)
   }
 })
+
+// ------------------------------------------------ the quit gate's own state
+
+// f7: the gate collects answers and applies them only when every window has
+// agreed. Applying each as it arrives means an aborted quit leaves earlier
+// windows with their unsaved-creation protection already cleared — the user
+// answered "are you quitting", and when the quit is abandoned that answer
+// silently becomes permission to discard the draft with no question at all.
+//
+// The gate itself lives in index.ts because it awaits real dialogs, so this
+// drives the registry calls it makes, in the order it makes them.
+const registryCjs = path.join(temp, 'org-windows.cjs')
+await build({ entryPoints: ['apps/desktop/main/org-windows.ts'], outfile: registryCjs, bundle: true, platform: 'node', format: 'cjs' })
+const { orgWindowRegistry } = createRequire(import.meta.url)(registryCjs)
+
+const dirtyCreationWindows = (...ids) => {
+  const registry = orgWindowRegistry()
+  let sender = 500
+  for (const id of ids) {
+    const window = { isDestroyed: () => false, webContents: { id: ++sender, mainFrame: {} } }
+    registry.register({ id, senderId: window.webContents.id, window, kind: 'create' })
+    registry.setUnsavedCreation(id, true)
+  }
+  return registry
+}
+
+test('f7: an aborted quit leaves every window exactly as it was, including the ones that agreed', () => {
+  const registry = dirtyCreationWindows('create-a', 'create-b')
+  const gate = registry.quitCreationGate()
+  assert.deepEqual(gate, { action: 'confirm', windowIds: ['create-a', 'create-b'] })
+
+  // window A is asked and answers "discard" — recorded, NOT applied
+  assert.equal(registry.beginClose('create-a'), 'confirm')
+  registry.settleClose('create-a', false)
+  // window B is asked and answers "keep editing" — the quit aborts here
+  assert.equal(registry.beginClose('create-b'), 'confirm')
+  registry.settleClose('create-b', false)
+
+  // ⚠ THE POINT: A's draft still has its guard. The user never said to discard
+  // it outside a quit that did not happen.
+  assert.equal(registry.beginClose('create-a'), 'confirm',
+    "the window that agreed still asks before discarding, because the quit it agreed to was abandoned")
+  registry.settleClose('create-a', false)
+  assert.equal(registry.beginClose('create-b'), 'confirm')
+  registry.settleClose('create-b', false)
+  // and the gate is back where it started, so a later quit asks again
+  assert.deepEqual(registry.quitCreationGate(), { action: 'confirm', windowIds: ['create-a', 'create-b'] })
+})
+
+test('f7: a quit every window agrees to DOES clear their drafts', () => {
+  // The mirror. Without it, the fix could satisfy the test above by never
+  // applying an answer at all.
+  const registry = dirtyCreationWindows('create-a', 'create-b')
+  for (const id of ['create-a', 'create-b']) {
+    assert.equal(registry.beginClose(id), 'confirm')
+    registry.settleClose(id, false)
+  }
+  // every window agreed, so now the answers count
+  for (const id of ['create-a', 'create-b']) registry.setUnsavedCreation(id, false)
+  assert.deepEqual(registry.quitCreationGate(), { action: 'proceed' })
+  assert.equal(registry.beginClose('create-a'), 'close', 'the draft was discarded, so closing asks nothing')
+})

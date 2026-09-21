@@ -20,9 +20,20 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
   //
   // null only when the main process refuses the sender - the same condition
   // under which no bridge is exposed at all.
+  // ⚠ THE SAME CALL ALSO MINTS THIS DOCUMENT'S TOKEN. Native holds events a
+  // renderer cannot rediscover until the document currently showing says it is
+  // listening, and a message from a document that has since been replaced must
+  // be recognisable as such. The token is that recognition: private to the
+  // preload, quoted back on every message that would end the holding, and
+  // never exposed to page script.
   let windowIdentity: OrgWindowIdentity | null = null
-  try { windowIdentity = ipcRenderer.sendSync('desktop:window-identity-sync') as OrgWindowIdentity | null }
-  catch { windowIdentity = null }
+  let documentToken = ''
+  try {
+    const announced = ipcRenderer.sendSync('desktop:window-identity-sync') as
+      { identity: OrgWindowIdentity | null; token: string } | null
+    windowIdentity = announced?.identity ?? null
+    documentToken = announced?.token ?? ''
+  } catch { windowIdentity = null; documentToken = '' }
   const bridge: DesktopBridge = {
     windowIdentity,
     getWindowIdentity: () => ipcRenderer.invoke('desktop:window-identity'),
@@ -32,7 +43,7 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
     bindCreatedOrg: (org: string) => ipcRenderer.invoke('desktop:bind-created-org', org),
     setUnsavedCreation: (dirty: boolean) => ipcRenderer.invoke('desktop:set-unsaved-creation', dirty),
     openOrgs: () => ipcRenderer.invoke('desktop:open-orgs'),
-    takePendingWindowEvents: () => ipcRenderer.invoke('desktop:take-pending-events'),
+    takePendingWindowEvents: () => ipcRenderer.invoke('desktop:take-pending-events', documentToken),
     getAppVersion: () => ipcRenderer.invoke('desktop:app-version'),
     installUpdate: () => ipcRenderer.invoke('desktop:install-update'),
     getStatus: () => ipcRenderer.invoke('desktop:status'),
@@ -77,7 +88,7 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
       // guess at how long mounting takes, and a renderer that attaches later
       // than the guess is sent events into a void: delivered, by the main
       // process's reckoning, and gone.
-      ipcRenderer.send('desktop:events-listening')
+      ipcRenderer.send('desktop:events-listening', documentToken)
       return () => ipcRenderer.removeListener('desktop:event', handler)
     },
   }

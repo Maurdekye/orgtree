@@ -122,10 +122,18 @@ else {
     /** Window-scoped events that arrived before this window's renderer could
      *  be listening. See sendTo and HELD_EVENT_TYPES. */
     outbox: WindowOutbox<DesktopEvent>
-    /** True between a document navigation starting and the new document
-     *  committing. An acknowledgement arriving in that window belongs to the
-     *  document on its way OUT and must not speak for its successor. */
-    navigating: boolean
+    /** ⚠ WHICH DOCUMENT IS CURRENTLY SHOWING, as a value the document itself
+     *  can quote back. Minted when a document announces itself through the
+     *  preload's synchronous identity call, which happens once per document
+     *  load, and replaced when the next one does.
+     *
+     *  It exists because "is this window mid-navigation?" was the wrong
+     *  question. A latch on that has to be released by enumerating every way a
+     *  navigation can end, and a navigation that never commits releases
+     *  nothing - which wedged the queue shut for the window's life. A token
+     *  makes a stale message recognisable by WHAT IT IS rather than by WHEN it
+     *  arrives, so no navigation outcome has to be enumerated at all. */
+    documentToken: string
     /** Set while this window is closing its own popouts, so their state
      *  events say the parent took them rather than the user. */
     tearingDown: boolean
@@ -378,6 +386,14 @@ else {
     if (!record || record.window.isDestroyed()) return
     if (record.outbox.offer(event)) record.window.webContents.send('desktop:event', event)
   }
+  /** ⚠ IS THE DOCUMENT THAT SENT THIS THE ONE CURRENTLY SHOWING? Both ways
+   *  of ending the holding ask exactly this, here, so they cannot drift apart
+   *  - which is how one of them came to be guarded and the other not. A token
+   *  is minted per document and quoted back by it; an empty current token
+   *  means no document has announced itself since the last commit, so nothing
+   *  can speak for this window yet. */
+  const currentDocument = (record: MainWindowRecord, token: unknown): boolean =>
+    typeof token === 'string' && !!token && token === record.documentToken
   /** A listener exists: stop holding and SEND what was waiting. */
   const deliverHeld = (record: MainWindowRecord) => {
     for (const event of record.outbox.drain()) {
@@ -1377,6 +1393,15 @@ else {
     const gate = windows.quitCreationGate()
     if (gate.action === 'proceed') return true
     if (gate.action === 'busy') return false
+    // ⚠ THE ANSWERS ARE COLLECTED, NOT APPLIED, UNTIL THE WHOLE GATE PASSES.
+    // Applying each as it arrives means an abort leaves earlier windows with
+    // their unsaved-creation protection already cleared: the user said
+    // "discard" to the question "are you quitting", and when the quit is then
+    // abandoned that answer silently becomes permission to throw the draft
+    // away with no question at all, the next time they close that window.
+    // Every window is settled with `false` as it answers, which clears the
+    // standing prompt and LEAVES THE FLAG EXACTLY AS IT WAS.
+    const agreed: string[] = []
     for (const id of gate.windowIds) {
       const record = records.get(id)
       if (!record || record.window.isDestroyed()) continue
@@ -1386,12 +1411,15 @@ else {
         const { response } = await dialog.showMessageBox(record.window, CREATION_DISCARD_DIALOG)
         discard = response === 0
       } catch { discard = false }
-      windows.settleClose(id, discard)
-      // One refusal ends the shutdown. Every window still standing keeps its
-      // draft, and nothing that was already confirmed is acted on either -
-      // confirming a discard records the intent, it does not close anything.
+      // Clears the prompt; deliberately does NOT record the discard yet.
+      windows.settleClose(id, false)
+      // One refusal ends the shutdown, and every window - including the ones
+      // that already agreed - is left exactly as it was before the quit began.
       if (!discard) return false
+      agreed.push(id)
     }
+    // Every window agreed, so the quit is going ahead: now the answers count.
+    for (const id of agreed) windows.setUnsavedCreation(id, false)
     return true
   }
   app.on('before-quit', event => {
@@ -1487,15 +1515,24 @@ else {
       try {
         const entry = resolveNativeSender(event as unknown as Parameters<typeof resolveNativeSender>[0], windows, engine.origin)
         const record = records.get(entry.id)
-        // Mid-navigation: this is the outgoing document's voice. Drop it.
-        if (record && !record.navigating) deliverHeld(record)
+        // ⚠ ONLY THE DOCUMENT CURRENTLY SHOWING MAY END THE HOLDING. A
+        // message from one on its way out would unhold the queue on the
+        // strength of a listener that no longer exists.
+        if (record && currentDocument(record, (event as unknown as { args?: unknown[] }).args?.[0])) deliverHeld(record)
       } catch { /* an untrusted sender is refused exactly as everywhere else */ }
     })
     ipcMain.on('desktop:window-identity-sync', event => {
       try {
         const entry = resolveNativeSender(event as unknown as Parameters<typeof resolveNativeSender>[0], windows, engine.origin)
-        event.returnValue = windows.identity(entry.id) ?? null
-      } catch { event.returnValue = null }
+        const record = records.get(entry.id)
+        // ⚠ THE DOCUMENT ANNOUNCES ITSELF HERE, once, and this is where its
+        // token is minted. Every later message it sends quotes it back, which
+        // is what lets a message from a document that has since been replaced
+        // be recognised for what it is rather than guessed at from timing.
+        const token = randomUUID()
+        if (record) record.documentToken = token
+        event.returnValue = { identity: windows.identity(entry.id) ?? null, token }
+      } catch { event.returnValue = { identity: null, token: '' } }
     })
     handle('desktop:window-identity', caller => windows.identity(caller.id) ?? null)
     handle('desktop:open-homepage-window', async () => {
@@ -1523,7 +1560,14 @@ else {
      *  calls it - so those events used to fall into the gap. They are held
      *  instead, and this is how the renderer collects them. Calling it also
      *  stops the holding: from here on the window gets its events live. */
-    handle('desktop:take-pending-events', caller => caller.outbox.drain())
+    // ⚠ THE SAME QUESTION AS THE ACKNOWLEDGEMENT ABOVE, ASKED IN THE SAME
+    // PLACE. Both entry points end the holding, so both must establish that
+    // the document asking is the one currently showing - and this one does
+    // more damage when it is wrong, because it carries the queue away as well
+    // as unholding it. Refused for a departing document: the events stay held
+    // and its successor's acknowledgement becomes the delivery.
+    handle('desktop:take-pending-events', (caller, token) =>
+      currentDocument(caller, token) ? caller.outbox.drain() : [])
     /** Which organizations currently hold a window, so a Homepage can say
      *  so before the row is clicked. Read-only and app-wide: the answer is
      *  the same in every window, and it names organizations rather than
@@ -1737,7 +1781,7 @@ else {
             // is fixed for the window's life and this window's KIND is not.
             additionalArguments: [`--orgtree-ui-origin=${initialOrigin}`, `--orgtree-window-id=${id}`] } })
         const record: MainWindowRecord = {
-          id, window, owned: new Set(), tearingDown: false, navigating: false,
+          id, window, owned: new Set(), tearingDown: false, documentToken: '',
           outbox: windowOutbox<DesktopEvent>({ hold: type => HELD_EVENT_TYPES.has(type as DesktopEvent['type']) }),
           restoreMaximized: saved?.maximized ?? false, placementKey: key,
           popouts: popoutRegistry<BrowserWindow>(state => sendTo(id, { type: 'popout-state',
@@ -1773,24 +1817,27 @@ else {
         // navigation` is the earliest point at which the old document is on
         // its way out; same-document navigations are excluded because they
         // destroy nothing.
-        window.webContents.on('did-start-navigation', details => {
-          if (!details.isMainFrame || details.isSameDocument) return
+        // ⚠ COMMIT, NOT NAVIGATION START, AND THAT CHOICE IS THE WHOLE OF f5.
+        // `did-navigate` fires when a main-frame navigation is DONE, and never
+        // for an in-page one - so it marks the exact instant the old document
+        // is gone and the new one is showing with no listener yet. A
+        // navigation that FAILS never commits and so never fires it, which is
+        // precisely right: the old document is still on screen, it already
+        // acknowledged, and nothing should change. Re-arming at navigation
+        // START instead would hold the queue on a promise the navigation might
+        // not keep, and then need every failure mode enumerated to let go
+        // again - which is how a latch wedges shut for the window's life.
+        //
+        // The cost is the sliver between the old document being asked to leave
+        // and the new one committing. Events offered there go live to the OLD
+        // document, which is still showing and still listening, so they are
+        // delivered rather than lost.
+        window.webContents.on('did-navigate', () => {
+          // Nothing has announced itself for this document yet, so nothing can
+          // speak for it: the token no message can match until one does.
+          record.documentToken = ''
           record.outbox.rearm()
-          // ⚠ AND A LATE ACKNOWLEDGEMENT FROM THE OUTGOING DOCUMENT MUST NOT
-          // REOPEN THE QUEUE FOR ITS SUCCESSOR. The old document may have sent
-          // its ack a moment before it was navigated away from, and that
-          // message can still be in flight. Accepting it here would unhold the
-          // queue on the strength of a listener that no longer exists - the
-          // same loss, arriving one message later. It is DROPPED rather than
-          // deferred: deferring it to the new document would be asserting that
-          // the successor is listening, which is precisely what nothing has
-          // established yet.
-          record.navigating = true
         })
-        // The new document has committed, so an acknowledgement from here on
-        // is its own. (Verified in tests/multi-window-native.probe.ts against
-        // real Electron: a new document's ack really does arrive after this.)
-        window.webContents.on('did-navigate', () => { record.navigating = false })
         // Windows cancels a flash on activation - for THIS window only, now
         // that several can be pulsing for different organizations at once.
         window.on('focus', () => { windows.activate(id); taskbarAttention.focused(window) })
