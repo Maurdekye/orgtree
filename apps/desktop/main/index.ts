@@ -1258,6 +1258,10 @@ else {
     updateHold = undefined
     await applyDownloadedUpdate()
   }
+  /** The last `maintenance` payload actually broadcast, or `undefined` if none
+   *  ever was. The exact object sent on the wire, so the getter and the event
+   *  cannot describe the same state differently. */
+  let lastMaintenance: { state: string } | undefined
   const maintenance = new MaintenanceController({
     ack: (id, outcome) => engine.acknowledgeMaintenance(id, outcome),
     failure: id => engine.reportMaintenanceFailure(id),
@@ -1287,6 +1291,18 @@ else {
       } catch { return 'unavailable' }
     },
     report: state => {
+      // ⚠ WHAT WAS ACTUALLY REPORTED, NOT A GUESS AT THE CURRENT STATE.
+      // `maintenance` is a broadcast, and a broadcast is gone by the time a
+      // window that mounts later asks — so without this the only way to learn
+      // the state was to have been listening when it changed, which is the
+      // thing a renderer cannot arrange. The controller reports transitions
+      // and retains nothing, so remembering the last report is the whole fix.
+      //
+      // It stays `undefined` until something is genuinely reported. Seeding it
+      // with 'idle', or any other plausible resting value, would answer a
+      // question nobody asked with a state the engine never sent: `undefined`
+      // says "nothing has been reported", which is true and is different.
+      lastMaintenance = { state }
       // Distinct from UpdateController's own 'update' channel below: this is the
       // engine-issued maintenance flow (restart/update-on-request), a separate
       // state vocabulary ('pending', 'failure-record-unavailable', ...) that a
@@ -1584,6 +1600,12 @@ else {
      *  the same in every window, and it names organizations rather than
      *  windows, so it hands out no way to address one. */
     handleApp('desktop:open-orgs', () => openOrgs())
+    /** ⚠ THE SNAPSHOT BEHIND THE `maintenance` BROADCAST — the last one of the
+     *  five app-wide events that had none, so a window mounting after a state
+     *  change had no way to learn it. `null` means nothing has been reported
+     *  this run, which is a different answer from any state and is given as
+     *  one. Same shape as the event's `data`, from the same value. */
+    handleApp('desktop:maintenance-status', () => lastMaintenance ?? null)
     handle('desktop:window-refresh', async caller => {
       // ⚠ STRANDED IS NOT MERELY FAILED (review W1, 2026-09-20). Once the
       // engine has moved, retryNow refuses to act — the preload origin is

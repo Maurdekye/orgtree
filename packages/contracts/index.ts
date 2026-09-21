@@ -175,6 +175,15 @@ export interface DesktopBridge {
    *  the same list whenever it changes. Organizations, not window ids: this
    *  hands out no way to address another window. */
   openOrgs?(): Promise<string[]>
+  /** The current engine-issued maintenance state, for a window that mounted
+   *  after it last changed. The `maintenance` event is a live broadcast and is
+   *  gone by the time such a window asks, so this is the only way to learn it.
+   *
+   * ⚠ `null` means NOTHING HAS BEEN REPORTED this run - not "idle", not "no
+   *  maintenance needed". Native retains what was actually sent and invents no
+   *  resting state, so a renderer that wants to show one chooses it knowingly.
+   *  The payload is the same object the event carries. */
+  getMaintenanceStatus?(): Promise<{ state: string } | null>
   /** Window-scoped events that arrived before this window's renderer was
    *  listening - an organization to open, an item to reveal, an identity
    *  change, a restoration report. Call it as soon as `onEvent` is attached;

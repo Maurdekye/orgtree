@@ -334,3 +334,46 @@ test('real Electron probe: sender resolution, per-window popouts, discard and pl
   assert.equal(res.status, 0, `native probe failed: ${res.stdout}\n${res.stderr}`)
   assert.match(res.stdout, /MULTI_WINDOW_NATIVE_PASS/)
 })
+
+// ------------------------------------------------ app-wide snapshot reads
+
+test('every app-wide broadcast has a snapshot getter, and maintenance reports no report honestly', () => {
+  const main = read('apps/desktop/main/index.ts')
+  const preload = read('apps/desktop/preload/index.ts')
+  const contracts = read('packages/contracts/index.ts')
+
+  // ⚠ A BROADCAST IS GONE BY THE TIME A LATE WINDOW ASKS. Multi-window makes
+  // that ordinary rather than exceptional: a window opened now has missed
+  // every app-wide event so far, so each of them needs a way to be READ. Four
+  // had one; `maintenance` did not, which left the one state a renderer could
+  // only learn by having already been listening.
+  const getters = {
+    'engine-status': "handleApp('desktop:status'",
+    preferences: "handleApp('desktop:preferences'",
+    update: "handleApp('desktop:update-status'",
+    'open-orgs': "handleApp('desktop:open-orgs'",
+    maintenance: "handleApp('desktop:maintenance-status'",
+  }
+  for (const [event, getter] of Object.entries(getters)) {
+    assert.ok(main.includes(getter), `the app-wide '${event}' event has a snapshot getter`)
+  }
+
+  // the getter answers from what was BROADCAST, so the two cannot disagree
+  const report = main.slice(main.indexOf('report: state => {'), main.indexOf("broadcastAll({ type: 'maintenance'"))
+  assert.match(report, /lastMaintenance = \{ state \}/, 'the reported payload is remembered as it is sent')
+  assert.match(main, /handleApp\('desktop:maintenance-status', \(\) => lastMaintenance \?\? null\)/)
+
+  // ⚠ AND NO REPORT IS REPORTED AS NO REPORT. Seeding the value with 'idle' -
+  // or any other plausible resting state - answers with something the engine
+  // never sent, and a renderer cannot tell that apart from a real report.
+  const at = main.indexOf('let lastMaintenance')
+  const declaration = main.slice(at, main.indexOf('\n', at))
+  assert.match(declaration, /let lastMaintenance: \{ state: string \} \| undefined/)
+  assert.doesNotMatch(declaration, /=/, 'it starts unset, standing for nothing having been reported')
+
+  // it is app-wide, like the event: every window may read it, none may write
+  assert.ok(!main.includes("handleOwner('desktop:maintenance-status'"))
+  assert.match(preload, /getMaintenanceStatus: \(\) => ipcRenderer\.invoke\('desktop:maintenance-status'\)/)
+  // optional on the bridge, because a v2 renderer has no such member
+  assert.match(contracts, /getMaintenanceStatus\?\(\): Promise<\{ state: string \} \| null>/)
+})
