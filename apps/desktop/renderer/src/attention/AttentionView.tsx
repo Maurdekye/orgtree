@@ -33,7 +33,7 @@ import type {
   KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode,
 } from 'react'
 import type { ToastFn, TreePayload } from '../types'
-import type { CanvasNode, OpFn, Pt } from '../canvas/shared'
+import type { CanvasNode, OpFn, PolledStatus, Pt } from '../canvas/shared'
 import type { DeskChatProps } from '../canvas/desk'
 import type { TypedRef } from '../canvas/workrefs'
 import { PinFrame, unpinModal, useModalPin, usePersistedModalOpen } from '../canvas/modalpin'
@@ -293,6 +293,22 @@ export interface AttentionViewProps {
   onOpenMail?: (ref: TypedRef) => void
   /** the Desk's own host routes, passed through untouched */
   deskExtras?: Partial<DeskChatProps>
+  /**
+   * THE FRESHNESS OF `tree`, forwarded to the queue — question rows are read
+   * out of the tree, which this view does not fetch, so the host that DOES
+   * fetch it is the only thing that can report whether the last read
+   * succeeded. See `AttentionQueueProps.treeStatus` for the full contract and
+   * for what a current status does and does not claim.
+   *
+   * ⚠ NOT OPTIONAL IN THE DELIVERED PRODUCT (multi-window-design,
+   * 2026-09-21). Absent, the queue correctly refuses to vouch for a third of
+   * its own list — which is right while this is a stage and wrong as a
+   * shipped experience, because a permanent hedge is a hedge nobody reads.
+   * Final composition must supply the real tree-read status. There must be no
+   * second tree poller and no copied tree state to produce it: it is the
+   * status of the request the host already makes.
+   */
+  treeStatus?: PolledStatus
 }
 
 export function AttentionView(props: AttentionViewProps) {
@@ -454,7 +470,8 @@ export function AttentionView(props: AttentionViewProps) {
             close={() => unpinModal(QUEUE_KIND, slug)}>
             <AttentionQueue slug={slug} tree={props.tree} toast={props.toast}
               onOpenItem={props.onOpenItem} onFocusAgent={props.onFocusAgent}
-              onOpenDoc={props.onOpenDoc} onOpenMail={props.onOpenMail} />
+              onOpenDoc={props.onOpenDoc} onOpenMail={props.onOpenMail}
+              treeStatus={props.treeStatus} />
           </PinFrame>
         </div>
       )}

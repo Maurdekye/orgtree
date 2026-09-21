@@ -26,7 +26,7 @@ import { sendLinkedReply } from '../events/reply'
 import { DocketIcon, MailIcon, NotificationsActiveIcon, PsychologyIcon } from '../icons'
 import type { MailEntry, ToastFn, TreeNode, TreePayload, WorkItem } from '../types'
 import { md, orgPxc, usePolledStatus } from '../canvas/shared'
-import type { MailRow } from '../canvas/shared'
+import type { MailRow, PolledStatus } from '../canvas/shared'
 import { AgentName } from '../canvas/identity'
 import { focusByAttr } from './dom'
 import { AskCard } from '../canvas/asks'
@@ -54,6 +54,35 @@ export interface AttentionQueueProps {
   onFocusAgent?: (agentId: string) => void
   onOpenDoc?: (docId: string) => void
   onOpenMail?: (ref: TypedRef) => void
+  /**
+   * THE FRESHNESS OF `tree`, WHICH IS THE LIST'S THIRD SOURCE.
+   *
+   * Question rows do not come from a feed this panel polls — they are read out
+   * of the `tree` prop, which somebody else fetches. So this panel cannot know
+   * whether that payload is current, one poll behind, or the last good copy
+   * after a failed refresh, unless it is told.
+   *
+   * ⚠ ABSENT MEANS "NOT VOUCHED FOR", NOT "FINE". Without it the confident
+   * "Nothing is waiting on you here." is withheld, because a third of the list
+   * would be unaccounted for in the sentence that exists precisely to be
+   * trustworthy (finding f3, v3-ux-review-opus, 2026-09-21: both polled feeds
+   * can answer cleanly and empty while a question is in fact waiting in a tree
+   * that is a poll behind). Supply it and the gate covers all three sources.
+   *
+   * ⚠ WHAT A CURRENT STATUS DOES AND DOES NOT CLAIM (multi-window-design,
+   * 2026-09-21). Its scope is the LATEST OBSERVED read of the tree: did the
+   * most recent fetch succeed, and when. It is NOT a coherent snapshot across
+   * the three sources, and it is NOT knowledge that no question was raised
+   * after that read — nothing here can know that, and a gate pretending to
+   * would be the same over-claim in a new place.
+   *
+   * So ordinary polling latency and a known failed refresh stay DISTINCT. A
+   * tree that simply has not been re-fetched yet is `current` and the panel
+   * speaks normally; a tree whose refresh FAILED is `stale` and the panel says
+   * so. Treating the first as a gap would make the hedge permanent and teach
+   * the reader to ignore it, which costs exactly the trust the gate is for.
+   */
+  treeStatus?: PolledStatus
 }
 
 const KIND_LABEL: Record<AttentionRow['kind'], string> = {
@@ -67,7 +96,7 @@ function KindIcon({ kind }: { kind: AttentionRow['kind'] }) {
 }
 
 export function AttentionQueue({
-  slug, tree, toast, onOpenItem, onFocusAgent, onOpenDoc, onOpenMail,
+  slug, tree, toast, onOpenItem, onFocusAgent, onOpenDoc, onOpenMail, treeStatus,
 }: AttentionQueueProps) {
   // read-only visitor: a public organization is served to someone who is not
   // the operator, so every resolution control is withheld. The rows still
@@ -107,12 +136,27 @@ export function AttentionQueue({
   const feeds = [
     { name: 'tickets', status: workFeed.status },
     { name: 'mail', status: boxFeed.status },
-  ] as const
+    // the tree is not polled here; it arrives as a prop, so its freshness is
+    // only known if the caller reports it — see `treeStatus`
+    ...(treeStatus ? [{ name: 'questions', status: treeStatus }] : []),
+  ]
   const unavailable = feeds.filter((f) => f.status.unavailable)
   const stale = feeds.filter((f) => f.status.stale)
   const firstLoad = feeds.filter((f) => f.status.loading)
   /**
-   * EVERY REASON THIS LIST MIGHT NOT BE THE WHOLE TRUTH, in one place.
+   * EVERY REASON THIS LIST MIGHT NOT BE THE WHOLE TRUTH, in one place — and
+   * that claim is now true of all THREE of its sources, which it was not.
+   *
+   * ⚠ THE LIST IS BUILT FROM THREE SOURCES AND THE GATE ONCE KNEW TWO. Tickets
+   * and urgent mail are polled here; QUESTIONS are read out of the `tree` prop,
+   * which this panel does not fetch. So both polled feeds could answer cleanly
+   * and empty while the tree was a poll behind, and the confident sentence
+   * appeared with a question actually waiting — the one claim this gate exists
+   * to protect, and the reassuring one, so a reader who trusted it stopped
+   * looking (finding f3). The third source is represented now: reported via
+   * `treeStatus` when the caller can, and counted as an explicit gap when it
+   * cannot, because a source whose freshness is unknown is not a source that
+   * has been checked.
    *
    * ⚠ A FEED STILL ON ITS FIRST READ IS A GAP TOO, and treating it as one only
    * when the list happens to be EMPTY was a real hole (found by
@@ -131,6 +175,9 @@ export function AttentionQueue({
     ...unavailable.map((f) => ({ name: f.name, why: 'could not be read' })),
     ...stale.map((f) => ({ name: f.name, why: 'could not be refreshed' })),
     ...firstLoad.map((f) => ({ name: f.name, why: 'is still loading' })),
+    // not a transient state: nobody has told this panel whether the tree it was
+    // handed is current, so it must not vouch for the rows drawn from it
+    ...(treeStatus ? [] : [{ name: 'questions', why: 'are not verified here' }]),
   ]
   /** every feed answered on its most recent attempt — the ONLY state in which
    *  an empty list may be reported as "nothing is waiting" */

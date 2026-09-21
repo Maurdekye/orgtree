@@ -20,6 +20,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { AskInfo, MailEntry, TreePayload, WorkItem } from '../src/types'
 import { AttentionQueue } from '../src/attention/AttentionQueue'
+import type { PolledStatus } from '../src/canvas/shared'
 
 const SLUG = 'org1'
 const NOW = '2026-09-20T12:00:00.000Z'
@@ -105,8 +106,24 @@ const titles = (el: HTMLElement) =>
 const rowFor = (el: HTMLElement, key: string) =>
   el.querySelector(`[data-attn-row="${key}"]`) as HTMLElement | null
 
-const panel = (t = tree()) =>
-  <AttentionQueue slug={SLUG} tree={t} toast={() => {}} onOpenItem={() => {}} />
+/** the tree's freshness, which the panel cannot see for itself — question rows
+ *  are read out of the `tree` prop rather than a feed it polls. Most cases pass
+ *  a CURRENT one so they are about the thing they name; §7.4 and §7.5 are the
+ *  cases about this signal itself. */
+const FRESH: PolledStatus = {
+  loading: false, failed: false, stale: false, unavailable: false,
+  at: Date.parse(NOW), error: null,
+}
+const STALE_TREE: PolledStatus = { ...FRESH, failed: true, stale: true }
+
+// ⚠ `null` MEANS ABSENT, NOT `undefined`. A default parameter fires when the
+// argument IS `undefined`, so `panel(tree(), undefined)` quietly supplied FRESH
+// and §7.5/§7.6 asserted the unvouched case while testing the vouched one —
+// caught because they failed, but they could just as easily have passed for the
+// wrong reason. `null` cannot collide with the default.
+const panel = (t = tree(), treeStatus: PolledStatus | null = FRESH) =>
+  <AttentionQueue slug={SLUG} tree={t} toast={() => {}} onOpenItem={() => {}}
+    treeStatus={treeStatus ?? undefined} />
 
 const settle = async () => { await inAct(() => flush(8)) }
 
@@ -441,6 +458,49 @@ test('§7.2b an empty list with only a PENDING feed never reaches the stale '
   // here, because it reached the stale branch with nothing stale in it
   assert.doesNotMatch(text(v.el), /could not be refreshed/,
     'a pending read is not a failed refresh, and must not be described as one')
+  await v.unmount()
+})
+
+test('§7.4 a STALE TREE withdraws the confident sentence — questions ride it',
+  async () => {
+  localStorage.clear()
+  installServer({ items: [], pending: [] })
+  // both polled feeds answer cleanly and empty; the tree is the last good copy
+  // after a failed refresh, which is a state this panel cannot see for itself
+  const v = await mountView(panel(tree(), STALE_TREE), titles)
+  await settle()
+  assert.deepEqual(titles(v.el), [])
+  assert.equal(v.el.querySelector('.attn-empty'), null,
+    'the list is built from THREE sources and one of them is not current — '
+    + 'the reassuring sentence is exactly what must not appear here')
+  assert.match(text(v.el), /questions could not be refreshed/)
+  await v.unmount()
+})
+
+test('§7.5 with no tree freshness reported at all, the panel does not vouch for it',
+  async () => {
+  localStorage.clear()
+  installServer({ items: [], pending: [] })
+  // the caller supplies nothing: the panel has no way to know whether the tree
+  // it was handed is current, so "not told" must not read as "fine"
+  const v = await mountView(panel(tree(), null), titles)
+  await settle()
+  assert.equal(v.el.querySelector('.attn-empty'), null,
+    'absent freshness is not a clean bill of health')
+  assert.match(text(v.el), /questions are not verified here/,
+    'and it says which source it is not vouching for, rather than going quiet')
+  await v.unmount()
+})
+
+test('§7.6 a question row still shows while the tree is unvouched — the gate '
+  + 'withholds the CLAIM, never the rows', async () => {
+  localStorage.clear()
+  installServer({ items: [], pending: [] })
+  const v = await mountView(panel(tree({ ask: openAsk }), null), titles)
+  await settle()
+  assert.deepEqual(titles(v.el), ['question:Ship the cutover tonight?'],
+    'rows from an unvouched source are still the best information available')
+  assert.match(text(v.el), /questions are not verified here/)
   await v.unmount()
 })
 
