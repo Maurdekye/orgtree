@@ -72,7 +72,16 @@ app.whenReady().then(async () => {
   win.webContents.setWindowOpenHandler(() => ({ action: 'allow' }))
   win.webContents.on('did-create-window', (w) => {
     child = w
-    log('did-create-window')
+    // ⚠⚠ THE ONE LINE THAT MAKES THIS HARNESS RESEMBLE THE PRODUCT.
+    // configureWindow (main/windows.ts) recurses into every popout and turns
+    // background throttling OFF, because Chromium can leave an adopted
+    // about:blank document 'hidden' while its native window is visible.
+    // THROTTLING SUPPRESSES THE RENDERER'S SCREEN-RECT UPDATES: without this
+    // call, screenX/outerWidth stay frozen at the opener's rect forever, and
+    // this driver measures a window the renderer cannot see. That artefact
+    // cost v3-native-opus and me an hour and a wrong conclusion each.
+    try { w.webContents.setBackgroundThrottling(false) } catch (e) { log('throttle off failed ' + e) }
+    log('did-create-window (throttling disabled)')
   })
 
   // The renderer asks for the move by setting document.title, which is PUSHED
