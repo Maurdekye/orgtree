@@ -377,3 +377,30 @@ test('every app-wide broadcast has a snapshot getter, and maintenance reports no
   // optional on the bridge, because a v2 renderer has no such member
   assert.match(contracts, /getMaintenanceStatus\?\(\): Promise<\{ state: string \} \| null>/)
 })
+
+test('real Electron probe: a renderer cannot see its own window, so native measures it', async () => {
+  // ⚠ THE ONE FINDING IN THIS FILE THAT NOBODY WOULD BELIEVE FROM SOURCE.
+  // `screenX`/`screenY`/`outerWidth`/`outerHeight` are frozen at creation in
+  // every renderer, so the popout geometry the renderer used to save was its
+  // OPENER's rectangle. The probe proves it against the product's own
+  // `configureWindow` and about:blank popout path — and, crucially, shows
+  // `innerWidth`/`innerHeight` tracking the same resize exactly, which is what
+  // separates a real finding from a fixture that never laid the window out.
+  const { spawnSync } = await import('node:child_process')
+  const { createRequire } = await import('node:module')
+  const os = await import('node:os')
+  const { build } = await import('esbuild')
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-popout-bounds-'))
+  const script = path.join(dir, 'probe.cjs')
+  await build({
+    entryPoints: [path.join(root, 'tests/popout-bounds.probe.ts')],
+    outfile: script, bundle: true, format: 'cjs', platform: 'node', external: ['electron'],
+  })
+  const electron = createRequire(import.meta.url)('electron')
+  const env = { ...process.env, ORGTREE_ELECTRON_TEST_ROOT: path.join(dir, 'profile') }
+  delete env.ELECTRON_RUN_AS_NODE
+  const res = spawnSync(electron, [script], { encoding: 'utf8', timeout: 90000, windowsHide: true, env })
+  assert.equal(res.status, 0, `popout bounds probe failed: ${res.stdout}\n${res.stderr}`)
+  assert.match(res.stdout, /POPOUT_BOUNDS_PASS/)
+})
