@@ -24,13 +24,24 @@
 //      overflow. jsdom reports every box as 0x0, so "pinned outside the
 //      scrolling run" was a DOM-order assertion standing in for a layout one.
 //
+//   D. THE POLLER AND THE ROWS TOGETHER, which is the observation the
+//      review of `show-current-organization-statuses-immediately` said was
+//      still owed. B drives `OrgRows` with hand-set freshness props, so it
+//      proves the ROW renders each state correctly and proves nothing about
+//      WHEN `useOrgStatus` produces them. D mounts the real hook, opens the
+//      list with a stale in-memory snapshot, and watches PAINTED FRAMES:
+//      the first usable display, a change arriving while the list stays
+//      open, and whether the rows settle together or one at a time.
+//
 // Run:  node tools/run-probe.mjs apps/desktop/renderer/tests/shelllayout-probe.tsx <outdir>
 import { createRoot } from 'react-dom/client'
 import { flushSync } from 'react-dom'
+import { useState } from 'react'
 import { ShellAction, ShellHeader } from '../src/shell/header'
 import { OrgRows } from '../src/shell/orgrows'
 import { OrgStatusBar } from '../src/shell/statusbar'
 import { OrgViewToggle } from '../src/shell/modetoggle'
+import { useOrgStatus } from '../src/orgstatus'
 import type { OrgListEntry, TreePayload } from '../src/types'
 import '../src/styles.css'
 import '../src/shell.css'
@@ -177,6 +188,153 @@ async function run() {
     errorWithinBar: errBox.right <= barBox.right + 1 && errBox.left >= barBox.left - 1,
     errorIsNotInsideScroller: !chips.contains(err),
     errorRole: err.getAttribute('role'),
+  }
+
+  // ------------------- D. the real poller, observed in painted frames
+  mark('D-setup')
+  host.style.width = '900px'
+  // ⚠ NOT `host.replaceChildren()`. React owns this container, and clearing it
+  // by hand made the next commit throw `removeChild ... not a child of this
+  // node` — the root is still holding fibers for DOM that no longer exists.
+  // Rendering the new tree is how you replace what is on screen.
+
+  // ⚠ EVERY COUNT CHANGE, TIMESTAMPED, FROM THE DOM ITSELF. A React render
+  // count would measure re-renders; the acceptance condition is about what a
+  // person SEES, so this reads the text of every `.org-counts` node each
+  // animation frame and keeps only the frames where it actually changed.
+  const frames: { t: number; counts: string[] }[] = []
+  let watching = false
+  // ⚠ A SENTINEL, NOT AN EMPTY STRING. With `''` the very first observation
+  // is recorded only if it differs from `''` — and while the list is closed
+  // there are no `.org-counts` nodes at all, which joins to `''`. So the log
+  // would silently omit its own starting point, and "no stale frame was
+  // painted" would rest on a frame the instrument had declined to record.
+  const NOTHING_OBSERVED_YET = '<nothing observed yet>'
+  let lastSeen = NOTHING_OBSERVED_YET
+  const t0 = performance.now()
+  const watch = () => {
+    if (!watching) return
+    const counts = qa('.org-counts').map((el) => el.textContent ?? '')
+    const key = counts.join('|')
+    if (key !== lastSeen) {
+      lastSeen = key
+      frames.push({ t: Math.round(performance.now() - t0), counts })
+    }
+    requestAnimationFrame(watch)
+  }
+
+  // the server, under this probe's control: `answer` is what the next request
+  // resolves with, so a change can be introduced at an exact moment
+  let answer: OrgListEntry[] = [
+    org('studio', { name: 'Studio', working: 2, live: 9 }),
+    org('workshop', { name: 'Workshop', working: 0, live: 7 }),
+  ]
+  let requests = 0
+  let releaseFirst: (() => void) | null = null
+  const firstHeld = new Promise<void>((r) => { releaseFirst = r })
+  const load = async (): Promise<OrgListEntry[]> => {
+    requests += 1
+    // ⚠ THE FIRST REQUEST IS HELD OPEN ON PURPOSE. The defect was that the
+    // list painted whatever was in memory while the post-open request was
+    // still in flight. Holding it makes that window observable instead of a
+    // race this probe might simply miss.
+    if (requests === 1) await firstHeld
+    return answer.map((o) => ({ ...o }))
+  }
+
+  // ⚠ THE STALE ROWS ARE THE HOOK'S OWN, not props handed in. The list is
+  // opened once to fill the poller with numbers, closed, changed behind its
+  // back, and reopened — which is the sequence the user performs and the one
+  // the defect needed.
+  function ListHost() {
+    const [open, setOpen] = useState(true)
+    ;(window as unknown as { __setOpen?: (v: boolean) => void }).__setOpen = setOpen
+    const status = useOrgStatus({ active: open, load, pollMs: 250, staleAfterMs: 750 })
+    ;(window as unknown as { __status?: unknown }).__status = {
+      freshness: status.freshness, known: status.known, ageMs: status.ageMs,
+    }
+    return (
+      <div className="shell-page"><nav className="shell-homepage-list">
+        {open && <OrgRows orgs={status.orgs} slug={null} onPick={() => {}}
+          onDelete={() => {}} freshness={status.freshness} ageMs={status.ageMs} />}
+      </nav></div>
+    )
+  }
+
+  render(<ListHost />)
+  await new Promise((r) => setTimeout(r, 120))
+  releaseFirst?.()
+  await new Promise((r) => setTimeout(r, 400))
+  const seeded = qa('.org-counts').map((el) => el.textContent)
+
+  // the statuses change while the list is CLOSED — the situation the ticket
+  // describes: work happened elsewhere and the numbers in memory are now old
+  mark('D-closed')
+  const setOpen = (window as unknown as { __setOpen: (v: boolean) => void }).__setOpen
+  flushSync(() => setOpen(false))
+  answer = [org('studio', { name: 'Studio', working: 6, live: 9 }),
+    org('workshop', { name: 'Workshop', working: 4, live: 7 })]
+  await new Promise((r) => setTimeout(r, 500))
+
+  // REOPEN, watching every painted frame from here
+  mark('D-reopen')
+  lastSeen = NOTHING_OBSERVED_YET
+  watching = true
+  requestAnimationFrame(watch)
+  flushSync(() => setOpen(true))
+  const openedAtMs = Math.round(performance.now() - t0)
+  await new Promise((r) => setTimeout(r, 1200))
+  const afterReopen = qa('.org-counts').map((el) => el.textContent)
+
+  // and now a change arriving WHILE THE LIST STAYS OPEN
+  mark('D-while-open')
+  const whileOpenFrom = frames.length
+  answer = [org('studio', { name: 'Studio', working: 1, live: 9 }),
+    org('workshop', { name: 'Workshop', working: 3, live: 7 })]
+  await new Promise((r) => setTimeout(r, 1400))
+  watching = false
+  const afterLiveChange = qa('.org-counts').map((el) => el.textContent)
+
+  const changed = frames.filter((f) => f.t >= openedAtMs)
+  const staleText = ['2/9', '0/7']
+  const paintedStaleAfterReopen = changed.some((f) =>
+    f.counts.length === 2 && f.counts.every((c, i) => c === staleText[i]))
+  // ⚠ ONE-BY-ONE IS THE THING TO RULE OUT. A staggered refresh shows a frame
+  // in which one row has caught up and the other has not; a coherent one never
+  // does. Placeholders do not count — every row wearing the same placeholder
+  // together is the list declining to vouch for any of them, which is right.
+  const isPlaceholder = (c: string) => !/[0-9]/.test(c)
+  const splitFrames = changed.filter((f) =>
+    f.counts.length === 2 && f.counts.some(isPlaceholder)
+    && !f.counts.every(isPlaceholder))
+  const liveFrames = frames.slice(whileOpenFrom)
+
+  // ⚠ SAID OUT LOUD SO THE LOG IS NOT OVER-READ. If no placeholder frame
+  // appears either, that does NOT mean the loading state is broken — it means
+  // the post-open response landed within one animation frame of the reopen
+  // commit, so the list went straight to current values. That is faster than
+  // required and is a fact about this run's timing, not a stronger claim about
+  // the code. The claim under test is only that a STALE NUMBER never painted.
+  const placeholderFrameObserved = changed.some((f) =>
+    f.counts.length > 0 && f.counts.every(isPlaceholder))
+  const firstUsableIsCurrent = afterReopen.join('|') === '6/9|4/7'
+  const liveChangeAppeared = afterLiveChange.join('|') === '1/9|3/7' && liveFrames.length > 0
+  PROBE.D = {
+    seeded, afterReopen, afterLiveChange, requests,
+    frames: changed,
+    noStaleNumberPaintedOnReopen: !paintedStaleAfterReopen,
+    placeholderFrameObserved,
+    firstUsableIsCurrent,
+    liveChangeAppearedWithoutReopening: liveChangeAppeared,
+    noSplitRowFrame: splitFrames.length === 0,
+    splitFrames,
+    verdict: !paintedStaleAfterReopen && firstUsableIsCurrent && liveChangeAppeared
+      && splitFrames.length === 0
+      ? 'PASS — reopening painted no stale number, the first usable display '
+        + 'carried the current values, a change arriving while the list stayed '
+        + 'open appeared without reopening, and no frame ever showed one row '
+        + 'caught up while the other had not'
+      : 'FAIL — see the frame log',
   }
 
   mark('done')
