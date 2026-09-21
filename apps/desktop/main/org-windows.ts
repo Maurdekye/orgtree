@@ -101,8 +101,34 @@ export function orgWindowRegistry<W extends MainWindowLike, Reveal = unknown>(op
     for (const [ticket, held] of reservations) if (held.at <= cutoff) reservations.delete(ticket)
   }
   const live = () => { prune(); return [...entries.values()] }
-  const identityOf = (entry: OrgWindowEntry<W>): OrgWindowIdentity =>
-    entry.kind === 'org' ? { windowId: entry.id, kind: entry.kind, org: entry.org } : { windowId: entry.id, kind: entry.kind }
+
+  // ------------------------------------------------- notification ownership
+  /** Who currently holds the app-wide notification duties, and a counter that
+   *  advances on every transfer. The counter exists so an ownership
+   *  announcement can be recognized as stale: identity events are delivered
+   *  asynchronously, and a window must never act on an older one that arrives
+   *  after a newer one. */
+  let ownerId: string | undefined, ownerEpoch = 0
+  const earliest = () => live().reduce<OrgWindowEntry<W> | undefined>((best, entry) => !best || entry.registered < best.registered ? entry : best, undefined)
+  /** Recompute the owner and say whether it moved. Idempotent, so anything may
+   *  call it before reading ownership; the host calls it after a window is
+   *  registered or lost so it can announce a transfer. */
+  const reconcileOwnership = (): { changed: boolean; owner?: string; previous?: string; epoch: number } => {
+    const next = earliest()?.id
+    if (next === ownerId) return { changed: false, owner: ownerId, previous: ownerId, epoch: ownerEpoch }
+    const previous = ownerId
+    ownerId = next
+    ownerEpoch += 1
+    return { changed: true, owner: ownerId, previous, epoch: ownerEpoch }
+  }
+  const currentOwner = () => { reconcileOwnership(); return ownerId }
+
+  const identityOf = (entry: OrgWindowEntry<W>): OrgWindowIdentity => ({
+    windowId: entry.id,
+    kind: entry.kind,
+    ...(entry.kind === 'org' ? { org: entry.org } : {}),
+    notificationOwner: currentOwner() === entry.id,
+  })
   const holderOf = (org: string) => live().find(entry => entry.kind === 'org' && entry.org === org)
   const reservedFor = (org: string) => { sweep(); return [...reservations.values()].some(held => held.org === org) }
 
@@ -283,7 +309,30 @@ export function orgWindowRegistry<W extends MainWindowLike, Reveal = unknown>(op
      *  the global poll says nothing about who a targeted org reveal goes to;
      *  that is `queueReveal`, and it always addresses the organization's own
      *  window. */
-    notificationOwner: () => live().reduce<OrgWindowEntry<W> | undefined>((best, entry) => !best || entry.registered < best.registered ? entry : best, undefined),
+    notificationOwner: () => { const id = currentOwner(); return id ? entries.get(id) : undefined },
+
+    /** ⚠ THE WRITE GATE, and the reason routing an event is not enough.
+     *
+     *  The renderer polls the cross-organization projection on mount, on a
+     *  preference change and on a live bump — not only when native wakes it —
+     *  so native cannot enforce single ownership by choosing who receives
+     *  `notification-poll`. What native CAN enforce is who is allowed to
+     *  WRITE: the taskbar aggregate (`setPendingAttention`), the native alert
+     *  reconciliation (`syncNotifications`) and the dispatch (`notify`) are
+     *  refused from any window that is not the current owner.
+     *
+     *  ⚠ THIS IS ALSO THE STALE-WRITER GUARD, and it works because it asks
+     *  the question at the moment of the write rather than at the moment the
+     *  duty was handed out. An aggregate an old owner computed before the
+     *  transfer, arriving after it, is written by a window that is no longer
+     *  the owner — so it is refused on the same test, with no epoch to
+     *  compare and no window of time in which both answers are yes. */
+    isNotificationOwner: (id: string) => currentOwner() === id,
+
+    /** Recompute ownership and report a transfer, so the host can emit
+     *  `window-identity` to the window that GAINED the duty. Idempotent. */
+    reconcileOwnership,
+    ownershipEpoch: () => { reconcileOwnership(); return ownerEpoch },
 
     activate: (id: string) => { const entry = entries.get(id); if (entry) entry.activated = ++activations },
     /** The last-used main window — what a tray double-click and a second
@@ -455,60 +504,60 @@ export function resolveNativeSender<W extends NativeSenderWindow>(
 
 export interface RestorePlan {
   /** The windows to open, in order. An entry without `org` is a Homepage. */
-  windows: { org?: string; popouts: string[] }[]
+  windows: { org?: string }[]
   /** Saved organizations that no longer exist. */
   skippedOrgs: string[]
-  /** Saved panels that no longer exist, per surviving organization. */
-  skippedPopouts: { org: string; names: string[] }[]
   /** True when nothing could be reopened and a Homepage stands in. */
   homepageFallback: boolean
-  /** A short line for the user when something was skipped; undefined when
-   *  everything was restored. Skipping SILENTLY is what the ruling forbids. */
+  /** A short line for the user when an ORGANIZATION was skipped; undefined
+   *  when every saved window was restored. Skipping SILENTLY is what the
+   *  ruling forbids. Panels are not mentioned here because native does not
+   *  know about them — see below. */
   notice?: string
 }
 
 /** WHAT ORDINARY STARTUP RESTORES, and what it says about what it could not
- *  (ruling 2026-09-21: restore valid targets, skip missing org/panel targets
- *  with a short notice, Homepage if no organization can reopen).
+ *  (ruling 2026-09-21: restore valid targets, skip missing targets with a
+ *  short notice, Homepage if no organization can reopen).
  *
- *  `orgExists` is the host's knowledge of which organizations the engine still
- *  has. `panelExists` is optional and defaults to true, because a popout's
- *  target is renderer-owned: native knows a saved NAME and its geometry, not
- *  whether the panel behind it still means anything. Where the host can answer,
- *  it answers; where it cannot, the saved names pass through and the renderer
- *  remains the authority. */
+ *  ⚠ ORGANIZATIONS ONLY. An earlier revision also took a `panelExists`
+ *  predicate and filtered saved popout names with it. That was a second panel
+ *  store wearing a different hat: which panels an organization had open is the
+ *  RENDERER's record, and a native copy of it is guaranteed to drift from the
+ *  real one. Native restores the WINDOW and nothing inside it; the renderer
+ *  validates its own targets and reports what it could not reopen, and native
+ *  may FORWARD that report to the window that should show it — never
+ *  reconstruct it.
+ *
+ *  ⚠ SKIPPING IS NOT DELETING. `orgExists` answering false removes the
+ *  window from THIS startup and says so. It does not discard the
+ *  organization's saved geometry and must never be treated as proof the
+ *  organization is gone: an engine that has not finished starting, or a
+ *  backend outage, answers false for organizations that are perfectly fine.
+ *  Only a real deletion may forget geometry — see
+ *  OrgPlacement.forgetDeletedOrg. */
 export function planRestore(
   saved: readonly SavedOrgWindow[],
   orgExists: (org: string) => boolean,
-  panelExists: (org: string, name: string) => boolean = () => true,
 ): RestorePlan {
   const windows: RestorePlan['windows'] = []
   const skippedOrgs: string[] = []
-  const skippedPopouts: RestorePlan['skippedPopouts'] = []
   for (const record of saved) {
-    if (record.org === undefined) { windows.push({ popouts: [] }); continue }
+    if (record.org === undefined) { windows.push({}); continue }
     if (!isOrgSlug(record.org) || !orgExists(record.org)) {
       // A corrupt slug is a missing target too: it names nothing that can be
       // opened, and inventing a window for it would be worse than saying so.
       if (typeof record.org === 'string' && record.org) skippedOrgs.push(record.org)
       continue
     }
-    const org = record.org
-    const names = (record.popouts ?? []).filter(name => typeof name === 'string' && name)
-    const kept = names.filter(name => panelExists(org, name))
-    const missing = names.filter(name => !panelExists(org, name))
-    if (missing.length) skippedPopouts.push({ org, names: missing })
-    windows.push({ org, popouts: kept })
+    windows.push({ org: record.org })
   }
   const homepageFallback = !windows.some(window => window.org !== undefined)
-  if (homepageFallback && !windows.length) windows.push({ popouts: [] })
-  const parts: string[] = []
-  if (skippedOrgs.length) parts.push(`${skippedOrgs.length === 1 ? 'an organization' : `${skippedOrgs.length} organizations`} (${skippedOrgs.join(', ')})`)
-  const missingPanels = skippedPopouts.reduce((total, record) => total + record.names.length, 0)
-  if (missingPanels) parts.push(`${missingPanels === 1 ? 'a panel' : `${missingPanels} panels`}`)
-  const notice = parts.length
-    ? `Orgtree could not reopen ${parts.join(' and ')} from the last session.`
+  if (homepageFallback && !windows.length) windows.push({})
+  const notice = skippedOrgs.length
+    ? `Orgtree could not reopen ${skippedOrgs.length === 1 ? 'an organization' : `${skippedOrgs.length} organizations`}`
+      + ` (${skippedOrgs.join(', ')}) from the last session.`
       + (homepageFallback ? ' Showing the homepage instead.' : '')
     : undefined
-  return { windows, skippedOrgs, skippedPopouts, homepageFallback, ...(notice ? { notice } : {}) }
+  return { windows, skippedOrgs, homepageFallback, ...(notice ? { notice } : {}) }
 }

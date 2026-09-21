@@ -54,11 +54,11 @@ test('a window carries an explicit identity, and only a bound one names an organ
   const registry = orgWindowRegistry()
   const home = fakeWindow(), create = fakeWindow(), bound = fakeWindow()
   assert.deepEqual(registry.register({ ...registration('w1', home), kind: 'homepage' }),
-    { windowId: 'w1', kind: 'homepage' })
+    { windowId: 'w1', kind: 'homepage', notificationOwner: true })
   assert.deepEqual(registry.register({ ...registration('w2', create), kind: 'create' }),
-    { windowId: 'w2', kind: 'create' })
+    { windowId: 'w2', kind: 'create', notificationOwner: false })
   assert.deepEqual(registry.register({ ...registration('w3', bound), kind: 'org', org: 'acme' }),
-    { windowId: 'w3', kind: 'org', org: 'acme' })
+    { windowId: 'w3', kind: 'org', org: 'acme', notificationOwner: false })
   // an unbound window may not smuggle an organization in
   assert.throws(() => registry.register({ ...registration('w4', fakeWindow()), kind: 'homepage', org: 'acme' }),
     /Only an org-bound window/)
@@ -93,7 +93,7 @@ test('a homepage window binds itself to an unopened organization', () => {
   const registry = orgWindowRegistry()
   add(registry, 'home', 'homepage')
   assert.deepEqual(registry.requestOrg('acme', 'home'), { action: 'bound', windowId: 'home', org: 'acme' })
-  assert.deepEqual(registry.identity('home'), { windowId: 'home', kind: 'org', org: 'acme' })
+  assert.deepEqual(registry.identity('home'), { windowId: 'home', kind: 'org', org: 'acme', notificationOwner: true })
 })
 
 test('an org-bound window NEVER switches organization', () => {
@@ -101,7 +101,7 @@ test('an org-bound window NEVER switches organization', () => {
   add(registry, 'acme-window', 'org', 'acme')
   const decision = registry.requestOrg('beta', 'acme-window')
   assert.equal(decision.action, 'open', 'another organization opens elsewhere')
-  assert.deepEqual(registry.identity('acme-window'), { windowId: 'acme-window', kind: 'org', org: 'acme' },
+  assert.deepEqual(registry.identity('acme-window'), { windowId: 'acme-window', kind: 'org', org: 'acme', notificationOwner: true },
     'the calling window is untouched')
 })
 
@@ -109,7 +109,7 @@ test('a create window is never rebound by an ordinary open request', () => {
   const registry = orgWindowRegistry()
   add(registry, 'create', 'create')
   assert.equal(registry.requestOrg('acme', 'create').action, 'open')
-  assert.deepEqual(registry.identity('create'), { windowId: 'create', kind: 'create' })
+  assert.deepEqual(registry.identity('create'), { windowId: 'create', kind: 'create', notificationOwner: true })
 })
 
 test('an already-open organization focuses its own window and leaves the caller alone', () => {
@@ -117,7 +117,7 @@ test('an already-open organization focuses its own window and leaves the caller 
   add(registry, 'acme-window', 'org', 'acme')
   add(registry, 'home', 'homepage')
   assert.deepEqual(registry.requestOrg('acme', 'home'), { action: 'focused', windowId: 'acme-window', org: 'acme' })
-  assert.deepEqual(registry.identity('home'), { windowId: 'home', kind: 'homepage' },
+  assert.deepEqual(registry.identity('home'), { windowId: 'home', kind: 'homepage', notificationOwner: false },
     'the initiating homepage stays a homepage')
 })
 
@@ -179,8 +179,8 @@ test('a successful creation binds its own window and nothing else', () => {
   add(registry, 'create', 'create')
   add(registry, 'home', 'homepage')
   assert.deepEqual(registry.bindCreated('create', 'acme'), { action: 'bound', windowId: 'create', org: 'acme' })
-  assert.deepEqual(registry.identity('create'), { windowId: 'create', kind: 'org', org: 'acme' })
-  assert.deepEqual(registry.identity('home'), { windowId: 'home', kind: 'homepage' })
+  assert.deepEqual(registry.identity('create'), { windowId: 'create', kind: 'org', org: 'acme', notificationOwner: true })
+  assert.deepEqual(registry.identity('home'), { windowId: 'home', kind: 'homepage', notificationOwner: false })
 })
 
 test('binding a created organization is refused from anywhere but a creation window', () => {
@@ -190,7 +190,7 @@ test('binding a created organization is refused from anywhere but a creation win
   assert.deepEqual(registry.bindCreated('home', 'beta'), { action: 'refused', org: 'beta', reason: 'not-a-creation-window' })
   assert.deepEqual(registry.bindCreated('acme-window', 'beta'), { action: 'refused', org: 'beta', reason: 'already-bound' })
   assert.deepEqual(registry.bindCreated('ghost', 'beta'), { action: 'refused', org: 'beta', reason: 'unknown-window' })
-  assert.deepEqual(registry.identity('home'), { windowId: 'home', kind: 'homepage' })
+  assert.deepEqual(registry.identity('home'), { windowId: 'home', kind: 'homepage', notificationOwner: true })
 })
 
 test('a creation whose organization is already taken keeps its window and its form', () => {
@@ -199,7 +199,7 @@ test('a creation whose organization is already taken keeps its window and its fo
   add(registry, 'create', 'create')
   registry.setUnsavedCreation('create', true)
   assert.deepEqual(registry.bindCreated('create', 'acme'), { action: 'refused', org: 'acme', reason: 'already-open' })
-  assert.deepEqual(registry.identity('create'), { windowId: 'create', kind: 'create' })
+  assert.deepEqual(registry.identity('create'), { windowId: 'create', kind: 'create', notificationOwner: false })
   assert.equal(registry.beginClose('create'), 'confirm', 'the draft survives the refusal')
 })
 
@@ -346,8 +346,47 @@ test('exactly one window owns the app-wide notification duties, and ownership tr
   assert.equal(registry.notificationOwner().id, 'w1', 'a new window never steals the global poll')
   registry.activate('w3')
   assert.equal(registry.notificationOwner().id, 'w1', 'nor does focusing one')
+  assert.deepEqual(registry.list().filter(entry => registry.isNotificationOwner(entry.id)).map(entry => entry.id), ['w1'],
+    'exactly one, always')
   first.destroyed = true
   assert.equal(registry.notificationOwner().id, 'w2', 'the owner closing transfers it to the next-earliest')
+})
+
+test('a transfer is reported once, so the window that GAINS the duty can be told', () => {
+  const registry = orgWindowRegistry()
+  const first = add(registry, 'w1', 'homepage')
+  add(registry, 'w2', 'org', 'acme')
+  registry.reconcileOwnership()
+  assert.deepEqual(registry.reconcileOwnership(), { changed: false, owner: 'w1', previous: 'w1', epoch: 1 },
+    'reconciling twice is idempotent and reports no phantom transfer')
+
+  first.destroyed = true
+  const moved = registry.reconcileOwnership()
+  assert.equal(moved.changed, true)
+  assert.equal(moved.previous, 'w1')
+  assert.equal(moved.owner, 'w2')
+  assert.equal(moved.epoch, 2, 'the epoch advances on a real transfer')
+  assert.deepEqual(registry.reconcileOwnership(), { changed: false, owner: 'w2', previous: 'w2', epoch: 2 })
+  assert.equal(registry.identity('w2').notificationOwner, true, 'and the identity it is told says so')
+})
+
+test('NEGATIVE CONTROL: a stale owner cannot write the aggregate after the duty moves', () => {
+  // The renderer polls the cross-org projection on mount, on a preference
+  // change and on a live bump, so native cannot enforce single ownership by
+  // choosing who it WAKES. It enforces who may WRITE, and it asks at the
+  // moment of the write - which is exactly what makes an aggregate computed
+  // before a transfer and arriving after it get refused.
+  const registry = orgWindowRegistry()
+  const first = add(registry, 'w1', 'homepage')
+  add(registry, 'w2', 'org', 'acme')
+  assert.equal(registry.isNotificationOwner('w1'), true)
+  assert.equal(registry.isNotificationOwner('w2'), false, 'a non-owner may not write the aggregate')
+
+  // w1 begins a poll, then closes while its async write is in flight
+  first.destroyed = true
+  assert.equal(registry.isNotificationOwner('w1'), false, 'its late write is refused')
+  assert.equal(registry.isNotificationOwner('w2'), true, 'and the new owner is the only writer')
+  assert.equal(registry.isNotificationOwner('never-registered'), false)
 })
 
 test('the last-used window is tracked separately from notification ownership', () => {
@@ -377,7 +416,7 @@ test('closing a window with unfinished creation input asks first, and asks only 
 
   // declining keeps the window and the draft exactly as they were
   registry.settleClose('create', false)
-  assert.deepEqual(registry.identity('create'), { windowId: 'create', kind: 'create' })
+  assert.deepEqual(registry.identity('create'), { windowId: 'create', kind: 'create', notificationOwner: true })
   assert.equal(registry.beginClose('create'), 'confirm', 'and it still asks next time')
 
   // confirming discards the draft, so the close that follows proceeds
@@ -419,9 +458,9 @@ const orgsThatExist = (...names) => org => names.includes(org)
 
 test('startup restores the windows whose targets still exist, in order', () => {
   const plan = planRestore(
-    [{ org: 'acme', popouts: ['desk-1'] }, { org: 'beta' }],
+    [{ org: 'acme' }, { org: 'beta' }],
     orgsThatExist('acme', 'beta'))
-  assert.deepEqual(plan.windows, [{ org: 'acme', popouts: ['desk-1'] }, { org: 'beta', popouts: [] }])
+  assert.deepEqual(plan.windows, [{ org: 'acme' }, { org: 'beta' }])
   assert.deepEqual(plan.skippedOrgs, [])
   assert.equal(plan.homepageFallback, false)
   assert.equal(plan.notice, undefined, 'nothing was skipped, so the user is told nothing')
@@ -431,25 +470,26 @@ test('a saved organization that no longer exists is skipped WITH a notice, never
   const plan = planRestore(
     [{ org: 'acme' }, { org: 'gone' }],
     orgsThatExist('acme'))
-  assert.deepEqual(plan.windows, [{ org: 'acme', popouts: [] }])
+  assert.deepEqual(plan.windows, [{ org: 'acme' }])
   assert.deepEqual(plan.skippedOrgs, ['gone'])
   assert.equal(plan.homepageFallback, false)
   assert.match(plan.notice, /could not reopen an organization \(gone\)/)
 })
 
-test('a saved panel that no longer exists is skipped WITH a notice, never silently', () => {
-  const plan = planRestore(
-    [{ org: 'acme', popouts: ['desk-1', 'inbox', 'ghost'] }],
-    orgsThatExist('acme'),
-    (org, name) => name !== 'ghost')
-  assert.deepEqual(plan.windows, [{ org: 'acme', popouts: ['desk-1', 'inbox'] }])
-  assert.deepEqual(plan.skippedPopouts, [{ org: 'acme', names: ['ghost'] }])
-  assert.match(plan.notice, /could not reopen a panel/)
+test('native restoration knows nothing about panels, by design', () => {
+  // An earlier revision took a panelExists predicate and filtered saved popout
+  // names with it. That was a second panel store wearing a different hat: the
+  // renderer owns which panels an organization had open, validates its own
+  // targets and reports what it could not reopen. Native restores the WINDOW.
+  assert.equal(planRestore.length, 2, 'no third panel-predicate argument')
+  const plan = planRestore([{ org: 'acme', popouts: ['desk-1', 'ghost'] }], orgsThatExist('acme'))
+  assert.deepEqual(plan.windows, [{ org: 'acme' }], 'a stray popout list is ignored, not acted on')
+  assert.equal('skippedPopouts' in plan, false)
 })
 
 test('when no organization can reopen, a homepage stands in and says so', () => {
   const plan = planRestore([{ org: 'gone' }, { org: 'also-gone' }], () => false)
-  assert.deepEqual(plan.windows, [{ popouts: [] }])
+  assert.deepEqual(plan.windows, [{}])
   assert.deepEqual(plan.skippedOrgs, ['gone', 'also-gone'])
   assert.equal(plan.homepageFallback, true)
   assert.match(plan.notice, /2 organizations \(gone, also-gone\)/)
@@ -458,14 +498,14 @@ test('when no organization can reopen, a homepage stands in and says so', () => 
 
 test('a saved homepage window restores as a homepage and is not a fallback', () => {
   const plan = planRestore([{}], () => false)
-  assert.deepEqual(plan.windows, [{ popouts: [] }])
+  assert.deepEqual(plan.windows, [{}])
   assert.equal(plan.homepageFallback, true, 'no organization reopened, so the homepage is what stands')
   assert.equal(plan.notice, undefined, 'but nothing was skipped, so there is nothing to report')
 })
 
 test('a corrupt saved slug is treated as a missing target, not opened', () => {
   const plan = planRestore([{ org: 'Not A Slug' }], () => true)
-  assert.deepEqual(plan.windows, [{ popouts: [] }])
+  assert.deepEqual(plan.windows, [{}])
   assert.deepEqual(plan.skippedOrgs, ['Not A Slug'])
   assert.equal(plan.homepageFallback, true)
 })

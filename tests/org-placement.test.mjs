@@ -1,7 +1,14 @@
-// Per-organization MAIN WINDOW placement: the v2 -> v3 file migration, per-org
-// lookup, and the reuse of the existing monitor-fit behavior. Popout geometry
-// and the open-panel set are the renderer's (see the module header); nothing
-// here stores them, and that division is asserted at the end of this file.
+// Per-organization MAIN WINDOW placement.
+//
+// The property this file exists to protect is that GEOMETRY and MEMBERSHIP are
+// two different facts. Geometry is where a window was, remembered indefinitely
+// for anything ever positioned. Membership is the much smaller set startup
+// actually reopens. Restoring from geometry would reopen every organization
+// the user has ever visited, every launch — so most of the tests below are
+// about keeping one from standing in for the other.
+//
+// Popout geometry and the open-panel set are the renderer's (see the module
+// header); nothing here stores them, and that division is asserted at the end.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -20,6 +27,7 @@ async function load(entry, name) {
 const { OrgPlacement, migratePlacementFile, placementKey, orgOfKey, HOMEPAGE_KEY } =
   await load('apps/desktop/main/org-placement.ts', 'org-placement')
 const { fitWindow } = await load('apps/desktop/main/window-placement.ts', 'window-placement')
+const { planRestore } = await load('apps/desktop/main/org-windows.ts', 'org-windows')
 
 const SCREEN = [{ x: 0, y: 0, width: 1920, height: 1080 }]
 const bounds = (x, y, width = 800, height = 600) => ({ x, y, width, height })
@@ -32,17 +40,20 @@ const fakeWindow = (saved, { minimized = false, destroyed = false } = {}) => ({
 })
 let files = 0
 const newFile = () => path.join(temp, `placement-${++files}.json`)
+/** Open a window: remember where it is AND that it should reopen. */
+const open = (store, key, at) => { store.captureWindow(key, fakeWindow(at)); store.openedWindow(key) }
 
 // ----------------------------------------------------------------- migration
 
 test('the v2 single-placement file becomes the default geometry, not a discarded file', () => {
   const migrated = migratePlacementFile({ bounds: bounds(100, 50), maximized: true })
-  assert.deepEqual(migrated, { version: 2, default: { bounds: bounds(100, 50), maximized: true }, windows: [] })
+  assert.deepEqual(migrated,
+    { version: 2, default: { bounds: bounds(100, 50), maximized: true }, geometry: [], session: [] })
 })
 
 test('a damaged or absent file produces an empty schema rather than an exception', () => {
   for (const raw of [undefined, null, 'nonsense', 42, [], {}, { bounds: { x: 'a' }, maximized: true }, { bounds: bounds(1, 1), maximized: 'yes' }]) {
-    assert.deepEqual(migratePlacementFile(raw), { version: 2, windows: [] }, JSON.stringify(raw))
+    assert.deepEqual(migratePlacementFile(raw), { version: 2, geometry: [], session: [] }, JSON.stringify(raw))
   }
 })
 
@@ -50,19 +61,34 @@ test('a v3 file keeps only entries that are actually usable', () => {
   const migrated = migratePlacementFile({
     version: 2,
     default: { bounds: bounds(0, 0), maximized: false },
-    windows: [
+    geometry: [
       { key: 'org:acme', placement: placement(10, 10) },
-      { key: '', placement: placement(10, 10) },              // no key
-      { key: 'org:beta', placement: { bounds: bounds(0, 0, 0, 5), maximized: false } },  // zero width
+      { key: '', placement: placement(10, 10) },                                       // no key
+      { key: 'org:beta', placement: { bounds: bounds(0, 0, 0, 5), maximized: false } }, // zero width
       'not an object',
     ],
+    session: ['org:acme', 'org:acme', 'org:beta', '', 42],
     // a popout section written by an older draft of this schema is dropped:
     // that fact belongs to the renderer now and native must not carry a copy
     popouts: [{ org: 'acme', name: 'desk-1', placement: placement(20, 20) }],
   })
-  assert.deepEqual(migrated.windows, [{ key: 'org:acme', placement: placement(10, 10) }])
+  assert.deepEqual(migrated.geometry, [{ key: 'org:acme', placement: placement(10, 10) }])
+  assert.deepEqual(migrated.session, ['org:acme'],
+    'membership is de-duplicated and cannot name a window with no usable geometry')
   assert.equal('popouts' in migrated, false)
   assert.deepEqual(migrated.default, { bounds: bounds(0, 0), maximized: false })
+})
+
+test('an earlier draft that could not tell geometry from membership contributes NO membership', () => {
+  // That draft stored one `windows` array and restoration read it directly,
+  // which is the bug this split exists to fix. Reading it as "reopen all of
+  // these" on upgrade would perform that bug once, at the worst moment.
+  const migrated = migratePlacementFile({
+    version: 2,
+    windows: [{ key: 'org:acme', placement: placement(10, 10) }, { key: 'org:beta', placement: placement(20, 20) }],
+  })
+  assert.equal(migrated.geometry.length, 2, 'the positions are kept')
+  assert.deepEqual(migrated.session, [], 'but nothing is reopened on the strength of them')
 })
 
 test('a real v2 file on disk is migrated on first read and the position survives', () => {
@@ -71,6 +97,7 @@ test('a real v2 file on disk is migrated on first read and the position survives
   const store = new OrgPlacement(file)
   assert.deepEqual(store.restoreWindow('org:acme', SCREEN), { bounds: bounds(300, 200), maximized: false },
     'an organization with no record of its own starts where the old single window was')
+  assert.deepEqual(store.sessionWindows(), [], 'and one old rectangle does not mean "reopen something"')
 })
 
 // --------------------------------------------------------------------- keys
@@ -88,26 +115,127 @@ test('only restorable windows have a placement key', () => {
 test('each organization keeps its own window position, independently', () => {
   const file = newFile()
   const store = new OrgPlacement(file)
-  store.captureWindow('org:acme', fakeWindow(placement(10, 10)))
-  store.captureWindow('org:beta', fakeWindow(placement(800, 400, true)))
-  store.captureWindow(HOMEPAGE_KEY, fakeWindow(placement(200, 200)))
+  open(store, 'org:acme', placement(10, 10))
+  open(store, 'org:beta', placement(800, 400, true))
+  open(store, HOMEPAGE_KEY, placement(200, 200))
 
   const reopened = new OrgPlacement(file)
   assert.deepEqual(reopened.restoreWindow('org:acme', SCREEN), placement(10, 10))
   assert.deepEqual(reopened.restoreWindow('org:beta', SCREEN), placement(800, 400, true))
   assert.deepEqual(reopened.restoreWindow(HOMEPAGE_KEY, SCREEN), placement(200, 200))
-  assert.deepEqual(reopened.savedWindows().map(entry => entry.key), ['org:acme', 'org:beta', HOMEPAGE_KEY],
-    'restore order is the order they were saved in')
+  assert.deepEqual(reopened.sessionWindows(), ['org:acme', 'org:beta', HOMEPAGE_KEY],
+    'and they reopen in the order they were opened')
 })
 
-test('an organization that is gone leaves nothing behind to restore', () => {
+// ------------------------------------------- geometry is not membership
+
+test('NEGATIVE CONTROL: startup reopens what was open, not every organization ever positioned', () => {
   const file = newFile()
   const store = new OrgPlacement(file)
-  store.captureWindow('org:acme', fakeWindow(placement(10, 10)))
-  store.captureWindow('org:beta', fakeWindow(placement(50, 50)))
-  store.forgetOrg('acme')
+  open(store, 'org:acme', placement(10, 10))
+  open(store, 'org:beta', placement(50, 50))
+  open(store, 'org:gamma', placement(90, 90))
+  store.closedWindow('org:beta')         // the user closed beta during the session
+
   const reopened = new OrgPlacement(file)
-  assert.deepEqual(reopened.savedWindows().map(entry => entry.key), ['org:beta'])
+  assert.deepEqual(reopened.sessionWindows(), ['org:acme', 'org:gamma'])
+  assert.equal(reopened.geometry().length, 3, 'all three positions are still remembered')
+})
+
+test('closing an organization drops it from the next startup but KEEPS where it was', () => {
+  const file = newFile()
+  const store = new OrgPlacement(file)
+  open(store, 'org:acme', placement(120, 90, true))
+  store.closedWindow('org:acme')
+
+  const reopened = new OrgPlacement(file)
+  assert.deepEqual(reopened.sessionWindows(), [], 'it does not come back on its own')
+  assert.deepEqual(reopened.restoreWindow('org:acme', SCREEN), placement(120, 90, true),
+    'but opening it by hand puts the window back where the user left it')
+})
+
+test('reopening a window already in the reopen set does not duplicate or reorder it', () => {
+  const file = newFile()
+  const store = new OrgPlacement(file)
+  open(store, 'org:acme', placement(10, 10))
+  open(store, 'org:beta', placement(50, 50))
+  store.openedWindow('org:acme')
+  assert.deepEqual(store.sessionWindows(), ['org:acme', 'org:beta'])
+})
+
+// ------------------------------------------------------------------ shutdown
+
+test('a quit records the open set BEFORE teardown, and teardown cannot rewrite it', () => {
+  const file = newFile()
+  const store = new OrgPlacement(file)
+  open(store, 'org:acme', placement(10, 10))
+  open(store, 'org:beta', placement(50, 50))
+  open(store, HOMEPAGE_KEY, placement(90, 90))
+
+  // the quit captures what is open at this instant...
+  store.beginShutdown(['org:acme', 'org:beta', HOMEPAGE_KEY])
+  // ...and then teardown closes every one of them. Those closes are NOT the
+  // user closing windows, and if they counted as such the next launch would
+  // restore nothing at all.
+  for (const key of ['org:acme', 'org:beta', HOMEPAGE_KEY]) store.closedWindow(key)
+
+  const reopened = new OrgPlacement(file)
+  assert.deepEqual(reopened.sessionWindows(), ['org:acme', 'org:beta', HOMEPAGE_KEY])
+})
+
+test('a window closed deliberately before the quit stays closed through it', () => {
+  const file = newFile()
+  const store = new OrgPlacement(file)
+  open(store, 'org:acme', placement(10, 10))
+  open(store, 'org:beta', placement(50, 50))
+  store.closedWindow('org:beta')
+  store.beginShutdown(['org:acme'])      // beta is genuinely not open any more
+  store.closedWindow('org:acme')         // teardown
+  assert.deepEqual(new OrgPlacement(file).sessionWindows(), ['org:acme'])
+})
+
+test('the shutdown capture is de-duplicated and ignores empty keys', () => {
+  const file = newFile()
+  const store = new OrgPlacement(file)
+  open(store, 'org:acme', placement(10, 10))
+  store.beginShutdown(['org:acme', 'org:acme', '', undefined])
+  assert.deepEqual(new OrgPlacement(file).sessionWindows(), ['org:acme'])
+})
+
+// ------------------------------------------------- deletion vs unavailability
+
+test('NEGATIVE CONTROL: an organization that cannot be found is skipped, NOT forgotten', () => {
+  // An engine still starting, or a backend outage, makes an organization look
+  // absent. Treating that as deletion would throw away a position the user
+  // never asked to lose, and it would do it on the launch where the app was
+  // already misbehaving.
+  const file = newFile()
+  const store = new OrgPlacement(file)
+  open(store, 'org:acme', placement(10, 10))
+  open(store, 'org:beta', placement(50, 50))
+
+  const saved = store.sessionWindows().map(key => ({ org: orgOfKey(key) }))
+  const plan = planRestore(saved, org => org !== 'beta')      // beta looks absent this launch
+  assert.deepEqual(plan.windows, [{ org: 'acme' }])
+  assert.deepEqual(plan.skippedOrgs, ['beta'])
+
+  // planning changed nothing on disk: beta is still remembered, both as a
+  // position and as a window that was open
+  const untouched = new OrgPlacement(file)
+  assert.deepEqual(untouched.sessionWindows(), ['org:acme', 'org:beta'])
+  assert.deepEqual(untouched.restoreWindow('org:beta', SCREEN), placement(50, 50))
+})
+
+test('a really deleted organization leaves nothing behind', () => {
+  const file = newFile()
+  const store = new OrgPlacement(file)
+  open(store, 'org:acme', placement(10, 10))
+  open(store, 'org:beta', placement(50, 50))
+  store.forgetDeletedOrg('acme')
+  const reopened = new OrgPlacement(file)
+  assert.deepEqual(reopened.sessionWindows(), ['org:beta'])
+  assert.deepEqual(reopened.geometry().map(entry => entry.key), ['org:beta'])
+  assert.equal(reopened.restoreWindow('org:acme', SCREEN), undefined, 'and no default stands in for it')
 })
 
 // ------------------------------------------------------- existing behaviors
@@ -128,7 +256,7 @@ test('a minimized or destroyed window is not captured, exactly as before', () =>
   const store = new OrgPlacement(file)
   store.captureWindow('org:acme', fakeWindow(placement(10, 10), { minimized: true }))
   store.captureWindow('org:beta', fakeWindow(placement(10, 10), { destroyed: true }))
-  assert.deepEqual(new OrgPlacement(file).savedWindows(), [])
+  assert.deepEqual(new OrgPlacement(file).geometry(), [])
 })
 
 test('an unchanged position does not rewrite the file', () => {
@@ -153,6 +281,6 @@ test('native stores no popout geometry at all, by agreement with the shell owner
   }
   const file = newFile()
   const store = new OrgPlacement(file)
-  store.captureWindow('org:acme', fakeWindow(placement(10, 10)))
+  open(store, 'org:acme', placement(10, 10))
   assert.equal(fs.readFileSync(file, 'utf8').includes('popout'), false)
 })

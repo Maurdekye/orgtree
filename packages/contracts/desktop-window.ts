@@ -34,6 +34,28 @@ export interface OrgWindowIdentity {
   windowId: string
   kind: OrgWindowKind
   org?: string
+  /** ⚠ WHETHER THIS WINDOW RUNS THE APP-WIDE NOTIFICATION DUTIES, and the
+   *  renderer genuinely cannot work without being told.
+   *
+   *  `useNativeNotifications` is two things wearing one name. The APP-GLOBAL
+   *  half reads `/api/desktop/notifications` — the CROSS-organization
+   *  attention projection, not this organization's — then writes the taskbar
+   *  aggregate, reconciles which OS notifications should still exist, and
+   *  dispatches new ones through a `seen` set shared across windows but
+   *  guarded only in-process. Run that in N windows and they overwrite each
+   *  other's aggregate, retract each other's notifications, and race on
+   *  duplicate alerts. The PER-WINDOW half — handling a `notification-click`
+   *  targeted at this window — must keep running everywhere.
+   *
+   *  So the renderer splits its hook on this flag, which is why routing the
+   *  `notification-poll` event alone is not enough: the renderer also polls on
+   *  mount, on preference changes and on live bumps, and native cannot gate a
+   *  poll it never triggered. Native gates the WRITES instead (see
+   *  `isNotificationOwner` in org-windows.ts) and tells the renderer here.
+   *
+   *  Exactly one live window has this true. It transfers when the owner
+   *  closes, and `window-identity` is emitted to the window that GAINS it. */
+  notificationOwner: boolean
 }
 
 /** Why a request to bind or open an organization was refused. Structured
@@ -91,10 +113,17 @@ export type CreationCloseDecision = 'close' | 'confirm' | 'awaiting'
 
 /** A saved main window from a previous run, as startup restoration reads it.
  *  `org` is absent for a Homepage window; a Create window is never saved,
- *  because creation drafts are deliberately not persisted. */
+ *  because creation drafts are deliberately not persisted.
+ *
+ *  ⚠ NO PANELS HERE, deliberately. Which panels an organization had open is
+ *  the RENDERER's record, in a store it already keys by [org, kind] and shares
+ *  across every window of this origin. Native restoring a panel set would be a
+ *  second store of the same fact, and the two would disagree. Native restores
+ *  the WINDOW; the renderer restores what is inside it, validates its own
+ *  targets, and reports what it could not reopen — native may forward that
+ *  report, never reconstruct it. */
 export interface SavedOrgWindow {
   org?: string
-  popouts?: string[]
 }
 
 /** Which organization names the native side accepts.
