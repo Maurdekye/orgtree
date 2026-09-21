@@ -29,7 +29,9 @@ import type {
   HireState, OpFn, Pile, Pt, Seg, Spring, StreamEvent, View, WorkLinkFn,
 } from './shared'
 import { ContextWheel, DeskChat, DestinationBusy, LineagePanel, OrgKillswitchContext, TrayStatus } from './desk'
+import type { DeskChatProps } from './desk'
 import { OrgDefaultEffort, resolveOrgDefault } from './effort'
+import { TempDeskModal } from './tempdesk'
 import { DocReader } from './docs'
 import { mailRefTarget, useRefRoutes, Written } from './reflinks'
 import type { ResolvedRef } from './reflinks'
@@ -58,12 +60,60 @@ import { AgentNavProvider, agentNavProps, useProvideAgentNav } from './agentnav'
 import type { RetireKind } from './agentmenu'
 import { useSurfaceDocument } from '../popout'
 
+/** What the org host hands a view rendered in its slot. Every field is
+ *  something this component already holds, which is the point: a sibling view
+ *  gets the canvas's map, layout and routes WITHOUT the map or the handler
+ *  closures being hoisted into App. */
+export interface OrgSlotContext {
+  slug: string
+  tree: TreePayload
+  op: OpFn
+  toast: ToastFn
+  map: Map<string, CanvasNode>
+  /** the LIVE layout position — `springs` if the camera has settled there,
+   *  else the layout target, so it answers before the springs settle.
+   *  ⚠ FOR ORDER ONLY: a view uses it to read left-to-right exactly as the
+   *  canvas draws, and must not treat it as a place to put anything. */
+  posOf: (id: string) => Pt | undefined
+  onOpenItem?: (itemSlug: string) => void
+  onFocusAgent?: (agentId: string) => void
+  onOpenDoc?: (docId: string) => void
+  /** the canonical mail route — the SAME `MailLinkFn` the desks get, not a
+   *  narrowed copy, so a view cannot open mail by a shape the host does not
+   *  actually accept */
+  onOpenMail?: MailLinkFn
+  /** the canonical desk's own host routes, to pass straight through to a
+   *  `DeskSlot`. The view supplies no stubs and invents no handler. */
+  deskExtras: Partial<DeskChatProps>
+}
+
 export interface OrgCanvasProps {
   tree: TreePayload
   op: OpFn
   slug: string
   toast: ToastFn
   mailEvt: MailEvent | null
+  /** Render a view as a SIBLING of the canvas viewport, inside this host's own
+   *  providers — the desk registry, the killswitch and the surface routes.
+   *
+   *  ⚠ WHY A SLOT RATHER THAN A SECOND HOST. The Attention view mounts a
+   *  canonical desk, and a desk must register in the ONE registry or two live
+   *  composers become possible. It is a sibling of `.viewport` rather than a
+   *  child so it escapes the pan/zoom transform, and so hiding its own stage
+   *  can never hide the pin layer — which `adoptPinLayer` appends INSIDE the
+   *  viewport. */
+  renderOrgSlot?: (ctx: OrgSlotContext) => ReactNode
+  /** Whether the canvas world is the presented view. The SHELL sets this — it
+   *  owns the view toggle, so it is the only place that knows — and THIS
+   *  component does the hiding, because it is the only place that knows which
+   *  of its children are world and which is the adopted pin layer.
+   *
+   *  ⚠ THE SHELL MUST NOT HIDE OR UNMOUNT THE CANVAS ITSELF. `display: none`
+   *  on `.viewport` takes every pinned window with it. `'hidden'` here keeps
+   *  the viewport and the pin layer untouched and puts the world away by
+   *  inherited visibility, which also PRESERVES LAYOUT: the camera, the
+   *  springs and `posOf` survive the switch. */
+  canvasContent?: 'shown' | 'hidden'
   /** open the user's inbox, optionally jumped to a specific mail id */
   onInbox?: (jump?: string) => void
   /** open the work docket at ONE item — a tool chip's docket link */
@@ -325,8 +375,15 @@ function AgentNavHost({ map, op, slug, toast, goTo, build }: {
 
 export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettings, onWorkItem,
   onAccounts, focusAgent, onFocusAgentHandled, openMailAt,
-  onOpenMailHandled, openDocAt, onOpenDocHandled, onOpenAgentGallery }: OrgCanvasProps) {
+  onOpenMailHandled, openDocAt, onOpenDocHandled, onOpenAgentGallery,
+  renderOrgSlot, canvasContent = 'shown' }: OrgCanvasProps) {
+  const worldHidden = canvasContent === 'hidden'
   const [draft, setDraft] = useState<DraftState | null>(null)
+  // The agent whose desk is open TEMPORARILY (tempdesk.tsx). Plain local state
+  // and nothing else: no pin, no popout, no saved layout row, no change to the
+  // focused node — which is what makes "closing puts the view back" true by
+  // construction rather than by restoring anything.
+  const [tempDeskId, setTempDeskId] = useState<string | null>(null)
   const [configId, setConfigId] = useState<string | null>(null)
   // A pinned node-config remains mounted as a window; clicking its same
   // opener toggles visibility, while another agent's gear selects that agent.
@@ -856,6 +913,31 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     const host = viewportRef.current
     if (host) return adoptPinLayer(slug, host)
   }, [slug])
+  // ---------------------------------------------- putting the world away
+  const worldRef = useRef<HTMLDivElement | null>(null)
+  const slotRef = useRef<HTMLDivElement | null>(null)
+  // ⚠ `inert` IS SET HERE AND NOT AS A JSX PROP, and that is not a style
+  // preference. This app runs React 18, where `inert` is not a known boolean
+  // attribute: `inert={false}` renders `inert="false"`, and because `inert` is
+  // a boolean HTML attribute its mere PRESENCE activates it — so the shown
+  // canvas would be inert. React 19 omits it correctly; until then the
+  // attribute is added and removed explicitly, where the behaviour is visible.
+  //
+  // AND FOCUS MOVES FIRST. `inert` does not blur what is already focused, and
+  // a blurred `document.body` swallows the next keystroke — so anything
+  // focused inside the world is handed to the slot container (which is why
+  // that container is focusable at all) before the world stops accepting it.
+  useLayoutEffect(() => {
+    const world = worldRef.current
+    if (!world) return
+    if (!worldHidden) { world.removeAttribute('inert'); return }
+    const active = document.activeElement
+    if (active instanceof HTMLElement && world.contains(active)) {
+      (slotRef.current ?? viewportRef.current)?.focus?.()
+      if (document.activeElement === active) active.blur()
+    }
+    world.setAttribute('inert', '')
+  }, [worldHidden])
   const [viewportSize, setViewportSize] = useState({ w: 0, h: 0 })
   useEffect(() => {
     const el = viewportRef.current
@@ -2616,6 +2698,13 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         ? () => { desk.requestPopout(); if (!desk.present) go() }
         : undefined,
       onShowWindow: desk.show,
+      // ⚠ NO `go()` HERE, DELIBERATELY, unlike every neighbour above. The whole
+      // value of this entry is that it does NOT walk the camera to the agent or
+      // change which node is focused — a glance, not a placement. It needs no
+      // `desk.valid` gate either: the modal renders the canonical desk, which
+      // handles an archived or unavailable seat with its own semantics rather
+      // than this menu second-guessing them.
+      onOpenTemporary: !isMobile ? () => setTempDeskId(n.id) : undefined,
       // the hire chips live ON THE CARD, so this walks to the agent and asks
       // its card to open them — the same reveal the card's own entry runs
       onHire: () => { go(); setHireReveal((h) => ({ id: n.id, seq: (h?.seq ?? 0) + 1 })) },
@@ -2916,7 +3005,15 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       map={map} op={op} slug={slug} toast={toast} goTo={goToAgent} build={trayRowMenu} /><div style={freeAnchor ?? undefined} className={'viewport' + (tree.sandboxed ? ' sandboxed' : '')
       + (tree.headless ? ' headless' : '')
       + (tree.killswitch ? ' killswitched' : '') + (redAlert ? ' redalert' : '')} data-culling={visibleRect ? 'active' : 'unmeasured'} data-pin-org={slug} ref={viewportRef}
-      onPointerDown={onPointerDown} onPointerMove={onPointerMove}
+      /* ⚠ THE PAN HANDLERS IGNORE THE HIDDEN CANVAS. `visibility: hidden`
+         takes the world out of hit-testing, but `.viewport` ITSELF is never
+         hidden — it cannot be, the pin layer lives inside it — so a press that
+         lands on its background still reaches here. Without this guard a drag
+         on the presented view's own backdrop would pan a canvas nobody can
+         see, and the camera would have silently moved by the time they came
+         back. */
+      onPointerDown={worldHidden ? undefined : onPointerDown}
+      onPointerMove={worldHidden ? undefined : onPointerMove}
       /* onPointerCancel routes to onPointerUp, which nulls panRef — correct,
          but it means ANY pointercancel kills the gesture outright. The one
          that used to fire here came from the browser starting a native drag
@@ -2934,6 +3031,18 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         e.currentTarget.scrollLeft = 0
         e.currentTarget.scrollTop = 0
       }}>
+      {/* EVERY WORLD CHILD LIVES IN HERE, and the adopted pin layer does not.
+          `adoptPinLayer` appends that layer to `.viewport` outside React, so it
+          stays a sibling of this wrapper; and the pinned/popped panels written
+          below `createPortal` themselves out of this subtree, so `hidden` never
+          reaches a window the user placed. Measured, not assumed:
+          canvashide-probe.tsx.
+          ⚠ `display: contents` — see the `.canvas-world` rule. A wrapper with a
+          box would establish a containing block with no definite height and
+          collapse `.tray-wrap`, which derives its height from the viewport. */}
+      <div ref={worldRef}
+        className={'canvas-world' + (worldHidden ? ' canvas-world-hidden' : '')}
+        aria-hidden={worldHidden || undefined}>
       {/* parallax backdrop (user feature 2026-09-03): the dot grid pans at a
           fraction of the foreground's rate — PARALLAX_BG below — so a drag
           reads as depth instead of a flat sheet sliding under the cards. Zoom
@@ -3185,6 +3294,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
               pinned={pinnedIds.has(n.id)}
               onPin={!isMobile ? () => pinDesk(n.id) : undefined}
               onShowPin={() => showPin(slug, n.id, vpSizeNow())}
+              onOpenTemporary={setTempDeskId}
               dragging={nodeDrag.current?.id === n.id && nodeDrag.current!.moved}
               isDrop={dropId === n.id}
               seats={seats} codexHire={codexHire} antigravityHire={antigravityHire}
@@ -3821,7 +3931,56 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
             onMailLink={openMail} onWorkLink={openWork} onOpenDoc={openDocView} onJump={centerOn} />
         </div>
       })}
-    </div></DeskHosts>
+      </div>{/* .canvas-world */}
+    </div>
+    {/* THE TEMPORARY DESK — inside `DeskHosts`, because its `borrow` slot has
+        to register in the ONE desk registry; that is what lets it take the
+        canonical desk and have the registry give it back. Outside the viewport
+        for the same reason as the org slot: it must not inherit the pan/zoom
+        transform, and it must survive the canvas being hidden. */}
+    {tempDeskId && map.get(tempDeskId) && (
+      <TempDeskModal node={map.get(tempDeskId)!} close={() => setTempDeskId(null)}
+        desk={{
+          map, op, slug, toast, pub: false,
+          compactAt: tree.compact_at,
+          maxTop: tree.max_top_grant ?? 1000,
+          pxc: pxPerCredit,
+          onMailLink: openMail, onWorkLink: openWork, onOpenDoc: openDocView,
+          // ⚠ NO `onJump`/`onRecenter`. Those move the camera, and this surface
+          // exists precisely because a glance must not. The desk simply offers
+          // no such control here rather than being handed one that would
+          // contradict the feature.
+          onLineage: () => toggleNodeSurface('lineage', tempDeskId, setLineageId),
+          onConfig: () => toggleConfig(tempDeskId),
+        }} />
+    )}
+    {/* THE ORG SLOT — a sibling of the viewport, inside this host's providers.
+        Outside the viewport so it escapes the pan/zoom transform and so its
+        own stage can be hidden without touching the pin layer; inside
+        `DeskHosts` so a desk it mounts registers in the ONE registry and
+        cannot become a second live composer. It is focusable (tabIndex -1)
+        because the world hands it focus when the canvas goes away. */}
+    {renderOrgSlot && <div className="org-slot" ref={slotRef} tabIndex={-1}>
+      {renderOrgSlot({
+        slug, tree, op, toast, map, posOf,
+        onOpenItem: onWorkItem,
+        onFocusAgent: centerOn,
+        onOpenDoc: openDocView,
+        onOpenMail: openMail,
+        // the same routes the canvas's own desks get — no stubs, and nothing
+        // the slot has to invent
+        deskExtras: {
+          compactAt: tree.compact_at,
+          maxTop: tree.max_top_grant ?? 1000,
+          pxc: pxPerCredit,
+          onMailLink: openMail,
+          onWorkLink: openWork,
+          onOpenDoc: openDocView,
+          onJump: centerOn,
+        },
+      })}
+    </div>}
+    </DeskHosts>
     </AgentSurfaceRoutesProvider>
     </OrgDefaultEffort.Provider>
     </OrgKillswitchContext.Provider>

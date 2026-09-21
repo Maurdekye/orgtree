@@ -1265,6 +1265,10 @@ interface NodeSquareProps {
   onPin?: () => void
   /** FR-3: the placeholder's click — raise, un-strand and flash the window */
   onShowPin?: () => void
+  /** "Open desk temporarily" — the host opens the modal (tempdesk.tsx). Takes
+   *  the id because the same handler serves this card and the Agents List row,
+   *  and the two menus must offer the same entries. */
+  onOpenTemporary?: (id: string) => void
   /** "Hire a subordinate…" picked from the AGENTS LIST rather than from this
    *  card (user request 2026-09-12): the chips live here, so the row glides to
    *  the agent and asks its card to open them. A COUNTER, not a flag — picking
@@ -1400,6 +1404,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   onRecenter, onJump, pub, kioskRemaining, cascadeAlloc, maxTop, pile, compactAt, maxTier,
   onMailLink, onWorkLink, onDragStart, onDragMove, onDragEnd, onDragCancel,
   mapMode, dogs, oneShotDogs, pinned, pinnedFocus, onPin, onShowPin,
+  onOpenTemporary,
   revealHire, onHireRevealed, onDismiss }: NodeSquareProps) {
   // `focused` below is the card's LAYOUT state — desk-sized, head hidden, no
   // drag — which a pinned placeholder shares with an open desk. Only the
@@ -1478,6 +1483,12 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
         ? () => { desk.requestPopout(); if (!desk.present) onRecenter?.() }
         : undefined,
       onShowWindow: desk.show,
+      // ⚠ NO `onRecenter()` HERE, unlike the popout above. This entry exists
+      // because a glance must not move the camera or change the focused agent,
+      // so it does not mount the desk by walking to it — the modal mounts its
+      // own borrowing slot. Same gate as pin/popout: none of this on mobile.
+      onOpenTemporary: !isMobile && onOpenTemporary
+        ? () => onOpenTemporary(node.id) : undefined,
       onHire: revealHireChips,
       onRetireAsk: setAsking,
       canRetireAll: !pub,
