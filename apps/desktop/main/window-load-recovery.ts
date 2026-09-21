@@ -180,6 +180,22 @@ export interface WindowLoadHooks {
   /** True while the app is shutting down; nothing is recovered then, because
    *  re-navigating a window would fight the teardown it is reacting to. */
   suspended?(): boolean
+  /** ⚠ THE DOCUMENT THAT WAS SHOWING IS GONE, replaced by an error page.
+   *
+   *  A terminal load failure swaps the document for Chromium's error page and
+   *  does NOT fire `did-navigate` - measured against real Electron, a
+   *  connection refusal fires `did-start-navigation` then `did-fail-load` and
+   *  never commits. Anything keyed to commit therefore does not run, while the
+   *  document it was about has already been destroyed.
+   *
+   *  That matters to whoever is holding events for this window: the error page
+   *  carries no preload and no bridge, so it can never say it is listening,
+   *  and anything sent to it is gone. This is the hook that lets a caller stop
+   *  delivering BEFORE the retry is scheduled.
+   *
+   *  Called only for a failure that is terminal by `isTerminalLoadFailure` AND
+   *  that describes the document currently showing - see attachWindowLoadRecovery. */
+  documentLost?(): void
   setTimer(fn: () => void, ms: number): unknown
   clearTimer(handle: unknown): void
 }
@@ -358,7 +374,22 @@ export function attachWindowLoadRecovery(
 ): WindowLoadRecovery {
   const recovery = new WindowLoadRecovery(hooks)
   contents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
-    recovery.onLoadFailure({ errorCode, errorDescription, validatedURL, isMainFrame })
+    const failure = { errorCode, errorDescription, validatedURL, isMainFrame }
+    // ⚠ BEFORE THE RETRY IS SCHEDULED, and guarded against a stale failure.
+    //
+    // The same classification the retry uses - one rule, so a subframe failure
+    // or an ERR_ABORTED cannot be terminal for one of them and not the other.
+    //
+    // AND IT MUST DESCRIBE THE DOCUMENT CURRENTLY SHOWING. A failure event for
+    // a navigation that has since been overtaken would otherwise discard the
+    // token of a document that is alive and has already said it is listening -
+    // and that document will never say so again, because its `onEvent` ran
+    // once. Holding for a listener that cannot re-register is the wedge this
+    // whole mechanism was rebuilt to avoid. Measured: at `did-fail-load` the
+    // window already reports the failed URL, and after a recovery navigation
+    // it reports the recovered one, so comparing them separates the two.
+    if (isTerminalLoadFailure(failure) && validatedURL === currentUrl()) hooks.documentLost?.()
+    recovery.onLoadFailure(failure)
   })
   contents.on('did-finish-load', () => recovery.onLoadFinished(currentUrl()))
   return recovery

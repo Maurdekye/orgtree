@@ -213,19 +213,26 @@ app.whenReady().then(async () => {
   acknowledge(announce())
   assert.equal(outbox.holding(), false)
 
-  // ⚠ A NAVIGATION THAT FAILS MUST NOT WEDGE THE QUEUE SHUT — the mirror of
-  // the gap above, and the reason readiness re-arms at COMMIT rather than at
-  // navigation start. A navigation that never commits leaves the OLD document
-  // on screen, still listening and already acknowledged; holding on the
-  // strength of a navigation that did not happen would mean its events never
-  // leave for the rest of the window's life.
+  // ⚠ A NAVIGATION THAT FAILS DOES NOT COMMIT, so it does not re-arm here —
+  // and that is a statement about THIS listener, not about the window being
+  // fine. It is not fine: Chromium replaces the document with an error page,
+  // which carries no preload and no bridge and can never say it is listening.
+  //
+  // An earlier version of this block asserted the same fact under the comment
+  // "events still reach the document that is actually showing". The fact was
+  // measured correctly and the explanation was false, and held events were
+  // being fired into the error page for as long as it was up. The failure case
+  // is handled by `documentLost` on the load recovery instead, which clears
+  // the dead document's token and re-arms together; it is driven in
+  // tests/window-load-recovery.test.mjs, including the aborted, subframe and
+  // obsolete-failure cases that must NOT be treated as a lost document.
   const before = documentToken
   await navigating.loadURL('http://127.0.0.1:9/never-serves-anything').catch(() => {})
   assert.equal(documentToken, before, 'a failed navigation announced no new document')
   assert.equal(outbox.holding(), false,
-    'and it did not re-arm, so the document still on screen keeps its readiness')
-  assert.equal(outbox.offer({ type: 'open-org' }), true,
-    'events still reach the document that is actually showing')
+    'the commit listener did not re-arm, because a failure never commits')
+  // ⚠ DELIBERATELY NOT ASSERTED HERE: that events still reach anybody. They
+  // do not — what is showing is an error page. Saying so was the defect.
   navigating.destroy()
 
   // ⚠ A SAME-DOCUMENT NAVIGATION MUST NOT RE-ARM, because nothing is destroyed

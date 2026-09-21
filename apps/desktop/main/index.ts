@@ -1821,9 +1821,14 @@ else {
         // `did-navigate` fires when a main-frame navigation is DONE, and never
         // for an in-page one - so it marks the exact instant the old document
         // is gone and the new one is showing with no listener yet. A
-        // navigation that FAILS never commits and so never fires it, which is
-        // precisely right: the old document is still on screen, it already
-        // acknowledged, and nothing should change. Re-arming at navigation
+        // navigation that FAILS never commits and so never fires it — which is
+        // NOT because nothing changed. It is because a failure is a different
+        // event: Chromium replaces the document with an ERROR PAGE, and that
+        // page has no preload and no bridge, so it can never say it is
+        // listening. `documentLost` on the load recovery handles that case and
+        // is the reason this one does not have to. (This comment used to claim
+        // the old document was still on screen and still receiving. It is not,
+        // and held events were being fired into the error page.) Re-arming at navigation
         // START instead would hold the queue on a promise the navigation might
         // not keep, and then need every failure mode enumerated to let go
         // again - which is how a latch wedges shut for the window's life.
@@ -1923,6 +1928,20 @@ else {
             ? window.webContents.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
             : Promise.resolve(),
           suspended: () => quitting || installerUpgradeShutdown,
+          // ⚠ THE DOCUMENT THAT PROVED SOMEBODY WAS LISTENING IS GONE, and
+          // nothing else tells us: a terminal failure never commits, so the
+          // `did-navigate` handler below does not run. Without this, held
+          // events keep being sent LIVE into Chromium's error page, which has
+          // no preload and no bridge - delivered by our reckoning, received by
+          // nobody. That is the loss the outbox exists to prevent, arriving
+          // through the one door that was not watched.
+          //
+          // ⚠ THE TOKEN IS CLEARED AS WELL AS THE QUEUE RE-ARMED, and both
+          // together. Re-arming alone would leave the dead document's token
+          // valid, so an acknowledgement already in flight from it could still
+          // discharge the queue into the error page - the same loss, one
+          // message later.
+          documentLost: () => { record.documentToken = ''; record.outbox.rearm() },
           setTimer: (fn, ms) => setTimeout(fn, ms),
           clearTimer: handle => clearTimeout(handle as ReturnType<typeof setTimeout>),
         }, () => !window.isDestroyed() ? window.webContents.getURL() : '')
