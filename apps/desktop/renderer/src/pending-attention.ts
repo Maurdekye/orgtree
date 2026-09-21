@@ -77,3 +77,58 @@ function subscribe(listener: () => void): () => void {
 export function usePendingAttention(): PendingAttention {
   return useSyncExternalStore(subscribe, pendingAttention, pendingAttention)
 }
+
+// ------------------------------------------------- the cross-window mirror
+//
+// The aggregate is produced by the app-wide notification poll, and in v3 that
+// poll runs in EXACTLY ONE window (`notifications.ts`). Every other window
+// still renders the standing dot, which claims "something is waiting on you in
+// ANY organization" — so without a mirror that dot would be permanently dark
+// in every window but one, which is a worse lie than the one it was added to
+// remove.
+//
+// ⚠ localStorage AND ITS `storage` EVENT, NOT A SECOND POLLER OR A NATIVE
+// REBROADCAST. Every main window is the same origin, so the owner's write
+// reaches the others for free and cannot disagree with what the owner
+// published: there is one producer and the followers only ever copy. A second
+// poller in each window would be exactly the racing all-org read the single
+// owner exists to prevent.
+const MIRROR_KEY = 'orgtree-pending-attention-v1'
+
+const parsePending = (raw: string | null): PendingAttention | null => {
+  if (!raw) return null
+  try {
+    const v: unknown = JSON.parse(raw)
+    if (!v || typeof v !== 'object') return null
+    const { mail, docket, ids } = v as Partial<PendingAttention>
+    if (typeof mail !== 'number' || typeof docket !== 'number') return null
+    if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string')) return null
+    return { mail, docket, ids: ids as string[] }
+  } catch { return null }
+}
+
+/** Keep this window's aggregate in step with the app's.
+ *
+ *  The OWNER writes what it publishes. A FOLLOWER seeds from the last write
+ *  and then tracks it. Returns a teardown, and is a no-op without a DOM. */
+export function startPendingMirror(owner: boolean): () => void {
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return () => {}
+  if (owner) {
+    const write = () => {
+      try { localStorage.setItem(MIRROR_KEY, JSON.stringify(current)) } catch { /* the dot is still live in this window */ }
+    }
+    write()
+    return subscribe(write)
+  }
+  const seed = parsePending(localStorage.getItem(MIRROR_KEY))
+  if (seed) publishPending(seed)
+  const onStorage = (e: StorageEvent) => {
+    if (e.key !== null && e.key !== MIRROR_KEY) return
+    const next = parsePending(localStorage.getItem(MIRROR_KEY))
+    // a cleared store (key === null) means someone wiped storage; fall back to
+    // empty rather than freezing on the last value we happened to see
+    publishPending(next ?? EMPTY)
+  }
+  window.addEventListener('storage', onStorage)
+  return () => window.removeEventListener('storage', onStorage)
+}

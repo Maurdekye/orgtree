@@ -1,6 +1,7 @@
 import type { DesktopNotice } from './notifications'
 import { notificationInboxTarget, useNativeNotifications } from './notifications'
-import { usePendingAttention } from './pending-attention'
+import { startPendingMirror, usePendingAttention } from './pending-attention'
+import { ownsNotifications, useWindowIdentity } from './shell/identity'
 import { restoredAgent, restoredWindows, restoreWindowKind } from './windowlayout'
 import { desktop } from './desktop'
 import type { NativeDesktop } from './desktop'
@@ -591,10 +592,20 @@ export default function App() {
   // supervisor.build_info)
   const [build, setBuild] = useState<HostPayload['build'] | null>(null)
   const [nativeTarget, setNativeTarget] = useState<DesktopNotice | null>(null)
+  // WHICH WINDOW THIS IS (v3). `null` in a browser and in the shipped
+  // single-window shell, where every branch below reads exactly as it did.
+  const identity = useWindowIdentity()
+  // exactly one live window carries the app-wide notification duties; every
+  // window still handles the click aimed at it (see notifications.ts)
+  const notifyOwner = ownsNotifications(identity)
   useNativeNotifications(notice => {
     setNativeTarget(notice)
     if (notice.org !== slug) setSlug(notice.org)
-  })
+  }, notifyOwner)
+  // …and the aggregate behind the standing dot is mirrored from the owner, so
+  // a window that does not poll still says truthfully whether something is
+  // waiting on the user somewhere
+  useEffect(() => startPendingMirror(notifyOwner), [notifyOwner])
   // the tray's org list (primary click on the tray icon): the main process
   // has already shown the window and broadcasts the chosen org; making it
   // the active slug runs the ordinary switch path, which restores that
