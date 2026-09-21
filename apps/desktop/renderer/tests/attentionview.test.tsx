@@ -454,13 +454,68 @@ test('§8 the Desk panel is eligible for the registry only when it is on screen'
   await v.unmount()
 })
 
-// ⚠ AND THE PENDING-RESTORE HALF OF THE ELIGIBILITY RULE IS NOT COVERED HERE.
-// `deskEligible` is false for a panel mounted only for a pending restore, which
-// is the case the seam exists for — but that state is transient by design and,
-// as the block above records, is not reachable in this harness at all. It is a
-// known coverage limit, stated rather than faked with a test that would pass
-// over a panel that was never in that state. The rule itself is one expression
-// (`active || deskPinned || deskOut`) and §8 covers both of its true branches.
+test('§8.2 the desk claim is `automatic` only while this panel IS the presented '
+  + 'stage — a pinned or popped-out panel claims as a human request', async () => {
+  reset()
+  const claim = () =>
+    document.querySelector('.attn-desk')?.getAttribute('data-attn-desk-claim') ?? null
+
+  setOrgView(SLUG, 'attention')
+  const v = await mountView(view(), () => shape())
+  await inAct(() => flush())
+  assert.equal(claim(), 'automatic',
+    'the stage mounted this slot; nobody asked for that desk to be here')
+
+  // ⚠ THE DISTINCTION THE FIELD EXISTS FOR (v3-effort-opus host-slot rev 4).
+  // An automatic claim DEFERS: it never takes the desk from another slot whose
+  // destination is still visible, which is how a Canvas pin the user placed
+  // keeps it while this view shows the canonical open-elsewhere controls. A
+  // panel the user PINNED is a window they placed, so its registration is as
+  // much a human request as that pin — it must not defer, and therefore must
+  // OMIT the field rather than send `false`.
+  await inAct(() => { pinModal(DESK_KIND, { x: 10, y: 10, w: 500, h: 500 }, SLUG) })
+  await inAct(() => flush())
+  assert.equal(claim(), 'none', 'a pinned panel claims as a human request')
+
+  await inAct(() => { setOrgView(SLUG, 'canvas') })
+  await inAct(() => flush())
+  assert.equal(shape().desk, true, 'still retained on the canvas')
+  assert.equal(claim(), 'none', 'and still not deferring, because it is still placed')
+  await v.unmount()
+})
+
+test('§8.3 a popped-out desk panel also claims as a human request', async () => {
+  reset()
+  setOrgView(SLUG, 'attention')
+  const v = await mountView(view(), () => shape())
+  await inAct(() => flush())
+  const stop = registerWindow({
+    id: 'probe-d', kind: DESK_KIND, org: SLUG, editable: false,
+    window: globalThis.window, redock: () => {},
+  })
+  await inAct(() => flush())
+  assert.equal(
+    document.querySelector('.attn-desk')?.getAttribute('data-attn-desk-claim'), 'none',
+    'a window the user popped out is placed, so it does not defer either')
+  await inAct(() => { stop() })
+  await v.unmount()
+})
+
+// ⚠ AND THE PENDING-RESTORE HALF OF THE ELIGIBILITY RULE IS NOT COVERED HERE,
+// for a reason that is now understood precisely rather than merely observed.
+// `open()` in popout.tsx contains no await: it either reaches its commit point
+// and calls `registerWindow` synchronously, or it throws and its catch redocks
+// synchronously. So "mounted for a pending restore" is not an async interval at
+// all — it is the single React commit between this view mounting the panel and
+// `MovableSurface`'s restore effect running. A state that lasts less than one
+// `act` cannot be sampled from a test in the same `act`.
+//
+// It is therefore a KNOWN COVERAGE LIMIT, stated rather than faked with a test
+// that would pass over a panel that was never in that state. What bounds the
+// risk is the shape of the rule rather than a test of it: `deskEligible` is one
+// expression, `active || deskPinned || deskOut`, whose two true branches §8
+// does cover, and whose false branch is false for everything else by
+// construction — there is no third path to get it wrong in.
 
 test('§6 the header toggle is what moves between the two views', async () => {
   reset()

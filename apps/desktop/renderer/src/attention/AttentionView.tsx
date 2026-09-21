@@ -95,18 +95,27 @@ function useDetachedHere(org: string | null, revision: number): { queue: boolean
  * row the moment the window goes, so the next render of this component sees it
  * gone and lets the subtree go with it.
  *
- * ⚠ AN UNOBSERVED ASYNC RESTORE MUST NOT READ AS A CLOSE (multi-window-design,
- * 2026-09-21). A restore is not instant: `MovableSurface` waits for its own
- * `ready`, opens the window and then waits for its stylesheets, so there is a
- * gap between this panel mounting and the surface appearing in the registry.
- * Releasing the subtree in that gap would abort the very restore it was mounted
- * for. THE THREE STATES ARE DISTINGUISHED BY TWO RENDERER-OWNED FACTS, not by a
- * timer and not by a guess:
+ * ⚠ AN UNOBSERVED RESTORE MUST NOT READ AS A CLOSE (multi-window-design,
+ * 2026-09-21) — AND THE GAP IS ONE REACT COMMIT, NOT AN ASYNC INTERVAL. An
+ * earlier draft of this said `MovableSurface` "opens the window and then waits
+ * for its stylesheets, so there is a gap before the surface appears in the
+ * registry". That is wrong, and reading `open()` rather than assuming is what
+ * showed it: `open()` has NO await anywhere. It either reaches its commit point
+ * and calls `registerWindow` synchronously, or it throws and its catch calls
+ * `redock()` — which calls `closeSavedWindow` — synchronously. The stylesheet
+ * wait (`restoreWhenStyled`) is installed AFTER registration, so a later
+ * styling failure redocks a surface that is already registered and therefore
+ * publishes a registry event like any other.
+ *
+ * So the only interval this claim has to cover is the one React imposes: the
+ * panel must be COMMITTED before `MovableSurface`'s restore effect can run at
+ * all. That is why the claim exists, and why one re-evaluation on the macrotask
+ * after that commit is exactly right rather than an approximation of a wait.
  *
  *   restore landed   the surface is in `windowlife`'s registry → `detached`
  *                    holds the panel; this claim is no longer what keeps it
- *   restore pending  the saved row still says open and nothing is registered →
- *                    held HERE, which is exactly the gap above
+ *   restore pending  committed, effect not yet run → held HERE. It lasts one
+ *                    commit, which is why neither harness can observe it.
  *   window closed    `closeSavedWindow` cleared the row → released
  *
  * THE INVARIANT THAT MAKES THOSE THREE EXHAUSTIVE is not "there are two
@@ -312,6 +321,31 @@ export function AttentionView(props: AttentionViewProps) {
    */
   const deskEligible = active || deskPinned || deskOut
 
+  /**
+   * IS THIS REGISTRATION A HUMAN REQUEST, OR THIS VIEW MOUNTING?
+   *
+   * `'automatic'` says the second, and the registry's picker uses it to DEFER:
+   * an automatic claim never takes the desk from a different slot that still
+   * has a visible destination (v3-effort-opus host-slot interface rev 4). So a
+   * Canvas pin the user placed keeps agent X, and this panel draws the
+   * canonical open-elsewhere / Show desk controls — which is the user's ruling,
+   * carried by one field instead of a policy of our own. A HIDDEN embedded
+   * Canvas owner is not eligible, so the deferral does not apply to it and the
+   * desk comes here, which is the other half of that ruling.
+   *
+   * ⚠ IT IS OMITTED, NOT FALSE, FOR A PINNED OR POPPED-OUT PANEL. Those are
+   * windows the USER PLACED: their registrations are as much a human request as
+   * a Canvas pin, and a panel the user dragged out must not defer to anything.
+   * That is the one distinction the earlier `placed` field got backwards by
+   * describing the destination instead of the claim — an eye panel is not a
+   * window the user placed, and saying so would have made the field mean
+   * something false.
+   *
+   * So: automatic exactly while this panel is the PRESENTED STAGE.
+   */
+  const deskClaim: 'automatic' | undefined =
+    active && !deskPinned && !deskOut ? 'automatic' : undefined
+
   const stageRef = useRef<HTMLDivElement>(null)
   const drag = useRef<number | null>(null)
   // the in-flight rect lives in component state (one render per pointer move);
@@ -405,7 +439,7 @@ export function AttentionView(props: AttentionViewProps) {
             close={() => unpinModal(DESK_KIND, slug)}>
             <AgentDeskPanel slug={slug} tree={props.tree} op={props.op}
               toast={props.toast} map={props.map} posOf={props.posOf}
-              eligible={deskEligible}
+              eligible={deskEligible} claim={deskClaim}
               deskExtras={props.deskExtras} />
           </PinFrame>
         </div>

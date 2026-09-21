@@ -63,24 +63,39 @@ export interface AgentDeskPanelProps {
    *  presented one. Defaults to true, which is the registry's own default and
    *  the right answer for any host that renders this panel on its own. */
   eligible?: boolean
+  /** IS THIS REGISTRATION THE USER ASKING FOR THE DESK HERE, OR A VIEW MOUNTING?
+   *
+   *  `'automatic'` says the second: this panel is the presented Attention
+   *  stage, and its desk slot appeared because the view rendered rather than
+   *  because anyone asked for that agent's desk in this place. The registry's
+   *  picker uses it to DEFER — an automatic claim never takes the desk from a
+   *  different slot that still has a visible destination, so a Canvas pin the
+   *  user placed keeps it and this panel draws the canonical open-elsewhere
+   *  controls (v3-effort-opus host-slot interface rev 4).
+   *
+   *  ⚠ OMITTED, NOT `false`, when this panel is pinned or popped out. Those are
+   *  windows the user placed, so their registrations are exactly as much a
+   *  human request as a Canvas pin is, and they must not defer to anything.
+   *  The view decides this for the same reason it decides `eligible`. */
+  claim?: 'automatic'
 }
 
 interface ListRow { node: CanvasNode; depth: number }
 
 /**
- * The `eligible` prop, handed to `DeskSlot`.
+ * The two desk-registry props, handed to `DeskSlot`.
  *
- * ⚠ THIS CAST IS TEMPORARY AND IT IS LOAD-BEARING WHEN IT GOES AWAY. The desk
- * registry's ownership picker gains `eligible` in v3-effort-opus's host-slot
- * change (interface rev 1, 2026-09-21); `DeskChatProps` does not carry it yet,
- * and this file may not edit that shared type. So the value is assembled here,
- * in ONE named place, instead of being cast at the call site where it would
- * read as noise and be forgotten.
+ * ⚠ THIS CAST IS TEMPORARY AND IT IS LOAD-BEARING WHEN IT GOES AWAY. The
+ * registry's ownership picker gains `eligible` and `claim` in v3-effort-opus's
+ * host-slot change (interface rev 4, 2026-09-21); `DeskChatProps` does not
+ * carry them yet, and this file may not edit that shared type. So the values
+ * are assembled here, in ONE named place, instead of being cast at the call
+ * site where they would read as noise and be forgotten.
  *
- * Until deskhosts lands, React passes an unknown prop straight through to the
- * desk, which ignores it — so this is inert rather than wrong. The moment the
- * shared type carries `eligible`, DELETE THIS FUNCTION and spread the prop
- * directly: the compiler will then be checking the name for us, which is the
+ * Until deskhosts lands, React passes unknown props straight through to the
+ * desk, which ignores them — so this is inert rather than wrong. The moment the
+ * shared type carries both fields, DELETE THIS FUNCTION and spread them
+ * directly: the compiler will then be checking BOTH names for us, which is the
  * whole reason not to leave a cast lying about.
  *
  * What is NOT deferred: the panel already computes and publishes the answer
@@ -88,8 +103,8 @@ interface ListRow { node: CanvasNode; depth: number }
  * decision this flag carries is under test today and only its delivery is
  * waiting.
  */
-const deskEligibility = (eligible: boolean): Partial<DeskChatProps> =>
-  ({ eligible } as unknown as Partial<DeskChatProps>)
+const deskRegistryProps = (eligible: boolean, claim?: 'automatic'): Partial<DeskChatProps> =>
+  ({ eligible, ...(claim ? { claim } : {}) } as unknown as Partial<DeskChatProps>)
 
 /** Every agent, in the host's own visual order, each superior immediately
  *  followed by its subtree — the Agents List's hierarchy rule. */
@@ -147,7 +162,7 @@ export function defaultAgent(
 }
 
 export function AgentDeskPanel({
-  slug, tree, op, toast, map, posOf, deskExtras, eligible = true,
+  slug, tree, op, toast, map, posOf, deskExtras, eligible = true, claim,
 }: AgentDeskPanelProps) {
   const layout = useAttentionLayout(slug)
   const [query, setQuery] = useState('')
@@ -256,12 +271,13 @@ export function AgentDeskPanel({
           question, written where it can be read — in a test, and in the real
           renderer's inspector while chasing a desk that went to the wrong
           slot. It is the same value handed to `DeskSlot` below. */}
-      <div className="attn-desk" data-attn-desk-eligible={eligible ? 'yes' : 'no'}>
+      <div className="attn-desk" data-attn-desk-eligible={eligible ? 'yes' : 'no'}
+        data-attn-desk-claim={claim ?? 'none'}>
         {selected
           ? <DeskSlot bare node={selected} map={map} op={op} slug={slug} toast={toast}
               pub={!!tree.public}
               maxTop={tree.max_top_grant ?? 1000}
-              {...deskEligibility(eligible)}
+              {...deskRegistryProps(eligible, claim)}
               {...deskExtras} />
           : <div className="dim pad attn-desk-empty">
               This organization has no agent to open a desk for yet.
