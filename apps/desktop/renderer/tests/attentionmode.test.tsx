@@ -15,7 +15,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   ATTENTION_LAYOUT_KEY, attentionLayout, clampSplit, DEFAULT_LAYOUT, forgetAttentionMode,
-  ORG_VIEW_KEY, orgView, setAttentionLayout, setOrgView, SPLIT_DEFAULT, SPLIT_MAX, SPLIT_MIN,
+  ORG_VIEW_EVENT, ORG_VIEW_KEY, orgView, setAttentionLayout, setOrgView, SPLIT_DEFAULT,
+  SPLIT_MAX, SPLIT_MIN, startAttentionModeSync,
 } from '../src/attention/mode'
 
 const reset = () => {
@@ -123,4 +124,53 @@ test('§4 the two stores are independent: a view change keeps the layout', () =>
   assert.deepEqual(attentionLayout('a'),
     { split: 0.6, agent: 'scout', listOpen: false },
     'returning to the Attention view restores the split and the selected agent')
+})
+
+// ------------------------------------------------------------------- §5
+//
+// A SECOND WRITER ON THE VIEW KEY, which is a real arrangement and not a
+// hypothetical: the shell ships a temporary `shell/viewmode.ts` on this same
+// key and contract, because the compact header could not be blocked on a module
+// in another worktree. Two writers is the whole reason the view key is read
+// UNCACHED while the layout key is not.
+
+test('§5 a foreign write to the view key is never served stale', () => {
+  reset()
+  setOrgView('a', 'attention')
+  assert.equal(orgView('a'), 'attention')
+
+  // somebody else writes the key directly — no setOrgView, no storage event,
+  // which is exactly what a same-document second writer looks like
+  localStorage.setItem(ORG_VIEW_KEY, JSON.stringify({ a: 'canvas', b: 'attention' }))
+  assert.equal(orgView('a'), 'canvas',
+    'read through to storage, not out of a cache this module still believes in')
+  assert.equal(orgView('b'), 'attention')
+})
+
+test('§5.1 and the event wakes the subscribers, since storage does not fire here', () => {
+  reset()
+  let woken = 0
+  const stop = startAttentionModeSync()
+  const onEvent = () => { woken++ }
+  window.addEventListener(ORG_VIEW_EVENT, onEvent)
+  // a foreign writer writes the key and announces on the shared channel —
+  // `storage` does not fire for a same-document write, so this is the signal
+  localStorage.setItem(ORG_VIEW_KEY, JSON.stringify({ a: 'attention' }))
+  window.dispatchEvent(new window.Event(ORG_VIEW_EVENT))
+  assert.equal(woken, 1, 'the channel is live and this module listens on it')
+  assert.equal(orgView('a'), 'attention', 'and the value behind it is the foreign one')
+  window.removeEventListener(ORG_VIEW_EVENT, onEvent)
+  stop()
+})
+
+test('§5.2 this module announces its own writes on the same channel', () => {
+  reset()
+  let heard = 0
+  const onEvent = () => { heard++ }
+  window.addEventListener(ORG_VIEW_EVENT, onEvent)
+  setOrgView('a', 'attention')
+  assert.equal(heard, 1, 'so a foreign READER is woken by our writes too')
+  setOrgView('a', 'canvas')
+  assert.equal(heard, 2, 'including the write that stores the default as absence')
+  window.removeEventListener(ORG_VIEW_EVENT, onEvent)
 })

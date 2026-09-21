@@ -71,23 +71,64 @@ function writeJson(key: string, value: Record<string, unknown>): void {
   } catch { /* private mode */ }
 }
 
-let viewCache: Record<string, OrgView> | null = null
 let layoutCache: Record<string, AttentionLayout> | null = null
 
-/** drop both cached copies so the next read comes from storage again */
+/** drop the cached copy so the next read comes from storage again. The view
+ *  key is not cached at all — see `readViews`. */
 export function forgetAttentionMode(): void {
-  viewCache = null
   layoutCache = null
   notify()
 }
 
+/** THE CHANNEL A SECOND WRITER OF THE VIEW KEY USES TO SAY SO.
+ *
+ *  While the shell ships its temporary `shell/viewmode.ts`, two modules write
+ *  `orgtree-org-view`. An uncached read (see `readViews`) means neither can
+ *  serve a stale answer, but a foreign write still has to WAKE the subscribers
+ *  here or nothing re-renders to do the reading. `storage` does not fire for a
+ *  same-document write, so this is the signal: whoever writes the key
+ *  dispatches it, and every reader in this document hears it.
+ *
+ *  Same idiom as `orgtree:desk-rename` in canvas/deskhosts.tsx — a window
+ *  CustomEvent is how this renderer already crosses a module boundary that has
+ *  no shared store. It costs nothing once the shell's module is deleted: this
+ *  module keeps dispatching it and nobody else has to listen. */
+export const ORG_VIEW_EVENT = 'orgtree:org-view'
+
+/** ⚠ A PLAIN `Event`, NOT `CustomEvent`. This channel carries no payload — the
+ *  readers re-read storage — so a bare Event is sufficient, and it is the one
+ *  that exists everywhere this renderer runs. `CustomEvent` is NOT on the test
+ *  harness's globals, so the first version of this dispatched nothing at all
+ *  and the surrounding try/catch swallowed the failure: a signal that silently
+ *  never fires is worse than no signal, because everything downstream still
+ *  looks wired up. */
+function announceViewChange(): void {
+  try { window.dispatchEvent(new Event(ORG_VIEW_EVENT)) } catch { /* no DOM */ }
+}
+
+/**
+ * ⚠ DELIBERATELY UNCACHED, unlike `readLayouts` below. This key has a SECOND
+ * WRITER for as long as the shell ships its temporary `shell/viewmode.ts` — the
+ * compact header could not be blocked on a module in another worktree, so that
+ * module writes `orgtree-org-view` on the same contract until it is replaced by
+ * this one. A cache here would go stale the instant that writer wrote, and
+ * `storage` events do not fire for same-document writes, so nothing would
+ * correct it.
+ *
+ * Re-reading is safe HERE and not below because of what each returns:
+ * `orgView` yields a STRING, which `useSyncExternalStore` compares by value, so
+ * a fresh parse per call is still a stable snapshot. `attentionLayout` yields an
+ * OBJECT, and a fresh one per call would be a new identity every render — an
+ * infinite re-render loop, not a staleness bug. The layout key has only ever had
+ * one writer, so it keeps its cache.
+ *
+ * The parse is a few hundred bytes of JSON; the correctness is worth more.
+ */
 function readViews(): Record<string, OrgView> {
-  if (viewCache) return viewCache
   const out: Record<string, OrgView> = {}
   for (const [org, v] of Object.entries(readJson(ORG_VIEW_KEY))) {
     if (v === 'canvas' || v === 'attention') out[org] = v
   }
-  viewCache = out
   return out
 }
 
@@ -120,8 +161,8 @@ export function setOrgView(slug: string | null, view: OrgView): void {
   const next = { ...readViews() }
   if (view === 'canvas') delete next[slug]   // the default is stored as absence
   else next[slug] = view
-  viewCache = next
   writeJson(ORG_VIEW_KEY, next)
+  announceViewChange()
   notify()
 }
 
@@ -164,6 +205,12 @@ export function startAttentionModeSync(target: Window = window): () => void {
       forgetAttentionMode()
     }
   }
+  // a same-document writer of the view key — see ORG_VIEW_EVENT
+  const onForeignView = () => notify()
   target.addEventListener('storage', onStorage)
-  return () => target.removeEventListener('storage', onStorage)
+  target.addEventListener(ORG_VIEW_EVENT, onForeignView)
+  return () => {
+    target.removeEventListener('storage', onStorage)
+    target.removeEventListener(ORG_VIEW_EVENT, onForeignView)
+  }
 }
