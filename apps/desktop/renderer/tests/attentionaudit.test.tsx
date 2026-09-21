@@ -134,3 +134,49 @@ test('§4 the Attention panels record no `restore` payload, which is what makes 
   assert.equal(/restore=\{/.test(view), false,
     'no PinFrame here passes a `restore` prop either')
 })
+
+// ------------------------------------------------------------------ §5
+//
+// THE STAND-IN'S OWN EXPIRY, ENFORCED RATHER THAN REMEMBERED.
+//
+// `deskRegistryProps()` in attention/AgentDeskPanel.tsx casts `eligible` and
+// `claim` onto `DeskChatProps` because that shared type did not carry them when
+// this feature was written and this feature may not edit it. The cast is inert
+// while that is true — React passes unknown props through and the desk ignores
+// them — and becomes pure liability the moment the real fields land, because a
+// cast is exactly what stops the compiler checking the names it is casting.
+//
+// A "delete me" comment is not a mechanism. This is: the moment `DeskChatProps`
+// declares either field, this fails and says what to do. It is the same shape
+// as §1–§4 — a claim about somebody else's file that this feature's
+// correctness leans on, checked instead of hoped for.
+
+test('§5 the desk-registry cast is deleted as soon as the real fields exist', () => {
+  const desk = readFileSync(path.join(__SRC_DIR__, 'canvas', 'desk.tsx'), 'utf8')
+  const panel = readFileSync(
+    path.join(__SRC_DIR__, 'attention', 'AgentDeskPanel.tsx'), 'utf8')
+
+  // THE DECLARATION, NOT A MENTION. Each field sits alone on its own line in
+  // the props interface, so an exact line match separates it from the word
+  // "claim", which appears in dozens of comments across that file. Matched as a
+  // string rather than a pattern deliberately: a regex here would need escaping
+  // inside a template literal, and getting that subtly wrong is how a tripwire
+  // silently stops tripping.
+  const declares = (field: string, type: string) =>
+    desk.split('\n').some((line) => line.trim() === `${field}?: ${type}`)
+  const landed = declares('eligible', 'boolean') && declares('claim', "'automatic'")
+  const castPresent = panel.includes('deskRegistryProps')
+
+  if (landed) {
+    assert.equal(castPresent, false,
+      'DeskChatProps now declares `eligible` and `claim`, so the cast in '
+      + 'attention/AgentDeskPanel.tsx is no longer standing in for anything — and '
+      + 'while it is there the compiler is NOT checking either field name. '
+      + 'DELETE `deskRegistryProps()` and spread the two props onto <DeskSlot> '
+      + 'directly. Then delete this test: it has done its job.')
+  } else {
+    assert.equal(castPresent, true,
+      'DeskChatProps does not declare the fields yet, so the cast is what gets '
+      + 'them to the registry. Removing it silently stops sending them.')
+  }
+})
