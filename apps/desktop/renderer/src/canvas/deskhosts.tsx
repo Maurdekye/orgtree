@@ -1,6 +1,8 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import { MovableSurface, useSurface } from '../popout'
+import { openSurfaces } from '../windowlife'
+import type { BorrowedSurface } from '../windowlife'
 import { isMobile } from '../mobile'
 import { OwnedDeskChat } from './desk'
 import type { DeskChatProps } from './desk'
@@ -24,9 +26,10 @@ interface Entry {
   /** WHERE THE DESK WAS WHEN THE BORROW BEGAN. Read ONCE, on the transition
    *  into the borrow — never re-read, or a borrower records itself. */
   borrowedFrom?: { id: object; detached: boolean }
-  /** what puts a borrowed NATIVE window back exactly where it was
-   *  (popout.tsx's `borrow()` closure). Absent when nothing was detached. */
-  borrowedRestore?: () => void
+  /** the two ways a borrowed NATIVE window can end — `restore` puts it back
+   *  exactly where it was, `release` gives it up. Absent unless the desk was
+   *  detached when the borrow began. */
+  borrowedHandle?: BorrowedSurface
   /** THE OWNER AS OF THE END OF THE PREVIOUS COMMIT — see `settle`. */
   settled?: object
 }
@@ -56,6 +59,12 @@ const eligible = (slot: Slot) => slot.props.eligible !== false
  *  while it is the presented stage — pinned or popped out, the user placed it,
  *  so it claims like anything else. */
 const automatic = (slot: Slot) => slot.props.claim === 'automatic'
+
+/** the live native window showing THIS desk, if it is popped out. Keyed the
+ *  way `DeskHost` opens it — `desk:<identity>` — which is the same shape
+ *  `detachedKind` already matches on. */
+const deskSurface = (key: string) =>
+  openSurfaces().find((s) => s.kind === `desk:${key}`)
 
 /**
  * WHICH SLOT OWNS THE ONE LIVE DESK — the single answer both assignment points
@@ -92,15 +101,13 @@ function pick(e: Entry, incoming?: Slot): Slot {
   // 0. BORROWED. A temporary surface holds the desk for as long as it is
   //    mounted, whatever else registers or re-renders behind it.
   //
-  //    ⚠ NOT YET FOR A DETACHED DESK. Borrowing a popped-out desk means
-  //    redocking its native window and putting it back afterwards, which is
-  //    `WindowSurface.borrow()` in popout.tsx — owned by v3-shell-opus and
-  //    still under correction. Taking ownership here before that exists would
-  //    leave the desk in a native window while the modal believed it held it.
-  //    Until then a borrow of a DETACHED desk falls through to step 1 and the
-  //    modal shows the canonical "open elsewhere · Show desk · Return here",
-  //    which is the existing behaviour rather than a broken new one.
-  if (e.borrowedBy && !e.detached) {
+  //    ⚠ AHEAD OF THE DETACHED GUARD, DELIBERATELY. That guard exists to stop
+  //    an ordinary registration stealing a desk out of a native window by
+  //    accident. A borrow is not an accident: it has already REDOCKED that
+  //    window through `borrow()` (see `put`), so there is no window left to
+  //    protect, and the user ruled that the temporary modal may borrow a
+  //    popped-out desk and must give it back to the same placement.
+  if (e.borrowedBy) {
     const held = e.slots.get(e.borrowedBy)
     if (held) return held
   }
@@ -198,6 +205,13 @@ class Desks {
       // tree order. `settled` is the owner as of the end of the last commit,
       // which is the destination the user was actually looking at.
       e.borrowedFrom = { id: e.settled ?? e.last.id, detached: e.detached }
+      // A DETACHED DESK IS BORROWED BY REDOCKING IT, and `borrow()` is the only
+      // call that does so without recording the window as closed — an ordinary
+      // `redock` clears the saved row, which both loses the arrangement on
+      // reopen and makes the return land at a freshly computed position rather
+      // than the one it left. The handle is held here, for exactly as long as
+      // the borrowing slot is mounted, and ended once in `endBorrow`.
+      if (e.detached) e.borrowedHandle = deskSurface(key)?.borrow?.()
     }
     e.last = pick(e, slot)
     this.change()
@@ -219,14 +233,26 @@ class Desks {
    */
   endBorrow(e: Entry) {
     const from = e.borrowedFrom
-    const restore = e.borrowedRestore
+    const handle = e.borrowedHandle
     e.borrowedBy = undefined
     e.borrowedFrom = undefined
-    e.borrowedRestore = undefined
-    restore?.()
-    if (!from || e.invalidated) return
-    const target = e.slots.get(from.id)
-    if (target) e.last = target
+    e.borrowedHandle = undefined
+    if (from && !e.invalidated) {
+      const target = e.slots.get(from.id)
+      if (target) {
+        e.last = target
+        // it came from a native window, so it goes back to one — at the
+        // geometry it actually had, which `borrow()` captured before closing
+        handle?.restore()
+        return
+      }
+    }
+    // NOTHING VALID TO GO BACK TO. The window must still be given up rather
+    // than simply dropped: `borrow()` left the saved row `open: true` with its
+    // rect and nothing behind it, so a borrow that merely stops makes startup
+    // restoration reopen a window nobody left open — and restoring it here
+    // would resurrect a window with nowhere valid to be.
+    handle?.release()
   }
   remove(key: string, id: object) {
     const e = [...this.entries.values()].find((entry) => entry.slots.has(id))
