@@ -25,3 +25,6 @@ artifacts/
 # it is the belt to that cleanup braces, because the failure mode is an agent
 # sweeping stray fixture dirs into a commit with `git add -A` and not noticing.
 acl-fixtures-*/
+
+# probe roots: isolated Electron output (bundle, redirected app data, result.json)
+.probe-canvashide/
