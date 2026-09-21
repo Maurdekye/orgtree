@@ -1,0 +1,227 @@
+// attentionview.test.tsx — the Attention view as a VIEW: mode switching, the
+// divider, and the retention rule that survives it.
+//
+// The ticket's hardest requirement is not a widget, it is a lifetime: "if
+// either panel is pinned or popped out, switching from Attention view back to
+// the normal canvas retains that panel and its state", and "switching modes
+// must not close, recreate, or silently unpin them". A pinned surface's DOM
+// lives in the pin layer, but what FILLS it is a React subtree — so a view that
+// unmounts its panels on the way back to the canvas destroys a window the user
+// placed, and does it silently. That is what §3 and §4 below are for, and they
+// assert on the panel still being in the document rather than on any flag.
+//
+// The stage is deliberately given an organization with NO agents in these
+// tests. That is not an evasion: it isolates the view's own structure — the two
+// slots, the divider, the mode switch — from the desk's very large dependency
+// graph, which has its own suites. The desk's selection rules are pinned in
+// attentionagents.test.tsx against the same functions the panel calls.
+//
+// Run:  node apps/desktop/renderer/tests/run.mjs attentionview
+
+import './harness'
+import { flush, inAct, mountView } from './harness'
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import type { CanvasNode } from '../src/canvas/shared'
+import { USER } from '../src/canvas/shared'
+import type { OpFn, TreePayload } from '../src/types'
+import { forgetModalPins, isModalPinned, pinModal, readModalPins } from '../src/canvas/modalpin'
+import {
+  attentionLayout, forgetAttentionMode, setAttentionLayout, setOrgView, SPLIT_MAX,
+} from '../src/attention/mode'
+import { AttentionView, DESK_KIND, QUEUE_KIND } from '../src/attention/AttentionView'
+
+const SLUG = 'org1'
+
+const tree = (): TreePayload => ({
+  slug: SLUG, name: 'Org 1', epoch: 1, rev: 1, roots: [],
+  work_items_summary: { attention: 0, active: 0 },
+  user_inbox_count: 0, user_inbox_urgent_count: 0, asks: [], asks_open: 0,
+} as unknown as TreePayload)
+
+/** an organization with the eye and nothing else — see the file header */
+const emptyMap = (): Map<string, CanvasNode> => new Map([[USER, {
+  id: USER, parent: null, tier: null, state: 'user', children: [],
+} as unknown as CanvasNode]])
+
+const op: OpFn = () => Promise.resolve({ ok: true } as never)
+const toast = () => {}
+
+/** the two feeds this view polls, answered with nothing waiting */
+function installQuietServer() {
+  ;(globalThis as unknown as { fetch: unknown }).fetch = (url: string) => {
+    const path = new URL(String(url), 'http://localhost').pathname
+    const body = /\/work-items$/.test(path)
+      ? { items: [], archived: [], backlogged: [],
+          counts: { attention: 0, active: 0, archived: 0, backlogged: 0 } }
+      : /\/inbox$/.test(path)
+        ? { pending: [], delivered: [], sent: [] }
+        : { ok: true }
+    return Promise.resolve({
+      ok: true, status: 200, headers: new Headers(),
+      json: () => Promise.resolve(body),
+    })
+  }
+}
+
+const reset = () => {
+  localStorage.clear()
+  forgetAttentionMode()
+  forgetModalPins()
+  installQuietServer()
+}
+
+const view = () => <AttentionView slug={SLUG} tree={tree()} op={op} toast={toast}
+  map={emptyMap()} />
+
+/** what is on screen ANYWHERE in the document — the pin layer is appended to
+ *  document.body, outside the mount host, which is exactly the point */
+const shape = () => ({
+  stage: !!document.querySelector('.attn-stage'),
+  stageOff: !!document.querySelector('.attn-stage.attn-stage-off'),
+  queue: !!document.querySelector('.attn-panel-queue'),
+  desk: !!document.querySelector('.attn-panel-desk'),
+  divider: !!document.querySelector('.attn-divider'),
+})
+
+test('§1 the Attention view shows both panels and the divider between them', async () => {
+  reset()
+  setOrgView(SLUG, 'attention')
+  const v = await mountView(view(), () => shape())
+  await inAct(() => flush())
+  const s = shape()
+  assert.equal(s.stageOff, false, 'the stage is the organization view while it is active')
+  assert.equal(s.queue, true, 'the Needs attention panel')
+  assert.equal(s.desk, true, 'and the dynamic agent Desk panel')
+  assert.equal(s.divider, true, 'with a draggable margin between them')
+  await v.unmount()
+})
+
+test('§2 on the canvas, neither panel is on screen and the stage is hidden', async () => {
+  reset()
+  const v = await mountView(view(), () => shape())
+  await inAct(() => flush())
+  const s = shape()
+  assert.equal(s.stage, true, 'the stage element exists — it holds the retained panels')
+  assert.equal(s.stageOff, true, 'but it is hidden, so the canvas has the view to itself')
+  assert.equal(s.queue, false)
+  assert.equal(s.desk, false)
+  assert.equal(s.divider, false, 'and there is no margin to drag')
+  await v.unmount()
+})
+
+test('§3 a PINNED panel is retained across the switch back to the canvas', async () => {
+  reset()
+  setOrgView(SLUG, 'attention')
+  const v = await mountView(view(), () => shape())
+  await inAct(() => flush())
+
+  await inAct(() => { pinModal(QUEUE_KIND, { x: 40, y: 40, w: 420, h: 480 }, SLUG) })
+  await inAct(() => flush())
+  assert.equal(isModalPinned(QUEUE_KIND, SLUG), true)
+  assert.equal(shape().queue, true, 'the pinned panel is still on screen in its own window')
+  assert.equal(shape().divider, false,
+    'and the divider is gone — there is no margin between two embedded panels now')
+
+  // the switch the ticket is about
+  await inAct(() => { setOrgView(SLUG, 'canvas') })
+  await inAct(() => flush())
+  const s = shape()
+  assert.equal(s.queue, true,
+    'the pinned Needs attention panel survives the switch back to the canvas')
+  assert.equal(s.desk, false,
+    'while the embedded panel, which the user never placed anywhere, does not')
+  assert.equal(isModalPinned(QUEUE_KIND, SLUG), true, 'and it was not silently unpinned')
+  assert.deepEqual(readModalPins()[JSON.stringify([SLUG, QUEUE_KIND])]?.rect,
+    { x: 40, y: 40, w: 420, h: 480 }, 'with the box the user dragged it to intact')
+
+  await v.unmount()
+})
+
+test('§3.1 the two panels are pinned independently', async () => {
+  reset()
+  setOrgView(SLUG, 'attention')
+  const v = await mountView(view(), () => shape())
+  await inAct(() => flush())
+
+  await inAct(() => { pinModal(DESK_KIND, { x: 10, y: 10, w: 500, h: 500 }, SLUG) })
+  await inAct(() => flush())
+  assert.equal(isModalPinned(DESK_KIND, SLUG), true)
+  assert.equal(isModalPinned(QUEUE_KIND, SLUG), false,
+    'pinning one says nothing about the other')
+
+  await inAct(() => { setOrgView(SLUG, 'canvas') })
+  await inAct(() => flush())
+  assert.equal(shape().desk, true, 'the pinned Desk panel is retained')
+  assert.equal(shape().queue, false, 'the embedded queue is not')
+  await v.unmount()
+})
+
+test('§4 returning to the Attention view restores both panels and the split', async () => {
+  reset()
+  setOrgView(SLUG, 'attention')
+  setAttentionLayout(SLUG, { split: 0.62, agent: 'scout' })
+  const v = await mountView(view(), () => shape())
+  await inAct(() => flush())
+  await inAct(() => { pinModal(QUEUE_KIND, { x: 40, y: 40, w: 420, h: 480 }, SLUG) })
+  await inAct(() => { setOrgView(SLUG, 'canvas') })
+  await inAct(() => flush())
+  await inAct(() => { setOrgView(SLUG, 'attention') })
+  await inAct(() => flush())
+
+  const s = shape()
+  assert.equal(s.queue, true, 'the retained pinned panel is still the pinned one')
+  assert.equal(s.desk, true, 'and the embedded panel comes back')
+  assert.equal(isModalPinned(QUEUE_KIND, SLUG), true, 'nothing was unpinned on the way')
+  assert.deepEqual(attentionLayout(SLUG), { split: 0.62, agent: 'scout', listOpen: false },
+    'the split and the selected agent are exactly as they were left')
+  await v.unmount()
+})
+
+test('§5 the divider resizes from the keyboard and the size is remembered', async () => {
+  reset()
+  setOrgView(SLUG, 'attention')
+  const v = await mountView(view(), () => shape())
+  await inAct(() => flush())
+  const divider = document.querySelector('.attn-divider') as HTMLElement
+  assert.ok(divider, 'the divider is a real element')
+  assert.equal(divider.getAttribute('role'), 'separator')
+  assert.equal(divider.getAttribute('aria-orientation'), 'vertical')
+  assert.equal(divider.tabIndex, 0, 'and the keyboard can reach it')
+
+  const before = attentionLayout(SLUG).split
+  const press = (key: string, shiftKey = false) => inAct(() => {
+    divider.dispatchEvent(new window.KeyboardEvent('keydown',
+      { key, shiftKey, bubbles: true }))
+  })
+  await press('ArrowRight')
+  const after = attentionLayout(SLUG).split
+  assert.ok(after > before, 'ArrowRight widens the Needs attention panel')
+  assert.equal(Number(divider.getAttribute('aria-valuenow')), Math.round(after * 100),
+    'and the control reports the size it actually has')
+
+  await press('ArrowLeft')
+  assert.ok(Math.abs(attentionLayout(SLUG).split - before) < 1e-9,
+    'ArrowLeft takes it back')
+
+  await press('End')
+  assert.equal(attentionLayout(SLUG).split, SPLIT_MAX,
+    'End goes to the bound, and the bound is what stops a panel vanishing')
+  await v.unmount()
+})
+
+test('§6 the header toggle is what moves between the two views', async () => {
+  reset()
+  const { OrgViewToggle } = await import('../src/attention/AttentionView')
+  const v = await mountView(<OrgViewToggle slug={SLUG} />,
+    (el) => [...el.querySelectorAll('.orgview-tab')]
+      .map((b) => `${b.textContent}:${b.getAttribute('aria-pressed')}`))
+  assert.deepEqual(v.last(), ['Canvas:true', 'Attention:false'],
+    'both views are named, and the one you are in says so')
+
+  const attention = [...v.el.querySelectorAll('.orgview-tab')]
+    .find((b) => b.textContent?.includes('Attention')) as HTMLElement
+  await inAct(() => { attention.click() })
+  assert.deepEqual(v.last(), ['Canvas:false', 'Attention:true'])
+  await v.unmount()
+})
