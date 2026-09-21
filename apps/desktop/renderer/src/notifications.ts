@@ -156,7 +156,12 @@ export function useNativeNotifications(open: (notice: DesktopNotice) => void,
           // that finds the same items cannot restart the pulse.
           if (publishPending(summarizePending(candidates)) || !attentionSent) {
             attentionSent = true
-            await bridge.setPendingAttention?.(pendingAttention().ids)
+            // ids AND the same rows with their organization said out loud, so
+            // the taskbar pulse can flash the affected item's own window
+            // rather than every main window (user ruling 2026-09-21). One
+            // call, one projection pass, no second read.
+            const aggregate = pendingAttention()
+            await bridge.setPendingAttention?.(aggregate.ids, aggregate.items)
             if (!alive) return
           }
           // A card already on screen has reached the user. Remember it until
