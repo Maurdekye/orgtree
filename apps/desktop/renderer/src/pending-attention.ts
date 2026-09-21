@@ -29,9 +29,24 @@ export interface PendingAttention {
   /** every qualifying identity, so the native pulse can tell a NEW arrival
    *  from the same set seen again on the next poll */
   ids: string[]
+  /** THE SAME ROWS, WITH THEIR ORGANIZATION SAID OUT LOUD.
+   *
+   *  The user ruled (2026-09-21) that the taskbar pulse flashes the affected
+   *  item's OWN organization window, falling back to the last-used main
+   *  window when that organization has none open, and never every main window
+   *  indiscriminately. Native therefore needs the organization per row.
+   *
+   *  ⚠ IT IS DERIVED FROM THE SAME PASS, NOT FROM A SECOND READ. `ids` already
+   *  carries the pair — each one is `JSON.stringify([org, id])` — but that is
+   *  this module's dedup ENCODING, not a contract, and a native side parsing
+   *  it would be coupled to an implementation detail that exists to make
+   *  strings comparable. This field says the same thing in a shape somebody
+   *  may rely on. Same rows, same order, no extra fetch and no parallel
+   *  state. */
+  items: { org: string; id: string }[]
 }
 
-const EMPTY: PendingAttention = { mail: 0, docket: 0, ids: [] }
+const EMPTY: PendingAttention = { mail: 0, docket: 0, ids: [], items: [] }
 let current: PendingAttention = EMPTY
 const listeners = new Set<() => void>()
 
@@ -41,15 +56,18 @@ export function pendingAttention(): PendingAttention { return current }
  *  tests; it takes the rows rather than reading anything itself. */
 export function summarizePending(rows: readonly DesktopNotification[]): PendingAttention {
   let mail = 0, docket = 0
-  const ids: string[] = []
+  const items: { org: string; id: string }[] = []
   for (const row of rows) {
     if (!PENDING_KINDS.includes(row.kind as PendingKind)) continue
-    ids.push(JSON.stringify([row.org, row.id]))
+    items.push({ org: row.org, id: row.id })
     if (row.kind === 'work-attention') docket++
     else mail++
   }
-  ids.sort()
-  return { mail, docket, ids }
+  // sorted on the SAME key both halves are built from, so `ids[i]` and
+  // `items[i]` always describe the same row
+  items.sort((a, b) => (a.org === b.org ? (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+    : a.org < b.org ? -1 : 1))
+  return { mail, docket, ids: items.map((i) => JSON.stringify([i.org, i.id])), items }
 }
 
 function same(a: PendingAttention, b: PendingAttention): boolean {
@@ -100,10 +118,16 @@ const parsePending = (raw: string | null): PendingAttention | null => {
   try {
     const v: unknown = JSON.parse(raw)
     if (!v || typeof v !== 'object') return null
-    const { mail, docket, ids } = v as Partial<PendingAttention>
+    const { mail, docket, ids, items } = v as Partial<PendingAttention>
     if (typeof mail !== 'number' || typeof docket !== 'number') return null
     if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string')) return null
-    return { mail, docket, ids: ids as string[] }
+    const rows = Array.isArray(items)
+      ? items.filter((i): i is { org: string; id: string } =>
+        !!i && typeof i === 'object'
+        && typeof (i as { org?: unknown }).org === 'string'
+        && typeof (i as { id?: unknown }).id === 'string')
+      : []
+    return { mail, docket, ids: ids as string[], items: rows }
   } catch { return null }
 }
 

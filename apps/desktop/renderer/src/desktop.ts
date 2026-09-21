@@ -82,11 +82,26 @@ export interface NativeWindowBridge {
   /** window-scoped events held until the renderer is listening, so a
    *  notification click that arrives before React mounts is not lost */
   takePendingWindowEvents?(): Promise<unknown[]>
+  /** The taskbar aggregate, WIDENED — the user ruled (2026-09-21) that the
+   *  pulse flashes the affected item's own organization window, falling back
+   *  to the last-used main window when that organization has none open, and
+   *  never every main window indiscriminately. Native needs the organization
+   *  per row to do that.
+   *
+   *  ⚠ THE SECOND ARGUMENT IS ADDITIVE AND OPTIONAL, deliberately. `ids` is
+   *  unchanged in meaning and order, so a shell that ignores `items` behaves
+   *  exactly as it does today; `items` says the same rows in a shape native
+   *  may rely on, rather than making it parse `ids`, whose
+   *  `JSON.stringify([org, id])` form is the renderer's dedup ENCODING and not
+   *  a contract. Both halves come out of the one projection pass — no second
+   *  fetch, no parallel state (see pending-attention.ts). */
+  setPendingAttention?(ids: string[], items?: { org: string; id: string }[]): Promise<void>
 }
 
 // The bridge belongs to the authoritative opener. React handlers retain this
 // module's window when their existing DOM is adopted by an isolated popout.
-export type NativeDesktop = Omit<DesktopBridge, 'getPreferences' | 'setPreferences'> & {
+export type NativeDesktop = Omit<DesktopBridge,
+  'getPreferences' | 'setPreferences' | 'setPendingAttention'> & {
   getPreferences(): Promise<NativePreferences>
   setPreferences(patch: Partial<NativePreferences>): Promise<NativePreferences>
   notify?(notice: NativeNotice): Promise<boolean>

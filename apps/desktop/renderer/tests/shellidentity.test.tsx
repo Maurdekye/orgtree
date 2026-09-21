@@ -222,32 +222,73 @@ test('a native poll tick does not make a non-owner start reading', async () => {
   } finally { await p.stop() }
 })
 
+test('a pass still in flight when the duty MOVES finishes without writing anything', async () => {
+  localStorage.clear(); useFakeClock()
+  const original = globalThis.fetch
+  const synced: unknown[] = [], taskbar: unknown[] = [], delivered: unknown[] = []
+  let release: ((r: Response) => void) | null = null
+  const bridge = installBridge({
+    notify: async (n: unknown) => { delivered.push(n); return true },
+    syncNotifications: async (a: unknown) => { synced.push(a) },
+    setPendingAttention: async (ids: unknown) => { taskbar.push(ids) },
+    onEvent: () => () => {},
+  })
+  globalThis.fetch = (() => new Promise<Response>((resolve) => { release = resolve })) as unknown as typeof fetch
+  function View({ own }: { own: boolean }) {
+    useNativeNotifications(() => {}, own)
+    return <div>w</div>
+  }
+  const view = await mountView(<View own={true} />, (el) => el)
+  try {
+    await inAct(async () => { await flush(4) })
+    assert.ok(release, 'the owner has a read in flight')
+    // the duty moves to another window WHILE that read is outstanding
+    await inAct(async () => { await view.render(<View own={false} />); await flush(4) })
+    // …and only now does the old read come back
+    await inAct(async () => {
+      release!({ ok: true, headers: new Headers(),
+        json: async () => ({ notices: [{ id: 'n1', org: 'other', kind: 'question',
+          source_id: 'a1', title: 'Q', body: 'b', agent: 'w' }], total: 1, truncated: false }),
+      } as Response)
+      await flush(10)
+    })
+    assert.deepEqual(taskbar, [], 'a stale owner does not write the taskbar aggregate')
+    assert.deepEqual(synced, [], 'nor reconcile the native alert inventory')
+    assert.deepEqual(delivered, [], 'nor dispatch an alert the new owner is about to dispatch')
+    await advance(20_000)
+    assert.deepEqual(taskbar, [], 'and it does not resume polling either')
+  } finally {
+    await view.unmount(); globalThis.fetch = original; removeBridge(bridge); realClock()
+  }
+})
+
 // ------------------------------------------------- §4 the aggregate mirror
 
 test('the owner mirrors the aggregate and a follower adopts it without polling', async () => {
   localStorage.clear(); resetPending()
   const stopOwner = startPendingMirror(true)
-  publishPending({ mail: 2, docket: 1, ids: ['["a","1"]', '["b","2"]'] })
+  publishPending({ mail: 2, docket: 1, ids: ['["a","1"]', '["b","2"]'],
+    items: [{ org: 'a', id: '1' }, { org: 'b', id: '2' }] })
   const stored = localStorage.getItem('orgtree-pending-attention-v1')
   assert.ok(stored, 'the owner writes what it publishes')
   stopOwner()
 
   // a second window: nothing of its own, only what the owner left
   resetPending()
-  assert.deepEqual(pendingAttention(), { mail: 0, docket: 0, ids: [] })
+  assert.deepEqual(pendingAttention(), { mail: 0, docket: 0, ids: [], items: [] })
   const stopFollower = startPendingMirror(false)
   assert.equal(pendingAttention().mail, 2, 'the follower seeds from the last write')
   assert.equal(pendingAttention().docket, 1)
 
   localStorage.setItem('orgtree-pending-attention-v1',
-    JSON.stringify({ mail: 0, docket: 0, ids: [] }))
+    JSON.stringify({ mail: 0, docket: 0, ids: [], items: [] }))
   window.dispatchEvent(new (window as unknown as { StorageEvent: typeof StorageEvent }).StorageEvent('storage', { key: 'orgtree-pending-attention-v1' }))
-  assert.deepEqual(pendingAttention(), { mail: 0, docket: 0, ids: [] },
+  assert.deepEqual(pendingAttention(), { mail: 0, docket: 0, ids: [], items: [] },
     'clearing in the owner clears the dot everywhere')
 
   localStorage.setItem('orgtree-pending-attention-v1', '{ not json')
   window.dispatchEvent(new (window as unknown as { StorageEvent: typeof StorageEvent }).StorageEvent('storage', { key: 'orgtree-pending-attention-v1' }))
-  assert.deepEqual(pendingAttention(), { mail: 0, docket: 0, ids: [] },
+  assert.deepEqual(pendingAttention(), { mail: 0, docket: 0, ids: [], items: [] },
     'a corrupt mirror is empty, never a thrown listener')
   stopFollower()
   resetPending()
