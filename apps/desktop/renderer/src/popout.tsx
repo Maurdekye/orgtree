@@ -11,6 +11,7 @@ import type { PopoutWindowState } from '../../../../packages/contracts'
 import { createPortal } from 'react-dom'
 import { isMobile } from './mobile'
 import { initiatingDocument, keepWorking, noteActionDocument, openSurfaces, pendingRestart, registerWindow, reloadWindows, returnWindows, subscribeWindows, windowRevision } from './windowlife'
+import type { BorrowedSurface } from './windowlife'
 
 interface SurfaceContextValue {
   document: Document
@@ -361,16 +362,37 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
    *  no native window and no saved row are in play, ownership alone moves,
    *  and this file has nothing to say about it. The returned function is
    *  idempotent, so calling it twice is harmless. */
-  const borrow = (): (() => void) => {
-    if (!child.current || child.current.closed) return () => {}
+  const borrow = (): BorrowedSurface => {
+    const w = child.current
+    const inert: BorrowedSurface = { restore: () => {}, release: () => {} }
+    if (!w || w.closed) return inert
+    // ⚠ CAPTURE THE LIVE GEOMETRY BEFORE THE WINDOW GOES. The saved rect is
+    // sampled on a 250 ms poll, so a move or resize in the moment before a
+    // borrow has not been recorded yet — and `returnHome` closes the child,
+    // after which the real bounds are unrecoverable and the return would
+    // restore the previous SAMPLE instead of where the window actually was.
+    // The unmount path already does exactly this, for exactly this reason.
+    captureWindow(layoutKey, kind, org, w, true, latest.current.restore)
     returnHome(true)
-    let returned = false
-    return () => {
-      if (returned) return
-      returned = true
-      // `restoring` — carrying the saved rect home is the point of the whole
-      // exercise, and it is only reachable because the row still says `open`
-      open(true)
+    // ⚠ THE EPOCH AFTER THE BORROW'S OWN INCREMENT IS WHAT MAKES A STALE
+    // HANDLE INERT. A `done` flag alone only stops this handle being used
+    // twice; it says nothing about the world moving on underneath it. An
+    // ordinary redock, an unmount and any other `open` all bump the epoch —
+    // and each of those has already cleared or reconciled the saved row — so
+    // a handle used past one of those boundaries would otherwise resurrect a
+    // window the user had closed, at geometry that is no longer recorded.
+    // Comparing the epoch is how this file already guards every other
+    // asynchronous continuation in it.
+    const mine = epoch.current
+    let done = false
+    const claim = (): boolean => {
+      if (done || epoch.current !== mine) return false
+      done = true
+      return true
+    }
+    return {
+      restore: () => { if (claim()) open(true) },
+      release: () => { if (claim()) closeSavedWindow(layoutKey) },
     }
   }
 

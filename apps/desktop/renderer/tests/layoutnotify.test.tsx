@@ -157,14 +157,67 @@ test('only a NON-transient return clears the saved row', () => {
   assert.match(popout, /returnHome\(true\)/, 'borrow reuses the ordinary return')
 })
 
+test('a stale handle is INERT — it cannot resurrect a window past a boundary', () => {
+  const popout = src('popout.tsx')
+  // ⚠ THE DEFECT multi-window-design FOUND. The first version guarded only
+  // with a local `returned` boolean, which stops the handle being used twice
+  // and says nothing about the world moving on underneath it. An ordinary
+  // redock, an unmount and any other open all bump the epoch — and each has
+  // already cleared or reconciled the saved row — so a handle used after one
+  // of those would have reopened a window the user had closed, at geometry
+  // no longer recorded.
+  assert.match(popout, /const mine = epoch\.current/,
+    'the epoch is captured after the borrow own increment')
+  assert.match(popout, /if \(done \|\| epoch\.current !== mine\) return false/,
+    'and both the double-use and the boundary-crossed cases are refused')
+  // the epoch really is bumped by each boundary, which is what makes the
+  // check above mean anything
+  assert.match(popout, /const returnHome = \(transient: boolean\) => \{[\s\S]{0,400}?epoch\.current\+\+/,
+    'an ordinary redock bumps it')
+  assert.match(popout, /const open = \(restoring = false\) => \{[\s\S]{0,200}?\+\+epoch\.current/,
+    'so does opening')
+  assert.match(popout, /useEffect\(\(\) => \(\) => \{[\s\S]{0,400}?epoch\.current\+\+/,
+    'and so does unmount')
+})
+
+test('the live geometry is captured BEFORE the window is closed', () => {
+  const popout = src('popout.tsx')
+  // ⚠ THE SECOND DEFECT. The saved rect is sampled on a 250 ms poll, so a
+  // move or resize immediately before a borrow was never recorded — and
+  // returnHome closes the child, after which the real bounds are gone. The
+  // return would then restore the previous SAMPLE rather than where the
+  // window actually was.
+  assert.match(popout, /captureWindow\(layoutKey, kind, org, w, true, latest\.current\.restore\)\s+returnHome\(true\)/,
+    'capture first, then close — in that order, which is the whole fix')
+  assert.match(popout, /window\.setInterval\(\(\) => \{ if \(w\?\.closed\) onGone\(\); else if \(w\) captureWindow/,
+    'the 250ms sampling this compensates for still exists')
+})
+
+test('a borrow ends in exactly one of two ways, and both are idempotent', () => {
+  const popout = src('popout.tsx')
+  // ⚠ TWO OUTCOMES BECAUSE THERE REALLY ARE TWO, and fusing them was the
+  // ambiguity v3-effort-opus hit: a borrow whose destination is gone must
+  // not `restore` (it would resurrect a window with nowhere valid to be) and
+  // must not simply stop (that leaves the saved row claiming a window that
+  // does not exist).
+  assert.match(popout, /restore: \(\) => \{ if \(claim\(\)\) open\(true\) \}/)
+  assert.match(popout, /release: \(\) => \{ if \(claim\(\)\) closeSavedWindow\(layoutKey\) \}/)
+  // one `claim` serves both, so they are mutually exclusive by construction
+  // rather than by two flags somebody has to keep in step
+  assert.match(popout, /const claim = \(\): boolean => \{/)
+  const life = src('windowlife.ts')
+  assert.match(life, /borrow\?: \(\) => BorrowedSurface/)
+  assert.match(life, /export interface BorrowedSurface \{/)
+})
+
 test('the return re-detaches as a RESTORE, which is what carries the geometry home', () => {
   const popout = src('popout.tsx')
   // `popupFeatures` consults the saved rect when `restoring || saved.open`.
   // A borrow leaves `saved.open` true AND the return passes restoring — either
   // disjunct alone would do, and depending on both is deliberate belt and
   // braces on the property that actually failed.
-  assert.match(popout, /returned = true[\s\S]{0,400}?open\(true\)/,
-    'the returned closure re-opens with restoring set')
+  assert.match(popout, /restore: \(\) => \{ if \(claim\(\)\) open\(true\) \}/,
+    'the restore path re-opens with restoring set')
   const layout = src('windowlayout.ts')
   assert.match(layout, /if \(saved\?\.rect && \(restoring \|\| saved\.open\)\)/,
     'the condition the borrow depends on is unchanged')
@@ -196,8 +249,10 @@ test('the saved rect really is what a restoring re-open uses', () => {
 
 test('borrowing something that is not detached is a no-op, not an error', () => {
   const popout = src('popout.tsx')
-  assert.match(popout, /if \(!child\.current \|\| child\.current\.closed\) return \(\) => \{\}/,
+  assert.match(popout, /if \(!w \|\| w\.closed\) return inert/,
     'no native window in play means nothing for this file to do')
+  assert.match(popout, /const inert: BorrowedSurface = \{ restore: \(\) => \{\}, release: \(\) => \{\} \}/,
+    'and the caller still gets a usable handle rather than having to null-check')
 })
 
 test('the four failure-recovery redock sites are untouched', () => {
