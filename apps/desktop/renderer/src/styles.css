@@ -485,6 +485,40 @@ main {
 .space {
   position: absolute; transform-origin: 0 0;
 }
+/* THE CANVAS WORLD, AND HOW IT IS PUT AWAY (`canvasContent="hidden"`, set by
+   the shell when the organization presents a different view).
+
+   ⚠ IT IS `display: contents`, WHICH IS THE WHOLE TRICK. The wrapper must not
+   generate a box: `.tray-wrap` sets top AND bottom to derive a definite height
+   from the viewport (see its own rule below), and a wrapper that establishes a
+   containing block with no definite height of its own collapses that to zero —
+   MEASURED at 678px through `display: contents` and 0px through
+   `position: relative`, in canvashide-probe.tsx. A box-less wrapper changes
+   nothing about where anything lands.
+
+   ⚠ AND IT IS NEVER PUT ON `.viewport` ITSELF. `adoptPinLayer` appends the pin
+   layer as a real DOM child of the viewport, so hiding the viewport takes every
+   pinned window with it. The world children are wrapped; the pin layer is their
+   sibling and is left alone, which is what keeps a pinned desk visible,
+   clickable and keyboard-reachable while the canvas is away.
+
+   ⚠ `visibility` IS INHERITED BUT A DESCENDANT CAN TAKE IT BACK, and two in
+   here do. `.mailbtn.has` and `.kill-btn.expanded` both set
+   `visibility: visible` WITHOUT a `:hover` gate, so an agent with unread mail
+   or an expanded kill button would have kept painting its chip over the
+   presented view while the rest of the canvas was gone (multi-window-design
+   caught this; the first probe used a world with no such element and passed).
+   The `*` with `!important` is therefore not defensive clutter — it is the only
+   thing that beats those rules, none of which is itself `!important`. It cannot
+   reach a pinned or popped-out panel: those are portaled out, so they are not
+   DOM descendants of this wrapper.
+
+   `visibility` rather than `display: none` because it PRESERVES LAYOUT — the
+   camera, the spring positions and `posOf` survive the switch untouched, so
+   coming back is not a re-layout. */
+.canvas-world { display: contents; }
+.canvas-world-hidden, .canvas-world-hidden * { visibility: hidden !important; }
+.canvas-world-hidden { pointer-events: none; }
 .edges { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
 .edge {
   fill: none; stroke: var(--line); stroke-width: 1.6px; opacity: .8;

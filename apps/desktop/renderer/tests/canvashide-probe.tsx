@@ -337,6 +337,90 @@ document.title = 'phase F'
     + ` · abs ${absolute.pin} · transform ${transformed.pin}`)
 }
 
+document.title = 'phase G'
+// ── PHASE G: THE LEAK. `visibility` is inherited, but a DESCENDANT CAN TAKE IT
+// BACK, and two rules in this stylesheet do it without a `:hover` gate:
+//
+//     .mailbtn.has      { opacity: .9; visibility: visible; }   (styles.css:594)
+//     .kill-btn.expanded{ opacity: 1;  visibility: visible; }   (styles.css:743)
+//
+// So an agent with UNREAD MAIL, or a card with an expanded kill button, would
+// have kept painting its chip on top of the presented Attention view while the
+// rest of the canvas was gone. multi-window-design caught this; phase C passed
+// only because its world contained no element that overrides visibility, which
+// is exactly the "empty world" they warned the fixture was.
+//
+// The five hover-gated overrides (.gearbtn, .expandbtn, .mailbtn, .retirebtn,
+// .dismissbtn, .org-del) cannot fire here — `:hover` needs hit-testing and a
+// hidden subtree is not hit-tested — so this phase pins the two that can.
+{
+  // a world child carrying BOTH real offenders, with the real class names
+  const withLeaks = (wrapperClass: string) => {
+    const t = build(CONTENTS)
+    t.wrap.className = wrapperClass
+    const mail = document.createElement('button')
+    mail.className = 'mailbtn has'
+    mail.id = 'leak-mail'
+    const kill = document.createElement('button')
+    kill.className = 'kill-btn expanded'
+    kill.id = 'leak-kill'
+    // ⚠ TRANSITIONS OFF FOR THE MEASUREMENT, and this is not convenience.
+    // `.mailbtn` carries `transition: opacity .15s, visibility .15s`, so a
+    // computed style read immediately after a class change can report the
+    // value mid-transition rather than the value the cascade resolves to.
+    // These checks are about the CASCADE — does an override beat inherited
+    // visibility, and does the !important rule beat the override — so the
+    // transition is removed to measure that and nothing else. The hide
+    // direction is unaffected either way (G3/G4 measure `hidden` with the
+    // transition present), but the restore direction was reading the
+    // in-flight value and is what exposed this.
+    mail.style.transition = 'none'
+    kill.style.transition = 'none'
+    t.card.appendChild(mail)
+    t.card.appendChild(kill)
+    return { ...t, mail, kill }
+  }
+
+  // (a) inherited visibility ALONE — the rule as rev 3 specified it
+  const naive = withLeaks('cc-world-naive')
+  naive.wrap.setAttribute('style', HIDDEN_CONTENTS)
+  record('G1 THE LEAK IS REAL: inherited visibility alone does not stop '
+    + '.mailbtn.has painting',
+    vis(naive.mail) === 'visible',
+    `mailbtn.has = ${vis(naive.mail)} while its card = ${vis(naive.card)}`
+    + ' — if this check FAILS the override does not leak and the !important'
+    + ' rule is unnecessary')
+  record('G2 …and .kill-btn.expanded leaks the same way',
+    vis(naive.kill) === 'visible',
+    `kill-btn.expanded = ${vis(naive.kill)} while its card = ${vis(naive.card)}`)
+
+  // (b) the shipped rule: .canvas-world-hidden with its `*` !important
+  const fixed = withLeaks('canvas-world canvas-world-hidden')
+  record('G3 THE FIX: .canvas-world-hidden hides the unread-mail chip',
+    vis(fixed.mail) === 'hidden', `mailbtn.has = ${vis(fixed.mail)}`)
+  record('G4 …and the expanded kill button',
+    vis(fixed.kill) === 'hidden', `kill-btn.expanded = ${vis(fixed.kill)}`)
+  record('G5 …and the ordinary world with it',
+    vis(fixed.space) === 'hidden' && vis(fixed.card) === 'hidden'
+    && vis(fixed.bg) === 'hidden' && vis(fixed.cardbtn) === 'hidden',
+    `space=${vis(fixed.space)} card=${vis(fixed.card)} bg=${vis(fixed.bg)}`
+    + ` cardbtn=${vis(fixed.cardbtn)}`)
+  record('G6 THE PIN IS STILL UNTOUCHED — `*` cannot cross the portal boundary',
+    vis(fixed.pinwin) === 'visible' && vis(fixed.pinbtn) === 'visible',
+    `pinwin=${vis(fixed.pinwin)} pinbtn=${vis(fixed.pinbtn)}`)
+  fixed.pinbtn.focus()
+  record('G7 …and still focusable', document.activeElement === fixed.pinbtn,
+    `activeElement = ${document.activeElement?.id || document.activeElement?.tagName}`)
+  record('G8 the class-based rule still generates no box, so layout is intact',
+    getComputedStyle(fixed.wrap).display === 'contents',
+    `computed display = ${getComputedStyle(fixed.wrap).display}`)
+  // and it must be reversible: dropping the hidden class restores everything
+  fixed.wrap.className = 'canvas-world'
+  record('G9 removing the hidden class restores the world AND the overrides',
+    vis(fixed.card) === 'visible' && vis(fixed.mail) === 'visible',
+    `card=${vis(fixed.card)} mailbtn.has=${vis(fixed.mail)}`)
+}
+
 document.title = 'done'
 window.PROBE = {
   checks,
