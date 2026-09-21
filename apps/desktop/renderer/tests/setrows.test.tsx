@@ -219,7 +219,11 @@ test('§9 the tab strip is ONE keyboard control: roving tabindex, arrows that '
   const view = await mountSettings()
   try {
     const tabs = [...view.el.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
-    assert.equal(tabs.length, 5)
+    // v3 added General (first, and where the panel opens) and Default org
+    // settings (last, having absorbed the standalone window the removed
+    // sidebar opened). The property under test is the STRIP, not its length —
+    // the wrap assertions below name the ends rather than counting to them.
+    assert.equal(tabs.length, 7)
     for (const t of tabs) {
       const panel = view.el.querySelector(`#${t.getAttribute('aria-controls')}`)
       assert.ok(panel, `tab ${t.textContent} controls a panel that is absent`)
@@ -232,14 +236,16 @@ test('§9 the tab strip is ONE keyboard control: roving tabindex, arrows that '
     assert.equal(stops[0]!.getAttribute('aria-selected'), 'true')
 
     const last = tabs.length - 1
+    const firstLabel = new RegExp(tabs[0]!.textContent!.trim())
+    const lastLabel = new RegExp(tabs[last]!.textContent!.trim())
     await press(tabs[0]!, 'ArrowLeft')       // wraps backwards to the last
-    assert.match(selected(view), /Import/)
+    assert.match(selected(view), lastLabel)
     await press(tabs[last]!, 'ArrowRight')   // wraps forwards to the first
-    assert.match(selected(view), /Providers/)
+    assert.match(selected(view), firstLabel)
     await press(tabs[0]!, 'End')
-    assert.match(selected(view), /Import/)
+    assert.match(selected(view), lastLabel)
     await press(tabs[last]!, 'Home')
-    assert.match(selected(view), /Providers/)
+    assert.match(selected(view), firstLabel)
 
     // an inactive panel is `hidden`, not merely off-screen: its controls are
     // out of the tab order and out of the accessibility tree

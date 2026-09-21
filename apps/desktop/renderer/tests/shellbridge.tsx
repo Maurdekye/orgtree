@@ -27,3 +27,21 @@ export function installBridge(bridge: FakeBridge): FakeBridge {
 export function removeBridge(_bridge?: FakeBridge): void {
   delete (window as unknown as Record<string, unknown>).orgtreeDesktop
 }
+
+/** Type into a controlled React input the way a person does.
+ *
+ *  ⚠ SETTING `.value` AND DISPATCHING `input` IS NOT ENOUGH. React keeps its
+ *  own value tracker on the element and compares against it, so a direct
+ *  assignment leaves the tracker holding the new value and React reads the
+ *  event as "nothing changed" — the handler never runs and the component's
+ *  state never moves. Going through the prototype setter is what updates the
+ *  tracker, and is the standard way to drive a controlled input from a test.
+ */
+export function typeInto(el: HTMLInputElement, value: string): void {
+  const proto = Object.getPrototypeOf(el) as HTMLInputElement
+  const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set
+  if (setter) setter.call(el, value)
+  else el.value = value
+  el.dispatchEvent(new (el.ownerDocument.defaultView as unknown as { Event: typeof Event })
+    .Event('input', { bubbles: true }))
+}
