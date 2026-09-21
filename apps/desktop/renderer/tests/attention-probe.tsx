@@ -38,9 +38,11 @@ import '../src/styles.css'
 import type { CanvasNode, OpFn } from '../src/canvas/shared'
 import { USER } from '../src/canvas/shared'
 import type { TreePayload } from '../src/types'
-import { pinModal } from '../src/canvas/modalpin'
+import { isModalPinned, pinModal, unpinModal } from '../src/canvas/modalpin'
+import { openSurfaces } from '../src/windowlife'
+import { WINDOW_LAYOUT_KEY } from '../src/windowlayout'
 import { CurrentOrg } from '../src/popout'
-import { AttentionView, QUEUE_KIND } from '../src/attention/AttentionView'
+import { AttentionView, DESK_KIND, QUEUE_KIND } from '../src/attention/AttentionView'
 import { setAttentionLayout, setOrgView } from '../src/attention/mode'
 
 const SLUG = 'probe'
@@ -146,7 +148,8 @@ async function run() {
   // every "pinned" assertion below would pass over an ordinary inline panel.
   // The first run of this probe did exactly that: it reported the "pinned"
   // panel at the stage slot's own box instead of the pin rect.
-  createRoot(host).render(
+  const root = createRoot(host)
+  root.render(
     <CurrentOrg.Provider value={SLUG}>
       <AttentionView slug={SLUG} tree={tree} op={op} toast={() => {}} map={map} />
     </CurrentOrg.Provider>)
@@ -233,6 +236,102 @@ async function run() {
     queueBox: box('.attn-panel-queue'),
     deskPresent: !!el('.attn-panel-desk'),
   }
+
+  // ---- 5. A FAILED RESTORE, AND WHAT ACTUALLY TEARS IT DOWN.
+  //
+  // multi-window-design, 2026-09-21: "'the running app re-renders soon' is not
+  // a lifecycle guarantee, so the reviewer must assess it against real
+  // failed-restore teardown rather than a harmlessness claim alone." So this
+  // measures the teardown instead of arguing about it.
+  //
+  // THE MECHANISM, read out of popout.tsx rather than guessed: `open()` throws
+  // when the window is blocked, its `catch` calls `redock()`, and `redock`
+  // calls `closeSavedWindow`. Nothing ever registered in `windowlife`, so
+  // there is no unregister and therefore NO registry event — which is the one
+  // signal this view subscribes to. The row flips with nothing to wake it.
+  //
+  // The probe blocks the window by making `open` return null, which is exactly
+  // what a blocked pop-up does and exactly the branch that throws.
+  phase('restore-fail')
+  root.unmount()
+  unpinModal(QUEUE_KIND, SLUG)
+  unpinModal(DESK_KIND, SLUG)
+  setOrgView(SLUG, 'canvas')
+  localStorage.setItem(WINDOW_LAYOUT_KEY, JSON.stringify([{
+    key: JSON.stringify([SLUG, QUEUE_KIND]), kind: QUEUE_KIND, org: SLUG, open: true,
+    rect: { x: 120, y: 120, width: 900, height: 760 },
+  }]))
+  ;(window as unknown as { open: () => null }).open = () => null
+  // ⚠ THE BRIDGE, OR THIS SECTION MEASURES NOTHING. `restoredWindows` is gated
+  // on `desktop()` and `useRestoreWindows` reads the same bridge, so without
+  // one the restore branch is dead and the panel simply never mounts — the
+  // first run of this section reported exactly that (panel absent, row never
+  // flipped) and would have read as "the failure tears it down promptly".
+  // A bare object means "restore is on": useRestoreWindows returns
+  // `!!bridge && !bridge.getWindowState`.
+  ;(window as unknown as { orgtreeDesktop?: unknown }).orgtreeDesktop = {}
+
+  const host2 = document.createElement('div')
+  host2.style.cssText = 'position:absolute;inset:0;display:flex'
+  document.body.appendChild(host2)
+  const root2 = createRoot(host2)
+  root2.render(
+    <CurrentOrg.Provider value={SLUG}>
+      <AttentionView slug={SLUG} tree={tree} op={op} toast={() => {}} map={map} />
+    </CurrentOrg.Provider>)
+  await settle(10)
+
+  const rowOpen = () => /"open":true/.test(localStorage.getItem(WINDOW_LAYOUT_KEY) ?? '')
+  // ⚠ EVERY INPUT TO THE MOUNT RULE, not just its output. The first run of this
+  // section reported "still mounted" and left me guessing which of the four
+  // branches was holding it; a snapshot that names them answers that in one run.
+  const snap = () => ({
+    rowStillOpen: rowOpen(),
+    panelMounted: !!document.querySelector('.attn-panel-queue'),
+    // where it is: inside the live root, or orphaned somewhere on the body
+    panelInRoot2: !!host2.querySelector('.attn-panel-queue'),
+    panelInPinLayer: !!document.querySelector('.pin-layer .attn-panel-queue'),
+    panelInRecovery: !!document.querySelector('.popout-recovery .attn-panel-queue'),
+    pinned: isModalPinned(QUEUE_KIND, SLUG),
+    // which mode the view thinks it is in, and whether the desk panel (which
+    // has no saved row at all) is mounted — if IT is mounted too, the holder
+    // is `active`, not the restore claim
+    stageOff: !!host2.querySelector('.attn-stage.attn-stage-off'),
+    stageDisplay: (() => { const e = host2.querySelector('.attn-stage'); return e ? getComputedStyle(e).display : null })(),
+    deskPanelMounted: !!host2.querySelector('.attn-panel-desk'),
+    surfaces: openSurfaces().filter((s) => s.org === SLUG).map((s) => s.kind),
+    layout: localStorage.getItem(WINDOW_LAYOUT_KEY),
+  })
+  const afterAttempt = snap()
+
+  // NOW LEAVE IT ALONE. No mode switch, no pin, no pointer, no render of any
+  // kind from this probe — the question is precisely what happens WITHOUT one.
+  await tick(1500)
+  const untouched = snap()
+
+  // …and then the smallest possible unrelated render, to show that IS what
+  // releases it. This is the dependency being reported, not a workaround.
+  //
+  // ⚠ IT HAS TO BE A REAL RENDER. The first attempt here flipped the view mode
+  // to `attention` and straight back to `canvas`: the store notified twice, but
+  // `useSyncExternalStore` compares the FINAL snapshot to the previous one,
+  // found them equal, and bailed out — so nothing re-rendered and the section
+  // reported "not released by an unrelated render" while never having produced
+  // one. Changing the split changes a value the view actually reads.
+  setAttentionLayout(SLUG, { split: 0.5 })
+  await settle(6)
+  const afterUnrelatedRender = snap()
+
+  PROBE.failedRestore = {
+    afterAttempt, untouched, afterUnrelatedRender,
+    // the finding, stated as a boolean so it cannot be read past
+    releasedByTheFailureItself: afterAttempt.panelMounted === false,
+    heldWithNoFurtherRender: untouched.panelMounted === true,
+    releasedOnlyByAnUnrelatedRender: untouched.panelMounted === true
+      && afterUnrelatedRender.panelMounted === false,
+  }
+  root2.unmount()
+  host2.remove()
 
   phase('done')
   PROBE.done = true

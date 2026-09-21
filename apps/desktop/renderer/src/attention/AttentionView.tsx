@@ -134,18 +134,33 @@ function useDetachedHere(org: string | null, revision: number): { queue: boolean
  * audit test is what will say so at the moment it is added rather than long
  * afterwards.
  *
- * ⚠ THE TWO SIGNALS ARE NOT SYMMETRICAL, and the asymmetry is worth knowing.
- * The window REGISTRY publishes events, so anything that unregisters a surface
- * — a redock above all — wakes this view at once. The saved LAYOUT does not:
- * `saveWindow` is a plain localStorage write that notifies nobody. So a restore
- * that fails WITHOUT ever registering a surface (no window opened, nothing to
- * unregister) flips the row with nothing to wake this view, and the subtree is
- * released on the next render for any reason rather than immediately.
- * Harmless — the panel is inside a `display: none` stage and is ineligible for
- * desk ownership throughout, and in the running app a render is never far away
- * — but measured (attentionview.test.tsx §7.1a) rather than assumed, because
- * "it releases because something else happens to re-render" is the kind of
- * claim that should be written down or fixed, not left implicit.
+ * ⚠ THE TWO SIGNALS ARE NOT SYMMETRICAL, AND THE GAP IS REAL — MEASURED, in a
+ * real renderer, not reasoned about. The window REGISTRY publishes events, so
+ * anything that unregisters a surface — a redock above all — wakes this view at
+ * once. The saved LAYOUT does not: `saveWindow` is a plain localStorage write
+ * that notifies nobody. So a restore that FAILS never registers anything (the
+ * window was blocked, so there is nothing to unregister), flips the row, and
+ * leaves nothing at all to wake this view.
+ *
+ * `attention-probe.tsx` §5 measures exactly that, in Chromium, with the real
+ * `MovableSurface`: after a blocked restore the panel is NOT released by the
+ * failure, is STILL mounted 1.5s later with no interaction, and is released
+ * only when something unrelated happens to re-render. An earlier draft of this
+ * comment called that harmless because "in the running app a render is never
+ * far away" — which multi-window-design correctly refused as a lifecycle
+ * guarantee, and which the measurement then showed to be an indefinite hold.
+ *
+ * SO THE CLAIM IS BOUNDED HERE RATHER THAN ARGUED. `useRestoreRecheck` below
+ * schedules ONE re-evaluation on the macrotask after a commit that holds a
+ * restore claim. That is enough by construction and is not a poll: the failure
+ * path is SYNCHRONOUS — `open()` throws, its catch calls `redock()`, and
+ * `redock` calls `closeSavedWindow`, all inside the same effect flush as the
+ * commit that mounted the panel — so the very next macrotask already sees the
+ * flipped row. A restore still genuinely in flight leaves the row open, the
+ * claim stands, no further timer is scheduled, and the registry's own event
+ * carries the success case. The durable fix is a notification in
+ * windowlayout.ts, which this feature does not own and has been requested from
+ * the owner; until then this is the bound, and it is tested rather than stated.
  *
  * ⚠ IT TAKES TWO SIGNALS AND NEEDS BOTH — measured, not assumed. The release
  * is driven by the window REGISTRY's own lifecycle event, and read from
@@ -168,7 +183,8 @@ function useDetachedHere(org: string | null, revision: number): { queue: boolean
  * for. It is the same hook `MovableSurface` itself gates its restore on, so the
  * two cannot disagree about whether a restore is going to happen.
  */
-function useAwaitingRestore(org: string | null, revision: number): { queue: boolean; desk: boolean } {
+function useAwaitingRestore(org: string | null, revision: number, recheck: number):
+{ queue: boolean; desk: boolean } {
   const restoreAllowed = useRestoreWindows()
   let raw: string | null = null
   try { raw = localStorage.getItem(WINDOW_LAYOUT_KEY) } catch { raw = null }
@@ -180,7 +196,32 @@ function useAwaitingRestore(org: string | null, revision: number): { queue: bool
       desk: rows.some((r) => r.kind === DESK_KIND),
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [org, restoreAllowed, raw, revision])
+  }, [org, restoreAllowed, raw, revision, recheck])
+}
+
+/**
+ * ONE re-evaluation after a commit that holds a restore claim, because the
+ * saved layout publishes no event — see the block above for the measurement
+ * that made this necessary and for why one look is enough.
+ *
+ * ⚠ IT IS NOT A POLL, and the dependency list is what makes that true. The
+ * timer is scheduled only while a claim is outstanding, and the counter it
+ * bumps is deliberately NOT a dependency: re-adding it would make each
+ * re-evaluation schedule the next one, which is precisely the busy loop this is
+ * not. One claim, one look. If that look finds the row still open — a restore
+ * genuinely in flight — the claim stands and nothing further is scheduled,
+ * because the success case arrives as a registry event instead.
+ */
+function useRestoreRecheck(awaiting: { queue: boolean; desk: boolean },
+  bump: () => void): void {
+  const latest = useRef(bump)
+  latest.current = bump
+  useEffect(() => {
+    if (!awaiting.queue && !awaiting.desk) return
+    const id = setTimeout(() => latest.current(), 0)
+    return () => clearTimeout(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [awaiting.queue, awaiting.desk])
 }
 
 export interface AttentionViewProps {
@@ -221,7 +262,11 @@ export function AttentionView(props: AttentionViewProps) {
   // either alone hid the other's absence when the mutants were run.
   const windows = useSyncExternalStore(subscribeWindows, windowRevision, windowRevision)
   const detached = useDetachedHere(slug, windows)
-  const awaiting = useAwaitingRestore(slug, windows)
+  // the recheck counter feeds back into the claim it re-reads; see
+  // useRestoreRecheck for why exactly one look is scheduled per claim
+  const [recheck, setRecheck] = useState(0)
+  const awaiting = useAwaitingRestore(slug, windows, recheck)
+  useRestoreRecheck(awaiting, useCallback(() => setRecheck((n) => n + 1), []))
   const queueOut = detached.queue
   const deskOut = detached.desk
 

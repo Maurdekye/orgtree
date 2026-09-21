@@ -319,88 +319,83 @@ const savedWindow = (kind: string, open: boolean) => {
   }]))
 }
 
-test('§7 a saved popped-out window gets a subtree to be restored into', async () => {
+// ⚠ THE RESTORE CLAIM'S *MOUNT* IS NOT OBSERVABLE IN THIS HARNESS, and pretending
+// otherwise is how the earlier version of this block went wrong. MEASURED, at
+// 02bfc02+: jsdom does not implement `window.open`, so the real `MovableSurface`
+// fails its restore inside the SAME `act` that mounted the panel — `open()`
+// throws, its catch redocks, `closeSavedWindow` flips the row, and
+// `usePersistedModalOpen`'s own store notification re-renders this view before
+// the test regains control. So a saved-open row produces a panel that mounts and
+// retires within one commit batch, and there is no instant at which a test here
+// can see it held.
+//
+// That state IS measured, in a renderer that can open a window:
+// tests/attention-probe.tsx §5 reports `afterAttempt.panelMounted` — true before
+// the bounded recheck existed (held indefinitely, released only by an unrelated
+// render) and false after it. What this suite keeps are the parts it can
+// genuinely hold: the LANDED state through the registry (§7.1, §7.1b), the
+// restore preference (§7.2), and the eligibility rule (§8).
+
+test('§7.1 a panel held by a live window is released only when that window goes',
+  async () => {
   reset()
   const drop = withDesktopBridge()
-  savedWindow(QUEUE_KIND, true)
-  // the organization opens on the CANVAS — the panel still has to exist, or
-  // there is nothing for the surface machinery to reopen the window into
   const v = await mountView(view(), () => shape())
   await inAct(() => flush())
-  assert.equal(shape().queue, true,
-    'the panel whose window the layout records as open is mounted')
-  assert.equal(shape().desk, false, 'and only that one — the other is not mounted')
-  await v.unmount()
-  drop()
-})
+  assert.equal(shape().queue, false, 'nothing is holding it yet')
 
-test('§7.1 closing that window releases the panel — the restore is not a latch', async () => {
-  reset()
-  const drop = withDesktopBridge()
-  savedWindow(QUEUE_KIND, true)
-  const v = await mountView(view(), () => shape())
+  // ⚠ THE LANDED STATE, REACHED THROUGH THE REGISTRY RATHER THAN A SAVED ROW.
+  // An earlier version of this case used a saved-open row and a mode round
+  // trip, which stopped being reachable once the tests provided `CurrentOrg`:
+  // the real `MovableSurface` then runs, jsdom cannot open a window, and the
+  // attempt fails before the case can do anything. A registered surface is the
+  // state a SUCCESSFUL restore actually produces, so this tests the thing the
+  // saved row was only ever standing in for.
+  const stop = registerWindow({
+    id: 'probe-q', kind: QUEUE_KIND, org: SLUG, editable: false,
+    window: globalThis.window, redock: () => {},
+  })
   await inAct(() => flush())
-  assert.equal(shape().queue, true, 'mounted for the restore')
+  assert.equal(shape().queue, true, 'a popped-out panel is held on the Canvas')
 
-  // the user closes that window: `closeSavedWindow` marks the row closed
-  await inAct(() => { savedWindow(QUEUE_KIND, false) })
-
-  // ⚠ REGRESSION FOR FINDING f1 (v3-ux-review-opus, 2026-09-21). The restore
-  // used to be a `useState` armed by an effect keyed on the slug, so it never
-  // cleared: nothing pinned, nothing detached, the organization on the Canvas,
-  // and the panel subtree still mounted across a full mode round trip — an
-  // invisible embedded panel holding a live DeskSlot and re-asserting itself
-  // as open through `usePersistedModalOpen`. The mount rule is read live now.
   await inAct(() => { setOrgView(SLUG, 'attention') })
-  await inAct(() => flush())
   await inAct(() => { setOrgView(SLUG, 'canvas') })
   await inAct(() => flush())
+  assert.equal(shape().queue, true, 'and survives a full mode round trip')
 
-  assert.equal(isModalPinned(QUEUE_KIND, SLUG), false, 'nothing is pinned')
-  assert.equal(shape().queue, false,
-    'the closed window no longer holds a subtree open behind the canvas')
-  assert.equal(shape().desk, false)
+  // ⚠ ASSERTED WITH NO FLUSH AND NO OTHER RENDER. The registry's own
+  // notification is what has to drive this: the view subscribes to
+  // `windowlife`, so the unregister re-renders it and the mount rule is
+  // re-read. Delete that subscription and this line fails — measured. A redock
+  // in the running app does exactly this pair (`closeSavedWindow` plus the
+  // unregister) in one go.
+  await inAct(() => { stop() })
+  assert.equal(shape().queue, false, 'the window going is what releases it')
   await v.unmount()
   drop()
 })
 
-test('§7.1a a restore whose window cannot open is recorded closed BY THE '
-  + 'MACHINERY, and only then released', async () => {
+test('§7.1a a blocked restore leaves nothing mounted, and needs no help to do it',
+  async () => {
   reset()
   const drop = withDesktopBridge()
   savedWindow(QUEUE_KIND, true)
   const v = await mountView(view(), () => shape())
   await inAct(() => flush())
 
-  // jsdom does not implement `window.open`, so `MovableSurface`'s restore
-  // attempt fails at once and the surface records the window as closed. That
-  // is the correct outcome — there is no window coming, so there is nothing to
-  // hold a subtree for — and it is the view's ONLY release path: the row
-  // flipped, and this view read it.
+  // The surface — not this view — is what records the window closed when it
+  // cannot open one. What this case pins is that NOTHING is left behind
+  // afterwards: no mounted subtree, no pin, no registered surface. Before the
+  // bounded recheck in `useRestoreRecheck`, the real renderer held that subtree
+  // indefinitely (attention-probe.tsx §5); jsdom resolves it inside the mount
+  // commit, so here the observable claim is the end state rather than the
+  // timing of it.
   assert.match(localStorage.getItem(WINDOW_LAYOUT_KEY) ?? '', /"open":false/,
-    'the surface, not this view, is what recorded the window closed')
-  assert.equal(openSurfaces().some((s) => s.kind === QUEUE_KIND), false)
+    'the surface recorded the window closed')
+  assert.equal(shape().queue, false, 'and no subtree was left holding for it')
+  assert.equal(shape().desk, false)
   assert.equal(isModalPinned(QUEUE_KIND, SLUG), false)
-
-  // ⚠ AND IT IS STILL MOUNTED FOR THE MOMENT — measured, and worth knowing.
-  // The two release signals are not symmetrical: the window REGISTRY publishes
-  // events (so a redock releases promptly, §7.1b), and the saved LAYOUT does
-  // not — `saveWindow` is a plain localStorage write that notifies nobody. A
-  // restore that fails WITHOUT ever registering a surface therefore flips the
-  // row with nothing to wake this view, and the subtree is released on the
-  // next render for any reason. The panel is inside a `display: none` stage
-  // and `deskEligible` is false throughout, so nothing is visible and its desk
-  // cannot take ownership meanwhile; in the running app a render is never far
-  // away (both feeds poll, and the tree updates). It is recorded here rather
-  // than papered over, because "it releases because something else re-renders"
-  // is exactly the kind of claim that should be written down or fixed.
-  assert.equal(shape().queue, true,
-    'held until something renders — the layout write notifies nobody')
-
-  await inAct(() => { setOrgView(SLUG, 'attention') })
-  await inAct(() => { setOrgView(SLUG, 'canvas') })
-  await inAct(() => flush())
-  assert.equal(shape().queue, false, 'and the next render lets the subtree go')
+  assert.equal(openSurfaces().some((s) => s.kind === QUEUE_KIND), false)
   await v.unmount()
   drop()
 })
@@ -421,40 +416,6 @@ test('§7.1a a restore whose window cannot open is recorded closed BY THE '
 // attention-kind row except the surface that owns it. A restore in flight has
 // not flipped it, so it is held — by construction rather than by a timing test
 // that could only ever be a fake of one.
-
-test('§7.1b the registry\'s own lifecycle event releases it, with no other render', async () => {
-  reset()
-  const drop = withDesktopBridge()
-  savedWindow(QUEUE_KIND, true)
-  const v = await mountView(view(), () => shape())
-  await inAct(() => flush())
-  assert.equal(shape().queue, true)
-
-  // A REDOCK DOES BOTH THINGS AT ONCE: `closeSavedWindow` clears the row and
-  // the surface unregisters. This stands in for that pair, and it is the only
-  // thing that happens — no mode switch, no pin, no poll.
-  //
-  // ⚠ BOTH HALVES OF THE RULE ARE UNDER TEST HERE, and each was checked by
-  // deleting it. Remove the view's subscription to the window registry and
-  // nothing re-renders, so nothing looks: this fails. Latch the saved-layout
-  // read instead of taking it live and the re-render sees a stale answer:
-  // this fails too (along with §7.1 and §7.2).
-  const stop = registerWindow({
-    id: 'probe', kind: QUEUE_KIND, org: SLUG, editable: false,
-    window: globalThis.window, redock: () => {},
-  })
-  await inAct(() => flush())
-  assert.equal(shape().queue, true, 'while it is registered, the panel is held anyway')
-
-  await inAct(() => {
-    savedWindow(QUEUE_KIND, false)   // closeSavedWindow's half
-    stop()                           // the unregister's half
-  })
-  assert.equal(shape().queue, false,
-    'the registry event alone is enough to let the closed panel go')
-  await v.unmount()
-  drop()
-})
 
 test('§7.2 with the restore preference off, nothing is held open for it', async () => {
   reset()
@@ -493,20 +454,13 @@ test('§8 the Desk panel is eligible for the registry only when it is on screen'
   await v.unmount()
 })
 
-test('§8.1 a panel mounted only for a pending restore is NOT eligible', async () => {
-  reset()
-  const drop = withDesktopBridge()
-  savedWindow(DESK_KIND, true)
-  const v = await mountView(view(), () => shape())
-  await inAct(() => flush())
-  assert.equal(shape().desk, true, 'mounted, because a window is being restored into it')
-  assert.equal(
-    document.querySelector('.attn-desk')?.getAttribute('data-attn-desk-eligible'), 'no',
-    'but embedded inside a hidden stage — its desk must not take ownership from '
-    + 'the Canvas desk the user is actually looking at')
-  await v.unmount()
-  drop()
-})
+// ⚠ AND THE PENDING-RESTORE HALF OF THE ELIGIBILITY RULE IS NOT COVERED HERE.
+// `deskEligible` is false for a panel mounted only for a pending restore, which
+// is the case the seam exists for — but that state is transient by design and,
+// as the block above records, is not reachable in this harness at all. It is a
+// known coverage limit, stated rather than faked with a test that would pass
+// over a panel that was never in that state. The rule itself is one expression
+// (`active || deskPinned || deskOut`) and §8 covers both of its true branches.
 
 test('§6 the header toggle is what moves between the two views', async () => {
   reset()
