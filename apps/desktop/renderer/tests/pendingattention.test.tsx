@@ -28,8 +28,17 @@ test('the aggregate counts only what is waiting on the user, across organization
   assert.equal(all.mail, 2, 'a question and urgent mail both claim the inbox bell')
   assert.equal(all.docket, 1, 'a flagged ticket claims the docket button')
   assert.equal(all.ids.length, 3, 'documents, routine mail and frozen agents are not requests')
-  assert.deepEqual(summarizePending(noise), { mail: 0, docket: 0, ids: [] })
+  assert.deepEqual(summarizePending(noise), { mail: 0, docket: 0, ids: [], items: [] })
   assert.deepEqual(all.ids, [...all.ids].sort(), 'identities are ordered, so an unchanged set compares equal')
+  // the taskbar pulse flashes the affected item's OWN organization window
+  // (user ruling 2026-09-21), so the aggregate says the organization out loud
+  // rather than making the native side parse `ids`, whose
+  // `JSON.stringify([org, id])` shape is this module's dedup encoding
+  assert.equal(all.items.length, all.ids.length)
+  assert.deepEqual(all.items.map((i) => JSON.stringify([i.org, i.id])), all.ids,
+    'ids[i] and items[i] describe the same row, in the same order')
+  assert.ok(all.items.every((i) => typeof i.org === 'string' && i.org),
+    'every row names an organization to route its pulse to')
 })
 
 test('an unchanged aggregate is not an event, and a changed one is', () => {

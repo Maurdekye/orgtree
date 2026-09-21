@@ -55,6 +55,45 @@ export function savedWindows(): SavedWindow[] {
     return Array.isArray(rows) ? rows.filter(valid).slice(-100) : []
   } catch { return [] }
 }
+// ------------------------------------------- the saved layout CHANGES event
+//
+// `saveWindow` is a plain localStorage write, and until now it notified
+// nobody. A reader whose correctness depends on what the saved layout SAYS had
+// no way to learn that it had stopped saying it.
+//
+// ⚠ THE CASE THIS EXISTS FOR IS A FAILURE PATH, WHICH IS WHY NO OTHER SIGNAL
+// COVERED IT. The Attention view keeps a panel subtree mounted while the saved
+// layout records a window of its kind as open, so a restore has somewhere to
+// land. When the restore FAILS — a blocked window — `MovableSurface` catches,
+// redocks and calls `closeSavedWindow`; but nothing was ever registered in
+// `windowlife`, so there is no unregister and therefore NO EVENT AT ALL. The
+// row flips with nothing to wake any reader. v3-attention-opus measured it in
+// real Chromium: the panel was still held 1.5 s later with zero interaction
+// and went only when something unrelated happened to re-render. An indefinite
+// hold, and "the app re-renders soon" is not a lifecycle guarantee.
+//
+// ⚠ AND IT MAKES NEW WRITERS SAFE BY CONSTRUCTION. Every writer of this store
+// publishes for free — `closeSavedWindow`, `captureWindow`, and anything added
+// later — so a consumer's correctness stops resting on an audit of who is
+// allowed to write the row. An audit is a promise about the code as it stands
+// today; an event is a property of the store.
+//
+// Deliberately the same shape as `windowlife`'s `subscribeWindows` /
+// `windowRevision`, so a consumer is the ordinary
+// `useSyncExternalStore(subscribeWindowLayout, windowLayoutRevision,
+// windowLayoutRevision)` and there is nothing new to learn.
+const layoutListeners = new Set<() => void>()
+let layoutRevision = 0
+const layoutChanged = () => {
+  layoutRevision++
+  for (const fn of [...layoutListeners]) fn()
+}
+export const subscribeWindowLayout = (fn: () => void): (() => void) => {
+  layoutListeners.add(fn)
+  return () => { layoutListeners.delete(fn) }
+}
+export const windowLayoutRevision = (): number => layoutRevision
+
 export function saveWindow(row: SavedWindow) {
   if (!valid(row)) return
   try {
@@ -65,6 +104,19 @@ export function saveWindow(row: SavedWindow) {
     const value = JSON.stringify(rows.slice(-100))
     if (localStorage.getItem(WINDOW_LAYOUT_KEY) !== value) localStorage.setItem(WINDOW_LAYOUT_KEY, value)
   } catch { /* drafts and window operation still work when storage is full */ }
+  // ⚠ AFTER THE WRITE, AND AFTER BOTH EARLY RETURNS. Those guards already
+  // drop a row byte-identical to the stored one and a serialized array that
+  // has not moved, so putting the notification here means an unchanged write
+  // wakes nobody — no churn, and no second equality check to keep in step
+  // with the first two.
+  //
+  // It DOES fire when the write THREW, and that is the safe direction rather
+  // than the correct-looking one. A failed write leaves the store unchanged,
+  // so strictly there is nothing to announce — but a spurious wake costs one
+  // idempotent re-read that re-derives the same answer, while a missed wake
+  // costs the indefinite hold this whole mechanism exists to prevent. The
+  // asymmetry decides it.
+  layoutChanged()
 }
 export const restoredWindows = (org: string | null) =>
   desktop() ? savedWindows().filter(r => r.open && r.org === org) : []

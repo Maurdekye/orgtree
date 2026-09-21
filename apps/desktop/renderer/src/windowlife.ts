@@ -9,6 +9,19 @@ export interface WindowSurface {
   editable: boolean
   window: Window
   redock: () => void
+  /** Take this surface out of its native window WITHOUT recording it as
+   *  closed, and return the function that puts it back exactly where it was.
+   *
+   *  For TEMPORARY BORROWING — a detached desk pulled into a modal for that
+   *  modal's life and then given back. `redock` is the wrong call for it: it
+   *  clears the saved row, which both loses the arrangement on reopen and
+   *  makes the return land at a freshly computed position instead of the one
+   *  it left. See `borrow` in popout.tsx.
+   *
+   *  Optional because only a surface that owns a native window has one; the
+   *  caller must hold the returned function and call it when it releases the
+   *  surface. */
+  borrow?: () => () => void
   flush?: () => void
   /** WHAT THIS SURFACE IS SHOWING, READ LIVE.
    *

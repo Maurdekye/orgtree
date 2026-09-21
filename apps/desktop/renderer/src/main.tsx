@@ -10,6 +10,9 @@ import CrashBoundary, { CrashTestRenderTrigger } from './CrashBoundary'
 import { installFreezeLog } from './freezelog'
 import FreezeLogPage, { isFreezeLogPath } from './FreezeLogPage'
 import './styles.css'
+// the v3 shell's own sheet, deliberately separate from styles.css and loaded
+// after it so a shell rule can layer over a shared one (see shell.css)
+import './shell.css'
 import { startThemeSync } from './themes'
 import { startContrastSync } from './contrast'
 import { startAgentColorSync } from './agentcolors'

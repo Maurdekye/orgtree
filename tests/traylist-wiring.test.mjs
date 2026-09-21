@@ -45,17 +45,36 @@ test('the renderer listens for open-org and makes it the active organization', (
   assert.match(contracts, /'main-window-shown' \| 'window-state' \| 'popout-state' \| 'open-org'/)
   const app = read('apps/desktop/renderer/src/App.tsx')
   assert.match(app, /if \(\(event\.type as string\) !== 'open-org'\) return/)
-  assert.match(app, /if \(typeof org === 'string' && org\) setSlug\(org\)/)
+  assert.match(app, /if \(typeof org !== 'string' \|\| !org\) return/)
+  assert.match(app, /setSlug\(org\)/)
+  // v3 STRENGTHENS this, it does not weaken it. Native resolves an org-scoped
+  // event to its target window before delivery, so a BOUND window only ever
+  // receives its own organization and must not re-aim itself on one that
+  // somehow arrives for another — switching would hide the fault while
+  // throwing away this window's organization. One window carrying them all is
+  // the v2 world, and that is the only world the switch above is for.
+  assert.match(app, /if \(nativeWindows\(\)\) return\s+setSlug\(org\)/,
+    'the v2 switch is guarded by the absence of the native window model')
 })
 
 test('the sidebar rows and the tray tooltip carry the same n/m active-hired vocabulary', () => {
+  // THE ROWS MOVED to shell/orgrows.tsx (v3): the compact menu and the
+  // Homepage both render them, and importing them from App.tsx — which
+  // renders both — would be a cycle. App.tsx re-exports the component, so no
+  // importer changed; the vocabulary is asserted where the markup now lives.
   const app = read('apps/desktop/renderer/src/App.tsx')
+  assert.match(app, /export \{ AdvancedOrgModal, OrgRows \}/,
+    'App.tsx is still the public door to the rows')
+  const rows = read('apps/desktop/renderer/src/shell/orgrows.tsx')
   // every row renders the three aligned cells; n/m is not gated on activity
-  assert.match(app, /className="org-activity"/)
-  assert.match(app, /className="org-counts dim" title="active \/ hired agents"/)
-  assert.match(app, /\{typeof o\.working === 'number' \? `\$\{o\.working\}\/\$\{o\.live\}` : `\$\{o\.live\}`\}/)
-  // the spinner is the activity cell's conditional CONTENT, not a fourth column
-  assert.match(app, /\{\(o\.working \?\? 0\) > 0 &&\r?\n\s*<span className="working-ct"/)
+  assert.match(rows, /className="org-activity"/)
+  assert.match(rows, /title=\{current \? 'active \/ hired agents'/)
+  assert.match(rows, /typeof o\.working === 'number' \? `\$\{o\.working\}\/\$\{o\.live\}` : `\$\{o\.live\}`/)
+  // the spinner is the activity cell's conditional CONTENT, not a fourth
+  // column — and since `show-current-organization-statuses-immediately` it is
+  // ALSO gated on the snapshot being current, because an animation claiming a
+  // turn is executing NOW may not run on a remembered count
+  assert.match(rows, /\{current && \(o\.working \?\? 0\) > 0 &&\s+<span className="working-ct"/)
   const css = read('apps/desktop/renderer/src/styles.css')
   assert.match(css, /\.org \{\r?\n  display: grid; grid-template-columns: 14px minmax\(0, 1fr\) max-content auto;/)
   const main = read('apps/desktop/main/index.ts')
