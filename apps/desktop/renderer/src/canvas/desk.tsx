@@ -46,7 +46,10 @@ import {
   NotificationsIcon, PlayIcon, PsychologyIcon,
   SettingsIcon, SparkIcon, StopIcon, WarnIcon,
 } from '../icons'
-import { isNoticeArmed, setNoticeArmed, toggleNoticeArmed, useNoticeArmed } from '../noticestore'
+import {
+  isChatActive, isNoticeArmed, registerChat, setActiveChatKey, setNoticeArmed,
+  toggleNoticeArmed, unregisterChat, useNoticeArmed,
+} from '../noticestore'
 import { ago, ALL_PRESENT, ALL_TIERS, anyTierSeat, CODEX_TIERS, CopyIcon, EXTERN, fmtCredits, freezeKind, FREEZE_LABEL, ANTIGRAVITY_TIERS, isOpenRouterTier, md, openrouterTierIds, PROVIDER_LABEL, providerOf, queuedSwitchTitle, reportedLabel, stateLabel, TIER_LETTER, tierCapabilityNotes, tierLabel, tierShown, USER, useHideRetired, usePolled } from './shared'
 import { closeIfCentred, ModalOverPins, PinFrame } from './modalpin'
 import type { ProviderPresence } from './shared'
@@ -1762,18 +1765,46 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   const surface = useSurface()
   const surfaceDocument = useSurfaceDocument()
   const convo = useConvo(slug, node.id)
-  const noticeArmed = useNoticeArmed()
+  const chatKey = `${slug}/${node.id}`
+  const noticeArmed = useNoticeArmed(chatKey)
+  const deskRef = useRef<HTMLFieldSetElement>(null)
+  useEffect(() => {
+    registerChat(chatKey)
+    return () => {
+      unregisterChat(chatKey)
+    }
+  }, [chatKey])
   useEffect(() => {
     const win = surfaceDocument?.defaultView ?? window
     const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return
       if (e.altKey && (e.key === 'n' || e.key === 'N')) {
+        const target = e.target as any
+        const active = (surfaceDocument ?? document).activeElement as any
+        const targetNode = (target && typeof target.nodeType === 'number') ? (target as Node) : null
+        const activeNode = (active && typeof active.nodeType === 'number') ? (active as Node) : null
+        const insideThisDesk = (targetNode && deskRef.current?.contains(targetNode)) ||
+                               (activeNode && deskRef.current?.contains(activeNode))
+        if (!insideThisDesk) {
+          if (target && typeof target.closest === 'function' && target.closest('.desk-control-scope, .desk-bare, .desk-over')) {
+            return
+          }
+          if (active && typeof active.closest === 'function' && active.closest('.desk-control-scope, .desk-bare, .desk-over')) {
+            return
+          }
+          if (!isChatActive(chatKey)) {
+            return
+          }
+        }
         e.preventDefault()
-        toggleNoticeArmed()
+        e.stopImmediatePropagation?.()
+        setActiveChatKey(chatKey)
+        toggleNoticeArmed(chatKey)
       }
     }
     win.addEventListener('keydown', onKey)
     return () => win.removeEventListener('keydown', onKey)
-  }, [surfaceDocument])
+  }, [surfaceDocument, chatKey])
   const providerClass = node.tier ? ' prov-' + providerOf(node.tier) : ''
   const processClass = node.state === 'live'
     ? (node.proc_warm ? ' proc-warm' : ' proc-cold') : ''
@@ -2686,8 +2717,8 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
     if (!t) t = '(file attached)'
     const paths = attached.map((a) => a.path)
     const sentReply = reply
-    const armedNotice = isNoticeArmed()
-    if (armedNotice) setNoticeArmed(false)
+    const armedNotice = isNoticeArmed(chatKey)
+    if (armedNotice) setNoticeArmed(chatKey, false)
     setReply(null)
     setText('')
     setAttached([])
@@ -3750,7 +3781,10 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
             disabled={!canMail}
             aria-label={noticeArmed ? 'Notice-send armed: next message arrives as a passive notice' : 'Notice-send: send next message as a passive notice'}
             title={noticeArmed ? 'Notice-send armed: next message will arrive as a passive notice without waking recipient (Alt+N)' : 'Send next message as a passive notice without waking recipient (Alt+N)'}
-            onClick={() => toggleNoticeArmed()}>
+            onClick={() => {
+              setActiveChatKey(chatKey)
+              toggleNoticeArmed(chatKey)
+            }}>
             {noticeArmed ? <NotificationsActiveIcon fontSize="inherit" /> : <NotificationsIcon fontSize="inherit" />}
           </button>
           {/* ONE attachment glyph everywhere (user 2026-09-17). This button
@@ -3787,7 +3821,10 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
             : node.state === 'archived'
               ? `message ${node.id} — queued until rehire…` : node.state}
           onChange={(e) => { flashMode(''); setText(e.target.value); grow() }}
-          onFocus={() => setComposerFocused(true)}
+          onFocus={() => {
+            setActiveChatKey(chatKey)
+            setComposerFocused(true)
+          }}
           onBlur={() => setComposerFocused(false)}
           onPaste={(e) => {
             // №6: Ctrl+V of an image/file auto-bridges to a real upload
@@ -3799,7 +3836,9 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
           onKeyDown={(e) => {
             if (e.altKey && (e.key === 'n' || e.key === 'N')) {
               e.preventDefault()
-              toggleNoticeArmed()
+              e.stopPropagation()
+              setActiveChatKey(chatKey)
+              toggleNoticeArmed(chatKey)
               return
             }
             // HISTORY, and the one real conflict in the design: this box is
@@ -3855,8 +3894,10 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   // no overlay wrapper, no second scale (that would double-scale), no
   // recenter-on-click
   return (
-    <fieldset disabled={staleIdentity} className="desk-control-scope"><div className={bare || surface?.detached ? "desk-bare" : "desk-over"} onWheel={(e) => e.stopPropagation()}
+    <fieldset ref={deskRef} disabled={staleIdentity} className="desk-control-scope"
+      onFocusCapture={() => setActiveChatKey(chatKey)}><div className={bare || surface?.detached ? "desk-bare" : "desk-over"} onWheel={(e) => e.stopPropagation()}
       onPointerDown={(e) => {
+        setActiveChatKey(chatKey)
         // ROOT CAUSE (user bug 2026-09-03: "after the first drag finishes,
         // all subsequent drags immediately fail" / "focusing a node allows
         // it to work again once"). A focused desk fills most or all of the
