@@ -377,6 +377,31 @@ export function attachWindowLoadRecovery(
     const failure = { errorCode, errorDescription, validatedURL, isMainFrame }
     // ⚠ BEFORE THE RETRY IS SCHEDULED, and CLASSIFICATION ONLY.
     //
+    // ⚠⚠ WHY SHARING THE RETRY'S PREDICATE IS LOAD-BEARING, and not merely
+    // tidy. The codes that replace a document were never enumerated, so a
+    // misclassification is possible - and the DANGEROUS direction is the
+    // over-broad one: calling a failure terminal when the document actually
+    // survived clears a LIVE document's token and re-arms behind a listener
+    // that has already registered and never registers again. That is f5 in a
+    // new place, and it would cost the window its events for the rest of its
+    // life. The shipping renderer confirms the trap rather than softening it:
+    // several modules call `onEvent`, each acknowledgement quotes the
+    // preload's unchanged token, and a cleared record token can never match
+    // one again.
+    //
+    // IT CANNOT HAPPEN, STRUCTURALLY RATHER THAN EMPIRICALLY, and this line is
+    // the whole reason. `documentLost` is driven by the SAME predicate that
+    // drives the retry, so any failure that clears the token also schedules a
+    // re-navigation - whose commit re-arms, whose new document re-mints, and
+    // whose acknowledgement drains. A misclassification therefore costs at
+    // most one retry interval, never the window's life. Writing a second
+    // classification here, however careful, would throw that away.
+    //
+    // The one asymmetry is `suspended()` - quitting or an installer shutdown -
+    // where this fires and no retry follows. The app is going away and nothing
+    // is owed. (Identified by v3-ux-review-opus reviewing ead3ca4; recorded
+    // here because it lived only in the shape of the code.)
+    //
     // The same rule the retry uses, so a subframe failure or an ERR_ABORTED
     // cannot be terminal for one of them and not the other.
     //
