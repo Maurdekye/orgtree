@@ -41,6 +41,45 @@
   text-decoration-color: var(--dim);
 }
 
+/* --------------------------------------------------- App settings: General
+ *
+ * The startup choice is a two-option radio group rather than a switch: both
+ * options are ordinary, neither is an "off", and each needs its own sentence
+ * of explanation. Cards rather than bare radios so the sentence belongs
+ * visibly to its option. */
+
+.shell-startup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.shell-startup-choice {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  grid-template-areas: 'radio label' '.     hint';
+  gap: 2px 10px;
+  align-items: baseline;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.shell-startup-choice:hover { border-color: var(--line-hover); }
+
+.shell-startup-choice.current {
+  border-color: var(--org-accent);
+  background: var(--org-accent-soft);
+}
+
+.shell-startup-choice input { grid-area: radio; margin: 0; }
+.shell-startup-label { grid-area: label; color: var(--ink-strong); }
+.shell-startup-hint { grid-area: hint; font-size: 12px; line-height: 1.45; }
+
+.shell-about { display: flex; flex-direction: column; gap: 4px; }
+.shell-about-row { font-size: 12px; line-height: 1.6; }
+
 /* "Already open" beside an organization whose window exists elsewhere —
  * selecting it focuses that window instead of binding this one. */
 .org-open-badge {
