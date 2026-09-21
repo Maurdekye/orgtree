@@ -332,6 +332,23 @@ test('§6 the counts describe the mixed list, by flavour', async () => {
 // the real failure rather than describing one.
 
 const text = (el: HTMLElement) => el.textContent ?? ''
+
+/** ⚠ NEVER HAND A DOM NODE TO AN ASSERTION AS `actual` OR `expected`.
+ *
+ *  MEASURED, under a real mutant: `assert.equal(el.querySelector('.attn-empty'),
+ *  null, …)` failing takes ~4.7 SECONDS and dies with
+ *  `RangeError: Array buffer allocation failed` — node's reporter tries to
+ *  serialise a jsdom element for the diff, and that element's graph reaches its
+ *  document, its window and everything in them. The same assertion written with
+ *  a BOOLEAN actual fails in 2.3ms with its own message.
+ *
+ *  That is not a cosmetic difference. A mutation killed by an out-of-memory
+ *  crash does not show the assertion discriminates — it shows the mutant drove
+ *  the process into an allocation blow-up — and the crash can take later cases
+ *  in the file down with it, so a regression suite silently stops reporting
+ *  exactly when it has something to say (finding f4). Use `!!node`, a
+ *  `textContent`, or an attribute; put the meaning in the message. */
+const present = (el: HTMLElement, sel: string) => !!el.querySelector(sel)
 const failAll = () => {
   ;(globalThis as unknown as { fetch: unknown }).fetch = () => Promise.resolve({
     ok: false, status: 503, statusText: 'HTTP 503', headers: new Headers(),
@@ -359,7 +376,7 @@ test('§7 a first load that FAILED says unavailable — not loading forever', as
   const v = await mountView(panel(), titles)
   await settle()
   assert.deepEqual(titles(v.el), [])
-  assert.equal(v.el.querySelector('.attn-empty'), null,
+  assert.equal(!!v.el.querySelector('.attn-empty'), false,
     'never the confident sentence: this panel does not know nothing is waiting')
   assert.ok(v.el.querySelector('.attn-unavailable'), 'it says it could not read')
   assert.match(text(v.el), /could not be read/)
@@ -381,7 +398,7 @@ test('§7.1 success-empty then failure: the confident sentence is withdrawn', as
   // ⚠ THE CASE THIS WHOLE CARVE-OUT EXISTS FOR. The list is still empty and the
   // panel still has its last good answer — but it can no longer vouch for it,
   // so the reassurance is withdrawn and replaced by what is actually known.
-  assert.equal(v.el.querySelector('.attn-empty'), null,
+  assert.equal(!!v.el.querySelector('.attn-empty'), false,
     '"Nothing is waiting on you here." must not survive the feeds going dark')
   assert.ok(v.el.querySelector('.attn-stale-empty'))
   assert.match(text(v.el), /could not be refreshed since/)
@@ -439,7 +456,7 @@ test('§7.2a usable rows AND a feed still on its first read — the rows show an
     'and the one that has not answered is named alongside the counts')
   assert.ok(v.el.querySelector('.attn-incomplete'),
     'the header marks itself incomplete, not merely un-stale')
-  assert.equal(v.el.querySelector('.attn-empty'), null)
+  assert.equal(!!v.el.querySelector('.attn-empty'), false)
   await v.unmount()
 })
 
@@ -451,7 +468,7 @@ test('§7.2b an empty list with only a PENDING feed never reaches the stale '
   const v = await mountView(panel(), titles)
   await settle()
   assert.deepEqual(titles(v.el), [])
-  assert.equal(v.el.querySelector('.attn-empty'), null, 'no confident sentence')
+  assert.equal(!!v.el.querySelector('.attn-empty'), false, 'no confident sentence')
   assert.ok(v.el.querySelector('.attn-loading'), 'it says what it is still doing')
   assert.match(text(v.el), /Still reading mail/)
   // the old expression produced "…— could not be refreshed" with an EMPTY name
@@ -470,7 +487,7 @@ test('§7.4 a STALE TREE withdraws the confident sentence — questions ride it'
   const v = await mountView(panel(tree(), STALE_TREE), titles)
   await settle()
   assert.deepEqual(titles(v.el), [])
-  assert.equal(v.el.querySelector('.attn-empty'), null,
+  assert.equal(!!v.el.querySelector('.attn-empty'), false,
     'the list is built from THREE sources and one of them is not current — '
     + 'the reassuring sentence is exactly what must not appear here')
   assert.match(text(v.el), /questions could not be refreshed/)
@@ -485,7 +502,7 @@ test('§7.5 with no tree freshness reported at all, the panel does not vouch for
   // it was handed is current, so "not told" must not read as "fine"
   const v = await mountView(panel(tree(), null), titles)
   await settle()
-  assert.equal(v.el.querySelector('.attn-empty'), null,
+  assert.equal(!!v.el.querySelector('.attn-empty'), false,
     'absent freshness is not a clean bill of health')
   assert.match(text(v.el), /questions are not verified here/,
     'and it says which source it is not vouching for, rather than going quiet')

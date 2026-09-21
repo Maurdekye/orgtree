@@ -149,3 +149,46 @@ test('§4 the Attention panels record no `restore` payload, which is what makes 
   assert.equal(/restore=\{/.test(view), false,
     'no PinFrame here passes a `restore` prop either')
 })
+
+// ------------------------------------------------------------------ §5
+//
+// A MUTATION KILLED BY A CRASH IS NOT A KILL, and this is what stops one
+// coming back. MEASURED under a real mutant (finding f4): an assertion handed a
+// jsdom element as `actual` takes ~4.7 SECONDS to fail and dies with
+// `RangeError: Array buffer allocation failed`, because node's reporter
+// serialises that element together with its document and window graph. The
+// same assertion with a boolean actual fails in ~3ms with its own message.
+//
+// The cost is not cosmetic. A crash cannot distinguish "the assertion caught
+// the defect" from "the process died", and it can take later cases in the file
+// down with it — so the suite stops reporting exactly when it has something to
+// say. Under the f4 mutant three cases silently did not run.
+//
+// This pins the rule for THIS FEATURE'S OWN SUITES only. It is not a project
+// style rule and does not reach anyone else's tests.
+
+test('§5 no attention test hands a DOM node to an assertion as actual', () => {
+  const offenders: string[] = []
+  for (const name of readdirSync(path.join(__SRC_DIR__, '..', 'tests'))) {
+    if (!/^attention.*\.test\.tsx$/.test(name) && name !== 'polledstatus.test.tsx') continue
+    const text = readFileSync(path.join(__SRC_DIR__, '..', 'tests', name), 'utf8')
+    text.split('\n').forEach((line, i) => {
+      const trimmed = line.trim()
+      if (trimmed.startsWith('//') || trimmed.startsWith('*')) return
+      // an equality assertion whose first argument reaches a DOM node without
+      // being reduced to a boolean, a string or an attribute first
+      if (!/assert\.(equal|deepEqual|strictEqual|notEqual)\(/.test(line)) return
+      if (!/querySelector|\.el|parentElement/.test(line)) return
+      if (/!!|\?\.|textContent|getAttribute|className|\.length|=== |!== /.test(line)) return
+      offenders.push(`${name}:${i + 1}  ${trimmed}`)
+    })
+  }
+  assert.deepEqual(offenders, [], `
+An assertion is handing a DOM node to the reporter. When it FAILS it will take
+seconds and die with RangeError: Array buffer allocation failed instead of
+printing its message, and it may take later cases in the file with it — which
+is finding f4, measured rather than supposed.
+
+Reduce it first: \`!!el.querySelector(sel)\`, a \`textContent\`, an attribute, or
+\`assert.ok(a === b, message)\`. The message carries the meaning either way.`)
+})

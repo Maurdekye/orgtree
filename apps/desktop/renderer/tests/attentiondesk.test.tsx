@@ -108,9 +108,15 @@ test('§1 the list is collapsed by default and the desk is not narrowed for it',
   const deskParent = desk.parentElement
   await hover(list(el), true)
   assert.equal(wrap(el).className.includes('list-open'), true)
-  assert.equal(el.querySelector('.attn-desk'), desk,
+  // ⚠ `assert.ok` WITH A BOOLEAN, NOT `assert.equal` WITH TWO DOM NODES. An
+  // element handed to the reporter as `actual` is serialised with its whole
+  // document graph when the assertion fails: measured at ~4.7s and
+  // `RangeError: Array buffer allocation failed`, which cannot distinguish a
+  // working assertion from a dying process and can take later cases with it
+  // (finding f4). The identity check is the same; only the reporting differs.
+  assert.ok(el.querySelector('.attn-desk') === desk,
     'the desk is the same element — nothing about it was rebuilt to make room')
-  assert.equal(desk.parentElement, deskParent, 'and it did not move in the tree')
+  assert.ok(desk.parentElement === deskParent, 'and it did not move in the tree')
   await v.unmount()
 })
 
