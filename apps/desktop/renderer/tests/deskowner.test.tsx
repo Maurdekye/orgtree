@@ -62,6 +62,19 @@ function twoSlots(node: CanvasNode, a: Record<string, unknown>, b: Record<string
   )
 }
 
+/** ONE slot for the agent, in box A — what is left after a modal closes */
+function oneSlot(node: CanvasNode, a: Record<string, unknown>) {
+  const map = new Map([[node.id, node]])
+  return (
+    <DeskHosts map={map} slug="org">
+      <div data-which="A">
+        <DeskSlot node={node} map={map} op={op} slug="org" toast={noop} pub={false}
+          bare {...a} />
+      </div>
+    </DeskHosts>
+  )
+}
+
 /** the slot that is NOT the owner — read off the canonical placeholder */
 const elsewhere = (el: HTMLElement): string[] =>
   [...el.querySelectorAll('[data-which]')]
@@ -191,6 +204,203 @@ test('§5 an automatic claim DOES take an unowned desk', async (t: TestContext) 
     await flush()
     assert.equal(elsewhere(view.el).length, 0,
       'the only slot there showed an open-elsewhere placeholder pointing at nothing')
+  })
+
+/* ─── borrowing: the temporary desk modal ────────────────────────────────── */
+
+/**
+ * ⚠ READ THIS BEFORE ADDING A BORROW TEST. My first four were VACUOUS and I
+ * only found out by deleting the implementation and watching them still pass.
+ *
+ * Two traps, both specific to this registry:
+ *
+ * 1. THE BORROWING SLOT MUST NOT BE LAST IN TREE ORDER. Registration re-runs
+ *    for every slot whenever the parent re-renders (`RegisteredSlot`'s effect
+ *    depends on `props`, a fresh object each render), so the tree-last slot
+ *    wins under the plain last-writer-wins rule. A borrow placed last owns the
+ *    desk whether or not the borrow mechanism exists.
+ * 2. THE RESTORE TARGET MUST DIFFER FROM WHAT THE FALLBACK WOULD PICK. When a
+ *    borrow ends, `pick`'s ordinary fallback takes the first ELIGIBLE slot in
+ *    registration order. If the recorded owner happens to be that slot, a
+ *    broken restore is indistinguishable from a working one.
+ *
+ * So these use THREE slots and reuse the same React elements across renders:
+ * an unchanged element reference makes React skip that subtree, so the sibling
+ * slots do NOT re-register and the restore is observable. A registers first
+ * (the fallback's choice), B owns before the borrow (the recorded choice), and
+ * C borrows.
+ */
+function trio(node: CanvasNode) {
+  const map = new Map([[node.id, node]])
+  const box = (which: string, props: Record<string, unknown>) => (
+    <div data-which={which} key={which}>
+      <DeskSlot node={node} map={map} op={op} slug="org" toast={noop} pub={false}
+        bare {...props} />
+    </div>
+  )
+  const a = box('A', {}), b = box('B', {}), c = box('C', { borrow: true })
+  const wrap = (...kids: React.ReactNode[]) =>
+    <DeskHosts map={map} slug="org">{kids}</DeskHosts>
+  return {
+    /** A and B only — B ends up owning it, being registered last */
+    before: wrap(a, b),
+    /** the modal opens: C is added, A and B are the SAME elements */
+    borrowing: wrap(a, b, c),
+    /** the modal closes again, A and B still untouched */
+    after: wrap(a, b),
+    /** C still borrowing, but B re-registers as a NEW element */
+    contested: wrap(a, box('B', { compactAt: 0.5 }), c),
+  }
+}
+
+/**
+ * THE REALISTIC OPENING COMMIT — and the one my first fixture could not see.
+ *
+ * Opening the modal re-renders the whole canvas, so EVERY sibling slot
+ * re-registers in the same commit as the borrowing slot mounts. That makes
+ * `e.last`, read mid-commit, merely whichever sibling registered just before
+ * the borrower — not the destination the user was looking at. Here C sits
+ * BETWEEN A and B, so at C's registration the mid-commit `e.last` is A while
+ * the real pre-open owner is B. Capturing the wrong one sends the desk back to
+ * the wrong place.
+ *
+ * The closing tree reuses the churned elements, so the siblings do NOT
+ * re-register on close and the restore target is what decides the owner.
+ */
+function trioChurned(node: CanvasNode) {
+  const map = new Map([[node.id, node]])
+  const box = (which: string, props: Record<string, unknown>) => (
+    <div data-which={which} key={which}>
+      <DeskSlot node={node} map={map} op={op} slug="org" toast={noop} pub={false}
+        bare {...props} />
+    </div>
+  )
+  const wrap = (...kids: React.ReactNode[]) =>
+    <DeskHosts map={map} slug="org">{kids}</DeskHosts>
+  // the churned pair, shared between the open and close trees
+  const a2 = box('A', { compactAt: 0.5 }), b2 = box('B', { compactAt: 0.5 })
+  return {
+    before: wrap(box('A', {}), box('B', {})),
+    /** C mounts BETWEEN the two, in a commit that re-registers both */
+    open: wrap(a2, box('C', { borrow: true }), b2),
+    /** C leaves; A and B are the same elements as in `open`, so they stay put */
+    close: wrap(a2, b2),
+  }
+}
+
+test('§7 the borrow HOLDS against a later ordinary registration',
+  async (t: TestContext) => {
+    // C borrows; then B re-registers as a new element, which under
+    // last-writer-wins would take the desk. The borrow must keep it — a
+    // momentary, explicit, user-initiated act with a guaranteed return outranks
+    // an ordinary claim, which is the whole difference between borrowing and
+    // the Attention view's deferral.
+    setup()
+    const n = agent('theta')
+    const t3 = trio(n)
+    const view = await mountView(t3.before, (el) => el)
+    t.after(() => view.unmount())
+    await flush()
+    assert.equal(owner(view.el), 'B', 'B should own it before the borrow')
+    await view.render(t3.borrowing)
+    await flush()
+    assert.equal(owner(view.el), 'C', 'the borrowing slot did not take the desk')
+    await view.render(t3.contested)
+    await flush()
+    assert.equal(owner(view.el), 'C',
+      'an ordinary re-registration took the desk away from a live borrow')
+  })
+
+test('§7b the desk goes back to the RECORDED owner, not the fallback',
+  async (t: TestContext) => {
+    // ⚠ THE CHECK THAT DISTINGUISHES A WORKING RESTORE FROM NO RESTORE AT ALL.
+    // When the borrow ends, `pick`'s fallback would take the first eligible
+    // slot in registration order — A. The recorded pre-borrow owner is B. So
+    // the desk landing on B is the restore working; landing on A is it absent.
+    setup()
+    const n = agent('iota')
+    const t3 = trio(n)
+    const view = await mountView(t3.before, (el) => el)
+    t.after(() => view.unmount())
+    await flush()
+    await view.render(t3.borrowing)
+    await flush()
+    assert.equal(owner(view.el), 'C')
+    await view.render(t3.after)
+    await flush()
+    assert.equal(owner(view.el), 'B',
+      'the desk did not return to the destination it was borrowed from — '
+      + 'A is what the ordinary fallback picks, so this is the restore missing')
+  })
+
+test('§7c the recorded owner survives re-renders during the borrow',
+  async (t: TestContext) => {
+    // Registration re-runs on every parent re-render, so the capture must not
+    // be re-read while the borrow is live. Churn the tree during the borrow,
+    // then end it and check the desk still knows where it came from.
+    setup()
+    const n = agent('kappa')
+    const t3 = trio(n)
+    const view = await mountView(t3.before, (el) => el)
+    t.after(() => view.unmount())
+    await flush()
+    await view.render(t3.borrowing)
+    await flush()
+    await view.render(t3.contested)
+    await flush()
+    await view.render(t3.borrowing)
+    await flush()
+    assert.equal(owner(view.el), 'C', 'the borrow did not survive the churn')
+    await view.render(t3.after)
+    await flush()
+    assert.equal(owner(view.el), 'B',
+      'after re-renders during the borrow the desk returned to the wrong slot')
+  })
+
+test('§7e the recorded owner is the SETTLED one, not a mid-commit artefact',
+  async (t: TestContext) => {
+    // ⚠ THE BUG THIS PINS, WHICH MY FIRST FIXTURE COULD NOT SEE. Opening the
+    // modal re-renders the canvas, so every sibling re-registers in the same
+    // commit as the borrowing slot mounts — and `e.last` read at that moment is
+    // just whichever sibling went immediately before it. Here C sits between A
+    // and B, so mid-commit `e.last` is A while the destination the user was
+    // actually looking at is B. Reading `e.last` sends the desk back to A.
+    setup()
+    const n = agent('mu')
+    const t3 = trioChurned(n)
+    const view = await mountView(t3.before, (el) => el)
+    t.after(() => view.unmount())
+    await flush()
+    assert.equal(owner(view.el), 'B', 'B should own it before the borrow')
+    await view.render(t3.open)
+    await flush()
+    assert.equal(owner(view.el), 'C', 'the borrow did not take the desk')
+    await view.render(t3.close)
+    await flush()
+    assert.equal(owner(view.el), 'B',
+      'the desk went back to the slot that happened to register just before '
+      + 'the borrower, instead of the destination it was actually borrowed from')
+  })
+
+test('§7d a borrow that never had a prior owner leaves the desk with a home',
+  async (t: TestContext) => {
+    // The modal opened on an agent whose desk was nowhere: there is nothing to
+    // record and nothing to give back. The desk must still exist and still
+    // have exactly one owner rather than being stranded.
+    setup()
+    const n = agent('lambda')
+    const map = new Map([[n.id, n]])
+    const view = await mountView(
+      <DeskHosts map={map} slug="org">
+        <div data-which="C">
+          <DeskSlot node={n} map={map} op={op} slug="org" toast={noop} pub={false}
+            bare borrow />
+        </div>
+      </DeskHosts>, (el) => el)
+    t.after(() => view.unmount())
+    await flush()
+    assert.equal(elsewhere(view.el).length, 0,
+      'the only slot showed an open-elsewhere placeholder pointing at nothing')
   })
 
 test('§6 NEVER HOMELESS: an all-ineligible registry still has exactly one owner',

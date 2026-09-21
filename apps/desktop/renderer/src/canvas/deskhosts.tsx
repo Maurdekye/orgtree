@@ -19,6 +19,16 @@ interface Slot { id: object; anchor: HTMLElement; props: DeskChatProps }
 interface Entry {
   key: string; invalidated?: boolean; pendingRename?: boolean; slots: Map<object, Slot>; last: Slot; detached: boolean
   show?: () => void; redock?: (slot?: object) => void; popout?: () => void; pendingPopout?: boolean
+  /** the borrowing slot's id, while a temporary surface holds this desk */
+  borrowedBy?: object
+  /** WHERE THE DESK WAS WHEN THE BORROW BEGAN. Read ONCE, on the transition
+   *  into the borrow — never re-read, or a borrower records itself. */
+  borrowedFrom?: { id: object; detached: boolean }
+  /** what puts a borrowed NATIVE window back exactly where it was
+   *  (popout.tsx's `borrow()` closure). Absent when nothing was detached. */
+  borrowedRestore?: () => void
+  /** THE OWNER AS OF THE END OF THE PREVIOUS COMMIT — see `settle`. */
+  settled?: object
 }
 
 /** is this slot's destination on screen and reachable right now?
@@ -79,6 +89,21 @@ const automatic = (slot: Slot) => slot.props.claim === 'automatic'
  *   DeskHost, owner gone                            →  5, first in order
  */
 function pick(e: Entry, incoming?: Slot): Slot {
+  // 0. BORROWED. A temporary surface holds the desk for as long as it is
+  //    mounted, whatever else registers or re-renders behind it.
+  //
+  //    ⚠ NOT YET FOR A DETACHED DESK. Borrowing a popped-out desk means
+  //    redocking its native window and putting it back afterwards, which is
+  //    `WindowSurface.borrow()` in popout.tsx — owned by v3-shell-opus and
+  //    still under correction. Taking ownership here before that exists would
+  //    leave the desk in a native window while the modal believed it held it.
+  //    Until then a borrow of a DETACHED desk falls through to step 1 and the
+  //    modal shows the canonical "open elsewhere · Show desk · Return here",
+  //    which is the existing behaviour rather than a broken new one.
+  if (e.borrowedBy && !e.detached) {
+    const held = e.slots.get(e.borrowedBy)
+    if (held) return held
+  }
   // 1. DETACHED. While the desk is a native window ownership does not move at
   //    all, and the one exception is the owning slot re-registering as itself —
   //    which is the previous code's `e.last.id === slot.id` term, verbatim.
@@ -113,7 +138,34 @@ class Desks {
   listeners = new Set<() => void>()
   subscribe = (fn: () => void) => { this.listeners.add(fn); return () => { this.listeners.delete(fn) } }
   snapshot = () => this.version
-  change = () => { this.version++; for (const fn of [...this.listeners]) fn() }
+  change = () => {
+    this.version++
+    for (const fn of [...this.listeners]) fn()
+    this.settle()
+  }
+  settling = false
+  /**
+   * REMEMBER WHO OWNED EACH DESK AT THE END OF THE LAST COMMIT.
+   *
+   * ⚠ WITHOUT THIS, A BORROW RECORDS THE WRONG DESTINATION. Registration
+   * re-runs for EVERY slot whenever its parent re-renders — `RegisteredSlot`'s
+   * effect depends on `props`, which is a fresh object each render — so the
+   * slots of one commit re-register in tree order and `last` moves several
+   * times before the commit is over. The modal opening IS such a commit, so
+   * `e.last` at the moment the borrowing slot registers is merely whichever
+   * sibling registered just before it, not the desk's actual pre-open owner.
+   * Reading a value snapshotted in a microtask AFTER the previous commit is
+   * what makes "put it back where it was" mean the place the user was actually
+   * looking at.
+   */
+  settle() {
+    if (this.settling) return
+    this.settling = true
+    queueMicrotask(() => {
+      this.settling = false
+      for (const e of this.entries.values()) if (!e.borrowedBy) e.settled = e.last.id
+    })
+  }
   requestPopout(key: string) {
     const entry = this.entries.get(key)
     if (entry?.popout) { entry.popout(); return }
@@ -132,13 +184,55 @@ class Desks {
       this.entries.set(key, e)
     }
     e.slots.set(slot.id, slot)
+    // ⚠ CAPTURED ON THE TRANSITION IN, AND NOWHERE ELSE. This runs again on
+    // every prop change — RegisteredSlot's registration effect depends on
+    // `props` — so an unguarded capture would record the borrower as its OWN
+    // previous owner on its second render, and the restore would silently
+    // become a no-op. Read before `pick` moves `last`, because `last` is the
+    // thing being saved.
+    if (slot.props.borrow && e.borrowedBy !== slot.id) {
+      e.borrowedBy = slot.id
+      // ⚠ `settled`, NOT `e.last` — see `settle()`. `e.last` mid-commit is
+      // whichever sibling re-registered just before this one, because opening
+      // the modal re-renders the whole subtree and every slot re-registers in
+      // tree order. `settled` is the owner as of the end of the last commit,
+      // which is the destination the user was actually looking at.
+      e.borrowedFrom = { id: e.settled ?? e.last.id, detached: e.detached }
+    }
     e.last = pick(e, slot)
     this.change()
+  }
+
+  /**
+   * THE BORROW ENDS WHEN ITS SLOT UNREGISTERS — a dismissal, an unmount, a
+   * route change and an error teardown all arrive here, because `remove` is a
+   * layout-effect cleanup.
+   *
+   * ⚠ THE NATIVE WINDOW AND THE OWNERSHIP ARE TWO DIFFERENT QUESTIONS, and
+   * fusing them leaks state. The window is ALWAYS returned: `borrow()` left the
+   * saved row `open: true` with its rect and nothing behind it, so declining to
+   * call the closure — because the destination happens to be gone — strands
+   * exactly the row the seam exists to protect. Ownership, by contrast, only
+   * goes back to a destination that is still real: still registered, and not
+   * invalidated by a generation change. A removed destination is not
+   * resurrected; `pick` then finds the desk a home by the ordinary rules.
+   */
+  endBorrow(e: Entry) {
+    const from = e.borrowedFrom
+    const restore = e.borrowedRestore
+    e.borrowedBy = undefined
+    e.borrowedFrom = undefined
+    e.borrowedRestore = undefined
+    restore?.()
+    if (!from || e.invalidated) return
+    const target = e.slots.get(from.id)
+    if (target) e.last = target
   }
   remove(key: string, id: object) {
     const e = [...this.entries.values()].find((entry) => entry.slots.has(id))
     if (!e) return
     e.slots.delete(id)
+    if (e.borrowedBy === id) this.endBorrow(e)
     // Slot migration can unregister/register in a single React commit. Give
     // that commit a chance to finish before releasing its stable host.
     queueMicrotask(() => {

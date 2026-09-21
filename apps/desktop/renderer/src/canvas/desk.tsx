@@ -1613,6 +1613,22 @@ export interface DeskChatProps {
    *  of labelling the eye panel placed was refused, correctly, for making the
    *  field mean something false. */
   claim?: 'automatic'
+  /** THIS SLOT IS A TEMPORARY SURFACE: it takes the canonical desk for as long
+   *  as it is mounted and gives it back, to the exact destination it came
+   *  from, when it unmounts. For the temporary-desk modal.
+   *
+   *  ⚠ BORROWING IS NOT A STRONGER `eligible`, it is a different mechanism.
+   *  Eligibility is a competition between destinations that are all legitimate;
+   *  a borrow is an explicit, momentary, user-initiated act with a guaranteed
+   *  return, which is why the user ruled it may take a desk even from a pinned
+   *  or popped-out window while the Attention view may not. There is still
+   *  exactly ONE `OwnedDeskChat`: only its anchor moves, so the composer, the
+   *  scroll position and the unsent draft survive the borrow and the return.
+   *
+   *  ⚠ AND IT IS TIED TO THIS SLOT'S MOUNT, deliberately. The desk goes back in
+   *  the registry's `remove` path, so a dismissal, an unmount, a route change
+   *  and an error teardown all return it without the caller remembering to. */
+  borrow?: boolean
   bare?: boolean
   compact?: boolean
   compactAt?: number
