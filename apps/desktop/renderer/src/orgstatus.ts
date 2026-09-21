@@ -17,20 +17,35 @@
 // stale rows were painted and only replaced 3 s later. Nothing anywhere said
 // the numbers were old; they simply changed under the reader.
 //
-// ⚠ THE SERVER WAS NEVER THE PROBLEM, and assuming it was would have bought a
-// backend change for nothing. `api.orgs_list` calls
-// `supervisor.working_count(slug)` per row, which reads `_state` directly at
-// request time, and `store.list_orgs_with_docs()` builds the whole list in a
-// single pass. One request returns one coherent snapshot of every
-// organization — so there is no cache to invalidate and no serial per-org
-// rollout to unwind. The fix is entirely about WHEN the renderer asks and WHAT
-// it claims about the answer.
+// ⚠ THE 3-5 SECONDS WERE NOT THE SERVER'S, and assuming they were would have
+// bought a backend change for nothing. `GET /api/orgs` answers synchronously
+// with one completed array, `supervisor.working_count(slug)` reads `_state`
+// under its lock at request time, and nothing persists a status TTL.
 //
-// So: ask the moment the list opens, stamp every snapshot with the time its
-// request was ISSUED, and compare that stamp against the moment the list
-// opened. Rows that predate the open are not presented as current status — the
-// names and ordering still render (that is navigation, not status) while the
-// status cells say they are loading.
+// ⚠ BUT IT IS NOT AN ATOMIC CROSS-ORGANIZATION SNAPSHOT EITHER, and this
+// module must not claim it is. Verified in source by data-arch-astra
+// (2026-09-21, api.py/store.py/supervisor.py at 02c92ea, unchanged through
+// 77eca5d): the organization documents are read serially FIRST and each
+// `working_count` then takes and releases `_state_lock` SEPARATELY, so
+// membership and live counts have a different sample time from the busy
+// counts, and the runtime can move between the two. `_scan_orgs` silently
+// skips database, value, OS and migration failures, and a successful response
+// carries no completeness marker, so an absent organization is not evidence
+// that it is gone. There is no collection revision, no as-of and no coverage
+// token to ask for. So the honest claim is FRESH PER RETURNED OBSERVATION —
+// never "complete", never "coherent" in the stronger sense — and a public or
+// kiosk row deliberately omits `working`, whose absence must never be rendered
+// as a zero.
+//
+// What the renderer can therefore fix, and does: ask AFTER the list opens;
+// stamp every snapshot with the time its request was ISSUED; report loading
+// until a snapshot issued at or after the open arrives — a request already in
+// flight when the list opened is NOT good enough, because it describes the
+// world before the reader asked; publish the whole response at once rather
+// than row by row; reject an older completion that lands after a newer one;
+// and keep the last rows marked stale on an error rather than blanking them.
+// The names and ordering still render throughout — that is navigation, not
+// status.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { listOrgs } from './api'
 import type { OrgListEntry } from './types'
