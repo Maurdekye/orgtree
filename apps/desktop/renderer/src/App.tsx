@@ -27,7 +27,29 @@ import {
   probeHub, putOrgMd,
   resumeFrozen, runOp, saveDefaults, saveHireDefaults, saveSettings,
 } from './api'
+import { AdvancedOrgModal } from './shell/advancedorg'
+import { OrgRows } from './shell/orgrows'
+export { AdvancedOrgModal, OrgRows }
+import { ShellAction, ShellHeader } from './shell/header'
+import { OrgtreeMenu } from './shell/menu'
+import { OrgStatusBar } from './shell/statusbar'
+import { HomepageView } from './shell/homepage'
+import { CreateOrgView } from './shell/createorg'
+import { OrgViewToggle } from './shell/modetoggle'
+import { useOrgViewMode } from './shell/viewmode'
+import { openOrgEffect, requestOpenOrg } from './shell/openorg'
+import { identityOrg, identityView } from './shell/identity'
+import { nativeWindows } from './desktop'
 import { DefaultsForm } from './shell/defaults'
+// moved out of this file so the v3 shell's compact header and bottom status
+// strip can both read them without importing App.tsx (which imports them).
+// Re-exported below, so every existing importer is unaffected.
+import {
+  ActiveAgentSummary, activeOrgTitle, costLabel, costTitle, flatNodes, showCost,
+} from './shell/treeinfo'
+export {
+  ActiveAgentSummary, activeOrgTitle, costLabel, costTitle, flatNodes, showCost,
+}
 import { orgFreshnessNote, useOrgStatus } from './orgstatus'
 import type { OrgFreshness } from './orgstatus'
 import { fmtFull, fmtWhen } from './timefmt'
@@ -78,31 +100,6 @@ import type {
 } from './types'
 import type { JumpReq, MailRow, ProviderPresence } from './canvas/shared'
 
-/** the cost chip's hover split: how much of the org total was served by
- *  API-key accounts vs subscriptions. Attribution is now per TURN, from the
- *  serving account's mode (2026-09-12 redesign), rather than from whether a
- *  fallback window happened to be open. '' when no key account has ever
- *  served this org — the tooltip stays quiet rather than showing a
- *  meaningless $0.00 lane. */
-const costSplitTitle = (tree: TreePayload): string => {
-  const api = tree.api_cost_usd_total ?? 0
-  if (!(api > 0)) return ''
-  return `subscription $${Math.max(0, tree.cost_usd_total - api).toFixed(2)}`
-    + ` · api key $${api.toFixed(2)}`
-}
-export const costLabel = (tree: Pick<TreePayload, 'cost_usd_total' | 'cost_usd_unknown'>): string =>
-  tree.cost_usd_unknown
-    ? (tree.cost_usd_total > 0
-      ? `$${tree.cost_usd_total.toFixed(2)} estimated/incomplete` : '$?')
-    : `$${tree.cost_usd_total.toFixed(2)}`
-const costUnknownTitle = (tree: TreePayload): string => tree.cost_usd_unknown
-  ? 'recorded numeric estimate; unresolved amounts are not accounted for' : ''
-export const showCost = (tree: Pick<TreePayload, 'cost_usd_total' | 'cost_usd_unknown'>): boolean =>
-  tree.cost_usd_total > 0 || Boolean(tree.cost_usd_unknown)
-export const costTitle = (tree: TreePayload, kiosk = false): string => [
-  kiosk ? 'spend / limit' : (costSplitTitle(tree) || 'total spend'),
-  kiosk ? costSplitTitle(tree) : '', costUnknownTitle(tree),
-].filter(Boolean).join(' — ')
 const USER = '@user'       // typed actor sentinels — a node may be NAMED user/system
 const SYSTEM = '@system'
 
@@ -225,125 +222,6 @@ export const usageTitle = (pres: ProviderPresence): string => {
   return `usage — ${label}`
 }
 
-/** The activity chip is scoped to the current tree, but its tooltip answers
- * the wider machine question from the already-polled org list. `working` is
- * supervisor.working_count(), so it describes turns running now rather than
- * durable last_status values. Public org listings intentionally omit it. */
-export const activeOrgTitle = (orgs: Pick<OrgListEntry, 'name' | 'working'>[]): string => {
-  const known = orgs.filter((org) => typeof org.working === 'number')
-  if (!known.length) return 'active agents by organization — unavailable'
-  const active = known.filter((org) => org.working! > 0)
-  return active.length
-    ? `active agents by organization — ${active.map((org) => `${org.name}: ${org.working}`).join(' · ')}`
-    : 'active agents by organization — none'
-}
-
-/** The provider-neutral header summary. It deliberately walks ALL_TIERS:
- * this is an inventory of live agents, not a provider picker.
- * ⚠ D-202 DELIBERATELY LEFT THIS ALONE. It looks like a provider surface and
- * is not: `.filter((tier) => byTier[tier])` means a family appears only when
- * an agent is actually running on it, so an absent provider contributes
- * nothing without being asked. Hiding a live Codex agent's own letter because
- * the CLI went missing would make the header lie about what is running —
- * the count is an inventory, and an inventory reports what is there. */
-export function ActiveAgentSummary({ tree, orgs = [] }: {
-  tree: TreePayload
-  orgs?: Pick<OrgListEntry, 'name' | 'working'>[]
-}) {
-  const nodes = [...flatNodes(tree).values()].filter((n) => n.state === 'live')
-  const busy = nodes.filter((n) => n.busy).length
-  const byTier: Record<string, number> = {}
-  for (const node of nodes) byTier[node.tier] = (byTier[node.tier] ?? 0) + 1
-  const title = activeOrgTitle(orgs)
-  return (
-    <span className="chip agents"
-      role="img" tabIndex={0} aria-label={title} title={title}>
-      {nodes.length} live{busy > 0 ? ` · ${busy} active` : ''}
-      {/* the OpenRouter tiers are runtime-minted, so the inventory takes them
-          from what is actually running rather than from a static list */}
-      {[...ALL_TIERS, ...Object.keys(byTier).filter(isOpenRouterTier).sort()]
-        .filter((tier) => byTier[tier])
-        .map((tier) => (
-          <b key={tier} className={'t-' + tier}>
-            {TIER_LETTER[tier]}{byTier[tier]}
-          </b>
-        ))}
-    </span>
-  )
-}
-
-/** The org list rows — the same columns the tray's primary-click list shows
- * (user spec 2026-09-10): an activity cell (spinner ONLY while that org has a
- * turn executing), the name, and an always-visible n/m count where n = agents
- * active now (`working`, supervisor.working_count()) and m = currently hired
- * agents (`live`). Every row renders every cell so the columns line up when
- * idle; a public listing row (no `working` — deliberately omitted server-side)
- * shows its hired count alone rather than inventing a zero. */
-export function OrgRows({ orgs, slug, onPick, onDelete, freshness = 'current',
-  ageMs = 0, openLabel }: {
-  orgs: OrgListEntry[]; slug: string | null
-  onPick: (slug: string) => void; onDelete: (org: OrgListEntry) => void
-  /** how old these rows' STATUS values are (`orgstatus.ts`). Defaults to
-   *  'current' so every caller that has no freshness to report — and every
-   *  test that mounts fixed rows — reads exactly as it always did. */
-  freshness?: OrgFreshness
-  ageMs?: number
-  /** slugs already open in another window, labelled instead of counted. Empty
-   *  in the browser, where there is only ever one window. */
-  openLabel?: (slug: string) => string | null
-}) {
-  // ⚠ THE SPINNER AND THE COUNTS ARE THE STATUS, and status is the one thing
-  // an unfresh snapshot may not assert. The spinner is the loudest claim in
-  // the row — an animation that says "a turn is executing now" — so it is
-  // suppressed whenever the numbers behind it predate the open or have stopped
-  // refreshing, rather than spinning on somebody's memory of three minutes
-  // ago. Names, ordering, kiosk badges and every navigation affordance are
-  // untouched: those are not status and they do not go stale on this timescale.
-  const current = freshness === 'current'
-  const staleTitle = freshness === 'loading'
-    ? 'checking current status…'
-    : `active / hired agents — from ${Math.round(ageMs / 1000)}s ago, not refreshing`
-  return <>
-    {orgs.map((o) => {
-      const already = openLabel?.(o.slug) ?? null
-      return (
-      <div key={o.slug} role="button" tabIndex={0}
-        className={'org' + (o.slug === slug ? ' current' : '')
-          + (o.kiosk_cfg || o.kiosk ? ' kiosk-org' : '')}
-        onClick={() => onPick(o.slug)}
-        onKeyDown={(e) => { if (e.key === 'Enter') onPick(o.slug) }}>
-        <span className="org-activity">
-          {current && (o.working ?? 0) > 0 &&
-            <span className="working-ct"
-              title={`${o.working} agent${o.working === 1 ? '' : 's'} active — a turn executing now`}>
-              <AutorenewIcon fontSize="inherit" className="cc-spin" /></span>}
-        </span>
-        <span className="org-name">
-          <span className="org-name-text">{o.name}</span>
-          {(o.kiosk_cfg || o.kiosk) &&
-            <span className="kiosk-badge" title="kiosk org"><PublicIcon fontSize="inherit" /></span>}
-          {already && <span className="org-open-badge">{already}</span>}
-        </span>
-        <span className={'org-counts dim'
-          + (freshness === 'loading' ? ' org-counts-loading' : '')
-          + (freshness === 'stale' ? ' org-counts-stale' : '')}
-          title={current ? 'active / hired agents' : staleTitle}>
-          {freshness === 'loading' ? '…'
-            : typeof o.working === 'number' ? `${o.working}/${o.live}` : `${o.live}`}
-        </span>
-        {/* kiosk orgs delete like any other (user report 2026-07-31: the
-            old !o.kiosk gate left NO UI path at all — the server already
-            refuses public deletes, so hiding the trash from the admin
-            protected nothing) */}
-        <button className="org-del"
-          onClick={(e) => { e.stopPropagation(); onDelete(o) }}><DeleteIcon fontSize="inherit" /></button>
-      </div>
-      )
-    })}
-    {!orgs.length && <div className="dim pad">no organizations yet</div>}
-  </>
-}
-
 /** The badge beside the sidebar's 'Orgtree' title (user 2026-09-10): the
  * RUNNING APP VERSION from the desktop shell — e.g. "2.0.0-alpha.8" — in the
  * seat the backend build hash used to hold; that hash stays in the tooltip.
@@ -376,9 +254,12 @@ export function OrgRows({ orgs, slug, onPick, onDelete, freshness = 'current',
  *  "something is waiting on you", all saying it in the same words — the
  *  `glow` class over the `askbell` keyframes. Nothing else may start
  *  glowing without the user asking for it. */
-export function AskBell({ tree, onOpen }: {
+export function AskBell({ tree, onOpen, label }: {
   tree: Parameters<typeof attentionPip>[0]
   onOpen: () => void
+  /** the v3 compact header shows a visible word beside the icon at wide
+   *  widths. Absent everywhere else, so every existing surface is unchanged. */
+  label?: string
 }) {
   const pip = attentionPip(tree)
   // The standing dot (user ruling 2026-09-12): an unanswered question or a
@@ -396,6 +277,7 @@ export function AskBell({ tree, onOpen }: {
         + (waiting ? ` — ${pending.mail} request(s) still waiting on you` : '')}
       onClick={onOpen}>
       <MailIcon fontSize="inherit" />
+      {label && <span className="shell-action-label">{label}</span>}
       {waiting && <i className="attn-dot" aria-hidden="true" />}
       {pip && <b className={'eye-count' + (pip.urgent ? ' asks' : '')}>
         {pip.count}</b>}
@@ -601,7 +483,13 @@ export default function App() {
   const notifyOwner = ownsNotifications(identity)
   useNativeNotifications(notice => {
     setNativeTarget(notice)
-    if (notice.org !== slug) setSlug(notice.org)
+    // ⚠ A v3 WINDOW NEVER RE-AIMS ITSELF. Native delivers an org-scoped
+    // notification only to that organization's own window, so a notice for a
+    // different organization reaching a bound window is not a cue to switch —
+    // it is a bug somewhere else, and switching would hide it while throwing
+    // away this window's organization. One window carrying them all is the v2
+    // world, and that is the only world this line is for.
+    if (!nativeWindows() && notice.org !== slug) setSlug(notice.org)
   }, notifyOwner)
   // …and the aggregate behind the standing dot is mirrored from the owner, so
   // a window that does not poll still says truthfully whether something is
@@ -617,7 +505,13 @@ export default function App() {
     return bridge.onEvent(event => {
       if ((event.type as string) !== 'open-org') return
       const org = (event.data as { org?: unknown } | null)?.org
-      if (typeof org === 'string' && org) setSlug(org)
+      if (typeof org !== 'string' || !org) return
+      // In v3 this event is resolved to its target window before delivery, so
+      // a bound window only ever receives its OWN organization and the event
+      // means "you are the one — come forward", not "become this". Binding a
+      // Homepage window is a `window-identity` change, never this.
+      if (nativeWindows()) return
+      setSlug(org)
     })
   }, [setSlug])
   useEffect(() => {
@@ -702,7 +596,10 @@ export default function App() {
   // counts and correct them three seconds later
   // (`show-current-organization-statuses-immediately`). `active` is simply
   // "the list is on screen": the browser's welcome page, or the drawer.
-  const orgListOpen = !slug || drawer
+  // the compact menu's organization list counts as a list on screen: see
+  // OrgtreeMenu's `onOrgListOpen`
+  const [menuOrgsOpen, setMenuOrgsOpen] = useState(false)
+  const orgListOpen = !slug || drawer || menuOrgsOpen
   const orgStatus = useOrgStatus({ active: orgListOpen, onOk: fetchOk, onError: fetchErr })
   const orgs = orgStatus.orgs
   // false until the FIRST successful /api/orgs: first-run setup must never
@@ -1026,6 +923,61 @@ export default function App() {
   // the source, and the blunt close was doing active harm: it also closed a
   // settings window PINNED in the organization you were returning TO.
   // scopedmodals.test.tsx section §3.
+
+  // ------------------------------------------------------------ the v3 shell
+  //
+  // ⚠ GATED ON THE NATIVE WINDOW MODEL, NOT ON "IS THIS THE DESKTOP APP".
+  // Today's shipped preload exposes a bridge and knows nothing about window
+  // identity, so a `desktop()` check would turn the four-view shell on inside a
+  // shell that can neither open a Homepage window nor bind one. `requestOrg` is
+  // the capability, and where it is absent every branch below falls through to
+  // the sidebar-and-drawer app exactly as it is on main today.
+  const v3 = nativeWindows()
+  const shellView = identityView(identity)
+  // In a v3 window the bound organization IS the identity's, and nothing else
+  // may set it: a bound window never changes organization, so this commits
+  // straight past `setSlug`'s switch prompt, which exists for a world where one
+  // window carried them all.
+  useEffect(() => {
+    if (!v3) return
+    const bound = identityOrg(identity)
+    if (bound && bound !== slug) commitSlug(bound)
+  }, [v3, identity, slug])
+  const [viewMode, setViewMode] = useOrgViewMode(v3 ? slug : null)
+  // Attention's own view lands with `add-an-attention-view`; the toggle is part
+  // of the approved header and ships now, saying honestly that the destination
+  // is not here yet rather than drawing an empty imitation of it.
+  const attentionReady = false
+  const openOrgFromShell = useCallback((want: string) => {
+    const name = orgs.find((o) => o.slug === want)?.name ?? want
+    void requestOpenOrg(want, name).then((effect) => {
+      // `bind` is the ONLY outcome that changes this window; focused/opened/
+      // pending are native's business and this window does nothing at all
+      if (effect.bind) commitSlug(effect.bind)
+      if (effect.notice) toast([effect.notice])
+      if (effect.error) toast([effect.error])
+    })
+  }, [orgs, toast])
+  const newWindow = useCallback(() => {
+    void desktop()?.openHomepageWindow?.().catch((e: Error) =>
+      toast([`could not open a window: ${e.message}`]))
+  }, [toast])
+  // ⚠ ALWAYS A SEPARATE WINDOW, including from a Homepage. The Homepage is not
+  // consumed by starting a creation; the CREATION window is what becomes the
+  // new organization's Canvas.
+  const createWindow = useCallback(() => {
+    void desktop()?.openCreateOrgWindow?.().catch((e: Error) =>
+      toast([`could not open the creation window: ${e.message}`]))
+  }, [toast])
+  const shellMenu = (
+    <OrgtreeMenu orgs={orgs} freshness={orgStatus.freshness} ageMs={orgStatus.ageMs}
+      error={orgStatus.error} currentOrg={slug} appVersion={appVersion}
+      onOpenOrg={openOrgFromShell} onNewWindow={newWindow} onCreateOrg={createWindow}
+      onUsage={toggleUsage}
+      onOrgListOpen={setMenuOrgsOpen}
+      onAppSettings={() => setShowAccounts(v => isModalPinned('app-settings') ? !v : true)} />
+  )
+
   const pick = (s: string) => { setSlug(s); setDrawer(false) }
   const goHome = () => { setSlug(null); setDrawer(false) }
 
@@ -1084,8 +1036,64 @@ export default function App() {
     <CurrentOrg.Provider value={slug}><AgentNavProvider><ObjectMenuBoundary className="app" toast={toast}>
       <RestartNotice />
       {orgTransitionPrompt}
+      {/* ------------------------------------------------- the v3 four views
+          Homepage and Create are WINDOWS, not states of one window: which of
+          them this is comes from the native identity, so a reload lands on the
+          same view and no window ever flashes another one. */}
+      {v3 && shellView === 'homepage' && (
+        <main className="shell-window">
+          <ShellHeader menu={shellMenu} title="Home" />
+          <HomepageView orgs={orgs} freshness={orgStatus.freshness}
+            ageMs={orgStatus.ageMs} error={orgStatus.error}
+            onOpenOrg={openOrgFromShell} onCreateOrg={createWindow}
+            onDelete={(o) => setDoomedOrg(o)}
+            onboarding={!BASE && showOnboarding(deskPrefs, orgs.length, orgsKnown) ? (
+              /* FIRST RUN OPENS THE DEDICATED CREATION WINDOW. The setup card
+                 used to embed the creation form inline; in v3 creation has its
+                 own window and its own identity, and an inline form here would
+                 be a second creation path with none of the window rules. The
+                 charter-population step travels with it — see the Create view
+                 below, which wraps its create in `onboardingCreate`. */
+              <Onboarding>
+                <button type="button" className="primary shell-create-btn"
+                  onClick={createWindow}>Create your first organization</button>
+              </Onboarding>
+            ) : null} />
+        </main>
+      )}
+      {v3 && shellView === 'create' && (
+        <main className="shell-window">
+          <ShellHeader menu={shellMenu} title="New organization" />
+          <CreateOrgView
+            wrapCreate={!BASE && showOnboarding(deskPrefs, orgs.length, orgsKnown)
+              ? ((create) => onboardingCreate(create,
+                (m) => toast([`setup: charter documents were not populated — ${m}`])))
+              : undefined}
+            onRequestClose={() => {
+              // ⚠ THE NATIVE CLOSE, NOT A LOCAL RESET. It is what puts the
+              // unfinished-form confirmation in front of the discard, and it
+              // is the same one the title bar and a whole-app Quit get.
+              const bridge = desktop()
+              if (bridge?.closeWindow) void bridge.closeWindow().catch(() => {})
+            }}
+            onCreated={async (created) => {
+              void refreshOrgs()
+              const bridge = desktop()
+              // this window becomes the new organization's Canvas; other
+              // windows are untouched either way
+              if (bridge?.bindCreatedOrg) {
+                const outcome = await bridge.bindCreatedOrg(created)
+                const effect = openOrgEffect(outcome, created)
+                if (effect.bind) commitSlug(effect.bind)
+                // a refusal is thrown so the form keeps everything entered and
+                // shows what went wrong, which is the settled failure rule
+                if (effect.error) throw new Error(effect.error)
+              } else commitSlug(created)
+            }} />
+        </main>
+      )}
       {/* no active org: the org list IS the screen */}
-      {!slug && (
+      {!v3 && !slug && (
         <div className="welcome">
           {/* One window header for both first-run setup and the org list. */}
           {desktop() && <header className="orgbar native-header home-header">
@@ -1109,8 +1117,9 @@ export default function App() {
         </div>
       )}
 
-      {/* active org: full foreground; the list hides in a drawer */}
-      {slug && (
+      {/* active org: full foreground; the list hides in a drawer (v2), or the
+          compact header and bottom strip take over (v3) */}
+      {(!v3 || shellView === 'org') && slug && (
         <main className="solo">
           {/* the tree hasn't loaded at all yet — no header, no canvas, nothing
               to shift, so the plain pre-header banner is harmless here. Once
@@ -1127,6 +1136,41 @@ export default function App() {
           </>}
           {tree ? (
             <>
+              {v3 ? (
+                <ShellHeader menu={shellMenu} title={tree.name}
+                  modes={<OrgViewToggle mode={viewMode} setMode={setViewMode}
+                    attentionAvailable={attentionReady} />}
+                  actions={<>
+                    {/* the familiar action buttons, unchanged in behaviour,
+                        badge and glow — only their container and an optional
+                        visible word are new */}
+                    <DocketToolbarButton label="Work"
+                      summary={tree.work_items_summary}
+                      onClick={() => toggleSurface('docket', showDocket, setShowDocket)} />
+                    <AskBell tree={tree} label="Inbox" onOpen={() => {
+                      setInboxJump(null)
+                      toggleSurface('inbox', showInbox, setShowInbox)
+                    }} />
+                    <ShellAction label="Presentations"
+                      title={activeDocCount(tree.roots) > 0
+                        ? `presented documents — ${activeDocCount(tree.roots)} from currently-hired agents`
+                        : 'presented documents'}
+                      icon={<DocIcon fontSize="inherit" />}
+                      badge={activeDocCount(tree.roots) > 0
+                        ? <b className="eye-count">{activeDocCount(tree.roots)}</b> : undefined}
+                      onClick={() => toggleSurface('gallery', showGallery, setShowGallery)} />
+                    {!tree.public && <ShellAction label="Usage"
+                      title={usageAlert?.title ?? usageTitle(provPresence)}
+                      className={usageAlert ? 'u-' + usageAlert.sev : undefined}
+                      icon={<DataUsageIcon fontSize="inherit" />}
+                      onClick={toggleUsage} />}
+                    {!tree.public && <ShellAction label="Org settings"
+                      icon={<SettingsIcon fontSize="inherit" />}
+                      onClick={() => toggleSurface('org-settings', showSettings, setShowSettings)} />}
+                    <KillSwitch slug={slug} toast={toast} refreshTree={refreshTree}
+                      latched={!!tree.killswitch} />
+                  </>} />
+              ) : (
               <header className={'orgbar' + (desktop() ? ' native-header' : '')}>
                 <div className="native-header-main">
                 {!tree.public &&
@@ -1340,6 +1384,21 @@ export default function App() {
                 <UpdateNotice />
                 <WindowControls />
               </header>
+              )}
+              {/* ATTENTION IS NOT HERE YET, and saying so beats drawing an
+                  empty imitation of it. A BANNER rather than an overlay on
+                  purpose: covering the stage would hide the retained pinned
+                  panels and popped-out desks that switching modes is required
+                  to preserve, and unmounting OrgCanvas would destroy them
+                  outright. Replaced by `add-an-attention-view`'s own surface
+                  through the containment interface the canvas owner is
+                  publishing. */}
+              {v3 && viewMode === 'attention' && !attentionReady && (
+                <div className="shell-mode-pending" role="status">
+                  The Attention view is not available in this build yet — the
+                  organization canvas is shown instead.
+                </div>
+              )}
               <div className="canvas-stage">
               {desktop() && <div className="window-drag-margin" aria-hidden="true" />}
               <OrgCanvas tree={tree} op={op} slug={slug} toast={toast}
@@ -1392,6 +1451,14 @@ export default function App() {
                 }} />
               {desktop() && <div className="window-drag-margin" aria-hidden="true" />}
               </div>
+              {/* the approved bottom strip: the whole chip run that used to
+                  live in the header's `.bar-detail`, with every visibility
+                  rule, tooltip and click-through intact (shell/statusbar.tsx) */}
+              {v3 && <OrgStatusBar tree={tree} orgs={orgs} error={error}
+                onOpenConnections={() => {
+                  setSettingsInitialTab('mailserver')
+                  if (!showSettings) toggleSurface('org-settings', showSettings, setShowSettings)
+                }} />}
               {/* hard-full is a STATE, not an event: the alert persists (and
                   survives reloads) until usage drops; it never auto-opens
                   the browser — it carries the button (user refinement) */}
@@ -1554,43 +1621,9 @@ export default function App() {
   )
 }
 
-/** F-07 (user ruling 2026-08-04: "both, one modal"): the ONE advanced-org
- *  modal shell. The create form's advanced disclosure and the ⚙ settings
- *  panel both open this same surface; each pours in its own sections, and
- *  creation-only facts (kiosk, sandbox, disk type) render as LOCKED chips
- *  outside creation — visible, never editable, so the modal can't offer to
- *  change what cannot change after birth. No save button of its own: the
- *  create form submits, and the settings panel keeps its ONE bottom save
- *  (three save surfaces was a user-reported failure once already). */
-export function AdvancedOrgModal({ title, close, children, tabs }: {
-  title: string
-  close: () => void
-  children?: ReactNode
-  /** tabbed form (user amendment 2026-08-05): categories as a tab strip —
-   *  presentation only; both callers keep their own save flow */
-  tabs?: { label: string; content: ReactNode }[]
-}) {
-  const [tab, setTab] = useState(0)
-  return (
-    <PinFrame kind="advanced-org" title={`${title} advanced`} panel="settings" close={close} pinnable={false}>
-      <h3><SettingsIcon fontSize="inherit" /> {title} — advanced</h3>
-        {tabs && (
-          <div className="adv-tabs">
-            {tabs.map((t, i) => (
-              <button key={t.label} type="button"
-                className={'adv-tab' + (i === tab ? ' on' : '')}
-                onClick={() => setTab(i)}>{t.label}</button>
-            ))}
-          </div>
-        )}
-        {tabs ? tabs[Math.min(tab, tabs.length - 1)]?.content : children}
-        <div className="row">
-          <button className="primary" type="button" onClick={close}>done</button>
-        </div>
-    </PinFrame>
-  )
-}
-
+/** One provider's live readout. The modal has four independent upstream
+ * routes; keeping the in-flight latch here means a manual refresh cannot
+ * start a second request while the initial poll or the interval is pending. */
 /** the header usage modal: the host subscription's rate-limit bars — the
  *  same session / weekly / weekly-scoped readout Claude Code shows under
  *  /usage (user feature 2026-08-18). The backend proxies the account usage
@@ -1690,9 +1723,6 @@ type UsageReadoutState = {
   refresh: (force?: boolean) => Promise<void>
 }
 
-/** One provider's live readout. The modal has four independent upstream
- * routes; keeping the in-flight latch here means a manual refresh cannot
- * start a second request while the initial poll or the interval is pending. */
 function useUsageReadout<T extends UsageReadout>(fetcher: (force?: boolean) => Promise<T>): {
   value: T | null
   pending: boolean
@@ -2156,13 +2186,6 @@ function AutonomyTab({ tree, toast }: {
       </div>
     </>
   )
-}
-
-function flatNodes(tree: TreePayload): Map<string, TreeNode> {
-  const map = new Map<string, TreeNode>()
-  const walk = (n: TreeNode) => { map.set(n.id, n); n.children.forEach(walk) }
-  ;(tree.roots ?? []).forEach(walk)   // total: settings fixtures pass partial trees
-  return map
 }
 
 /** The nodes ▶ resume will ACTUALLY act on — the banner's count, its title
