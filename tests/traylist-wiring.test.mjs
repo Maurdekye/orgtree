@@ -15,7 +15,11 @@ const read = file => fs.readFileSync(path.join(root, file), 'utf8')
 test('primary tray click opens the org list popup; double-click still opens the app', () => {
   const main = read('apps/desktop/main/index.ts')
   assert.match(main, /tray\.on\('click', \(_event, iconBounds\) => \{ void showTrayList\(iconBounds\) \}\)/)
-  assert.match(main, /if \(!BrowserWindow\.getAllWindows\(\)\.some\(w => !w\.isDestroyed\(\) && w\.isVisible\(\)\)\) show\(\)/)
+  // v3: 'the app' is no longer one window. A double-click with nothing
+  // visible restores the window the user was last in, or opens a Homepage
+  // when there is none - the same routing an ordinary second launch uses.
+  assert.match(main, /if \(!BrowserWindow\.getAllWindows\(\)\.some\(w => !w\.isDestroyed\(\) && w\.isVisible\(\)\)\) void showLastUsedOrHomepage\(\)/)
+  assert.match(main, /const showLastUsedOrHomepage = async \(\) => \{/)
   assert.doesNotMatch(main, /label: 'Open Orgtree'|label: label\(\), enabled: false/)
   // the rows come from the engine's own validated fetch, per click — the
   // 5 s stats poll must not gain a full org-list parse
@@ -34,7 +38,13 @@ test('the popup is a capability-free window and selection is a cancelled navigat
   assert.match(main, /popup\.webContents\.on\('will-navigate', \(event, url\) => \{ event\.preventDefault\(\); followSelection\(url\) \}\)/)
   assert.match(main, /const slug = trayNavigationSlug\(url\)/)
   // selecting shows the app and hands the org to the renderer as an event
-  assert.match(main, /const openOrgFromTray = \(slug: string\) => \{ closeTrayPopup\(\); show\(\); broadcast\(\{ type: 'open-org', data: \{ org: slug \} \}\) \}/)
+  // ⚠ v3: selecting a row opens THAT organization's own window, or focuses
+  // it if it is already open. The v2 line showed the single window and
+  // broadcast the organization at it, which in a multi-window app is an
+  // org-specific navigation command sent to windows bound to other orgs.
+  assert.match(main, /const openOrgFromTray = \(slug: string\) => \{\s*\n\s*closeTrayPopup\(\)\s*\n\s*void requestOrgWindow\(slug, null\)/)
+  assert.doesNotMatch(main, /broadcastAll\(\{ type: 'open-org'/,
+    'an organization is never announced to every window')
   // it dismisses itself when it loses focus and dies with the app's quit
   assert.match(main, /popup\.on\('blur', \(\) => \{ if \(trayPopup === popup\) closeTrayPopup\(\) \}\)/)
   assert.match(main, /quitting = true\r?\n\s*if \(poll\) clearInterval\(poll\)\r?\n\s*trayPopupSeq\+\+; closeTrayPopup\(\)/)

@@ -300,7 +300,7 @@ test('W1: the refresh route REBUILDS a stranded window instead of calling the gu
   // foreign origin. Removing this branch (the inert-refresh mutation the
   // review reproduced) is exactly what makes this match fail.
   assert.match(main,
-    /handle\('desktop:window-refresh', async \(\) => \{[\s\S]*?if \(windowLoadRecovery\?\.isStranded\) \{[\s\S]*?await saveWindowLayout\(\)[\s\S]*?app\.relaunch\(\)[\s\S]*?app\.quit\(\)[\s\S]*?return[\s\S]*?\}[\s\S]*?if \(windowLoadRecovery\?\.isFailed\) await windowLoadRecovery\.retryNow\('user refresh'\)/,
+    /handle\('desktop:window-refresh', async caller => \{[\s\S]*?if \(caller\.loadRecovery\?\.isStranded\) \{[\s\S]*?await saveWindowLayout\(\)[\s\S]*?app\.relaunch\(\)[\s\S]*?app\.quit\(\)[\s\S]*?return[\s\S]*?\}[\s\S]*?if \(caller\.loadRecovery\?\.isFailed\) await caller\.loadRecovery\.retryNow\('user refresh'\)/,
     'stranded refresh takes the reconstruction path, checked before the retryNow branch')
   // and the reconstruction path it mirrors is still there to mirror
   assert.match(main, /else \{ await saveWindowLayout\(\); app\.relaunch\(\); app\.quit\(\) \}/,
@@ -408,14 +408,17 @@ test('index.ts attaches the window-load recovery to the main window', () => {
   // mutation that left the call in place but short-circuited it away
   // (`= undefined && attachWindowLoadRecovery(...)`), which is exactly the
   // shape a real mistake would take.
-  assert.match(main, /windowLoadRecovery = attachWindowLoadRecovery\(main\.webContents, \{/,
+  // v3: every main window gets its own recovery, kept on its own record - so
+  // an organization whose document fails to load is recovered without
+  // touching any other organization's window.
+  assert.match(main, /record\.loadRecovery = attachWindowLoadRecovery\(window\.webContents, \{/,
     'the recovery is wired to the real window, and its result is what is kept')
   assert.match(main, /import \{ attachWindowLoadRecovery/)
 })
 
 test('index.ts drives the recovery from the engine becoming ready', () => {
   const main = read('apps/desktop/main/index.ts')
-  assert.match(main, /status\.state === 'ready'\) windowLoadRecovery\?\.onEngineReady\(\)/,
+  assert.match(main, /status\.state === 'ready'\) for \(const record of records\.values\(\)\) record\.loadRecovery\?\.onEngineReady\(\)/,
     'the engine returning is what recovers the window — including for a MANAGED engine, '
     + 'which the pre-existing recoverAttached path is gated away from')
 })
