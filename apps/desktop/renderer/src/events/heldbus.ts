@@ -219,6 +219,22 @@ export function startHeldEvents(): () => void {
  * the queue, and a remount does not replay it. A redelivering bus would turn
  * one notification click into one per remount, which is a worse bug than the
  * one being fixed and a much harder one to see.
+ *
+ * ⚠ AND THE BUFFERED FLUSH GOES TO EVERY CONSUMER REGISTERED AT THAT MOMENT,
+ * not only to the one whose registration triggered it (review finding f1).
+ * The live path fans out to the whole set, and a flush that went to one
+ * consumer would work perfectly for every live event and deliver NOTHING to a
+ * second consumer on a cold start — render-order dependent, invisible to a
+ * suite whose multi-consumer tests are all live-event tests, and surfacing
+ * only in the notification-clicked-while-cold case this module exists for.
+ * Today every held type has exactly one consumer, so this changes no
+ * behaviour; it removes the trap rather than documenting it.
+ *
+ * ⚠ WHAT IS STILL TRUE, AND IS INHERENT RATHER THAN AN OVERSIGHT: a consumer
+ * registering AFTER the queue has been flushed gets nothing, because the
+ * no-replay rule above is deliberate. Fanning out at flush time makes
+ * same-commit consumers equal; it cannot make a later one retroactive without
+ * reintroducing replay.
  */
 export function onHeldEvent(type: HeldType, consumer: HeldConsumer): () => void {
   const subs = consumers.get(type) ?? new Set<HeldConsumer>()
@@ -227,9 +243,14 @@ export function onHeldEvent(type: HeldType, consumer: HeldConsumer): () => void 
   const q = waiting.get(type)
   if (q && q.length) {
     waiting.set(type, [])
+    // a copy, for the same reason dispatch takes one: a consumer that
+    // unsubscribes itself while handling must not mutate the set being walked
+    const fanout = [...subs]
     for (const event of q) {
       delivered += 1
-      try { consumer(event) } catch { /* as in dispatch */ }
+      for (const fn of fanout) {
+        try { fn(event) } catch { /* one bad consumer must not eat it for the rest */ }
+      }
     }
   }
   return () => {

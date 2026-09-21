@@ -67,11 +67,23 @@
  *  outboxes are real `windowOutbox()`s, and `record`/`token`/`setToken` read
  *  and write one per-window field each — the same shapes index.ts passes.
  *
- *  And rather than leave that as a promise, CHECK E MEASURES IT: a document
- *  loaded at a path `isAppPath` does not admit must be REFUSED, so the
- *  resolver in play is demonstrably resolving rather than waved through. A
- *  hollow registry would pass every other check in this file and fail that
- *  one.
+ *  And rather than leave that as a promise, CHECK E MEASURES IT. The reviewer
+ *  did not take my word for that either: they built two hollow registries and
+ *  ran them, and the results correct a sentence that used to stand here.
+ *
+ *    a `bySender` answering with ANY registered entry   fails E1 and E3,
+ *                                                       and PASSES E2
+ *    a `bySender` MISMAPPING a real sender to the
+ *    holder's window id                                 fails E2 outright,
+ *                                                       holding:false pending:0
+ *
+ *  ⚠ SO "A HOLLOW REGISTRY WOULD PASS EVERYTHING ELSE AND FAIL E2" WAS WRONG,
+ *  and it is the kind of sentence a later reader leans on. The cruder
+ *  hollowness is caught by E1/E3, not E2, because `resolveNativeSender`'s
+ *  frame-identity comparison refuses INDEPENDENTLY of the registry. E2 is
+ *  what catches a registry that maps a real sender to the wrong window. The
+ *  substance — that E discriminates and is not decoration — holds; the
+ *  attribution did not.
  *
  *  ⚠⚠ WHAT "THE CONSUMER RECEIVED IT" MEANS HERE, AND WHAT IT DOES NOT
  *  (multi-window-design, 2026-09-21). `useNativeNotifications` is the shipping
@@ -113,14 +125,39 @@ const log = (m: unknown) => {
   try { fs.appendFileSync(OUT + '.log', String(m) + '\n') } catch { /* best effort */ }
 }
 
-interface Check { id: string; ok: boolean; note: string; detail?: unknown }
+/** ⚠ `recording: true` MEANS THIS ROW CANNOT FAIL. F4 is written as
+ *  `check('F4', true, ...)` on purpose — it carries a MEASUREMENT of a known-
+ *  open defect, and the suite must stay green whether the reload loses the
+ *  reveal or starts receiving it. F1–F3 do assert the exercise conditions, so
+ *  the measurement is never taken on a run that missed the window.
+ *
+ *  But it means the headline count is not what it looks like, and the reviewer
+ *  was right to say so: "26 checks, 26 passing" is 25 ASSERTIONS and one
+ *  RECORDING. The summary below states both numbers so nobody reads the count
+ *  as 26 things that could have failed. */
+interface Check { id: string; ok: boolean; note: string; recording?: boolean; detail?: unknown }
 const checks: Check[] = []
 const check = (id: string, ok: boolean, note: string, detail?: unknown) => {
   checks.push({ id, ok, note, detail })
   log((ok ? 'ok   ' : 'FAIL ') + id + ' — ' + note + (detail === undefined ? '' : ' ' + JSON.stringify(detail)))
 }
+const RECORDING_ROWS = new Set(['F4'])
 const write = () => {
-  try { fs.writeFileSync(OUT, JSON.stringify({ checks }, null, 2)) } catch { /* best effort */ }
+  const assertions = checks.filter((c) => !RECORDING_ROWS.has(c.id))
+  const summary = {
+    total: checks.length,
+    assertions: assertions.length,
+    recordings: checks.length - assertions.length,
+    failing: assertions.filter((c) => !c.ok).length,
+    note: 'assertions are rows that could have failed; recordings carry a '
+      + 'measurement of a known-open defect and stay green either way',
+  }
+  try {
+    fs.writeFileSync(OUT, JSON.stringify({
+      summary,
+      checks: checks.map((c) => RECORDING_ROWS.has(c.id) ? { ...c, recording: true } : c),
+    }, null, 2))
+  } catch { /* best effort */ }
 }
 
 type Event = { type: string; data?: unknown }

@@ -84,6 +84,13 @@ if (!fs.existsSync(out)) { console.log('NO RESULT FILE'); process.exitCode = 1 }
 else {
   const result = JSON.parse(fs.readFileSync(out, 'utf8'))
   console.log(JSON.stringify(result, null, 2))
-  const failed = (result.checks ?? []).filter((c) => !c.ok)
-  process.exitCode = failed.length || !result.checks?.length ? 1 : 0
+  // ⚠ RECORDING ROWS ARE NOT ASSERTIONS. F4 carries a measurement of a
+  // known-open defect and stays green either way, so the exit status is
+  // decided by the rows that COULD have failed — and the summary prints both
+  // numbers so "26 passing" is never read as 26 things that could have.
+  const s = result.summary
+  const rows = result.checks ?? []
+  const failed = rows.filter((c) => !c.ok && !c.recording)
+  if (s) console.error(`checks ${s.total} = ${s.assertions} assertions + ${s.recordings} recording; failing ${s.failing}`)
+  process.exitCode = failed.length || !rows.length ? 1 : 0
 }

@@ -179,6 +179,51 @@ test('§2.2 one consumer throwing does not eat the event for the others', async 
   assert.deepEqual(ok, [{ org: 'studio' }])
 })
 
+test('§2.3 the buffered queue goes to the FIRST registrant, and a later one gets nothing', () => {
+  // ⚠ REVIEW FINDING f1, AND THE HONEST VERSION OF WHAT CHANGED. The reviewer
+  // found that the live path fans out to the whole subscriber set while the
+  // buffered flush handed the queue to the ONE consumer whose registration
+  // triggered it. §2.1 pins the live semantics, which is exactly what would
+  // lead someone to assume the buffered path matches.
+  //
+  // Working out how to TEST the difference is what showed its real shape:
+  // through the public API it cannot be observed. Buffering only happens when
+  // the subscriber set is EMPTY (see `dispatch`), so at the moment of a flush
+  // the set holds exactly the one consumer that just registered. The fan-out
+  // in `onHeldEvent` is therefore defensive — it removes a trap for a future
+  // reader rather than fixing a reachable bug, and saying otherwise would be
+  // claiming a fix for something no test can reach.
+  //
+  // What IS observable, and is the constraint a second consumer would hit, is
+  // pinned here.
+  clear()
+  fakeBridge([{ type: 'notification-click', data: { id: 'ask:7', org: 'studio' } }])
+  startHeldEvents()
+  const first: unknown[] = []
+  const later: unknown[] = []
+  const offFirst = onHeldEvent('notification-click', (e) => first.push(e.data))
+  assert.deepEqual(first, [{ id: 'ask:7', org: 'studio' }],
+    'the first consumer to register receives the buffered queue')
+  const offLater = onHeldEvent('notification-click', (e) => later.push(e.data))
+  assert.deepEqual(later, [],
+    'and a consumer registering AFTER the flush receives nothing — inherent, '
+    + 'not an oversight: making it retroactive means replay, and replay turns '
+    + 'one notification click into one per remount')
+  offFirst(); offLater()
+})
+
+test('§2.4 the two paths walk the same subscriber set — pinned at source', () => {
+  // the asymmetry f1 named is invisible to every behavioural test above, for
+  // the reason §2.3 explains. So it is pinned where it lives.
+  const bus = src('events/heldbus.ts')
+  assert.match(bus, /function dispatch[\s\S]{0,400}?for \(const fn of \[\.\.\.subs\]\)/,
+    'the live path fans out to the whole set')
+  assert.match(bus, /const fanout = \[\.\.\.subs\][\s\S]{0,400}?for \(const fn of fanout\)/,
+    'and so does the buffered flush, rather than calling the registering consumer alone')
+  assert.match(bus, /EVERY CONSUMER REGISTERED AT THAT MOMENT/,
+    'with the constraint stated where onHeldEvent is read')
+})
+
 // ------------------------------------------------ §3 the two drain routes
 
 test('§3 the ack route and the explicit take cannot deliver the same event twice', async () => {
