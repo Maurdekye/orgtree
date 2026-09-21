@@ -15,8 +15,9 @@
 //   E1  desk popped out → open the modal  ⇒ the native window closes, the desk
 //                                           is in the modal, and the saved row
 //                                           STILL claims open with its rect
-//   E2  close the modal                   ⇒ the window comes back, same rect,
-//                                           and the canvas slot has the desk
+//   E2  close the modal                   ⇒ the window comes back and the
+//                                           SAVED rect is preserved (not the
+//                                           native bounds — see E2b's note)
 //   E3  destination gone when it ends     ⇒ release, not restore: no window
 //                                           comes back and the row stops
 //                                           claiming one is open
@@ -174,9 +175,26 @@ async function run() {
   await wait(500)
   record('E2 closing the modal brings the WINDOW back',
     !!deskWindow(), `deskWindow=${!!deskWindow()}`)
-  record('E2b …at the rect it actually had',
+  // ⚠ WHAT THIS CHECK DOES AND DOES NOT PROVE. It compares the SAVED ROW's
+  // rect before and after, so it proves the borrow PRESERVES the saved
+  // geometry instead of clearing or recomputing it — which is the defect
+  // v3-shell-opus found in the `redock`/`open` version, where the row was
+  // cleared and the return landed at a freshly computed position. It does NOT
+  // read the native BrowserWindow's actual bounds, so it is not evidence that
+  // the window reappeared at the place the user had dragged it to. An earlier
+  // version of this check was named "at the rect it actually had", which
+  // claimed exactly that and was wrong (multi-window-design, 2026-09-21).
+  // Authoritative moved-window geometry is a COMPOSITION gate owned by native:
+  // shell's d4c8dd0 moved a real window through main's setBounds and found the
+  // WindowProxy still reporting the old geometry immediately afterwards, so
+  // distinguishing fixture timing from product behaviour there is native's to
+  // settle, not something this probe can assert.
+  record('E2b …and the SAVED rect is preserved across the borrow (not the '
+    + 'native window bounds — see the note above)',
     JSON.stringify(rectOf()) === JSON.stringify(rectBefore),
-    `after=${JSON.stringify(rectOf())} before=${JSON.stringify(rectBefore)}`)
+    `saved row after=${JSON.stringify(rectOf())} before=${JSON.stringify(rectBefore)}`
+    + ' — saved-row preservation only; actual moved-window bounds are a native'
+    + ' composition gate and are NOT measured here')
   record('E2c …and the modal is gone',
     !document.querySelector('.tempdesk-panel'), 'panel removed')
 

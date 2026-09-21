@@ -223,13 +223,20 @@ class Desks {
    * layout-effect cleanup.
    *
    * ⚠ THE NATIVE WINDOW AND THE OWNERSHIP ARE TWO DIFFERENT QUESTIONS, and
-   * fusing them leaks state. The window is ALWAYS returned: `borrow()` left the
-   * saved row `open: true` with its rect and nothing behind it, so declining to
-   * call the closure — because the destination happens to be gone — strands
-   * exactly the row the seam exists to protect. Ownership, by contrast, only
-   * goes back to a destination that is still real: still registered, and not
-   * invalidated by a generation change. A removed destination is not
-   * resurrected; `pick` then finds the desk a home by the ordinary rules.
+   * fusing them leaks state. The borrow is ALWAYS ENDED — never simply dropped
+   * — because `borrow()` left the saved row `open: true` with its rect and
+   * nothing behind it, so walking away strands exactly the row the seam exists
+   * to protect and startup would reopen a window nobody left open. But ENDED IS
+   * NOT THE SAME AS RESTORED, and this is the correction: exactly ONE of the
+   * two outcomes is used, decided by whether there is anywhere valid to go
+   * back to.
+   *
+   *   destination still registered, identity intact  ->  restore()
+   *   gone, invalidated, or mid-rename               ->  release()
+   *
+   * Never both, and never neither. Ownership follows the same test, so a
+   * removed destination is not resurrected and `pick` finds the desk a home by
+   * the ordinary rules instead (multi-window-design, 2026-09-21).
    */
   endBorrow(e: Entry) {
     const from = e.borrowedFrom
