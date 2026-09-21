@@ -54,7 +54,19 @@ test('the renderer listens for open-org and makes it the active organization', (
   const contracts = read('packages/contracts/index.ts')
   assert.match(contracts, /'main-window-shown' \| 'window-state' \| 'popout-state' \| 'open-org'/)
   const app = read('apps/desktop/renderer/src/App.tsx')
-  assert.match(app, /if \(\(event\.type as string\) !== 'open-org'\) return/)
+  // ⚠ THE SUBSCRIPTION MOVED, AND THE REASON IS THE POINT OF THIS CHECK.
+  // `open-org` is one of the four types native HOLDS until a renderer is
+  // listening, and the preload acknowledges from inside `onEvent` — so the
+  // FIRST `onEvent` in the document ends the holding, and in this renderer
+  // that is `startThemeSync()` on line 20 of main.tsx, which cares about
+  // `preferences` alone. A raw `bridge.onEvent` here subscribed AFTER the
+  // event had already been delivered to nobody. `onHeldEvent` is the shipping
+  // route (events/heldbus.ts): the bus attaches before anything else and
+  // hands the event over when this consumer registers, however much later.
+  assert.match(app, /onHeldEvent\('open-org', \(event\) => \{/,
+    'open-org is consumed through the held bus, not a raw onEvent')
+  assert.doesNotMatch(app, /\(event\.type as string\) !== 'open-org'/,
+    'and not ALSO off the bridge directly, which would double-deliver every live one')
   assert.match(app, /if \(typeof org !== 'string' \|\| !org\) return/)
   assert.match(app, /setSlug\(org\)/)
   // v3 STRENGTHENS this, it does not weaken it. Native resolves an org-scoped
