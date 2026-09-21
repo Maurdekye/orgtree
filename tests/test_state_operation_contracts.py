@@ -40,7 +40,7 @@ class ContractCoverage(unittest.TestCase):
         self.assertFalse(result["contract_coverage_complete"])
         self.assertGreater(result["summary"]["entries"]["pending"], 0)
         self.assertGreater(result["summary"]["storage"]["pending"], 0)
-        self.assertEqual(result["contracts"], 15)
+        self.assertEqual(result["contracts"], 16)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     def test_each_required_dimension_is_enforced(self):
