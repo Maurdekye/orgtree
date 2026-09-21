@@ -1511,14 +1511,25 @@ else {
      *  events for ever. Sent by the preload's `onEvent`, so EVERY renderer
      *  that uses the bridge reports it — including the v2 one, which never
      *  calls `takePendingWindowEvents`. */
-    ipcMain.on('desktop:events-listening', event => {
+    // ⚠ THE TOKEN IS THE SECOND CALLBACK ARGUMENT, and that is not a style
+    // choice. `ipcMain.on` delivers what the renderer sent as the listener's
+    // trailing arguments — `(event, ...args)` — and an `IpcMainEvent` has NO
+    // `args` property at all, neither in the typings nor at runtime. Reading
+    // one off the event yields `undefined`, which this handler's own guard
+    // then correctly rejects, so the acknowledgement silently stops
+    // acknowledging and every held event waits for a take that a renderer
+    // using only `onEvent` never makes. Measured against real Electron 44 in
+    // tests/multi-window-native.probe.ts, which sends from a real renderer
+    // and pins both halves: `'args' in event === false`, and the token
+    // arriving second.
+    ipcMain.on('desktop:events-listening', (event, token: unknown) => {
       try {
         const entry = resolveNativeSender(event as unknown as Parameters<typeof resolveNativeSender>[0], windows, engine.origin)
         const record = records.get(entry.id)
         // ⚠ ONLY THE DOCUMENT CURRENTLY SHOWING MAY END THE HOLDING. A
         // message from one on its way out would unhold the queue on the
         // strength of a listener that no longer exists.
-        if (record && currentDocument(record, (event as unknown as { args?: unknown[] }).args?.[0])) deliverHeld(record)
+        if (record && currentDocument(record, token)) deliverHeld(record)
       } catch { /* an untrusted sender is refused exactly as everywhere else */ }
     })
     ipcMain.on('desktop:window-identity-sync', event => {

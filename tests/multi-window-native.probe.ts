@@ -21,7 +21,7 @@
  *
  *  Nothing here starts an engine, loads a document, touches user data or shows
  *  a window. The windows are created hidden and destroyed at the end. */
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, ipcMain } from 'electron'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -236,6 +236,73 @@ app.whenReady().then(async () => {
   // pinned in tests/multi-window-wiring.test.mjs instead, and what needed real
   // Electron — which event fires, on which navigation — is settled above.
   navigating.destroy()
+
+  // ⚠⚠ THE ACKNOWLEDGEMENT HANDLER ITSELF, EXERCISED RATHER THAN MODELLED.
+  // Everything above stands the announcement in for a real one, which proves
+  // the RULE and says nothing about whether the token ever REACHES it. It did
+  // not. The handler read the token off `event.args[0]`; an `IpcMainEvent` has
+  // no `args` property in the typings or at runtime, so the guard was handed
+  // `undefined`, correctly judged every document stale, and the
+  // acknowledgement quietly stopped acknowledging. Held events then waited for
+  // a `takePendingWindowEvents` that a renderer using only `onEvent` - the v2
+  // one included - never makes. A modelled handler cannot catch that, because
+  // the model is where the mistake is not. So this one goes through a real
+  // preload, a real `ipcRenderer.send` and a real `ipcMain.on`.
+  const ackPreload = path.join(profile, 'ack-preload.js')
+  fs.writeFileSync(ackPreload, [
+    "const { ipcRenderer } = require('electron')",
+    // the real preload's shape: announce synchronously, keep the token private
+    "const announced = ipcRenderer.sendSync('probe:identity-sync')",
+    // a stale token first, so the refusal is observed before the delivery
+    "ipcRenderer.send('probe:events-listening', 'A-TOKEN-FROM-NOWHERE')",
+    "ipcRenderer.send('probe:events-listening', announced.token)",
+  ].join('\n'))
+
+  let minted = ''
+  ipcMain.on('probe:identity-sync', event => {
+    minted = `document-${event.sender.id}`
+    event.returnValue = { identity: null, token: minted }
+  })
+  const real = windowOutbox<{ type: string; data?: unknown }>({ hold: type => type === 'open-org' })
+  real.offer({ type: 'open-org', data: 'waiting-for-a-real-renderer' })
+  const delivered: unknown[] = []
+  const observed: { hasArgs: boolean; eventArgs: unknown; second: unknown }[] = []
+  // EXACTLY index.ts's shape, including the argument position under test.
+  ipcMain.on('probe:events-listening', (event, token: unknown) => {
+    observed.push({
+      hasArgs: 'args' in (event as unknown as object),
+      eventArgs: (event as unknown as { args?: unknown }).args,
+      second: token,
+    })
+    if (typeof token === 'string' && !!token && token === minted) delivered.push(...real.drain())
+  })
+
+  const bothArrived = new Promise<void>(resolve => {
+    const tick = setInterval(() => { if (observed.length >= 2) { clearInterval(tick); resolve() } }, 10)
+  })
+  const acking = new BrowserWindow({ show: false, width: 400, height: 300,
+    webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, preload: ackPreload } })
+  await acking.loadURL('data:text/html,<title>ack</title>')
+  await bothArrived
+
+  // ⚠ THE NEGATIVE CONTROL, and the whole reason this section exists: there is
+  // no `args` on the event, so any handler reading one is reading `undefined`.
+  assert.equal(observed.length, 2, 'both sends arrived, in order')
+  for (const row of observed) {
+    assert.equal(row.hasArgs, false, 'an IpcMainEvent carries no `args` property')
+    assert.equal(row.eventArgs, undefined, 'and reading one yields undefined, which no token can equal')
+  }
+  // and the value the renderer sent is the SECOND callback argument
+  assert.equal(observed[0].second, 'A-TOKEN-FROM-NOWHERE')
+  assert.equal(observed[1].second, minted)
+  assert.ok(minted.startsWith('document-'), 'the synchronous announcement really answered')
+
+  // end to end: a stale token delivers nothing, the current one delivers once
+  assert.deepEqual(delivered.map(e => (e as { data?: unknown }).data), ['waiting-for-a-real-renderer'],
+    'the held event reached the renderer through the acknowledgement alone - no take, no timer')
+  assert.equal(real.holding(), false, 'and the window is live from here')
+  assert.equal(real.pending(), 0)
+  acking.destroy()
 
   for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed()) window.destroy()
   console.log('MULTI_WINDOW_NATIVE_PASS')

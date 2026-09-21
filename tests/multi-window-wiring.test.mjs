@@ -248,6 +248,20 @@ test('events that cannot be asked for again are held until there is somewhere to
   assert.match(listening, /if \(record && currentDocument\(record, /,
     'the acknowledgement is accepted only from the document currently showing')
 
+  // ⚠ AND THE TOKEN IS READ FROM THE PLACE ELECTRON ACTUALLY PUTS IT. This
+  // handler once read `event.args[0]`; `ipcMain.on` delivers a renderer's
+  // arguments as the listener's TRAILING PARAMETERS, and an IpcMainEvent has
+  // no `args` property at all — so the guard above was handed `undefined`,
+  // correctly judged every document stale, and the acknowledgement silently
+  // stopped acknowledging. Held events then waited for a take that a renderer
+  // using only `onEvent` never makes. Measured against real Electron in
+  // tests/multi-window-native.probe.ts, which sends from a real preload.
+  assert.match(listening, /ipcMain\.on\('desktop:events-listening', \(event, token: unknown\) =>/,
+    'the token is the second callback argument, which is where it arrives')
+  assert.doesNotMatch(listening, /\.args/, 'and never read off the event, where it does not exist')
+  assert.doesNotMatch(main, /as unknown as \{ args\?: unknown\[\] \}/,
+    'no handler anywhere invents an `args` property on an IPC event')
+
   // ⚠ AND THE EVIDENCE IS PER-DOCUMENT. A listener belongs to a document, so a
   // navigation destroys the very thing that proved somebody was there — while
   // the outbox lives on the window and outlives every document it shows.
