@@ -38,8 +38,8 @@ operation-contracts.json uses schema orgtree.state-operation-contracts/v1.
 | Part | Checked requirement |
 |---|---|
 | source_inventory_sha256 | SHA256 of canonical UTF-8 JSON for the full current inventory; sorted keys, compact separators, unescaped Unicode. Whole-module hashes invalidate helper changes, including unrecognized registrations. |
-| entries | Exactly one disposition for each of the 311 inventoried registration sites. Pending, mapped or source-backed exclusion. HTTP/WS/tool entries cannot be excluded as false positives. |
-| dispatch | Exactly one disposition for each of the 225 selector witnesses. A branch is evidence, not another operation. |
+| entries | Exactly one disposition for each of the 314 inventoried registration sites. Pending, mapped or source-backed exclusion. HTTP/WS/tool entries cannot be excluded as false positives. |
+| dispatch | Exactly one disposition for each of the 226 selector witnesses. A branch is evidence, not another operation. |
 | storage | Exactly one disposition for each of the 15 connection candidates. Unknown sockets/factories remain visible. |
 | contracts | Source-entry bindings, optional tool/action selector, explicit argument normalization and conditional variant, domain mode and all nine dimensions. |
 | facets | Source-span-bound assertions for authority, reads, writes, predicates, conflicts, wire, receipt, effects and instrumentation. An unresolved facet requires concrete open questions. |
@@ -105,11 +105,18 @@ diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
 Current totals are 16 contracts, seven mapped registrations and 31 mapped
-dispatch witnesses. **600 obligations remain**: 304 registrations, 194 dispatch
+dispatch witnesses. **604 obligations remain**: 307 registrations, 195 dispatch
 witnesses, 15 storage candidates and 87 unresolved dimension occurrences.
-That is two more registrations than the preceding 598 because the scanner now
+That was two more registrations than the preceding 598 because the scanner now
 recognizes `asyncio.to_thread` hand-offs; both new witnesses are pending and no
 existing witness identity, disposition or contract changed.
+It is four more than that 600 because the P02-A1 attempt census adds three
+operator HTTP routes under `/api/diagnostics/operation-census` and one
+`body.tool` dispatch branch for the agent read door. All four new witnesses are
+pending with no contracts and no source evidence, the contract count is
+unchanged at 16, and no carried witness changed its disposition, its reason or
+the contracts it binds. 141 witness identities were rebound and 521 source spans
+relocated because `api.py` grew; each carries its own proof.
 This is not a runtime operation count or progress percentage. See the separate
 family documents for their measurements and remaining obligations.
 

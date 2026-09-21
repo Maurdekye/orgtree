@@ -280,9 +280,14 @@ def b():
         baseline = json.loads((ROOT / "docs/state-system/operation-inventory.json")
                               .read_text(encoding="utf-8"))
         summary = baseline["summary"]
-        self.assertEqual(summary["registration_sites"], 311)
+        # 311 -> 314: P02-A1 adds three operator HTTP routes,
+        # GET/POST /api/diagnostics/operation-census and
+        # POST /api/diagnostics/operation-census/reset.
+        self.assertEqual(summary["registration_sites"], 314)
         self.assertEqual(summary["registration_kinds"]["task"], 12)
-        self.assertEqual(summary["dispatch_selector_sites"], 225)
+        # 225 -> 226: P02-A1 adds one `body.tool == "orgtree_operation_census"`
+        # branch in api.agent_call, routing the agent read door.
+        self.assertEqual(summary["dispatch_selector_sites"], 226)
         self.assertEqual(summary["connection_sites"], 15)
         self.assertEqual([(r["source"]["path"], r["source"]["symbol"], r["target"])
                           for r in baseline["registrations"]

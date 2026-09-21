@@ -88,6 +88,7 @@ from . import registry
 from . import refs
 from . import deployment
 from . import frozen_install
+from . import census
 from . import profiling
 from . import workitems
 from . import workevidence
@@ -229,8 +230,16 @@ _PROFILE_TOOL_FIELD = "tool"
 #:                           normally unwraps it to the verb it carries, and
 #:                           this entry only covers a wrapper that arrives
 #:                           carrying nothing usable
+#:   orgtree_operation_census  the agent-side read door to the operation
+#:                           census (`_census_agent_payload`) — dispatchable
+#:                           but deliberately NOT advertised in the catalogue,
+#:                           for the same reason as the two above and one
+#:                           more: every entry in `mcptool.TOOLS` is part of
+#:                           every agent's system prompt, so advertising a
+#:                           diagnostics verb changes that prefix for the
+#:                           whole organization
 _PROFILE_EXTRA_TOOL_VERBS = ("orgtree_send_file_once", "orgtree_self_update",
-                             "orgtree_op_call")
+                             "orgtree_op_call", "orgtree_operation_census")
 #: Built once, lazily: `mcptool` is imported inside functions everywhere else
 #: in this module and there is no reason for this to be the one thing that
 #: drags it into import time. Derived FROM the catalogue rather than retyped,
@@ -428,6 +437,16 @@ class AccessRecord:
         # modules and have no request to ask. Bound here, on the
         # OUTERMOST middleware, so the whole stack is inside the window.
         profile_token = profiling.bind(profile)
+        # The census's own per-request slot: what the dispatch learns about
+        # WHICH operation this is (tool, action, target shape) and any scope a
+        # handler declares. A SEPARATE ContextVar from `profiling`'s on
+        # purpose — the census must not change what the shipped instrument
+        # emits, and sharing its dict would put census keys into
+        # `profiling.snapshot` and therefore into `_PROFILE_RECORDS`.
+        # Always bound, like the profile dict above: one empty dict, thrown
+        # away if nothing uses it, so a handler can classify without knowing
+        # whether capture is on.
+        census_token = census.bind()
         # storage-boundary attribution (stateprobe): the label must be the
         # route TEMPLATE, which exists only after routing — so it is resolved
         # lazily at record time, and the concrete path can never leak into a
@@ -463,6 +482,22 @@ class AccessRecord:
                 _access_emit(scope, status, handler_ms, total_ms, nbytes, depth, profile)
             except Exception:                                   # noqa: BLE001
                 pass      # a log line may never be the reason a request fails
+            # EVERY ATTEMPTED OPERATION, not only the slow ones and not only
+            # while a toggle is on — that bias is the whole reason the census
+            # exists. In the same `finally`, so a handler that RAISED is
+            # censused exactly as one that returned: a failed operation is as
+            # much an operation as a successful one, and it is the one an
+            # outcome census must not lose. `census.observe` swallows and
+            # COUNTS its own errors, so no second guard is needed here.
+            #
+            # ⚠ `handler_ms` MAY STILL BE THE `-1.0` SENTINEL ABOVE. It is
+            # passed through unchanged rather than patched here: `census`
+            # treats a negative handler duration as "no response start", which
+            # keeps the rule in the sink that has to honour it and works for
+            # every caller, not only this one.
+            census.observe(str(scope.get("method") or "?"), _route_label(scope),
+                           status, handler_ms, total_ms, nbytes, depth, profile)
+            census.unbind(census_token)
             if profile_token is not None:
                 # After the emit, so anything the emit itself touches is still
                 # inside the window, and unconditional so a raising handler
@@ -628,6 +663,59 @@ class ProfileTimingControl(BaseModel):
     enabled: bool
 
 
+#: Agent-side read limit for the census. Smaller than the operator route's
+#: ceiling because an agent's result travels back through a tool response.
+_CENSUS_AGENT_MAX = 2000
+
+
+def _census_agent_payload(a: "dict[str, Any]") -> dict[str, Any]:
+    """The census, for an authenticated agent, WITHOUT the desktop token.
+
+    ⚠ THIS IS THE READ HALF OF A DELIBERATELY SPLIT PERMISSION, and the split
+    is the point (census work item, decision seq 2; the absorbed item
+    `the-profile-timing-instrument-is-on-main-but-no` asked for exactly this).
+    The shipped timing instrument and its two siblings sit behind the desktop
+    token, which lives only in the Electron main process's memory and is never
+    handed to an agent — so an agent asked to diagnose a slow write could not
+    reach the instrument built for that and had to construct its own harness
+    first. This verb is the supported door.
+
+    ⚠ AND IT READS ONLY. It accepts `n` and nothing else: there is no argument
+    here that could enable or disable capture, and none is silently tolerated
+    — an agent that sends `enabled` gets `ignored_arguments` naming it back
+    and a process whose capture state is exactly what it was. Turning capture
+    on changes behaviour for every caller in the process at once, which is an
+    operator act; it lives on `POST /api/diagnostics/operation-census` behind
+    `_profile_operator_only` AND behind `launch.TokenGate`, which refuses an
+    agent credential on that path at transport before any dependency runs.
+
+    WHY ANY LIVE AGENT MAY READ IT. The payload is identifier-free BY
+    MECHANISM, not by promise (see `census._build`): route templates, finite
+    numbers or nulls under a closed allowlist, and members of catalogue or
+    census-local enums — and route templates carry no organization identifier,
+    so a reader cannot even attribute a record to an org. What an agent learns
+    is the process-wide shape of work, which is the thing the census exists to
+    produce. Recorded as a decision on the work item rather than left as an
+    accident of which route was chosen.
+    """
+    try:
+        want = int(a.get("n", _CENSUS_AGENT_MAX))
+    except (TypeError, ValueError):
+        want = _CENSUS_AGENT_MAX
+    payload = census.snapshot(limit=max(0, min(want, _CENSUS_AGENT_MAX)))
+    # Named back rather than ignored in silence: `enabled` is the argument an
+    # agent would most plausibly try, and answering it with a plain snapshot
+    # would read as "accepted" to a caller that never checks.
+    extra = sorted(k for k in a if k not in ("n",))
+    if extra:
+        payload["ignored_arguments"] = extra
+        payload["control_note"] = (
+            "read-only verb: capture is toggled only by the host operator "
+            "through POST /api/diagnostics/operation-census. Nothing was "
+            "changed.")
+    return payload
+
+
 def _profile_operator_only(request: Request) -> None:
     state = request.scope.get("state") or {}
     if state.get("public_slug") or state.get("bridge_slug"):
@@ -702,6 +790,75 @@ def slow_requests(n: int = 200) -> dict[str, Any]:
     rows = slowtrace.tail(max(1, min(int(n), 2000)))
     return {"threshold_ms": slowtrace.THRESHOLD_MS, "path": slowtrace.path(),
             "rows": rows, "rankings": slowtrace.rankings(rows)}
+
+
+@app.get("/api/diagnostics/operation-census",
+         dependencies=[Depends(_profile_operator_only)])
+def operation_census(n: int = 2000) -> dict[str, Any]:
+    """The all-operation census (`census`) — the OPERATOR's door to it.
+
+    Agents reach the same snapshot through the `orgtree_operation_census`
+    verb on the authenticated agent gateway and need no desktop token; see
+    `_census_agent_payload`. The two doors return the same payload from the
+    same function, so a record an agent can see is one an operator can see and
+    there is no second projection to keep in step.
+
+    ⚠ READ `counters.observed` BEFORE ANY LATENCY HERE. It advances on every
+    request the middleware saw, capture on or off, so a window in which it did
+    not move is a window in which nothing ran — and the timings describe
+    nothing. `evicted` is published twice, once as the counter kept at append
+    time and once as `evicted_derived`, recomputed from the oldest surviving
+    sequence number; they must agree.
+
+    ⚠ AND READ `limits` AND `provenance` BEFORE DRAWING A PROPORTION. One row
+    is one HTTP ATTEMPT, not one logical operation; `scope` is a table or a
+    route shape, never an observed storage contact; and this GET is itself
+    excluded from the ring, counted in `counters.skipped_self`, so polling it
+    does not inflate the denominator it reports.
+    """
+    return census.snapshot(limit=max(0, min(int(n), 20000)))
+
+
+@app.post("/api/diagnostics/operation-census",
+          dependencies=[Depends(_profile_operator_only)])
+def operation_census_control(body: ProfileTimingControl) -> dict[str, Any]:
+    """Enable or disable census capture in this running process, and nothing
+    else can.
+
+    ⚠ TWO SEPARATE PERMISSIONS, AND THIS IS THE NARROW ONE (census work item,
+    decision seq 2). Reading records is a smaller grant than changing process
+    behaviour for every caller at once, so they are not the same grant:
+    reading is open to any live authenticated agent through the gateway verb,
+    while the toggle lives HERE, behind `_profile_operator_only`, and is
+    reachable through no agent-dispatchable verb at all. `orgtree_operation_census`
+    takes no argument that could enable or disable anything, and
+    `test_operation_census` proves an agent passing `enabled` changes nothing.
+
+    ⚠ THE DEPENDENCY IS THE SECOND GATE, NOT THE FIRST. `launch.TokenGate`
+    requires the desktop token on every path except `POST /api/agent` and the
+    node-steer routes, so an agent credential presented straight to this route
+    is refused 401 AT TRANSPORT before any dependency runs.
+    `test_operation_census` proves that through a real request, because a
+    change to that allowlist would otherwise break the real boundary with the
+    dependency still wired and the suite still green.
+    """
+    return census.set_enabled(body.enabled)
+
+
+@app.post("/api/diagnostics/operation-census/reset",
+          dependencies=[Depends(_profile_operator_only)])
+def operation_census_reset() -> dict[str, Any]:
+    """Start a clean capture window: empty the ring, zero the counters,
+    restart the clock and open a new window generation. Operator-only for the
+    same reason the toggle is — discarding the window another reader is
+    mid-way through measuring is a process-wide effect, not a private one.
+
+    The generation is what makes this safe against an `observe` already in
+    flight: a record built against the previous window is dropped at append
+    and counted in `counters.dropped_stale_window` rather than landing here
+    with a foreign clock origin."""
+    census.reset()
+    return census.snapshot(limit=0)
 
 
 @app.put("/api/desktop/profile-timing", dependencies=[Depends(_profile_operator_only)])
@@ -10714,13 +10871,46 @@ async def _agent_call_route(body: AgentCall, request: Request) -> dict[str, Any]
     # calls. Unvalidated here on purpose: `_access_emit` checks it against
     # the tool catalogue at the point of publication and drops anything else.
     profiling.label(_PROFILE_TOOL_FIELD, toolwait.tool_name(body))
+    # THE SAME VERB, classified for the census — and this is where the census
+    # earns its keep. The line above gives the shipped instrument a tool name
+    # and nothing else, which is why `orgtree_work` arrives as 176 rows under
+    # one label mixing a plain `get` with a spanning `assign`, and why
+    # `orgtree_status` cannot say whether it was the self-local `working` or
+    # the parent-notifying `done`. `census.classify` reads the ACTION and the
+    # target SHAPE out of the arguments — membership in a catalogue enum and a
+    # comparison against the caller, nothing else, with no organization state
+    # loaded and no argument value retained. Beside the label rather than
+    # inside it, so the shipped record is unchanged byte for byte.
+    # ⚠ THE ARGUMENTS MUST BE UNWRAPPED THE SAME WAY THE VERB IS. A keyed call
+    # arrives as `orgtree_op_call` carrying the real call in `args["args"]`
+    # (see `_op_unwrap`), and `toolwait.tool_name` already reports the verb it
+    # WRAPS. Classifying the wrapper's own arguments against the inner verb's
+    # catalogue would find no action at all and quietly file every
+    # receipt-bearing call as unclassified — the exact silent gap this ticket
+    # exists to close, reintroduced one level in.
+    _census_args = body.args if isinstance(body.args, dict) else {}
+    if body.tool == OP_CALL and isinstance(_census_args.get("args"), dict):
+        _census_args = _census_args["args"]
+    census.classify(toolwait.tool_name(body), _census_args, body.node)
     if body.node != USER and toolwait.tool_name(body) in toolwait.TOOLS:
         from fastapi.concurrency import run_in_threadpool
 
         def managed():
             caller = _agent_identity(body, request, durable=True)
             return toolwait.invoke(body, caller, lambda: agent_call(body, request))
-        return await run_in_threadpool(managed)
+        managed_result = await run_in_threadpool(managed)
+        # ⚠ HTTP 200 IS NOT THIS OPERATION'S OUTCOME WHEN toolwait YIELDED.
+        # After `WAIT_S` seconds `toolwait.invoke` answers `{"state":
+        # "running"}` while its daemon thread carries on and delivers the real
+        # result — including a refusal — later as durable mail. Without this
+        # line the census would record such an attempt as `outcome: "ok"`, a
+        # completion that had not happened, for the eight
+        # `mcptool.MANAGED_WAIT_TOOLS`. The census marks it NON-TERMINAL
+        # instead; the `operation_id` that would join this attempt to its
+        # completion is deliberately not recorded, because it is an identifier
+        # and causal linkage is a later stage.
+        census.managed_state(managed_result)
+        return managed_result
     if body.tool == 'orgtree_read_transcript':
         return await _run_chat_read(agent_call, body, request)
     from fastapi.concurrency import run_in_threadpool
@@ -10872,7 +11062,7 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
             raise HTTPException(422, 'Desktop maintenance waits for idle; force is unavailable')
         return _forced_self_restart(body, a)
     if body.tool in ("orgtree_state_inspect", "orgtree_capabilities",
-                     "orgtree_preview"):
+                     "orgtree_preview", "orgtree_operation_census"):
         # These diagnostics deliberately share the authenticated agent gateway
         # with every other MCP call.  They never save the loaded document and
         # never call a supervisor/provider side-effect path.
@@ -10892,6 +11082,8 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                     include_archived=_arg_flag(a, "include_archived"))
             if body.tool == "orgtree_capabilities":
                 return _agent_capability_payload(org, body.node)
+            if body.tool == "orgtree_operation_census":
+                return _census_agent_payload(a)
             operation = str(a.get("operation") or "").removeprefix("orgtree_")
             if operation not in _AGENT_PREVIEW_OPS:
                 raise LedgerError(
