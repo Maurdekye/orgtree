@@ -34,6 +34,14 @@ export function useOpenOrgs(): ReadonlySet<string> {
     const bridge = desktop()
     if (!bridge?.openOrgs) return
     let alive = true
+    // ⚠ THE INITIAL READ MUST NOT OVERWRITE A NEWER EVENT. `openOrgs()` is a
+    // promise and `open-orgs` is a broadcast, so a window that binds while
+    // the first read is still in flight delivers the newer truth FIRST and
+    // the older answer lands on top of it. A revision counter bumped by the
+    // event is the idiom this codebase already uses for exactly this race
+    // (agentcolors.tsx, contrast.tsx, themes.tsx, notifications.ts); this is
+    // the same shape, not a new one.
+    let revision = 0
     const adopt = (value: unknown) => {
       const rows = readList(value)
       if (!alive || !rows) return
@@ -44,9 +52,12 @@ export function useOpenOrgs(): ReadonlySet<string> {
         return new Set(rows)
       })
     }
-    bridge.openOrgs().then(adopt).catch(() => { /* rows stay unlabelled */ })
+    const initial = revision
+    bridge.openOrgs()
+      .then((rows) => { if (initial === revision) adopt(rows) })
+      .catch(() => { /* rows stay unlabelled */ })
     const off = bridge.onEvent((e) => {
-      if ((e.type as string) === 'open-orgs') adopt(e.data)
+      if ((e.type as string) === 'open-orgs') { revision++; adopt(e.data) }
     })
     return () => { alive = false; off() }
   }, [])

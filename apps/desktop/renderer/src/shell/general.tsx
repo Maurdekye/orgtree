@@ -36,10 +36,19 @@ export function useNativePreferences(): {
     const bridge = desktop()
     if (!bridge) return
     let alive = true
-    bridge.getPreferences().then((p) => { if (alive) setPrefs(p) }).catch(() => {})
+    // ⚠ A NEWER BROADCAST MUST WIN OVER AN OLDER READ. `getPreferences()` is
+    // a promise; a `preferences` broadcast that arrives while it is in flight
+    // carries the NEWER value, and without this guard the older read lands on
+    // top and the window silently shows a preference the user has just
+    // changed elsewhere. Same revision idiom as agentcolors/contrast/themes.
+    let revision = 0
     const off = bridge.onEvent((e) => {
-      if (e.type === 'preferences' && alive) setPrefs(e.data as NativePreferences)
+      if (e.type === 'preferences' && alive) { revision++; setPrefs(e.data as NativePreferences) }
     })
+    const initial = revision
+    bridge.getPreferences()
+      .then((p) => { if (alive && initial === revision) setPrefs(p) })
+      .catch(() => {})
     return () => { alive = false; off() }
   }, [])
   const save = async (patch: Partial<NativePreferences>) => {

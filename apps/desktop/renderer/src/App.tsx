@@ -653,10 +653,18 @@ export default function App() {
     const bridge = desktop()
     if (!bridge) return
     let alive = true
-    bridge.getPreferences().then(p => { if (alive) setDeskPrefs(p) }).catch(() => {})
+    // ⚠ A NEWER BROADCAST MUST WIN OVER AN OLDER READ — see the same guard in
+    // agentcolors.tsx, contrast.tsx and themes.tsx. Without it a `preferences`
+    // event arriving while the initial read is in flight is overwritten by the
+    // older value, and the first-run gate below decides on stale state.
+    let revision = 0
     const unsubscribe = bridge.onEvent(e => {
-      if (e.type === 'preferences' && alive) setDeskPrefs(e.data as NativePreferences)
+      if (e.type === 'preferences' && alive) { revision++; setDeskPrefs(e.data as NativePreferences) }
     })
+    const initial = revision
+    bridge.getPreferences()
+      .then(p => { if (alive && initial === revision) setDeskPrefs(p) })
+      .catch(() => {})
     return () => { alive = false; unsubscribe() }
   }, [])
   // G1b — ONE TREE FETCH IN FLIGHT, AND NEVER A LOST ONE.
