@@ -1,0 +1,403 @@
+/* shell.css — the v3 desktop shell's own stylesheet.
+ *
+ * SEPARATE FROM styles.css ON PURPOSE. The v3 shell work runs beside the
+ * canonical desk/card/canvas work in another worktree, and styles.css is the
+ * file both of them would otherwise be editing at once. Everything the shell
+ * adds lives here; nothing here redefines a shared rule, so removing this one
+ * import returns the app to exactly today's appearance.
+ *
+ * Loaded AFTER styles.css (see main.tsx) so a shell rule can layer over a
+ * shared one without !important when it genuinely has to.
+ */
+
+/* ------------------------------------------------- organization list status
+ *
+ * `show-current-organization-statuses-immediately`. The row markup is in
+ * App.tsx's OrgRows; these are the two states it can be in when its numbers
+ * are not current. Both are deliberately QUIET — the list is still perfectly
+ * usable for navigation while its counts are catching up, and an alarm colour
+ * on an ordinary three-second refresh would cry wolf. */
+
+.org-freshness {
+  padding: 2px 8px 6px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* the ellipsis standing in for counts we have not got yet. Same tabular
+ * column as a real count, so nothing shifts when the number arrives. */
+.org-counts-loading {
+  opacity: .55;
+  font-variant-numeric: tabular-nums;
+}
+
+/* numbers we still have but can no longer vouch for. Dotted underline rather
+ * than a colour: it marks the claim as provisional without competing with the
+ * error colours that mean something is actually wrong. */
+.org-counts-stale {
+  opacity: .7;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--dim);
+}
+
+/* --------------------------------------------------- App settings: General
+ *
+ * The startup choice is a two-option radio group rather than a switch: both
+ * options are ordinary, neither is an "off", and each needs its own sentence
+ * of explanation. Cards rather than bare radios so the sentence belongs
+ * visibly to its option. */
+
+.shell-startup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.shell-startup-choice {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  grid-template-areas: 'radio label' '.     hint';
+  gap: 2px 10px;
+  align-items: baseline;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.shell-startup-choice:hover { border-color: var(--line-hover); }
+
+.shell-startup-choice.current {
+  border-color: var(--org-accent);
+  background: var(--org-accent-soft);
+}
+
+.shell-startup-choice input { grid-area: radio; margin: 0; }
+.shell-startup-label { grid-area: label; color: var(--ink-strong); }
+.shell-startup-hint { grid-area: hint; font-size: 12px; line-height: 1.45; }
+
+.shell-about { display: flex; flex-direction: column; gap: 4px; }
+.shell-about-row { font-size: 12px; line-height: 1.6; }
+
+/* "Already open" beside an organization whose window exists elsewhere —
+ * selecting it focuses that window instead of binding this one. */
+.org-open-badge {
+  margin-left: 6px;
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 10px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+/* ===================================================== the v3 compact shell
+ *
+ * The header, the four views' pages, and the bottom status strip. Nothing
+ * here overrides a shared rule: every selector is a `shell-` class that
+ * exists only in these components, so removing this block's import returns
+ * the app to the sidebar shell exactly as it stands on main.
+ */
+
+/* ------------------------------------------------------------- the header */
+
+.shell-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding: 0 0 0 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--side);
+  /* the width question is asked of THIS BAR, not of the screen: an org window
+   * and a Homepage window can be different widths at the same moment */
+  container-type: inline-size;
+  container-name: shellheader;
+}
+
+.shell-header-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  /* the whole bar is a drag region in the native shell; the controls inside
+   * re-enable pointer interaction for themselves */
+  -webkit-app-region: drag;
+}
+
+.shell-header-main button,
+.shell-header-main input,
+.shell-header-main [role='menuitem'],
+.shell-header-main [role='radio'] { -webkit-app-region: no-drag; }
+
+.shell-header-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-strong);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.shell-header-gap { flex: 1; min-width: 8px; }
+
+.shell-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+
+/* one direct action button: icon, then its word */
+.shell-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: none;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.shell-action:hover { background: var(--panel); border-color: var(--line); }
+.shell-action.u-warn { color: var(--warn); }
+.shell-action.u-bad { color: var(--bad); }
+
+/* ⚠ THE LABEL IS HIDDEN, NEVER REMOVED. `aria-label` carries the same words
+ * at every width, so a narrow window is narrower to look at and identical to
+ * a screen reader. */
+@container shellheader (max-width: 860px) {
+  .shell-action-label { display: none; }
+  .shell-header-actions { gap: 0; }
+}
+
+/* the same treatment for the two existing icon buttons that opt into a word */
+.shell-header-actions .iconbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  padding: 5px 8px;
+}
+
+/* ------------------------------------------- the Canvas/Attention toggle */
+
+.shell-modes {
+  display: inline-flex;
+  flex: none;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg);
+}
+
+.shell-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--dim);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.shell-mode:hover { color: var(--ink); }
+
+.shell-mode.on {
+  background: var(--org-accent);
+  color: var(--accent-ink);
+}
+
+.shell-mode-count {
+  padding: 0 5px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, .25);
+  font-size: 11px;
+}
+
+/* the honest placeholder while the Attention view itself is elsewhere */
+.shell-mode-pending {
+  flex: none;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--dim);
+  font-size: 12px;
+}
+
+/* --------------------------------------------------------- the app menu */
+
+.shell-menu { position: relative; flex: none; }
+
+.shell-menu-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--ink-strong);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.shell-menu-button:hover { border-color: var(--line-hover); }
+
+.shell-menu-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 60;
+  min-width: 260px;
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.shell-menu-group {
+  padding: 8px 10px 4px;
+  color: var(--dim);
+  font-size: 10px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.shell-menu-item,
+.shell-menu-org {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--ink);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.shell-menu-item:hover,
+.shell-menu-org:hover,
+.shell-menu-item:focus-visible,
+.shell-menu-org:focus-visible { background: var(--input); outline: none; }
+
+.shell-menu-org.current { color: var(--org-accent); }
+.shell-menu-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shell-menu-value { flex: none; font-size: 11px; font-variant-numeric: tabular-nums; }
+.shell-menu-sep { margin: 4px 6px; border-top: 1px solid var(--line-soft); }
+.shell-menu-orgs { margin: 2px 0 6px; padding-left: 10px; border-left: 1px solid var(--line-soft); }
+
+.shell-menu-filter {
+  width: calc(100% - 12px);
+  margin: 4px 6px 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--input);
+  color: var(--ink);
+  font-size: 12px;
+}
+
+/* -------------------------------------------- the Homepage / Create pages */
+
+.shell-window { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.shell-page { flex: 1; min-height: 0; overflow-y: auto; }
+
+.shell-page-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 36px 24px 48px;
+}
+
+.shell-page-eyebrow {
+  color: var(--org-accent);
+  font-size: 10px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.shell-page-title { margin: 0; font-size: 26px; font-weight: 600; color: var(--ink-strong); }
+
+.shell-page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.shell-create-btn { flex: none; }
+
+.shell-homepage-filter,
+.shell-create-name {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--input);
+  color: var(--ink-strong);
+  font-size: 14px;
+}
+
+.shell-homepage-list { display: flex; flex-direction: column; }
+.shell-create-lede { margin: 0; font-size: 13px; line-height: 1.5; }
+.shell-create-error { margin-top: 4px; }
+.shell-create-actions { justify-content: flex-end; margin-top: 8px; }
+
+/* --------------------------------------------- the bottom status strip */
+
+.shell-statusbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  padding: 4px 10px;
+  border-top: 1px solid var(--line);
+  background: var(--side);
+  font-size: 11px;
+}
+
+/* the chips are the part that yields at narrow widths… */
+.shell-statusbar-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.shell-statusbar-chips::-webkit-scrollbar { display: none; }
+
+/* …and the actionable error keeps its seat, because an error scrolled off
+ * the end of a row nobody scrolls is an error nobody reads */
+.shell-statusbar-error {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+}
