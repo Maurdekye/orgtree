@@ -11,10 +11,13 @@ import { WindowPlacement } from './window-placement'
 import { configureTaskbar } from './taskbar'
 import { allowPrereleaseUpdates, desktopIdentity, readBuildChannel } from './build-channel'
 import { closeAction, HARNESS_LINKS, validateDataRoot } from './policy'
-import { assertNativeSender, configureArtifactSession, configureEngineSession, configureWindow, popoutRegistry, revealPopout } from './windows'
+import { configureArtifactSession, configureEngineSession, configureWindow, popoutRegistry, revealPopout } from './windows'
+import { openOrg, orgWindowRegistry, resolveNativeSender, type OrgWindowEntry } from './org-windows'
+import { HOMEPAGE_KEY, OrgPlacement, orgOfKey, placementKey } from './org-placement'
+import type { OrgOpenOutcome, OrgWindowKind } from '../../../packages/contracts/desktop-window'
 import { detectHarnesses } from './harnesses'
 import { NativeNotifications, anyOrgtreeWindowFocused } from './notifications'
-import { TaskbarAttention, attentionIdentities } from './taskbar-attention'
+import { TaskbarAttention, attentionPayload } from './taskbar-attention'
 import { NOTIFICATION_OPTIONS } from '../../../packages/contracts/notifications'
 import { MaintenanceController } from './maintenance'
 import { awaitInstallerProof, bounded, checkForUpdatesViaEvents, installerLogTail, installDirectoryWritable, installDownloadedUpdate, MANUAL_UPGRADE_URL, pendingUpdateHold, prepareAndHandOff, refreshTrayUpdateMenu, sanitizeUpdateDetail, uninstallRegistryGuid, updateAttemptFailed, updateFailureDialogOptions, updateFailureToReport, UPDATE_DEADLINES, UpdateController, UpdateLog, updateLogger, updateReplacementInFlight, updateWatchdogMs } from './updater'
@@ -92,10 +95,65 @@ else if (installerUpgradeRequested) {
   })
 }
 else {
-  let main: BrowserWindow | undefined, tray: Tray | undefined, preferences: Preferences
+  let tray: Tray | undefined, preferences: Preferences
+  // ------------------------------------------------------- the main windows
+  // ⚠ v2 KEPT ONE `main` HERE, and that single window was the unstated
+  // subject of every native sentence in this file: the sender gate compared
+  // against it, `broadcast` sent to it, the window commands minimized and
+  // closed it, and one popout registry served the whole application because
+  // there was only one window to own popouts. v3 has one main window per
+  // organization plus unbound Homepage and Create windows, so each of those
+  // has to name a window. `windows` answers WHICH; `records` holds the
+  // per-window native state that used to be module-scoped.
+  const windows = orgWindowRegistry<BrowserWindow, DesktopEvent>()
+  interface MainWindowRecord {
+    id: string
+    window: BrowserWindow
+    /** This window's OWN popouts. A frame name from one organization's window
+     *  must never resolve against another's. */
+    popouts: ReturnType<typeof popoutRegistry<BrowserWindow>>
+    /** The popped-out windows it owns, so closing it closes them and nothing
+     *  else. popoutRegistry is keyed by frame name and a name may be reused,
+     *  so ownership is tracked separately from addressability. */
+    owned: Set<BrowserWindow>
+    loadRecovery?: WindowLoadRecovery
+    /** Set while this window is closing its own popouts, so their state
+     *  events say the parent took them rather than the user. */
+    tearingDown: boolean
+    restoreMaximized: boolean
+    placementKey?: string
+  }
+  const records = new Map<string, MainWindowRecord>()
+  // Assigned once the engine session exists, because a window cannot be built
+  // before the session that signs its requests. Everything above that point
+  // reaches them through these, which is why they are declared here.
+  let createMainWindow: ((opts: { kind: OrgWindowKind; org?: string }) => Promise<MainWindowRecord>) | undefined
+  let requestOrgWindow: (org: unknown, callerId: string | null) => Promise<OrgOpenOutcome>
+    = async () => ({ action: 'refused', org: '', reason: 'unknown-window' })
+  let adoptIdentity: (record: MainWindowRecord) => void = () => {}
+  /** ⚠ THE CONFIRMATION A DELIBERATE CLOSE, A QUIT AND A RESTART ALL USE
+   *  (user ruling 2026-09-21). One wording, one button order, one place: a
+   *  discard prompt that differs between routes is how two of them end up
+   *  with different defaults. Index 0 discards, index 1 keeps - and `cancelId`
+   *  makes Escape and the window's own X mean KEEP, because the dangerous
+   *  answer must never be the one you get by dismissing the question. */
+  const CREATION_DISCARD_DIALOG = {
+    type: 'warning' as const,
+    message: 'Discard this new organization?',
+    detail: 'The details you have entered have not been saved and will be lost.',
+    buttons: ['Discard', 'Keep editing'],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+  }
   let trayMenu: Menu | undefined
   let trayMenuOpen = false
   let quitting = false, quitComplete = false, downloaded = false, updateApplying = false
+  /** The discard confirmation has been answered for this shutdown, or a
+   *  shutdown that must not stop to ask (an update install, an installer
+   *  upgrade) set it. `quitPrompting` stops a second Quit stacking prompts
+   *  while the first is on screen. */
+  let quitConfirmed = false, quitPrompting = false
   let installerUpgradeShutdown = false, installerUpgradePending = false, engineReady = false
   // Set once an automatic attempt is refused before anything is disturbed, so
   // the 5s poll neither retries it forever nor re-probes the filesystem.
@@ -177,17 +235,23 @@ else {
   // The renderer owns provider discovery. This ephemeral value mirrors its
   // effective theme for native tray/taskbar/window icons and is never persisted.
   let effectiveTheme: VisualTheme | undefined
-  let placement: WindowPlacement | undefined, restoreMaximized = false
-  const savePlacement = () => { if (main && placement && !restoreMaximized) { try { placement.capture(main) } catch (error) { console.warn("Window position could not be saved", error) } } }
+  let placement: OrgPlacement | undefined
+  /** Geometry only. Whether a window should REOPEN next launch is a separate
+   *  fact, recorded when it is opened and when the user closes it. */
+  const savePlacement = (record: MainWindowRecord) => {
+    if (!placement || !record.placementKey || record.restoreMaximized) return
+    try { placement.captureWindow(record.placementKey, record.window) }
+    catch (error) { console.warn("Window position could not be saved", error) }
+  }
   let restoreWindows = !process.argv.includes('--background')
-  const windowState = () => ({
-    visible: !!main && !main.isDestroyed() && main.isVisible(),
+  const windowState = (record?: MainWindowRecord) => ({
+    visible: !!record && !record.window.isDestroyed() && record.window.isVisible(),
     restoreWindows,
   })
-  const windowControlsState = () => ({
-    ...windowState(),
-    minimized: !!main && !main.isDestroyed() && main.isMinimized(),
-    maximized: !!main && !main.isDestroyed() && main.isMaximized(),
+  const windowControlsState = (record?: MainWindowRecord) => ({
+    ...windowState(record),
+    minimized: !!record && !record.window.isDestroyed() && record.window.isMinimized(),
+    maximized: !!record && !record.window.isDestroyed() && record.window.isMaximized(),
   })
   const engine = new Engine()
   // Native image readers and Windows shell integration cannot reliably read
@@ -232,14 +296,82 @@ else {
   }
   const notifications = new NativeNotifications(
     data => new Notification({ title: data.title, body: data.body }),
-    data => { show(); broadcast({ type: 'notification-click', data }) },
+    // ⚠ TARGETED, NOT BROADCAST. A notification belongs to one organization,
+    // so its reveal goes to that organization's own window and nowhere else -
+    // a window bound to a different organization must never be handed another
+    // one's navigation command. When that window does not exist yet the reveal
+    // is HELD rather than dropped, and delivered the moment it does.
+    data => { void revealOrgItem(data.org, { type: 'notification-click', data }) },
     () => anyOrgtreeWindowFocused(BrowserWindow.getAllWindows()))
   // The taskbar's own attention behaviour, driven by the same cross-org
   // projection as the in-app dot so the two indicators cannot disagree.
-  const taskbarAttention = new TaskbarAttention(() => main)
-  const show = () => { if (main && !main.isDestroyed()) { restoreWindows = true; main.show(); if (main.isMinimized()) main.restore(); if (restoreMaximized) { restoreMaximized = false; main.maximize() }; main.focus(); broadcast({ type: 'main-window-shown', data: windowState() }) } }
-  const broadcast = (event: DesktopEvent) => { if (main && !main.isDestroyed()) main.webContents.send('desktop:event', event) }
-  const publishWindowState = () => broadcast({ type: 'window-state', data: windowControlsState() })
+  //
+  // ⚠ THE PULSE BELONGS TO THE ORGANIZATION THAT OWNS THE ITEM (user ruling
+  // 2026-09-21, relayed through coordinator-sol). An item in organization A
+  // flashes A's own window; only when A has no window open does it fall back
+  // to the last-used main window. Every main window is never flashed, and the
+  // pulse deliberately does NOT follow the window holding the app-wide
+  // notification duties - that window is chosen by registration order, which
+  // has nothing to do with where this item lives.
+  //
+  // ⚠ ROUTED FROM THE CANONICAL ORGANIZATION IDENTITY. `byOrg` validates the
+  // slug and answers from the registry's own record of which window is bound
+  // to it. No window id from the renderer is consulted, here or anywhere: one
+  // supplied by a caller would let an organization aim another's taskbar.
+  const taskbarAttention = new TaskbarAttention(org => {
+    const bound = org ? windows.byOrg(org) : undefined
+    const record = bound ? records.get(bound.id) : undefined
+    return (record ?? lastUsed())?.window
+  })
+  /** Put a window in front of the user. See revealPopout for why restoring a
+   *  minimized window must come first. */
+  const revealWindow = (record: MainWindowRecord) => {
+    if (record.window.isDestroyed()) return
+    restoreWindows = true
+    record.window.show()
+    if (record.window.isMinimized()) record.window.restore()
+    if (record.restoreMaximized) { record.restoreMaximized = false; record.window.maximize() }
+    record.window.focus()
+    windows.activate(record.id)
+    sendTo(record.id, { type: 'main-window-shown', data: windowState(record) })
+  }
+  const lastUsed = () => { const entry = windows.lastActivated(); return entry ? records.get(entry.id) : undefined }
+  const openOrgs = () => windows.list().filter(entry => entry.kind === 'org' && entry.org).map(entry => entry.org as string)
+  /** The set changed: a window bound itself, opened or closed. App-wide,
+   *  because every Homepage shows the same list. */
+  const publishOpenOrgs = () => broadcastAll({ type: 'open-orgs', data: openOrgs() })
+  /** WHAT THE TRAY'S DOUBLE-CLICK AND A SECOND INSTANCE MEAN NOW: restore the
+   *  window the user was last in, or open a Homepage when there is none. */
+  const showLastUsedOrHomepage = async () => {
+    const record = lastUsed()
+    if (record) { revealWindow(record); return }
+    const created = await createMainWindow?.({ kind: 'homepage' })
+    if (created) revealWindow(created)
+  }
+  /** ⚠ ONE WINDOW, NAMED. Every org-specific event goes through here. */
+  const sendTo = (id: string, event: DesktopEvent) => {
+    const record = records.get(id)
+    if (record && !record.window.isDestroyed()) record.window.webContents.send('desktop:event', event)
+  }
+  /** App-wide facts only - engine status, preferences, the updater. Anything
+   *  naming an organization or a window belongs to sendTo. */
+  const broadcastAll = (event: DesktopEvent) => { for (const id of records.keys()) sendTo(id, event) }
+  const publishWindowState = (record: MainWindowRecord) =>
+    sendTo(record.id, { type: 'window-state', data: windowControlsState(record) })
+  /** Reveal an item in its organization's own window, opening or focusing that
+   *  window first. The event is queued if the window is still being built, so
+   *  a notification clicked during a cold open is not lost. */
+  const revealOrgItem = async (org: unknown, event: DesktopEvent) => {
+    const target = windows.queueReveal(org, event)
+    if (target) {
+      const record = records.get(target.id)
+      if (record) { revealWindow(record); sendTo(record.id, event) }
+      return
+    }
+    await requestOrgWindow(org, null).catch((error: unknown) => {
+      console.warn('An organization window could not be opened for a notification', error)
+    })
+  }
   // n/m active/hired (user spec 2026-09-10) — the same two counts every org
   // row shows, summed: totalAgents is currently HIRED agents (launch.py).
   const label = () => stats ? `${stats.activeAgents} active / ${stats.totalAgents} hired` : `Engine ${engine.status.state}`
@@ -256,7 +388,15 @@ else {
     trayPopup = undefined
     if (popup && !popup.isDestroyed()) popup.destroy()
   }
-  const openOrgFromTray = (slug: string) => { closeTrayPopup(); show(); broadcast({ type: 'open-org', data: { org: slug } }) }
+  // ⚠ NOT A BROADCAST ANY MORE. v2 showed the one window and shouted the
+  // organization at it. Selecting a row now opens that organization's own
+  // window, or focuses it if it is already open, and tells nobody else.
+  const openOrgFromTray = (slug: string) => {
+    closeTrayPopup()
+    void requestOrgWindow(slug, null).catch((error: unknown) => {
+      console.warn('The organization could not be opened from the tray', error)
+    })
+  }
   const showTrayList = async (anchor: Electron.Rectangle) => {
     const seq = ++trayPopupSeq
     // fetched per click, not cached from the poll: the list must say what is
@@ -304,7 +444,7 @@ else {
     effectiveTheme = undefined
     const next = preferences.set(patch); loginPreference(); rebuildTray()
     notifications.configure(next)
-    broadcast({ type: 'preferences', data: next }); return next
+    broadcastAll({ type: 'preferences', data: next }); return next
   }
   const setEffectiveTheme = (value: unknown) => {
     if (!isVisualTheme(value)) throw new Error('Unknown visual theme')
@@ -433,14 +573,50 @@ else {
     refreshTrayEngine()
     tray.setContextMenu(trayMenu)
   }
-  const handle = (channel: string, handler: (...args: unknown[]) => unknown) => ipcMain.handle(channel, (event, ...args: unknown[]) => { assertNativeSender(event, main, engine.origin); return handler(...args) })
-  // Window commands for popped-out desks and modals; see popoutRegistry.
-  const popouts = popoutRegistry<BrowserWindow>(state => broadcast({ type: 'popout-state', data: state }))
+  /** ⚠ THE SENDER IS RESOLVED, NOT MERELY ASSERTED. v2 asked "is this the
+   *  one window?"; v3 asks "WHICH window is this?", refuses on exactly the
+   *  same grounds plus one - it must be a REGISTERED main window - and hands
+   *  the answer to the handler. Every window command then acts on its caller.
+   *
+   *  ⚠ AND THE CALLER IS NEVER AN ARGUMENT. A window id passed from the
+   *  renderer is chosen by the renderer, so trusting one would let an
+   *  organization's bridge command another organization's window. */
+  const handle = (channel: string, handler: (caller: MainWindowRecord, ...args: unknown[]) => unknown) =>
+    ipcMain.handle(channel, (event, ...args: unknown[]) => {
+      const entry = resolveNativeSender(event, windows, engine.origin)
+      const record = records.get(entry.id)
+      if (!record) throw new Error('Native operation refused for this document')
+      return handler(record, ...args)
+    })
+  /** An app-wide command whose answer does not depend on which window asked -
+   *  preferences, engine status, the updater, provider sign-in. The sender is
+   *  still resolved and still refused on the same terms; only the caller is
+   *  unused. */
+  const handleApp = (channel: string, handler: (...args: unknown[]) => unknown) =>
+    handle(channel, (_caller, ...args) => handler(...args))
+  /** ⚠ OWNER-ONLY, and the gate is on the WRITE rather than on the wake.
+   *  The renderer polls the cross-organization projection on mount, on a
+   *  preference change and on a live bump, none of which native triggers - so
+   *  choosing who receives `notification-poll` cannot enforce a single writer.
+   *  These three CAN be: the taskbar aggregate is last-writer-wins, the alert
+   *  reconciliation tells the OS which notifications should still exist, and
+   *  dispatch dedupes through a store shared across windows. Asking at the
+   *  moment of the write is also what refuses a former owner's in-flight
+   *  aggregate arriving after the duty has moved. */
+  const handleOwner = (channel: string, handler: (...args: unknown[]) => unknown) =>
+    handle(channel, (caller, ...args) => {
+      if (!windows.isNotificationOwner(caller.id)) return undefined
+      return handler(...args)
+    })
   const saveWindowLayout = async () => {
-    savePlacement()
-    if (main && !main.isDestroyed()) {
-      try { await main.webContents.executeJavaScript('window.dispatchEvent(new Event("orgtree:before-exit"))') } catch { /* Crashed renderer cannot save layout. */ }
-    }
+    // EVERY window, not one: each has its own position, and each renderer has
+    // its own layout to flush. A crashed renderer simply does not answer.
+    await Promise.all([...records.values()].map(async record => {
+      savePlacement(record)
+      if (record.window.isDestroyed()) return
+      try { await record.window.webContents.executeJavaScript('window.dispatchEvent(new Event("orgtree:before-exit"))') }
+      catch { /* Crashed renderer cannot save layout. */ }
+    }))
   }
   /** The installer sends a second-instance control request. Keep this path
    * separate from the ordinary Quit handler: that handler may force-kill a
@@ -456,6 +632,7 @@ else {
     }
     installerUpgradePending = false
     installerUpgradeShutdown = true
+    quitConfirmed = true
     updateLog.record('installer-upgrade-began')
     try {
       await bounded(saveWindowLayout(), UPDATE_DEADLINES.layoutMs)
@@ -684,8 +861,9 @@ else {
     // a flag that stops it persisting layout. Nothing was going to take that
     // back, so a window that survived an abandoned update stopped saving its
     // position for the rest of the session.
-    if (main && !main.isDestroyed()) {
-      void main.webContents.executeJavaScript('window.dispatchEvent(new Event("orgtree:exit-cancelled"))').catch(() => {})
+    for (const record of records.values()) {
+      if (record.window.isDestroyed()) continue
+      void record.window.webContents.executeJavaScript('window.dispatchEvent(new Event("orgtree:exit-cancelled"))').catch(() => {})
     }
     void dialog.showMessageBox({ type: 'error', message, detail }).catch(() => {})
   }
@@ -780,6 +958,19 @@ else {
     if (!engine.managed) { await engine.stopAttachedForUpdate(); updateLog.record('engine-stopped', 'attached boot engine confirmed stopped') }
     if (quitting) return
     quitting = true
+    // ⚠ NOT ASKED HERE. An update install and an installer upgrade are
+    // shutdowns the user has already approved, and they are bounded end to
+    // end precisely because a dialog in the middle of them is what wedges the
+    // app at "Installing update...". Unfinished creation drafts are discarded
+    // on this path; the deliberate-close and ordinary-Quit routes are the ones
+    // that confirm.
+    quitConfirmed = true
+    try {
+      placement?.beginShutdown([...records.values()]
+        .filter(record => !record.window.isDestroyed())
+        .map(record => record.placementKey)
+        .filter((key): key is string => !!key))
+    } catch (error) { console.warn('The open windows could not be recorded', error) }
     if (poll) clearInterval(poll)
     // Every step from here is bounded and recorded by prepareAndHandOff, which
     // is driven end to end in tests precisely because this is the window that
@@ -1053,7 +1244,7 @@ else {
       // engine-issued maintenance flow (restart/update-on-request), a separate
       // state vocabulary ('pending', 'failure-record-unavailable', ...) that a
       // renderer listening for UpdateStatus must never be handed.
-      broadcast({ type: 'maintenance', data: { state } })
+      broadcastAll({ type: 'maintenance', data: { state } })
       if (state === 'failed' || state === 'failure-record-unavailable') {
         void dialog.showMessageBox({ type: 'error', message: 'Orgtree maintenance did not complete.',
           detail: state === 'failed' ? 'The request failed and will not be executed again automatically. Automatic update application is paused until a new update request. Reopen Orgtree if its engine stopped.'
@@ -1083,7 +1274,7 @@ else {
       // already prepared. Either way nothing is installable until it finishes,
       // and the old file is already gone.
       if (status.state === 'downloading') downloaded = false
-      broadcast({ type: 'update', data: status }); refreshTrayUpdates()
+      broadcastAll({ type: 'update', data: status }); refreshTrayUpdates()
     },
   })
   // Explicit Quit/update already persisted layout and requests engine shutdown.
@@ -1096,9 +1287,12 @@ else {
     // request. It reaches the primary instance, whose dedicated refusal-safe
     // lifecycle stops the engine and persists layout before exit.
     if (hasInstallerUpgradeRequest(commandLine)) { void requestInstallerUpgradeShutdown(); return }
-    show()
+    // An ordinary second launch is the user asking for the application they
+    // already have: restore what they were last in, exactly as a tray
+    // double-click does, rather than picking a window arbitrarily.
+    void showLastUsedOrHomepage()
   })
-  app.on('activate', show)
+  app.on('activate', () => { void showLastUsedOrHomepage() })
   app.on('window-all-closed', () => { /* Tray/main remain alive by default. */ })
   // ---------------------------------------------------- console signals
   // A CONSOLE CLOSING MUST NOT KILL THIS PROCESS COLD (user report: closing a
@@ -1136,12 +1330,68 @@ else {
     } catch { /* a platform without this signal simply has no handler */ }
   }
 
+  /** ⚠ A GRACEFUL QUIT OWES AN UNFINISHED CREATION FORM A QUESTION (user
+   *  ruling 2026-09-21), and Cancel aborts the WHOLE quit rather than sparing
+   *  one window. Asked one window at a time, each prompt parented to the
+   *  window whose work is at stake, because "discard the thing you were
+   *  typing" is unanswerable without seeing which thing.
+   *
+   *  A window that already has its own close confirmation on screen makes the
+   *  quit stand down instead of asking twice: two prompts for one draft let
+   *  two answers race, and the standing one is the question the user is
+   *  already looking at.
+   *
+   *  Resolves true when the shutdown may proceed. */
+  const confirmDiscardBeforeQuit = async (): Promise<boolean> => {
+    const gate = windows.quitCreationGate()
+    if (gate.action === 'proceed') return true
+    if (gate.action === 'busy') return false
+    for (const id of gate.windowIds) {
+      const record = records.get(id)
+      if (!record || record.window.isDestroyed()) continue
+      if (windows.beginClose(id) !== 'confirm') return false
+      let discard = false
+      try {
+        const { response } = await dialog.showMessageBox(record.window, CREATION_DISCARD_DIALOG)
+        discard = response === 0
+      } catch { discard = false }
+      windows.settleClose(id, discard)
+      // One refusal ends the shutdown. Every window still standing keeps its
+      // draft, and nothing that was already confirmed is acted on either -
+      // confirming a discard records the intent, it does not close anything.
+      if (!discard) return false
+    }
+    return true
+  }
   app.on('before-quit', event => {
     if (quitComplete) return
     if (installerUpgradeShutdown) { event.preventDefault(); return }
     event.preventDefault()
     if (quitting) return
+    if (!quitConfirmed) {
+      // Asked before `quitting` latches, so a declined quit leaves the
+      // application in exactly the state it was in rather than half torn down.
+      if (quitPrompting) return
+      quitPrompting = true
+      void confirmDiscardBeforeQuit().then(proceed => {
+        quitPrompting = false
+        if (!proceed) return
+        quitConfirmed = true
+        app.quit()
+      }).catch(() => { quitPrompting = false })
+      return
+    }
     quitting = true
+    // ⚠ CAPTURED BEFORE ANYTHING IS TORN DOWN, and it latches: teardown
+    // closes every window, and if those closes counted as the user closing
+    // them the reopen set would be emptied and the next launch would restore
+    // nothing at all.
+    try {
+      placement?.beginShutdown([...records.values()]
+        .filter(record => !record.window.isDestroyed())
+        .map(record => record.placementKey)
+        .filter((key): key is string => !!key))
+    } catch (error) { console.warn('The open windows could not be recorded', error) }
     if (poll) clearInterval(poll)
     trayPopupSeq++; closeTrayPopup()
     // ⚠ a login left running when the app quits must not become an orphan
@@ -1177,21 +1427,57 @@ else {
     tray.on('double-click', () => {
       trayPopupSeq++; closeTrayPopup()
       // A hidden main window is retained in the tray; visible popouts count too.
-      if (!BrowserWindow.getAllWindows().some(w => !w.isDestroyed() && w.isVisible())) show()
+      if (!BrowserWindow.getAllWindows().some(w => !w.isDestroyed() && w.isVisible())) void showLastUsedOrHomepage()
     })
     rebuildTray()
-    handle('desktop:status', () => engine.status)
-    handle('desktop:app-version', () => app.getVersion())
-    handle('desktop:install-update', () => requestUpdateInstall())
-    handle('desktop:window-state', () => windowState())
-    handle('desktop:window-controls-state', () => windowControlsState())
-    handle('desktop:window-minimize', () => { main?.minimize() })
-    handle('desktop:window-toggle-maximize', () => {
-      if (!main) return
-      if (main.isMaximized()) main.unmaximize(); else main.maximize()
+    handleApp('desktop:status', () => engine.status)
+    handleApp('desktop:app-version', () => app.getVersion())
+    handleApp('desktop:install-update', () => requestUpdateInstall())
+    handle('desktop:window-state', caller => windowState(caller))
+    handle('desktop:window-controls-state', caller => windowControlsState(caller))
+    // ⚠ THE CALLER, ALWAYS. These used to act on the one window; a window
+    // control that reached any window but its own would be a control one
+    // organization holds over another.
+    handle('desktop:window-minimize', caller => { caller.window.minimize() })
+    handle('desktop:window-toggle-maximize', caller => {
+      if (caller.window.isMaximized()) caller.window.unmaximize(); else caller.window.maximize()
     })
-    handle('desktop:window-close', () => { main?.close() })
-    handle('desktop:window-refresh', async () => {
+    handle('desktop:window-close', caller => { caller.window.close() })
+    /** This window's own identity. Resolved SYNCHRONOUSLY because the shell
+     *  derives its whole view from it and a promise makes the window paint the
+     *  wrong one for a frame; the preload asks before it exposes the bridge. */
+    ipcMain.on('desktop:window-identity-sync', event => {
+      try {
+        const entry = resolveNativeSender(event as unknown as Parameters<typeof resolveNativeSender>[0], windows, engine.origin)
+        event.returnValue = windows.identity(entry.id) ?? null
+      } catch { event.returnValue = null }
+    })
+    handle('desktop:window-identity', caller => windows.identity(caller.id) ?? null)
+    handle('desktop:open-homepage-window', async () => {
+      const created = await createMainWindow?.({ kind: 'homepage' })
+      if (created) revealWindow(created)
+      return created ? windows.identity(created.id) ?? null : null
+    })
+    /** ALWAYS a separate new window, including from a Homepage. */
+    handle('desktop:open-create-window', async () => {
+      const created = await createMainWindow?.({ kind: 'create' })
+      if (created) revealWindow(created)
+      return created ? windows.identity(created.id) ?? null : null
+    })
+    handle('desktop:request-org', (caller, org) => requestOrgWindow(org, caller.id))
+    handle('desktop:bind-created-org', (caller, org) => {
+      const decision = windows.bindCreated(caller.id, org)
+      if (decision.action !== 'bound') return decision
+      adoptIdentity(caller)
+      return { action: 'bound', windowId: caller.id, org: decision.org } as OrgOpenOutcome
+    })
+    handle('desktop:set-unsaved-creation', (caller, dirty) => { windows.setUnsavedCreation(caller.id, dirty === true) })
+    /** Which organizations currently hold a window, so a Homepage can say
+     *  so before the row is clicked. Read-only and app-wide: the answer is
+     *  the same in every window, and it names organizations rather than
+     *  windows, so it hands out no way to address one. */
+    handleApp('desktop:open-orgs', () => openOrgs())
+    handle('desktop:window-refresh', async caller => {
       // ⚠ STRANDED IS NOT MERELY FAILED (review W1, 2026-09-20). Once the
       // engine has moved, retryNow refuses to act — the preload origin is
       // baked into the window's launch arguments, and re-pointing the window
@@ -1201,46 +1487,50 @@ else {
       // the changed-origin engine recovery already takes: persist the
       // layout, then relaunch so the fresh process bakes the new origin into
       // a fresh window. Nothing here navigates the current window anywhere.
-      if (windowLoadRecovery?.isStranded) {
+      if (caller.loadRecovery?.isStranded) {
         await saveWindowLayout()
         app.relaunch()
         app.quit()
         return
       }
-      if (windowLoadRecovery?.isFailed) await windowLoadRecovery.retryNow('user refresh')
-      else if (main && !main.isDestroyed()) main.webContents.reload()
+      if (caller.loadRecovery?.isFailed) await caller.loadRecovery.retryNow('user refresh')
+      else if (!caller.window.isDestroyed()) caller.window.webContents.reload()
     })
     // Deliberately NOT the desktop:window-* handlers above: those act on the
     // main window, and a popout's controls must never reach it.
-    handle('desktop:popout-state', name => typeof name === 'string' ? popouts.state(name) : null)
-    handle('desktop:popout-minimize', name => { popouts.window(name)?.minimize() })
-    handle('desktop:popout-toggle-maximize', name => {
-      const window = popouts.window(name)
+    // ⚠ THE CALLER'S OWN REGISTRY. v2 had one app-wide map keyed by frame
+    // name alone, so the same name from any window resolved to the same
+    // popout - one organization's bridge could minimize or close another's.
+    // Per-window registries make that structurally impossible.
+    handle('desktop:popout-state', (caller, name) => typeof name === 'string' ? caller.popouts.state(name) : null)
+    handle('desktop:popout-minimize', (caller, name) => { caller.popouts.window(name)?.minimize() })
+    handle('desktop:popout-toggle-maximize', (caller, name) => {
+      const window = caller.popouts.window(name)
       if (!window) return
       if (window.isMaximized()) window.unmaximize(); else window.maximize()
     })
-    handle('desktop:popout-close', name => { popouts.window(name)?.close() })
+    handle('desktop:popout-close', (caller, name) => { caller.popouts.window(name)?.close() })
     // "Show desk"/"Show window" on a popped-out surface's placeholder, and
     // (2026-09-14) a presentation card whose document is already in one of
     // these windows. See revealPopout for why the order matters.
-    handle('desktop:popout-focus', name => { revealPopout(popouts.window(name)) })
-    handle('desktop:preferences', () => preferences.get())
-    handle('desktop:set-preferences', value => setPreferences(value))
-    handle('desktop:set-effective-theme', value => setEffectiveTheme(value))
-    handle('desktop:show', () => show())
-    handle('desktop:quit', () => { app.quit() })
-    handle('desktop:harnesses', () => detectHarnesses())
-    handle('desktop:notify', value => {
+    handle('desktop:popout-focus', (caller, name) => { revealPopout(caller.popouts.window(name)) })
+    handleApp('desktop:preferences', () => preferences.get())
+    handleApp('desktop:set-preferences', value => setPreferences(value))
+    handleApp('desktop:set-effective-theme', value => setEffectiveTheme(value))
+    handle('desktop:show', caller => revealWindow(caller))
+    handleApp('desktop:quit', () => { app.quit() })
+    handleApp('desktop:harnesses', () => detectHarnesses())
+    handleOwner('desktop:notify', value => {
       if (!Notification.isSupported()) return false
       return notifications.notify(value, preferences.get())
     })
-    handle('desktop:sync-notifications', value => notifications.sync(value))
-    handle('desktop:pending-attention', value => { taskbarAttention.set(attentionIdentities(value)) })
-    handle('desktop:open-harness', id => {
+    handleOwner('desktop:sync-notifications', value => notifications.sync(value))
+    handleOwner('desktop:pending-attention', (ids, items) => { taskbarAttention.set(attentionPayload(ids, items)) })
+    handleApp('desktop:open-harness', id => {
       if (typeof id !== 'string' || !Object.hasOwn(HARNESS_LINKS, id)) throw new Error('Unknown harness')
       return shell.openExternal(HARNESS_LINKS[id as keyof typeof HARNESS_LINKS])
     })
-    handle('desktop:open-charter-folder', async () => {
+    handleApp('desktop:open-charter-folder', async () => {
       const dir = path.join(os.homedir(), '.orgtree', 'charters')
       try {
         if (fs.existsSync(dir)) {
@@ -1273,7 +1563,7 @@ else {
     // `showItemInFolder` selects the file in the OS file manager and can
     // launch nothing. Swapping it for a launcher reverses a decision the user
     // made on that argument; it is not an implementation detail.
-    handle('desktop:reveal-file', value => {
+    handleApp('desktop:reveal-file', value => {
       if (typeof value !== 'string' || !value) return { ok: false, error: 'No path given' }
       const target = path.normalize(value)
       // absolute only: a relative path here has no meaningful base, and
@@ -1287,14 +1577,14 @@ else {
       shell.showItemInFolder(target)
       return { ok: true }
     })
-    handle('desktop:update-status', () => updater.current())
-    handle('desktop:update-capability', () => ({ unattendedInstall: canInstallUnattended(), installDirectory: installDirectory() }))
-    handle('desktop:check-for-updates', () => checkForUpdates())
+    handleApp('desktop:update-status', () => updater.current())
+    handleApp('desktop:update-capability', () => ({ unattendedInstall: canInstallUnattended(), installDirectory: installDirectory() }))
+    handleApp('desktop:check-for-updates', () => checkForUpdates())
     // Provider sign-in (D-231): the child spawn lives ONLY in this process —
-    // see providerlogin.ts's module docstring for why. `assertNativeSender`
-    // (via `handle` above) already keeps this off any surface but the app's
+    // see providerlogin.ts's module docstring for why. `resolveNativeSender`
+    // (via `handleApp` above) already keeps this off any surface but the app's
     // own authoritative renderer, same as every other native control here.
-    handle('desktop:provider-login-start', (provider, opts) => {
+    handleApp('desktop:provider-login-start', (provider, opts) => {
       // multi-account: the optional {profileDir, accountId} pair rides to
       // the login spawn; only these two string fields pass, nothing else
       const o = (opts && typeof opts === 'object') ? opts as Record<string, unknown> : {}
@@ -1303,13 +1593,13 @@ else {
         accountId: typeof o.accountId === 'string' ? o.accountId : undefined,
       })
     })
-    handle('desktop:provider-login-status', provider => getProviderLoginStatus(asLoginProvider(provider)))
-    handle('desktop:provider-login-code', (provider, code) => {
+    handleApp('desktop:provider-login-status', provider => getProviderLoginStatus(asLoginProvider(provider)))
+    handleApp('desktop:provider-login-code', (provider, code) => {
       if (typeof code !== 'string') throw new Error('code must be a string')
       return submitProviderLoginCode(asLoginProvider(provider), code)
     })
-    handle('desktop:provider-login-cancel', provider => cancelProviderLogin(asLoginProvider(provider)))
-    engine.on('status', status => { broadcast({ type: 'engine-status', data: status }); stats = null; rebuildTray() })
+    handleApp('desktop:provider-login-cancel', provider => cancelProviderLogin(asLoginProvider(provider)))
+    engine.on('status', status => { broadcastAll({ type: 'engine-status', data: status }); stats = null; rebuildTray() })
     // ⚠ BROADCASTING IS NOT ENOUGH WHEN THE WINDOW HAS NO DOCUMENT. The renderer
     // is what would normally react to the status above, and after a failed load
     // there is no renderer listening — which is precisely the state this exists
@@ -1319,7 +1609,7 @@ else {
     // A SECOND listener rather than a line inside the first: the tray's
     // rebuild-on-every-status-change is pinned by tests as a single expression,
     // and window recovery has no business being interleaved with it.
-    engine.on('status', status => { if (status.state === 'ready') windowLoadRecovery?.onEngineReady() })
+    engine.on('status', status => { if (status.state === 'ready') for (const record of records.values()) record.loadRecovery?.onEngineReady() })
     const base = app.isPackaged ? process.resourcesPath : app.getAppPath()
     const directory = path.join(base, 'engine')
     try {
@@ -1369,90 +1659,244 @@ else {
         viewer.webContents.on('will-redirect', event => event.preventDefault())
         void viewer.loadURL(url).catch(() => viewer.destroy())
       }
-      placement = new WindowPlacement(path.join(app.getPath('userData'), 'window-state.json'))
-      const savedPlacement = placement.restore(screen.getAllDisplays().map(display => display.workArea))
-      restoreMaximized = savedPlacement?.maximized ?? false
-      main = new BrowserWindow({ width: 1400, height: 900, ...savedPlacement?.bounds, minWidth: 640, minHeight: 480, frame: false, show: false, icon: iconPath, autoHideMenuBar: true,
-        webPreferences: { session: browserSession, preload: path.join(__dirname, '../preload/index.cjs'), contextIsolation: true,
-          sandbox: true, nodeIntegration: false, webviewTag: false, additionalArguments: [`--orgtree-ui-origin=${initialOrigin}`] } })
-      main.setIcon(runtimeIcon())
-      main.on('moved', savePlacement)
-      main.on('resized', savePlacement)
-      main.on('maximize', savePlacement)
-      main.on('unmaximize', savePlacement)
-      main.on('maximize', publishWindowState)
-      main.on('unmaximize', publishWindowState)
-      main.on('minimize', publishWindowState)
-      main.on('restore', publishWindowState)
-      main.on('show', publishWindowState)
-      main.on('hide', publishWindowState)
-      // Windows cancels a taskbar flash on activation; tell the controller so
-      // a later arrival can pulse again without the poll restarting this one.
-      main.on('focus', () => taskbarAttention.focused())
-      configureWindow(main, () => engine.origin, true, register, openArtifact, undefined, popouts.track)
-      main.webContents.on('did-create-window', child => {
-        child.setIcon(runtimeIcon())
-        child.on('closed', quitAfterLastView)
-      })
-      main.on('close', event => {
-        savePlacement()
-        const otherViews = BrowserWindow.getAllWindows().filter(w => w !== main && w.isVisible()).length
-        const action = closeAction(preferences.get().exitOnClose, quitting, otherViews)
-        if (action !== 'close') { event.preventDefault(); if (action === 'hide') main?.hide(); else app.quit() }
-      })
-      // ⚠ THE WINDOW IS RECOVERED, NOT REPORTED AS UNRECOVERABLE. The old
-      // handler took no argument — discarding details.reason and
-      // details.exitCode, the only two values that say what killed it — and
-      // told the user to restart the whole application. That advice was worse
-      // than unnecessary: the dialog itself asserts the engine is still
-      // running, and it is. Only the window is gone, so reloading it restores
-      // the interface in a few seconds without touching the engine, the agents
-      // or the user's place, exactly as the recoverAttached path below already
-      // does. The reload is bounded (RecoveryBudget) and falls back to this
-      // same dialog, now carrying the diagnosis, when the bound is reached.
-      attachRendererFailureHandlers(main.webContents, {
-        record: recordProcessFailure,
-        reload: () => { if (main && !main.isDestroyed()) main.webContents.reload() },
-        // Out of band deliberately: the surface that would normally tell the
-        // user something happened is the renderer, and the renderer just died.
-        announce: (title, body) => { try { if (Notification.isSupported()) new Notification({ title, body }).show() } catch { /* a missed toast must not break the recovery */ } },
-        giveUp: detail => { void dialog.showMessageBox({ type: 'error', message: 'The Orgtree window stopped responding.',
-          detail: `Orgtree reloaded the window automatically but it keeps failing (${detail}).`
-            + '\n\nThe engine is still running. Restart Orgtree to restore the interface.'
-            + '\n\nThe full record is in update-log.json beside Orgtree\'s data.' }) },
-        suspended: () => quitting || installerUpgradeShutdown,
-      }, new RecoveryBudget())
-      // ⚠ AND THE RELOAD ABOVE CAN FAIL. Everything to this point assumes that
-      // re-navigating the window restores it, which is true only while the
-      // engine is serving — and the engine serves the document itself. On
-      // 2026-09-18 the renderer was OOM-killed, the reload above was issued
-      // 2 ms later, and the engine died 1.4 s into it; the window went white
-      // and nothing ever looked at it again. This watches the navigation the
-      // reload starts, so a failed load is a state the window leaves rather
-      // than the state it ends in.
-      windowLoadRecovery = attachWindowLoadRecovery(main.webContents, {
-        record: recordWindowLoad,
-        target: () => engine.origin,
-        builtFor: () => initialOrigin,
-        load: url => main && !main.isDestroyed() ? main.loadURL(url) : Promise.resolve(),
-        showHolding: html => main && !main.isDestroyed()
-          ? main.webContents.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
-          : Promise.resolve(),
-        suspended: () => quitting || installerUpgradeShutdown,
-        setTimer: (fn, ms) => setTimeout(fn, ms),
-        clearTimer: handle => clearTimeout(handle as ReturnType<typeof setTimeout>),
-      }, () => main && !main.isDestroyed() ? main.webContents.getURL() : '')
-      main.once('closed', () => { windowLoadRecovery?.dispose(); windowLoadRecovery = undefined })
-      await main.loadURL(engine.origin + '/')
+      placement = new OrgPlacement(path.join(app.getPath('userData'), 'window-state.json'))
+      const displays = () => screen.getAllDisplays().map(display => display.workArea)
+      /** THE ONE PLACE A MAIN WINDOW IS BUILT.
+       *
+       *  ⚠ CONSTRUCT, RETURN, REGISTER, THEN LOAD — in that order, and the
+       *  order is load-bearing. The preload resolves this window's identity
+       *  SYNCHRONOUSLY through sender lookup before it exposes the bridge, so
+       *  the window has to be in the registry before its document runs. That
+       *  is also why `openOrg`'s contract forbids awaiting the load here: the
+       *  step that would be waited for cannot happen until this returns.
+       *
+       *  Everything that v2 did once, inline, for its single window happens
+       *  here per window: its own popout registry, its own load recovery, its
+       *  own placement key, its own close rules. */
+      const buildMainWindow = (kind: OrgWindowKind, org?: string) => {
+        const id = randomUUID()
+        const key = placementKey({ kind, org })
+        const saved = key ? placement?.restoreWindow(key, displays()) : undefined
+        const window = new BrowserWindow({ width: 1400, height: 900, ...saved?.bounds, minWidth: 640, minHeight: 480, frame: false, show: false, icon: iconPath, autoHideMenuBar: true,
+          webPreferences: { session: browserSession, preload: path.join(__dirname, '../preload/index.cjs'), contextIsolation: true,
+            sandbox: true, nodeIntegration: false, webviewTag: false,
+            // The window id rides along for native-side logs only; the
+            // renderer reads its identity over IPC, because a launch argument
+            // is fixed for the window's life and this window's KIND is not.
+            additionalArguments: [`--orgtree-ui-origin=${initialOrigin}`, `--orgtree-window-id=${id}`] } })
+        const record: MainWindowRecord = {
+          id, window, owned: new Set(), tearingDown: false,
+          restoreMaximized: saved?.maximized ?? false, placementKey: key,
+          popouts: popoutRegistry<BrowserWindow>(state => sendTo(id, { type: 'popout-state',
+            // ⚠ WHY THE PARENT'S TEARDOWN SAYS SO. A main window closing takes
+            // its popouts with it, and the renderer must not record that as
+            // the user closing each panel — those panels should come back when
+            // the organization is reopened.
+            data: { ...state, reason: record.tearingDown ? 'parent-teardown' : 'user' } })),
+        }
+        records.set(id, record)
+        windows.register({ id, senderId: window.webContents.id, window, kind, ...(org ? { org } : {}) })
+        window.setIcon(runtimeIcon())
+        const capture = () => savePlacement(record)
+        window.on('moved', capture)
+        window.on('resized', capture)
+        window.on('maximize', capture)
+        window.on('unmaximize', capture)
+        const publish = () => publishWindowState(record)
+        window.on('maximize', publish)
+        window.on('unmaximize', publish)
+        window.on('minimize', publish)
+        window.on('restore', publish)
+        window.on('show', publish)
+        window.on('hide', publish)
+        // Windows cancels a taskbar flash on activation; tell the controller so
+        // a later arrival can pulse again without the poll restarting this one.
+        // Windows cancels a flash on activation - for THIS window only, now
+        // that several can be pulsing for different organizations at once.
+        window.on('focus', () => { windows.activate(id); taskbarAttention.focused(window) })
+        configureWindow(window, () => engine.origin, true, register, openArtifact, undefined, (name, child) => {
+          record.owned.add(child)
+          child.once('closed', () => record.owned.delete(child))
+          record.popouts.track(name, child)
+        })
+        window.webContents.on('did-create-window', child => {
+          child.setIcon(runtimeIcon())
+          child.on('closed', quitAfterLastView)
+        })
+        window.on('close', event => {
+          savePlacement(record)
+          // ⚠ AN UNFINISHED CREATION FORM IS CONFIRMED BEFORE IT IS DISCARDED
+          // (user ruling 2026-09-21), and `awaiting` is the duplicate-prompt
+          // guard: a second close while the question is on screen must not ask
+          // it twice and let two answers race.
+          if (!quitting) {
+            const decision = windows.beginClose(id)
+            if (decision === 'awaiting') { event.preventDefault(); return }
+            if (decision === 'confirm') {
+              event.preventDefault()
+              void dialog.showMessageBox(window, CREATION_DISCARD_DIALOG).then(({ response }) => {
+                const discard = response === 0
+                windows.settleClose(id, discard)
+                if (discard && !window.isDestroyed()) window.close()
+              }).catch(() => { windows.settleClose(id, false) })
+              return
+            }
+          }
+          // ⚠ CLOSING ONE OF SEVERAL CLOSES IT. The tray-retention behaviour
+          // is the LAST window's, and it is preserved exactly: only when no
+          // other main window remains does exitOnClose get to decide between
+          // hiding into the tray and quitting.
+          const otherMains = [...records.values()].some(other => other !== record && !other.window.isDestroyed() && other.window.isVisible())
+          if (otherMains) return
+          const otherViews = BrowserWindow.getAllWindows().filter(w => w !== window && w.isVisible()).length
+          const action = closeAction(preferences.get().exitOnClose, quitting, otherViews)
+          if (action !== 'close') { event.preventDefault(); if (action === 'hide') window.hide(); else app.quit() }
+        })
+        // ⚠ THE WINDOW IS RECOVERED, NOT REPORTED AS UNRECOVERABLE. The old
+        // handler took no argument — discarding details.reason and
+        // details.exitCode, the only two values that say what killed it — and
+        // told the user to restart the whole application. That advice was worse
+        // than unnecessary: the dialog itself asserts the engine is still
+        // running, and it is. Only the window is gone, so reloading it restores
+        // the interface in a few seconds without touching the engine, the agents
+        // or the user's place, exactly as the recoverAttached path below already
+        // does. The reload is bounded (RecoveryBudget) and falls back to this
+        // same dialog, now carrying the diagnosis, when the bound is reached.
+        attachRendererFailureHandlers(window.webContents, {
+          record: recordProcessFailure,
+          reload: () => { if (!window.isDestroyed()) window.webContents.reload() },
+          // Out of band deliberately: the surface that would normally tell the
+          // user something happened is the renderer, and the renderer just died.
+          announce: (title, body) => { try { if (Notification.isSupported()) new Notification({ title, body }).show() } catch { /* a missed toast must not break the recovery */ } },
+          giveUp: detail => { void dialog.showMessageBox({ type: 'error', message: 'The Orgtree window stopped responding.',
+            detail: `Orgtree reloaded the window automatically but it keeps failing (${detail}).`
+              + '\n\nThe engine is still running. Restart Orgtree to restore the interface.'
+              + '\n\nThe full record is in update-log.json beside Orgtree\'s data.' }) },
+          suspended: () => quitting || installerUpgradeShutdown,
+        }, new RecoveryBudget())
+        // ⚠ AND THE RELOAD ABOVE CAN FAIL. Everything to this point assumes that
+        // re-navigating the window restores it, which is true only while the
+        // engine is serving — and the engine serves the document itself. On
+        // 2026-09-18 the renderer was OOM-killed, the reload above was issued
+        // 2 ms later, and the engine died 1.4 s into it; the window went white
+        // and nothing ever looked at it again. This watches the navigation the
+        // reload starts, so a failed load is a state the window leaves rather
+        // than the state it ends in.
+        record.loadRecovery = attachWindowLoadRecovery(window.webContents, {
+          record: recordWindowLoad,
+          target: () => engine.origin + routeFor(id),
+          builtFor: () => initialOrigin,
+          load: url => !window.isDestroyed() ? window.loadURL(url) : Promise.resolve(),
+          showHolding: html => !window.isDestroyed()
+            ? window.webContents.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
+            : Promise.resolve(),
+          suspended: () => quitting || installerUpgradeShutdown,
+          setTimer: (fn, ms) => setTimeout(fn, ms),
+          clearTimer: handle => clearTimeout(handle as ReturnType<typeof setTimeout>),
+        }, () => !window.isDestroyed() ? window.webContents.getURL() : '')
+        window.once('closed', () => {
+          record.loadRecovery?.dispose()
+          record.loadRecovery = undefined
+          records.delete(id)
+          windows.forget(id)
+          publishOpenOrgs()
+          // The duty moves to the next-earliest window, and the window that
+          // gains it has to be told or it will never start polling.
+          announceOwnership()
+        })
+        // ⚠ ITS OWN POPOUTS AND NOBODY ELSE'S. Closing an organization's
+        // window must not disturb another organization's panels, its agents or
+        // the backend.
+        window.on('close', () => {
+          record.tearingDown = true
+          if (record.placementKey && !quitting) placement?.closedWindow(record.placementKey)
+          for (const child of record.owned) if (!child.isDestroyed()) child.close()
+        })
+        if (record.placementKey) placement?.openedWindow(record.placementKey)
+        announceOwnership()
+        publishOpenOrgs()
+        return record
+      }
+      /** Which document a window shows. An organization window owns its own
+       *  route so a refresh resolves without the bridge; Homepage and Create
+       *  both live at `/` and are told apart by their identity. */
+      const routeFor = (id: string) => {
+        const entry = windows.get(id)
+        return entry?.kind === 'org' && entry.org ? `/o/${entry.org}` : '/'
+      }
+      /** Tell the window that now holds the app-wide notification duties. It
+       *  cannot start doing them without being told, and the one that lost
+       *  them is usually already gone. */
+      const announceOwnership = () => {
+        const moved = windows.reconcileOwnership()
+        if (!moved.changed || !moved.owner) return
+        const identity = windows.identity(moved.owner)
+        if (identity) sendTo(moved.owner, { type: 'window-identity', data: identity })
+      }
+      /** The identity of a window changed — a Homepage became an organization.
+       *  Navigate it to its own route and tell its renderer what it now is. */
+      adoptIdentity = (record: MainWindowRecord) => {
+        const identity = windows.identity(record.id)
+        if (!identity) return
+        if (record.placementKey) placement?.closedWindow(record.placementKey)
+        record.placementKey = placementKey(identity)
+        if (record.placementKey) placement?.openedWindow(record.placementKey)
+        sendTo(record.id, { type: 'window-identity', data: identity })
+        publishOpenOrgs()
+      }
+      createMainWindow = async ({ kind, org }: { kind: OrgWindowKind; org?: string }) => {
+        const record = buildMainWindow(kind, org)
+        await record.window.loadURL(engine.origin + routeFor(record.id))
+        return record
+      }
+      requestOrgWindow = async (org: unknown, callerId: string | null): Promise<OrgOpenOutcome> => {
+        const outcome = await openOrg(windows, org, callerId, {
+          focus: entry => { const record = records.get(entry.id); if (record) revealWindow(record) },
+          // ⚠ RESOLVES AT CONSTRUCTION, NOT AT LOAD. See buildMainWindow: the
+          // window must be registered before its document runs, so waiting for
+          // the document here would wait for something this call enables.
+          create: async slug => {
+            const record = buildMainWindow('org', slug)
+            void record.window.loadURL(engine.origin + `/o/${slug}`).then(() => revealWindow(record)).catch(() => {})
+            return { id: record.id, senderId: record.window.webContents.id, window: record.window }
+          },
+          // The registry could not adopt it, so it is a window nothing can
+          // command. Take it back rather than leaving it on screen.
+          discard: created => {
+            const record = records.get(created.id)
+            records.delete(created.id)
+            if (record) { record.loadRecovery?.dispose(); record.loadRecovery = undefined }
+            if (!created.window.isDestroyed()) created.window.destroy()
+          },
+          deliverReveals: (entry, events) => { for (const event of events) sendTo(entry.id, event) },
+          undeliverable: (slug, events) => {
+            console.warn(`${events.length} notification reveal(s) for ${slug} could not be delivered`)
+          },
+        })
+        if (outcome.action === 'bound') {
+          const record = records.get(outcome.windowId)
+          if (record) { adoptIdentity(record); revealWindow(record) }
+        }
+        return outcome
+      }
+      const first = await createMainWindow({ kind: 'homepage' })
       engineReady = true
       if (installerUpgradePending) void requestInstallerUpgradeShutdown()
-      if (!process.argv.includes('--background')) show()
-      if (!process.argv.includes('--background') && !detectHarnesses().some(h => h.detected)) await dialog.showMessageBox(main, { type: 'info', message: 'No agent harness was detected.', detail: 'Install Claude Code, Codex, or Antigravity using the official setup links in the tray menu. Orgtree does not install or sign in to harnesses.' })
+      if (!process.argv.includes('--background')) revealWindow(first)
+      if (!process.argv.includes('--background') && !detectHarnesses().some(h => h.detected)) await dialog.showMessageBox(first.window, { type: 'info', message: 'No agent harness was detected.', detail: 'Install Claude Code, Codex, or Antigravity using the official setup links in the tray menu. Orgtree does not install or sign in to harnesses.' })
       const refresh = async () => {
         if (quitting || installerUpgradeShutdown) return
         // Native timers keep running when Chromium throttles a hidden window.
         // Wake only the attention read; leave ordinary UI polling unchanged.
-        broadcast({ type: 'notification-poll', data: null })
+        //
+        // ⚠ THE OWNER ALONE. This wake starts a CROSS-ORGANIZATION read whose
+        // results are written to single-writer places - the taskbar aggregate,
+        // the native alert reconciliation, the shared dispatch record. Sending
+        // it to every window would set N renderers racing on all three. It is
+        // only half the guarantee: the renderer polls on its own account too,
+        // which is why the WRITES are gated as well (see handleOwner).
+        const owner = windows.notificationOwner()
+        if (owner) sendTo(owner.id, { type: 'notification-poll', data: null })
         stats = await engine.stats(); rebuildTray()
         void updater.tick().catch(() => {})
         if (stats === null && !engine.managed) {
@@ -1464,7 +1908,9 @@ else {
               // getters already sign with the new token; reload the app so
               // the renderer re-establishes its streams. A CHANGED origin
               // needs the preload origin rebuilt — relaunch cleanly.
-              if (engine.origin === initialOrigin) main?.webContents.reload()
+              if (engine.origin === initialOrigin) {
+                for (const record of records.values()) if (!record.window.isDestroyed()) record.window.webContents.reload()
+              }
               else { await saveWindowLayout(); app.relaunch(); app.quit() }
             }
             return

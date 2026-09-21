@@ -1,11 +1,37 @@
 import { isAppPath } from '../../../packages/contracts/ui-route'
 import { contextBridge, ipcRenderer } from 'electron'
 import type { DesktopBridge, DesktopEvent, LoginProvider } from '../../../packages/contracts/index'
+import type { OrgWindowIdentity } from '../../../packages/contracts/desktop-window'
 
 // Blank portals inherit webPreferences but never receive their own bridge.
 const expectedOrigin = process.argv.find(arg => arg.startsWith('--orgtree-ui-origin='))?.slice('--orgtree-ui-origin='.length)
 if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin && isAppPath(location.pathname)) {
+  // ⚠ RESOLVED SYNCHRONOUSLY, BEFORE THE BRIDGE EXISTS. The shell derives
+  // its whole view from this - Homepage, Create or an organization's Canvas -
+  // and a promise makes the window paint the wrong one for a frame. It is a
+  // plain value on the exposed object for that reason.
+  //
+  // ⚠ AND NOT FROM A LAUNCH ARGUMENT, which is the obvious alternative and
+  // is wrong: `additionalArguments` is fixed for the window's whole life, so a
+  // baked-in kind goes stale the moment a Homepage window binds itself to an
+  // organization, and a reload of that window would report `homepage` for a
+  // window that is an organization. Asking the main process answers with what
+  // the window IS, every time the document loads.
+  //
+  // null only when the main process refuses the sender - the same condition
+  // under which no bridge is exposed at all.
+  let windowIdentity: OrgWindowIdentity | null = null
+  try { windowIdentity = ipcRenderer.sendSync('desktop:window-identity-sync') as OrgWindowIdentity | null }
+  catch { windowIdentity = null }
   const bridge: DesktopBridge = {
+    windowIdentity,
+    getWindowIdentity: () => ipcRenderer.invoke('desktop:window-identity'),
+    openHomepageWindow: () => ipcRenderer.invoke('desktop:open-homepage-window'),
+    openCreateOrgWindow: () => ipcRenderer.invoke('desktop:open-create-window'),
+    requestOrg: (org: string) => ipcRenderer.invoke('desktop:request-org', org),
+    bindCreatedOrg: (org: string) => ipcRenderer.invoke('desktop:bind-created-org', org),
+    setUnsavedCreation: (dirty: boolean) => ipcRenderer.invoke('desktop:set-unsaved-creation', dirty),
+    openOrgs: () => ipcRenderer.invoke('desktop:open-orgs'),
     getAppVersion: () => ipcRenderer.invoke('desktop:app-version'),
     installUpdate: () => ipcRenderer.invoke('desktop:install-update'),
     getStatus: () => ipcRenderer.invoke('desktop:status'),
@@ -22,7 +48,7 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
     getHarnesses: () => ipcRenderer.invoke('desktop:harnesses'),
     notify: notification => ipcRenderer.invoke('desktop:notify', notification),
     syncNotifications: active => ipcRenderer.invoke('desktop:sync-notifications', active),
-    setPendingAttention: ids => ipcRenderer.invoke('desktop:pending-attention', ids),
+    setPendingAttention: (ids, items) => ipcRenderer.invoke('desktop:pending-attention', ids, items),
     openHarnessLink: id => ipcRenderer.invoke('desktop:open-harness', id),
     openCharterFolder: () => ipcRenderer.invoke('desktop:open-charter-folder'),
     revealFile: (path: string) => ipcRenderer.invoke('desktop:reveal-file', path),

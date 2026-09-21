@@ -130,7 +130,7 @@ test('packaging, renderer, tray and windows reference the eye icons', () => {
   assert.match(main, /engine\.status\.state === 'ready'/)
   assert.match(main, /let effectiveTheme: VisualTheme \| undefined/)
   assert.match(main, /const theme = effectiveTheme \?\? explicit \?\? 'claude'/)
-  assert.match(main, /handle\('desktop:set-effective-theme', value => setEffectiveTheme\(value\)\)/)
+  assert.match(main, /handleApp\('desktop:set-effective-theme', value => setEffectiveTheme\(value\)\)/)
   assert.match(main, /isVisualTheme\(value\)/)
 
   assert.match(main, /engine\.on\('status',[^\r\n]*rebuildTray\(\)/)
