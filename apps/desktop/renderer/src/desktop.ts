@@ -75,6 +75,16 @@ export interface NativeWindowBridge {
   requestOrg?(org: string): Promise<OrgOpenOutcome>
   /** creation succeeded — bind THIS create window to the new organization */
   bindCreatedOrg?(org: string): Promise<OrgOpenOutcome>
+  /** which organizations currently hold a main window.
+   *
+   *  ⚠ ORGANIZATIONS, NOT WINDOW IDS, deliberately: the list hands out no way
+   *  to address another window, so knowing what is open does not become a
+   *  route into it. The renderer uses it for one thing — marking a Homepage
+   *  row "Already open" BEFORE it is clicked. The behaviour never depended on
+   *  it: `requestOrg` answers `focused` and brings that window forward without
+   *  rebinding the caller either way. Kept live by the app-wide `open-orgs`
+   *  event rather than by polling. */
+  openOrgs?(): Promise<string[]>
   /** publish whether this window holds unfinished creation input. Native owns
    *  the confirmation for every close route, including app Quit and restart;
    *  the renderer only owns the truth of the flag. */

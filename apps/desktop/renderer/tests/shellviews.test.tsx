@@ -16,7 +16,7 @@
 //     because Homepage and Create have no header action buttons at all.
 //
 // Run:  node apps/desktop/renderer/tests/run.mjs shellviews
-import { flush, inAct, mountView, realClock, useFakeClock } from './harness'
+import { advance, flush, inAct, mountView, realClock, useFakeClock } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { OrgtreeMenu } from '../src/shell/menu'
@@ -25,6 +25,7 @@ import { CreateOrgView, creationDirty } from '../src/shell/createorg'
 import { openOrgEffect, refusalText } from '../src/shell/openorg'
 import { OrgViewToggle } from '../src/shell/modetoggle'
 import { OrgStatusBar } from '../src/shell/statusbar'
+import { useOpenOrgs } from '../src/shell/openorgs'
 import { installBridge, removeBridge, typeInto } from './shellbridge'
 import type { OrgListEntry, TreePayload } from '../src/types'
 
@@ -368,4 +369,53 @@ test('the strip carries the chip run with its click-through, and pins the error'
     assert.equal(err.getAttribute('role'), 'alert')
     assert.equal(err.closest('.shell-statusbar-chips'), null)
   } finally { await view.unmount() }
+})
+
+// ------------------------------------------------- §7 which orgs are open
+
+test('the open-organization list is a LABEL, kept live by an event and never polled', async () => {
+  let fire: (e: { type: string; data: unknown }) => void = () => {}
+  let asked = 0
+  const bridge = installBridge({
+    openOrgs: async () => { asked++; return ['studio'] },
+    onEvent: (fn: typeof fire) => { fire = fn; return () => { fire = () => {} } },
+  })
+  try {
+    function View() {
+      const open = useOpenOrgs()
+      return <span className="open">{[...open].sort().join(',') || '-'}</span>
+    }
+    useFakeClock()
+    const view = await mountView(<View />, (el) => el.querySelector('.open')!.textContent)
+    await inAct(async () => { await flush(6) })
+    assert.equal(view.last(), 'studio')
+    assert.equal(asked, 1, 'one read at mount')
+    // a window binds, opens or closes anywhere in the application
+    await inAct(async () => { fire({ type: 'open-orgs', data: ['studio', 'workshop'] }); await flush(4) })
+    assert.equal(view.last(), 'studio,workshop')
+    await inAct(async () => { fire({ type: 'open-orgs', data: { orgs: ['workshop'] } }); await flush(4) })
+    assert.equal(view.last(), 'workshop', 'the payload may name the list or be the list')
+    await inAct(async () => { fire({ type: 'open-orgs', data: 'nonsense' }); await flush(4) })
+    assert.equal(view.last(), 'workshop', 'an unreadable payload is not evidence that nothing is open')
+    await advance(60_000)
+    assert.equal(asked, 1, 'and it is never polled — this arrives on every bind, open and close')
+    await view.unmount(); realClock()
+  } finally { removeBridge(bridge) }
+})
+
+test('a shell that does not publish the list leaves every row unlabelled', async () => {
+  const bridge = installBridge({})   // no openOrgs
+  try {
+    function View() {
+      const open = useOpenOrgs()
+      return <span className="open">{open.size}</span>
+    }
+    const view = await mountView(<View />, (el) => el.querySelector('.open')!.textContent)
+    await inAct(async () => { await flush(6) })
+    // ⚠ an empty set means NO ROW IS LABELLED, never that a row is known not
+    // to be open. The behaviour never depended on this: requestOrg answers
+    // `focused` and brings the window forward either way.
+    assert.equal(view.last(), '0')
+    await view.unmount()
+  } finally { removeBridge(bridge) }
 })
