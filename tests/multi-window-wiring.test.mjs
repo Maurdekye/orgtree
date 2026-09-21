@@ -88,12 +88,40 @@ test('the taskbar pulse is routed from the organization, not from a window id', 
 
 test('closing one of several windows closes it; the tray behaviour is the LAST window\'s', () => {
   const main = read('apps/desktop/main/index.ts')
-  assert.match(main, /const otherMains = \[\.\.\.records\.values\(\)\]\.some\(other => other !== record && !other\.window\.isDestroyed\(\) && other\.window\.isVisible\(\)\)\s*\r?\n\s*if \(otherMains\) return/)
+  assert.match(main, /const otherMains = \[\.\.\.records\.values\(\)\]\.some\(other => other !== record && !other\.window\.isDestroyed\(\) && other\.window\.isVisible\(\)\)/)
+  assert.match(main, /if \(!otherMains\) \{/,
+    'the last-window rule is reached only when no other main window remains')
   // the existing last-window rule is reached unchanged
   assert.match(main, /const action = closeAction\(preferences\.get\(\)\.exitOnClose, quitting, otherViews\)/)
   // and it closes its OWN popouts, nobody else's
   assert.match(main, /for \(const child of record\.owned\) if \(!child\.isDestroyed\(\)\) child\.close\(\)/)
   assert.match(main, /record\.tearingDown = true/, 'so their state events say the parent took them')
+})
+
+test('NEGATIVE CONTROL: a refused close tears down nothing', () => {
+  const main = read('apps/desktop/main/index.ts')
+  // ⚠ Electron runs EVERY 'close' listener even when one of them calls
+  // preventDefault. A second listener doing the teardown therefore runs on the
+  // paths that just REFUSED the close: hiding to the tray would silently close
+  // every popped-out desk the user had arranged, and a creation window would
+  // lose its popouts before the user had answered whether to discard anything
+  // at all. One handler, and the teardown sits after every early return.
+  const factory = main.slice(main.indexOf('const buildMainWindow ='), main.indexOf('const routeFor ='))
+  assert.equal(factory.split("window.on('close'").length - 1, 1,
+    'exactly one close listener, so none of them can run past a preventDefault')
+
+  const handler = factory.slice(factory.indexOf("window.on('close'"))
+  const teardown = handler.indexOf('record.tearingDown = true')
+  assert.ok(teardown > 0, 'the teardown is inside the close handler')
+  for (const refusal of [
+    "if (decision === 'awaiting') { event.preventDefault(); return }",
+    "if (action !== 'close') { event.preventDefault(); if (action === 'hide') window.hide(); else app.quit(); return }",
+  ]) {
+    const at = handler.indexOf(refusal)
+    assert.ok(at > 0 && at < teardown, `a refusal returns before the teardown: ${refusal.slice(0, 44)}`)
+  }
+  assert.ok(handler.indexOf('windows.settleClose(id, false)') < teardown,
+    'the confirm branch returns rather than falling through to the teardown')
 })
 
 test('an unfinished creation form is confirmed on a deliberate close and on a quit', () => {

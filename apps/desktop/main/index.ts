@@ -1804,10 +1804,25 @@ else {
           // other main window remains does exitOnClose get to decide between
           // hiding into the tray and quitting.
           const otherMains = [...records.values()].some(other => other !== record && !other.window.isDestroyed() && other.window.isVisible())
-          if (otherMains) return
-          const otherViews = BrowserWindow.getAllWindows().filter(w => w !== window && w.isVisible()).length
-          const action = closeAction(preferences.get().exitOnClose, quitting, otherViews)
-          if (action !== 'close') { event.preventDefault(); if (action === 'hide') window.hide(); else app.quit() }
+          if (!otherMains) {
+            const otherViews = BrowserWindow.getAllWindows().filter(w => w !== window && w.isVisible()).length
+            const action = closeAction(preferences.get().exitOnClose, quitting, otherViews)
+            if (action !== 'close') { event.preventDefault(); if (action === 'hide') window.hide(); else app.quit(); return }
+          }
+          // ⚠ EVERYTHING BELOW HAPPENS ONLY WHEN THE CLOSE IS REALLY GOING
+          // AHEAD, and that is the whole reason this is one handler rather than
+          // two. Electron runs EVERY 'close' listener even when one of them
+          // calls preventDefault, so a second listener doing the teardown would
+          // run on the paths that just refused the close: hiding to the tray
+          // would silently close every popped-out desk the user had arranged,
+          // and a creation window would lose its popouts before the user had
+          // answered whether to discard anything at all.
+          record.tearingDown = true
+          if (record.placementKey && !quitting) placement?.closedWindow(record.placementKey)
+          // ⚠ ITS OWN POPOUTS AND NOBODY ELSE'S. Closing an organization's
+          // window must not disturb another organization's panels, its agents
+          // or the backend.
+          for (const child of record.owned) if (!child.isDestroyed()) child.close()
         })
         // ⚠ THE WINDOW IS RECOVERED, NOT REPORTED AS UNRECOVERABLE. The old
         // handler took no argument — discarding details.reason and
@@ -1861,14 +1876,6 @@ else {
           // The duty moves to the next-earliest window, and the window that
           // gains it has to be told or it will never start polling.
           announceOwnership()
-        })
-        // ⚠ ITS OWN POPOUTS AND NOBODY ELSE'S. Closing an organization's
-        // window must not disturb another organization's panels, its agents or
-        // the backend.
-        window.on('close', () => {
-          record.tearingDown = true
-          if (record.placementKey && !quitting) placement?.closedWindow(record.placementKey)
-          for (const child of record.owned) if (!child.isDestroyed()) child.close()
         })
         if (record.placementKey) placement?.openedWindow(record.placementKey)
         announceOwnership()
