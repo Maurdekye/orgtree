@@ -37,7 +37,9 @@ import type { CanvasNode, OpFn, Pt } from '../canvas/shared'
 import type { DeskChatProps } from '../canvas/desk'
 import type { TypedRef } from '../canvas/workrefs'
 import { PinFrame, unpinModal, useModalPin, usePersistedModalOpen } from '../canvas/modalpin'
-import { restoredWindows, useRestoreWindows, WINDOW_LAYOUT_KEY } from '../windowlayout'
+import {
+  restoredWindows, subscribeWindowLayout, useRestoreWindows, windowLayoutRevision,
+} from '../windowlayout'
 import { openSurfaces, subscribeWindows, windowRevision } from '../windowlife'
 import { LanIcon, NotificationsActiveIcon } from '../icons'
 import { AttentionQueue } from './AttentionQueue'
@@ -143,6 +145,73 @@ function useDetachedHere(org: string | null, revision: number): { queue: boolean
  * audit test is what will say so at the moment it is added rather than long
  * afterwards.
  *
+ * ⚠ TWO STORES, BOTH WITH EVENTS — AND THE SECOND ONE HAD TO BE BUILT. The
+ * window REGISTRY always published (`windowlife`), so a redock woke this view
+ * at once. The saved LAYOUT did not: `saveWindow` was a plain localStorage
+ * write that notified nobody, so a restore that FAILED never registered
+ * anything, flipped the row, and left nothing to wake any reader. Measured in
+ * real Chromium (`attention-probe.tsx` §5): the panel was not released by the
+ * failure, was still mounted 1.5s later with no interaction, and went only when
+ * something unrelated happened to re-render. An indefinite hold — and an
+ * earlier draft of this comment called it harmless because "a render is never
+ * far away", which multi-window-design correctly refused as a lifecycle
+ * guarantee.
+ *
+ * `subscribeWindowLayout` / `windowLayoutRevision` (v3-shell-opus) is that
+ * second event, and this reader consumes it. An interim one-shot re-evaluation
+ * scheduled on a macrotask stood here until it existed; it is deleted, and the
+ * probe reports the same result through the real event as it did through the
+ * timer. A store that publishes is a property of the store, where a timer was
+ * only ever a property of this consumer.
+ *
+ * ⚠ AN UNOBSERVED RESTORE MUST NOT READ AS A CLOSE (multi-window-design,
+ * 2026-09-21) — AND THE GAP IS ONE REACT COMMIT, NOT AN ASYNC INTERVAL. An
+ * earlier draft of this said `MovableSurface` "opens the window and then waits
+ * for its stylesheets, so there is a gap before the surface appears in the
+ * registry". That is wrong, and reading `open()` rather than assuming is what
+ * showed it: `open()` has NO await anywhere. It either reaches its commit point
+ * and calls `registerWindow` synchronously, or it throws and its catch calls
+ * `redock()` — which calls `closeSavedWindow` — synchronously. The stylesheet
+ * wait (`restoreWhenStyled`) is installed AFTER registration, so a later
+ * styling failure redocks a surface that is already registered and therefore
+ * publishes a registry event like any other.
+ *
+ * So the only interval this claim has to cover is the one React imposes: the
+ * panel must be COMMITTED before `MovableSurface`'s restore effect can run at
+ * all. That is why the claim exists, and why one re-evaluation on the macrotask
+ * after that commit is exactly right rather than an approximation of a wait.
+ *
+ *   restore landed   the surface is in `windowlife`'s registry → `detached`
+ *                    holds the panel; this claim is no longer what keeps it
+ *   restore pending  committed, effect not yet run → held HERE. It lasts one
+ *                    commit, which is why neither harness can observe it.
+ *   window closed    `closeSavedWindow` cleared the row → released
+ *
+ * THE INVARIANT THAT MAKES THOSE THREE EXHAUSTIVE is not "there are two
+ * callers" — an earlier draft of this comment said that and it was wrong
+ * (finding f2, v3-ux-review-opus, 2026-09-21). It is:
+ *
+ *     NO CALLER CAN CLEAR AN ATTENTION-KIND ROW EXCEPT THE SURFACE THAT OWNS IT
+ *
+ * which is a sentence a grep can be checked against, and `attentionaudit.test.tsx`
+ * does check it. As it stands:
+ *   · `closeSavedWindow` has THREE callers, not two. Two are inside
+ *     `MovableSurface` — `redock`, where the surface was registered, and the
+ *     surface's own unmount, which cannot precede this panel's. The third is
+ *     OrgCanvas's restored-document reader, which closes rows drawn from
+ *     `restoredWindows(slug).filter(r => r.kind !== 'doc' && r.restore?.document)`
+ *     and so can only ever reach a row carrying `restore.document`. Neither
+ *     attention kind ever carries one: this view passes no `restore` at all.
+ *   · `saveWindow` is EXPORTED, so `open: false` could in principle be written
+ *     without going through `closeSavedWindow`. Nothing outside windowlayout.ts
+ *     calls it, so "the only writer" holds by convention, not by construction.
+ *   · `captureWindow` takes `open` as a parameter and could pass `false`. All
+ *     four of its call sites pass `true` explicitly.
+ *
+ * A new caller of any of the three is what would add a fourth state, and the
+ * audit test is what will say so at the moment it is added rather than long
+ * afterwards.
+ *
  * ⚠ THE TWO SIGNALS ARE NOT SYMMETRICAL, AND THE GAP IS REAL — MEASURED, in a
  * real renderer, not reasoned about. The window REGISTRY publishes events, so
  * anything that unregisters a surface — a redock above all — wakes this view at
@@ -192,11 +261,11 @@ function useDetachedHere(org: string | null, revision: number): { queue: boolean
  * for. It is the same hook `MovableSurface` itself gates its restore on, so the
  * two cannot disagree about whether a restore is going to happen.
  */
-function useAwaitingRestore(org: string | null, revision: number, recheck: number):
+function useAwaitingRestore(org: string | null, revision: number):
 { queue: boolean; desk: boolean } {
   const restoreAllowed = useRestoreWindows()
-  let raw: string | null = null
-  try { raw = localStorage.getItem(WINDOW_LAYOUT_KEY) } catch { raw = null }
+  const layout = useSyncExternalStore(
+    subscribeWindowLayout, windowLayoutRevision, windowLayoutRevision)
   return useMemo(() => {
     if (!restoreAllowed) return { queue: false, desk: false }
     const rows = restoredWindows(org)
@@ -205,32 +274,7 @@ function useAwaitingRestore(org: string | null, revision: number, recheck: numbe
       desk: rows.some((r) => r.kind === DESK_KIND),
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [org, restoreAllowed, raw, revision, recheck])
-}
-
-/**
- * ONE re-evaluation after a commit that holds a restore claim, because the
- * saved layout publishes no event — see the block above for the measurement
- * that made this necessary and for why one look is enough.
- *
- * ⚠ IT IS NOT A POLL, and the dependency list is what makes that true. The
- * timer is scheduled only while a claim is outstanding, and the counter it
- * bumps is deliberately NOT a dependency: re-adding it would make each
- * re-evaluation schedule the next one, which is precisely the busy loop this is
- * not. One claim, one look. If that look finds the row still open — a restore
- * genuinely in flight — the claim stands and nothing further is scheduled,
- * because the success case arrives as a registry event instead.
- */
-function useRestoreRecheck(awaiting: { queue: boolean; desk: boolean },
-  bump: () => void): void {
-  const latest = useRef(bump)
-  latest.current = bump
-  useEffect(() => {
-    if (!awaiting.queue && !awaiting.desk) return
-    const id = setTimeout(() => latest.current(), 0)
-    return () => clearTimeout(id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [awaiting.queue, awaiting.desk])
+  }, [org, restoreAllowed, layout, revision])
 }
 
 export interface AttentionViewProps {
@@ -271,11 +315,7 @@ export function AttentionView(props: AttentionViewProps) {
   // either alone hid the other's absence when the mutants were run.
   const windows = useSyncExternalStore(subscribeWindows, windowRevision, windowRevision)
   const detached = useDetachedHere(slug, windows)
-  // the recheck counter feeds back into the claim it re-reads; see
-  // useRestoreRecheck for why exactly one look is scheduled per claim
-  const [recheck, setRecheck] = useState(0)
-  const awaiting = useAwaitingRestore(slug, windows, recheck)
-  useRestoreRecheck(awaiting, useCallback(() => setRecheck((n) => n + 1), []))
+  const awaiting = useAwaitingRestore(slug, windows)
   const queueOut = detached.queue
   const deskOut = detached.desk
 

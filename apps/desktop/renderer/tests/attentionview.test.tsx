@@ -385,11 +385,12 @@ test('§7.1a a blocked restore leaves nothing mounted, and needs no help to do i
 
   // The surface — not this view — is what records the window closed when it
   // cannot open one. What this case pins is that NOTHING is left behind
-  // afterwards: no mounted subtree, no pin, no registered surface. Before the
-  // bounded recheck in `useRestoreRecheck`, the real renderer held that subtree
-  // indefinitely (attention-probe.tsx §5); jsdom resolves it inside the mount
-  // commit, so here the observable claim is the end state rather than the
-  // timing of it.
+  // afterwards: no mounted subtree, no pin, no registered surface. The real
+  // renderer used to hold that subtree indefinitely (attention-probe.tsx §5)
+  // because the saved layout published no event; it does now
+  // (`subscribeWindowLayout`), and the probe reports the same result through it.
+  // jsdom resolves the whole thing inside the mount commit, so here the
+  // observable claim is the end state rather than the timing of it.
   assert.match(localStorage.getItem(WINDOW_LAYOUT_KEY) ?? '', /"open":false/,
     'the surface recorded the window closed')
   assert.equal(shape().queue, false, 'and no subtree was left holding for it')

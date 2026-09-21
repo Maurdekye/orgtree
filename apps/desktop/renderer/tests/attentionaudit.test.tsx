@@ -80,12 +80,16 @@ to say why the new one is harmless. Do that, then update the set below.`
 test('§1 closeSavedWindow\'s callers are the three the audit accounts for', () => {
   assert.deepEqual(callsOf('closeSavedWindow'), [
     // inside MovableSurface: the surface that owns the window
-    'popout.tsx:294',   // redock — the surface was registered
-    'popout.tsx:474',   // the surface's own unmount
+    // ⚠ :315 IS GUARDED NOW — `if (!transient) closeSavedWindow(...)`. A
+    // borrowing surface deliberately does NOT flip the row, which NARROWS the
+    // set of writes rather than widening it, so the invariant below holds a
+    // fortiori. Nothing in Attention sets `borrow`.
+    'popout.tsx:315',   // redock — the surface was registered
+    'popout.tsx:546',   // the surface's own unmount
     // NOT in MovableSurface. Harmless for this feature because it closes rows
     // drawn from restoredWindows(...).filter(r => r.restore?.document), and an
     // attention-kind row never carries one — this view passes no `restore`.
-    'canvas/OrgCanvas.tsx:3637',
+    'canvas/OrgCanvas.tsx:3655',
   ].sort(), WHY('A caller of closeSavedWindow was added, removed or moved.'))
 })
 
@@ -133,50 +137,4 @@ test('§4 the Attention panels record no `restore` payload, which is what makes 
   }
   assert.equal(/restore=\{/.test(view), false,
     'no PinFrame here passes a `restore` prop either')
-})
-
-// ------------------------------------------------------------------ §5
-//
-// THE STAND-IN'S OWN EXPIRY, ENFORCED RATHER THAN REMEMBERED.
-//
-// `deskRegistryProps()` in attention/AgentDeskPanel.tsx casts `eligible` and
-// `claim` onto `DeskChatProps` because that shared type did not carry them when
-// this feature was written and this feature may not edit it. The cast is inert
-// while that is true — React passes unknown props through and the desk ignores
-// them — and becomes pure liability the moment the real fields land, because a
-// cast is exactly what stops the compiler checking the names it is casting.
-//
-// A "delete me" comment is not a mechanism. This is: the moment `DeskChatProps`
-// declares either field, this fails and says what to do. It is the same shape
-// as §1–§4 — a claim about somebody else's file that this feature's
-// correctness leans on, checked instead of hoped for.
-
-test('§5 the desk-registry cast is deleted as soon as the real fields exist', () => {
-  const desk = readFileSync(path.join(__SRC_DIR__, 'canvas', 'desk.tsx'), 'utf8')
-  const panel = readFileSync(
-    path.join(__SRC_DIR__, 'attention', 'AgentDeskPanel.tsx'), 'utf8')
-
-  // THE DECLARATION, NOT A MENTION. Each field sits alone on its own line in
-  // the props interface, so an exact line match separates it from the word
-  // "claim", which appears in dozens of comments across that file. Matched as a
-  // string rather than a pattern deliberately: a regex here would need escaping
-  // inside a template literal, and getting that subtly wrong is how a tripwire
-  // silently stops tripping.
-  const declares = (field: string, type: string) =>
-    desk.split('\n').some((line) => line.trim() === `${field}?: ${type}`)
-  const landed = declares('eligible', 'boolean') && declares('claim', "'automatic'")
-  const castPresent = panel.includes('deskRegistryProps')
-
-  if (landed) {
-    assert.equal(castPresent, false,
-      'DeskChatProps now declares `eligible` and `claim`, so the cast in '
-      + 'attention/AgentDeskPanel.tsx is no longer standing in for anything — and '
-      + 'while it is there the compiler is NOT checking either field name. '
-      + 'DELETE `deskRegistryProps()` and spread the two props onto <DeskSlot> '
-      + 'directly. Then delete this test: it has done its job.')
-  } else {
-    assert.equal(castPresent, true,
-      'DeskChatProps does not declare the fields yet, so the cast is what gets '
-      + 'them to the registry. Removing it silently stops sending them.')
-  }
 })

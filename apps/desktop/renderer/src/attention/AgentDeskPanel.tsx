@@ -82,32 +82,6 @@ export interface AgentDeskPanelProps {
 
 interface ListRow { node: CanvasNode; depth: number }
 
-/**
- * The two desk-registry props, handed to `DeskSlot`.
- *
- * ⚠ THIS CAST IS TEMPORARY AND IT IS LOAD-BEARING WHEN IT GOES AWAY. The
- * registry's ownership picker gains `eligible` and `claim` in v3-effort-opus's
- * host-slot change (interface rev 4, 2026-09-21); `DeskChatProps` does not
- * carry them yet, and this file may not edit that shared type. So the values
- * are assembled here, in ONE named place, instead of being cast at the call
- * site where they would read as noise and be forgotten.
- *
- * Until deskhosts lands, React passes unknown props straight through to the
- * desk, which ignores them — so this is inert rather than wrong. The moment the
- * shared type carries both fields, DELETE THIS FUNCTION and spread them
- * directly: the compiler will then be checking BOTH names for us, which is the
- * whole reason not to leave a cast lying about.
- *
- * What is NOT deferred: the panel already computes and publishes the answer
- * (`data-attn-desk-eligible`), and attentionview.test.tsx asserts it, so the
- * decision this flag carries is under test today and only its delivery is
- * waiting.
- */
-const deskRegistryProps = (eligible: boolean, claim?: 'automatic'): Partial<DeskChatProps> =>
-  ({ eligible, ...(claim ? { claim } : {}) } as unknown as Partial<DeskChatProps>)
-
-/** Every agent, in the host's own visual order, each superior immediately
- *  followed by its subtree — the Agents List's hierarchy rule. */
 export function agentRows(
   map: Map<string, CanvasNode>, posOf?: (id: string) => Pt | undefined,
   opts: { archived?: boolean; query?: string } = {},
@@ -277,7 +251,7 @@ export function AgentDeskPanel({
           ? <DeskSlot bare node={selected} map={map} op={op} slug={slug} toast={toast}
               pub={!!tree.public}
               maxTop={tree.max_top_grant ?? 1000}
-              {...deskRegistryProps(eligible, claim)}
+              eligible={eligible} claim={claim}
               {...deskExtras} />
           : <div className="dim pad attn-desk-empty">
               This organization has no agent to open a desk for yet.
