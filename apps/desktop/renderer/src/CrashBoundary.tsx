@@ -45,8 +45,8 @@ export default class CrashBoundary extends React.Component<{ children: React.Rea
           }}
         >
           {desktop() && (
-            <header className="orgbar fallback-orgbar native-header" style={{ margin: 0, padding: '6px 14px' }}>
-              <h2>Orgtree</h2>
+            <header className="orgbar fallback-orgbar native-header" style={{ margin: 0, padding: '0 0 6px 14px' }}>
+              <h2 style={{ margin: '6px 0' }}>Orgtree</h2>
               <WindowControls />
             </header>
           )}

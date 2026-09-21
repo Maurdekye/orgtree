@@ -255,7 +255,9 @@ body {
   font-size: 15px; -webkit-app-region: no-drag;
 }
 .window-control:hover { background: var(--panel-2); color: var(--ink-strong); }
+.window-control:active { background: var(--panel); color: var(--ink-strong); }
 .window-control.close:hover { background: #c42b1c; color: #fff; }
+.window-control.close:active { background: #b02619; color: #fff; }
 
 /* ------------------------------------------------------------------ sidebar */
 aside {
@@ -7530,6 +7532,8 @@ html.mobile .popout-button { display: none; }
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: start;
   overflow: visible;
+  padding-top: 0;
+  padding-right: 0;
 }
 .orgbar.native-header > .native-header-main {
   grid-column: 1;
@@ -7540,6 +7544,7 @@ html.mobile .popout-button { display: none; }
   min-width: 0;
   gap: 8px;
   overflow: visible;
+  padding-top: 6px;
 }
 .orgbar.native-header > .update-notice {
   grid-column: 2;
@@ -7551,12 +7556,15 @@ html.mobile .popout-button { display: none; }
   max-width: min(280px, 34vw);
   white-space: normal;
   overflow-wrap: anywhere;
+  margin-top: 4px;
 }
 .orgbar.native-header > .window-controls {
   grid-column: 3;
   grid-row: 1;
   position: static;
   justify-self: end;
+  margin: 0;
+  height: 32px;
 }
 /* the HOME page (org list): the native frame replacement anchors to the
    WINDOW's top edge and right corner, never to the centered welcome card
@@ -7565,7 +7573,24 @@ html.mobile .popout-button { display: none; }
    region (via .orgbar), and the updater+controls sit flush right. */
 .orgbar.native-header.home-header {
   position: fixed; top: 0; left: 0; right: 0; z-index: 6;
-  margin: 0; padding: 6px 0 6px 14px;
+  margin: 0; padding: 0 0 6px 14px;
+}
+.orgbar.native-header.home-header > h2 {
+  margin: 6px 0;
+}
+.orgbar.fallback-orgbar.native-header > h2 {
+  margin: 6px 0;
+  padding-left: 14px;
+}
+main:has(> .orgbar.native-header) {
+  padding-top: 0;
+  padding-right: 0;
+}
+main:has(> .orgbar.native-header) > .canvas-stage {
+  padding-right: 18px;
+}
+main:has(> .orgbar.native-header) > .error {
+  margin-right: 18px;
 }
 
 /* Navigation stays reachable over every desk or org modal pin (10..16). */

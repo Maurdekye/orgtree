@@ -113,15 +113,17 @@ export function holdingPageHtml(detail: string, stranded = false): string {
     + `<title>Orgtree — reconnecting</title><style>`
     + `body{margin:0;background:#1a1a1a;color:#eee;font-family:monospace;`
     + `min-height:100vh;display:flex;flex-direction:column;box-sizing:border-box}`
-    + `.orgbar{display:flex;align-items:center;justify-content:space-between;`
-    + `padding:6px 0 6px 14px;border-bottom:1px solid rgba(255,255,255,0.08);`
+    + `.orgbar{display:flex;align-items:flex-start;justify-content:space-between;`
+    + `padding:0 0 6px 14px;border-bottom:1px solid rgba(255,255,255,0.08);`
     + `-webkit-app-region:drag;box-sizing:border-box;width:100%}`
-    + `.orgbar h2{margin:0;font-size:15px;font-weight:600;color:#eee;-webkit-app-region:drag}`
-    + `.window-controls{display:flex;flex:0 0 auto;flex-wrap:nowrap;height:28px;margin-left:4px;-webkit-app-region:no-drag}`
+    + `.orgbar h2{margin:6px 0;font-size:15px;font-weight:600;color:#eee;-webkit-app-region:drag}`
+    + `.window-controls{display:flex;flex:0 0 auto;flex-wrap:nowrap;height:32px;margin:0;-webkit-app-region:no-drag}`
     + `.window-control{flex:0 0 46px;width:46px;height:100%;padding:0;border:0;border-radius:0;`
     + `background:transparent;color:#999;display:grid;place-items:center;font-size:15px;cursor:pointer;-webkit-app-region:no-drag}`
     + `.window-control:hover{background:rgba(255,255,255,0.08);color:#eee}`
+    + `.window-control:active{background:rgba(255,255,255,0.16);color:#eee}`
     + `.window-control.close:hover{background:#c42b1c;color:#fff}`
+    + `.window-control.close:active{background:#b02619;color:#fff}`
     + `.window-control svg{width:1em;height:1em;fill:currentColor}`
     + `main{margin:auto;padding:32px;max-width:560px;-webkit-app-region:no-drag}`
     + `main h2{color:#f66;margin:0 0 12px;font-size:18px}`
