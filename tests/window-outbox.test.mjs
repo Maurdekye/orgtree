@@ -115,3 +115,56 @@ test('arrival order is preserved across the whole queue', () => {
   order.forEach((type, i) => outbox.offer(ev(type, i)))
   assert.deepEqual(outbox.drain().map(e => e.data), [0, 1, 2, 3, 4])
 })
+
+// ------------------------------------------------- evidence is per-document
+
+test('NEGATIVE CONTROL (f4): a navigation re-arms, because the listener it proved is gone', () => {
+  // The proof that somebody is listening IS a listener, and a listener belongs
+  // to a document. Navigate the window and the document, its preload instance
+  // and its listener are all destroyed and rebuilt — but this queue lives on
+  // the WINDOW and outlives all of them. Treating one-time evidence as
+  // permanent sends the next document's events live into a webContents with
+  // no listener: lost, and counted as delivered.
+  const outbox = make()
+  outbox.offer(ev('open-org', 'first-document'))
+  assert.deepEqual(outbox.drain().map(e => e.data), ['first-document'])
+  assert.equal(outbox.offer(ev('open-org', 'live')), true, 'live while that document is showing')
+
+  outbox.rearm()                                  // the window navigated
+  assert.equal(outbox.holding(), true)
+  assert.equal(outbox.offer(ev('notification-click', 'mid-flight')), false,
+    'an event arriving during the load is held, not sent into the gap')
+  // the new document attaches its own listener and acknowledges
+  assert.deepEqual(outbox.drain().map(e => e.data), ['mid-flight'])
+  assert.equal(outbox.offer(ev('open-org', 'live-again')), true)
+})
+
+test('f4: the Homepage-bind case, which is the sharp one', () => {
+  // A Homepage window binds an organization and navigates to /o/<slug>. It is
+  // navigating precisely BECAUSE an organization was just opened, which is
+  // when a targeted reveal for that organization is most likely in flight.
+  const outbox = make()
+  outbox.drain()                                  // the Homepage document acknowledged, minutes ago
+  outbox.rearm()                                  // binding navigates the window
+  assert.equal(outbox.offer(ev('notification-click', 'reveal-for-acme')), false)
+  assert.deepEqual(outbox.drain().map(e => e.data), ['reveal-for-acme'],
+    'the reveal reaches the organization document that was being loaded for it')
+})
+
+test('f4: re-arming is idempotent and never resurrects what was already handed over', () => {
+  const outbox = make()
+  outbox.offer(ev('open-org', 1))
+  assert.deepEqual(outbox.drain().map(e => e.data), [1])
+  outbox.rearm()
+  outbox.rearm()
+  assert.equal(outbox.holding(), true)
+  assert.deepEqual(outbox.drain(), [], 'a delivered event does not come back on the next document')
+})
+
+test('f4: many navigations with nothing in flight cost nothing', () => {
+  const outbox = make()
+  for (let i = 0; i < 20; i++) { outbox.rearm(); outbox.drain() }
+  assert.equal(outbox.pending(), 0)
+  assert.equal(outbox.dropped(), 0)
+  assert.equal(outbox.offer(ev('open-org', 1)), true, 'and the last drain still counts')
+})

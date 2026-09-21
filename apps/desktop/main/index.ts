@@ -122,6 +122,10 @@ else {
     /** Window-scoped events that arrived before this window's renderer could
      *  be listening. See sendTo and HELD_EVENT_TYPES. */
     outbox: WindowOutbox<DesktopEvent>
+    /** True between a document navigation starting and the new document
+     *  committing. An acknowledgement arriving in that window belongs to the
+     *  document on its way OUT and must not speak for its successor. */
+    navigating: boolean
     /** Set while this window is closing its own popouts, so their state
      *  events say the parent took them rather than the user. */
     tearingDown: boolean
@@ -1483,7 +1487,8 @@ else {
       try {
         const entry = resolveNativeSender(event as unknown as Parameters<typeof resolveNativeSender>[0], windows, engine.origin)
         const record = records.get(entry.id)
-        if (record) deliverHeld(record)
+        // Mid-navigation: this is the outgoing document's voice. Drop it.
+        if (record && !record.navigating) deliverHeld(record)
       } catch { /* an untrusted sender is refused exactly as everywhere else */ }
     })
     ipcMain.on('desktop:window-identity-sync', event => {
@@ -1732,7 +1737,7 @@ else {
             // is fixed for the window's life and this window's KIND is not.
             additionalArguments: [`--orgtree-ui-origin=${initialOrigin}`, `--orgtree-window-id=${id}`] } })
         const record: MainWindowRecord = {
-          id, window, owned: new Set(), tearingDown: false,
+          id, window, owned: new Set(), tearingDown: false, navigating: false,
           outbox: windowOutbox<DesktopEvent>({ hold: type => HELD_EVENT_TYPES.has(type as DesktopEvent['type']) }),
           restoreMaximized: saved?.maximized ?? false, placementKey: key,
           popouts: popoutRegistry<BrowserWindow>(state => sendTo(id, { type: 'popout-state',
@@ -1759,6 +1764,33 @@ else {
         window.on('hide', publish)
         // Windows cancels a taskbar flash on activation; tell the controller so
         // a later arrival can pulse again without the poll restarting this one.
+        // ⚠ A NAVIGATION DESTROYS THE LISTENER THAT PROVED SOMEBODY WAS
+        // THERE. The outbox lives on this record and outlives every document
+        // the window shows, so it has to be told when the one that
+        // acknowledged it goes away - otherwise the next document's loading
+        // gap is a hole events fall through, which is the defect the outbox
+        // exists to close, reached through a different door. `did-start-
+        // navigation` is the earliest point at which the old document is on
+        // its way out; same-document navigations are excluded because they
+        // destroy nothing.
+        window.webContents.on('did-start-navigation', details => {
+          if (!details.isMainFrame || details.isSameDocument) return
+          record.outbox.rearm()
+          // ⚠ AND A LATE ACKNOWLEDGEMENT FROM THE OUTGOING DOCUMENT MUST NOT
+          // REOPEN THE QUEUE FOR ITS SUCCESSOR. The old document may have sent
+          // its ack a moment before it was navigated away from, and that
+          // message can still be in flight. Accepting it here would unhold the
+          // queue on the strength of a listener that no longer exists - the
+          // same loss, arriving one message later. It is DROPPED rather than
+          // deferred: deferring it to the new document would be asserting that
+          // the successor is listening, which is precisely what nothing has
+          // established yet.
+          record.navigating = true
+        })
+        // The new document has committed, so an acknowledgement from here on
+        // is its own. (Verified in tests/multi-window-native.probe.ts against
+        // real Electron: a new document's ack really does arrive after this.)
+        window.webContents.on('did-navigate', () => { record.navigating = false })
         // Windows cancels a flash on activation - for THIS window only, now
         // that several can be pulsing for different organizations at once.
         window.on('focus', () => { windows.activate(id); taskbarAttention.focused(window) })

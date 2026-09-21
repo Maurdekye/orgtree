@@ -238,8 +238,31 @@ test('events that cannot be asked for again are held until there is somewhere to
   const listening = main.slice(main.indexOf("ipcMain.on('desktop:events-listening'"), main.indexOf("ipcMain.on('desktop:window-identity-sync'"))
   assert.match(listening, /resolveNativeSender\(/,
     'and that signal is sender-resolved like every other native entry point')
-  assert.match(listening, /if \(record\) deliverHeld\(record\)/)
+  // ⚠ AND A LATE ACK FROM THE OUTGOING DOCUMENT IS DROPPED, not deferred.
+  // The old document may have sent its ack a moment before it was navigated
+  // away from, and that message can still be in flight. Accepting it would
+  // unhold the queue on the strength of a listener that no longer exists -
+  // the same loss, one message later. Deferring it to the new document
+  // would assert the successor is listening, which is what nothing has
+  // established yet.
+  assert.match(listening, /if \(record && !record\.navigating\) deliverHeld\(record\)/)
+  assert.match(main, /record\.navigating = true/)
+  assert.match(main, /window\.webContents\.on\('did-navigate', \(\) => \{ record\.navigating = false \}\)/,
+    'and the flag clears on commit, so the new document speaks for itself')
   assert.match(main, /handle\('desktop:take-pending-events', caller => caller\.outbox\.drain\(\)\)/)
+
+  // ⚠ AND THE EVIDENCE IS PER-DOCUMENT. A listener belongs to a document, so a
+  // navigation destroys the very thing that proved somebody was there — while
+  // the outbox lives on the window and outlives every document it shows.
+  // Without the re-arm, a window that drained once sends live into every later
+  // navigation gap, which is the same loss through a different door. The
+  // sharpest case is a Homepage binding an organization: it navigates
+  // precisely because an org was opened, which is when a reveal for that org
+  // is most likely in flight.
+  assert.match(main, /window\.webContents\.on\('did-start-navigation', details => \{/)
+  assert.match(main, /if \(!details\.isMainFrame \|\| details\.isSameDocument\) return/,
+    'a same-document navigation destroys nothing and must NOT re-arm')
+  assert.match(main, /record\.outbox\.rearm\(\)/)
 })
 
 // ------------------------------------------------------- real Electron

@@ -29,6 +29,7 @@ import path from 'node:path'
 import { orgWindowRegistry, resolveNativeSender, openOrg } from '../apps/desktop/main/org-windows'
 import { OrgPlacement } from '../apps/desktop/main/org-placement'
 import { popoutRegistry } from '../apps/desktop/main/windows'
+import { windowOutbox } from '../apps/desktop/main/window-outbox'
 
 const profile = process.env.ORGTREE_ELECTRON_TEST_ROOT ?? fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-multiwindow-probe-'))
 app.setPath('userData', profile)
@@ -165,6 +166,64 @@ app.whenReady().then(async () => {
   assert.deepEqual(afterClose.sessionWindows(), [])
   assert.deepEqual(afterClose.restoreWindow('org:acme', [{ x: 0, y: 0, width: 1920, height: 1080 }])?.bounds,
     acme.getNormalBounds())
+
+  // ⚠ THE OUTBOX RE-ARM, AGAINST REAL NAVIGATIONS. The queue itself is pure
+  // and its rules are driven in window-outbox.test.mjs — but which Electron
+  // event fires, on which navigation, is exactly the part reading the source
+  // cannot settle, and getting it wrong reopens the loss silently. This wires
+  // it the way index.ts does and then really navigates a window.
+  const navigating = hidden()
+  const outbox = windowOutbox<{ type: string; data?: unknown }>({ hold: type => type === 'open-org' })
+  navigating.webContents.on('did-start-navigation', details => {
+    if (details.isMainFrame && !details.isSameDocument) outbox.rearm()
+  })
+  await navigating.loadURL('data:text/html,<title>one</title>')
+  outbox.drain()                                    // this document acknowledged a listener
+  assert.equal(outbox.offer({ type: 'open-org' }), true, 'live while that document is showing')
+
+  // a fresh document — the Homepage-binds-an-organization case
+  await navigating.loadURL('data:text/html,<title>two</title>')
+  assert.equal(outbox.holding(), true, 'loadURL re-armed the outbox')
+  assert.equal(outbox.offer({ type: 'open-org', data: 'mid-flight' }), false,
+    'an event arriving during the load is held, not sent into the gap')
+  assert.deepEqual(outbox.drain().map(e => e.data), ['mid-flight'])
+
+  // a user pressing refresh
+  await new Promise<void>(resolve => {
+    navigating.webContents.once('did-finish-load', () => resolve())
+    navigating.webContents.reload()
+  })
+  assert.equal(outbox.holding(), true, 'reload re-armed the outbox')
+  outbox.drain()
+
+  // ⚠ THE ORDERING THE LATE-ACK GUARD DEPENDS ON, which only real Electron can
+  // settle. index.ts drops an acknowledgement that arrives while `navigating`
+  // is true, and clears that flag on 'did-navigate'. That is only safe if a
+  // NEW document's acknowledgement arrives AFTER its own 'did-navigate' — the
+  // preload runs once the frame has committed, so it should, but "should" is
+  // what a probe is for. If this ever fails, the flag must be cleared on
+  // 'dom-ready' instead and the guard revisited.
+  let committed = false, preloadRanAfterCommit: boolean | undefined
+  const ordering = hidden()
+  ordering.webContents.on('did-navigate', () => { committed = true })
+  ordering.webContents.on('console-message', event => {
+    if (event.message === 'orgtree-probe-document-ready' && preloadRanAfterCommit === undefined) {
+      preloadRanAfterCommit = committed
+    }
+  })
+  await ordering.loadURL('data:text/html,<script>console.log("orgtree-probe-document-ready")</script>')
+  assert.equal(preloadRanAfterCommit, true,
+    "a document's own scripts run after its navigation has committed, so its ack cannot be mistaken for the previous document's")
+  ordering.destroy()
+
+  // ⚠ A SAME-DOCUMENT NAVIGATION MUST NOT RE-ARM, because nothing is destroyed
+  // and the listener that acknowledged is still there. That case is NOT probed
+  // here: triggering a hash change needs renderer script, which these sandboxed
+  // probe windows deliberately cannot run, and an assertion that hangs is worse
+  // than one that lives somewhere else. The `!details.isSameDocument` guard is
+  // pinned in tests/multi-window-wiring.test.mjs instead, and what needed real
+  // Electron — which event fires, on which navigation — is settled above.
+  navigating.destroy()
 
   for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed()) window.destroy()
   console.log('MULTI_WINDOW_NATIVE_PASS')

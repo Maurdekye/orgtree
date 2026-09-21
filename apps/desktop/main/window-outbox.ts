@@ -57,7 +57,26 @@ export function windowOutbox<E extends { type: string }>(options: OutboxOptions)
       while (queue.length > limit) { queue.shift(); dropped += 1 }
       return false
     },
-    /** There is somewhere to send now. Stops holding for good and hands back
+    /** ⚠ THE DOCUMENT WENT AWAY, SO THE EVIDENCE WENT WITH IT. Start holding
+     *  again.
+     *
+     *  The proof that somebody is listening is a listener, and a listener
+     *  belongs to a DOCUMENT: navigate the window and the document, its preload
+     *  instance and its listener are all destroyed and rebuilt. This queue
+     *  lives on the WINDOW, which outlives all of them - so without this, a
+     *  window that drained once would send live into every subsequent
+     *  navigation gap, and the events would be lost exactly as they were
+     *  before any of this existed.
+     *
+     *  The sharpest case is not a user pressing refresh: it is a Homepage
+     *  window binding an organization, which navigates precisely because an
+     *  organization was just opened - which is when a targeted reveal for that
+     *  organization is most likely to be in flight.
+     *
+     *  Idempotent, and safe to call on a queue that is already holding. */
+    rearm(): void { holding = true },
+    /** There is somewhere to send now. Stops holding UNTIL THE DOCUMENT THAT
+     *  proved it goes away - see `rearm`. Hands back
      *  everything that was waiting, in arrival order. Idempotent: a second
      *  call returns nothing, so a listener signal and an explicit request
      *  cannot deliver the same event twice. */
