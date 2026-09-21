@@ -179,3 +179,26 @@ test('the tray and a second instance route through the registry, never through o
   // the installer control path is untouched
   assert.match(main, /if \(hasInstallerUpgradeRequest\(commandLine\)\) \{ void requestInstallerUpgradeShutdown\(\); return \}/)
 })
+
+test('events that cannot be asked for again are held until the renderer can listen', () => {
+  const main = read('apps/desktop/main/index.ts')
+  // ⚠ ONLY the events a renderer has no way to rediscover. Window state,
+  // popout state and main-window-shown are all re-readable through the
+  // bridge, so holding them would only risk delivering a stale duplicate.
+  assert.match(main, /const HELD_EVENT_TYPES = new Set<DesktopEvent\['type'\]>\(\['open-org', 'notification-click', 'window-identity', 'restore-skipped'\]\)/)
+  for (const readable of ['window-state', 'popout-state', 'main-window-shown', 'engine-status', 'preferences']) {
+    assert.doesNotMatch(main, new RegExp(`HELD_EVENT_TYPES[\s\S]{0,200}'${readable}'`), readable)
+  }
+  // bounded, so a window whose renderer never arrives cannot grow without limit
+  assert.match(main, /if \(record\.outbox\.length > HELD_EVENT_LIMIT\) record\.outbox\.shift\(\)/)
+  // the renderer collects them and switches the window to live delivery
+  assert.match(main, /handle\('desktop:take-pending-events', caller => flushOutbox\(caller\)\)/)
+  assert.match(main, /record\.flushed = true/)
+  // ⚠ AND A RENDERER THAT NEVER ASKS STILL GETS THEM. The v2 renderer does not
+  // call this; without the grace its events would sit in the outbox for ever,
+  // which is worse than the dropping this replaced.
+  assert.match(main, /record\.flushTimer = setTimeout\(\(\) => \{/)
+  assert.match(main, /const HELD_EVENT_GRACE_MS = 2_000/)
+  // and a window that closes mid-grace leaves no timer behind
+  assert.match(main, /if \(record\.flushTimer\) \{ clearTimeout\(record\.flushTimer\); record\.flushTimer = undefined \}/)
+})

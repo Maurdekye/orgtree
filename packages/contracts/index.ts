@@ -175,6 +175,13 @@ export interface DesktopBridge {
    *  the same list whenever it changes. Organizations, not window ids: this
    *  hands out no way to address another window. */
   openOrgs?(): Promise<string[]>
+  /** Window-scoped events that arrived before this window's renderer was
+   *  listening - an organization to open, an item to reveal, an identity
+   *  change, a restoration report. Call it as soon as `onEvent` is attached;
+   *  it returns what was held and switches this window to live delivery.
+   *  Events that can simply be re-read (window state, popout state) are never
+   *  held, so nothing here is a duplicate of a value you can ask for. */
+  takePendingWindowEvents?(): Promise<DesktopEvent[]>
   /** This window's identity, resolved SYNCHRONOUSLY before the bridge was
    *  exposed. Present before the first render, so the shell never paints the
    *  wrong view for a frame; null only where the bridge itself is refused. */

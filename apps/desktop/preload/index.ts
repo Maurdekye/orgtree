@@ -32,6 +32,7 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
     bindCreatedOrg: (org: string) => ipcRenderer.invoke('desktop:bind-created-org', org),
     setUnsavedCreation: (dirty: boolean) => ipcRenderer.invoke('desktop:set-unsaved-creation', dirty),
     openOrgs: () => ipcRenderer.invoke('desktop:open-orgs'),
+    takePendingWindowEvents: () => ipcRenderer.invoke('desktop:take-pending-events'),
     getAppVersion: () => ipcRenderer.invoke('desktop:app-version'),
     installUpdate: () => ipcRenderer.invoke('desktop:install-update'),
     getStatus: () => ipcRenderer.invoke('desktop:status'),

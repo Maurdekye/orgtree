@@ -117,6 +117,13 @@ else {
      *  so ownership is tracked separately from addressability. */
     owned: Set<BrowserWindow>
     loadRecovery?: WindowLoadRecovery
+    /** Window-scoped events that arrived before this window's renderer could
+     *  be listening. See sendTo and HELD_EVENT_TYPES. */
+    outbox: DesktopEvent[]
+    /** Once true, events go straight out: the renderer has asked for what was
+     *  held, or the grace after its document loaded has run out. */
+    flushed: boolean
+    flushTimer?: NodeJS.Timeout
     /** Set while this window is closing its own popouts, so their state
      *  events say the parent took them rather than the user. */
     tearingDown: boolean
@@ -348,10 +355,42 @@ else {
     const created = await createMainWindow?.({ kind: 'homepage' })
     if (created) revealWindow(created)
   }
+  /** ⚠ THE EVENTS A WINDOW CANNOT ASK FOR AGAIN, and therefore the only ones
+   *  worth holding. A window's control state, its popout state and whether it
+   *  was shown are all re-readable through the bridge, so missing one costs
+   *  nothing. These four are not: an organization to navigate to, an item to
+   *  reveal, an identity that changed, a report of what could not be restored.
+   *  Each happens once, and a renderer that was not listening yet has no way
+   *  to discover it afterwards. */
+  const HELD_EVENT_TYPES = new Set<DesktopEvent['type']>(['open-org', 'notification-click', 'window-identity', 'restore-skipped'])
+  /** A bound, so a window whose renderer never arrives cannot accumulate
+   *  events without limit. Oldest first: a stale navigation is the one worth
+   *  dropping. */
+  const HELD_EVENT_LIMIT = 64
+  /** How long after a document loads native waits for the renderer to ask for
+   *  what was held before giving up and sending it anyway. The v2 renderer
+   *  never asks, and its events would otherwise sit in the outbox for ever;
+   *  arriving late is strictly better than the events being dropped, which is
+   *  what happened before this existed. */
+  const HELD_EVENT_GRACE_MS = 2_000
   /** ⚠ ONE WINDOW, NAMED. Every org-specific event goes through here. */
   const sendTo = (id: string, event: DesktopEvent) => {
     const record = records.get(id)
-    if (record && !record.window.isDestroyed()) record.window.webContents.send('desktop:event', event)
+    if (!record || record.window.isDestroyed()) return
+    if (!record.flushed && HELD_EVENT_TYPES.has(event.type)) {
+      record.outbox.push(event)
+      if (record.outbox.length > HELD_EVENT_LIMIT) record.outbox.shift()
+      return
+    }
+    record.window.webContents.send('desktop:event', event)
+  }
+  /** Stop holding and deliver whatever is waiting. */
+  const flushOutbox = (record: MainWindowRecord): DesktopEvent[] => {
+    if (record.flushTimer) { clearTimeout(record.flushTimer); record.flushTimer = undefined }
+    record.flushed = true
+    const held = record.outbox
+    record.outbox = []
+    return held
   }
   /** App-wide facts only - engine status, preferences, the updater. Anything
    *  naming an organization or a window belongs to sendTo. */
@@ -1472,6 +1511,13 @@ else {
       return { action: 'bound', windowId: caller.id, org: decision.org } as OrgOpenOutcome
     })
     handle('desktop:set-unsaved-creation', (caller, dirty) => { windows.setUnsavedCreation(caller.id, dirty === true) })
+    /** ⚠ WHAT ARRIVED BEFORE THE RENDERER COULD LISTEN. A notification click
+     *  or an organization to open can reach a window while its React tree is
+     *  still mounting, and `onEvent` only starts listening when the renderer
+     *  calls it - so those events used to fall into the gap. They are held
+     *  instead, and this is how the renderer collects them. Calling it also
+     *  stops the holding: from here on the window gets its events live. */
+    handle('desktop:take-pending-events', caller => flushOutbox(caller))
     /** Which organizations currently hold a window, so a Homepage can say
      *  so before the row is clicked. Read-only and app-wide: the answer is
      *  the same in every window, and it names organizations rather than
@@ -1685,7 +1731,7 @@ else {
             // is fixed for the window's life and this window's KIND is not.
             additionalArguments: [`--orgtree-ui-origin=${initialOrigin}`, `--orgtree-window-id=${id}`] } })
         const record: MainWindowRecord = {
-          id, window, owned: new Set(), tearingDown: false,
+          id, window, owned: new Set(), tearingDown: false, outbox: [], flushed: false,
           restoreMaximized: saved?.maximized ?? false, placementKey: key,
           popouts: popoutRegistry<BrowserWindow>(state => sendTo(id, { type: 'popout-state',
             // ⚠ WHY THE PARENT'S TEARDOWN SAYS SO. A main window closing takes
@@ -1722,6 +1768,17 @@ else {
         window.webContents.on('did-create-window', child => {
           child.setIcon(runtimeIcon())
           child.on('closed', quitAfterLastView)
+        })
+        // The renderer is expected to ask for what was held as soon as it can
+        // listen. A renderer that never asks - the v2 one - gets it anyway
+        // once the grace runs out, which is late but not lost.
+        window.webContents.on('did-finish-load', () => {
+          if (record.flushed || record.flushTimer) return
+          record.flushTimer = setTimeout(() => {
+            for (const event of flushOutbox(record)) {
+              if (!window.isDestroyed()) window.webContents.send('desktop:event', event)
+            }
+          }, HELD_EVENT_GRACE_MS)
         })
         window.on('close', event => {
           savePlacement(record)
@@ -1797,6 +1854,7 @@ else {
         window.once('closed', () => {
           record.loadRecovery?.dispose()
           record.loadRecovery = undefined
+          if (record.flushTimer) { clearTimeout(record.flushTimer); record.flushTimer = undefined }
           records.delete(id)
           windows.forget(id)
           publishOpenOrgs()
