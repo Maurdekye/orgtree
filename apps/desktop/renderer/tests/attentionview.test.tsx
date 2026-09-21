@@ -27,7 +27,7 @@ import { USER } from '../src/canvas/shared'
 import type { OpFn, TreePayload } from '../src/types'
 import { forgetModalPins, isModalPinned, pinModal, readModalPins } from '../src/canvas/modalpin'
 import {
-  attentionLayout, forgetAttentionMode, setAttentionLayout, setOrgView, SPLIT_MAX,
+  attentionLayout, forgetAttentionMode, setAttentionLayout, setOrgView, SPLIT_MAX, SPLIT_MIN,
 } from '../src/attention/mode'
 import { AttentionView, DESK_KIND, QUEUE_KIND } from '../src/attention/AttentionView'
 
@@ -207,6 +207,71 @@ test('§5 the divider resizes from the keyboard and the size is remembered', asy
   await press('End')
   assert.equal(attentionLayout(SLUG).split, SPLIT_MAX,
     'End goes to the bound, and the bound is what stops a panel vanishing')
+  await v.unmount()
+})
+
+test('§5.1 dragging the divider resizes the panels, and commits once at the end', async () => {
+  reset()
+  setOrgView(SLUG, 'attention')
+  const v = await mountView(view(), () => shape())
+  await inAct(() => flush())
+  const stage = document.querySelector('.attn-stage') as HTMLElement
+  const divider = document.querySelector('.attn-divider') as HTMLElement
+
+  // jsdom does no layout, so the stage is told how wide it is. The drag maths
+  // is a fraction of THIS box — that is the whole of what is being tested.
+  stage.getBoundingClientRect = () => ({
+    left: 0, top: 0, right: 1000, bottom: 800, width: 1000, height: 800, x: 0, y: 0,
+    toJSON: () => ({}),
+  }) as DOMRect
+  divider.setPointerCapture = () => {}
+  divider.releasePointerCapture = () => {}
+
+  const before = attentionLayout(SLUG).split
+  const point = (type: string, clientX: number) => inAct(() => {
+    const e = new window.MouseEvent(type, { bubbles: true, clientX, button: 0 })
+    Object.defineProperty(e, 'pointerId', { value: 1 })
+    divider.dispatchEvent(e)
+  })
+
+  await point('pointerdown', 380)
+  await point('pointermove', 600)
+  assert.equal(attentionLayout(SLUG).split, before,
+    'nothing is stored mid-drag — one write per gesture, not one per pointer move')
+  assert.equal(Number(divider.getAttribute('aria-valuenow')), 60,
+    'but the control follows the pointer while the gesture is live')
+
+  await point('pointerup', 600)
+  assert.ok(Math.abs(attentionLayout(SLUG).split - 0.6) < 1e-9,
+    'and the size the drag ended at is what is remembered')
+  await v.unmount()
+})
+
+test('§5.2 a drag cannot squeeze either panel out of existence', async () => {
+  reset()
+  setOrgView(SLUG, 'attention')
+  const v = await mountView(view(), () => shape())
+  await inAct(() => flush())
+  const stage = document.querySelector('.attn-stage') as HTMLElement
+  const divider = document.querySelector('.attn-divider') as HTMLElement
+  stage.getBoundingClientRect = () => ({
+    left: 0, top: 0, right: 1000, bottom: 800, width: 1000, height: 800, x: 0, y: 0,
+    toJSON: () => ({}),
+  }) as DOMRect
+  divider.setPointerCapture = () => {}
+  divider.releasePointerCapture = () => {}
+  const point = (type: string, clientX: number) => inAct(() => {
+    const e = new window.MouseEvent(type, { bubbles: true, clientX, button: 0 })
+    Object.defineProperty(e, 'pointerId', { value: 1 })
+    divider.dispatchEvent(e)
+  })
+  await point('pointerdown', 380)
+  await point('pointermove', -400)
+  await point('pointerup', -400)
+  assert.equal(attentionLayout(SLUG).split, SPLIT_MIN,
+    'dragged past the edge, the Needs attention panel stops at its floor')
+  assert.equal(shape().queue, true, 'and is still on screen')
+  assert.equal(shape().desk, true)
   await v.unmount()
 })
 

@@ -28,6 +28,7 @@ import type { MailEntry, ToastFn, TreeNode, TreePayload, WorkItem } from '../typ
 import { md, orgPxc, usePolled } from '../canvas/shared'
 import type { MailRow } from '../canvas/shared'
 import { AgentName } from '../canvas/identity'
+import { focusByAttr } from './dom'
 import { AskCard } from '../canvas/asks'
 import { MailReplyBox } from '../canvas/mail'
 import { RefMdBody } from '../canvas/refmd'
@@ -156,7 +157,8 @@ export function AttentionQueue({
       const row = rows[Math.min(rows.length - 1, Math.max(0, to))]
       if (row) {
         openRow(row)
-        listRef.current?.querySelector<HTMLElement>(`[data-attn-row="${CSS.escape(row.key)}"]`)?.focus()
+        // scanned, not selector-built — see focusByAttr for why
+        focusByAttr(listRef.current, 'data-attn-row', row.key)
       }
     }
     if (e.key === 'ArrowDown') go(i < 0 ? 0 : i + 1)

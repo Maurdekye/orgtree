@@ -33,6 +33,7 @@ import { DeskSlot } from '../canvas/deskhosts'
 import type { DeskChatProps } from '../canvas/desk'
 import { agentNavProps } from '../canvas/agentnav'
 import { AgentName } from '../canvas/identity'
+import { focusByAttr } from './dom'
 import { setAttentionLayout, useAttentionLayout } from './mode'
 
 export interface AgentDeskPanelProps {
@@ -156,8 +157,7 @@ export function AgentDeskPanel({
       const row = rows[Math.min(rows.length - 1, Math.max(0, to))]
       if (!row) return
       select(row.node.id)
-      listRef.current?.querySelector<HTMLElement>(
-        `[data-attn-agent="${CSS.escape(row.node.id)}"]`)?.focus()
+      focusByAttr(listRef.current, 'data-attn-agent', row.node.id)
     }
     if (e.key === 'ArrowDown') go(i < 0 ? 0 : i + 1)
     else if (e.key === 'ArrowUp') go(i < 0 ? rows.length - 1 : i - 1)
