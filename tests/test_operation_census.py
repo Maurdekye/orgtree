@@ -1260,5 +1260,104 @@ class CaptureDisabledTests(CensusCase):
         self.assertIsNone(os.environ.get('ORGTREE_OPERATION_CENSUS'))
 
 
+class TheLockCensusFieldsReachACensusRecord(CensusCase):
+    """§ The lock boundary, published.
+
+    `_NUMERIC_FIELDS` reserved names for a lock-boundary stage that had not
+    landed when this module was written, and its note said so. The stage has
+    landed: `profiling.TimedRLock` writes four of the six and
+    `store._InstrumentedDocLock`'s FIFO gate writes the other two. ⚠ One name,
+    `lock_queue_ahead_max`, had NO SLOT in `_NUMERIC_FIELDS` at all, so a
+    record could not have carried it however carefully it was measured — that
+    is the gap this section exists to close and to keep closed.
+
+    Driven through `census.observe` with EXACT values rather than through a
+    real request, because a real request's lock numbers are whatever the
+    machine happened to do and cannot be asserted to a number. The end-to-end
+    path (a real request really filling these) is covered by
+    `tests/test_census_lock_boundaries.py`.
+    """
+
+    #: Distinct values, so a field that landed under the wrong name shows up
+    #: instead of being masked by a shared number.
+    LOCK_VALUES = {'lock_wait_ms': 12.5, 'lock_hold_ms': 42.5,
+                   'lock_acquires': 3, 'lock_failed': 1, 'lock_contended': 2,
+                   'lock_max_depth': 5, 'lock_queue_ahead_max': 4}
+
+    def observe(self, profile, handler_ms=100.0):
+        from orgtree import census
+        census.observe('POST', '/api/fake/{id}', 200, handler_ms, handler_ms,
+                       0, 1, profile=dict(profile))
+        body = self.read()
+        self.assertWindowDidWork(body)
+        return body['records'][-1]
+
+    def test_all_seven_lock_numbers_reach_a_record_with_their_own_values(self):
+        row = self.observe(self.LOCK_VALUES)
+        for field, value in self.LOCK_VALUES.items():
+            self.assertIn(field, row, f'{field} never reached the census: {row}')
+            self.assertEqual(row[field], value,
+                             f'{field} arrived as {row[field]!r}, not {value!r}')
+
+    def test_the_queue_depth_has_a_slot_of_its_own(self):
+        """The one name that was missing. Asserted separately from the group
+        so that losing it again fails a test that says what was lost."""
+        from orgtree import census
+        self.assertIn('lock_queue_ahead_max', census._NUMERIC_FIELDS)
+        row = self.observe({'lock_queue_ahead_max': 4})
+        self.assertEqual(row['lock_queue_ahead_max'], 4, row)
+
+    def test_none_of_them_decomposes_handler_time(self):
+        from orgtree import census
+        for field in self.LOCK_VALUES:
+            self.assertNotIn(field, census._WALL_STAGE_FIELDS,
+                             f'{field} must never enter the subtraction')
+        stages = {'org_load_ms': 10.0, 'mutate_ms': 20.0}
+        without = self.observe(stages)
+        with_lock = self.observe({**stages, **self.LOCK_VALUES})
+        self.assertEqual(without['unattributed_ms'], 70.0,
+                         f'the control itself is wrong: {without}')
+        self.assertEqual(with_lock['unattributed_ms'], without['unattributed_ms'],
+                         'SUPPLYING THE LOCK CENSUS MUST NOT MOVE THE '
+                         f'DECOMPOSITION: {with_lock} vs {without}')
+
+    def test_a_hold_spanning_the_whole_handler_leaves_it_positive(self):
+        """`lock_hold_ms` is the trap: it IS milliseconds, and it spans
+        `mutate_ms` plus the document IO inside the lock. Subtracting it as a
+        stage would drive `unattributed_ms` negative here."""
+        row = self.observe({'org_load_ms': 10.0, 'mutate_ms': 20.0,
+                            'lock_hold_ms': 95.0})
+        self.assertEqual(row['unattributed_ms'], 70.0, row)
+
+    def test_nonfinite_wrongly_typed_and_unlisted_values_are_all_refused(self):
+        row = self.observe({'lock_acquires': float('nan'),
+                            'lock_failed': float('inf'),
+                            'lock_contended': float('-inf'),
+                            'lock_queue_ahead_max': 'four',
+                            'lock_max_depth': True,
+                            'lock_hold_ms': None,
+                            # shaped like one of the six, named by nobody
+                            'lock_secret_ms': 5.0,
+                            'org_load_ms': 10.0})
+        for field in self.LOCK_VALUES:
+            self.assertNotIn(field, row,
+                             f'a non-finite or wrongly typed {field} must not '
+                             f'reach a census record: {row}')
+        self.assertNotIn('lock_secret_ms', row,
+                         f'an unlisted name must not ride in on the prefix: {row}')
+        self.assertEqual(row.get('org_load_ms'), 10.0,
+                         'the good field in the same dict must still pass')
+
+    def test_an_absent_lock_number_is_simply_absent(self):
+        """⚠ THE DISCLOSURE THAT MATTERS. Capture is off by default, so most
+        records carry none of these. Absence means NOT MEASURED — it must
+        never be published as a zero, which a reader would take for "no
+        contention"."""
+        row = self.observe({'org_load_ms': 10.0})
+        for field in self.LOCK_VALUES:
+            self.assertNotIn(field, row,
+                             f'{field} must be absent, not zero: {row}')
+
+
 if __name__ == '__main__':
     unittest.main()

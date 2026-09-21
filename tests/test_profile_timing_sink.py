@@ -12,6 +12,7 @@ tests: a case that proves the flag OFF really is silent, paired with a case
 that proves it ON really is populated — never just one side.
 """
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -275,6 +276,139 @@ class ProfileTimingSinkEnabledTests(unittest.TestCase):
         client = TestClient(app, raise_server_exceptions=False)
         got = client.get('/api/orgs/does-not-exist-at-all', headers=self.HEADERS)
         self.assertEqual(got.status_code, 404, got.text)
+
+
+class TheLockCensusFieldsArePublishedTests(unittest.TestCase):
+    """The six lock-census fields really leave the handler's profile dict.
+
+    They are measured by `profiling`/`store` and were invisible until they
+    were named in `api._PROFILE_ALLOWED_FIELDS` — an allowlist drops silently,
+    so "the instrument works" and "an operator can see it" are two separate
+    claims and this is the second one. Driven through `_access_emit` with
+    EXACT known values rather than through a real request, because a real
+    request's lock numbers are whatever the machine did and cannot be asserted
+    to a number.
+
+    ⚠ AND THE DECOMPOSITION MUST NOT MOVE. `lock_hold_ms` is a wall duration
+    that spans `mutate_ms` plus the document IO inside the lock. If it ever
+    joined `_PROFILE_WALL_STAGE_FIELDS`, `unattributed_ms` would subtract
+    those milliseconds twice and go negative on every ordinary write — the
+    record would manufacture the attribution bug it exists to reveal.
+    """
+
+    HEADERS = {'X-Orgtree-Desktop-Token': 'operator'}
+    #: One distinct value each, none of them equal, so a field that landed
+    #: under the wrong name is visible rather than masked by a shared number.
+    LOCK_VALUES = {'lock_acquires': 3, 'lock_failed': 1, 'lock_contended': 2,
+                   'lock_queue_ahead_max': 4, 'lock_max_depth': 5,
+                   'lock_hold_ms': 42.5}
+
+    def setUp(self):
+        from orgtree import api
+        self.api = api
+        self._saved = list(api._PROFILE_RECORDS)
+        self.addCleanup(self._restore)
+        api._PROFILE_RECORDS.clear()
+
+    def _restore(self):
+        self.api._PROFILE_RECORDS.clear()
+        self.api._PROFILE_RECORDS.extend(self._saved)
+
+    def emit(self, profile, handler_ms=100.0):
+        class FakeRoute:
+            path = '/api/fake/{id}'
+
+        scope = {'route': FakeRoute(), 'method': 'POST', 'type': 'http'}
+        self.api._access_emit(scope, 200, handler_ms, handler_ms, 0, 1,
+                              profile=dict(profile))
+        return self.api._PROFILE_RECORDS[-1]
+
+    def test_all_six_reach_the_sink_with_the_values_that_were_measured(self):
+        row = self.emit(self.LOCK_VALUES)
+        for field, value in self.LOCK_VALUES.items():
+            self.assertIn(field, row, f'{field} never reached the sink: {row}')
+            self.assertEqual(row[field], value,
+                             f'{field} arrived as {row[field]!r}, not {value!r}')
+
+    def test_they_are_named_on_the_allowlist_deliberately(self):
+        """The allowlist is the boundary; naming the six here means a future
+        edit that drops one fails this instead of silently publishing less."""
+        for field in self.LOCK_VALUES:
+            self.assertIn(field, self.api._PROFILE_ALLOWED_FIELDS,
+                          f'{field} must be on the closed allowlist')
+            self.assertNotIn(field, self.api._PROFILE_WALL_STAGE_FIELDS,
+                             f'{field} must NOT decompose handler time')
+            self.assertNotIn(field, self.api._PROFILE_RESERVED_FIELDS)
+
+    def printed(self, profile, handler_ms=100.0):
+        """The DECOMPOSITION lives in the printed projection, not in the
+        bounded sink: `unattributed_ms` is a reserved field the sink row does
+        not carry, so a test that read the sink row would be asserting about
+        the wrong record."""
+        from unittest.mock import patch
+        with patch('builtins.print') as print_mock:
+            self.emit(profile, handler_ms)
+        lines = [str(call.args[0]) for call in print_mock.call_args_list
+                 if str(call.args[0]).startswith('[orgtree.profile] ')]
+        self.assertEqual(len(lines), 1, f'expected one profile line, got {lines}')
+        # "[orgtree.profile] <route> <json>" — split on the two spaces the
+        # emit puts there rather than hunting for a brace, because a route
+        # TEMPLATE contains braces of its own (`/api/fake/{id}`).
+        return json.loads(lines[0].split(' ', 2)[2])
+
+    def test_the_unattributed_decomposition_is_unchanged_by_them(self):
+        stages = {'org_load_ms': 10.0, 'mutate_ms': 20.0}
+        without = self.printed(stages)
+        with_lock = self.printed({**stages, **self.LOCK_VALUES})
+        self.assertEqual(without['unattributed_ms'], 70.0,
+                         f'the control itself is wrong: {without}')
+        self.assertEqual(with_lock['unattributed_ms'], without['unattributed_ms'],
+                         'SUPPLYING THE LOCK CENSUS MUST NOT MOVE THE '
+                         f'DECOMPOSITION: {with_lock} vs {without}')
+        self.assertEqual(with_lock['lock_hold_ms'], 42.5,
+                         'and it is still published, just not subtracted')
+
+    def test_a_hold_longer_than_the_handler_still_leaves_it_positive(self):
+        """The case that would break if `lock_hold_ms` were ever subtracted:
+        a hold that spans the whole handler. Subtracting it as a stage would
+        drive `unattributed_ms` negative here even though nothing overlaps
+        that should not."""
+        row = self.printed({'org_load_ms': 10.0, 'mutate_ms': 20.0,
+                            'lock_hold_ms': 95.0}, handler_ms=100.0)
+        self.assertEqual(row['unattributed_ms'], 70.0, row)
+
+    def test_nonfinite_wrong_typed_and_unknown_lock_values_are_all_rejected(self):
+        row = self.emit({'lock_acquires': math.nan, 'lock_failed': math.inf,
+                         'lock_contended': -math.inf,
+                         'lock_queue_ahead_max': 'two',
+                         'lock_max_depth': True,
+                         'lock_hold_ms': None,
+                         # a name nobody allowlisted, shaped like one that is
+                         'lock_secret_ms': 5.0,
+                         'org_load_ms': 10.0})
+        for rejected in self.LOCK_VALUES:
+            self.assertNotIn(rejected, row,
+                             f'a non-finite or wrongly typed {rejected} must '
+                             f'never reach the sink: {row}')
+        self.assertNotIn('lock_secret_ms', row,
+                         f'an unlisted field must not ride in on the prefix: {row}')
+        self.assertEqual(row.get('org_load_ms'), 10.0,
+                         'the good field in the same dict must still pass')
+
+    def test_a_bool_is_not_accepted_as_a_count(self):
+        """`isinstance(True, int)` is True in Python, so a bool would sail
+        through a numeric check that did not exclude it — and these six are
+        the first COUNT fields on the allowlist, where a bool looks plausible."""
+        row = self.emit({'lock_contended': True, 'lock_acquires': False})
+        self.assertNotIn('lock_contended', row, row)
+        self.assertNotIn('lock_acquires', row, row)
+
+    def test_the_published_record_still_carries_nothing_unexpected(self):
+        row = self.emit({**self.LOCK_VALUES, 'org_load_ms': 10.0})
+        allowed = set(self.api._PROFILE_ALLOWED_FIELDS) | set(
+            self.api._PROFILE_RESERVED_FIELDS) | {self.api._PROFILE_TOOL_FIELD}
+        self.assertTrue(set(row) <= allowed,
+                        f'unexpected field in the record: {set(row) - allowed}')
 
 
 class ProfileTimingSinkDisabledByDefaultTests(unittest.TestCase):

@@ -188,12 +188,34 @@ _PROFILE_ALLOWED_FIELDS = frozenset({
     # (org_save_ms 5063 ms of which CPU was 46.9 ms).
     "org_load_cpu_ms", "org_save_cpu_ms", "mutate_cpu_ms",
     "chat_read_cpu_ms", "history_work_cpu_ms",
+    # The lock census (see `profiling` and `store._InstrumentedDocLock`).
+    # COUNTS AND MAXIMA, not a sixth and seventh stage — they answer how often
+    # and how deep, which no duration can. ⚠ `lock_contended` is the only one
+    # that means contention: it is written by the FIFO admission gate, the one
+    # place that can tell a real queue from the ordinary cost of taking a free
+    # lock, and a positive `lock_wait_ms` is NOT evidence of the same thing.
+    # Every one of them is excluded from `_PROFILE_WALL_STAGE_FIELDS` below;
+    # `lock_hold_ms` especially, because it spans the same interval as
+    # `mutate_ms` plus the document IO inside the lock and subtracting it would
+    # count those milliseconds twice.
+    "lock_acquires", "lock_failed", "lock_contended",
+    "lock_queue_ahead_max", "lock_max_depth", "lock_hold_ms",
 })
 #: Wall-clock stage fields that decompose handler time; the emit computes
 #: `unattributed_ms = handler_ms - sum(present wall stages)` from exactly
 #: this set, so time no stage claims is EXPLICIT in every record instead of
 #: an exercise for the reader (user decision 2026-09-19). CPU fields are
 #: excluded: they re-measure the same intervals on a different clock.
+#:
+#: ⚠ THE LOCK-CENSUS FIELDS ARE EXCLUDED TOO, and for two distinct reasons.
+#: `lock_acquires`, `lock_failed`, `lock_contended`, `lock_queue_ahead_max` and
+#: `lock_max_depth` are not milliseconds at all — subtracting a count from a
+#: duration is meaningless. `lock_hold_ms` IS milliseconds, and is the more
+#: dangerous of the two cases: it spans the same interval as `mutate_ms` plus
+#: whatever document IO ran inside the lock, so including it would subtract
+#: those milliseconds a second time and drive `unattributed_ms` negative on
+#: every ordinary write — an attribution bug this record is supposed to expose,
+#: manufactured by the record itself.
 _PROFILE_WALL_STAGE_FIELDS = frozenset({
     "load_snapshot_ms", "tree_ms", "annotate_ms",
     "lock_wait_ms", "org_load_ms", "chat_read_ms", "history_work_ms",

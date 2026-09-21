@@ -494,5 +494,175 @@ class MeasuringMustNeverBreakTheThingMeasured(LockCensusBase):
                          'the gate must still grant in strict arrival order')
 
 
+class TheConditionPathHasItsOwnCounterSemantics(LockCensusBase):
+    """§9. `Condition.wait` DOES NOT GO THROUGH `acquire()`.
+
+    `halt.py` builds `threading.Condition(store.DOC_LOCK)`, and a wait on such
+    a Condition calls `_release_save` and `_acquire_restore` directly. Those
+    two overrides — not `acquire`/`release` — decide what the counters say on
+    that path, so the semantics the other eight sections establish do NOT
+    carry over by inheritance and are asserted here separately.
+
+    What the code actually does, measured rather than assumed:
+
+      * the restore is NOT a second acquisition (`lock_acquires` does not
+        move), because the parent's `_acquire_restore` sets the depth directly
+        and never runs the acquire bookkeeping;
+      * the hold AFTER the restore is NOT reported. The parent closes its
+        window on `_release_save` and deliberately does not reopen it, so a
+        post-wait hold is UNMEASURED — which is a different statement from
+        zero, and §9 says so out loud rather than leaving a reader to assume
+        the instrument covers it;
+      * a restore that has to queue behind a real owner IS counted as
+        contention, because it re-enters the same FIFO gate at the tail.
+
+    ⚠ ONE REAL GAP IS PINNED HERE RATHER THAN FIXED, because fixing it would
+    change locking behaviour and that is outside this stage: see
+    `test_a_nested_wait_yields_the_gate_before_the_inner_lock_is_free`.
+    """
+
+    def notifier(self, cond: threading.Condition,
+                 ready: threading.Event) -> threading.Thread:
+        """Notify once the waiter is really parked.
+
+        Deterministic without polling: `with cond` cannot be entered until the
+        lock is free, and on this path the lock becomes free only inside
+        `wait()`. `ready` rules out the other direction — notifying before the
+        waiter has even taken the lock.
+        """
+        def notify() -> None:
+            ready.wait(10)
+            with cond:
+                cond.notify_all()
+
+        thread = threading.Thread(target=notify, name='cond-notifier')
+        thread.start()
+        self.addCleanup(thread.join, 10)
+        return thread
+
+    def test_a_wait_and_wake_is_not_counted_as_a_second_acquisition(self):
+        cond = threading.Condition(LOCK)
+        ready = threading.Event()
+        self.notifier(cond, ready)
+        with cond:                                   # depth 1
+            before = self.recorded()
+            ready.set()
+            self.assertTrue(cond.wait(timeout=10), 'the waiter never woke')
+            time.sleep(0.1)                          # held AFTER the restore
+        got = self.recorded()
+        self.assertEqual(float(before['lock_acquires']), 1.0,
+                         f'the fixture did not take the lock: {before}')
+        self.assertEqual(float(got['lock_acquires']), 1.0,
+                         'A RESTORE IS NOT A SECOND ACQUISITION — the parent '
+                         f'sets the depth directly and counts nothing: {got}')
+        self.assertNotIn('lock_contended', got,
+                         f'nobody was in the way on this path: {got}')
+
+    def test_the_hold_after_a_wake_is_unmeasured_and_that_is_deliberate(self):
+        """⚠ NOT ZERO — ABSENT. The parent ends the hold window at
+        `_release_save` and does not reopen it, precisely so a thread that
+        slept for twenty seconds is not reported as having mutated for twenty
+        seconds. The honest consequence is that the work it does after waking
+        is not reported either, and a reader must not add these records up and
+        believe they cover the whole request."""
+        cond = threading.Condition(LOCK)
+        ready = threading.Event()
+        self.notifier(cond, ready)
+        with cond:
+            ready.set()
+            self.assertTrue(cond.wait(timeout=10))
+            time.sleep(0.15)                         # a real, long hold
+        got = self.recorded()
+        self.assertNotIn('lock_hold_ms', got,
+                         'a post-restore hold is UNMEASURED; reporting it '
+                         f'would require reopening the window: {got}')
+        self.assertNotIn('mutate_ms', got,
+                         f'and the existing instrument says the same: {got}')
+
+    def test_the_depth_high_water_survives_a_nested_wait(self):
+        cond = threading.Condition(LOCK)
+        ready = threading.Event()
+        self.notifier(cond, ready)
+        with LOCK:                                   # depth 1
+            with cond:                               # depth 2, same lock
+                ready.set()
+                self.assertTrue(cond.wait(timeout=10))
+        self.assertEqual(self.value('lock_max_depth'), 2.0,
+                         'the deepest nesting reached before the wait is '
+                         'still the deepest this request reached')
+        self.assertEqual(self.value('lock_acquires'), 1.0,
+                         'one outer acquisition, whatever the wait did')
+
+    def test_a_restore_that_queues_behind_an_owner_is_counted_as_contention(self):
+        """Driven through `_release_save`/`_acquire_restore` directly, which
+        IS the code path a `Condition.wait` takes. Doing it this way makes the
+        ordering a fact rather than a scheduling coincidence: the keeper
+        provably owns the lock before the restore is attempted."""
+        LOCK.acquire()
+        state = LOCK._release_save()                 # the wait's release half
+        try:
+            self.keeper()                            # returns once really held
+            self.assertIsNotNone(LOCK._owner, 'the keeper does not own the gate')
+            LOCK._acquire_restore(state)             # must queue behind it
+        finally:
+            LOCK.release()
+        got = self.recorded()
+        self.assertEqual(float(got['lock_contended']), 1.0,
+                         'a restore re-enters the gate at the tail and can '
+                         f'genuinely find somebody in front: {got}')
+        self.assertEqual(float(got['lock_queue_ahead_max']), 1.0,
+                         f'the keeper alone was in front: {got}')
+
+    def test_an_uncontended_restore_is_not_counted_as_contention(self):
+        """The control for the case above — the same code path with nobody in
+        the way must stay silent, or `lock_contended` would just mean "a
+        Condition was used"."""
+        LOCK.acquire()
+        state = LOCK._release_save()
+        try:
+            LOCK._acquire_restore(state)
+        finally:
+            LOCK.release()
+        self.assertSilent('lock_contended', 'lock_queue_ahead_max')
+
+    def test_a_nested_wait_yields_the_gate_before_the_inner_lock_is_free(self):
+        """⚠ A REAL GAP, PINNED HERE RATHER THAN FIXED.
+
+        `_release_save` drops the tracked depth to 0 and `_acquire_restore`
+        sets it to 1 — but `Condition.wait` released EVERY recursion level and
+        re-took them all, so after a wait at depth 2 the true RLock recursion
+        is 2 while the wrapper believes it is 1. `release()` therefore treats
+        the FIRST of the two releases as outermost: it runs the resident
+        release hook and YIELDS THE GATE while this thread still owns the
+        inner RLock. A thread admitted in that window blocks on the inner lock
+        instead of at the gate, so it waits without being counted — the one
+        hole in `lock_contended`'s coverage.
+
+        Mutual exclusion and FIFO order are NOT violated, which is why this is
+        a measurement gap and not a correctness bug, and fixing it would
+        change locking behaviour — out of scope for this stage. It is also
+        currently UNREACHABLE in product code: `halt.py` only ever calls
+        `notify_all()` on its Condition, never `wait()`, so nothing outside
+        the tests takes this path at all.
+        """
+        cond = threading.Condition(LOCK)
+        ready = threading.Event()
+        self.notifier(cond, ready)
+        LOCK.acquire()                               # depth 1
+        cond.acquire()                               # depth 2, same lock
+        ready.set()
+        self.assertTrue(cond.wait(timeout=10))
+        self.assertEqual(getattr(LOCK._held, 'depth', None), 1,
+                         'the restore collapses the tracked depth to 1 even '
+                         'though the real recursion is 2')
+        cond.release()                               # first of two
+        self.assertIsNone(LOCK._owner,
+                          'THE GAP: the gate is already free here…')
+        self.assertTrue(LOCK._is_owned(),
+                        '…while this thread still holds the inner RLock')
+        LOCK.release()                               # second
+        self.assertFalse(LOCK._is_owned(), 'both levels must be released')
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -171,26 +171,37 @@ _WINDOW_GEN = 1
 #: rule `api._PROFILE_ALLOWED_FIELDS` enforces, restated here because this
 #: sink builds its own row rather than reusing that one.
 #:
-#: ⚠ SIX OF THESE ARE NOT WRITTEN BY ANYTHING YET. At this commit `profiling`
-#: writes `lock_wait_ms` (in `TimedRLock.acquire`) and the stage fields; the
-#: `lock_hold_ms`/`lock_acquires`/`lock_contended`/`lock_failed`/
-#: `lock_max_depth` group arrives with the lock-boundary stage. An absent
-#: field is simply skipped, so listing them here is forward compatibility and
-#: not a claim that they are collected — a reader must not read their absence
-#: as "no contention", only as "not measured".
+#: ⚠ THE LOCK GROUP IS NOW WRITTEN, and this note used to say the opposite.
+#: When this list was first authored the five counters below `lock_wait_ms`
+#: were forward compatibility — names reserved for a stage that had not landed
+#: (the note also miscounted them as six; there were five). The lock-boundary
+#: stage has since landed: `profiling.TimedRLock` writes `lock_acquires`,
+#: `lock_failed`, `lock_max_depth` and `lock_hold_ms`, and
+#: `store._InstrumentedDocLock`'s FIFO admission gate writes `lock_contended`
+#: and `lock_queue_ahead_max`. `lock_queue_ahead_max` is the one name that had
+#: no slot here at all, so a record could not have carried it however it was
+#: measured.
+#:
+#: An absent field is still simply skipped, and the old warning still holds in
+#: its other half: absence means NOT MEASURED, never "no contention". Capture
+#: is opt-in and off by default, so absence is the ordinary case.
 _NUMERIC_FIELDS = (
     # stage decomposition, already collected by `profiling`
     "load_snapshot_ms", "tree_ms", "annotate_ms", "chat_read_ms",
     "history_work_ms", "org_load_ms", "org_save_ms", "mutate_ms",
     "org_load_cpu_ms", "org_save_cpu_ms", "mutate_cpu_ms",
     "chat_read_cpu_ms", "history_work_cpu_ms",
-    # lock / transaction boundary
+    # lock / transaction boundary. ⚠ `lock_contended` is the only one of these
+    # that means contention; a positive `lock_wait_ms` includes the ordinary
+    # cost of acquiring a free lock and is not evidence of a queue.
     "lock_wait_ms", "lock_hold_ms", "lock_acquires", "lock_contended",
-    "lock_failed", "lock_max_depth",
+    "lock_failed", "lock_max_depth", "lock_queue_ahead_max",
 )
 #: Of those, the WALL stage fields that decompose handler time. Counts and CPU
 #: re-measurements are excluded: letting either into the subtraction would
-#: make `unattributed_ms` meaningless.
+#: make `unattributed_ms` meaningless. ⚠ So is `lock_hold_ms`, which IS a wall
+#: duration and is the trap here: it spans `mutate_ms` plus the document IO
+#: inside the lock, so subtracting it would remove those milliseconds twice.
 _WALL_STAGE_FIELDS = frozenset({
     "load_snapshot_ms", "tree_ms", "annotate_ms", "chat_read_ms",
     "history_work_ms", "org_load_ms", "org_save_ms", "mutate_ms",
