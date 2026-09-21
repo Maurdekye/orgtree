@@ -33,9 +33,8 @@ import type {
   KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode,
 } from 'react'
 import type { ToastFn, TreePayload } from '../types'
-import type { CanvasNode, OpFn, PolledStatus, Pt } from '../canvas/shared'
+import type { CanvasNode, MailLinkFn, OpFn, PolledStatus, Pt } from '../canvas/shared'
 import type { DeskChatProps } from '../canvas/desk'
-import type { TypedRef } from '../canvas/workrefs'
 import { PinFrame, unpinModal, useModalPin, usePersistedModalOpen } from '../canvas/modalpin'
 import {
   restoredWindows, subscribeWindowLayout, useRestoreWindows, windowLayoutRevision,
@@ -290,7 +289,9 @@ export interface AttentionViewProps {
   onOpenItem?: (itemSlug: string) => void
   onFocusAgent?: (agentId: string) => void
   onOpenDoc?: (docId: string) => void
-  onOpenMail?: (ref: TypedRef) => void
+  /** the canonical `MailLinkFn` the org host hands its slot — see
+   *  `AttentionQueueProps.onOpenMail` for why this is not a TypedRef handler */
+  onOpenMail?: MailLinkFn
   /** the Desk's own host routes, passed through untouched */
   deskExtras?: Partial<DeskChatProps>
   /**

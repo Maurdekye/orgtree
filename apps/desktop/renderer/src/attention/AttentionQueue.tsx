@@ -26,13 +26,13 @@ import { sendLinkedReply } from '../events/reply'
 import { DocketIcon, MailIcon, NotificationsActiveIcon, PsychologyIcon } from '../icons'
 import type { MailEntry, ToastFn, TreeNode, TreePayload, WorkItem } from '../types'
 import { md, orgPxc, usePolledStatus } from '../canvas/shared'
-import type { MailRow, PolledStatus } from '../canvas/shared'
+import type { MailLinkFn, MailRow, PolledStatus } from '../canvas/shared'
 import { AgentName } from '../canvas/identity'
 import { focusByAttr } from './dom'
 import { AskCard } from '../canvas/asks'
 import { MailReplyBox } from '../canvas/mail'
 import { RefMdBody } from '../canvas/refmd'
-import { refToken, useRefRoutes } from '../canvas/reflinks'
+import { mailRefTarget, refToken, useRefRoutes } from '../canvas/reflinks'
 import type { TypedRef } from '../canvas/workrefs'
 import { EventCard } from '../events/card'
 import { decodeEventRow } from '../events/decode'
@@ -53,7 +53,15 @@ export interface AttentionQueueProps {
   onOpenItem?: (itemSlug: string) => void
   onFocusAgent?: (agentId: string) => void
   onOpenDoc?: (docId: string) => void
-  onOpenMail?: (ref: TypedRef) => void
+  /** ⚠ THE CANONICAL `MailLinkFn`, NOT A TypedRef HANDLER — the same shape the
+   *  org host hands its slot and the same one the canvas's own desks get.
+   *  This prop used to take a `TypedRef`, which meant the published
+   *  `OrgSlotContext` could not be spread onto this view at all. The two
+   *  shapes both exist in the app for different callers, and `mailRefTarget`
+   *  (canvas/reflinks) is the app's own bridge between them — OrgCanvas uses
+   *  exactly that line for its own ref world, so this reuses the conversion
+   *  rather than inventing a box-to-recipient mapping of its own. */
+  onOpenMail?: MailLinkFn
   /**
    * THE FRESHNESS OF `tree`, WHICH IS THE LIST'S THIRD SOURCE.
    *
@@ -217,7 +225,11 @@ export function AttentionQueue({
   const loading = work === null || box === null
 
   const refs = useRefRoutes(slug, nodeMap, {
-    onOpenItem, onFocusAgent, onOpenDoc, onOpenMail,
+    onOpenItem, onFocusAgent, onOpenDoc,
+    // ⚠ CONDITIONAL, because `useRefRoutes` reads the PRESENCE of this handler
+    // to decide whether a mail token is something this surface can open at all.
+    // Wrapping unconditionally would advertise mail this view cannot route.
+    onOpenMail: onOpenMail ? (r: TypedRef) => onOpenMail(mailRefTarget(r)) : undefined,
     tierOf: (id: string) => nodeMap.get(id)?.tier,
   })
 
