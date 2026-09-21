@@ -2005,6 +2005,24 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   // slug, and the second run "restored" it — an org that never glided. The
   // last 250ms before a deliberate leave is not worth a write that can race
   // the intro; pagehide covers the case that matters.
+  // ⚠ THE CAMERA BELONGS TO `tree.slug`, NEVER TO THE `slug` PROP (user bug:
+  // "switching between organizations does not preserve each org's canvas
+  // state"). They disagree for as long as an org switch takes to load: App
+  // commits the new slug at once and swaps `tree` only when its fetch
+  // resolves — MEASURED at 11-38 s on a loaded org — and this component is
+  // not keyed by slug, so it stays mounted showing the OLD org's canvas
+  // under the NEW org's slug. Keyed on the prop, the 250 ms debounce fired
+  // inside that window and wrote the org the user had just LEFT over
+  // `orgtree-view-<the org being opened>`; the intro effect (keyed on
+  // `tree.slug`) then "restored" that, so the opened org arrived at the
+  // previous org's camera and its own saved position was gone for good —
+  // three orgs in a row collapsed onto one camera. `view`, `viewRef` and the
+  // intro effect are all in step with `tree.slug`, so that is the only slug
+  // this camera was ever taken in. Same guard the draft/eyemin/pile/pin
+  // sweeps above already carry, spelled as a key rather than a bail-out
+  // because a pan DURING the mismatched window is still real state the org
+  // on screen must keep.
+  const savedSlug = tree.slug
   const saveRef = useRef<{ slug: string; view: View; t: ReturnType<typeof setTimeout> } | null>(null)
   const flushSave = useCallback(() => {
     const p = saveRef.current
@@ -2015,14 +2033,14 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   }, [])
   useEffect(() => {
     const p = saveRef.current
-    if (p && p.slug !== slug) flushSave()
+    if (p && p.slug !== savedSlug) flushSave()
     else if (p) clearTimeout(p.t)
     const v = viewRef.current
     saveRef.current = {
-      slug, view: v,
-      t: setTimeout(() => { saveRef.current = null; saveView(slug, v) }, 250),
+      slug: savedSlug, view: v,
+      t: setTimeout(() => { saveRef.current = null; saveView(savedSlug, v) }, 250),
     }
-  }, [view, slug, flushSave])
+  }, [view, savedSlug, flushSave])
   useEffect(() => {
     window.addEventListener('pagehide', flushSave)
     return () => window.removeEventListener('pagehide', flushSave)

@@ -11,11 +11,19 @@
 // camera writes into `.space`'s transform — jsdom does no layout, and the
 // camera IS those three numbers.
 //
+// TWO HALVES, AND THE SECOND ONE IS THE ONE THE APP ACTUALLY RUNS. The tests
+// in the first half mount a fresh canvas per org. That proves the restore
+// rule but it is NOT a switch: App never unmounts OrgCanvas, it re-renders
+// it with a new `slug` prop while `tree` still holds the org being left. The
+// second half (below the divider) drives that, and covers the per-org
+// isolation the first half cannot see.
+//
 // Run:  node tests/run.mjs viewrestore
 import { advance, flush, mountView, realClock, useFakeClock } from './harness'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
+import type { ReactNode } from 'react'
 import type { TreePayload } from '../src/types'
 
 const noop = () => {}
@@ -137,4 +145,141 @@ camTest('a switch to an org with NO saved camera still introduces it (nothing to
   const v = cam(second.el)
   assert.ok(Number.isFinite(v.x) && Number.isFinite(v.y) && v.z > 0,
     'a brand-new org renders a sane fitted camera after a switch')
+})
+
+// ---------------------------------------------------------------------------
+// THE REAL SWITCH PATH: the canvas STAYS MOUNTED across an org switch.
+//
+// Everything above mounts one canvas per org, which is a fresh component each
+// time. The app does not do that: OrgCanvas is not keyed by slug, so a switch
+// re-renders the SAME component with a new `slug` prop while `tree` still
+// holds the org being left — App swaps the tree only when its own fetch
+// resolves (measured 11-38 s on a loaded org). Everything the canvas saves has
+// to survive that mismatched-props window, and the user-reported bug lived
+// entirely inside it: the camera save was keyed on the PROP, so its 250 ms
+// debounce wrote the leaving org's camera over `orgtree-view-<the org being
+// opened>` — which the intro effect then dutifully restored.
+//
+// These tests drive the switch exactly as App does: prop first, tree later.
+const OP = () => Promise.resolve({} as never)
+
+/** the canvas as App renders it: `treeSlug` is the payload on screen,
+ *  `propSlug` is the org the app has already committed to */
+async function canvasEl(treeSlug: string, propSlug: string) {
+  const { OrgCanvas } = await import('../src/canvas/OrgCanvas')
+  return <OrgCanvas tree={tree(treeSlug, ['ceo', 'cto'])} op={OP}
+    slug={propSlug} toast={noop} mailEvt={null} />
+}
+
+async function mountMounted(slug: string, open: { unmount: () => Promise<void> }[]) {
+  const view = await mountView(await canvasEl(slug, slug), (host) => host)
+  open.push(view)
+  await flush()
+  await advance(2500)
+  return view
+}
+
+/** THE SWITCH, in the two commits the app actually produces.
+ *  1. the prop moves to `to` and the tree is still `from` — the window that
+ *     has to write nothing under `to`. `hold` is how long the fetch takes.
+ *  2. the payload for `to` lands, and its intro effect restores its camera. */
+async function switchOrg(view: { render: (n: ReactNode) => Promise<HTMLElement> },
+  from: string, to: string, hold = 1500) {
+  await view.render(await canvasEl(from, to))
+  await advance(hold)
+  await view.render(await canvasEl(to, to))
+  await advance(2500)
+}
+
+const readSaved = (slug: string): Cam | null => {
+  const raw = localStorage.getItem('orgtree-view-' + slug)
+  return raw ? JSON.parse(raw) as Cam : null
+}
+
+camTest('an org switch in flight never writes the leaving org over the org being opened', async (open) => {
+  const OPENING: Cam = { x: -640, y: -410, z: 0.62 }
+  setSaved('second', OPENING)
+  const view = await mountMounted('first', open)
+  const leaving = cam(view.el)
+  assert.ok(leaving.x !== OPENING.x || leaving.y !== OPENING.y || leaving.z !== OPENING.z,
+    'fixture failure: the first org parked exactly where the second org is saved, so a clobber would be invisible')
+  // commit 1 only: the app has committed `second` and its tree has not landed
+  await view.render(await canvasEl('first', 'second'))
+  await advance(1500)          // well past the 250 ms camera debounce
+  assert.deepEqual(readSaved('second'), OPENING,
+    'the org being opened must still hold its own saved camera while its tree is in flight')
+  assert.deepEqual(readSaved('first'), leaving,
+    'the org being left must have its own final camera saved under its own slug')
+})
+
+camTest('a switch through the in-flight window still opens the new org at its own camera', async (open) => {
+  const OPENING: Cam = { x: -640, y: -410, z: 0.62 }
+  setSaved('second', OPENING)
+  const view = await mountMounted('first', open)
+  await switchOrg(view, 'first', 'second')
+  assert.deepEqual(cam(view.el), OPENING,
+    'the opened org must arrive at the camera it was left at, not the previous org\'s')
+})
+
+camTest('three orgs switched among repeatedly each keep their own camera', async (open) => {
+  const SAVED_BY_ORG: Record<string, Cam> = {
+    alpha: { x: 10, y: 20, z: 0.5 },
+    beta: { x: -300, y: 140, z: 1.1 },
+    gamma: { x: 880, y: -75, z: 0.35 },
+  }
+  for (const [slug, v] of Object.entries(SAVED_BY_ORG)) setSaved(slug, v)
+  // alpha is the session's first canvas, so it plays its intro and parks
+  // somewhere of its own; the other two must restore exactly.
+  const view = await mountMounted('alpha', open)
+  const alphaParked = cam(view.el)
+  SAVED_BY_ORG.alpha = alphaParked
+
+  // two full laps, so a state that only survives one hop fails here
+  const lap = ['beta', 'gamma', 'alpha', 'gamma', 'beta', 'alpha']
+  let at = 'alpha'
+  for (const next of lap) {
+    // eslint-disable-next-line no-await-in-loop
+    await switchOrg(view, at, next)
+    assert.deepEqual(cam(view.el), SAVED_BY_ORG[next],
+      `${at} → ${next}: ${next} must reopen at its own camera`)
+    at = next
+    // every org NOT on screen keeps exactly what it had
+    for (const [slug, want] of Object.entries(SAVED_BY_ORG)) {
+      assert.deepEqual(readSaved(slug), want,
+        `switching to ${next} must not touch ${slug}'s stored canvas state`)
+    }
+  }
+})
+
+camTest('a pan during the in-flight window belongs to the org on screen', async (open) => {
+  // the mismatched window is not dead time: the canvas still shows the org
+  // being left, so a camera move there is that org's state, not the next
+  // org's. (Bailing out on the mismatch instead of re-keying would drop it.)
+  setSaved('second', { x: -640, y: -410, z: 0.62 })
+  const view = await mountMounted('first', open)
+  await view.render(await canvasEl('first', 'second'))
+  const space = view.el.querySelector('.space') as HTMLElement
+  const viewport = view.el.querySelector('.viewport') as HTMLElement
+  assert.ok(viewport, 'the canvas viewport did not render')
+  const before = cam(view.el)
+  const { act } = await import('react')
+  await act(async () => {
+    const down = new window.PointerEvent('pointerdown',
+      { clientX: 400, clientY: 300, button: 0, buttons: 1, bubbles: true, pointerId: 1 })
+    viewport.dispatchEvent(down)
+    const move = new window.PointerEvent('pointermove',
+      { clientX: 480, clientY: 360, button: -1, buttons: 1, bubbles: true, pointerId: 1 })
+    viewport.dispatchEvent(move)
+    const up = new window.PointerEvent('pointerup',
+      { clientX: 480, clientY: 360, button: 0, buttons: 0, bubbles: true, pointerId: 1 })
+    viewport.dispatchEvent(up)
+  })
+  await advance(1500)
+  const after = cam(view.el)
+  void space
+  if (after.x === before.x && after.y === before.y) return   // jsdom refused the gesture; nothing to assert
+  assert.deepEqual(readSaved('first'), after,
+    'a camera move while the previous org is still on screen is saved under THAT org')
+  assert.deepEqual(readSaved('second'), { x: -640, y: -410, z: 0.62 },
+    'and never under the org whose tree has not arrived')
 })
