@@ -20,6 +20,90 @@ interface Entry {
   key: string; invalidated?: boolean; pendingRename?: boolean; slots: Map<object, Slot>; last: Slot; detached: boolean
   show?: () => void; redock?: (slot?: object) => void; popout?: () => void; pendingPopout?: boolean
 }
+
+/** is this slot's destination on screen and reachable right now?
+ *
+ *  ⚠ NOT "is this the selected org view". It is a fact about ONE destination:
+ *  a pinned window is eligible whatever view the org is in, because it is
+ *  screen-space and survives the switch, while a canvas card behind a
+ *  presented Attention stage is not. Absent means eligible, so every existing
+ *  call site is unaffected. */
+const eligible = (slot: Slot) => slot.props.eligible !== false
+
+/** is this registration a VIEW MOUNTING rather than the user asking for this
+ *  desk here?
+ *
+ *  ⚠ THIS FIELD EXISTS BECAUSE ITS PREDECESSOR LIED. The first design carried
+ *  `placed` on the DESTINATION — "the user put the desk here" — and protected
+ *  any placed owner from any other claim. That rewrote pin ownership in
+ *  general, and the user ruled only on the Attention view: it would have
+ *  changed today's behaviour for an agent that is pinned AND open in an eye
+ *  panel, where the panel currently takes the desk. The offered patch was to
+ *  label the eye panel `placed` too, and multi-window-design refused it on the
+ *  grounds that an eye panel is not a placed window and the field would then
+ *  mean something false (2026-09-21). So the deciding fact moved to where it
+ *  actually lives: the CLAIM. Only the Attention stage sets this, and only
+ *  while it is the presented stage — pinned or popped out, the user placed it,
+ *  so it claims like anything else. */
+const automatic = (slot: Slot) => slot.props.claim === 'automatic'
+
+/**
+ * WHICH SLOT OWNS THE ONE LIVE DESK — the single answer both assignment points
+ * now go through.
+ *
+ * ⚠ THERE WERE TWO OF THEM, AND ONLY ONE WAS EVER REPORTED. `put` promoting
+ * every registration was the known half; `DeskHost`'s per-render re-point
+ * (below) was the other, and it re-pointed ownership at
+ * `[...entry.slots.values()][0]` — the first slot in Map INSERTION ORDER —
+ * whenever the owning slot's id was gone. So a fix to `put` alone left
+ * ownership landing by registration accident the moment a slot unregistered.
+ * Both call this.
+ *
+ * ⚠ AND `put` FIRES ON EVERY PROP UPDATE, not just on registration
+ * (RegisteredSlot's useLayoutEffect depends on `props`). So the live rule this
+ * has to preserve is "the last writer wins, on every update", NOT "the first
+ * registration wins". An earlier draft of this function preferred the incumbent
+ * globally and would have silently changed behaviour for every caller that
+ * passes none of the new fields.
+ *
+ * WHAT IS UNCHANGED FOR EXISTING CALLERS, by construction rather than by
+ * argument: steps 2 and 5's eligibility branches are unreachable while nothing
+ * passes `eligible={false}` or `claim`, and step 6 is unreachable while 3 or 4
+ * can fire. So an all-default registry runs 1 → 3 → 4 → 5 and lands exactly
+ * where the previous code did:
+ *
+ *   put, attached, any registration or prop update  →  3, the incoming slot
+ *   put, detached, some other slot                  →  1, no change
+ *   put, detached, the owning slot again            →  1's exception, itself
+ *   DeskHost, owner still registered                →  4, the owner
+ *   DeskHost, owner gone                            →  5, first in order
+ */
+function pick(e: Entry, incoming?: Slot): Slot {
+  // 1. DETACHED. While the desk is a native window ownership does not move at
+  //    all, and the one exception is the owning slot re-registering as itself —
+  //    which is the previous code's `e.last.id === slot.id` term, verbatim.
+  //    Eligibility deliberately plays no part here: a detached desk's
+  //    Show/Return placeholder is the behaviour the ruling says to preserve.
+  if (e.detached) return incoming && e.last.id === incoming.id ? incoming : e.last
+  const cur = e.slots.get(e.last.id)
+  // 2. AN AUTOMATIC CLAIM DEFERS TO A VISIBLE OWNER. This is the whole of the
+  //    Attention rule: a view mounting or re-rendering does not take a desk
+  //    away from a destination the user can currently see. It falls through
+  //    when the incumbent is NOT eligible, which is the other half — a hidden
+  //    embedded owner relinquishes rather than holding the desk somewhere
+  //    nobody can look at.
+  if (incoming && automatic(incoming) && cur && cur.id !== incoming.id && eligible(cur)) return cur
+  // 3. the incoming slot — the previous code's unconditional promotion
+  if (incoming && eligible(incoming)) return incoming
+  // 4. the incumbent — the previous code's `slots.get(entry.last.id)`
+  if (cur && eligible(cur)) return cur
+  // 5. the first ELIGIBLE slot in registration order, where the previous code
+  //    took the first slot in registration order
+  for (const s of e.slots.values()) if (eligible(s)) return s
+  // 6. NEVER HOMELESS. Eligibility reorders preference; it must not leave a
+  //    desk with no host, so an all-ineligible registry still gets an owner.
+  return cur ?? incoming ?? [...e.slots.values()][0] ?? e.last
+}
 class Desks {
   entries = new Map<string, Entry>()
   pendingPopouts = new Set<string>()
@@ -48,7 +132,7 @@ class Desks {
       this.entries.set(key, e)
     }
     e.slots.set(slot.id, slot)
-    if (!e.detached || e.last.id === slot.id) e.last = slot
+    e.last = pick(e, slot)
     this.change()
   }
   remove(key: string, id: object) {
@@ -286,7 +370,11 @@ function HostList({ desks, map, slug }: { desks: Desks; map: Map<string, CanvasN
 function DeskHost({ desks, entry, map }: { desks: Desks; entry: Entry; map: Map<string, CanvasNode> }) {
   const current = map.get(entry.last.props.node.id)
   const changedGeneration = !!entry.invalidated || !current || current.generation !== entry.last.props.node.generation
-  const slot = entry.slots.get(entry.last.id) ?? [...entry.slots.values()][0]
+  // THE SECOND ASSIGNMENT POINT (see `pick`). This used to be
+  // `entry.slots.get(entry.last.id) ?? [...entry.slots.values()][0]`, which
+  // handed ownership to the first slot in Map insertion order once the owner's
+  // id was gone — as likely to be an invisible destination as a visible one.
+  const slot = !entry.detached ? pick(entry) : entry.slots.get(entry.last.id)
   if (slot && !entry.detached) entry.last = slot
   const props = entry.last.props
   return <MovableSurface kind={`desk:${deskIdentity(props.slug, props.node)}`} title={`${props.node.id} · desk`}

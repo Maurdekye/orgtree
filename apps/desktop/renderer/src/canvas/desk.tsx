@@ -1585,6 +1585,34 @@ export interface DeskChatProps {
   /** the org's px-per-credit (orgPxc) — the ask bar's scale */
   pxc?: number
   pub: boolean
+  /** IS THIS SLOT'S DESTINATION ON SCREEN AND REACHABLE RIGHT NOW? Default
+   *  true, so every existing call site is unaffected.
+   *
+   *  ⚠ IT IS ABOUT THIS DESTINATION, NEVER ABOUT WHICH ORG VIEW IS SELECTED.
+   *  A pinned window is eligible whatever view the org is in — it is
+   *  screen-space and survives the switch — while a canvas card behind a
+   *  presented Attention stage is not. The field was nearly named `active`,
+   *  which invited the wrong implementation: read the org mode, mark every
+   *  canvas slot inactive, and the still-visible pinned desk goes with it.
+   *
+   *  Only the desk REGISTRY reads it (deskhosts.tsx `pick`), to decide which
+   *  slot owns the one live desk. It draws nothing. */
+  eligible?: boolean
+  /** IS THIS REGISTRATION A VIEW MOUNTING, rather than the user asking for
+   *  this desk here? Absent means an ordinary claim, which competes exactly as
+   *  every claim does today.
+   *
+   *  ⚠ ONLY THE ATTENTION STAGE SETS THIS, and only while it IS the presented
+   *  stage: pinned or popped out, the user placed that panel, so it claims
+   *  normally. It exists so a view that merely mounted cannot take a desk away
+   *  from a destination the user can currently see, WITHOUT rewriting pin
+   *  ownership in general — the user ruled on the Attention view, not on that
+   *  (multi-window-design, 2026-09-21). An earlier design carried the fact on
+   *  the destination instead ("the user placed this") and changed behaviour for
+   *  an agent that is pinned and also open in an eye panel; the proposed patch
+   *  of labelling the eye panel placed was refused, correctly, for making the
+   *  field mean something false. */
+  claim?: 'automatic'
   bare?: boolean
   compact?: boolean
   compactAt?: number
