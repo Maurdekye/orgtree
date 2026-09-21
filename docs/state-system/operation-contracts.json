@@ -1,6 +1,6 @@
 {
   "schema": "orgtree.state-operation-contracts/v1",
-  "source_inventory_sha256": "764b7e41871828e9f478fc417f35d6e6377aa07e5569a5f99f4a8a15999b41d1",
+  "source_inventory_sha256": "92355acbf8f78e68dcf426da6fc8e31b33617dec854097cf8312c406fe353301",
   "qualification": {
     "runtime_census": false,
     "conversion_authorized": false
@@ -5477,6 +5477,13 @@
       "source_refs": []
     },
     {
+      "id": "012c156a171ef7d80f0d8d88b07ce970b76c3cffad307ceefbc8c0da26d63de9",
+      "disposition": "pending",
+      "contracts": [],
+      "reason": "Newly recognized asyncio.to_thread worker hand-off; requires explicit source review, per-entry contracts and transitive contact closure.",
+      "source_refs": []
+    },
+    {
       "id": "21d4e09fac14099cea492498a19a151d4adfbd64b46bfc6ebaa2dd1412a74588",
       "disposition": "pending",
       "contracts": [],
@@ -7016,6 +7023,13 @@
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "source_refs": []
+    },
+    {
+      "id": "694da78460c6ebb814ece4b14e5e476fdcf6039fd35e1b163c9d874bb6025fb0",
+      "disposition": "pending",
+      "contracts": [],
+      "reason": "Newly recognized asyncio.to_thread worker hand-off; requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {

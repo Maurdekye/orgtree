@@ -38,7 +38,7 @@ operation-contracts.json uses schema orgtree.state-operation-contracts/v1.
 | Part | Checked requirement |
 |---|---|
 | source_inventory_sha256 | SHA256 of canonical UTF-8 JSON for the full current inventory; sorted keys, compact separators, unescaped Unicode. Whole-module hashes invalidate helper changes, including unrecognized registrations. |
-| entries | Exactly one disposition for each of the 309 inventoried registration sites. Pending, mapped or source-backed exclusion. HTTP/WS/tool entries cannot be excluded as false positives. |
+| entries | Exactly one disposition for each of the 311 inventoried registration sites. Pending, mapped or source-backed exclusion. HTTP/WS/tool entries cannot be excluded as false positives. |
 | dispatch | Exactly one disposition for each of the 225 selector witnesses. A branch is evidence, not another operation. |
 | storage | Exactly one disposition for each of the 15 connection candidates. Unknown sockets/factories remain visible. |
 | contracts | Source-entry bindings, optional tool/action selector, explicit argument normalization and conditional variant, domain mode and all nine dimensions. |
@@ -105,8 +105,11 @@ diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
 Current totals are 16 contracts, seven mapped registrations and 31 mapped
-dispatch witnesses. **598 obligations remain**: 302 registrations, 194 dispatch
+dispatch witnesses. **600 obligations remain**: 304 registrations, 194 dispatch
 witnesses, 15 storage candidates and 87 unresolved dimension occurrences.
+That is two more registrations than the preceding 598 because the scanner now
+recognizes `asyncio.to_thread` hand-offs; both new witnesses are pending and no
+existing witness identity, disposition or contract changed.
 This is not a runtime operation count or progress percentage. See the separate
 family documents for their measurements and remaining obligations.
 

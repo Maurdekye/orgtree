@@ -92,6 +92,36 @@ def start():
         self.assertEqual([r["target"] for r in rows], ["receive", "flush", "recover", "work", "finish"])
         self.assertEqual(rows[0]["mechanism"], "threading.Thread")
 
+    def test_asyncio_to_thread_is_a_task_handoff(self):
+        self.source('''
+import asyncio
+async def remove(key):
+ return await asyncio.to_thread(removal.remove_account, key, actor=USER)
+async def recover(repair):
+ await asyncio.to_thread(repair)
+ await asyncio.to_thread(**chosen)
+''')
+        rows = [r for r in self.scan()["registrations"] if r["kind"] == "task"]
+        self.assertEqual([r["mechanism"] for r in rows], ["asyncio.to_thread"] * 3)
+        self.assertEqual([r["source"]["symbol"] for r in rows], ["remove", "recover", "recover"])
+        self.assertEqual([r["target"] for r in rows], ["removal.remove_account", "repair", None])
+        # The dynamic hand-off is kept as an unresolved obligation, not dropped.
+        self.assertEqual([r["resolution"] for r in rows],
+                         ["expression", "expression", "unresolved"])
+
+    def test_anyio_run_sync_is_not_claimed_as_a_to_thread_task(self):
+        # This pass matches call NAMES. `anyio.to_thread.run_sync` is a different
+        # name, so it stays unrecognized rather than being silently counted; the
+        # module fingerprint is still what makes such a site invalidate a snapshot.
+        self.source('''
+import anyio
+async def read(function):
+ return await anyio.to_thread.run_sync(function)
+''')
+        result = self.scan()
+        self.assertEqual([r for r in result["registrations"] if r["kind"] == "task"], [])
+        self.assertEqual(result["summary"]["modules"], 1)
+
     def test_registration_targets_are_endpoints_not_route_names(self):
         self.source('''
 app.router.add_event_handler("shutdown", scheduler.stop)
@@ -205,6 +235,24 @@ def b():
         baseline = ROOT / "docs/state-system/operation-inventory.json"
         expected = json.loads(baseline.read_text(encoding="utf-8"))
         self.assertTrue(inventory.compare(expected, inventory.scan(ROOT))["matches"])
+
+    def test_committed_inventory_pins_the_real_to_thread_hand_offs(self):
+        # `--check` only proves the snapshot and the source agree. Narrowing the
+        # scanner and refreshing the snapshot with itself would still pass it,
+        # so the exact group totals and both real hand-off sites are pinned here.
+        baseline = json.loads((ROOT / "docs/state-system/operation-inventory.json")
+                              .read_text(encoding="utf-8"))
+        summary = baseline["summary"]
+        self.assertEqual(summary["registration_sites"], 311)
+        self.assertEqual(summary["registration_kinds"]["task"], 12)
+        self.assertEqual(summary["dispatch_selector_sites"], 225)
+        self.assertEqual(summary["connection_sites"], 15)
+        self.assertEqual([(r["source"]["path"], r["source"]["symbol"], r["target"])
+                          for r in baseline["registrations"]
+                          if r.get("mechanism") == "asyncio.to_thread"],
+                         [("engine/backend/orgtree/api.py", "accounts_remove",
+                           "account_removal.remove_account_rebinding_agents"),
+                          ("engine/backend/orgtree/startup.py", "Recovery.start.run", "repair")])
 
 
 if __name__ == "__main__":

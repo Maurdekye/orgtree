@@ -22,8 +22,13 @@ METHODS = {"get", "post", "put", "patch", "delete", "head", "options", "trace"}
 HOOKS = {"on_event", "middleware", "exception_handler"}
 REGISTRATION_CALLS = {"add_api_route", "add_route", "add_websocket_route",
                       "add_event_handler", "include_router", "mount"}
+# Matched on the CALL NAME, like every other name in this pass: the receiver
+# is recorded in `mechanism` rather than used to accept or reject a site.
+# `to_thread` is asyncio's worker hand-off. `anyio.to_thread.run_sync` is a
+# different call name and is NOT covered by this set.
 TASK_CALLS = {"create_task", "ensure_future", "run_in_executor", "submit",
-              "call_soon", "call_soon_threadsafe", "call_later", "call_at"}
+              "call_soon", "call_soon_threadsafe", "call_later", "call_at",
+              "to_thread"}
 CALLBACK_KEYS = {"callback", "on_exit", "on_result", "on_message", "on_event",
                  "on_input", "on_late", "on_error", "on_complete"}
 DATABASE_ROOTS = {"sqlite3", "apsw", "psycopg", "psycopg2", "duckdb", "sqlcipher3"}
@@ -208,6 +213,7 @@ class ModuleInventory(ast.NodeVisitor):
                 "run_in_executor": ("func", 1), "submit": ("fn", 0),
                 "call_soon": ("callback", 0), "call_soon_threadsafe": ("callback", 0),
                 "call_later": ("callback", 1), "call_at": ("callback", 1),
+                "to_thread": ("func", 0),
             }[method]
             target = argument(node, key, position)
             self.registration("registration_call" if method in REGISTRATION_CALLS else "task",

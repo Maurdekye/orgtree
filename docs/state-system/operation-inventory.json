@@ -14,13 +14,13 @@
   },
   "summary": {
     "modules": 113,
-    "registration_sites": 309,
+    "registration_sites": 311,
     "registration_kinds": {
       "callback": 5,
       "hook": 4,
       "http": 177,
       "registration_call": 9,
-      "task": 10,
+      "task": 12,
       "tool": 48,
       "tool_catalog": 1,
       "websocket": 1,
@@ -1756,6 +1756,21 @@
       "selector_expression": "'/api/accounts/{account_id}'",
       "methods_expression": null,
       "resolution": "literal"
+    },
+    {
+      "site_id": "012c156a171ef7d80f0d8d88b07ce970b76c3cffad307ceefbc8c0da26d63de9",
+      "kind": "task",
+      "source": {
+        "path": "engine/backend/orgtree/api.py",
+        "symbol": "accounts_remove",
+        "line": 4929,
+        "end_line": 4931,
+        "syntax_sha256": "803cd9ebe4e6f15df5489b71b46fcde4067133a2d9c6265e6d0af1700fadf7d5"
+      },
+      "mechanism": "asyncio.to_thread",
+      "target": "account_removal.remove_account_rebinding_agents",
+      "call_expression": "asyncio.to_thread(account_removal.remove_account_rebinding_agents, account_id, actor=USER)",
+      "resolution": "expression"
     },
     {
       "site_id": "21d4e09fac14099cea492498a19a151d4adfbd64b46bfc6ebaa2dd1412a74588",
@@ -5410,6 +5425,21 @@
       },
       "mechanism": "threading.Thread",
       "target": "_refresh_locked",
+      "resolution": "expression"
+    },
+    {
+      "site_id": "694da78460c6ebb814ece4b14e5e476fdcf6039fd35e1b163c9d874bb6025fb0",
+      "kind": "task",
+      "source": {
+        "path": "engine/backend/orgtree/startup.py",
+        "symbol": "Recovery.start.run",
+        "line": 38,
+        "end_line": 38,
+        "syntax_sha256": "2a80661bafe4a243249beab0ef7ceba1aecb1835b08ac89da9703e05132be245"
+      },
+      "mechanism": "asyncio.to_thread",
+      "target": "repair",
+      "call_expression": "asyncio.to_thread(repair)",
       "resolution": "expression"
     },
     {
