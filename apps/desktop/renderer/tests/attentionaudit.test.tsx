@@ -90,20 +90,42 @@ one is, because it can only reach rows carrying restore.document — but it has
 to be LOOKED AT, and the audit comment in useAwaitingRestore has to be updated
 to say why the new one is harmless. Do that, then update the set below.`
 
-test('§1 closeSavedWindow\'s callers are the three the audit accounts for', () => {
-  assert.deepEqual(callsOf('closeSavedWindow'), [
+test('§1 every caller of closeSavedWindow is one the audit accounts for', () => {
+  // ⚠ A SUBSET CHECK, NOT AN EQUALITY ONE, and the asymmetry is deliberate.
+  // This feature's branch is a SUBSET of the composed tree: a caller can be
+  // accounted for here before it exists here, because it arrives with a
+  // dependency that has not been merged. Equality would then fail on this
+  // branch over a caller already judged — the same "cries on unrelated edits"
+  // failure the file:line version had, in a new place.
+  //
+  // What matters is unchanged: an UNACCOUNTED caller still fails, which is the
+  // only direction that can invalidate the exhaustiveness argument. A caller
+  // DISAPPEARING is not a hazard — fewer writers of the row is strictly safer,
+  // for the same reason the `!transient` guard is.
+  const accounted = [
     // inside MovableSurface: the surface that owns the window.
     // ⚠ THE REDOCK CALL IS GUARDED — a BORROWING surface deliberately does not
-    // flip the row. That NARROWS the set of writes rather than widening it, so
-    // the invariant holds a fortiori; nothing in Attention sets `borrow`.
+    // flip the row. That NARROWS the set of writes rather than widening it.
     'popout.tsx :: if (!transient) closeSavedWindow(layoutKey)',
     'popout.tsx :: closeSavedWindow(layoutKey)',   // the surface's own unmount
+    // THE BORROW SEAM's release — also inside MovableSurface, also on that
+    // surface's OWN layoutKey (raised by v3-shell-opus rather than worked
+    // around, which is the audit doing its job). Analysed in
+    // `useAwaitingRestore`: it can only fire after `returnHome(true)` has
+    // already unregistered the surface, so it clears the row of a window that
+    // is already gone — the THIRD state, not a fourth.
+    // ⚠ NOT ON THIS BRANCH YET. Accounted for in advance so the composed tree
+    // does not fail over a caller that has already been judged.
+    'popout.tsx :: release: () => { if (claim()) closeSavedWindow(layoutKey) },',
     // NOT in MovableSurface. Harmless for this feature because it closes rows
     // drawn from restoredWindows(...).filter(r => r.restore?.document), and an
     // attention-kind row never carries one — this view passes no `restore`.
     'canvas/OrgCanvas.tsx :: closeSavedWindow(row.key); '
       + 'setRestoredDocs(old => old.filter(r => r.key !== row.key))',
-  ].sort(), WHY('A caller of closeSavedWindow was added or removed.'))
+  ]
+  const unaccounted = callsOf('closeSavedWindow').filter((c) => !accounted.includes(c))
+  assert.deepEqual(unaccounted, [],
+    WHY('A caller of closeSavedWindow is not accounted for.'))
 })
 
 test('§2 saveWindow is not called from outside its own module', () => {
