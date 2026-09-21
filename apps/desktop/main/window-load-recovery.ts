@@ -375,20 +375,20 @@ export function attachWindowLoadRecovery(
   const recovery = new WindowLoadRecovery(hooks)
   contents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
     const failure = { errorCode, errorDescription, validatedURL, isMainFrame }
-    // ⚠ BEFORE THE RETRY IS SCHEDULED, and guarded against a stale failure.
+    // ⚠ BEFORE THE RETRY IS SCHEDULED, and CLASSIFICATION ONLY.
     //
-    // The same classification the retry uses - one rule, so a subframe failure
-    // or an ERR_ABORTED cannot be terminal for one of them and not the other.
+    // The same rule the retry uses, so a subframe failure or an ERR_ABORTED
+    // cannot be terminal for one of them and not the other.
     //
-    // AND IT MUST DESCRIBE THE DOCUMENT CURRENTLY SHOWING. A failure event for
-    // a navigation that has since been overtaken would otherwise discard the
-    // token of a document that is alive and has already said it is listening -
-    // and that document will never say so again, because its `onEvent` ran
-    // once. Holding for a listener that cannot re-register is the wedge this
-    // whole mechanism was rebuilt to avoid. Measured: at `did-fail-load` the
-    // window already reports the failed URL, and after a recovery navigation
-    // it reports the recovered one, so comparing them separates the two.
-    if (isTerminalLoadFailure(failure) && validatedURL === currentUrl()) hooks.documentLost?.()
+    // WHETHER THIS FAILURE IS STILL RELEVANT IS NOT DECIDED HERE. A failure
+    // for a navigation that has since been overtaken must not discard a
+    // document that is alive and already listening - but "which document" is a
+    // question this file cannot answer, because it does not know what a
+    // document IS. Comparing `validatedURL` to the current URL was tried and
+    // is NOT sufficient: the recovery retries the SAME url, so a stale failure
+    // and a live one are indistinguishable by URL at exactly the moment it
+    // matters. The caller owns document identity and makes that call. */
+    if (isTerminalLoadFailure(failure)) hooks.documentLost?.()
     recovery.onLoadFailure(failure)
   })
   contents.on('did-finish-load', () => recovery.onLoadFinished(currentUrl()))

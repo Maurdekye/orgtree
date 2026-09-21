@@ -335,9 +335,17 @@ test('events that cannot be asked for again are held until there is somewhere to
   const commit = main.slice(main.indexOf("window.webContents.on('did-navigate'"))
   assert.match(commit.slice(0, 400), /record\.documentToken = ''/)
   assert.match(commit.slice(0, 400), /record\.outbox\.rearm\(\)/)
-  // ⚠ forbids the LISTENER, not the word: the comment on adoptIdentity has to
-  // name `did-start-navigation` to explain why a bind needs none of this
-  assert.doesNotMatch(main, /on\('did-start-navigation'/,
+  // ⚠ HOLDING STARTS AT COMMIT, NOT AT NAVIGATION START - and THAT is the
+  // property, not the absence of a listener. f5 was a latch set at navigation
+  // start that a non-committing navigation never released. A listener that
+  // only SNAPSHOTS cannot do that, so the assertion is about what the listener
+  // touches: no queue state may be changed there. (An earlier version forbade
+  // the string itself, which blocked both the explanation of why a bind needs
+  // none of this and the identity snapshot the failure guard depends on.)
+  const startNav = main.includes("window.webContents.on('did-start-navigation'")
+    ? main.slice(main.indexOf("window.webContents.on('did-start-navigation'"), main.indexOf("window.webContents.on('did-navigate'"))
+    : ''
+  assert.doesNotMatch(startNav, /rearm|drain|offer/,
     'holding starts at commit, not at navigation start')
 
   // ⚠ AND A BIND DOES NOT NAVIGATE AT ALL, which is why it needs no held-event
@@ -479,4 +487,41 @@ test('real Electron probe: a renderer cannot see its own window, so native measu
   const res = spawnSync(electron, [script], { encoding: 'utf8', timeout: 90000, windowsHide: true, env })
   assert.equal(res.status, 0, `popout bounds probe failed: ${res.stdout}\n${res.stderr}`)
   assert.match(res.stdout, /POPOUT_BOUNDS_PASS/)
+})
+
+test('a failed load discards the document it actually killed, and never a live one', () => {
+  const main = read('apps/desktop/main/index.ts')
+  const recovery = read('apps/desktop/main/window-load-recovery.ts')
+
+  // ⚠ A TERMINAL LOAD FAILURE NEVER COMMITS. Chromium replaces the document
+  // with an error page and fires did-fail-load, not did-navigate — so the
+  // commit handler does not run, and without this the outbox stayed live and
+  // held events were sent into a page with no preload, no bridge and no
+  // listener. Delivered by our reckoning, received by nobody.
+  assert.match(main, /documentLost: \(\) => \{/)
+  // the token is cleared AND the queue re-armed, together: re-arming alone
+  // leaves the dead document's token valid, so an acknowledgement already in
+  // flight from it could still discharge the queue into the error page
+  const lost = main.slice(main.indexOf('documentLost: () => {'), main.indexOf('setTimer: (fn, ms)'))
+  assert.match(lost, /record\.documentToken = ''/)
+  assert.match(lost, /record\.outbox\.rearm\(\)/)
+
+  // ⚠ GATED ON DOCUMENT IDENTITY, NOT ON THE URL. The recovery retries the
+  // SAME url, so a stale failure and a live one are indistinguishable by URL
+  // at exactly the moment it matters. `pendingFrom` is the token of the
+  // document the navigation was leaving; if the current token has moved on, a
+  // document has since announced itself and this failure is stale. Discarding
+  // a LIVE document's token would re-arm behind a listener that already
+  // registered and never registers again — a hold nothing can release.
+  assert.match(lost, /if \(record\.documentToken !== pendingFrom\) return/)
+  assert.match(main, /pendingFrom = record\.documentToken/)
+  assert.doesNotMatch(recovery, /validatedURL === currentUrl\(\)/,
+    'URL equality is not document identity and must not stand in for it')
+
+  // the snapshot listener holds nothing and releases nothing, so it cannot wedge
+  const snapshot = main.slice(main.indexOf("window.webContents.on('did-start-navigation'"), main.indexOf("window.webContents.on('did-navigate'"))
+  assert.doesNotMatch(snapshot, /rearm|drain|outbox/, 'the snapshot touches no queue state')
+
+  // and the classification is the one the retry already uses
+  assert.match(recovery, /if \(isTerminalLoadFailure\(failure\)\) hooks\.documentLost\?\.\(\)/)
 })

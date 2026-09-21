@@ -1837,6 +1837,15 @@ else {
         // and the new one committing. Events offered there go live to the OLD
         // document, which is still showing and still listening, so they are
         // delivered rather than lost.
+        /** ⚠ WHICH DOCUMENT A NAVIGATION IS LEAVING. Snapshot only - it holds
+         *  nothing and releases nothing, so it cannot wedge anything. It
+         *  exists so a terminal failure can be told from a stale one by
+         *  document identity rather than by URL, which same-url retries make
+         *  meaningless. */
+        window.webContents.on('did-start-navigation', details => {
+          if (!details.isMainFrame || details.isSameDocument) return
+          pendingFrom = record.documentToken
+        })
         window.webContents.on('did-navigate', () => {
           // Nothing has announced itself for this document yet, so nothing can
           // speak for it: the token no message can match until one does.
@@ -1919,6 +1928,8 @@ else {
         // and nothing ever looked at it again. This watches the navigation the
         // reload starts, so a failed load is a state the window leaves rather
         // than the state it ends in.
+        /** The document that was showing when the current navigation began. */
+        let pendingFrom = record.documentToken
         record.loadRecovery = attachWindowLoadRecovery(window.webContents, {
           record: recordWindowLoad,
           target: () => engine.origin + routeFor(id),
@@ -1941,7 +1952,24 @@ else {
           // valid, so an acknowledgement already in flight from it could still
           // discharge the queue into the error page - the same loss, one
           // message later.
-          documentLost: () => { record.documentToken = ''; record.outbox.rearm() },
+          // ⚠ GATED ON DOCUMENT IDENTITY, NOT ON THE URL. `pendingFrom` is
+          // the token of the document that was showing when the navigation
+          // now failing began. If it is still the current one, that document
+          // is what the error page replaced and this failure is about it. If
+          // the token has moved on, a document has since announced itself -
+          // the retry succeeded - and this failure is stale. Discarding a
+          // LIVE document's token would re-arm behind a listener that has
+          // already registered and never registers again, which is a hold
+          // nothing can release.
+          //
+          // URL equality was tried here and is not enough: the recovery
+          // retries the SAME url, so a stale failure and a live one look
+          // identical by URL at precisely the moment it matters.
+          documentLost: () => {
+            if (record.documentToken !== pendingFrom) return
+            record.documentToken = ''
+            record.outbox.rearm()
+          },
           setTimer: (fn, ms) => setTimeout(fn, ms),
           clearTimer: handle => clearTimeout(handle as ReturnType<typeof setTimeout>),
         }, () => !window.isDestroyed() ? window.webContents.getURL() : '')

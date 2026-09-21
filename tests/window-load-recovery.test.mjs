@@ -493,20 +493,22 @@ test('NEGATIVE CONTROL: a subframe failure does NOT report the document lost', (
   assert.deepEqual(h.lost, [], 'only the main frame losing its document counts')
 })
 
-test('NEGATIVE CONTROL: an OBSOLETE failure does not discard a document that has recovered', () => {
-  // ⚠ THE HAZARD THIS GUARD EXISTS FOR. A failure event describing a
-  // navigation that has since been overtaken would otherwise discard the token
-  // of a document that is alive and has ALREADY said it is listening — and
-  // that document never says so again, because its `onEvent` ran once. Holding
-  // for a listener that cannot re-register is precisely the wedge this
-  // mechanism was rebuilt to avoid.
-  //
-  // Distinguished by the URL: measured against real Electron, at
-  // `did-fail-load` the window already reports the URL that failed, and after
-  // a recovery navigation it reports the recovered one.
-  const h = harness({ serving: true })
-  h.contents.fire('did-fail-load', -102, 'ERR_CONNECTION_REFUSED', 'http://127.0.0.1:1/stale', true)
-  assert.deepEqual(h.lost, [], 'a failure for a URL this window is not showing is stale, and ignored')
+test('this file classifies; it does NOT decide whether the failure is still relevant', () => {
+  // ⚠ A STALE FAILURE MUST NOT DISCARD A LIVE DOCUMENT - but "which document"
+  // is not a question this file can answer, because it does not know what a
+  // document is. Comparing `validatedURL` to the current URL was tried here
+  // and is NOT sufficient: the recovery retries the SAME url, so a stale
+  // failure and a live one are indistinguishable by URL at exactly the moment
+  // it matters. The caller owns document identity and makes that call; this
+  // hook reports the classification and nothing more.
+  const source = read('apps/desktop/main/window-load-recovery.ts')
+  assert.match(source, /if \(isTerminalLoadFailure\(failure\)\) hooks\.documentLost\?\.\(\)/)
+  assert.doesNotMatch(source, /validatedURL === currentUrl\(\)/,
+    'URL equality is not document identity, and must not stand in for it')
+  // and index.ts gates it on the token, which IS identity
+  const main = read('apps/desktop/main/index.ts')
+  assert.match(main, /if \(record\.documentToken !== pendingFrom\) return/)
+  assert.match(main, /pendingFrom = record\.documentToken/)
 })
 
 test('the same classification decides the retry and the lost document', () => {
@@ -514,6 +516,6 @@ test('the same classification decides the retry and the lost document', () => {
   // them and not the other — the drift that puts a window in a state where it
   // is retrying but still delivering, or delivering but never retrying.
   const source = read('apps/desktop/main/window-load-recovery.ts')
-  assert.match(source, /if \(isTerminalLoadFailure\(failure\) && validatedURL === currentUrl\(\)\) hooks\.documentLost\?\.\(\)/)
+  assert.match(source, /if \(isTerminalLoadFailure\(failure\)\) hooks\.documentLost\?\.\(\)/)
   assert.match(source, /recovery\.onLoadFailure\(failure\)/)
 })
