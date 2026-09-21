@@ -551,71 +551,69 @@ test('an organization window never reports an unfinished creation form', () => {
 
 // --------------------------------------------------- startup restoration
 
-const orgsThatExist = (...names) => org => names.includes(org)
-
-test('startup restores the windows whose targets still exist, in order', () => {
-  const plan = planRestore(
-    [{ org: 'acme' }, { org: 'beta' }],
-    orgsThatExist('acme', 'beta'))
-  assert.deepEqual(plan.windows, [{ org: 'acme' }, { org: 'beta' }])
+test('startup reopens every saved window, in order', () => {
+  const plan = planRestore([{ org: 'acme' }, {}, { org: 'beta' }])
+  assert.deepEqual(plan.windows, [{ org: 'acme' }, {}, { org: 'beta' }])
   assert.deepEqual(plan.skippedOrgs, [])
   assert.equal(plan.homepageFallback, false)
-  assert.equal(plan.notice, undefined, 'nothing was skipped, so the user is told nothing')
+  assert.equal(plan.notice, undefined, 'nothing was unusable, so the user is told nothing')
 })
 
-test('a saved organization that no longer exists is skipped WITH a notice, never silently', () => {
-  const plan = planRestore(
-    [{ org: 'acme' }, { org: 'gone' }],
-    orgsThatExist('acme'))
+test('NEGATIVE CONTROL: an organization that cannot be found is still reopened', () => {
+  // User ruling 2026-09-21, superseding skip-with-a-notice. Nothing can tell a
+  // deleted organization from a temporarily unreadable one - a per-org GET
+  // maps every failure to 404, authorization included - so skipping on that
+  // silence throws away a window the user arranged. It comes back in the
+  // ordinary unavailable state instead, and can be recovered in place.
+  assert.equal(planRestore.length, 1, 'no existence predicate: nobody can answer it correctly')
+  const plan = planRestore([{ org: 'acme' }, { org: 'deleted-yesterday' }, { org: 'unreachable' }])
+  assert.deepEqual(plan.windows, [{ org: 'acme' }, { org: 'deleted-yesterday' }, { org: 'unreachable' }],
+    'every one of them gets its own window, whatever the catalog says')
+  assert.deepEqual(plan.skippedOrgs, [])
+  assert.equal(plan.notice, undefined, 'and there is nothing to report, because nothing was dropped')
+})
+
+test('a damaged saved record IS skipped, and is the only thing that is', () => {
+  // A slug that is not a slug cannot be turned into a route, so there is no
+  // window to put into an error state. That is a damaged record rather than an
+  // uncertain one, and the distinction is the whole of what survives skipping.
+  const plan = planRestore([{ org: 'acme' }, { org: 'Not A Slug' }])
   assert.deepEqual(plan.windows, [{ org: 'acme' }])
-  assert.deepEqual(plan.skippedOrgs, ['gone'])
+  assert.deepEqual(plan.skippedOrgs, ['Not A Slug'])
+  assert.match(plan.notice, /the record was damaged \(Not A Slug\)/)
   assert.equal(plan.homepageFallback, false)
-  assert.match(plan.notice, /could not reopen an organization \(gone\)/)
 })
 
-test('native restoration knows nothing about panels, by design', () => {
-  // An earlier revision took a panelExists predicate and filtered saved popout
-  // names with it. That was a second panel store wearing a different hat: the
-  // renderer owns which panels an organization had open, validates its own
-  // targets and reports what it could not reopen. Native restores the WINDOW.
-  assert.equal(planRestore.length, 2, 'no third panel-predicate argument')
-  const plan = planRestore([{ org: 'acme', popouts: ['desk-1', 'ghost'] }], orgsThatExist('acme'))
-  assert.deepEqual(plan.windows, [{ org: 'acme' }], 'a stray popout list is ignored, not acted on')
-  assert.equal('skippedPopouts' in plan, false)
-})
-
-test('when no organization can reopen, a homepage stands in and says so', () => {
-  const plan = planRestore([{ org: 'gone' }, { org: 'also-gone' }], () => false)
+test('an empty session opens one Homepage, and says so is a fallback', () => {
+  const plan = planRestore([])
   assert.deepEqual(plan.windows, [{}])
-  assert.deepEqual(plan.skippedOrgs, ['gone', 'also-gone'])
   assert.equal(plan.homepageFallback, true)
-  assert.match(plan.notice, /2 organizations \(gone, also-gone\)/)
-  assert.match(plan.notice, /Showing the homepage instead/)
+  assert.equal(plan.notice, undefined, 'nothing was skipped, so there is nothing to report')
 })
 
 test('a saved homepage window restores as a homepage and is NOT a fallback', () => {
   // It restored exactly what was saved. Nothing stood in for anything, and
   // reporting a fallback here tells the renderer something untrue.
-  const plan = planRestore([{}], () => false)
+  const plan = planRestore([{}])
   assert.deepEqual(plan.windows, [{}])
   assert.equal(plan.homepageFallback, false)
-  assert.equal(plan.notice, undefined, 'and nothing was skipped, so there is nothing to report')
+  assert.equal(plan.notice, undefined)
 })
 
-test('a saved homepage alongside a missing organization reports the skip without claiming a fallback', () => {
-  const plan = planRestore([{}, { org: 'gone' }], () => false)
+test('a session of nothing but damaged records falls back to a Homepage and reports them', () => {
+  const plan = planRestore([{ org: 'Not A Slug' }, { org: 'also bad' }])
   assert.deepEqual(plan.windows, [{}])
-  assert.deepEqual(plan.skippedOrgs, ['gone'])
-  assert.equal(plan.homepageFallback, false, 'the homepage was saved, not substituted')
-  assert.match(plan.notice, /could not reopen an organization \(gone\)/)
-  assert.doesNotMatch(plan.notice, /Showing the homepage instead/)
-})
-
-test('a corrupt saved slug is treated as a missing target, not opened', () => {
-  const plan = planRestore([{ org: 'Not A Slug' }], () => true)
-  assert.deepEqual(plan.windows, [{}])
-  assert.deepEqual(plan.skippedOrgs, ['Not A Slug'])
+  assert.deepEqual(plan.skippedOrgs, ['Not A Slug', 'also bad'])
   assert.equal(plan.homepageFallback, true)
+  assert.match(plan.notice, /2 saved windows/)
+})
+
+test('native restoration knows nothing about panels, by design', () => {
+  // The renderer owns which panels an organization had open, validates its own
+  // targets and reports what it could not reopen. Native restores the WINDOW.
+  const plan = planRestore([{ org: 'acme', popouts: ['desk-1', 'ghost'] }])
+  assert.deepEqual(plan.windows, [{ org: 'acme' }], 'a stray popout list is ignored, not acted on')
+  assert.equal('skippedPopouts' in plan, false)
 })
 
 // ------------------------------------------------------------------- slugs

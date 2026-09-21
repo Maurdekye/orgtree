@@ -591,63 +591,62 @@ export function resolveNativeSender<W extends NativeSenderWindow>(
 export interface RestorePlan {
   /** The windows to open, in order. An entry without `org` is a Homepage. */
   windows: { org?: string }[]
-  /** Saved organizations that no longer exist. */
+  /** Saved entries that named nothing openable — a corrupt slug, not an
+   *  organization that might merely be unavailable. See below for why that is
+   *  the only thing left here. */
   skippedOrgs: string[]
-  /** True when nothing could be reopened and a Homepage stands in. */
+  /** True when nothing was saved and a Homepage stands in. */
   homepageFallback: boolean
-  /** A short line for the user when an ORGANIZATION was skipped; undefined
-   *  when every saved window was restored. Skipping SILENTLY is what the
-   *  ruling forbids. Panels are not mentioned here because native does not
-   *  know about them — see below. */
+  /** A short line for the user when a saved entry was unusable. Undefined in
+   *  the ordinary case, which is now every case where the saved records are
+   *  well-formed. */
   notice?: string
 }
 
-/** WHAT ORDINARY STARTUP RESTORES, and what it says about what it could not
- *  (ruling 2026-09-21: restore valid targets, skip missing targets with a
- *  short notice, Homepage if no organization can reopen).
+/** WHAT ORDINARY STARTUP RESTORES.
  *
- *  ⚠ ORGANIZATIONS ONLY. An earlier revision also took a `panelExists`
- *  predicate and filtered saved popout names with it. That was a second panel
- *  store wearing a different hat: which panels an organization had open is the
- *  RENDERER's record, and a native copy of it is guaranteed to drift from the
- *  real one. Native restores the WINDOW and nothing inside it; the renderer
- *  validates its own targets and reports what it could not reopen, and native
- *  may FORWARD that report to the window that should show it — never
- *  reconstruct it.
+ *  ⚠ EVERY SAVED WINDOW, INCLUDING ONE WHOSE ORGANIZATION CANNOT BE FOUND
+ *  (user ruling 2026-09-21, superseding the earlier skip-with-a-notice rule).
+ *  An organization that cannot be opened is restored as its own org-bound
+ *  window in the ordinary unavailable state, so the user can recover it in
+ *  place; one that really was deleted reopens as an error window, and that is
+ *  accepted.
  *
- *  ⚠ SKIPPING IS NOT DELETING. `orgExists` answering false removes the
- *  window from THIS startup and says so. It does not discard the
- *  organization's saved geometry and must never be treated as proof the
- *  organization is gone: an engine that has not finished starting, or a
- *  backend outage, answers false for organizations that are perfectly fine.
- *  Only a real deletion may forget geometry — see
- *  OrgPlacement.forgetDeletedOrg. */
-export function planRestore(
-  saved: readonly SavedOrgWindow[],
-  orgExists: (org: string) => boolean,
-): RestorePlan {
+ *  ⚠ THE REASON IS THAT NOTHING CAN TELL THE TWO APART. Data-architecture's
+ *  read-only check established that no existing API positively distinguishes
+ *  deleted from temporarily unreadable: a per-organization GET maps any
+ *  cached_org LedgerError to 404, cannot-open included, and public gateways
+ *  use 404 for authorization as well. Absence from the catalog and a 404 are
+ *  both silence, not evidence — and skipping on silence throws away a window
+ *  the user arranged, on exactly the launch where something was already wrong.
+ *  This function therefore asks no such question, which is why it no longer
+ *  takes a predicate at all: an argument nobody can answer correctly is worse
+ *  than no argument.
+ *
+ *  What remains skippable is a saved entry that names nothing OPENABLE: a slug
+ *  that is not a slug cannot be turned into a route, so there is no window to
+ *  put into an error state. That is a damaged record rather than an uncertain
+ *  one, and it is reported. */
+export function planRestore(saved: readonly SavedOrgWindow[]): RestorePlan {
   const windows: RestorePlan['windows'] = []
   const skippedOrgs: string[] = []
   for (const record of saved) {
     if (record.org === undefined) { windows.push({}); continue }
-    if (!isOrgSlug(record.org) || !orgExists(record.org)) {
-      // A corrupt slug is a missing target too: it names nothing that can be
-      // opened, and inventing a window for it would be worse than saying so.
+    if (!isOrgSlug(record.org)) {
       if (typeof record.org === 'string' && record.org) skippedOrgs.push(record.org)
       continue
     }
     windows.push({ org: record.org })
   }
   // ⚠ A FALLBACK IS A HOMEPAGE THAT STOOD IN FOR SOMETHING, not merely the
-  // absence of an organization (review, stage 1). A session that genuinely
-  // saved only a Homepage window restored exactly what it saved, and calling
-  // that a fallback tells the renderer something untrue.
+  // absence of an organization: a session that saved only a Homepage restored
+  // exactly what it saved, and calling that a fallback tells the renderer
+  // something untrue.
   const homepageFallback = !windows.length
   if (homepageFallback) windows.push({})
   const notice = skippedOrgs.length
-    ? `Orgtree could not reopen ${skippedOrgs.length === 1 ? 'an organization' : `${skippedOrgs.length} organizations`}`
-      + ` (${skippedOrgs.join(', ')}) from the last session.`
-      + (homepageFallback ? ' Showing the homepage instead.' : '')
+    ? `Orgtree could not reopen ${skippedOrgs.length === 1 ? 'a saved window' : `${skippedOrgs.length} saved windows`}`
+      + ` from the last session, because the record was damaged (${skippedOrgs.join(', ')}).`
     : undefined
   return { windows, skippedOrgs, homepageFallback, ...(notice ? { notice } : {}) }
 }

@@ -1931,36 +1931,37 @@ else {
       /** WHAT AN ORDINARY LAUNCH OPENS (settled behavior; the alternative is
        *  the startupMode preference).
        *
-       *  ⚠ AN UNREADABLE ORGANIZATION LIST IS NOT AN EMPTY ONE, and this is
-       *  the case worth being careful about. `orgActivity()` answers null when
-       *  the engine is not serving yet, when the request times out, or when
-       *  the backend is simply having a bad morning - and treating that as
-       *  "none of these organizations exist" would silently drop every saved
-       *  window and greet the user with a bare Homepage on precisely the
-       *  launch where something was already wrong. A null answer restores
-       *  everything instead and lets each window report its own trouble.
+       *  ⚠ EVERY SAVED WINDOW IS REOPENED, AND NONE OF THEM IS CHECKED FIRST
+       *  (user ruling 2026-09-21). An organization that cannot be opened comes
+       *  back as its own window in the ordinary unavailable state, so the user
+       *  can recover it in place; one that really was deleted reopens as an
+       *  error window, which is accepted. Nothing can tell those apart - a
+       *  per-organization GET maps every failure to 404, authorization
+       *  included - so asking would only produce a confident wrong answer, and
+       *  skipping on it would throw away a window the user arranged on exactly
+       *  the launch where something was already wrong.
        *
-       *  ⚠ AND SKIPPING IS NOT FORGETTING. A window left out of this launch
-       *  keeps its saved position and its membership; only a real deletion
-       *  clears those. See OrgPlacement.forgetDeletedOrg. */
+       *  That is also why the catalog is not consulted here at all any more:
+       *  the round-trip existed solely to answer a question this must not ask.
+       *
+       *  ⚠ AND NOTHING IS FORGOTTEN EITHER. Identity, geometry and reopen
+       *  membership are preserved for every saved window, so an organization
+       *  that comes back as an error window can be recovered in place. */
       const openStartupWindows = async (): Promise<MainWindowRecord> => {
         const saved = preferences.get().startupMode === 'homepage' ? [] : (placement?.sessionWindows() ?? [])
         if (!saved.length) return openWindow({ kind: 'homepage' })
-        const rows = await engine.orgActivity()
-        const known = rows ? new Set(rows.map(row => row.slug)) : null
-        const plan = planRestore(
-          saved.map(key => { const org = orgOfKey(key); return org === undefined ? {} : { org } }),
-          org => known === null || known.has(org))
+        const plan = planRestore(saved.map(key => { const org = orgOfKey(key); return org === undefined ? {} : { org } }))
         const opened: MainWindowRecord[] = []
         for (const target of plan.windows) {
           try { opened.push(await openWindow({ kind: target.org ? 'org' : 'homepage', org: target.org })) }
           catch (error) { console.warn(`A saved window for ${target.org ?? 'the homepage'} could not be reopened`, error) }
         }
         const first = opened[0] ?? await openWindow({ kind: 'homepage' })
-        // ⚠ SAID, NEVER SKIPPED QUIETLY (ruling 2026-09-21). Window-scoped:
-        // the replacement Homepage hears about dropped organizations. Panels
-        // are absent because native does not know about them - the renderer
-        // validates its own targets and originates that half of the report.
+        // ⚠ ONLY A DAMAGED RECORD IS EVER REPORTED NOW. An organization that
+        // cannot be reached is not skipped at all, so this stays silent in the
+        // case it used to fire in. Panels are absent because native does not
+        // know about them - the renderer validates its own targets and
+        // originates that half of the report.
         if (plan.skippedOrgs.length) {
           sendTo(first.id, { type: 'restore-skipped',
             data: { orgs: plan.skippedOrgs, panels: [], notice: plan.notice } })

@@ -152,14 +152,17 @@ test('a quit records what was open BEFORE teardown, in both shutdown routes', ()
     'a close during a shutdown is not the user closing a window')
 })
 
-test('startup restores what was open, and an unreadable list is not an empty one', () => {
+test('startup reopens every saved window and checks none of them first', () => {
   const main = read('apps/desktop/main/index.ts')
   assert.match(main, /preferences\.get\(\)\.startupMode === 'homepage' \? \[\] : \(placement\?\.sessionWindows\(\) \?\? \[\]\)/)
-  // ⚠ null means "could not read", which must not be read as "none of these
-  // organizations exist" — that would drop every saved window on exactly the
-  // launch where something was already wrong
-  assert.match(main, /const known = rows \? new Set\(rows\.map\(row => row\.slug\)\) : null/)
-  assert.match(main, /org => known === null \|\| known\.has\(org\)/)
+  // ⚠ User ruling 2026-09-21: an organization that cannot be opened is restored
+  // in the ordinary unavailable state rather than skipped, because nothing can
+  // tell it from a deleted one - a per-org GET maps every failure to 404,
+  // authorization included. So the catalog must not be consulted here at all:
+  // the round-trip existed solely to answer a question this must not ask.
+  const startup = main.slice(main.indexOf('const openStartupWindows ='), main.indexOf('const first = await openStartupWindows()'))
+  assert.doesNotMatch(startup, /orgActivity/, 'startup asks the catalog nothing')
+  assert.match(startup, /const plan = planRestore\(saved\.map\(key => \{ const org = orgOfKey\(key\); return org === undefined \? \{\} : \{ org \} \}\)\)/)
   // and what it could not reopen is SAID
   assert.match(main, /sendTo\(first\.id, \{ type: 'restore-skipped',/)
   assert.match(main, /data: \{ orgs: plan\.skippedOrgs, panels: \[\], notice: plan\.notice \}/,

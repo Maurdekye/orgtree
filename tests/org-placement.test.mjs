@@ -204,23 +204,21 @@ test('the shutdown capture is de-duplicated and ignores empty keys', () => {
 
 // ------------------------------------------------- deletion vs unavailability
 
-test('NEGATIVE CONTROL: an organization that cannot be found is skipped, NOT forgotten', () => {
-  // An engine still starting, or a backend outage, makes an organization look
-  // absent. Treating that as deletion would throw away a position the user
-  // never asked to lose, and it would do it on the launch where the app was
-  // already misbehaving.
+test('NEGATIVE CONTROL: planning a restore neither drops nor forgets anything', () => {
+  // User ruling 2026-09-21: an organization that cannot be opened comes back as
+  // its own window in the unavailable state, so identity, geometry and reopen
+  // membership must all survive the launch that could not reach it. Recovery
+  // in place is the whole point, and it needs the record intact.
   const file = newFile()
   const store = new OrgPlacement(file)
   open(store, 'org:acme', placement(10, 10))
   open(store, 'org:beta', placement(50, 50))
 
   const saved = store.sessionWindows().map(key => ({ org: orgOfKey(key) }))
-  const plan = planRestore(saved, org => org !== 'beta')      // beta looks absent this launch
-  assert.deepEqual(plan.windows, [{ org: 'acme' }])
-  assert.deepEqual(plan.skippedOrgs, ['beta'])
+  const plan = planRestore(saved)
+  assert.deepEqual(plan.windows, [{ org: 'acme' }, { org: 'beta' }],
+    'both reopen, whatever the catalog would have said about either')
 
-  // planning changed nothing on disk: beta is still remembered, both as a
-  // position and as a window that was open
   const untouched = new OrgPlacement(file)
   assert.deepEqual(untouched.sessionWindows(), ['org:acme', 'org:beta'])
   assert.deepEqual(untouched.restoreWindow('org:beta', SCREEN), placement(50, 50))
