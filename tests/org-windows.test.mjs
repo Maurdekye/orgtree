@@ -68,6 +68,18 @@ test('a window carries an explicit identity, and only a bound one names an organ
     /already registered/)
 })
 
+test('a window registered with someone else\'s sender id is refused outright', () => {
+  // Sender resolution matches on this integer and then backstops it with a
+  // main-frame identity comparison, so a wrong id cannot OPEN the gate - but
+  // it would quietly reduce a two-condition check to one, and a wiring bug
+  // that passed the wrong webContents id would never announce itself.
+  const registry = orgWindowRegistry()
+  const window = fakeWindow()
+  assert.throws(() => registry.register({ id: 'w1', senderId: window.webContents.id + 1, window, kind: 'homepage' }),
+    /but its webContents is/)
+  assert.equal(registry.get('w1'), undefined)
+})
+
 test('one organization, one window — a second registration for it is refused', () => {
   const registry = orgWindowRegistry()
   add(registry, 'w1', 'org', 'acme')
@@ -155,21 +167,43 @@ test('a malformed organization and an unknown caller are refused, never guessed 
   assert.deepEqual(registry.requestOrg('acme', 'no-such-window'), { action: 'refused', org: 'acme', reason: 'unknown-window' })
 })
 
-test('a released reservation frees the organization at once; the TTL is only a backstop', () => {
+test('a released reservation frees the organization at once; the time bound is only a backstop', () => {
   let clock = 1_000
   const registry = orgWindowRegistry({ now: () => clock, reservationTtlMs: 5_000 })
   const first = registry.requestOrg('acme', null)
   registry.releaseReservation(first.ticket)
   assert.deepEqual(registry.reservedOrgs(), [])
   assert.equal(registry.requestOrg('acme', null).action, 'open',
-    'a failed open is retryable immediately, not after the TTL')
+    'a failed open is retryable immediately, not after the time bound')
 
-  // and a ticket the host died holding recovers on its own
+  // and a ticket the host died holding stops blocking on its own
   const leaked = registry.requestOrg('beta', null)
   assert.equal(leaked.action, 'open')
   assert.deepEqual(registry.requestOrg('beta', null), { action: 'pending', org: 'beta' })
   clock += 5_001
-  assert.equal(registry.requestOrg('beta', null).action, 'open', 'the leaked claim expired')
+  assert.equal(registry.requestOrg('beta', null).action, 'open', 'the leaked claim stopped blocking')
+})
+
+test('f1: a slow creation can still adopt its own ticket after the block window lapses', () => {
+  // The time bound stops a DEAD host wedging an organization shut. A live
+  // host that took longer than that to build a window is not that case, and
+  // refusing its adoption used to strand the finished window.
+  let clock = 1_000
+  const registry = orgWindowRegistry({ now: () => clock, reservationTtlMs: 5_000 })
+  const slow = registry.requestOrg('acme', null)
+  assert.equal(slow.action, 'open')
+  clock += 60_000                                   // creation took a very long time
+  assert.deepEqual(registry.reservedOrgs(), [], 'it no longer blocks anybody')
+  const identity = registry.adoptReservation(slow.ticket, registration('acme-window', fakeWindow()))
+  assert.deepEqual(identity, { windowId: 'acme-window', kind: 'org', org: 'acme', notificationOwner: true })
+})
+
+test('f1: a ticket that was already consumed or never existed is refused', () => {
+  const registry = orgWindowRegistry()
+  const first = registry.requestOrg('acme', null)
+  registry.adoptReservation(first.ticket, registration('w1', fakeWindow()))
+  assert.throws(() => registry.adoptReservation(first.ticket, registration('w2', fakeWindow())), /unknown/)
+  assert.throws(() => registry.adoptReservation('reservation-999', registration('w3', fakeWindow())), /unknown/)
 })
 
 // ------------------------------------------------------------------ creation
@@ -217,6 +251,7 @@ const hostFor = (registry, log = []) => ({
   log,
   focus: entry => log.push(`focus:${entry.id}`),
   create: async org => { log.push(`create:${org}`); return registration(`window-for-${org}`, fakeWindow()) },
+  discard: created => log.push(`discard:${created.id}`),
   deliverReveals: (entry, reveals) => log.push(`deliver:${entry.id}:${reveals.join(',')}`),
   undeliverable: (org, reveals) => log.push(`undeliverable:${org}:${reveals.join(',')}`),
 })
@@ -243,6 +278,68 @@ test('a failed open clears its claim immediately and reports what it could not d
   // and the next attempt is a fresh open, not a 'pending' that never resolves
   const retry = await openOrg(registry, 'acme', null, hostFor(registry))
   assert.equal(retry.action, 'opened')
+})
+
+test('NEGATIVE CONTROL (f1): a window that cannot be adopted is handed back, never stranded', async () => {
+  // The window EXISTS by the time adoption can fail. Unregistered it is
+  // unusable - every bridge call is refused and it is frameless, so it has no
+  // OS chrome either - and the organization would be left unclaimed, so the
+  // next request opens a SECOND window for it. That is the exact outcome the
+  // reservation mechanism exists to prevent, arriving through the error path.
+  const registry = orgWindowRegistry()
+  const log = []
+  const host = {
+    ...hostFor(registry, log),
+    // another window takes the organization while this one is being built
+    create: async org => {
+      log.push(`create:${org}`)
+      registry.register({ ...registration('winner', fakeWindow()), kind: 'org', org })
+      return registration('loser', fakeWindow())
+    },
+  }
+  const outcome = await openOrg(registry, 'acme', null, host)
+  assert.deepEqual(outcome, { action: 'focused', windowId: 'winner', org: 'acme' },
+    'the user asked for that organization and it is open: show them the one that won')
+  assert.deepEqual(log, ['create:acme', 'discard:loser', 'focus:winner'],
+    'and the surplus window is disposed of, not left on screen')
+  assert.equal(registry.get('loser'), undefined, 'it was never registered')
+  assert.equal(registry.list().filter(entry => entry.org === 'acme').length, 1,
+    'exactly one window for the organization, as always')
+  assert.deepEqual(registry.reservedOrgs(), [], 'and the claim is gone')
+})
+
+test('f1: a reveal waiting on a failed adoption goes to the window that won', async () => {
+  const registry = orgWindowRegistry()
+  const log = []
+  registry.queueReveal('acme', 'notice-1')
+  const host = {
+    ...hostFor(registry, log),
+    create: async org => {
+      log.push(`create:${org}`)
+      registry.register({ ...registration('winner', fakeWindow()), kind: 'org', org })
+      return registration('loser', fakeWindow())
+    },
+  }
+  await openOrg(registry, 'acme', null, host)
+  assert.deepEqual(log, ['create:acme', 'discard:loser', 'focus:winner', 'deliver:winner:notice-1'])
+  assert.equal(registry.pendingReveals('acme'), 0)
+})
+
+test('f1: an adoption that fails with no winner discards the window and reports, then rethrows', async () => {
+  const registry = orgWindowRegistry()
+  const log = []
+  registry.queueReveal('acme', 'notice-2')
+  const host = {
+    ...hostFor(registry, log),
+    // a duplicate window id is a host bug, not a race: nothing holds the org
+    create: async () => {
+      registry.register({ ...registration('taken-id', fakeWindow()), kind: 'homepage' })
+      return registration('taken-id', fakeWindow())
+    },
+  }
+  await assert.rejects(() => openOrg(registry, 'acme', null, host), /already registered/)
+  assert.deepEqual(log, ['discard:taken-id', 'undeliverable:acme:notice-2'])
+  assert.deepEqual(registry.reservedOrgs(), [], 'the organization is not left claimed')
 })
 
 // -------------------------------------------------------- targeted reveals
@@ -496,11 +593,22 @@ test('when no organization can reopen, a homepage stands in and says so', () => 
   assert.match(plan.notice, /Showing the homepage instead/)
 })
 
-test('a saved homepage window restores as a homepage and is not a fallback', () => {
+test('a saved homepage window restores as a homepage and is NOT a fallback', () => {
+  // It restored exactly what was saved. Nothing stood in for anything, and
+  // reporting a fallback here tells the renderer something untrue.
   const plan = planRestore([{}], () => false)
   assert.deepEqual(plan.windows, [{}])
-  assert.equal(plan.homepageFallback, true, 'no organization reopened, so the homepage is what stands')
-  assert.equal(plan.notice, undefined, 'but nothing was skipped, so there is nothing to report')
+  assert.equal(plan.homepageFallback, false)
+  assert.equal(plan.notice, undefined, 'and nothing was skipped, so there is nothing to report')
+})
+
+test('a saved homepage alongside a missing organization reports the skip without claiming a fallback', () => {
+  const plan = planRestore([{}, { org: 'gone' }], () => false)
+  assert.deepEqual(plan.windows, [{}])
+  assert.deepEqual(plan.skippedOrgs, ['gone'])
+  assert.equal(plan.homepageFallback, false, 'the homepage was saved, not substituted')
+  assert.match(plan.notice, /could not reopen an organization \(gone\)/)
+  assert.doesNotMatch(plan.notice, /Showing the homepage instead/)
 })
 
 test('a corrupt saved slug is treated as a missing target, not opened', () => {

@@ -67,11 +67,19 @@ export interface OrgWindowEntry<W extends MainWindowLike> {
   confirming: boolean
 }
 
-/** A reservation is an organization spoken for by a window that does not exist
- *  yet. It expires, and that is not tidiness: if the host throws between being
- *  told to open a window and adopting the ticket, an un-expiring reservation
- *  would make that organization unopenable for the rest of the session. */
-const RESERVATION_TTL_MS = 15_000
+/** How long a reservation BLOCKS OTHER CALLERS. Not how long the ticket is
+ *  valid — see `adoptReservation`, and review finding f1 for why the two came
+ *  apart. If the host dies between being told to open a window and adopting
+ *  the ticket, an un-expiring claim would make that organization unopenable
+ *  for the rest of the session; this bounds that. It does NOT invalidate the
+ *  ticket, because the host that is still holding one and has a finished
+ *  window to present is not the case this recovers from. */
+const RESERVATION_BLOCK_MS = 15_000
+
+/** A bound on tickets a buggy host never adopted or released. Blocking is
+ *  already time-bounded, so an abandoned ticket costs nothing but a map entry;
+ *  this stops an unbounded number of them accumulating. */
+const RESERVATION_LIMIT = 64
 
 export interface OrgWindowRegistryOptions {
   /** Injected so reservation expiry is deterministic in tests. */
@@ -81,7 +89,7 @@ export interface OrgWindowRegistryOptions {
 
 export function orgWindowRegistry<W extends MainWindowLike, Reveal = unknown>(options: OrgWindowRegistryOptions = {}) {
   const now = options.now ?? (() => Date.now())
-  const ttl = options.reservationTtlMs ?? RESERVATION_TTL_MS
+  const blockFor = options.reservationTtlMs ?? RESERVATION_BLOCK_MS
   const entries = new Map<string, OrgWindowEntry<W>>()
   const reservations = new Map<string, { org: string; at: number }>()
   /** Targeted reveals whose destination window does not exist YET. See
@@ -96,9 +104,19 @@ export function orgWindowRegistry<W extends MainWindowLike, Reveal = unknown>(op
   const prune = () => {
     for (const [id, entry] of entries) if (entry.window.isDestroyed()) entries.delete(id)
   }
-  const sweep = () => {
-    const cutoff = now() - ttl
-    for (const [ticket, held] of reservations) if (held.at <= cutoff) reservations.delete(ticket)
+  /** ⚠ THIS DOES NOT EXPIRE TICKETS, and that distinction is review finding
+   *  f1. Trimming only bounds how many abandoned claims may accumulate; a
+   *  ticket stays adoptable however old it is, because the host still holding
+   *  one and presenting a finished window is not the dead-host case the time
+   *  bound exists for. Oldest-first, since Map preserves insertion order, and
+   *  only claims that no longer block anybody. */
+  const trimReservations = () => {
+    if (reservations.size <= RESERVATION_LIMIT) return
+    const cutoff = now() - blockFor
+    for (const [ticket, held] of reservations) {
+      if (reservations.size <= RESERVATION_LIMIT) return
+      if (held.at <= cutoff) reservations.delete(ticket)
+    }
   }
   const live = () => { prune(); return [...entries.values()] }
 
@@ -130,12 +148,29 @@ export function orgWindowRegistry<W extends MainWindowLike, Reveal = unknown>(op
     notificationOwner: currentOwner() === entry.id,
   })
   const holderOf = (org: string) => live().find(entry => entry.kind === 'org' && entry.org === org)
-  const reservedFor = (org: string) => { sweep(); return [...reservations.values()].some(held => held.org === org) }
+  /** Whether a claim on that organization should stop ANOTHER caller opening
+   *  it. Time-bounded: a host that died holding a ticket must not wedge the
+   *  organization shut for the session. Adoption asks a different question. */
+  const blockedFor = (org: string) => {
+    const cutoff = now() - blockFor
+    return [...reservations.values()].some(held => held.org === org && held.at > cutoff)
+  }
 
   const register = (input: { id: string; senderId: number; window: W; kind: OrgWindowKind; org?: string }): OrgWindowIdentity => {
     prune()
     if (!input.id) throw new Error('A main window needs an id')
     if (entries.has(input.id)) throw new Error(`Window ${input.id} is already registered`)
+    // ⚠ THE SENDER ID MUST BE THIS WINDOW'S OWN (review, stage 1). Sender
+    // resolution matches an incoming call by this recorded integer and then
+    // backstops it with a main-frame identity comparison, so a wrong id cannot
+    // OPEN the gate — but it would quietly reduce a two-condition check to
+    // one, and a wiring bug that passed the wrong webContents id would never
+    // announce itself. Checked here, where the window is in hand, for any
+    // window that exposes its webContents.
+    const actual = (input.window as { webContents?: { id?: unknown } }).webContents?.id
+    if (typeof actual === 'number' && actual !== input.senderId) {
+      throw new Error(`Window ${input.id} was registered with sender ${input.senderId} but its webContents is ${actual}`)
+    }
     if (input.kind === 'org') {
       if (!isOrgSlug(input.org)) throw new Error('An org-bound window needs a valid organization')
       if (holderOf(input.org)) throw new Error(`Organization ${input.org} is already open`)
@@ -171,7 +206,10 @@ export function orgWindowRegistry<W extends MainWindowLike, Reveal = unknown>(op
     bySender: (senderId: number) => { prune(); return [...entries.values()].find(entry => entry.senderId === senderId) },
     byOrg: (org: unknown) => isOrgSlug(org) ? holderOf(org) : undefined,
     list: live,
-    reservedOrgs: () => { sweep(); return [...reservations.values()].map(held => held.org) },
+    /** Organizations currently claimed by a ticket that still blocks other
+     *  callers. An abandoned claim drops out of this once it stops blocking,
+     *  even though its ticket remains adoptable. */
+    reservedOrgs: () => [...new Set([...reservations.values()].filter(held => held.at > now() - blockFor).map(held => held.org))],
 
     /** THE ONE WAY AN ORGANIZATION IS OPENED — homepage selection, tray
      *  selection and notification targeting all arrive here.
@@ -188,10 +226,10 @@ export function orgWindowRegistry<W extends MainWindowLike, Reveal = unknown>(op
      *  only from a successful creation, through bindCreated. */
     requestOrg: (org: unknown, callerId?: string | null): OrgRoutingDecision => {
       if (!isOrgSlug(org)) return { action: 'refused', org: typeof org === 'string' ? org : '', reason: 'invalid-org' }
-      prune(); sweep()
+      prune(); trimReservations()
       const open = holderOf(org)
       if (open) return { action: 'focused', windowId: open.id, org }
-      if (reservedFor(org)) return { action: 'pending', org }
+      if (blockedFor(org)) return { action: 'pending', org }
       const caller = callerId ? entries.get(callerId) : undefined
       if (callerId && !caller) return { action: 'refused', org, reason: 'unknown-window' }
       if (caller && caller.kind === 'homepage') {
@@ -206,10 +244,21 @@ export function orgWindowRegistry<W extends MainWindowLike, Reveal = unknown>(op
     /** The host created the window it was told to create. Adopting the ticket
      *  registers it and releases the reservation in one step, so there is no
      *  instant where the organization is neither reserved nor held. */
+    /** ⚠ A TICKET DOES NOT EXPIRE (review finding f1). An earlier revision
+     *  swept the reservation on a timer and then refused to adopt it, which
+     *  stranded the window the host had just finished building: unregistered,
+     *  so every bridge call from it is refused, and frameless, so it has no OS
+     *  chrome to fall back on either. The time bound exists to stop a DEAD
+     *  host wedging an organization shut, and a live host presenting a
+     *  finished window is not that case.
+     *
+     *  What adoption still refuses is the case that is genuinely unsafe: the
+     *  organization was taken while this window was being built. `register`
+     *  raises it, and `openOrg` turns it into a focus of the window that won
+     *  plus a discard of the surplus one. */
     adoptReservation: (ticket: string, window: { id: string; senderId: number; window: W }): OrgWindowIdentity => {
-      sweep()
       const held = reservations.get(ticket)
-      if (!held) throw new Error(`Reservation ${ticket} is unknown or has expired`)
+      if (!held) throw new Error(`Reservation ${ticket} is unknown`)
       reservations.delete(ticket)
       return register({ ...window, kind: 'org', org: held.org })
     },
@@ -231,7 +280,7 @@ export function orgWindowRegistry<W extends MainWindowLike, Reveal = unknown>(op
       if (!held) return []
       // Only if nothing else can still deliver them: another window for the
       // same organization may have arrived while this one was failing.
-      if (holderOf(held.org) || reservedFor(held.org)) return []
+      if (holderOf(held.org) || blockedFor(held.org)) return []
       const waiting = waitingReveals.get(held.org) ?? []
       waitingReveals.delete(held.org)
       return waiting
@@ -274,12 +323,12 @@ export function orgWindowRegistry<W extends MainWindowLike, Reveal = unknown>(op
      *  native handler does not let it do. */
     bindCreated: (callerId: string, org: unknown): OrgRoutingDecision => {
       if (!isOrgSlug(org)) return { action: 'refused', org: typeof org === 'string' ? org : '', reason: 'invalid-org' }
-      prune(); sweep()
+      prune()
       const caller = entries.get(callerId)
       if (!caller) return { action: 'refused', org, reason: 'unknown-window' }
       if (caller.kind === 'org') return { action: 'refused', org, reason: 'already-bound' }
       if (caller.kind !== 'create') return { action: 'refused', org, reason: 'not-a-creation-window' }
-      if (holderOf(org) || reservedFor(org)) return { action: 'refused', org, reason: 'already-open' }
+      if (holderOf(org) || blockedFor(org)) return { action: 'refused', org, reason: 'already-open' }
       bind(caller, org)
       return { action: 'bound', windowId: caller.id, org }
     },
@@ -393,8 +442,25 @@ export interface OrgOpenHost<W extends MainWindowLike, Reveal> {
    *  why the order inside this matters. */
   focus(entry: OrgWindowEntry<W>): void
   /** Create a new org-bound main window and return its registration details.
-   *  Throwing is a legitimate outcome and is handled. */
+   *  Throwing is a legitimate outcome and is handled.
+   *
+   *  ⚠ WHAT THIS MAY AWAIT, because the question is load-bearing and nothing
+   *  used to answer it (review finding f1). It must resolve as soon as the
+   *  native window object exists and its webContents id is known. It must NOT
+   *  await ready-to-show, first paint, or the renderer reporting its identity
+   *  — the last of those cannot work at all, since the preload resolves its
+   *  identity synchronously through sender lookup and the window is not
+   *  addressable until it is REGISTERED, which is the step this returns to.
+   *  So: construct, return, register, then load the document. */
   create(org: string): Promise<{ id: string; senderId: number; window: W }>
+  /** ⚠ DISPOSE OF A WINDOW THAT COULD NOT BE ADOPTED. Required, not
+   *  optional: `create` has already put a real window on the user's screen by
+   *  the time adoption can fail, and a host with no way to take it back leaves
+   *  it there unregistered — dead controls on a frameless window, and the
+   *  organization still unclaimed so the next request opens a second one. That
+   *  is review finding f1, and making this member optional is how it would
+   *  come back. */
+  discard(created: { id: string; senderId: number; window: W }): void
   /** Hand the window everything that was waiting for it. */
   deliverReveals?(entry: OrgWindowEntry<W>, reveals: Reveal[]): void
   /** The open failed and these reveals had nowhere to go. Reported rather
@@ -442,6 +508,9 @@ export async function openOrg<W extends MainWindowLike, Reveal>(
   try {
     created = await host.create(decision.org)
   } catch (error) {
+    // Nothing was built, so there is nothing to take back. Release at once
+    // rather than waiting out the block window, and report any reveal that
+    // was waiting on this open rather than dropping it.
     const stranded = registry.releaseReservation(decision.ticket)
     if (stranded.length) host.undeliverable?.(decision.org, stranded)
     throw error
@@ -452,7 +521,24 @@ export async function openOrg<W extends MainWindowLike, Reveal>(
     if (entry) deliver(entry)
     return { action: 'opened', windowId: identity.windowId, org: decision.org }
   } catch (error) {
-    const stranded = registry.releaseReservation(decision.ticket)
+    // ⚠ THE WINDOW EXISTS. It is on the user's screen right now, and it is
+    // not registered — so `resolveNativeSender` refuses its every bridge
+    // call, and it is frameless, so its minimize, maximize and close are
+    // dead with no OS chrome behind them. Handing it back is not optional
+    // (review finding f1); leaving it is the worst outcome in this file.
+    host.discard(created)
+    registry.releaseReservation(decision.ticket)
+    // The realistic way to get here is that another window took the
+    // organization while this one was being built. That is not a failure
+    // from the user's point of view — they asked for that organization and
+    // it is open — so surface the window that won and let the surplus one go.
+    const holder = registry.byOrg(decision.org)
+    if (holder) {
+      host.focus(holder)
+      deliver(holder)
+      return { action: 'focused', windowId: holder.id, org: decision.org }
+    }
+    const stranded = registry.takeReveals(decision.org)
     if (stranded.length) host.undeliverable?.(decision.org, stranded)
     throw error
   }
@@ -552,8 +638,12 @@ export function planRestore(
     }
     windows.push({ org: record.org })
   }
-  const homepageFallback = !windows.some(window => window.org !== undefined)
-  if (homepageFallback && !windows.length) windows.push({})
+  // ⚠ A FALLBACK IS A HOMEPAGE THAT STOOD IN FOR SOMETHING, not merely the
+  // absence of an organization (review, stage 1). A session that genuinely
+  // saved only a Homepage window restored exactly what it saved, and calling
+  // that a fallback tells the renderer something untrue.
+  const homepageFallback = !windows.length
+  if (homepageFallback) windows.push({})
   const notice = skippedOrgs.length
     ? `Orgtree could not reopen ${skippedOrgs.length === 1 ? 'an organization' : `${skippedOrgs.length} organizations`}`
       + ` (${skippedOrgs.join(', ')}) from the last session.`
