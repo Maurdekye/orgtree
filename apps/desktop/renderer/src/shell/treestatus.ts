@@ -22,26 +22,21 @@
 // exactly the trust it was added for.
 import type { TreePayload } from '../types'
 
-/** ⚠ A STRUCTURAL MIRROR of `PolledStatus` in `canvas/shared.ts`, which
- *  v3-attention-opus added alongside `usePolledStatus`. That module is not on
- *  this branch yet, so the shape is declared here to keep this tree
- *  compiling standalone — the same thing `desktop.ts` does for the native
- *  contract. When it is importable, this declaration is deleted and the type
- *  re-exported; every field name and meaning is theirs, deliberately, so the
- *  swap is an import change and nothing else. */
-export interface PolledStatus {
-  /** a first read for this identity is in flight and none has failed */
-  loading: boolean
-  /** the most recent attempt failed */
-  failed: boolean
-  /** a value IS held and the last attempt failed */
-  stale: boolean
-  /** no value at all and the last attempt failed */
-  unavailable: boolean
-  /** `Date.now()` of the last SUCCESSFUL read; null before the first */
-  at: number | null
-  error: string | null
-}
+/** ⚠ THE CANONICAL TYPE, IMPORTED — NOT MIRRORED. This file used to declare
+ *  its own structural copy of `PolledStatus`, because `canvas/shared.ts` was
+ *  in another worktree when it was written. The copy compiled, matched
+ *  field-for-field, and was exactly the shape that drifts silently: nothing
+ *  would have failed on the day the two stopped agreeing. v3-attention-opus
+ *  asked for the import the moment their module landed here, and they were
+ *  right — their own §6 exists because "I compared the two interfaces" had
+ *  already been false once.
+ *
+ *  The DERIVATION below stays here. It rides App's one coalesced `getTree`
+ *  and applies the same applicability rule the fetch path uses to decide
+ *  whether to paint a body, which `usePolledStatus` cannot know about. Type
+ *  theirs, derivation ours. */
+export type { PolledStatus } from '../canvas/shared'
+import type { PolledStatus } from '../canvas/shared'
 
 /** What App records from the one coalesced tree fetch. */
 export interface TreeRead {
