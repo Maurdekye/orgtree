@@ -254,8 +254,17 @@ test('events that cannot be asked for again are held until there is somewhere to
   // no `args` property at all — so the guard above was handed `undefined`,
   // correctly judged every document stale, and the acknowledgement silently
   // stopped acknowledging. Held events then waited for a take that a renderer
-  // using only `onEvent` never makes. Measured against real Electron in
-  // tests/multi-window-native.probe.ts, which sends from a real preload.
+  // using only `onEvent` never makes.
+  //
+  // ⚠ THE ABI IS MEASURED against real Electron in
+  // tests/multi-window-native.probe.ts, from a real preload through a real
+  // send. THE PRODUCTION HANDLER IS NOT: that probe uses `probe:` channels and
+  // a copy of the guard, and its drained events land in a main-process array,
+  // so it proves the argument position and the guard's arithmetic and nothing
+  // about this handler, the preload or delivery to a renderer. The line below
+  // is a SOURCE pin tying this handler to the measured ABI - not a claim that
+  // it was executed. End-to-end receipt belongs to the shell composition
+  // fixture, including the ack-only path with no take.
   assert.match(listening, /ipcMain\.on\('desktop:events-listening', \(event, token: unknown\) =>/,
     'the token is the second callback argument, which is where it arrives')
   assert.doesNotMatch(listening, /\.args/, 'and never read off the event, where it does not exist')
