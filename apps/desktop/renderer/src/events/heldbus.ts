@@ -89,7 +89,30 @@ const queueOf = (type: HeldType): HeldEvent[] => {
   return q
 }
 
+/** ⚠ ARRIVALS HELD WHILE `takePendingWindowEvents` IS IN FLIGHT, and this is
+ *  an ORDERING guard rather than a delivery one.
+ *
+ *  Both drain routes are ASYNCHRONOUS. `ipcRenderer.send` is async IPC, so the
+ *  listening ack reaches the main process on its own turn; the take is a
+ *  promise. Which of the two reaches the outbox first is not ours to decide,
+ *  and when the TAKE wins the race the held events come back to us through a
+ *  promise that resolves a tick later — while the queue is already unheld, so
+ *  a NEWER live event can arrive at the listener before that promise settles.
+ *  Dispatching as they arrive would then hand the consumer the new event
+ *  before the older one it supersedes: an `open-org` for the organization the
+ *  user just left, arriving after the one they went to.
+ *
+ *  So while a take is outstanding, live arrivals wait here and are released
+ *  AFTER whatever the take returns. Nothing is dropped and nothing is
+ *  reordered; the window is one promise turn and it closes even if the take
+ *  rejects. (multi-window-design, 2026-09-21: "exercise queued older events
+ *  versus subsequent live events across ack/take promise timing rather than
+ *  relying on the comment calling the ack synchronous".) */
+let takeInFlight = false
+let duringTake: HeldEvent[] = []
+
 function dispatch(event: HeldEvent): void {
+  if (takeInFlight) { duringTake.push(event); return }
   const subs = consumers.get(event.type)
   if (subs && subs.size) {
     delivered += 1
@@ -123,9 +146,15 @@ function dispatch(event: HeldEvent): void {
  * relying on the host's signal. Both routes drain the SAME queue and the drain
  * is idempotent per document, so calling both cannot deliver anything twice —
  * whichever gets there first returns the events and the other returns nothing.
- * Two routes are worth it because they fail differently: the ack is
- * synchronous but depends on this module really being first, and the take is
- * ours to make unconditionally but is a promise, so it lands a tick later.
+ *
+ * ⚠ NEITHER ROUTE IS SYNCHRONOUS, and an earlier version of this comment said
+ * the ack was, which is wrong and is the sort of wrong that hides a race.
+ * `ipcRenderer.send` is asynchronous IPC: the preload's ack reaches the main
+ * process on its own turn, and the events it releases come back as ordinary
+ * sends. The take is a promise. They are worth having BOTH because they fail
+ * differently — the ack depends on this module really being first, and the
+ * take is ours to make unconditionally — not because one of them is prompt.
+ * The consequence of them racing is handled by `takeInFlight` above.
  *
  * Idempotent: a second call is a no-op, so a test harness and main.tsx can
  * both call it.
@@ -145,12 +174,35 @@ export function startHeldEvents(): () => void {
     dispatch({ type: e.type, data: e.data })
   })
   // the explicit route, taken unconditionally — see above for why both
-  void bridge.takePendingWindowEvents?.().then((held) => {
-    for (const raw of held ?? []) {
-      const e = raw as { type?: unknown; data?: unknown }
-      if (isHeld(e?.type)) dispatch({ type: e.type, data: e.data })
+  if (bridge.takePendingWindowEvents) {
+    // ⚠ ARMED BEFORE THE CALL, NOT AFTER. The window this guards is "a take is
+    // outstanding", and that window opens the moment the request leaves — not
+    // the moment we get a promise object back. Arming afterwards leaves a gap
+    // that is empty in production (real IPC cannot deliver inside a
+    // synchronous call) and is exactly the gap a test that models the race
+    // deliberately aims at, which is a good reason to close it rather than to
+    // argue it cannot be hit.
+    takeInFlight = true
+    // ⚠ THE RELEASE IS IN ONE PLACE AND RUNS ON BOTH OUTCOMES. If the take
+    // rejects — an older host with no such channel — everything staged while
+    // it was outstanding must still go out, or the guard against reordering
+    // becomes a way to lose events outright.
+    const settle = (held: unknown[]) => {
+      takeInFlight = false
+      const staged = duringTake
+      duringTake = []
+      for (const raw of held) {
+        const e = raw as { type?: unknown; data?: unknown }
+        if (isHeld(e?.type)) dispatch({ type: e.type, data: e.data })
+      }
+      // …and only then whatever arrived live while we were waiting
+      for (const event of staged) dispatch(event)
     }
-  }).catch(() => { /* an older host has no such channel; the ack route still works */ })
+    let take: Promise<unknown[]> | undefined
+    try { take = bridge.takePendingWindowEvents() } catch { /* settled below */ }
+    if (take) void take.then((held) => settle(held ?? [])).catch(() => { settle([]) })
+    else settle([])   // a host that threw outright must not leave this armed
+  }
   detach = () => { off(); detach = null }
   return detach
 }
@@ -207,6 +259,8 @@ export function resetHeldEvents(): void {
   detach = null
   waiting.clear()
   consumers.clear()
+  duringTake = []
+  takeInFlight = false
   dropped = 0
   delivered = 0
 }

@@ -30,7 +30,8 @@ import {
 declare const __SRC_DIR__: string
 const src = (p: string) => fs.readFileSync(path.join(__SRC_DIR__, p), 'utf8')
 
-type Listener = (event: { type: string; data?: unknown }) => void
+type Nativeish = { type: string; data?: unknown }
+type Listener = (event: Nativeish) => void
 
 /** A bridge that behaves the way the real one does: `onEvent` is the ack, and
  *  `takePendingWindowEvents` drains the SAME queue, once. */
@@ -110,10 +111,11 @@ test('§1.2 arrival order is preserved across several of one type', () => {
   assert.deepEqual(got, ['a', 'b'])
 })
 
-test('§1.3 a LIVE event with no consumer yet is kept too, not only a cold one', () => {
+test('§1.3 a LIVE event with no consumer yet is kept too, not only a cold one', async () => {
   clear()
   const bridge = fakeBridge()
   startHeldEvents()
+  await flush()   // the opening take settles; see §3.3 for why that matters
   // native sent this because a listener existed — ours. The app's own consumer
   // still has not mounted, and this is the ordinary case during startup.
   bridge.send({ type: 'open-org', data: { org: 'workshop' } })
@@ -152,10 +154,11 @@ test('§2 an event handed over once is GONE — a remount does not replay it', (
   assert.deepEqual(second, [], 'nothing is replayed to the next subscriber')
 })
 
-test('§2.1 a live event reaches every registered consumer exactly once', () => {
+test('§2.1 a live event reaches every registered consumer exactly once', async () => {
   clear()
   const bridge = fakeBridge()
   startHeldEvents()
+  await flush()
   const a: unknown[] = []; const b: unknown[] = []
   onHeldEvent('window-identity', (e) => a.push(e.data))
   onHeldEvent('window-identity', (e) => b.push(e.data))
@@ -164,10 +167,11 @@ test('§2.1 a live event reaches every registered consumer exactly once', () => 
   assert.equal(b.length, 1)
 })
 
-test('§2.2 one consumer throwing does not eat the event for the others', () => {
+test('§2.2 one consumer throwing does not eat the event for the others', async () => {
   clear()
   const bridge = fakeBridge()
   startHeldEvents()
+  await flush()
   const ok: unknown[] = []
   onHeldEvent('open-org', () => { throw new Error('a consumer with a bug') })
   onHeldEvent('open-org', (e) => ok.push(e.data))
@@ -209,6 +213,80 @@ test('§3.2 starting twice attaches one listener — main.tsx and a harness may 
   startHeldEvents()
   await flush()
   assert.equal(bridge.acks(), 1)
+})
+
+// ------------------------- §3.3 the two routes RACE, and neither is prompt
+//
+// ⚠ AN EARLIER COMMENT IN heldbus.ts CALLED THE ACK SYNCHRONOUS. It is not:
+// `ipcRenderer.send` is asynchronous IPC, so the preload's ack reaches the main
+// process on its own turn and what it releases comes back as ordinary sends.
+// The take is a promise. So which route drains the outbox is a race, and when
+// the TAKE wins it the held events come back a tick later — while the queue is
+// already unheld, so a NEWER live event can reach the listener first.
+//
+// The failure that guards against is an ordering one, and it is the kind that
+// reads as working: the consumer gets the new `open-org` and then the older one
+// it superseded, and the window ends up on the organization the user left.
+
+/** The take wins the race: it returns the queued event, and a live event is
+ *  sent before the take's promise settles. */
+function racingBridge(queued: Nativeish[], live: Nativeish[]) {
+  const listeners = new Set<Listener>()
+  let queue = [...queued]
+  let release!: (v: Nativeish[]) => void
+  const taken = new Promise<Nativeish[]>((r) => { release = r })
+  const bridge = {
+    onEvent(fn: Listener) { listeners.add(fn); return () => { listeners.delete(fn) } },
+    takePendingWindowEvents() {
+      const drained = queue
+      queue = []
+      // ⚠ the take DRAINED, so native is no longer holding — which is exactly
+      // why a live event may now be sent — but the renderer has not been told
+      // yet, because a promise settles on a later turn.
+      for (const e of live) for (const l of [...listeners]) l(e)
+      return taken
+    },
+    settle: () => { release([...queued]) },
+  }
+  ;(window as unknown as { orgtreeDesktop: unknown }).orgtreeDesktop = bridge
+  return bridge
+}
+
+test('§3.3 an older queued event is delivered BEFORE a live one that overtook it', async () => {
+  clear()
+  const b = racingBridge(
+    [{ type: 'open-org', data: { org: 'the-one-they-left' } }],
+    [{ type: 'open-org', data: { org: 'the-one-they-went-to' } }],
+  )
+  startHeldEvents()
+  const got: string[] = []
+  onHeldEvent('open-org', (e) => got.push((e.data as { org: string }).org))
+  // the live event has already reached the listener; nothing may be handed
+  // over yet, because the take is still outstanding
+  assert.deepEqual(got, [], 'the live event waits while a take is in flight')
+  b.settle()
+  await flush()
+  assert.deepEqual(got, ['the-one-they-left', 'the-one-they-went-to'],
+    'arrival order, not resolution order — the window ends up where the user went')
+})
+
+test('§3.4 a REJECTED take still releases what arrived while it was outstanding', async () => {
+  clear()
+  const listeners = new Set<Listener>()
+  ;(window as unknown as { orgtreeDesktop: unknown }).orgtreeDesktop = {
+    onEvent(fn: Listener) { listeners.add(fn); return () => { listeners.delete(fn) } },
+    takePendingWindowEvents() {
+      // an older host with no such channel, after a live event landed
+      for (const l of [...listeners]) l({ type: 'open-org', data: { org: 'studio' } })
+      return Promise.reject(new Error('no such channel'))
+    },
+  }
+  startHeldEvents()
+  await flush()
+  const got: unknown[] = []
+  onHeldEvent('open-org', (e) => got.push(e.data))
+  assert.deepEqual(got, [{ org: 'studio' }],
+    'the ordering guard must not become a way to lose events outright')
 })
 
 // ----------------------------------------- §4 the type set, against native

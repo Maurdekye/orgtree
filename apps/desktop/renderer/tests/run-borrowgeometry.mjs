@@ -19,6 +19,13 @@
 // out directory and Electron's own state is moved with app.setPath. The live
 // data root is never read or written and the installed app is never launched.
 //
+// ⚠ THE MAIN-PROCESS SOURCE BELOW IS A TEMPLATE LITERAL. A backtick anywhere
+// inside it — including in a comment, which is where it is easy to reach for
+// one — ENDS the template, and the failure surfaces as a SyntaxError in THIS
+// file at the line where the template starts, nowhere near the backtick. Use
+// plain quotes in that block. (Cost one confusing failure; noted so the next
+// person does not spend the same minutes.)
+//
 // Usage: node apps/desktop/renderer/tests/run-borrowgeometry.mjs <entry.tsx> <outdir>
 import { build } from 'esbuild'
 import { spawnSync } from 'node:child_process'
@@ -56,12 +63,20 @@ for (const k of ['userData', 'sessionData', 'cache', 'temp', 'logs', 'crashDumps
 const TARGETS = [
   { x: 137, y: 163, width: 561, height: 421 },
   { x: 241, y: 271, width: 487, height: 389 },
+  { x: 189, y: 227, width: 523, height: 357 },
 ]
 
 app.whenReady().then(async () => {
   const win = new BrowserWindow({ width: 900, height: 800, show: false,
     webPreferences: { contextIsolation: true, sandbox: false } })
   let gone = null, child = null, moved = null, moves = 0
+  // ⚠ EVERY child window this page has opened, in order, and how many there
+  // have been. The borrow→dismiss case needs the window that comes BACK, which
+  // is a DIFFERENT BrowserWindow from the one that was borrowed: the borrow
+  // closes the original and 'restore()' opens a new one. Counting births is how
+  // the renderer knows the return really happened rather than never closing.
+  const children = []
+  let born = 0
   win.webContents.on('render-process-gone', (_e, d) => { gone = d })
   win.webContents.on('console-message', (_e, lvl, msg) => {
     if (lvl >= 2) log('CONSOLE' + lvl + ': ' + String(msg).slice(0, 600)) })
@@ -72,6 +87,8 @@ app.whenReady().then(async () => {
   win.webContents.setWindowOpenHandler(() => ({ action: 'allow' }))
   win.webContents.on('did-create-window', (w) => {
     child = w
+    born++
+    children.push(w)
     // ⚠⚠ THE ONE LINE THAT MAKES THIS HARNESS RESEMBLE THE PRODUCT.
     // configureWindow (main/windows.ts) recurses into every popout and turns
     // background throttling OFF, because Chromium can leave an adopted
@@ -88,6 +105,22 @@ app.whenReady().then(async () => {
   // to this process and therefore works even while the page is busy.
   win.on('page-title-updated', (_e, t) => {
     log('TITLE ' + t)
+    // ⚠ THE NATIVE TRUTH ABOUT THE WINDOW THAT CAME BACK. The renderer cannot
+    // answer this for itself: after a borrow the ORIGINAL window is closed and
+    // 'restore()' opens a NEW one, so the only party that can say where the
+    // returned window really sits is this process, reading the live
+    // BrowserWindow. Asked for by title, with a unique suffix each time —
+    // 'page-title-updated' does not fire when the title is unchanged, so a
+    // repeated bare request would silently answer nothing.
+    if (String(t).startsWith('BOUNDS-NOW')) {
+      const live = children.filter((w) => !w.isDestroyed())
+      const last = live[live.length - 1]
+      const payload = { born, live: live.length, rect: last ? last.getBounds() : null }
+      log('BOUNDS ' + JSON.stringify(payload))
+      void win.webContents.executeJavaScript(
+        'window.__BOUNDS = ' + JSON.stringify(payload) + ';true').catch((e) => log('inject failed ' + e))
+      return
+    }
     // ⚠ REPEATABLE. The settle diagnostic is a SECOND move in the same run,
     // and a one-shot guard here silently refused it — the phase reported
     // 'main process never reported a move' and measured nothing. Each move

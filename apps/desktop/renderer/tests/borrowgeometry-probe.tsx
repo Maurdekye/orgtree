@@ -198,6 +198,105 @@ async function settleDiagnostic() {
   }
 }
 
+/** ⚠ THE BORROW → DISMISSAL RETURN, AT THE ACTUAL NATIVE WINDOW
+ *  (multi-window-design, 2026-09-21). D4 above ends at `release()`, which
+ *  proves what the borrow CAPTURED. The effort owner's E2b compares SAVED
+ *  ROWS, which proves the borrow does not clear the saved geometry. Neither
+ *  measures the window the user actually gets back, and that is the whole
+ *  point of the feature: open a desk temporarily, close the modal, and the
+ *  popped-out window returns WHERE IT WAS.
+ *
+ *  The chain under test end to end:
+ *
+ *    the user moves the window   → main setBounds, granted bounds G
+ *    borrow                      → captureWindow reads the LIVE rect, writes G
+ *    dismiss (restore)           → popupFeatures(restoring) reopens at G
+ *    the returned window         → a NEW BrowserWindow; is it at G?
+ *
+ *  ⚠ IT IS A DIFFERENT WINDOW, and that is why the renderer cannot answer
+ *  this alone. The borrow CLOSES the original; `restore()` opens another. So
+ *  the count of windows this page has created must go up by one — otherwise
+ *  nothing was ever given back and a rect comparison would pass on a window
+ *  that never left — and the rect must come from the main process reading the
+ *  live BrowserWindow, not from a renderer proxy. */
+let boundsSeq = 0
+const nativeBounds = async (): Promise<{ born: number; live: number; rect: Rect | null } | null> => {
+  const w = window as unknown as { __BOUNDS?: { born: number; live: number; rect: Rect | null } }
+  w.__BOUNDS = undefined
+  // unique, because `page-title-updated` does not fire for an unchanged title
+  // and a repeated bare request would silently answer nothing
+  document.title = 'BOUNDS-NOW-' + (++boundsSeq)
+  for (let i = 0; i < 80 && !w.__BOUNDS; i++) await wait(25)
+  return w.__BOUNDS ?? null
+}
+
+async function dismissReturn() {
+  ;(window as unknown as { __MOVED?: Rect }).__MOVED = undefined
+  root.render(<MovableSurface kind={KIND} title="Probe" org={ORG} anchor={anchor}
+    sourceBox={() => ({ x: 20, y: 20, w: 420, h: 320 })}><Handle /></MovableSurface>)
+  await wait(200)
+  if (!entry() && !(await detach())) return { note: 'no child window' }
+  await wait(500)
+
+  const opened = await nativeBounds()
+  mark('MOVE-NOW')
+  for (let i = 0; i < 80 && !moved(); i++) await wait(25)
+  const granted = moved()
+  if (!granted) return { opened, note: 'main process never reported a move' }
+  // let the move propagate into the renderer's view of the window, the same
+  // way the 250 ms poll would see it
+  await wait(600)
+
+  const h = entry()!.borrow!() as BorrowedSurface
+  await wait(300)
+  const savedAtBorrow = savedRect()
+  const duringBorrow = await nativeBounds()
+
+  // ⚠ THE DISMISSAL. `restore()` is what the temporary host calls when the
+  // user closes it — give the window back. `release()` (which D4 used) is the
+  // other outcome, where the borrower keeps it and the window stays closed.
+  h.restore()
+  await wait(900)
+  const returned = await nativeBounds()
+
+  entry()?.borrow!().release()
+  await wait(200)
+  root.render(<div>idle</div>)
+  await wait(200)
+
+  const returnedRect = returned?.rect ?? null
+  const reopened = !!opened && !!returned && returned.born > opened.born
+  // ⚠ THE CONTROL, and without it this phase could pass vacuously. If the
+  // window had never moved, "returned at the granted bounds" would be true
+  // because the granted bounds ARE where it opened — a reopen that ignored
+  // the saved row entirely would pass. So the bounds it was FIRST opened at
+  // must differ from the bounds it was moved to.
+  const movedFromWhereItOpened = !same(opened?.rect ?? null, granted)
+  return {
+    opened, granted, savedAtBorrow, duringBorrow, returned,
+    movedFromWhereItOpened,
+    // the window really went away and a new one really came back
+    windowWasClosedByTheBorrow: (duringBorrow?.live ?? -1) === 0,
+    windowWasReopened: reopened,
+    // ⚠ THE ASSERTION, and it is deliberately against the NATIVE rect of the
+    // returned window rather than against the saved row that produced it
+    returnedAtGrantedBounds: same(returnedRect, granted),
+    savedRowMatchedGranted: same(savedAtBorrow, granted),
+    verdict: !reopened
+      ? 'NOT EXERCISED — no new window was created by the dismissal, so there '
+        + 'was no returned window to measure. Nothing is claimed.'
+      : !movedFromWhereItOpened
+        ? 'NOT EXERCISED — the window was never moved away from where it was '
+          + 'opened, so "returned at the granted bounds" would be true of a '
+          + 'reopen that ignored the saved row entirely. Nothing is claimed.'
+        : same(returnedRect, granted)
+          ? 'PASS — the window the dismissal gave back sits at the bounds the '
+            + 'window manager had granted before the borrow, measured on the '
+            + 'live BrowserWindow rather than on the saved row or a proxy'
+          : 'FAIL — the returned window is not where it was before the borrow',
+  }
+}
+
 async function run() {
   const tries: unknown[] = []
   let winner: Record<string, unknown> | null = null
@@ -214,6 +313,9 @@ async function run() {
   // cannot disturb them
   mark('settle-diagnostic')
   PROBE.settle = await settleDiagnostic()
+  // the borrow→dismissal return, measured at the native window
+  mark('dismiss-return')
+  PROBE.dismissReturn = await dismissReturn()
   PROBE.D4_verdict = !winner
     ? 'NOT EXERCISED — the saved row was refreshed by the 250 ms poll before the '
       + 'borrow in every attempt, so no run observed the window actually ahead of '
