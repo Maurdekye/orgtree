@@ -30,6 +30,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
+import type { OrgSlotContext } from '../src/canvas/OrgCanvas'
+import type { AttentionViewProps } from '../src/attention/AttentionView'
 
 declare const __SRC_DIR__: string
 
@@ -210,4 +212,37 @@ is finding f4, measured rather than supposed.
 
 Reduce it first: \`!!el.querySelector(sel)\`, a \`textContent\`, an attribute, or
 \`assert.ok(a === b, message)\`. The message carries the meaning either way.`)
+})
+
+// ------------------------------------------------------------------ §6
+//
+// THE HOST'S SLOT CONTRACT, CHECKED BY THE COMPILER RATHER THAN BY ME READING IT.
+//
+// `OrgCanvas` renders a view in its slot as `renderOrgSlot(ctx)`, so whoever
+// composes this feature writes something very close to
+// `<AttentionView {...ctx} />`. That only works while every field of
+// `OrgSlotContext` is accepted by `AttentionViewProps` — and "I compared the
+// two interfaces by eye" is exactly the claim that was false once already:
+// the host's `onOpenMail` is the canonical `MailLinkFn` while this view's took
+// a `TypedRef`, so the spread would not have compiled and the mismatch was
+// invisible until somebody tried it.
+//
+// This is a TYPE-LEVEL assertion. It costs nothing at runtime — the import is
+// erased — and it fails at `tsc` the moment the host widens its context or this
+// view narrows its props. The runtime body only exists so the file reports it.
+
+/** structurally assignable, checked at compile time */
+type SlotFits = OrgSlotContext extends Omit<AttentionViewProps, 'treeStatus'>
+  ? true : never
+const SLOT_FITS: SlotFits = true
+
+test('§6 the host OrgSlotContext is accepted by AttentionViewProps', () => {
+  // `treeStatus` is deliberately excluded above: it is NOT part of the slot
+  // context, and supplying it is a composition obligation the host takes on
+  // separately. Everything else the host hands over must fit as it stands.
+  assert.equal(SLOT_FITS, true,
+    'If this file no longer compiles, the host and this view have drifted: '
+    + 'a field of OrgSlotContext is not accepted by AttentionViewProps. Fix '
+    + 'THIS view to match the published contract, or route the difference to '
+    + 'the host owner — do not widen the assertion.')
 })
