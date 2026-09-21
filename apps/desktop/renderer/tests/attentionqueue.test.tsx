@@ -301,3 +301,68 @@ test('§6 the counts describe the mixed list, by flavour', async () => {
   assert.equal(v.last(), '1 ticket · 1 urgent mail · 1 question')
   await v.unmount()
 })
+
+// ------------------------------------------------------------------- §7
+//
+// WHAT THE PANEL SAYS WHEN IT COULD NOT READ. The ticket requires preserving
+// "the distinction between current, loading, stale and incomplete state", so
+// what this panel claims when a feed fails is part of the spec and not an
+// afterthought. Measured here rather than reasoned about, because I asserted
+// the wrong answer to a peer before checking: I said the feeds fail closed to
+// an empty list. They do not — `usePolled` catches and keeps the PREVIOUS
+// value, so the two failure shapes are different from each other and neither
+// is an empty list.
+
+test('§7 a feed that has never succeeded says loading — not "nothing is waiting"',
+  async () => {
+  localStorage.clear()
+  installServer({ items: [flagged], pending: [urgent] })
+  // every request fails, so `usePolled` never has a value to keep
+  ;(globalThis as unknown as { fetch: unknown }).fetch = () => Promise.resolve({
+    ok: false, status: 500, statusText: 'HTTP 500', headers: new Headers(),
+    json: () => Promise.resolve({ detail: 'boom' }),
+  })
+  const v = await mountView(panel(), titles)
+  await settle()
+  assert.deepEqual(titles(v.el), [])
+  assert.equal(v.el.querySelector('.attn-empty'), null,
+    'the empty state is NOT shown: this panel does not know that nothing is waiting')
+  assert.match(v.el.querySelector('.attn-counts')?.textContent ?? '', /loading/,
+    'it says it has not read yet, which is the true statement')
+  await v.unmount()
+})
+
+test('§7.1 a feed that fails AFTER succeeding keeps showing the last answer, '
+  + 'and does not mark it stale — a known gap', async () => {
+  localStorage.clear()
+  installServer({ items: [flagged], pending: [] })
+  const v = await mountView(panel(), titles)
+  await settle()
+  assert.deepEqual(titles(v.el), ['ticket:Cut over the index'])
+
+  // the server stops answering
+  ;(globalThis as unknown as { fetch: unknown }).fetch = () => Promise.resolve({
+    ok: false, status: 503, statusText: 'HTTP 503', headers: new Headers(),
+    json: () => Promise.resolve({ detail: 'down' }),
+  })
+  await repoll()
+
+  // ⚠ THIS IS THE GAP, PINNED SO IT IS VISIBLE RATHER THAN DISCOVERED. The row
+  // is still shown, with nothing saying the panel can no longer read. That is
+  // `usePolled`'s behaviour across every panel in this app — it is the shared
+  // hook's contract, not something this feature chose — but the ticket asks
+  // this view to distinguish current from stale, and it currently cannot,
+  // because `usePolled` exposes no failure to distinguish on. Closing it needs
+  // a change to canvas/shared.ts, which this feature does not own.
+  //
+  // The DANGEROUS shape is the empty one: a queue that last read successfully
+  // as empty, then goes unreadable, shows "Nothing is waiting on you here."
+  // with full confidence. That reads as "nothing needs you" when the truth is
+  // "nothing could be read" — raised with the coordinator rather than papered
+  // over with a marking this panel has no signal to drive.
+  assert.deepEqual(titles(v.el), ['ticket:Cut over the index'],
+    'the last good answer is retained')
+  assert.equal(v.el.querySelector('.attn-stale'), null,
+    'and nothing marks it stale — the signal to do so does not exist here yet')
+  await v.unmount()
+})
