@@ -1,6 +1,7 @@
-// Per-organization window and popout placement: the v2 -> v3 file migration,
-// per-org lookup, the reuse of the existing monitor-fit behavior, and the rule
-// that a popout the user closed does not come back.
+// Per-organization MAIN WINDOW placement: the v2 -> v3 file migration, per-org
+// lookup, and the reuse of the existing monitor-fit behavior. Popout geometry
+// and the open-panel set are the renderer's (see the module header); nothing
+// here stores them, and that division is asserted at the end of this file.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -36,12 +37,12 @@ const newFile = () => path.join(temp, `placement-${++files}.json`)
 
 test('the v2 single-placement file becomes the default geometry, not a discarded file', () => {
   const migrated = migratePlacementFile({ bounds: bounds(100, 50), maximized: true })
-  assert.deepEqual(migrated, { version: 2, default: { bounds: bounds(100, 50), maximized: true }, windows: [], popouts: [] })
+  assert.deepEqual(migrated, { version: 2, default: { bounds: bounds(100, 50), maximized: true }, windows: [] })
 })
 
 test('a damaged or absent file produces an empty schema rather than an exception', () => {
   for (const raw of [undefined, null, 'nonsense', 42, [], {}, { bounds: { x: 'a' }, maximized: true }, { bounds: bounds(1, 1), maximized: 'yes' }]) {
-    assert.deepEqual(migratePlacementFile(raw), { version: 2, windows: [], popouts: [] }, JSON.stringify(raw))
+    assert.deepEqual(migratePlacementFile(raw), { version: 2, windows: [] }, JSON.stringify(raw))
   }
 })
 
@@ -55,14 +56,12 @@ test('a v3 file keeps only entries that are actually usable', () => {
       { key: 'org:beta', placement: { bounds: bounds(0, 0, 0, 5), maximized: false } },  // zero width
       'not an object',
     ],
-    popouts: [
-      { org: 'acme', name: 'desk-1', placement: placement(20, 20) },
-      { org: 'acme', name: '', placement: placement(20, 20) }, // no name
-      { org: '', name: 'desk-2', placement: placement(20, 20) },
-    ],
+    // a popout section written by an older draft of this schema is dropped:
+    // that fact belongs to the renderer now and native must not carry a copy
+    popouts: [{ org: 'acme', name: 'desk-1', placement: placement(20, 20) }],
   })
   assert.deepEqual(migrated.windows, [{ key: 'org:acme', placement: placement(10, 10) }])
-  assert.deepEqual(migrated.popouts, [{ org: 'acme', name: 'desk-1', placement: placement(20, 20) }])
+  assert.equal('popouts' in migrated, false)
   assert.deepEqual(migrated.default, { bounds: bounds(0, 0), maximized: false })
 })
 
@@ -101,53 +100,14 @@ test('each organization keeps its own window position, independently', () => {
     'restore order is the order they were saved in')
 })
 
-test('reopening an organization restores only its OWN popouts', () => {
-  const file = newFile()
-  const store = new OrgPlacement(file)
-  store.capturePopout('acme', 'desk-1', fakeWindow(placement(30, 30)))
-  store.capturePopout('acme', 'inbox', fakeWindow(placement(60, 60)))
-  store.capturePopout('beta', 'desk-1', fakeWindow(placement(90, 90)))
-
-  const reopened = new OrgPlacement(file)
-  assert.deepEqual(reopened.savedPopouts('acme'), ['desk-1', 'inbox'])
-  assert.deepEqual(reopened.savedPopouts('beta'), ['desk-1'])
-  assert.deepEqual(reopened.savedPopouts('gamma'), [])
-  assert.deepEqual(reopened.restorePopout('acme', 'desk-1', SCREEN), placement(30, 30))
-  assert.deepEqual(reopened.restorePopout('beta', 'desk-1', SCREEN), placement(90, 90),
-    'the same popout name in another organization is a different window')
-  assert.equal(reopened.restorePopout('acme', 'never-opened', SCREEN), undefined)
-})
-
-test('a popout the user closed does not come back', () => {
-  const file = newFile()
-  const store = new OrgPlacement(file)
-  store.capturePopout('acme', 'desk-1', fakeWindow(placement(30, 30)))
-  store.capturePopout('acme', 'inbox', fakeWindow(placement(60, 60)))
-  store.forgetPopout('acme', 'inbox')
-  assert.deepEqual(new OrgPlacement(file).savedPopouts('acme'), ['desk-1'])
-})
-
-test('closing an organization remembers exactly what was open at that moment', () => {
-  const file = newFile()
-  const store = new OrgPlacement(file)
-  for (const name of ['desk-1', 'desk-2', 'inbox']) store.capturePopout('acme', name, fakeWindow(placement(30, 30)))
-  store.capturePopout('beta', 'desk-9', fakeWindow(placement(30, 30)))
-  store.rememberOpenPopouts('acme', ['desk-1', 'inbox'])
-  const reopened = new OrgPlacement(file)
-  assert.deepEqual(reopened.savedPopouts('acme'), ['desk-1', 'inbox'])
-  assert.deepEqual(reopened.savedPopouts('beta'), ['desk-9'], 'another organization is untouched')
-})
-
 test('an organization that is gone leaves nothing behind to restore', () => {
   const file = newFile()
   const store = new OrgPlacement(file)
   store.captureWindow('org:acme', fakeWindow(placement(10, 10)))
-  store.capturePopout('acme', 'desk-1', fakeWindow(placement(30, 30)))
   store.captureWindow('org:beta', fakeWindow(placement(50, 50)))
   store.forgetOrg('acme')
   const reopened = new OrgPlacement(file)
   assert.deepEqual(reopened.savedWindows().map(entry => entry.key), ['org:beta'])
-  assert.deepEqual(reopened.savedPopouts('acme'), [])
 })
 
 // ------------------------------------------------------- existing behaviors
@@ -180,4 +140,19 @@ test('an unchanged position does not rewrite the file', () => {
   store.captureWindow('org:acme', fakeWindow(placement(10, 10)))
   assert.equal(fs.readFileSync(file, 'utf8'), bytes)
   assert.equal(fs.statSync(file).mtimeMs, first)
+})
+
+test('native stores no popout geometry at all, by agreement with the shell owner', () => {
+  // The ownership split agreed 2026-09-21: the renderer already keys its own
+  // store by [org, kind] and shares it across every window of this origin, so
+  // a native copy would be a second writer for one fact. This asserts the
+  // ABSENCE, because a quietly reintroduced native popout store is exactly the
+  // regression the split exists to prevent.
+  for (const name of ['capturePopout', 'restorePopout', 'savedPopouts', 'forgetPopout', 'rememberOpenPopouts']) {
+    assert.equal(name in OrgPlacement.prototype, false, name)
+  }
+  const file = newFile()
+  const store = new OrgPlacement(file)
+  store.captureWindow('org:acme', fakeWindow(placement(10, 10)))
+  assert.equal(fs.readFileSync(file, 'utf8').includes('popout'), false)
 })
