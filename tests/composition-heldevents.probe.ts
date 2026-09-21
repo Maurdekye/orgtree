@@ -80,8 +80,24 @@
  *  fixture's, not App's. So `PROBE.opened` proves HOOK RECEIPT: the event
  *  reached the real consumer and survived its whole validation path. It does
  *  NOT prove the reveal ACTION — that the real App then shows the targeted
- *  item in the right surface. That remains owed, and must be checked against
- *  what the real App displays rather than inferred from this.
+ *  item in the right surface.
+ *
+ *  THE ACTION IS PROVED NEXT DOOR, in heldreveal.test.tsx, which mounts the
+ *  real App, delivers the click BEFORE App exists, and asserts what the USER
+ *  SEES: the organization route, the Presentations pane, the document body.
+ *  It carries its own control — with no bus started, the same click at the
+ *  same moment reveals nothing at all.
+ *
+ *  So the chain is covered in two halves with a named seam, and the seam is
+ *  not a copy: the SAME `events/heldbus.ts` and the SAME
+ *  `useNativeNotifications` run in both.
+ *
+ *    here     native host + production preload → heldbus → the hook   RECEIPT
+ *    there    heldbus → the hook → App's own callback → the pane      ACTION
+ *
+ *  What NEITHER covers, stated so it is not read as closed: the native half
+ *  and the App half have never run in one process against one another. jsdom
+ *  has no preload and no IPC; the Electron fixture has no App.
  */
 import { app, BrowserWindow, ipcMain } from 'electron'
 import http from 'node:http'
