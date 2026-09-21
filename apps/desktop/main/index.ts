@@ -1958,7 +1958,22 @@ else {
         if (identity) sendTo(moved.owner, { type: 'window-identity', data: identity })
       }
       /** The identity of a window changed — a Homepage became an organization.
-       *  Navigate it to its own route and tell its renderer what it now is. */
+       *
+       *  ⚠ THIS DOES NOT NAVIGATE, and the comment that said it did was wrong
+       *  for long enough to send a composition probe after a defect that is not
+       *  there. Native tells the renderer WHAT THE WINDOW NOW IS; the renderer
+       *  moves itself to the route with `history.pushState` (App.tsx). That is
+       *  a SAME-DOCUMENT navigation: measured against real Electron, it fires
+       *  `did-start-navigation` with `isSameDocument: true` and
+       *  `did-navigate-in-page`, never `did-navigate`, and the document
+       *  survives.
+       *
+       *  Which is why a bind needs no held-event handling at all: nothing is
+       *  replaced, so the outbox never re-arms, the document token stays
+       *  valid, the listener stays attached, and events keep reaching the same
+       *  living document now showing the organization's route. A reader who
+       *  believes this function loads a document will look for a gap between
+       *  an old document and a new one, and there is no new one. */
       adoptIdentity = (record: MainWindowRecord) => {
         const identity = windows.identity(record.id)
         if (!identity) return

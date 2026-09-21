@@ -335,7 +335,22 @@ test('events that cannot be asked for again are held until there is somewhere to
   const commit = main.slice(main.indexOf("window.webContents.on('did-navigate'"))
   assert.match(commit.slice(0, 400), /record\.documentToken = ''/)
   assert.match(commit.slice(0, 400), /record\.outbox\.rearm\(\)/)
-  assert.doesNotMatch(main, /did-start-navigation/, 'holding starts at commit, not at navigation start')
+  // ⚠ forbids the LISTENER, not the word: the comment on adoptIdentity has to
+  // name `did-start-navigation` to explain why a bind needs none of this
+  assert.doesNotMatch(main, /on\('did-start-navigation'/,
+    'holding starts at commit, not at navigation start')
+
+  // ⚠ AND A BIND DOES NOT NAVIGATE AT ALL, which is why it needs no held-event
+  // handling. Native tells the renderer what the window now is; the renderer
+  // moves itself with history.pushState - a SAME-DOCUMENT navigation that
+  // fires did-navigate-in-page and never did-navigate, leaving the document,
+  // the token and the listener all alive. A composition probe went looking for
+  // a gap between an old document and a new one on this path; there is no new
+  // one. Measured against real Electron.
+  const adopt = main.slice(main.indexOf('adoptIdentity = (record: MainWindowRecord)'), main.indexOf('const openWindow = async'))
+  assert.doesNotMatch(adopt, /loadURL/, 'binding a window does not load a document')
+  assert.match(adopt, /sendTo\(record\.id, \{ type: 'window-identity', data: identity \}\)/,
+    'it tells the renderer what the window now is, and the renderer routes itself')
   assert.doesNotMatch(main, /record\.navigating/, 'and there is no latch to wedge')
 
   // ⚠ BOTH WAYS OF ENDING THE HOLDING ASK THE SAME QUESTION, IN ONE PLACE.
