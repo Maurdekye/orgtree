@@ -118,9 +118,26 @@ test('§1e an UNSUPPORTED stored level is not a configuration and is not shown',
     // org, the same clamped-to level, but genuinely configured, DOES show
     assert.equal(nonDefaultEffort(agent('high', 'high'), 'low'), 'high')
 
-    // an org-level junk value leaves this render with no default to compare
-    // against, which is a silence rather than a guess
-    assert.equal(nonDefaultEffort(agent('xhigh', 'xhigh'), 'ludicrous'), null)
+    // ⚠ READ THIS ONE CAREFULLY — IT IS NOT "A JUNK ORG DEFAULT MEANS
+    // SILENCE", AND IT USED TO BE. In the first candidate this line was
+    // commented as "an org-level junk value leaves this render with no default
+    // to compare against", and that reading was the defect: the reviewer's
+    // finding f4 was partly that this assertion pinned the wrong answer and
+    // would outlive the ticket. See §1x for what a junk ORG default actually
+    // does — it falls through to `effort_default` and the card still appears.
+    //
+    // What survives here is narrower and different: `nonDefaultEffort` takes
+    // the ALREADY-RESOLVED default, so an unsupported value reaching it means
+    // a CALL SITE skipped `resolveOrgDefault`. That is a programming error,
+    // and going quiet is the safe response to it — never a statement about
+    // how orgs with odd configuration are rendered.
+    assert.equal(nonDefaultEffort(agent('xhigh', 'xhigh'), 'ludicrous'), null,
+      'an unresolved default was compared against as if it were a level')
+    // and the same agent, with that same org resolved PROPERLY, does show —
+    // so the line above can never again be mistaken for the org-default rule
+    assert.equal(
+      nonDefaultEffort(agent('xhigh', 'xhigh'), resolveOrgDefault('ludicrous', 'high')),
+      'xhigh')
   })
 
 test('§1f with no org default in hand, nothing is claimed', () => {
