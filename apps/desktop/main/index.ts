@@ -13,6 +13,8 @@ import { allowPrereleaseUpdates, desktopIdentity, readBuildChannel } from './bui
 import { closeAction, HARNESS_LINKS, validateDataRoot } from './policy'
 import { configureArtifactSession, configureEngineSession, configureWindow, popoutRegistry, revealPopout } from './windows'
 import { openOrg, orgWindowRegistry, planRestore, resolveNativeSender } from './org-windows'
+import { windowOutbox, type WindowOutbox } from './window-outbox'
+import { performClose } from './window-close'
 import { OrgPlacement, orgOfKey, placementKey } from './org-placement'
 import type { OrgOpenOutcome, OrgWindowKind } from '../../../packages/contracts/desktop-window'
 import { detectHarnesses } from './harnesses'
@@ -119,11 +121,7 @@ else {
     loadRecovery?: WindowLoadRecovery
     /** Window-scoped events that arrived before this window's renderer could
      *  be listening. See sendTo and HELD_EVENT_TYPES. */
-    outbox: DesktopEvent[]
-    /** Once true, events go straight out: the renderer has asked for what was
-     *  held, or the grace after its document loaded has run out. */
-    flushed: boolean
-    flushTimer?: NodeJS.Timeout
+    outbox: WindowOutbox<DesktopEvent>
     /** Set while this window is closing its own popouts, so their state
      *  events say the parent took them rather than the user. */
     tearingDown: boolean
@@ -363,45 +361,24 @@ else {
    *  Each happens once, and a renderer that was not listening yet has no way
    *  to discover it afterwards. */
   const HELD_EVENT_TYPES = new Set<DesktopEvent['type']>(['open-org', 'notification-click', 'window-identity', 'restore-skipped'])
-  /** A bound, so a window whose renderer never arrives cannot accumulate
-   *  events without limit. Oldest first: a stale navigation is the one worth
-   *  dropping. */
-  const HELD_EVENT_LIMIT = 64
-  /** ⚠ A LAST RESORT, NOT THE MECHANISM. The outbox is emptied when the
-   *  renderer attaches a listener (`desktop:events-listening`) or asks for
-   *  what was held (`takePendingWindowEvents`) — both of which are evidence
-   *  that somebody is there to receive it. This timer covers only the case
-   *  where neither ever happens, so that a window whose renderer never
-   *  arrives cannot hold events for the life of the process. It is long on
-   *  purpose: a short one is a guess at how long mounting takes, and a
-   *  renderer that attaches after the guess would be sent its events into a
-   *  void — delivered, by this process's reckoning, and gone. */
-  const HELD_EVENT_GRACE_MS = 60_000
+  /** ⚠ THERE IS NO TIMER, and that is the point. An earlier revision sent
+   *  held events anyway once a grace expired, which marks them delivered
+   *  whether or not anybody was listening - the original loss with a delay in
+   *  front of it. Holding ends only on evidence of a consumer; the size bound
+   *  in window-outbox.ts is what stops a window whose renderer never arrives
+   *  accumulating for the life of the process, and it drops the OLDEST rather
+   *  than pretending the newest was seen. */
   /** ⚠ ONE WINDOW, NAMED. Every org-specific event goes through here. */
   const sendTo = (id: string, event: DesktopEvent) => {
     const record = records.get(id)
     if (!record || record.window.isDestroyed()) return
-    if (!record.flushed && HELD_EVENT_TYPES.has(event.type)) {
-      record.outbox.push(event)
-      if (record.outbox.length > HELD_EVENT_LIMIT) record.outbox.shift()
-      return
-    }
-    record.window.webContents.send('desktop:event', event)
+    if (record.outbox.offer(event)) record.window.webContents.send('desktop:event', event)
   }
-  /** Stop holding and SEND whatever is waiting, for a renderer that receives
-   *  events rather than collecting them. */
+  /** A listener exists: stop holding and SEND what was waiting. */
   const deliverHeld = (record: MainWindowRecord) => {
-    for (const event of flushOutbox(record)) {
+    for (const event of record.outbox.drain()) {
       if (!record.window.isDestroyed()) record.window.webContents.send('desktop:event', event)
     }
-  }
-  /** Stop holding and RETURN whatever is waiting, for a renderer that asks. */
-  const flushOutbox = (record: MainWindowRecord): DesktopEvent[] => {
-    if (record.flushTimer) { clearTimeout(record.flushTimer); record.flushTimer = undefined }
-    record.flushed = true
-    const held = record.outbox
-    record.outbox = []
-    return held
   }
   /** App-wide facts only - engine status, preferences, the updater. Anything
    *  naming an organization or a window belongs to sendTo. */
@@ -1541,7 +1518,7 @@ else {
      *  calls it - so those events used to fall into the gap. They are held
      *  instead, and this is how the renderer collects them. Calling it also
      *  stops the holding: from here on the window gets its events live. */
-    handle('desktop:take-pending-events', caller => flushOutbox(caller))
+    handle('desktop:take-pending-events', caller => caller.outbox.drain())
     /** Which organizations currently hold a window, so a Homepage can say
      *  so before the row is clicked. Read-only and app-wide: the answer is
      *  the same in every window, and it names organizations rather than
@@ -1755,7 +1732,8 @@ else {
             // is fixed for the window's life and this window's KIND is not.
             additionalArguments: [`--orgtree-ui-origin=${initialOrigin}`, `--orgtree-window-id=${id}`] } })
         const record: MainWindowRecord = {
-          id, window, owned: new Set(), tearingDown: false, outbox: [], flushed: false,
+          id, window, owned: new Set(), tearingDown: false,
+          outbox: windowOutbox<DesktopEvent>({ hold: type => HELD_EVENT_TYPES.has(type as DesktopEvent['type']) }),
           restoreMaximized: saved?.maximized ?? false, placementKey: key,
           popouts: popoutRegistry<BrowserWindow>(state => sendTo(id, { type: 'popout-state',
             // ⚠ WHY THE PARENT'S TEARDOWN SAYS SO. A main window closing takes
@@ -1793,56 +1771,39 @@ else {
           child.setIcon(runtimeIcon())
           child.on('closed', quitAfterLastView)
         })
-        // The renderer is expected to ask for what was held as soon as it can
-        // listen. A renderer that never asks - the v2 one - gets it anyway
-        // once the grace runs out, which is late but not lost.
-        window.webContents.on('did-finish-load', () => {
-          if (record.flushed || record.flushTimer) return
-          record.flushTimer = setTimeout(() => deliverHeld(record), HELD_EVENT_GRACE_MS)
-        })
+        // ⚠ ONE LISTENER. Electron runs every 'close' listener even when
+        // another called preventDefault, so a second one doing the teardown
+        // runs on the paths the first has just refused. See window-close.ts:
+        // the rule and its teardown live in one function precisely so that
+        // shape cannot be written again.
         window.on('close', event => {
           savePlacement(record)
-          // ⚠ AN UNFINISHED CREATION FORM IS CONFIRMED BEFORE IT IS DISCARDED
-          // (user ruling 2026-09-21), and `awaiting` is the duplicate-prompt
-          // guard: a second close while the question is on screen must not ask
-          // it twice and let two answers race.
-          if (!quitting) {
-            const decision = windows.beginClose(id)
-            if (decision === 'awaiting') { event.preventDefault(); return }
-            if (decision === 'confirm') {
-              event.preventDefault()
+          performClose({
+            quitting,
+            creation: quitting ? 'close' : windows.beginClose(id),
+            otherMainsVisible: [...records.values()].some(other => other !== record && !other.window.isDestroyed() && other.window.isVisible()),
+            exitOnClose: preferences.get().exitOnClose,
+            otherViews: BrowserWindow.getAllWindows().filter(w => w !== window && w.isVisible()).length,
+          }, {
+            preventDefault: () => event.preventDefault(),
+            hide: () => window.hide(),
+            quit: () => app.quit(),
+            confirmDiscard: () => {
               void dialog.showMessageBox(window, CREATION_DISCARD_DIALOG).then(({ response }) => {
                 const discard = response === 0
                 windows.settleClose(id, discard)
                 if (discard && !window.isDestroyed()) window.close()
               }).catch(() => { windows.settleClose(id, false) })
-              return
-            }
-          }
-          // ⚠ CLOSING ONE OF SEVERAL CLOSES IT. The tray-retention behaviour
-          // is the LAST window's, and it is preserved exactly: only when no
-          // other main window remains does exitOnClose get to decide between
-          // hiding into the tray and quitting.
-          const otherMains = [...records.values()].some(other => other !== record && !other.window.isDestroyed() && other.window.isVisible())
-          if (!otherMains) {
-            const otherViews = BrowserWindow.getAllWindows().filter(w => w !== window && w.isVisible()).length
-            const action = closeAction(preferences.get().exitOnClose, quitting, otherViews)
-            if (action !== 'close') { event.preventDefault(); if (action === 'hide') window.hide(); else app.quit(); return }
-          }
-          // ⚠ EVERYTHING BELOW HAPPENS ONLY WHEN THE CLOSE IS REALLY GOING
-          // AHEAD, and that is the whole reason this is one handler rather than
-          // two. Electron runs EVERY 'close' listener even when one of them
-          // calls preventDefault, so a second listener doing the teardown would
-          // run on the paths that just refused the close: hiding to the tray
-          // would silently close every popped-out desk the user had arranged,
-          // and a creation window would lose its popouts before the user had
-          // answered whether to discard anything at all.
-          record.tearingDown = true
-          if (record.placementKey && !quitting) placement?.closedWindow(record.placementKey)
-          // ⚠ ITS OWN POPOUTS AND NOBODY ELSE'S. Closing an organization's
-          // window must not disturb another organization's panels, its agents
-          // or the backend.
-          for (const child of record.owned) if (!child.isDestroyed()) child.close()
+            },
+            teardown: () => {
+              record.tearingDown = true
+              if (record.placementKey && !quitting) placement?.closedWindow(record.placementKey)
+              // ⚠ ITS OWN POPOUTS AND NOBODY ELSE'S. Closing an organization's
+              // window must not disturb another organization's panels, its
+              // agents or the backend.
+              for (const child of record.owned) if (!child.isDestroyed()) child.close()
+            },
+          })
         })
         // ⚠ THE WINDOW IS RECOVERED, NOT REPORTED AS UNRECOVERABLE. The old
         // handler took no argument — discarding details.reason and
@@ -1889,7 +1850,6 @@ else {
         window.once('closed', () => {
           record.loadRecovery?.dispose()
           record.loadRecovery = undefined
-          if (record.flushTimer) { clearTimeout(record.flushTimer); record.flushTimer = undefined }
           records.delete(id)
           windows.forget(id)
           publishOpenOrgs()

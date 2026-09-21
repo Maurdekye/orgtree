@@ -88,40 +88,34 @@ test('the taskbar pulse is routed from the organization, not from a window id', 
 
 test('closing one of several windows closes it; the tray behaviour is the LAST window\'s', () => {
   const main = read('apps/desktop/main/index.ts')
-  assert.match(main, /const otherMains = \[\.\.\.records\.values\(\)\]\.some\(other => other !== record && !other\.window\.isDestroyed\(\) && other\.window\.isVisible\(\)\)/)
-  assert.match(main, /if \(!otherMains\) \{/,
-    'the last-window rule is reached only when no other main window remains')
+  assert.match(main, /otherMainsVisible: \[\.\.\.records\.values\(\)\]\.some\(other => other !== record && !other\.window\.isDestroyed\(\) && other\.window\.isVisible\(\)\)/)
+  assert.match(main, /otherViews: BrowserWindow\.getAllWindows\(\)\.filter\(w => w !== window && w\.isVisible\(\)\)\.length/)
+  const rule = read('apps/desktop/main/window-close.ts')
   // the existing last-window rule is reached unchanged
-  assert.match(main, /const action = closeAction\(preferences\.get\(\)\.exitOnClose, quitting, otherViews\)/)
+  assert.match(rule, /const action = closeAction\(input\.exitOnClose, input\.quitting, input\.otherViews\)/)
+  assert.match(rule, /if \(!input\.otherMainsVisible\) \{/, 'the tray rule belongs to the LAST window only')
   // and it closes its OWN popouts, nobody else's
   assert.match(main, /for \(const child of record\.owned\) if \(!child\.isDestroyed\(\)\) child\.close\(\)/)
   assert.match(main, /record\.tearingDown = true/, 'so their state events say the parent took them')
 })
 
-test('NEGATIVE CONTROL: a refused close tears down nothing', () => {
+test('NEGATIVE CONTROL: exactly one close listener, and the teardown is unreachable from a refusal', () => {
   const main = read('apps/desktop/main/index.ts')
-  // ⚠ Electron runs EVERY 'close' listener even when one of them calls
-  // preventDefault. A second listener doing the teardown therefore runs on the
-  // paths that just REFUSED the close: hiding to the tray would silently close
-  // every popped-out desk the user had arranged, and a creation window would
-  // lose its popouts before the user had answered whether to discard anything
-  // at all. One handler, and the teardown sits after every early return.
+  // ⚠ Electron runs EVERY 'close' listener even when one calls preventDefault,
+  // so a second one doing the teardown runs on the paths the first has just
+  // refused. Two listeners cannot be made safe by ordering them: the danger is
+  // that one runs AT ALL after the other refused. The rule and its teardown
+  // therefore live in one function (window-close.ts), where the teardown is
+  // reachable through exactly one branch — and the behaviour of every branch,
+  // refused and accepted, is driven directly in tests/window-close.test.mjs.
   const factory = main.slice(main.indexOf('const buildMainWindow ='), main.indexOf('const routeFor ='))
   assert.equal(factory.split("window.on('close'").length - 1, 1,
     'exactly one close listener, so none of them can run past a preventDefault')
-
-  const handler = factory.slice(factory.indexOf("window.on('close'"))
-  const teardown = handler.indexOf('record.tearingDown = true')
-  assert.ok(teardown > 0, 'the teardown is inside the close handler')
-  for (const refusal of [
-    "if (decision === 'awaiting') { event.preventDefault(); return }",
-    "if (action !== 'close') { event.preventDefault(); if (action === 'hide') window.hide(); else app.quit(); return }",
-  ]) {
-    const at = handler.indexOf(refusal)
-    assert.ok(at > 0 && at < teardown, `a refusal returns before the teardown: ${refusal.slice(0, 44)}`)
-  }
-  assert.ok(handler.indexOf('windows.settleClose(id, false)') < teardown,
-    'the confirm branch returns rather than falling through to the teardown')
+  assert.match(factory, /performClose\(\{/, 'and it delegates the rule rather than inlining it')
+  // the teardown is a single callback, so a future fix cannot move part of it
+  assert.match(factory, /teardown: \(\) => \{/)
+  assert.equal(factory.split('record.tearingDown = true').length - 1, 1,
+    'set in one place only, so a refused close cannot leave the flag lying')
 })
 
 test('an unfinished creation form is confirmed on a deliberate close and on a quit', () => {
@@ -135,7 +129,9 @@ test('an unfinished creation form is confirmed on a deliberate close and on a qu
     'defined once, used by the close route and the quit route')
 
   // the close route
-  assert.match(main, /const decision = windows\.beginClose\(id\)\s*\r?\n\s*if \(decision === 'awaiting'\) \{ event\.preventDefault\(\); return \}/)
+  assert.match(main, /creation: quitting \? 'close' : windows\.beginClose\(id\)/)
+  const closeRule = read('apps/desktop/main/window-close.ts')
+  assert.match(closeRule, /if \(input\.creation === 'awaiting'\) \{ host\.preventDefault\(\); return 'refuse' \}/)
   // the quit route, and Cancel aborts the WHOLE shutdown
   assert.match(main, /const gate = windows\.quitCreationGate\(\)/)
   assert.match(main, /if \(gate\.action === 'busy'\) return false/)
@@ -208,41 +204,39 @@ test('the tray and a second instance route through the registry, never through o
   assert.match(main, /if \(hasInstallerUpgradeRequest\(commandLine\)\) \{ void requestInstallerUpgradeShutdown\(\); return \}/)
 })
 
-test('events that cannot be asked for again are held until the renderer can listen', () => {
+test('events that cannot be asked for again are held until there is somewhere to send them', () => {
   const main = read('apps/desktop/main/index.ts')
   const preload = read('apps/desktop/preload/index.ts')
   // ⚠ ONLY the events a renderer has no way to rediscover. Window state,
-  // popout state and main-window-shown are all re-readable through the
-  // bridge, so holding them would only risk delivering a stale duplicate.
+  // popout state and main-window-shown are all re-readable through the bridge,
+  // so holding them could only hand over a stale duplicate.
   assert.match(main, /const HELD_EVENT_TYPES = new Set<DesktopEvent\['type'\]>\(\['open-org', 'notification-click', 'window-identity', 'restore-skipped'\]\)/)
   for (const readable of ['window-state', 'popout-state', 'main-window-shown', 'engine-status', 'preferences']) {
     assert.doesNotMatch(main, new RegExp(`HELD_EVENT_TYPES[\s\S]{0,200}'${readable}'`), readable)
   }
-  // bounded, so a window whose renderer never arrives cannot grow without limit
-  assert.match(main, /if \(record\.outbox\.length > HELD_EVENT_LIMIT\) record\.outbox\.shift\(\)/)
-  // the renderer collects them and switches the window to live delivery
-  assert.match(main, /handle\('desktop:take-pending-events', caller => flushOutbox\(caller\)\)/)
-  assert.match(main, /record\.flushed = true/)
-  // ⚠ DELIVERY IS TRIGGERED BY EVIDENCE THAT SOMEBODY IS LISTENING, not by a
-  // guess at how long mounting takes. "Sent anyway" after a short timer is not
-  // delivery when the listener is not attached yet: the events go into a void
-  // and this process counts them as delivered. The preload reports the moment
-  // a real listener exists, which covers EVERY renderer that uses the bridge
-  // including the v2 one that never calls takePendingWindowEvents.
+
+  // ⚠ NO TIMER, ANYWHERE. Sending held events once a grace expires marks them
+  // delivered whether or not anybody is listening — the original loss with a
+  // delay in front of it. A longer grace is a later guess, not a better one.
+  // The queue's own size bound is what stops a window whose renderer never
+  // arrives accumulating for ever, and it drops the oldest rather than
+  // pretending the newest was seen. Driven directly in window-outbox.test.mjs.
+  assert.doesNotMatch(main, /HELD_EVENT_GRACE|flushTimer/,
+    'no timer may discharge held events')
+  assert.match(main, /outbox: windowOutbox<DesktopEvent>\(\{ hold: type => HELD_EVENT_TYPES\.has\(type as DesktopEvent\['type'\]\) \}\)/)
+  assert.match(main, /if \(record\.outbox\.offer\(event\)\) record\.window\.webContents\.send\('desktop:event', event\)/)
+
+  // holding ends on evidence of a consumer, and on nothing else: a listener
+  // attaching, or the renderer asking for what was held
   assert.match(preload, /ipcRenderer\.send\('desktop:events-listening'\)/)
   const attach = preload.indexOf("ipcRenderer.on('desktop:event', handler)")
   assert.ok(attach > 0 && attach < preload.indexOf("ipcRenderer.send('desktop:events-listening')"),
     'the listener is attached BEFORE native is told it exists')
-  assert.match(main, /ipcMain\.on\('desktop:events-listening', event => \{/)
   const listening = main.slice(main.indexOf("ipcMain.on('desktop:events-listening'"), main.indexOf("ipcMain.on('desktop:window-identity-sync'"))
   assert.match(listening, /resolveNativeSender\(/,
     'and that signal is sender-resolved like every other native entry point')
   assert.match(listening, /if \(record\) deliverHeld\(record\)/)
-  // the timer is only the last resort, for a renderer that never arrives at all
-  assert.match(main, /const HELD_EVENT_GRACE_MS = 60_000/)
-  assert.match(main, /record\.flushTimer = setTimeout\(\(\) => deliverHeld\(record\), HELD_EVENT_GRACE_MS\)/)
-  // and a window that closes mid-grace leaves no timer behind
-  assert.match(main, /if \(record\.flushTimer\) \{ clearTimeout\(record\.flushTimer\); record\.flushTimer = undefined \}/)
+  assert.match(main, /handle\('desktop:take-pending-events', caller => caller\.outbox\.drain\(\)\)/)
 })
 
 // ------------------------------------------------------- real Electron
