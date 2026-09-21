@@ -21,10 +21,17 @@
  *    B  THE TAKE PATH, end to end, through the same production guard.
  *    C  A STALE DOCUMENT'S ACK DOES NOT RELEASE, and the current document's
  *       then does — measured at the CONSUMER, not in a main-process array.
- *    D  THE HOMEPAGE-BIND WINDOW. A reveal that arrives between navigation
- *       START and COMMIT is sent live to the document about to be replaced.
- *       Renderer-side buffering cannot help: the buffer dies with its
- *       document. This says whether that actually bites.
+ *    D  THE HOMEPAGE BIND, as the product actually performs it. It does NOT
+ *       replace the document: `adoptIdentity` does not navigate, and the
+ *       renderer routes with `history.pushState`, which is same-document. So
+ *       the outbox never re-arms, the token stays valid, and a reveal across
+ *       a bind is received normally. An earlier version of this section bound
+ *       with `loadURL` and concluded the opposite — see the note on D.
+ *    F  A RELOAD RACING A REVEAL, which is where a document really IS
+ *       replaced while listening. That one loses the reveal. It is real,
+ *       rarer than a bind, and does NOT justify holding from
+ *       `did-start-navigation` — a navigation that never commits would wedge
+ *       the queue for the life of the window.
  *
  *  ⚠ NO ENGINE, NO LIVE DATA, NO INSTALLED APP. A throwaway HTTP server on
  *  127.0.0.1 serves the document and one canned notifications body; Electron's
@@ -65,6 +72,16 @@
  *  resolver in play is demonstrably resolving rather than waved through. A
  *  hollow registry would pass every other check in this file and fail that
  *  one.
+ *
+ *  ⚠⚠ WHAT "THE CONSUMER RECEIVED IT" MEANS HERE, AND WHAT IT DOES NOT
+ *  (multi-window-design, 2026-09-21). `useNativeNotifications` is the shipping
+ *  hook and everything inside it is real — the paging read, the preference
+ *  gate, the recheck on activation. But the CALLBACK it is given is this
+ *  fixture's, not App's. So `PROBE.opened` proves HOOK RECEIPT: the event
+ *  reached the real consumer and survived its whole validation path. It does
+ *  NOT prove the reveal ACTION — that the real App then shows the targeted
+ *  item in the right surface. That remains owed, and must be checked against
+ *  what the real App displays rather than inferred from this.
  */
 import { app, BrowserWindow, ipcMain } from 'electron'
 import http from 'node:http'
@@ -117,7 +134,16 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 app.whenReady().then(async () => {
   // ------------------------------------------------------------ the server
-  const server = http.createServer((req, res) => {
+  // ⚠ HOW THE PROVISIONAL WINDOW IS MADE OBSERVABLE. A same-origin reload of
+  // a cached document commits in a few milliseconds, so a polling loop cannot
+  // reliably land a send between START and COMMIT — the first attempt found
+  // the commit had already happened and measured an ordinary held delivery
+  // while reporting it as the gap. Stalling the document response widens the
+  // window to something a test can aim at, and changes nothing about what is
+  // under test: the outbox still re-arms at COMMIT and the old document is
+  // still the one showing.
+  let stallNextDocument = 0
+  const server = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1')
     if (url.pathname === '/api/desktop/notifications') {
       res.writeHead(200, { 'content-type': 'application/json' })
@@ -136,6 +162,12 @@ app.whenReady().then(async () => {
     // production sender gate requires one of them. Both serve the same
     // document, so a navigation between them is a real document replacement
     // of the kind a Homepage bind performs.
+    if (stallNextDocument) {
+      const ms = stallNextDocument
+      stallNextDocument = 0
+      log('stalling the document response by ' + ms + 'ms')
+      await new Promise((r) => setTimeout(r, ms))
+    }
     res.writeHead(200, { 'content-type': 'text/html' })
     res.end(fs.readFileSync(path.join(ROOT, 'probe.html')))
   })
@@ -267,9 +299,14 @@ app.whenReady().then(async () => {
    *  WHICH document is answering — see the Homepage-bind case. */
   const seen = async (r: Record): Promise<{
     opened: unknown[]; waiting: number; delivered: number; mode: string
-    hasTake?: boolean; docId: string; path: string
+    hasTake?: boolean; docId: string; path: string; livePath: string
   } | null> =>
-    r.window.webContents.executeJavaScript('window.PROBE && JSON.parse(JSON.stringify(window.PROBE))')
+    // ⚠ `livePath` IS READ NOW, not taken from PROBE. `PROBE.path` is stamped
+    // when the module evaluates, and `pushState` does not re-run the module —
+    // so the stamped value says where the document STARTED, which made the
+    // bind check fail while the bind had in fact worked.
+    r.window.webContents.executeJavaScript(
+      'window.PROBE && JSON.parse(JSON.stringify({ ...window.PROBE, livePath: location.pathname }))')
       .catch((e) => { log('eval failed ' + e); return null })
 
   /** Poll until the consumer reports it opened something, or we give up. */
@@ -442,72 +479,125 @@ app.whenReady().then(async () => {
       records.delete('stale')
     }
 
-    // ================================================== D  THE HOMEPAGE BIND
+    // ============================ D  THE PRODUCT'S BIND IS SAME-DOCUMENT
     //
-    // A Homepage window binds itself to an organization, which navigates it.
-    // A reveal for that organization arrives between navigation START and
-    // COMMIT. The outbox is NOT holding — this document drained it — and the
-    // rearm lands at COMMIT, so the event is sent LIVE to a document that is
-    // about to be destroyed. The question is whether anything survives.
+    // ⚠ AN EARLIER VERSION OF THIS SECTION WAS MEASURING THE WRONG THING,
+    // and it is recorded here rather than quietly replaced. It bound by
+    // `loadURL('/o/studio')`, found that the new document received nothing,
+    // and concluded that the provisional-load gap bites on a Homepage bind.
+    // v3-native-opus checked the premise instead of the result: the product
+    // does not navigate on a bind at all. `adoptIdentity` in main/index.ts
+    // updates placement, sends `window-identity` and publishes open-orgs —
+    // it does not touch the document. The routing is the RENDERER's, and it is
+    // exactly one line (App.tsx):
+    //
+    //     if (location.pathname !== want) history.pushState(null, '', want)
+    //
+    // `pushState` is SAME-DOCUMENT. So this section now performs the call the
+    // product performs, and measures what that does.
     {
       const r = makeWindow('bind')
       await load(r, origin + '/?mode=take')
-      await wait(500)
+      await wait(600)
       const homepage = await seen(r)
+      const commitsBefore = r.navCommitted
       check('D0', r.outbox.holding() === false && !!homepage?.docId,
         'the Homepage document drained, so the window is live-delivering',
         { holding: r.outbox.holding(), docId: homepage?.docId, path: homepage?.path })
 
-      // ⚠ FIRE INTO THE GAP, AND PROVE IT WAS THE GAP. The send must land
-      // AFTER did-start-navigation and BEFORE did-navigate; otherwise this
-      // measures an ordinary live delivery and says nothing about the bind.
+      // the identical call App.tsx makes when a bound identity arrives
+      await r.window.webContents.executeJavaScript(
+        "history.pushState(null, '', '/o/studio'); true")
+      await wait(50)
+      sendTo(r, { type: 'notification-click', data: NOTICE })
+      await wait(2000)
+      const bound = await seen(r)
+
+      check('D1', bound?.livePath === '/o/studio',
+        'the window is at the organization route',
+        { livePath: bound?.livePath, stampedAtLoad: bound?.path })
+      check('D2', r.navCommitted === commitsBefore,
+        'and NO did-navigate fired — pushState is same-document, so the outbox '
+        + 'never re-armed and the document token stayed valid',
+        { commits: r.navCommitted - commitsBefore })
+      check('D3', !!bound?.docId && bound.docId === homepage?.docId,
+        'the SAME document is still showing — nothing was replaced, so there is '
+        + 'no provisional window and nothing to hold',
+        { before: homepage?.docId, after: bound?.docId })
+      check('D4', (bound?.opened?.length ?? 0) === 1,
+        'and a reveal sent across the bind is received normally by the consumer '
+        + 'that was already listening',
+        { opened: bound?.opened })
+      r.window.destroy()
+      records.delete('bind')
+    }
+
+    // ================== F  A RELOAD RACING A REVEAL — WHERE THE GAP IS REAL
+    //
+    // The bind does not replace the document, but some things do: a user
+    // pressing refresh, and the load-recovery path. There the old document
+    // genuinely IS still showing and listening during the provisional window,
+    // genuinely IS about to be replaced, and the outbox does not re-arm until
+    // COMMIT. This measures that case honestly and claims nothing beyond it.
+    //
+    // ⚠ AND IT IS NOT AN ARGUMENT FOR HOLDING FROM `did-start-navigation`.
+    // v3-native-opus's objection stands and is recorded with the finding: a
+    // navigation that never COMMITS would leave the queue held for the life of
+    // the window, because the old document is still showing, its listener
+    // already ran, and `onEvent` does not fire again. That is the f5 wedge in
+    // a new place. What this establishes is that the case EXISTS, not what the
+    // answer to it should be.
+    {
+      const r = makeWindow('reload')
+      await load(r, origin + '/?mode=take')
+      await wait(600)
+      const first = await seen(r)
       const startsBefore = r.navStarted
       const commitsBefore = r.navCommitted
-      const navigated = r.window.loadURL(origin + '/o/studio')
-      // wait for the navigation to have actually STARTED rather than guessing
-      for (let i = 0; i < 100 && r.navStarted === startsBefore; i++) await wait(5)
+      check('F0', r.outbox.holding() === false && !!first?.docId,
+        'the document drained and is live-delivering', { docId: first?.docId })
+
+      stallNextDocument = 2000
+      r.window.webContents.reload()
+      for (let i = 0; i < 400 && r.navStarted === startsBefore; i++) await wait(5)
       const startedBeforeSend = r.navStarted > startsBefore
       const committedBeforeSend = r.navCommitted > commitsBefore
       sendTo(r, { type: 'notification-click', data: NOTICE })
       const heldDuringNav = r.outbox.pending()
-      await navigated.catch((e) => log('nav ' + e))
-      await wait(2000)
+      await wait(4000)
+      const second = await seen(r)
 
-      const bound = await seen(r)
-      check('D1', startedBeforeSend && !committedBeforeSend,
-        'the reveal was sent inside the provisional-load window: after '
+      check('F1', startedBeforeSend && !committedBeforeSend,
+        'the reveal was sent inside the provisional window: after '
         + 'did-start-navigation and before did-navigate',
         { startedBeforeSend, committedBeforeSend })
-      check('D2', heldDuringNav === 0,
-        'and it was NOT held — the outbox re-arms at COMMIT, so during the '
-        + 'provisional load the window is still live-delivering',
+      check('F2', heldDuringNav === 0,
+        'and it was NOT held — the outbox re-arms at COMMIT',
         { heldDuringNav })
-      // ⚠⚠ THE WHOLE CASE TURNS ON WHICH DOCUMENT ANSWERED, and
-      // `executeJavaScript` always talks to whichever is showing NOW. A
-      // same-origin navigation can reuse the renderer PROCESS, so "the window
-      // reports it received it" is NOT the same claim as "the bound document
-      // received it". The per-document id is what separates them.
-      const replaced = !!bound?.docId && bound.docId !== homepage?.docId
-      check('D3', replaced && bound?.path?.startsWith('/o/studio') === true,
-        'the document really was replaced by the bind — a DIFFERENT docId at the '
-        + 'bound path, so what follows is a statement about the NEW document',
-        { homepage: homepage?.docId, bound: bound?.docId, path: bound?.path })
-      // ⚠ THIS IS THE FINDING, WHICHEVER WAY IT GOES, and it is recorded as a
-      // measurement rather than asserted as a pass.
-      const lost = (bound?.opened?.length ?? 0) === 0
-      check('D4', replaced,
-        lost
-          ? 'MEASURED: the BOUND document received NOTHING. The reveal that arrived '
-            + 'during the bind is lost — renderer-side buffering cannot help, because '
-            + 'the buffer dies with the document that held it. The did-start-navigation '
-            + 'hold is warranted.'
-          : 'MEASURED: the BOUND document — a different docId at /o/studio — DID '
-            + 'receive it, so the provisional-load gap does not bite for this path '
-            + 'and the earlier hold is not warranted by this evidence.',
-        { boundDocumentOpened: bound?.opened, lost, boundDocId: bound?.docId })
+      check('F3', !!second?.docId && second.docId !== first?.docId,
+        'the document really was replaced, so what follows is about the NEW one',
+        { before: first?.docId, after: second?.docId })
+      const exercised = startedBeforeSend && !committedBeforeSend
+        && !!second?.docId && second.docId !== first?.docId
+      const lost = (second?.opened?.length ?? 0) === 0
+      check('F4', true,
+        !exercised
+          ? 'NOT EXERCISED — the send did not land between START and COMMIT, or the '
+            + 'document was not replaced, so nothing here is claimed. (The first run '
+            + 'of this case DID conclude from exactly that state: the reload had '
+            + 'already committed, the event was held normally, and it read as a pass.)'
+          : lost
+          ? 'MEASURED: the reloaded document received NOTHING. A reveal delivered '
+            + 'into a reload is lost, and renderer-side buffering cannot help — the '
+            + 'buffer dies with the document that held it. Real, rarer than a bind, '
+            + 'and needing a design rather than a one-line hold.'
+          : 'MEASURED: the reloaded document DID receive it, so even a reload does '
+            + 'not lose a reveal on this path.',
+        { reloadedDocumentOpened: second?.opened, lost, exercised })
       r.window.destroy()
-      records.delete('bind')
+      records.delete('reload')
     }
+
   } catch (e) {
     check('fatal', false, 'the fixture threw', String((e as Error)?.stack ?? e))
   }
