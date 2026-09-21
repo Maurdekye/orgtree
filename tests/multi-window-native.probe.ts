@@ -237,17 +237,41 @@ app.whenReady().then(async () => {
   // Electron — which event fires, on which navigation — is settled above.
   navigating.destroy()
 
-  // ⚠⚠ THE ACKNOWLEDGEMENT HANDLER ITSELF, EXERCISED RATHER THAN MODELLED.
-  // Everything above stands the announcement in for a real one, which proves
-  // the RULE and says nothing about whether the token ever REACHES it. It did
-  // not. The handler read the token off `event.args[0]`; an `IpcMainEvent` has
-  // no `args` property in the typings or at runtime, so the guard was handed
-  // `undefined`, correctly judged every document stale, and the
-  // acknowledgement quietly stopped acknowledging. Held events then waited for
-  // a `takePendingWindowEvents` that a renderer using only `onEvent` - the v2
-  // one included - never makes. A modelled handler cannot catch that, because
-  // the model is where the mistake is not. So this one goes through a real
-  // preload, a real `ipcRenderer.send` and a real `ipcMain.on`.
+  // ⚠⚠ THE IPC ARGUMENT ABI, MEASURED - AND READ THE LIMITS BEFORE CITING IT.
+  //
+  // WHY IT EXISTS. The production handler read the document token off
+  // `event.args[0]`. An `IpcMainEvent` has no `args` property in Electron's
+  // typings or at runtime, so the f5/f6 guard was handed `undefined`,
+  // correctly judged every document stale, and the acknowledgement quietly
+  // stopped acknowledging - leaving held events to wait for a
+  // `takePendingWindowEvents` that a renderer using only `onEvent`, the v2 one
+  // included, never makes. Nothing caught it because the probe above MODELS
+  // the acknowledgement, and a model cannot catch a mistake that lives in the
+  // modelling.
+  //
+  // ⚠ WHAT THIS SECTION ACTUALLY ESTABLISHES, which is narrower than it first
+  // appears (multi-window-design, source inspection at e05f164):
+  //
+  //   ✓ Electron's callback-argument ABI, from a REAL renderer through a real
+  //     `ipcRenderer.send`: `'args' in event` is false, and what the renderer
+  //     sent arrives as the listener's SECOND parameter. That is the fact the
+  //     production fix turns on, and it is measured rather than assumed.
+  //   ✓ that the guard's arithmetic is right when fed that argument: a stale
+  //     token drains nothing and leaves the queue holding, and the current one
+  //     drains exactly once - each checked AS ITS MESSAGE IS HANDLED.
+  //
+  //   ✗ NOT the production `desktop:events-listening` handler. The channels
+  //     here are `probe:` ones and the guard is a COPY of index.ts's shape.
+  //   ✗ NOT the production preload, and NOT `resolveNativeSender`.
+  //   ✗ NOT delivery to a renderer. The drained events land in a main-process
+  //     array; nothing is sent to a window and no renderer receives anything.
+  //
+  // The end-to-end receipt - production host, production preload, a real
+  // consumer, and the ACK-ONLY path with no take - belongs to the shell
+  // composition fixture, where there is a renderer that actually consumes.
+  // Deliberately NOT closed by copying more of index.ts into this file:
+  // another copied handler would widen the same overstatement rather than
+  // retire it.
   const ackPreload = path.join(profile, 'ack-preload.js')
   fs.writeFileSync(ackPreload, [
     "const { ipcRenderer } = require('electron')",
@@ -265,16 +289,23 @@ app.whenReady().then(async () => {
   })
   const real = windowOutbox<{ type: string; data?: unknown }>({ hold: type => type === 'open-org' })
   real.offer({ type: 'open-org', data: 'waiting-for-a-real-renderer' })
-  const delivered: unknown[] = []
-  const observed: { hasArgs: boolean; eventArgs: unknown; second: unknown }[] = []
+  const drained: unknown[] = []
+  const observed: { hasArgs: boolean; eventArgs: unknown; second: unknown; drainedAfter: number; holdingAfter: boolean }[] = []
   // EXACTLY index.ts's shape, including the argument position under test.
   ipcMain.on('probe:events-listening', (event, token: unknown) => {
+    if (typeof token === 'string' && !!token && token === minted) drained.push(...real.drain())
+    // ⚠ RECORDED PER MESSAGE, NOT ONLY AT THE END. Checking the final contents
+    // of `drained` cannot tell "the stale token was refused and the valid one
+    // drained" from "the stale token drained and the valid one found an empty
+    // queue" - both leave exactly one event in it. The state AS EACH MESSAGE
+    // IS HANDLED is what distinguishes them.
     observed.push({
       hasArgs: 'args' in (event as unknown as object),
       eventArgs: (event as unknown as { args?: unknown }).args,
       second: token,
+      drainedAfter: drained.length,
+      holdingAfter: real.holding(),
     })
-    if (typeof token === 'string' && !!token && token === minted) delivered.push(...real.drain())
   })
 
   const bothArrived = new Promise<void>(resolve => {
@@ -297,10 +328,12 @@ app.whenReady().then(async () => {
   assert.equal(observed[1].second, minted)
   assert.ok(minted.startsWith('document-'), 'the synchronous announcement really answered')
 
-  // end to end: a stale token delivers nothing, the current one delivers once
-  assert.deepEqual(delivered.map(e => (e as { data?: unknown }).data), ['waiting-for-a-real-renderer'],
-    'the held event reached the renderer through the acknowledgement alone - no take, no timer')
-  assert.equal(real.holding(), false, 'and the window is live from here')
+  // ⚠ THE ORDER, PROVEN PER MESSAGE RATHER THAN INFERRED FROM THE END STATE.
+  assert.equal(observed[0].drainedAfter, 0, 'the stale token drained nothing')
+  assert.equal(observed[0].holdingAfter, true, 'and left the queue holding')
+  assert.equal(observed[1].drainedAfter, 1, 'the current one drained, and drained exactly once')
+  assert.equal(observed[1].holdingAfter, false, 'and only then did the holding end')
+  assert.deepEqual(drained.map(e => (e as { data?: unknown }).data), ['waiting-for-a-real-renderer'])
   assert.equal(real.pending(), 0)
   acking.destroy()
 
