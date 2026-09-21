@@ -20,7 +20,7 @@ import {
   panelSkip, readSkippedOrgs, restoreNotice, skippedPanels,
 } from '../src/shell/restorenotice'
 import type { SavedWindow } from '../src/windowlayout'
-import { ORG_VIEW_EVENT, readOrgViewMode, writeOrgViewMode } from '../src/shell/viewmode'
+import { ORG_VIEW_EVENT, orgView, setOrgView } from '../src/attention/mode'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -144,64 +144,70 @@ test('both payload shapes native might send are accepted', () => {
   assert.deepEqual(readSkippedOrgs({ orgs: ['studio'] }), ['studio'], 'or the named field')
 })
 
-// ------------------------------------ §4 two writers on one view-mode key
+// ------------------------------- §4 ONE writer on the view-mode key, now
 //
-// `shell/viewmode.ts` is temporary: v3-attention-opus publishes an equivalent
-// module on the same `orgtree-org-view` key, and mine goes the day theirs is
-// importable from this tree. While BOTH exist they have to agree, and two of
-// the three ways they could disagree are silent.
+// The shell shipped a temporary `shell/viewmode.ts` on the `orgtree-org-view`
+// key so the compact header was not blocked on a module in another worktree.
+// v3-attention-opus's `attention/mode.ts` is importable from this tree now, so
+// the stand-in IS DELETED and theirs is the only reader and writer.
+//
+// The properties of the surviving module — default stored as absence, a
+// foreign value reading as the default, its own writes announced — belong to
+// it and are pinned in attentionmode.test.tsx (§1.1, §1.3, §5.2). What is
+// pinned HERE is the thing this branch is responsible for and that nothing
+// else would catch: that the stand-in has not come back, and that the shell's
+// two consumers really do import theirs.
 
-test('the default is stored as ABSENCE, not as the string canvas', () => {
-  localStorage.clear()
-  // ⚠ the other module deletes the entry rather than writing 'canvas'. If one
-  // writes the string and the other deletes it, they disagree about whether
-  // the organization has ever been set at all.
-  writeOrgViewMode('studio', 'attention')
-  assert.deepEqual(JSON.parse(localStorage.getItem('orgtree-org-view')!), { studio: 'attention' })
-  writeOrgViewMode('studio', 'canvas')
-  assert.deepEqual(JSON.parse(localStorage.getItem('orgtree-org-view')!), {},
-    'returning to the default removes the row')
-  assert.equal(readOrgViewMode('studio'), 'canvas', 'and absence reads as canvas')
+test('the temporary shell module is gone, with no second writer left behind', () => {
+  // ⚠ THE FAILURE THIS CATCHES IS NOT A BROKEN IMPORT — it is a WORKING one.
+  // Two modules on one key both compile and both appear to work; they diverge
+  // only once one of them writes, which no typechecker and no unit test of
+  // either module alone can see. So the assertion is about the file existing
+  // at all.
+  assert.equal(fs.existsSync(path.join(__SRC_DIR__, 'shell/viewmode.ts')), false,
+    'shell/viewmode.ts was the stand-in and must not be reintroduced')
+  const users = ['App.tsx', 'shell/modetoggle.tsx']
+  for (const f of users) {
+    const src = fs.readFileSync(path.join(__SRC_DIR__, f), 'utf8')
+    assert.doesNotMatch(src, /from '\.{1,2}\/(shell\/)?viewmode'/,
+      f + ' must not import the stand-in')
+    assert.match(src, /from '\.{1,2}\/attention\/mode'/,
+      f + ' takes the view key from attention/mode')
+  }
 })
 
-test('an unknown stored value reads as canvas rather than throwing', () => {
-  localStorage.clear()
-  localStorage.setItem('orgtree-org-view', JSON.stringify({ studio: 'sideways' }))
-  assert.equal(readOrgViewMode('studio'), 'canvas')
-  localStorage.setItem('orgtree-org-view', '{ not json')
-  assert.equal(readOrgViewMode('studio'), 'canvas')
-  localStorage.setItem('orgtree-org-view', JSON.stringify(['an', 'array']))
-  assert.equal(readOrgViewMode('studio'), 'canvas')
-})
+/** source with its comments removed, so a rule about what the CODE does is not
+ *  tripped by prose that explains the rule. (The first version of the test
+ *  below failed on its own explanatory comment, which is a fair warning about
+ *  how much a raw source scan actually asserts.) */
+const code = (file: string): string =>
+  fs.readFileSync(path.join(__SRC_DIR__, file), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1')
 
-test('a write announces itself on the shared channel', () => {
-  // ⚠ THE BUG THIS FIXES. A `storage` event does NOT fire for a write made by
-  // the same document, so without this channel a toggle in the compact header
-  // would move the stored value and the other module would go on serving what
-  // it had — indefinitely, since its reader had no reason to re-read.
-  localStorage.clear()
-  let fired = 0
-  const on = () => { fired++ }
-  window.addEventListener(ORG_VIEW_EVENT, on)
-  try {
-    writeOrgViewMode('studio', 'attention')
-    assert.equal(fired, 1, 'the write is announced')
-    writeOrgViewMode('studio', 'attention')
-    assert.equal(fired, 1,
-      'a no-op write announces NOTHING: it changed nothing, and the first real '
-      + 'write already notified, so there is no missed signal to guard against')
-    writeOrgViewMode('studio', 'canvas')
-    assert.equal(fired, 2, 'returning to the default IS a change, and is announced')
-  } finally { window.removeEventListener(ORG_VIEW_EVENT, on) }
+test('the shell writes the view key only through that module', () => {
+  // the stand-in reached localStorage directly; nothing in the shell may name
+  // this key again, or the single-writer rule is back to being a comment
+  for (const f of ['App.tsx', 'shell/modetoggle.tsx', 'shell/header.tsx']) {
+    assert.doesNotMatch(code(f), /orgtree-org-view/,
+      f + ' names the storage key in code, which only attention/mode may do')
+  }
 })
 
 test('the channel is a plain Event, which is what the harness actually has', () => {
   // v3-attention-opus measured their first version using CustomEvent, which is
   // not on the test harness's globals: it dispatched nothing at all and the
   // try/catch swallowed it. A signal that silently never fires is worse than
-  // no signal, because everything downstream still looks wired up.
+  // no signal, because everything downstream still looks wired up. Kept here
+  // because the shell's toggle is what dispatches it in practice.
   assert.equal(ORG_VIEW_EVENT, 'orgtree:org-view')
-  const src = fs.readFileSync(path.join(__SRC_DIR__, 'shell/viewmode.ts'), 'utf8')
-  assert.match(src, /new Event\(ORG_VIEW_EVENT\)/)
-  assert.doesNotMatch(src, /new CustomEvent/, 'CustomEvent is not available where this must work')
+  localStorage.clear()
+  let fired = 0
+  const on = () => { fired++ }
+  window.addEventListener(ORG_VIEW_EVENT, on)
+  try {
+    setOrgView('studio', 'attention')
+    assert.equal(fired, 1, 'a real Event reached a real listener')
+    assert.equal(orgView('studio'), 'attention')
+  } finally { window.removeEventListener(ORG_VIEW_EVENT, on) }
 })

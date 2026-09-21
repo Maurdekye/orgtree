@@ -228,16 +228,6 @@
   font-size: 11px;
 }
 
-/* the honest placeholder while the Attention view itself is elsewhere */
-.shell-mode-pending {
-  flex: none;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--line);
-  background: var(--panel);
-  color: var(--dim);
-  font-size: 12px;
-}
-
 /* --------------------------------------------------------- the app menu */
 
 .shell-menu { position: relative; flex: none; }

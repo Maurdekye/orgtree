@@ -9,19 +9,19 @@
 // drops to icons; this does not, because it is the one control the settled
 // design calls prominent and labelled, and an unlabelled pair of icons is
 // exactly the thing it was specified against.
-import type { OrgViewMode } from './viewmode'
+import type { OrgView } from '../attention/mode'
 
-export function OrgViewToggle({ mode, setMode, attentionCount, attentionAvailable = true }: {
-  mode: OrgViewMode
-  setMode: (mode: OrgViewMode) => void
+// ⚠ THE "not available in this build yet" STATE IS GONE, and deliberately so.
+// It existed while the toggle shipped ahead of its destination; the Attention
+// view is now rendered into the canvas host's slot, so both radios lead
+// somewhere and a control that hedges about one of them would be lying.
+export function OrgViewToggle({ mode, setMode, attentionCount }: {
+  mode: OrgView
+  setMode: (mode: OrgView) => void
   /** how many rows are waiting in the attention queue; omitted when unknown */
   attentionCount?: number | null
-  /** false while this build has no Attention view to show. The control still
-   *  renders — it is part of the approved header — but it says plainly that
-   *  the destination is not there yet rather than pretending. */
-  attentionAvailable?: boolean
 }) {
-  const choose = (next: OrgViewMode) => () => { if (next !== mode) setMode(next) }
+  const choose = (next: OrgView) => () => { if (next !== mode) setMode(next) }
   return (
     <div className="shell-modes" role="radiogroup" aria-label="Organization view">
       <button type="button" role="radio" aria-checked={mode === 'canvas'}
@@ -29,11 +29,9 @@ export function OrgViewToggle({ mode, setMode, attentionCount, attentionAvailabl
         onClick={choose('canvas')}>Canvas</button>
       <button type="button" role="radio" aria-checked={mode === 'attention'}
         className={'shell-mode' + (mode === 'attention' ? ' on' : '')}
-        title={attentionAvailable ? undefined
-          : 'The Attention view is not available in this build yet'}
         onClick={choose('attention')}>
         Attention
-        {attentionAvailable && typeof attentionCount === 'number' && attentionCount > 0 &&
+        {typeof attentionCount === 'number' && attentionCount > 0 &&
           <b className="shell-mode-count">{attentionCount}</b>}
       </button>
     </div>

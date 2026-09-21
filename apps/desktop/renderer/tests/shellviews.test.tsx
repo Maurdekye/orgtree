@@ -325,14 +325,18 @@ test('a successful creation clears the flag before it binds', async () => {
 test('the toggle is a radio group with both labels always visible', async () => {
   const picked: string[] = []
   const view = await mountView(
-    <OrgViewToggle mode="canvas" setMode={(m) => picked.push(m)} attentionAvailable={false} />,
+    <OrgViewToggle mode="canvas" setMode={(m) => picked.push(m)} />,
     (el) => el)
   try {
     const radios = [...view.el.querySelectorAll('[role="radio"]')]
     assert.deepEqual(radios.map((r) => r.textContent), ['Canvas', 'Attention'])
     assert.equal(radios[0]!.getAttribute('aria-checked'), 'true')
-    assert.match(radios[1]!.getAttribute('title') ?? '', /not available in this build yet/,
-      'an unavailable destination says so rather than pretending')
+    // ⚠ NO "not available in this build yet" HEDGE ANY MORE. It shipped while
+    // the toggle led nowhere; the Attention view is now rendered into the
+    // canvas host's slot, so both radios have a destination and a control that
+    // still hedged about one of them would be lying.
+    assert.equal(radios[1]!.getAttribute('title'), null,
+      'a real destination needs no apology in its tooltip')
     await inAct(async () => { (radios[1] as HTMLElement).click() })
     assert.deepEqual(picked, ['attention'])
     await inAct(async () => { (radios[0] as HTMLElement).click() })

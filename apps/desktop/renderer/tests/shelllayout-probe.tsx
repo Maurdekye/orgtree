@@ -76,7 +76,7 @@ async function run() {
   render(
     <ShellHeader menu={<div className="shell-menu"><button className="shell-menu-button">Orgtree</button></div>}
       title="Studio"
-      modes={<OrgViewToggle mode="canvas" setMode={() => {}} attentionAvailable={false} />}
+      modes={<OrgViewToggle mode="canvas" setMode={() => {}} />}
       actions={actions} />)
   await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
 

@@ -36,7 +36,9 @@ import { OrgStatusBar } from './shell/statusbar'
 import { HomepageView } from './shell/homepage'
 import { CreateOrgView } from './shell/createorg'
 import { OrgViewToggle } from './shell/modetoggle'
-import { useOrgViewMode } from './shell/viewmode'
+import { setOrgView, useOrgView } from './attention/mode'
+import type { OrgView } from './attention/mode'
+import { AttentionView } from './attention/AttentionView'
 import { openOrgEffect, requestOpenOrg } from './shell/openorg'
 import { identityOrg, identityView } from './shell/identity'
 import { useOpenOrgs } from './shell/openorgs'
@@ -1023,12 +1025,19 @@ export default function App() {
     const bound = identityOrg(identity)
     if (bound && bound !== slug) commitSlug(bound)
   }, [v3, identity, slug])
-  const [viewMode, setViewMode] = useOrgViewMode(v3 ? slug : null)
+  // ⚠ ONE MODULE OWNS THE VIEW KEY. `shell/viewmode.ts` existed only so the
+  // compact header was not blocked on a module in another worktree; it is
+  // gone, and `attention/mode.ts` is now the single reader and writer of
+  // `orgtree-org-view`. Same key, same contract, same "default stored as
+  // absence" invariant — the swap was an import change and nothing else.
+  const viewMode = useOrgView(v3 ? slug : null)
+  const setViewMode = useCallback((m: OrgView) => setOrgView(v3 ? slug : null, m),
+    [v3, slug])
   // The freshness of the tree Attention reads its question rows out of. Owned
-  // here because the fetch is owned here; handed to the view through the
-  // canvas owner's slot closure once that prop lands. Absent means unknown on
-  // their side, which is safe for a stage and wrong as a shipped experience —
-  // so this is supplied rather than left to the default.
+  // here because the fetch is owned here, and handed to the view through the
+  // canvas owner's slot closure below. Absent means unknown on their side,
+  // which is safe for a stage and wrong as a shipped experience — so this is
+  // supplied rather than left to the default.
   const treeStatus = treeStatusOf(treeRead, tree, slug)
   // which organizations already hold a window, so a Homepage row can say
   // "Already open" before it is clicked. A LABEL ONLY — `requestOrg` decides
@@ -1036,10 +1045,6 @@ export default function App() {
   const openOrgs = useOpenOrgs()
   const openElsewhere = useCallback((want: string) =>
     openOrgs.has(want) && want !== slug, [openOrgs, slug])
-  // Attention's own view lands with `add-an-attention-view`; the toggle is part
-  // of the approved header and ships now, saying honestly that the destination
-  // is not here yet rather than drawing an empty imitation of it.
-  const attentionReady = false
   const openOrgFromShell = useCallback((want: string) => {
     const name = orgs.find((o) => o.slug === want)?.name ?? want
     void requestOpenOrg(want, name).then((effect) => {
@@ -1232,8 +1237,7 @@ export default function App() {
             <>
               {v3 ? (
                 <ShellHeader menu={shellMenu} title={tree.name}
-                  modes={<OrgViewToggle mode={viewMode} setMode={setViewMode}
-                    attentionAvailable={attentionReady} />}
+                  modes={<OrgViewToggle mode={viewMode} setMode={setViewMode} />}
                   actions={<>
                     {/* the familiar action buttons, unchanged in behaviour,
                         badge and glow — only their container and an optional
@@ -1479,24 +1483,37 @@ export default function App() {
                 <WindowControls />
               </header>
               )}
-              {/* ATTENTION IS NOT HERE YET, and saying so beats drawing an
-                  empty imitation of it. A BANNER rather than an overlay on
-                  purpose: covering the stage would hide the retained pinned
-                  panels and popped-out desks that switching modes is required
-                  to preserve, and unmounting OrgCanvas would destroy them
-                  outright. Replaced by `add-an-attention-view`'s own surface
-                  through the containment interface the canvas owner is
-                  publishing. */}
-              {v3 && viewMode === 'attention' && !attentionReady && (
-                <div className="shell-mode-pending" role="status">
-                  The Attention view is not available in this build yet — the
-                  organization canvas is shown instead.
-                </div>
-              )}
               <div className="canvas-stage">
               {desktop() && <div className="window-drag-margin" aria-hidden="true" />}
               <OrgCanvas tree={tree} op={op} slug={slug} toast={toast}
                 mailEvt={mailEvt}
+                /* ⚠ THE SHELL SAYS WHICH VIEW IS PRESENTED; THE HOST DOES THE
+                   HIDING. This must never become `display: none` on the canvas
+                   or on `.viewport` here — `adoptPinLayer` appends the pin
+                   layer INSIDE `.viewport`, so hiding either takes every
+                   pinned window in the organization with it. `canvasContent`
+                   is the host's own seam and it hides only the world, which
+                   also preserves the camera, the springs and `posOf`. */
+                canvasContent={v3 && viewMode === 'attention' ? 'hidden' : 'shown'}
+                /* ⚠ RENDERED UNCONDITIONALLY IN A v3 WINDOW, not only while
+                   Attention is the view on screen. The view keeps exactly
+                   those of its panels that are pinned, popped out or awaiting
+                   a window restore MOUNTED across a switch back to the canvas,
+                   and a subtree that unmounts takes its child window with it.
+                   It hides its own stage when it is not the presented view —
+                   that decision is `useOrgView`'s, inside the view, and not
+                   this closure's to duplicate. */
+                renderOrgSlot={v3 ? (ctx) => (
+                  <AttentionView slug={ctx.slug} tree={ctx.tree} op={ctx.op}
+                    toast={ctx.toast} map={ctx.map} posOf={ctx.posOf}
+                    onOpenItem={ctx.onOpenItem} onFocusAgent={ctx.onFocusAgent}
+                    onOpenDoc={ctx.onOpenDoc} onOpenMail={ctx.onOpenMail}
+                    deskExtras={ctx.deskExtras}
+                    /* the freshness of the ONE tree read this component
+                       already makes — not a second poller and not a copy of
+                       the tree, which is the whole reason it can be believed */
+                    treeStatus={treeStatus} />
+                ) : undefined}
                 focusAgent={focusAgent}
                 onFocusAgentHandled={() => setFocusAgent(null)}
                 openMailAt={mailJump}
