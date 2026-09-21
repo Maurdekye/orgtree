@@ -516,6 +516,33 @@ main {
    `visibility` rather than `display: none` because it PRESERVES LAYOUT — the
    camera, the spring positions and `posOf` survive the switch untouched, so
    coming back is not a re-layout. */
+/* THE TEMPORARY DESK (docket `open-an-agent-desk-temporarily-as-a-modal`) — a
+   glance at another agent's desk that rearranges nothing. Sized in vh/vw
+   rather than fixed px so it fits a narrow window without its own breakpoint,
+   and capped so it reads as a panel over the canvas rather than a takeover. */
+.tempdesk-over {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  backdrop-filter: blur(2px);
+}
+.tempdesk-panel {
+  display: flex; flex-direction: column;
+  width: min(900px, 92vw); height: min(720px, 86vh);
+  background: var(--bg); border: 1px solid var(--line);
+  border-radius: 10px; overflow: hidden;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .45);
+}
+.tempdesk-panel:focus { outline: none; }
+.tempdesk-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px; border-bottom: 1px solid var(--line-soft);
+}
+.tempdesk-note { color: var(--dim); font-size: 11px; }
+.tempdesk-close { margin-left: auto; }
+/* the desk fills what is left, and scrolls inside itself as it always does */
+.tempdesk-panel > .desk-slot { flex: 1; min-height: 0; }
+
 .canvas-world { display: contents; }
 .canvas-world-hidden, .canvas-world-hidden * { visibility: hidden !important; }
 .canvas-world-hidden { pointer-events: none; }

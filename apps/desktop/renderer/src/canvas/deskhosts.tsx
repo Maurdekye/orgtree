@@ -237,7 +237,13 @@ class Desks {
     e.borrowedBy = undefined
     e.borrowedFrom = undefined
     e.borrowedHandle = undefined
-    if (from && !e.invalidated) {
+    // ⚠ RESTORE ONLY FOR A VALID PRIOR DESTINATION *AND* IDENTITY, NEVER BOTH
+    // OUTCOMES (multi-window-design, 2026-09-21). `invalidated` is set when the
+    // tree no longer has this generation, and `pendingRename` while an identity
+    // move is still mid-flight — putting a window back onto either is putting it
+    // onto an agent that is not there any more. The restore branch returns, so
+    // exactly one of the two is ever used.
+    if (from && !e.invalidated && !e.pendingRename) {
       const target = e.slots.get(from.id)
       if (target) {
         e.last = target

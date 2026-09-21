@@ -31,6 +31,7 @@ import type {
 import { ContextWheel, DeskChat, DestinationBusy, LineagePanel, OrgKillswitchContext, TrayStatus } from './desk'
 import type { DeskChatProps } from './desk'
 import { OrgDefaultEffort, resolveOrgDefault } from './effort'
+import { TempDeskModal } from './tempdesk'
 import { DocReader } from './docs'
 import { mailRefTarget, useRefRoutes, Written } from './reflinks'
 import type { ResolvedRef } from './reflinks'
@@ -378,6 +379,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   renderOrgSlot, canvasContent = 'shown' }: OrgCanvasProps) {
   const worldHidden = canvasContent === 'hidden'
   const [draft, setDraft] = useState<DraftState | null>(null)
+  // The agent whose desk is open TEMPORARILY (tempdesk.tsx). Plain local state
+  // and nothing else: no pin, no popout, no saved layout row, no change to the
+  // focused node — which is what makes "closing puts the view back" true by
+  // construction rather than by restoring anything.
+  const [tempDeskId, setTempDeskId] = useState<string | null>(null)
   const [configId, setConfigId] = useState<string | null>(null)
   // A pinned node-config remains mounted as a window; clicking its same
   // opener toggles visibility, while another agent's gear selects that agent.
@@ -2692,6 +2698,13 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         ? () => { desk.requestPopout(); if (!desk.present) go() }
         : undefined,
       onShowWindow: desk.show,
+      // ⚠ NO `go()` HERE, DELIBERATELY, unlike every neighbour above. The whole
+      // value of this entry is that it does NOT walk the camera to the agent or
+      // change which node is focused — a glance, not a placement. It needs no
+      // `desk.valid` gate either: the modal renders the canonical desk, which
+      // handles an archived or unavailable seat with its own semantics rather
+      // than this menu second-guessing them.
+      onOpenTemporary: !isMobile ? () => setTempDeskId(n.id) : undefined,
       // the hire chips live ON THE CARD, so this walks to the agent and asks
       // its card to open them — the same reveal the card's own entry runs
       onHire: () => { go(); setHireReveal((h) => ({ id: n.id, seq: (h?.seq ?? 0) + 1 })) },
@@ -3281,6 +3294,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
               pinned={pinnedIds.has(n.id)}
               onPin={!isMobile ? () => pinDesk(n.id) : undefined}
               onShowPin={() => showPin(slug, n.id, vpSizeNow())}
+              onOpenTemporary={setTempDeskId}
               dragging={nodeDrag.current?.id === n.id && nodeDrag.current!.moved}
               isDrop={dropId === n.id}
               seats={seats} codexHire={codexHire} antigravityHire={antigravityHire}
@@ -3919,6 +3933,27 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       })}
       </div>{/* .canvas-world */}
     </div>
+    {/* THE TEMPORARY DESK — inside `DeskHosts`, because its `borrow` slot has
+        to register in the ONE desk registry; that is what lets it take the
+        canonical desk and have the registry give it back. Outside the viewport
+        for the same reason as the org slot: it must not inherit the pan/zoom
+        transform, and it must survive the canvas being hidden. */}
+    {tempDeskId && map.get(tempDeskId) && (
+      <TempDeskModal node={map.get(tempDeskId)!} close={() => setTempDeskId(null)}
+        desk={{
+          map, op, slug, toast, pub: false,
+          compactAt: tree.compact_at,
+          maxTop: tree.max_top_grant ?? 1000,
+          pxc: pxPerCredit,
+          onMailLink: openMail, onWorkLink: openWork, onOpenDoc: openDocView,
+          // ⚠ NO `onJump`/`onRecenter`. Those move the camera, and this surface
+          // exists precisely because a glance must not. The desk simply offers
+          // no such control here rather than being handed one that would
+          // contradict the feature.
+          onLineage: () => toggleNodeSurface('lineage', tempDeskId, setLineageId),
+          onConfig: () => toggleConfig(tempDeskId),
+        }} />
+    )}
     {/* THE ORG SLOT — a sibling of the viewport, inside this host's providers.
         Outside the viewport so it escapes the pan/zoom transform and so its
         own stage can be hidden without touching the pin layer; inside
