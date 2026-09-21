@@ -107,13 +107,21 @@ function announceViewChange(): void {
 }
 
 /**
- * ⚠ DELIBERATELY UNCACHED, unlike `readLayouts` below. This key has a SECOND
- * WRITER for as long as the shell ships its temporary `shell/viewmode.ts` — the
- * compact header could not be blocked on a module in another worktree, so that
- * module writes `orgtree-org-view` on the same contract until it is replaced by
- * this one. A cache here would go stale the instant that writer wrote, and
- * `storage` events do not fire for same-document writes, so nothing would
- * correct it.
+ * ⚠ DELIBERATELY UNCACHED, unlike `readLayouts` below.
+ *
+ * It was introduced for a second writer that no longer exists: the shell
+ * shipped a temporary `shell/viewmode.ts` on this key while its compact header
+ * could not import this module, and a cache would have gone stale the instant
+ * that writer wrote — `storage` does not fire for a same-document write, so
+ * nothing would have corrected it. That module is deleted and this module is
+ * now the only writer.
+ *
+ * KEPT ANYWAY, on its own merits rather than the expired reason: an uncached
+ * read has no staleness class at all, so there is nothing to invalidate and no
+ * way to get the invalidation wrong. Re-adding the cache would buy back a JSON
+ * parse of a few hundred bytes and reintroduce the failure mode. The moment a
+ * second writer appears again — another document, a future shell surface — the
+ * uncached read is already correct.
  *
  * Re-reading is safe HERE and not below because of what each returns:
  * `orgView` yields a STRING, which `useSyncExternalStore` compares by value, so

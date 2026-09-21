@@ -30,7 +30,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type {
-  KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode,
+  KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent,
 } from 'react'
 import type { ToastFn, TreePayload } from '../types'
 import type { CanvasNode, MailLinkFn, OpFn, PolledStatus, Pt } from '../canvas/shared'
@@ -40,11 +40,10 @@ import {
   restoredWindows, subscribeWindowLayout, useRestoreWindows, windowLayoutRevision,
 } from '../windowlayout'
 import { openSurfaces, subscribeWindows, windowRevision } from '../windowlife'
-import { LanIcon, NotificationsActiveIcon } from '../icons'
 import { AttentionQueue } from './AttentionQueue'
 import { AgentDeskPanel } from './AgentDeskPanel'
 import {
-  clampSplit, setAttentionLayout, setOrgView, SPLIT_MAX, SPLIT_MIN,
+  clampSplit, setAttentionLayout, SPLIT_MAX, SPLIT_MIN,
   startAttentionModeSync, useAttentionLayout, useOrgView,
 } from './mode'
 import './attention.css'
@@ -538,30 +537,6 @@ export function AttentionView(props: AttentionViewProps) {
           </PinFrame>
         </div>
       )}
-    </div>
-  )
-}
-
-/** The organization's view switch, for the compact header. Prominent and
- *  LABELLED (approved header design): the two views are named, not iconified,
- *  because which view you are in is the least guessable piece of state in the
- *  window. */
-export function OrgViewToggle({ slug, disabled }: { slug: string | null; disabled?: boolean }) {
-  const view = useOrgView(slug)
-  if (!slug) return null
-  const tab = (value: 'canvas' | 'attention', label: string, icon: ReactNode, hint: string) => (
-    <button type="button" className={'orgview-tab' + (view === value ? ' sel' : '')}
-      aria-pressed={view === value} disabled={disabled}
-      title={hint} onClick={() => setOrgView(slug, value)}>
-      {icon}<span className="orgview-label">{label}</span>
-    </button>
-  )
-  return (
-    <div className="orgview-toggle" role="group" aria-label="Organization view">
-      {tab('canvas', 'Canvas', <LanIcon fontSize="inherit" />,
-        'the full organization canvas')}
-      {tab('attention', 'Attention', <NotificationsActiveIcon fontSize="inherit" />,
-        'only what is waiting on you, beside one agent desk')}
     </div>
   )
 }

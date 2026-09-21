@@ -269,31 +269,3 @@
 }
 .attn-desk > * { flex: 1 1 auto; min-width: 0; }
 .attn-desk-empty { padding: 24px; }
-
-/* ------------------------------------------------------- the header toggle */
-.orgview-toggle {
-  display: inline-flex;
-  align-items: stretch;
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  overflow: hidden;
-}
-.orgview-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 10px;
-  border: 0;
-  background: transparent;
-  color: var(--dim);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.orgview-tab + .orgview-tab { border-left: 1px solid var(--line); }
-.orgview-tab:hover:not(:disabled) { background: var(--panel-2); color: var(--ink); }
-.orgview-tab.sel { background: var(--panel-2); color: var(--ink-strong); }
-.orgview-tab:disabled { opacity: 0.5; cursor: default; }
-.orgview-tab:focus-visible { outline: 1px solid var(--line-hover); outline-offset: -2px; }
-.orgview-label { line-height: 1; }

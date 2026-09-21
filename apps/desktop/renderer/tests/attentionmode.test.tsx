@@ -128,19 +128,26 @@ test('§4 the two stores are independent: a view change keeps the layout', () =>
 
 // ------------------------------------------------------------------- §5
 //
-// A SECOND WRITER ON THE VIEW KEY, which is a real arrangement and not a
-// hypothetical: the shell ships a temporary `shell/viewmode.ts` on this same
-// key and contract, because the compact header could not be blocked on a module
-// in another worktree. Two writers is the whole reason the view key is read
-// UNCACHED while the layout key is not.
+// A SECOND WRITER ON THE VIEW KEY.
+//
+// ⚠ THE ORIGINAL ONE IS GONE, and the framing is corrected rather than left to
+// read as current: the shell shipped a temporary `shell/viewmode.ts` on this
+// key while its compact header could not import this module, and that module
+// is deleted — this module is now the only writer in the application.
+//
+// These cases are KEPT because the arrangement they describe is not gone with
+// it. A `storage` event from another document is a second writer this module
+// still has to survive, and a popped-out panel is its own document sharing the
+// same localStorage. What expired is the example, not the property — and an
+// uncached read has no staleness class to get wrong in either case.
 
 test('§5 a foreign write to the view key is never served stale', () => {
   reset()
   setOrgView('a', 'attention')
   assert.equal(orgView('a'), 'attention')
 
-  // somebody else writes the key directly — no setOrgView, no storage event,
-  // which is exactly what a same-document second writer looks like
+  // somebody else writes the key directly — no setOrgView, and no `storage`
+  // event, because `storage` does not fire for a same-document write
   localStorage.setItem(ORG_VIEW_KEY, JSON.stringify({ a: 'canvas', b: 'attention' }))
   assert.equal(orgView('a'), 'canvas',
     'read through to storage, not out of a cache this module still believes in')

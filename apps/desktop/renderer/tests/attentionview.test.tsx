@@ -517,19 +517,3 @@ test('§8.3 a popped-out desk panel also claims as a human request', async () =>
 // expression, `active || deskPinned || deskOut`, whose two true branches §8
 // does cover, and whose false branch is false for everything else by
 // construction — there is no third path to get it wrong in.
-
-test('§6 the header toggle is what moves between the two views', async () => {
-  reset()
-  const { OrgViewToggle } = await import('../src/attention/AttentionView')
-  const v = await mountView(<OrgViewToggle slug={SLUG} />,
-    (el) => [...el.querySelectorAll('.orgview-tab')]
-      .map((b) => `${b.textContent}:${b.getAttribute('aria-pressed')}`))
-  assert.deepEqual(v.last(), ['Canvas:true', 'Attention:false'],
-    'both views are named, and the one you are in says so')
-
-  const attention = [...v.el.querySelectorAll('.orgview-tab')]
-    .find((b) => b.textContent?.includes('Attention')) as HTMLElement
-  await inAct(() => { attention.click() })
-  assert.deepEqual(v.last(), ['Canvas:false', 'Attention:true'])
-  await v.unmount()
-})
