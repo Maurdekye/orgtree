@@ -26,6 +26,8 @@ artifacts/
 # sweeping stray fixture dirs into a commit with `git add -A` and not noticing.
 acl-fixtures-*/
 
-# probe roots: isolated Electron output (bundle, redirected app data, result.json)
-.probe-canvashide/
-.probe-tempdesk/
+# probe roots: isolated Electron output (bundle, redirected app data, result.json).
+# One glob rather than a name per probe — `.probe-canvashide/` and
+# `.probe-attention/` arrived within an hour of each other from two worktrees,
+# which is the signal that the next one should not need another line here.
+.probe-*/
