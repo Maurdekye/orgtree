@@ -1,6 +1,6 @@
 {
   "schema": "orgtree.preview-boundary/v1",
-  "source_contract_sha256": "d7e6a6080de5ea3de36dac0f255bc3e951b249a5daa79dd6899685c564b886e5",
+  "source_contract_sha256": "30a6f5efc6ba0dc2cb3614dcd0abb17a17ec94d045b0bb9caaaeee18815cd6dc",
   "qualification": {
     "runtime_census": false,
     "conversion_authorized": false

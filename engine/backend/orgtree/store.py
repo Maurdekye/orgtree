@@ -197,16 +197,38 @@ class _InstrumentedDocLock(profiling.TimedRLock):
         self._seq = 0
 
     # --------------------------------------------------- FIFO admission
-    def _admit(self, blocking: bool, timeout: float) -> bool:
+    def _admit(self, blocking: bool, timeout: float) -> "tuple[bool, int]":
+        """Admit this thread, and report HOW MANY WERE IN FRONT of it.
+
+        ⚠ THE GATE IS THE ONLY PLACE THAT CAN TELL CONTENTION FROM OVERHEAD.
+        It admits in strict arrival order and the inner RLock is only ever
+        taken by the thread the gate already admitted, so the inner lock never
+        contends — which means the wall time the parent class measures around
+        an acquire includes the uncontended cost of taking a free lock. A
+        positive `lock_wait_ms` is therefore NOT evidence that anyone waited
+        behind anyone, and no reader downstream can recover the difference.
+        Here it is exact: the count below is the owner (if any) plus everyone
+        already queued, sampled the instant this thread arrived.
+
+        Returned rather than recorded in place, deliberately. Recording means
+        `profiling`'s mutex, and taking it inside `self._gate` would lengthen
+        the admission critical section every other arrival waits behind — the
+        measurement would alter the thing measured. The caller records it one
+        statement later, outside the gate.
+
+        `-1` means "no observation": the reentrant path, where this thread is
+        already the owner and nothing was ever in front of it.
+        """
         me = threading.get_ident()
         with self._gate:
             if self._owner == me:
-                return True                      # reentrant: already admitted
+                return True, -1                  # reentrant: already admitted
+            ahead = (1 if self._owner is not None else 0) + len(self._queue)
             if not blocking:
-                if self._owner is None and not self._queue:
+                if not ahead:
                     self._owner = me
-                    return True
-                return False
+                    return True, 0
+                return False, ahead
             self._seq += 1
             ticket = self._seq
             self._queue.append(ticket)
@@ -216,27 +238,53 @@ class _InstrumentedDocLock(profiling.TimedRLock):
                 if rest is not None and rest <= 0:
                     self._queue.remove(ticket)
                     self._gate.notify_all()
-                    return False
+                    return False, ahead
                 self._gate.wait(rest)
             self._queue.pop(0)
             self._owner = me
-            return True
+            return True, ahead
 
     def _yield_gate(self) -> None:
         with self._gate:
             self._owner = None
             self._gate.notify_all()
 
+    def _note_arrival(self, ahead: int) -> None:
+        """Record what `_admit` saw, now that the gate is released.
+
+        `ahead` is holders-plus-waiters in front of this arrival, or -1 for a
+        reentrant acquire that never queued. Zero is the interesting negative
+        case and is recorded as nothing: a collision counter that ticked on an
+        idle lock would be the very error this pair exists to prevent, so
+        `lock_contended` counts arrivals that genuinely found somebody there,
+        and `lock_queue_ahead_max` says how deep the queue in front was — one
+        rival and the seventeen tight-loop writers of the 2026-09-19 starvation
+        incident are both "contended" and are not the same event.
+        """
+        if ahead > 0:
+            profiling.add("lock_contended", 1.0)
+            profiling.high_water("lock_queue_ahead_max", float(ahead))
+
     def acquire(self, blocking: bool = True, timeout: float = -1) -> bool:
         outer = getattr(self._held, "depth", 0) == 0
         t0 = time.perf_counter() if outer else 0.0
-        if not self._admit(blocking, timeout):
+        admitted, ahead = self._admit(blocking, timeout)
+        if outer:
+            self._note_arrival(ahead)
+        if not admitted:
             if outer:
                 waited = (time.perf_counter() - t0) * 1000.0
                 # a failed wait is still a wait — both reporters see it,
                 # exactly as the parent records a failed timed acquire
                 stateprobe.record("doc_lock_wait", ms=waited)
                 profiling.add("lock_wait_ms", waited)
+                # ⚠ COUNTED HERE, NOT BY THE PARENT. A refused non-blocking
+                # acquire and an expired timeout both end at this return, so
+                # `super().acquire` never runs and never sees the failure. A
+                # `lock_failed` recorded only upstairs would silently miss
+                # every failure this gate is responsible for — which is all of
+                # them, since the inner lock cannot contend.
+                profiling.add("lock_failed", 1.0)
             return False
         if outer:
             # the QUEUE is where waiting happens now (the gate admits in
@@ -287,7 +335,13 @@ class _InstrumentedDocLock(profiling.TimedRLock):
         return state
 
     def _acquire_restore(self, state: Any) -> None:
-        self._admit(True, -1)
+        # A `Condition.wait` that wakes re-queues at the tail like any other
+        # arrival, so it can genuinely find a queue in front of it and that is
+        # real contention, counted like any other. The parent's
+        # `_acquire_restore` sets depth to 1 directly and never runs its own
+        # acquire bookkeeping, which is why this is recorded here.
+        _admitted, ahead = self._admit(True, -1)
+        self._note_arrival(ahead)
         super()._acquire_restore(state)
         self._tls.held_at = time.perf_counter()
         self._tls.wait_ms = 0.0

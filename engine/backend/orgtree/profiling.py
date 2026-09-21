@@ -28,6 +28,24 @@ the ticket asks for — an operator looking at a 4.9 s write can now see whether
 it waited, parsed, worked or wrote, which are four different bugs with four
 different fixes.
 
+WHAT THE FOUR STAGES STILL CANNOT SAY. They are durations, and a duration
+answers neither "how often" nor "was anyone actually in the way". A
+`lock_wait_ms` of 0.4 ms on a completely idle process is the ordinary cost of
+taking a free lock, not a queue; summed over a request it is indistinguishable
+from four brief real waits. So five counters travel beside them:
+
+    lock_acquires       outer acquisitions of the lock that succeeded
+    lock_failed         outer acquisitions that returned without the lock
+    lock_contended      outer acquisitions that found somebody in front
+    lock_max_depth      deepest reentrancy reached (a maximum, never a sum)
+    lock_hold_ms        outer held time, IO included — the exclusion window
+
+⚠ `lock_contended` IS THE ONLY ONE OF THESE THAT MEANS CONTENTION, and this
+module cannot compute it: see `TimedRLock.acquire` and the FIFO gate in
+`store._InstrumentedDocLock._admit`, which is the one place that knows whether
+an arrival found an owner or a queue. Reading a positive `lock_wait_ms` as
+contention is the specific mistake these counters exist to make impossible.
+
 ⚠ THIS MODULE IMPORTS NOTHING FROM orgtree. `store` imports it, and `store` is
 imported by everything; an edge back into the package here is an import cycle
 in the one module that cannot afford one.
@@ -118,6 +136,31 @@ def add(field: str, ms: float) -> None:
             # A handler that already put something non-numeric under this name
             # keeps it, and `_access_emit`'s allowlist drops it. A timing
             # helper may never be the reason a request fails.
+            pass
+
+
+def high_water(field: str, value: float) -> None:
+    """KEEP THE MAXIMUM, unlike `add`, which accumulates.
+
+    For a quantity whose sum is meaningless. The callers are the document
+    lock's reentrancy depth and the number of writers queued ahead of an
+    arrival: a request that takes the lock three levels deep twice reached
+    depth 3, not depth 6, and `add` would report the second number.
+
+    Same mutex as `add` for the same reason — a managed tool's worker thread
+    can be writing this dict while `_access_emit` iterates it — and the same
+    total failure policy: a timing helper may never fail its request.
+    """
+    profile = _CURRENT.get()
+    if profile is None:
+        return
+    with _MUTEX:
+        try:
+            if value > float(profile.get(field, 0.0) or 0.0):
+                profile[field] = float(value)
+        except (TypeError, ValueError):
+            # Same rule as `add`: a handler that already put something
+            # non-numeric under this name keeps it and the allowlist drops it.
             pass
 
 
@@ -247,11 +290,28 @@ class TimedRLock:
             waited = (time.perf_counter() - started) * 1000.0
             if getattr(self._held, "depth", 0) == 0:
                 add("lock_wait_ms", waited)
+                # COUNTS, so a duration is never read as a frequency.
+                # `lock_wait_ms` alone cannot say how many times this request
+                # took the lock, nor whether it ever actually queued behind
+                # anybody: ⚠ A POSITIVE WAIT IS NOT EVIDENCE OF CONTENTION,
+                # because it includes the uncontended cost of acquiring a free
+                # lock. Whether anyone was really in front is knowable only at
+                # the FIFO gate, so `lock_contended` is recorded there
+                # (`store._InstrumentedDocLock`); these two are the parts this
+                # class can see. Counted only at depth 0 — a reentrant acquire
+                # is not a second acquisition.
+                add("lock_acquires" if got else "lock_failed", 1.0)
         if not got:
             return False
         held = self._held
         depth = getattr(held, "depth", 0)
         held.depth = depth + 1
+        # Reentrancy HIGH-WATER, not an accumulation: `add` sums, and a depth
+        # summed over a request is not a depth. Recorded after the increment
+        # so the value is the depth now held. A request that turns capture on
+        # while already nested reports the depths it reaches from then on,
+        # which is the only honest answer available from here.
+        high_water("lock_max_depth", float(depth + 1))
         if depth == 0:
             # Outermost entry opens the window `release` closes. A nested
             # acquire is free and holds no window of its own, or the same
@@ -273,6 +333,18 @@ class TimedRLock:
             profile = _CURRENT.get()
             if profile is not None:
                 inside = (time.perf_counter() - held.since) * 1000.0
+                # THE SAME WINDOW `mutate_ms` brackets, reported without the
+                # IO subtraction. `mutate_ms` answers "what was it doing in
+                # there"; `lock_hold_ms` answers "how long was everyone else
+                # kept out", and those are different questions — a write that
+                # holds the lock for 4 s of pure document IO blocks every
+                # other writer for 4 s while reporting `mutate_ms` ~0. Both
+                # are recorded rather than one plus a reader's arithmetic,
+                # because the IO stages that would have to be added back are
+                # separately allowlisted and may be absent from a record.
+                # Outer window only: a nested acquire holds no window, so this
+                # is the real exclusion time and not a per-level sum.
+                add("lock_hold_ms", inside)
                 io = _io_total(profile) - float(getattr(held, "io", 0.0))
                 # max(0.0, …): the two halves are measured by different
                 # clocks-of-record (this one spans the lock, the IO stages sum

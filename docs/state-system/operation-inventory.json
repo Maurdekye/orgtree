@@ -363,7 +363,7 @@
     },
     {
       "path": "engine/backend/orgtree/profiling.py",
-      "normalized_source_sha256": "5625c79b37e0bd437178005cc18354456876c776e01d8e8a9931726ab2985b25"
+      "normalized_source_sha256": "f1a4a843d1789279b8c8bb658571f42debe2e6dc1a91662ae3ff603833f4cc8e"
     },
     {
       "path": "engine/backend/orgtree/providers.py",
@@ -435,7 +435,7 @@
     },
     {
       "path": "engine/backend/orgtree/store.py",
-      "normalized_source_sha256": "154ff8428bf89fc833e9d5a13807a421ea1dd6daae9aac1db18814cc9982d27b"
+      "normalized_source_sha256": "b524a5a47bc8a1a3a233219d970761b9130f129a35b023f8a336c4b20de2fb10"
     },
     {
       "path": "engine/backend/orgtree/subproxy.py",
@@ -9717,8 +9717,8 @@
       "source": {
         "path": "engine/backend/orgtree/store.py",
         "symbol": "_open_conn",
-        "line": 1105,
-        "end_line": 1106,
+        "line": 1159,
+        "end_line": 1160,
         "syntax_sha256": "78ed4ecc59d6a412aaad817cc264b79b27d08b6f05eebde14503ddfa3bca25a7"
       },
       "factory": "sqlite3.connect",
@@ -10601,50 +10601,50 @@
     {
       "path": "engine/backend/orgtree/store.py",
       "symbol": "<module>",
-      "line": 296,
-      "end_line": 296,
+      "line": 350,
+      "end_line": 350,
       "syntax_sha256": "0ccb4977660756975501b1f9bc3791fa0401f3eb31ace6c63e335cb19093ae89"
     },
     {
       "path": "engine/backend/orgtree/store.py",
       "symbol": "migrate_pending",
-      "line": 3349,
-      "end_line": 3349,
+      "line": 3403,
+      "end_line": 3403,
       "syntax_sha256": "d08a39d563eed5543c8f6974195ff4851b7824fc3f361ebd4ffc929c23c64a04"
     },
     {
       "path": "engine/backend/orgtree/store.py",
       "symbol": "_ensure_migrated",
-      "line": 3378,
-      "end_line": 3378,
+      "line": 3432,
+      "end_line": 3432,
       "syntax_sha256": "d08a39d563eed5543c8f6974195ff4851b7824fc3f361ebd4ffc929c23c64a04"
     },
     {
       "path": "engine/backend/orgtree/store.py",
       "symbol": "_load_org",
-      "line": 4044,
-      "end_line": 4044,
+      "line": 4098,
+      "end_line": 4098,
       "syntax_sha256": "d08a39d563eed5543c8f6974195ff4851b7824fc3f361ebd4ffc929c23c64a04"
     },
     {
       "path": "engine/backend/orgtree/store.py",
       "symbol": "write_org",
-      "line": 4808,
-      "end_line": 4808,
+      "line": 4862,
+      "end_line": 4862,
       "syntax_sha256": "d08a39d563eed5543c8f6974195ff4851b7824fc3f361ebd4ffc929c23c64a04"
     },
     {
       "path": "engine/backend/orgtree/store.py",
       "symbol": "write_org",
-      "line": 4835,
-      "end_line": 4835,
+      "line": 4889,
+      "end_line": 4889,
       "syntax_sha256": "d08a39d563eed5543c8f6974195ff4851b7824fc3f361ebd4ffc929c23c64a04"
     },
     {
       "path": "engine/backend/orgtree/store.py",
       "symbol": "delete_org",
-      "line": 5028,
-      "end_line": 5028,
+      "line": 5082,
+      "end_line": 5082,
       "syntax_sha256": "d08a39d563eed5543c8f6974195ff4851b7824fc3f361ebd4ffc929c23c64a04"
     },
     {
