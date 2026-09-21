@@ -134,6 +134,24 @@ function useDetachedHere(org: string | null, revision: number): { queue: boolean
  *     `restoredWindows(slug).filter(r => r.kind !== 'doc' && r.restore?.document)`
  *     and so can only ever reach a row carrying `restore.document`. Neither
  *     attention kind ever carries one: this view passes no `restore` at all.
+ *   · THE BORROW SEAM's `release()` is a FOURTH caller, inside MovableSurface
+ *     and on that surface's own `layoutKey` (v3-shell-opus, 2026-09-21 — the
+ *     audit test caught it on the composed tree and they raised it rather than
+ *     widening the audit around it). It clears the row of a window that is
+ *     ALREADY GONE: `borrow()` runs `returnHome(true)` first, which redocks and
+ *     runs the cleanups — including the `registerWindow` unsubscribe — so by
+ *     the time `release()` can fire the surface is out of the registry and the
+ *     row is the only thing still holding a panel. Clearing it is the THIRD
+ *     state reached by its own path, not a fourth state. The `claim()` epoch
+ *     guard makes the handle inert once anything else has moved, so it cannot
+ *     clear a row belonging to a window that has since been reopened.
+ *     ⚠ AND THE CONDITION THAT MAKES THAT TRUE, stated because it is the part
+ *     that could change: nothing borrows an ATTENTION kind. A borrow leaves the
+ *     row open, and the row is then the ONLY thing holding this panel mounted —
+ *     so a borrow of an attention kind followed by `release()` would unmount
+ *     the very subtree the borrower is using. Only desk kinds are borrowed
+ *     today. If an attention kind ever becomes borrowable, this state analysis
+ *     must be redone rather than assumed to carry over.
  *   · `saveWindow` is EXPORTED, so `open: false` could in principle be written
  *     without going through `closeSavedWindow`. Nothing outside windowlayout.ts
  *     calls it, so "the only writer" holds by convention, not by construction.
@@ -201,6 +219,24 @@ function useDetachedHere(org: string | null, revision: number): { queue: boolean
  *     `restoredWindows(slug).filter(r => r.kind !== 'doc' && r.restore?.document)`
  *     and so can only ever reach a row carrying `restore.document`. Neither
  *     attention kind ever carries one: this view passes no `restore` at all.
+ *   · THE BORROW SEAM's `release()` is a FOURTH caller, inside MovableSurface
+ *     and on that surface's own `layoutKey` (v3-shell-opus, 2026-09-21 — the
+ *     audit test caught it on the composed tree and they raised it rather than
+ *     widening the audit around it). It clears the row of a window that is
+ *     ALREADY GONE: `borrow()` runs `returnHome(true)` first, which redocks and
+ *     runs the cleanups — including the `registerWindow` unsubscribe — so by
+ *     the time `release()` can fire the surface is out of the registry and the
+ *     row is the only thing still holding a panel. Clearing it is the THIRD
+ *     state reached by its own path, not a fourth state. The `claim()` epoch
+ *     guard makes the handle inert once anything else has moved, so it cannot
+ *     clear a row belonging to a window that has since been reopened.
+ *     ⚠ AND THE CONDITION THAT MAKES THAT TRUE, stated because it is the part
+ *     that could change: nothing borrows an ATTENTION kind. A borrow leaves the
+ *     row open, and the row is then the ONLY thing holding this panel mounted —
+ *     so a borrow of an attention kind followed by `release()` would unmount
+ *     the very subtree the borrower is using. Only desk kinds are borrowed
+ *     today. If an attention kind ever becomes borrowable, this state analysis
+ *     must be redone rather than assumed to carry over.
  *   · `saveWindow` is EXPORTED, so `open: false` could in principle be written
  *     without going through `closeSavedWindow`. Nothing outside windowlayout.ts
  *     calls it, so "the only writer" holds by convention, not by construction.
