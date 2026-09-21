@@ -39,6 +39,7 @@ import { OrgViewToggle } from './shell/modetoggle'
 import { useOrgViewMode } from './shell/viewmode'
 import { openOrgEffect, requestOpenOrg } from './shell/openorg'
 import { identityOrg, identityView } from './shell/identity'
+import { useOpenOrgs } from './shell/openorgs'
 import { nativeWindows } from './desktop'
 import { DefaultsForm } from './shell/defaults'
 // moved out of this file so the v3 shell's compact header and bottom status
@@ -944,6 +945,12 @@ export default function App() {
     if (bound && bound !== slug) commitSlug(bound)
   }, [v3, identity, slug])
   const [viewMode, setViewMode] = useOrgViewMode(v3 ? slug : null)
+  // which organizations already hold a window, so a Homepage row can say
+  // "Already open" before it is clicked. A LABEL ONLY — `requestOrg` decides
+  // atomically in the native registry either way (shell/openorgs.ts).
+  const openOrgs = useOpenOrgs()
+  const openElsewhere = useCallback((want: string) =>
+    openOrgs.has(want) && want !== slug, [openOrgs, slug])
   // Attention's own view lands with `add-an-attention-view`; the toggle is part
   // of the approved header and ships now, saying honestly that the destination
   // is not here yet rather than drawing an empty imitation of it.
@@ -974,6 +981,7 @@ export default function App() {
       error={orgStatus.error} currentOrg={slug} appVersion={appVersion}
       onOpenOrg={openOrgFromShell} onNewWindow={newWindow} onCreateOrg={createWindow}
       onUsage={toggleUsage}
+      isOpenElsewhere={openElsewhere}
       onOrgListOpen={setMenuOrgsOpen}
       onAppSettings={() => setShowAccounts(v => isModalPinned('app-settings') ? !v : true)} />
   )
@@ -1046,6 +1054,7 @@ export default function App() {
           <HomepageView orgs={orgs} freshness={orgStatus.freshness}
             ageMs={orgStatus.ageMs} error={orgStatus.error}
             onOpenOrg={openOrgFromShell} onCreateOrg={createWindow}
+            isOpenElsewhere={openElsewhere}
             onDelete={(o) => setDoomedOrg(o)}
             onboarding={!BASE && showOnboarding(deskPrefs, orgs.length, orgsKnown) ? (
               /* FIRST RUN OPENS THE DEDICATED CREATION WINDOW. The setup card
