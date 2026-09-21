@@ -26,6 +26,7 @@ import type { CanvasNode } from '../src/canvas/shared'
 import { USER } from '../src/canvas/shared'
 import type { OpFn, TreePayload } from '../src/types'
 import { forgetModalPins, isModalPinned, pinModal, readModalPins } from '../src/canvas/modalpin'
+import { WINDOW_LAYOUT_KEY } from '../src/windowlayout'
 import {
   attentionLayout, forgetAttentionMode, setAttentionLayout, setOrgView, SPLIT_MAX, SPLIT_MIN,
 } from '../src/attention/mode'
@@ -273,6 +274,133 @@ test('§5.2 a drag cannot squeeze either panel out of existence', async () => {
   assert.equal(shape().queue, true, 'and is still on screen')
   assert.equal(shape().desk, true)
   await v.unmount()
+})
+
+// ------------------------------------------------------------------- §7
+//
+// THE RESTORE BRANCH OF THE MOUNT RULE, which was structurally unreachable
+// until this block existed.
+//
+// `restoredWindows` is gated on `desktop()`, which reads `window.orgtreeDesktop`.
+// jsdom has no bridge, so that branch returned [] in every test above and a
+// third of the mount rule went untested — which is how f1 (the permanent
+// restore latch, found by v3-ux-review-opus at ab0365b) survived a green suite.
+// Stubbing the bridge is one line. `useRestoreWindows` reads `!!bridge &&
+// !bridge.getWindowState`, so a bare object means "restore is on", synchronously.
+
+const withDesktopBridge = () => {
+  const g = globalThis as unknown as { window: Window & { orgtreeDesktop?: unknown } }
+  g.window.orgtreeDesktop = {}
+  // jsdom does not implement window.open; MovableSurface's restore calls it.
+  // Returning null is what a blocked popup does, which is a case the surface
+  // already handles — this test is about the MOUNT rule, not about the window.
+  ;(g.window as unknown as { open: () => null }).open = () => null
+  return () => { delete g.window.orgtreeDesktop }
+}
+
+/** a saved layout recording one popped-out window of `kind`, open or closed */
+const savedWindow = (kind: string, open: boolean) => {
+  localStorage.setItem(WINDOW_LAYOUT_KEY, JSON.stringify([{
+    key: JSON.stringify([SLUG, kind]), kind, org: SLUG, open,
+    rect: { x: 100, y: 100, width: 900, height: 760 },
+  }]))
+}
+
+test('§7 a saved popped-out window gets a subtree to be restored into', async () => {
+  reset()
+  const drop = withDesktopBridge()
+  savedWindow(QUEUE_KIND, true)
+  // the organization opens on the CANVAS — the panel still has to exist, or
+  // there is nothing for the surface machinery to reopen the window into
+  const v = await mountView(view(), () => shape())
+  await inAct(() => flush())
+  assert.equal(shape().queue, true,
+    'the panel whose window the layout records as open is mounted')
+  assert.equal(shape().desk, false, 'and only that one — the other is not mounted')
+  await v.unmount()
+  drop()
+})
+
+test('§7.1 closing that window releases the panel — the restore is not a latch', async () => {
+  reset()
+  const drop = withDesktopBridge()
+  savedWindow(QUEUE_KIND, true)
+  const v = await mountView(view(), () => shape())
+  await inAct(() => flush())
+  assert.equal(shape().queue, true, 'mounted for the restore')
+
+  // the user closes that window: `closeSavedWindow` marks the row closed
+  await inAct(() => { savedWindow(QUEUE_KIND, false) })
+
+  // ⚠ REGRESSION FOR FINDING f1 (v3-ux-review-opus, 2026-09-21). The restore
+  // used to be a `useState` armed by an effect keyed on the slug, so it never
+  // cleared: nothing pinned, nothing detached, the organization on the Canvas,
+  // and the panel subtree still mounted across a full mode round trip — an
+  // invisible embedded panel holding a live DeskSlot and re-asserting itself
+  // as open through `usePersistedModalOpen`. The mount rule is read live now.
+  await inAct(() => { setOrgView(SLUG, 'attention') })
+  await inAct(() => flush())
+  await inAct(() => { setOrgView(SLUG, 'canvas') })
+  await inAct(() => flush())
+
+  assert.equal(isModalPinned(QUEUE_KIND, SLUG), false, 'nothing is pinned')
+  assert.equal(shape().queue, false,
+    'the closed window no longer holds a subtree open behind the canvas')
+  assert.equal(shape().desk, false)
+  await v.unmount()
+  drop()
+})
+
+test('§7.2 with the restore preference off, nothing is held open for it', async () => {
+  reset()
+  const g = globalThis as unknown as { window: Window & { orgtreeDesktop?: unknown } }
+  // a bridge that DOES answer getWindowState starts `useRestoreWindows` at
+  // false — no window is coming, so there is nothing to keep a subtree for
+  g.window.orgtreeDesktop = { getWindowState: () => new Promise(() => {}), onEvent: () => () => {} }
+  savedWindow(QUEUE_KIND, true)
+  const v = await mountView(view(), () => shape())
+  await inAct(() => flush())
+  assert.equal(shape().queue, false,
+    'the same hook MovableSurface gates its restore on gates this, so they cannot disagree')
+  await v.unmount()
+  delete g.window.orgtreeDesktop
+})
+
+// ------------------------------------------------------------------- §8
+test('§8 the Desk panel is eligible for the registry only when it is on screen', async () => {
+  reset()
+  const eligible = () =>
+    document.querySelector('.attn-desk')?.getAttribute('data-attn-desk-eligible') ?? null
+
+  setOrgView(SLUG, 'attention')
+  const v = await mountView(view(), () => shape())
+  await inAct(() => flush())
+  assert.equal(eligible(), 'yes', 'the presented stage is a visible destination')
+
+  // pinned, then back to the canvas: the panel is its own window and the user
+  // put it there, so it stays eligible — the coordinator's rule that the flag
+  // must never disable a pinned panel still visible on the Canvas
+  await inAct(() => { pinModal(DESK_KIND, { x: 10, y: 10, w: 500, h: 500 }, SLUG) })
+  await inAct(() => { setOrgView(SLUG, 'canvas') })
+  await inAct(() => flush())
+  assert.equal(shape().desk, true)
+  assert.equal(eligible(), 'yes', 'a pinned panel on the Canvas is still on screen')
+  await v.unmount()
+})
+
+test('§8.1 a panel mounted only for a pending restore is NOT eligible', async () => {
+  reset()
+  const drop = withDesktopBridge()
+  savedWindow(DESK_KIND, true)
+  const v = await mountView(view(), () => shape())
+  await inAct(() => flush())
+  assert.equal(shape().desk, true, 'mounted, because a window is being restored into it')
+  assert.equal(
+    document.querySelector('.attn-desk')?.getAttribute('data-attn-desk-eligible'), 'no',
+    'but embedded inside a hidden stage — its desk must not take ownership from '
+    + 'the Canvas desk the user is actually looking at')
+  await v.unmount()
+  drop()
 })
 
 test('§6 the header toggle is what moves between the two views', async () => {

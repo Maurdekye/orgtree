@@ -36,10 +36,8 @@ import type { ToastFn, TreePayload } from '../types'
 import type { CanvasNode, OpFn, Pt } from '../canvas/shared'
 import type { DeskChatProps } from '../canvas/desk'
 import type { TypedRef } from '../canvas/workrefs'
-import {
-  isModalPinned, PinFrame, readModalOpen, unpinModal, useModalPin, usePersistedModalOpen,
-} from '../canvas/modalpin'
-import { restoredWindows } from '../windowlayout'
+import { PinFrame, unpinModal, useModalPin, usePersistedModalOpen } from '../canvas/modalpin'
+import { restoredWindows, useRestoreWindows, WINDOW_LAYOUT_KEY } from '../windowlayout'
 import { openSurfaces, subscribeWindows, windowRevision } from '../windowlife'
 import { LanIcon, NotificationsActiveIcon } from '../icons'
 import { AttentionQueue } from './AttentionQueue'
@@ -57,18 +55,71 @@ import './attention.css'
 export const QUEUE_KIND = 'attention-queue'
 export const DESK_KIND = 'attention-desk'
 
-/** Is a surface of this kind popped out into its own window RIGHT NOW, in this
- *  organization? `windowlife` is the canonical registry every movable surface
- *  registers with; asking it is what makes this reactive without a second
- *  copy of the truth. The org is part of the question — another organization's
- *  window of the same kind is not this one. */
-function useDetachedKind(kind: string, org: string | null): boolean {
+/** Which of this view's panels are popped out into their own window RIGHT NOW,
+ *  in this organization? `windowlife` is the canonical registry every movable
+ *  surface registers with; asking it is what makes this reactive without a
+ *  second copy of the truth. The org is part of the question — another
+ *  organization's window of the same kind is not this one. */
+function useDetachedHere(org: string | null): { queue: boolean; desk: boolean } {
   const revision = useSyncExternalStore(subscribeWindows, windowRevision, windowRevision)
-  return useMemo(
-    () => openSurfaces().some((s) => s.kind === kind && s.org === org),
+  return useMemo(() => {
+    const here = openSurfaces().filter((s) => s.org === org)
+    return {
+      queue: here.some((s) => s.kind === QUEUE_KIND),
+      desk: here.some((s) => s.kind === DESK_KIND),
+    }
     // `revision` is the dependency that matters: the registry is mutable and
     // its identity never changes, so the revision is what says it moved.
-    [revision, kind, org])
+  }, [revision, org])
+}
+
+/**
+ * Is the surface machinery still going to restore a saved window of this kind
+ * into this view? A saved window can only be reopened into a subtree that is
+ * MOUNTED, so a panel whose window the layout records as open has to exist even
+ * when the organization opens on the Canvas.
+ *
+ * ⚠ READ LIVE, NEVER LATCHED, and this is the whole of the fix for the stage
+ * review's finding f1. This used to be a `useState` armed by an effect that
+ * returned early whenever the slug was unchanged — which made it a PERMANENT
+ * keep-alive rather than the first-render restore window its own comment
+ * described. A panel restored because the layout said its popped-out window was
+ * open then stayed mounted after the user CLOSED that window: nothing pinned,
+ * nothing detached, the organization on the Canvas, and the subtree still
+ * there across a full mode round trip. Invisible (`.attn-stage-off` is
+ * `display: none`), but for the Desk panel it is a live `DeskSlot` competing
+ * under `Desks.put` for ownership of the very agent the user is looking at on
+ * the Canvas, and `usePersistedModalOpen` kept re-asserting a panel the user
+ * had closed as open.
+ *
+ * Read as a live question it is self-correcting: `closeSavedWindow` clears the
+ * row the moment the window goes, so the next render of this component — a
+ * mode switch, a pin, a poll — sees it gone and lets the subtree go with it.
+ *
+ * ⚠ THE RAW STRING IS THE DEPENDENCY, not a parse on every render. The saved
+ * layout has no store to subscribe to, so the cheap read (one `getItem`) gates
+ * the expensive one (`JSON.parse` + filter). An external write — which is
+ * exactly what closing a window is — changes the string, and any later render
+ * picks it up.
+ *
+ * ⚠ GATED ON `useRestoreWindows`. If this installation is not going to restore
+ * windows at all, there is no window coming and nothing to hold a subtree open
+ * for. It is the same hook `MovableSurface` itself gates its restore on, so the
+ * two cannot disagree about whether a restore is going to happen.
+ */
+function useAwaitingRestore(org: string | null): { queue: boolean; desk: boolean } {
+  const restoreAllowed = useRestoreWindows()
+  let raw: string | null = null
+  try { raw = localStorage.getItem(WINDOW_LAYOUT_KEY) } catch { raw = null }
+  return useMemo(() => {
+    if (!restoreAllowed) return { queue: false, desk: false }
+    const rows = restoredWindows(org)
+    return {
+      queue: rows.some((r) => r.kind === QUEUE_KIND),
+      desk: rows.some((r) => r.kind === DESK_KIND),
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [org, restoreAllowed, raw])
 }
 
 export interface AttentionViewProps {
@@ -102,30 +153,19 @@ export function AttentionView(props: AttentionViewProps) {
   // whether the view is the one on screen.
   const queuePinned = useModalPin(QUEUE_KIND, slug) !== null
   const deskPinned = useModalPin(DESK_KIND, slug) !== null
-  const queueOut = useDetachedKind(QUEUE_KIND, slug)
-  const deskOut = useDetachedKind(DESK_KIND, slug)
+  const detached = useDetachedHere(slug)
+  const awaiting = useAwaitingRestore(slug)
+  const queueOut = detached.queue
+  const deskOut = detached.desk
 
-  // A window saved as open is restored by the surface machinery — but only if
-  // the surface is MOUNTED to be restored into. On the first render for an
-  // organization, mount whatever its saved layout says was left open, even
-  // when the organization itself opens on the canvas.
-  const [restored, setRestored] = useState<{ slug: string; queue: boolean; desk: boolean }>(
-    { slug: '', queue: false, desk: false })
-  useEffect(() => {
-    if (restored.slug === slug) return
-    const rows = restoredWindows(slug)
-    const open = readModalOpen(slug)
-    const was = (kind: string) =>
-      rows.some((r) => r.kind === kind)
-      || open.some((r) => r.kind === kind && isModalPinned(kind, slug))
-    setRestored({ slug, queue: was(QUEUE_KIND), desk: was(DESK_KIND) })
-  }, [slug, restored.slug])
-  const restoredHere = restored.slug === slug
-
-  const queueKept = queuePinned || queueOut || (restoredHere && restored.queue)
-  const deskKept = deskPinned || deskOut || (restoredHere && restored.desk)
-  const queueOn = active || queueKept
-  const deskOn = active || deskKept
+  // THE MOUNT RULE, and it is a claim that has to keep being true rather than
+  // one established once: a panel exists on the Canvas exactly while it is
+  // pinned, popped out, or still waiting for a saved window to be restored
+  // into it. All three are read live, so each of them RELEASES the subtree as
+  // soon as it stops holding — see useAwaitingRestore for what went wrong when
+  // the third was latched instead.
+  const queueOn = active || queuePinned || queueOut || awaiting.queue
+  const deskOn = active || deskPinned || deskOut || awaiting.desk
 
   usePersistedModalOpen(QUEUE_KIND, slug, queueOn)
   usePersistedModalOpen(DESK_KIND, slug, deskOn)
@@ -135,6 +175,30 @@ export function AttentionView(props: AttentionViewProps) {
   const queueEmbedded = queueOn && !queuePinned && !queueOut
   const deskEmbedded = deskOn && !deskPinned && !deskOut
   const dividable = active && queueEmbedded && deskEmbedded
+
+  /**
+   * IS THE DESK PANEL'S DESTINATION ON SCREEN? — the `eligible` question the
+   * desk registry asks (v3-effort-opus's host-slot interface rev 1, and
+   * multi-window-design's refinement that the flag means the visibility of the
+   * EMBEDDED DESTINATION and never "which org view is selected").
+   *
+   * True in three arrangements, and they are not the same as the three that
+   * keep the panel MOUNTED:
+   *   · the Attention stage is presented (the panel is embedded and visible)
+   *   · the panel is pinned — its own window, visible in either view
+   *   · the panel is popped out — its own native window, visible in either view
+   *
+   * It is deliberately FALSE for the fourth: mounted only because a saved
+   * window is still being restored into it. That panel is embedded inside a
+   * hidden stage, so its desk must not take ownership from the Canvas desk the
+   * user is actually looking at. That is precisely the category finding f1 was
+   * about, and it is the case this flag exists to cover — which is why the two
+   * are fixed in one change rather than one relying on the other.
+   *
+   * A pinned or popped-out Attention panel stays ELIGIBLE while the
+   * organization is on the Canvas. It is on screen; the user put it there.
+   */
+  const deskEligible = active || deskPinned || deskOut
 
   const stageRef = useRef<HTMLDivElement>(null)
   const drag = useRef<number | null>(null)
@@ -229,6 +293,7 @@ export function AttentionView(props: AttentionViewProps) {
             close={() => unpinModal(DESK_KIND, slug)}>
             <AgentDeskPanel slug={slug} tree={props.tree} op={props.op}
               toast={props.toast} map={props.map} posOf={props.posOf}
+              eligible={deskEligible}
               deskExtras={props.deskExtras} />
           </PinFrame>
         </div>

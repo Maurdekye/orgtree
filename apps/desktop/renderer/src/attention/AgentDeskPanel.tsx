@@ -53,9 +53,43 @@ export interface AgentDeskPanelProps {
    *  links, docket links, documents). Passed through untouched — this panel
    *  invents none of them and supplies no stubs. */
   deskExtras?: Partial<DeskChatProps>
+  /** IS THIS PANEL'S DESTINATION ON SCREEN? Forwarded to the desk registry as
+   *  `eligible`: may this slot own the one live desk right now, because the
+   *  place it would draw in is visible and reachable?
+   *
+   *  The view decides it (see `deskEligible` in AttentionView) — this panel
+   *  cannot, because the answer depends on the mode and on the panel's own
+   *  surface, and a panel does not know whether the stage it sits in is the
+   *  presented one. Defaults to true, which is the registry's own default and
+   *  the right answer for any host that renders this panel on its own. */
+  eligible?: boolean
 }
 
 interface ListRow { node: CanvasNode; depth: number }
+
+/**
+ * The `eligible` prop, handed to `DeskSlot`.
+ *
+ * ⚠ THIS CAST IS TEMPORARY AND IT IS LOAD-BEARING WHEN IT GOES AWAY. The desk
+ * registry's ownership picker gains `eligible` in v3-effort-opus's host-slot
+ * change (interface rev 1, 2026-09-21); `DeskChatProps` does not carry it yet,
+ * and this file may not edit that shared type. So the value is assembled here,
+ * in ONE named place, instead of being cast at the call site where it would
+ * read as noise and be forgotten.
+ *
+ * Until deskhosts lands, React passes an unknown prop straight through to the
+ * desk, which ignores it — so this is inert rather than wrong. The moment the
+ * shared type carries `eligible`, DELETE THIS FUNCTION and spread the prop
+ * directly: the compiler will then be checking the name for us, which is the
+ * whole reason not to leave a cast lying about.
+ *
+ * What is NOT deferred: the panel already computes and publishes the answer
+ * (`data-attn-desk-eligible`), and attentionview.test.tsx asserts it, so the
+ * decision this flag carries is under test today and only its delivery is
+ * waiting.
+ */
+const deskEligibility = (eligible: boolean): Partial<DeskChatProps> =>
+  ({ eligible } as unknown as Partial<DeskChatProps>)
 
 /** Every agent, in the host's own visual order, each superior immediately
  *  followed by its subtree — the Agents List's hierarchy rule. */
@@ -113,7 +147,7 @@ export function defaultAgent(
 }
 
 export function AgentDeskPanel({
-  slug, tree, op, toast, map, posOf, deskExtras,
+  slug, tree, op, toast, map, posOf, deskExtras, eligible = true,
 }: AgentDeskPanelProps) {
   const layout = useAttentionLayout(slug)
   const [query, setQuery] = useState('')
@@ -218,11 +252,16 @@ export function AgentDeskPanel({
         ))}
         {!rows.length && <div className="dim pad">no agents match</div>}
       </div>
-      <div className="attn-desk">
+      {/* `data-attn-desk-eligible` is this panel's own answer to the registry's
+          question, written where it can be read — in a test, and in the real
+          renderer's inspector while chasing a desk that went to the wrong
+          slot. It is the same value handed to `DeskSlot` below. */}
+      <div className="attn-desk" data-attn-desk-eligible={eligible ? 'yes' : 'no'}>
         {selected
           ? <DeskSlot bare node={selected} map={map} op={op} slug={slug} toast={toast}
               pub={!!tree.public}
               maxTop={tree.max_top_grant ?? 1000}
+              {...deskEligibility(eligible)}
               {...deskExtras} />
           : <div className="dim pad attn-desk-empty">
               This organization has no agent to open a desk for yet.
