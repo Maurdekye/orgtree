@@ -26,7 +26,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { MailList, MailReplyBox } from '../src/canvas/mail'
 import { DeskChat } from '../src/canvas/desk'
-import { setNoticeArmed } from '../src/noticestore'
+import { resetNoticeStore, setNoticeArmed } from '../src/noticestore'
 import { resetConvos } from '../src/convo'
 import type { CanvasNode, MailEntry } from '../src/types'
 
@@ -88,7 +88,7 @@ test('§1b the desk composer renders the paperclip — the control that changed'
   async () => {
   localStorage.clear()
   resetConvos()
-  setNoticeArmed(false)
+  resetNoticeStore()
   installFetch(new FakeServer())
   const node: CanvasNode = {
     id: 'agent-a', generation: 1, state: 'live', tier: 'haiku', children: [],
@@ -113,7 +113,7 @@ test('§1c the reply composer renders the SAME paperclip — compared as DRAWN '
   + 'path data, because "the same name" is not the same picture', async () => {
   localStorage.clear()
   resetConvos()
-  setNoticeArmed(false)
+  resetNoticeStore()
   installFetch(new FakeServer())
   const node: CanvasNode = {
     id: 'agent-a', generation: 1, state: 'live', tier: 'haiku', children: [],
@@ -277,11 +277,11 @@ test('§2e armed state does NOT leak between composers — it is per box, not a 
     assert.equal(t('.two').classList.contains('armed'), false,
       'the second composer did not inherit the first one\'s armed state')
     // and the DESK\'s global store is not what drives these
-    setNoticeArmed(true)
+    setNoticeArmed('org/a', true)
     await flush()
     assert.equal(t('.two').classList.contains('armed'), false,
       'nor does the desk composer\'s global noticestore reach in here')
-    setNoticeArmed(false)
+    resetNoticeStore()
   } finally { await view.unmount() }
 })
 

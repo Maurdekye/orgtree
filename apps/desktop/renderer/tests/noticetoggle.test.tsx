@@ -33,29 +33,35 @@ const map = new Map<string, CanvasNode>([
   [agentC.id, agentC],
 ])
 
-test('noticestore holds armed state, toggles, and notifies subscribers', () => {
-  setNoticeArmed(false)
-  assert.equal(isNoticeArmed(), false)
+test('noticestore holds armed state per chat key, toggles, and notifies subscribers', () => {
+  // EVERY accessor takes an explicit chat key: the store has no unkeyed path,
+  // by design, so that no caller can ask 'is it armed' without saying which chat.
+  const KEY = 'org/test-chat'
+  resetNoticeStore()
+  assert.equal(isNoticeArmed(KEY), false)
 
-  let called = 0
-  const toggleRes = toggleNoticeArmed()
+  const toggleRes = toggleNoticeArmed(KEY)
   assert.equal(toggleRes, true)
-  assert.equal(isNoticeArmed(), true)
+  assert.equal(isNoticeArmed(KEY), true)
 
-  const toggleRes2 = toggleNoticeArmed()
+  const toggleRes2 = toggleNoticeArmed(KEY)
   assert.equal(toggleRes2, false)
-  assert.equal(isNoticeArmed(), false)
+  assert.equal(isNoticeArmed(KEY), false)
 
-  setNoticeArmed(true)
-  assert.equal(isNoticeArmed(), true)
-  setNoticeArmed(false)
-  assert.equal(isNoticeArmed(), false)
+  setNoticeArmed(KEY, true)
+  assert.equal(isNoticeArmed(KEY), true)
+  setNoticeArmed(KEY, false)
+  assert.equal(isNoticeArmed(KEY), false)
+
+  // a SECOND chat is untouched by all of the above
+  assert.equal(isNoticeArmed('org/other-chat'), false)
+  resetNoticeStore()
 })
 
 test('desk composer renders notice toggle ABOVE attach, toggles on click and Alt+N, and reflects notice-armed class', async () => {
   localStorage.clear()
   resetConvos()
-  setNoticeArmed(false)
+  resetNoticeStore()
 
   const server = new FakeServer()
   installFetch(server)
@@ -89,7 +95,7 @@ test('desk composer renders notice toggle ABOVE attach, toggles on click and Alt
     await inAct(() => {
       toggleBtn.click()
     })
-    assert.equal(isNoticeArmed(), true, 'store is armed after click')
+    assert.equal(isNoticeArmed('org/agent-a'), true, 'store is armed after click')
     assert.equal(composer.classList.contains('notice-armed'), true, 'composer has notice-armed class')
     assert.equal(toggleBtn.classList.contains('armed'), true, 'toggle button has armed class')
 
@@ -97,7 +103,7 @@ test('desk composer renders notice toggle ABOVE attach, toggles on click and Alt
     await inAct(() => {
       toggleBtn.click()
     })
-    assert.equal(isNoticeArmed(), false, 'store is disarmed after second click')
+    assert.equal(isNoticeArmed('org/agent-a'), false, 'store is disarmed after second click')
     assert.equal(composer.classList.contains('notice-armed'), false, 'composer loses notice-armed class')
 
     // Alt+N to toggle on
@@ -105,7 +111,7 @@ test('desk composer renders notice toggle ABOVE attach, toggles on click and Alt
       const event = new KeyboardEvent('keydown', { key: 'n', altKey: true, bubbles: true, cancelable: true })
       window.dispatchEvent(event)
     })
-    assert.equal(isNoticeArmed(), true, 'Alt+N armed the toggle')
+    assert.equal(isNoticeArmed('org/agent-a'), true, 'Alt+N armed the toggle')
     assert.equal(composer.classList.contains('notice-armed'), true, 'composer has notice-armed class via Alt+N')
 
     // Alt+N to toggle off
@@ -113,11 +119,11 @@ test('desk composer renders notice toggle ABOVE attach, toggles on click and Alt
       const event = new KeyboardEvent('keydown', { key: 'N', altKey: true, bubbles: true, cancelable: true })
       window.dispatchEvent(event)
     })
-    assert.equal(isNoticeArmed(), false, 'Alt+N toggled off')
+    assert.equal(isNoticeArmed('org/agent-a'), false, 'Alt+N toggled off')
     assert.equal(composer.classList.contains('notice-armed'), false, 'composer loses notice-armed class via Alt+N')
   } finally {
     await view.unmount()
-    setNoticeArmed(false)
+    resetNoticeStore()
     resetConvos()
   }
 })
@@ -125,7 +131,7 @@ test('desk composer renders notice toggle ABOVE attach, toggles on click and Alt
 test('notice toggle disarms on SEND ONLY — does not disarm on Escape, text clearing, or switching recipient', async () => {
   localStorage.clear()
   resetConvos()
-  setNoticeArmed(true)
+  setNoticeArmed('org/agent-a', true)
 
   const server = new FakeServer()
   installFetch(server)
@@ -133,7 +139,7 @@ test('notice toggle disarms on SEND ONLY — does not disarm on Escape, text cle
   // 1. Escape key does NOT disarm
   const escEvent = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
   window.dispatchEvent(escEvent)
-  assert.equal(isNoticeArmed(), true, 'Escape does NOT disarm notice-send')
+  assert.equal(isNoticeArmed('org/agent-a'), true, 'Escape does NOT disarm notice-send')
 
   // 2. Desk with agentA: clearing text does NOT disarm
   const deskA = () => <DeskChat node={agentA} map={map} slug="org"
@@ -148,13 +154,13 @@ test('notice toggle disarms on SEND ONLY — does not disarm on Escape, text cle
       textarea.value = 'hello'
       textarea.dispatchEvent(new Event('change', { bubbles: true }))
     })
-    assert.equal(isNoticeArmed(), true, 'typing leaves armed')
+    assert.equal(isNoticeArmed('org/agent-a'), true, 'typing leaves armed')
 
     await inAct(() => {
       textarea.value = ''
       textarea.dispatchEvent(new Event('change', { bubbles: true }))
     })
-    assert.equal(isNoticeArmed(), true, 'clearing text leaves armed')
+    assert.equal(isNoticeArmed('org/agent-a'), true, 'clearing text leaves armed')
   } finally {
     await viewA.unmount()
   }
@@ -191,7 +197,7 @@ test('notice toggle disarms on SEND ONLY — does not disarm on Escape, text cle
 test('sending when armed sends notice: true, disarms toggle, marks ghost as notice, and does NOT call markBusy', async () => {
   localStorage.clear()
   resetConvos()
-  setNoticeArmed(true)
+  setNoticeArmed('org/agent-a', true)
 
   const server = new FakeServer()
   installFetch(server)
@@ -228,7 +234,7 @@ test('sending when armed sends notice: true, disarms toggle, marks ghost as noti
       textarea.dispatchEvent(new Event('change', { bubbles: true }))
     })
 
-    assert.equal(isNoticeArmed(), true, 'armed before send')
+    assert.equal(isNoticeArmed('org/agent-a'), true, 'armed before send')
 
     // Click send
     await inAct(async () => {
@@ -242,12 +248,12 @@ test('sending when armed sends notice: true, disarms toggle, marks ghost as noti
     assert.equal(sentPayload.notice, true, 'sent with notice: true')
 
     // 2. Toggle disarms on send
-    assert.equal(isNoticeArmed(), false, 'toggle disarmed after send')
+    assert.equal(isNoticeArmed('org/agent-a'), false, 'toggle disarmed after send')
     assert.equal(composer.classList.contains('notice-armed'), false, 'composer no longer armed')
   } finally {
     globalThis.fetch = originalFetch
     await view.unmount()
-    setNoticeArmed(false)
+    resetNoticeStore()
     resetConvos()
   }
 })
