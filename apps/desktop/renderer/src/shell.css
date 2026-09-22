@@ -180,6 +180,25 @@
   .shell-header-actions { gap: 0; }
 }
 
+/* The real App also carries Work, Inbox and the kill switch. At the native
+ * 640px minimum their intrinsic widths used to overflow the flex region and
+ * cover Refresh. Compact only this shell, keeping both mode labels and every
+ * action; other native window-control surfaces retain their normal sizing. */
+@container shellheader (max-width: 760px) {
+  .shell-header-main { gap: 4px; }
+  .shell-header-gap { min-width: 0; }
+  .shell-header-main .shell-menu-button { padding-inline: 6px; }
+  .shell-header-main .shell-mode { padding-inline: 8px; }
+  .shell-header-actions .shell-action,
+  .shell-header-actions .iconbtn { padding-inline: 6px; }
+  /* Arming STOP ALL (or showing HALTED — RELEASE) needs a full-width action
+   * row, rather than squeezing the org name or covering native controls. */
+  .shell-header-main:has(.kill-btn.expanded, .kill-release) { flex-wrap: wrap; padding-block: 4px; }
+  .shell-header-main:has(.kill-btn.expanded, .kill-release) .shell-header-actions { flex-basis: 100%; justify-content: flex-end; }
+  .shell-header > .window-controls { margin-left: 0; }
+  .shell-header > .window-controls .window-control { flex-basis: 32px; width: 32px; }
+}
+
 /* the same treatment for the two existing icon buttons that opt into a word */
 .shell-header-actions .iconbtn {
   display: inline-flex;

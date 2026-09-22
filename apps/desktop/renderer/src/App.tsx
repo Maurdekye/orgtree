@@ -334,7 +334,13 @@ const slugFromPath = () => {
 export default function App() {
   // apply the stored desk text size before anything renders a desk
   useEffect(() => { setDeskDpi(deskDpi()) }, [])
-  const [slug, commitSlug] = useState<string | null>(() => slugFromPath() ?? (desktop() ? (() => { try { return localStorage.getItem('orgtree-desktop-last-org') } catch { return null } })() : null))   // /o/<slug> survives refresh
+  const identity = useWindowIdentity()
+  const v3 = nativeWindows()
+  // Native identity owns the organization from the first render. A fresh
+  // Homepage/Create window must not fetch or route to another window's last
+  // organization while waiting for an effect to reconcile its identity.
+  const [slug, commitSlug] = useState<string | null>(() => v3 ? identityOrg(identity)
+    : slugFromPath() ?? (desktop() ? (() => { try { return localStorage.getItem('orgtree-desktop-last-org') } catch { return null } })() : null))   // browser/v2 /o/<slug> survives refresh
   const [tree, setTree] = useState<TreePayload | null>(null)
   const { request: setSlug, prompt: orgTransitionPrompt } = useOrgTransition(slug, commitSlug, BASE)
   const [toasts, setToasts] = useState<Toast[]>([])
@@ -484,7 +490,6 @@ export default function App() {
   const [nativeTarget, setNativeTarget] = useState<DesktopNotice | null>(null)
   // WHICH WINDOW THIS IS (v3). `null` in a browser and in the shipped
   // single-window shell, where every branch below reads exactly as it did.
-  const identity = useWindowIdentity()
   // exactly one live window carries the app-wide notification duties; every
   // window still handles the click aimed at it (see notifications.ts)
   const notifyOwner = ownsNotifications(identity)
@@ -843,9 +848,10 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
   useEffect(() => {                    // the active org lives in the path
-    const want = BASE + (slug ? `/o/${slug}` : '/')
+    const routeOrg = v3 ? identityOrg(identity) : slug
+    const want = BASE + (routeOrg ? `/o/${routeOrg}` : '/')
     if (location.pathname !== want) history.pushState(null, '', want)
-  }, [slug])
+  }, [slug, v3, identity])
   useEffect(() => {                    // №38: the tab title carries the unread
     // ⚠ the USER's inbox only. Org-inbox mail is addressed to the organization
     // and answered by its agents, so counting it here billed the user for
@@ -872,7 +878,9 @@ export default function App() {
     invalidateStaffingOptions()
     void prefetchStaffingOptions(slug).catch(() => {})
   }, [slug])
-  useEffect(() => { if (desktop()) { try { if (slug) localStorage.setItem('orgtree-desktop-last-org', slug); else localStorage.removeItem('orgtree-desktop-last-org') } catch {} } }, [slug])
+  // The v2 last-org key is neither native window identity nor the native
+  // restore set. Homepage/Create must not overwrite another window's seed.
+  useEffect(() => { if (desktop() && !v3) { try { if (slug) localStorage.setItem('orgtree-desktop-last-org', slug); else localStorage.removeItem('orgtree-desktop-last-org') } catch {} } }, [slug, v3])
   useEffect(() => {
     if (!slug) return
     // the WS must SURVIVE backend restarts (updates, redeploys): without
@@ -1013,7 +1021,6 @@ export default function App() {
   // shell that can neither open a Homepage window nor bind one. `requestOrg` is
   // the capability, and where it is absent every branch below falls through to
   // the sidebar-and-drawer app exactly as it is on main today.
-  const v3 = nativeWindows()
   const shellView = identityView(identity)
   // In a v3 window the bound organization IS the identity's, and nothing else
   // may set it: a bound window never changes organization, so this commits
@@ -1022,7 +1029,7 @@ export default function App() {
   useEffect(() => {
     if (!v3) return
     const bound = identityOrg(identity)
-    if (bound && bound !== slug) commitSlug(bound)
+    if (bound !== slug) commitSlug(bound)
   }, [v3, identity, slug])
   // ⚠ ONE MODULE OWNS THE VIEW KEY. `shell/viewmode.ts` existed only so the
   // compact header was not blocked on a module in another worktree; it is
