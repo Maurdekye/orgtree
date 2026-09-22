@@ -14,6 +14,7 @@ a counter read without the assigned maximum, an ordinal re-minted on fold-back,
 a migration that relabels itself `deposit` — and passes only against one that
 keeps the distinction.
 """
+import copy
 import os
 from pathlib import Path
 import sys
@@ -672,6 +673,118 @@ class UnresolvedStateIsRefused(Base):
             self.org.mailbox_receive_order_anomalies('worker')['conflicts'], [])
 
 
+class TheFloorOutlivesTheRows(Base):
+    """A migration that allocates nothing still has to record how far the
+    mailbox has counted.
+
+    `_allocate_recv_seq(to, 0)` computes the floor and writes nothing, which is
+    invisible while the rows are still there — the next deposit re-derives the
+    floor from them. Owner preflight of 3d45fd5 measured what happens when they
+    are not: a mailbox whose one surviving row was ordinal 9 and whose counter
+    was missing migrated cleanly, lost its rows to retention, and handed the
+    next real message ordinal 1."""
+
+    def assigned_only(self, stored='absent', seq=9):
+        n = self.org.node('worker')
+        if stored != 'absent':
+            n['mail_seq'] = stored
+        n['mailbox_id'] = 'retained-mailbox'
+        row = {'id': 'previous', 'from': 'x', 'kind': 'message',
+               'at': '2026-01-01T00:00:00.000Z', 'body': 'b', 'recv_seq': seq,
+               'seq_origin': 'deposit', 'mailbox': 'retained-mailbox'}
+        self.org.d['mail'] = {'worker': [dict(row)]}
+        self.org.d['mail_log'] = {'worker': [dict(row)]}
+        return self.org.migrate_mail_receive_order(
+            ['worker'], expect_stored={'worker':
+                                       None if stored == 'absent' else stored})
+
+    def retain_everything(self):
+        self.org.d['mail']['worker'].clear()
+        self.org.d['mail_log']['worker'].clear()
+
+    def test_a_missing_counter_is_raised_to_the_assigned_floor(self):
+        report = self.assigned_only(stored='absent')
+        self.assertEqual(report['allocated'], 0)
+        self.assertEqual(report['mailboxes']['worker']['preserved'], 1)
+        self.assertTrue(report['mailboxes']['worker']['floor_persisted'])
+        self.assertEqual(self.org.node('worker')['mail_seq'], 9)
+
+    def test_a_counter_BEHIND_its_rows_is_raised_to_the_floor(self):
+        self.assigned_only(stored=1)
+        self.assertEqual(self.org.node('worker')['mail_seq'], 9)
+
+    def test_a_counter_AHEAD_of_its_rows_is_left_alone(self):
+        report = self.assigned_only(stored=12)
+        self.assertFalse(report['mailboxes']['worker']['floor_persisted'])
+        self.assertEqual(self.org.node('worker')['mail_seq'], 12)
+
+    # the whole point of all three: the rows the floor was read from are gone,
+    # and the mailbox must still not reuse a position it has already used
+
+    def test_after_retention_a_MISSING_counter_still_clears_the_old_ordinal(self):
+        self.assigned_only(stored='absent')
+        self.retain_everything()
+        self.send('after synthetic retention')
+        self.assertEqual(self.box()[-1]['recv_seq'], 10)
+
+    def test_after_retention_a_BEHIND_counter_still_clears_the_old_ordinal(self):
+        self.assigned_only(stored=1)
+        self.retain_everything()
+        self.send('after synthetic retention')
+        self.assertEqual(self.box()[-1]['recv_seq'], 10)
+
+    def test_after_retention_an_AHEAD_counter_continues_from_itself(self):
+        self.assigned_only(stored=12)
+        self.retain_everything()
+        self.send('after synthetic retention')
+        self.assertEqual(self.box()[-1]['recv_seq'], 13)
+
+    def test_persisting_the_floor_rewrites_no_message(self):
+        self.assigned_only(stored='absent')
+        row = self.box()[0]
+        self.assertEqual((row['id'], row['recv_seq'], row['seq_origin'],
+                          row['mailbox']),
+                         ('previous', 9, 'deposit', 'retained-mailbox'))
+
+    def test_a_second_pass_persists_the_same_floor_and_changes_nothing(self):
+        self.assigned_only(stored='absent')
+        snapshot = [dict(r) for r in self.box()]
+        again = self.org.migrate_mail_receive_order(
+            ['worker'], expect_stored={'worker': 9})
+        self.assertEqual(again['allocated'], 0)
+        self.assertFalse(again['mailboxes']['worker']['floor_persisted'])
+        self.assertEqual(self.org.node('worker')['mail_seq'], 9)
+        self.assertEqual(self.box(), snapshot)
+
+    def test_an_empty_mailbox_still_gets_no_counter(self):
+        report = self.org.migrate_mail_receive_order(['worker'])
+        self.assertEqual(report['floors_persisted'], 0)
+        self.assertNotIn('mail_seq', self.org.node('worker'))
+
+    def test_a_REFUSED_mailbox_persists_no_floor(self):
+        self.org.node('worker')['mailbox_id'] = 'mbox'
+        base = {'from': 'x', 'kind': 'message',
+                'at': '2026-01-01T00:00:00.000Z', 'body': 'b',
+                'mailbox': 'mbox'}
+        self.org.d['mail'] = {'worker': [
+            dict(base, id='first', recv_seq=4), dict(base, id='second', recv_seq=4)]}
+        report = self.org.migrate_mail_receive_order(['worker'])
+        self.assertEqual(report['floors_persisted'], 0)
+        self.assertNotIn('mail_seq', self.org.node('worker'))
+
+    def test_a_STALE_mailbox_persists_no_floor(self):
+        self.org.node('worker')['mailbox_id'] = 'mbox'
+        self.org.node('worker')['mail_seq'] = 3
+        self.org.d['mail'] = {'worker': [
+            {'id': 'a', 'from': 'x', 'kind': 'message', 'mailbox': 'mbox',
+             'at': '2026-01-01T00:00:00.000Z', 'body': 'b', 'recv_seq': 9}]}
+        report = self.org.migrate_mail_receive_order(
+            ['worker'], expect_stored={'worker': 0})     # somebody else wrote
+        self.assertEqual([s['mailbox'] for s in report['stale']], ['worker'])
+        self.assertEqual(report['floors_persisted'], 0)
+        self.assertEqual(self.org.node('worker')['mail_seq'], 3)
+
+
 class AnUnsupportedCounterIsNotAnAbsentOne(Base):
     """`expect_stored: None` is a claim: "I observed this mailbox to have no
     counter." Normalising a stored string to None makes that claim compare
@@ -714,6 +827,34 @@ class AnUnsupportedCounterIsNotAnAbsentOne(Base):
         self.assertTrue(state['stored_present'])
         self.assertFalse(state['stored_supported'])
         self.assertEqual(state['stored_type'], 'str')
+
+    def test_an_explicit_NULL_counter_is_present_data_not_an_absent_key(self):
+        # the declared domain is a PRESENT non-bool int >= 0, and `None` is
+        # not in it. Reading the value instead of the key collapsed a stored
+        # null into a missing one, so `expect_stored=None` — an honest claim
+        # of "I observed no counter" — matched it and overwrote it.
+        self.org.node('worker')['mail_seq'] = None
+        self.legacy('worker', {'id': 'a', 'from': 'x', 'kind': 'message',
+                               'at': '2026-01-01T00:00:00.000Z', 'body': 'a'})
+        state = self.org.mail_seq_state('worker')
+        self.assertTrue(state['stored_present'])
+        self.assertFalse(state['stored_supported'])
+        self.assertEqual(state['stored_type'], 'NoneType')
+        before = copy.deepcopy(self.org.d)
+        report = self.org.migrate_mail_receive_order(
+            ['worker'], expect_stored={'worker': None})
+        self.assertEqual([(e['mailbox'], e['reason'], e['stored_type'])
+                          for e in report['refused']],
+                         [('worker', 'unsupported_stored', 'NoneType')])
+        self.assertEqual(report['allocated'], 0)
+        self.assertIsNone(self.org.node('worker')['mail_seq'])
+        self.assertEqual(self.org.d, before)
+
+    def test_a_deposit_into_a_null_counter_still_delivers(self):
+        # the deposit door stays tolerant: refusing here loses a message.
+        self.org.node('worker')['mail_seq'] = None
+        self.send('a')
+        self.assertEqual(self.box()[-1]['recv_seq'], 1)
 
     def test_an_ORDINARY_missing_counter_stays_eligible(self):
         # the legacy case the migration exists for must not be caught by any

@@ -2365,10 +2365,17 @@ class Org:
         which: a mailbox reading `stored=None, stored_present=True,
         stored_supported=False` is holding unsupported data, and handing its
         None back as `expect_stored` is NOT an observation of absence — the
-        migration refuses it rather than overwriting."""
+        migration refuses it rather than overwriting.
+
+        ⚠ PRESENCE IS THE KEY, NOT THE VALUE. `mail_seq: None` is PRESENT data
+        outside the declared domain (a non-bool int >= 0); a MISSING key is the
+        legacy mailbox this whole migration exists for. Asking `.get()` alone
+        collapses the two, and the collapse is not cosmetic: it made an honest
+        `expect_stored=None` — "I observed no counter" — match a stored null and
+        admit a write over it. Owner preflight of 3d45fd5 reproduced that."""
         n = self.nodes.get(to) or {}
+        present = "mail_seq" in n
         raw = n.get("mail_seq")
-        present = raw is not None
         stored = self._stored_high_water(raw) if present else None
         assigned = self._assigned_recv_max(to)
         return {"mailbox": (str(n["mailbox_id"]) if n.get("mailbox_id")
@@ -2398,7 +2405,12 @@ class Org:
         is refusing a DEPOSIT — and losing a message to bookkeeping is a far
         worse failure than an unordered one. The migration is the opposite
         case: it is explicitly invoked, it rewrites nothing that would be lost
-        by stopping, and it REFUSES such a mailbox instead."""
+        by stopping, and it REFUSES such a mailbox instead.
+
+        ⚠ `count=0` WRITES NOTHING. Asking for no ordinals stores no
+        high-water, which is right for a caller that wanted none — but it
+        means this is NOT where a caller goes to durably record a floor it
+        merely computed. `migrate_mail_receive_order` persists that itself."""
         n = self.nodes.get(to)
         if n is None:
             return []
@@ -2675,6 +2687,13 @@ class Org:
         second ordinal for a message that already has one, and never invents an
         origin the existing copies do not state.
 
+        THE SEQUENCE FLOOR IS PERSISTED EVEN WHEN NOTHING IS ALLOCATED. A pass
+        over a mailbox whose messages all already have ordinals stores the
+        maximum of the confirmed counter and every assigned ordinal, so the
+        floor survives the rows being retained away. It never lowers a counter
+        that is already ahead, and a mailbox with no floor at all is left
+        exactly as it was. `floor_persisted` in the report says which happened.
+
         UNRESOLVED STATE IS REFUSED, NOT GUESSED. `_scan_receive_order` decides
         whether a mailbox's existing ordering contradicts itself — two ordinals
         for one message, one ordinal for two messages, an ordinal outside the
@@ -2704,6 +2723,7 @@ class Org:
         report: dict[str, Any] = {"mailboxes": {}, "stale": [], "refused": [],
                                   "allocated": 0, "unproven": 0,
                                   "reconciled_copies": 0, "conflicts": 0,
+                                  "floors_persisted": 0,
                                   "ambiguous": 0, "skipped_no_node": []}
 
         def refuse(to: str, reason: str, **detail: Any) -> None:
@@ -2719,9 +2739,13 @@ class Org:
                 report["skipped_no_node"].append(to)
                 continue
             n = self.nodes[to]
+            # KEY PRESENCE, not value — see mail_seq_state. A stored null is
+            # present unsupported data and is refused; a missing key is the
+            # legacy mailbox this migration exists for and stays eligible.
+            present = "mail_seq" in n
             stored_now = n.get("mail_seq")
-            observed = self._stored_high_water(stored_now)
-            if stored_now is not None and observed is None:
+            observed = self._stored_high_water(stored_now) if present else None
+            if present and observed is None:
                 refuse(to, "unsupported_stored",
                        stored_type=type(stored_now).__name__,
                        stored_repr=repr(stored_now)[:120])
@@ -2785,6 +2809,32 @@ class Org:
                     if was != (c.get("recv_seq"), c.get("seq_origin"),
                                c.get("mailbox")):
                         reconciled += 1
+            # ⭐ THE FLOOR HAS TO OUTLIVE THE ROWS IT WAS READ FROM.
+            #
+            # When the pass allocates nothing — every message already had an
+            # ordinal — `_allocate_recv_seq` computes the floor and then writes
+            # nothing, because it only stores a high-water when it hands one
+            # out. That looks harmless while the rows are there: the next
+            # deposit re-derives the floor from them. It stops being harmless
+            # the moment retention clears the box and the archive, because the
+            # ordinals were the ONLY record of how far this mailbox had
+            # counted. Owner preflight of 3d45fd5 measured it: a mailbox whose
+            # surviving row was ordinal 9 and whose counter was missing (or 1)
+            # migrated cleanly, lost its rows to retention, and then handed the
+            # next real message ordinal 1 (or 2) — the same mailbox reusing
+            # positions it had already used.
+            #
+            # So persist it. Never LOWERS a counter: the floor is the maximum
+            # of the value the CAS just confirmed and every ordinal still
+            # assigned, so a stored counter already ahead of its rows is kept
+            # as it is. A truly empty mailbox has no floor and is left
+            # untouched, and a stale or refused mailbox never reaches here.
+            floor_persisted = False
+            if not seqs:
+                floor = max(observed or 0, self._assigned_recv_max(to))
+                if floor > 0 and (not present or (observed or 0) < floor):
+                    n["mail_seq"] = floor
+                    floor_persisted = True
             ambiguous = len(undated & set(pending)) + scan["unidentified"]
             report["mailboxes"][to] = {
                 "mailbox": mailbox_id,
@@ -2792,11 +2842,13 @@ class Org:
                 "preserved": len(assigned),
                 "allocated": len(seqs),
                 "reconciled_copies": reconciled,
+                "floor_persisted": floor_persisted,
                 "ambiguous": ambiguous,
                 "high_water_after": n.get("mail_seq")}
             report["allocated"] += len(seqs)
             report["unproven"] += len(seqs)
             report["reconciled_copies"] += reconciled
+            report["floors_persisted"] += int(floor_persisted)
             report["ambiguous"] += ambiguous
         return report
 
