@@ -7,8 +7,15 @@ import fs from 'node:fs'
  *  impersonate the installed release. */
 export const RELEASE_APP_ID = 'com.maurdekye.orgtree'
 export const DEV_APP_ID = 'com.maurdekye.orgtree.dev'
+export const PRIVATE_ALPHA_APP_ID = 'com.maurdekye.orgtree.private-alpha'
 
-export type BuildChannel = 'release' | 'dev'
+declare const __ORGTREE_PRIVATE_ALPHA__: string
+// Compiled identity survives absent/corrupt build-info; a private build must
+// never fall back to the installed release's data directory or updater.
+const privateAlphaBuild = typeof __ORGTREE_PRIVATE_ALPHA__ !== 'undefined'
+  && __ORGTREE_PRIVATE_ALPHA__.endsWith(':enabled')
+
+export type BuildChannel = 'release' | 'dev' | 'private-alpha'
 
 /** ⚠ THE PRERELEASE LABEL IS A CHANNEL NAME, NOT DECORATION, and getting it
  *  wrong is what stranded 2.1.5-RC3.
@@ -59,6 +66,7 @@ export function allowPrereleaseUpdates(version: string): boolean {
  *  Failing toward 'dev' instead would flip an installed release onto the dev
  *  identity (fresh empty data directory, updater off) over a corrupt file. */
 export function readBuildChannel(file: string, io: Pick<typeof fs, 'readFileSync'> = fs): BuildChannel {
+  if (privateAlphaBuild) return 'private-alpha'
   try {
     const parsed: unknown = JSON.parse(io.readFileSync(file, 'utf8'))
     return parsed !== null && typeof parsed === 'object' && (parsed as Record<string, unknown>).channel === 'dev' ? 'dev' : 'release'
@@ -107,6 +115,11 @@ export interface DesktopIdentity {
  *  closes the composition half of it and no more. */
 export function desktopIdentity(
   packaged: boolean, channel: BuildChannel, updateFixtureComposed = false): DesktopIdentity {
+  if (packaged && (privateAlphaBuild || channel === 'private-alpha')) {
+    return { appId: PRIVATE_ALPHA_APP_ID, name: 'Orgtree v3 Alpha',
+      appUserModelId: PRIVATE_ALPHA_APP_ID, displayName: 'Orgtree Private Alpha',
+      updatesSupported: false }
+  }
   const dev = packaged && channel === 'dev'
   return {
     appId: dev ? DEV_APP_ID : RELEASE_APP_ID,

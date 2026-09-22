@@ -34,7 +34,7 @@ Var pid
 # selected, before any section that could touch machine state runs.
 !macro orgtreeDevScopeGuard
   ${if} $installMode == "all"
-    MessageBox MB_OK|MB_ICONSTOP "Orgtree Dev is a local development build and installs per-user only.$\r$\nRun Setup again and choose to install it only for yourself." /SD IDOK
+    MessageBox MB_OK|MB_ICONSTOP "This private build installs per-user only.$\r$\nRun Setup again and choose to install it only for yourself." /SD IDOK
     SetErrorLevel 2
     Quit
   ${endif}

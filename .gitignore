@@ -3,6 +3,7 @@ dist/
 release/
 release-dev/
 release-rehearsal/
+release-private-alpha/
 .venv/
 __pycache__/
 *.pyc

@@ -19,6 +19,7 @@
     "dev": "npm run build && electron .",
     "package:dir": "npm run build && node tools/package-preflight.mjs && electron-builder --dir",
     "package:win": "npm run build && node tools/package-preflight.mjs && electron-builder --win nsis",
+    "package:private-alpha": "node tools/private-alpha.mjs",
     "release:windows": "node tools/release-windows.mjs",
     "verify:release": "node tools/release-verification.mjs",
     "package:dev": "npm run build && node tools/package-dev.mjs",
