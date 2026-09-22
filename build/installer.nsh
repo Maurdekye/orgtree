@@ -91,7 +91,9 @@ Var pid
     # the replaced application. It is run by the application's own pythonw.exe
     # because the dispatch is a ShellExecute, which allocates a console for any
     # console-subsystem target — see orgtreeDispatchUpgradeRelaunch.
-    File /oname=$PLUGINSDIR\installer-relaunch.py "${PROJECT_DIR}\tools\installer-relaunch.py"
+    !ifndef HIDE_RUN_AFTER_FINISH
+      File /oname=$PLUGINSDIR\installer-relaunch.py "${PROJECT_DIR}\tools\installer-relaunch.py"
+    !endif
 
     # An elevated inner instance is a BRAND NEW installer process. It re-runs
     # onInit and every page from the beginning and knows nothing about the
@@ -116,12 +118,14 @@ Var pid
       !insertmacro UAC_AsUser_GetGlobalVar $OrgUpgradeInstallMode
       !insertmacro UAC_AsUser_GetGlobalVar $OrgUpgradeInstallDir
       !insertmacro UAC_AsUser_GetGlobalVar $OrgUpgradeExe
+      !ifndef HIDE_RUN_AFTER_FINISH
       !insertmacro UAC_AsUser_GetGlobalVar $OrgUpgradeRelaunchDir
       !insertmacro UAC_AsUser_GetGlobalVar $OrgUpgradeRelaunchPrepared
       # The launch identity is INHERITED, never re-derived: the inner instance
       # is a different process with a different process id, and two identities
       # for one update would mean both parties could "own" the launch.
       !insertmacro UAC_AsUser_GetGlobalVar $OrgUpgradeRelaunchClaim
+      !endif
     ${endif}
   !ifndef ORGTREE_DEV_CHANNEL
     ${if} ${UAC_IsInnerInstance}
@@ -167,6 +171,7 @@ Var OrgUpgradePathLabel
 Var OrgUpgradeScopeLabel
 Var OrgUpgradeButton
 Var OrgUpgradeAdvancedButton
+!ifndef HIDE_RUN_AFTER_FINISH
 Var OrgUpgradeLaunchOwned
 Var OrgUpgradeRelaunchAcknowledged
 Var OrgUpgradeRelaunchClaim
@@ -177,6 +182,7 @@ Var OrgUpgradeRelaunchReadyMarker
 Var OrgUpgradeRelaunchPrepared
 Var OrgUpgradeRelaunchReady
 Var OrgUpgradeRelaunchScheduled
+!endif
 !endif
 
 # Snapshot the generated update predicate before the assisted installer
@@ -422,11 +428,13 @@ FunctionEnd
         ${if} $0 != "1"
           Quit
         ${endif}
+        !ifndef HIDE_RUN_AFTER_FINISH
         Call orgtreePrepareUpgradeRelaunch
         ${if} $OrgUpgradeRelaunchPrepared != "1"
           SetErrorLevel 2
           Quit
         ${endif}
+        !endif
         StrCpy $OrgUpgradeSelected "1"
       ${elseif} $OrgUpgradeChoice == "advanced"
         StrCpy $OrgUpgradeSelected "0"
@@ -787,6 +795,10 @@ orgtreeSilentElevateDone:
 !macroend
 !macro customFinishPage
   !ifndef BUILD_UNINSTALLER
+    # electron-builder's stock page honors this flag, but customFinishPage
+    # replaces that page. Apply it to BOTH manual Run and automatic upgrade
+    # relaunch, including their helpers and preparation, for private builds.
+    !ifndef HIDE_RUN_AFTER_FINISH
     # Fresh and Advanced setup retain electron-builder's normal Finish page.
     # An accepted Upgrade reaches this page only after install bookkeeping has
     # succeeded; schedule a post-exit launch and skip the extra click.
@@ -802,8 +814,10 @@ orgtreeSilentElevateDone:
     !define MUI_FINISHPAGE_RUN
     !define MUI_FINISHPAGE_RUN_FUNCTION orgtreeFinishPageRun
     !define MUI_PAGE_CUSTOMFUNCTION_PRE orgtreeUpgradeFinishPagePre
+    !endif
     !insertmacro MUI_PAGE_FINISH
 
+    !ifndef HIDE_RUN_AFTER_FINISH
     # The Finish page's launch action, and the FALLBACK the upgrade path depends
     # on when it could not hand the relaunch to a helper.
     Function orgtreeFinishPageRun
@@ -1139,6 +1153,7 @@ orgtreeSilentElevateDone:
         ${endif}
       ${endif}
     FunctionEnd
+    !endif
   !endif
 !macroend
 

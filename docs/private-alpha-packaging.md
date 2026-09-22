@@ -67,7 +67,10 @@ build-info cannot send it back to the stable application's data or updater.
 Updates are disabled even if an update-fixture flag is requested. The builder
 refuses update-fixture composition and uses the existing per-user installer
 guard, which excludes machine-wide boot-task changes and stable shortcut
-cleanup. Launch-after-install is disabled.
+cleanup. Launch-after-install is disabled. The custom NSIS Finish page honors
+electron-builder's `HIDE_RUN_AFTER_FINISH` flag: it compiles out the Run
+control, upgrade relaunch callback, helper preparation, launch claims and
+dispatch code. The stable and dev defaults retain their existing launch paths.
 
 Publish configuration is explicitly `null` at the root, Windows, and NSIS
 levels, and the builder receives `--publish never`. Simply omitting a publish

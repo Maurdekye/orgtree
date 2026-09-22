@@ -22,11 +22,14 @@ import {
   produceWindowsRelease, serializeJson, sha256Bytes,
 } from '../tools/release-windows.mjs'
 import { assertNoUpdateFixture, assertReleaseProvenance } from '../tools/preflight-lib.mjs'
+import { devPackagingConfig } from '../tools/dev-build.mjs'
 
 const require = createRequire(import.meta.url)
 const { createPackage, uncacheAll } = require('@electron/asar')
 const { getPublishConfigs } = require('app-builder-lib/out/publish/PublishManager')
 const { validateConfiguration } = require('app-builder-lib/out/util/config/config')
+const { NsisTarget } = require('app-builder-lib/out/targets/nsis/NsisTarget')
+const { CancellationToken } = require('builder-util-runtime')
 const candidate = 'a'.repeat(40)
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'))
 const approval = { schema: APPROVAL_SCHEMA, candidate, version: VERSION,
@@ -44,6 +47,108 @@ function put(root, relative, bytes) {
   fs.writeFileSync(file, bytes)
   return file
 }
+
+// Exercise the selected custom page with electron-builder's actual option ->
+// define mapping and NSIS's actual MUI/page preprocessing. /PPO writes no EXE;
+// the only substituted behavior is logging and the dispatch plugin surface.
+async function preprocessInstaller(t, source, config, name) {
+  const root = fixture(t)
+  const compiler = process.env.ORGTREE_MAKENSIS || path.join(process.env.LOCALAPPDATA || '',
+    'electron-builder/Cache/nsis-3.0.4.1/nsis-3.0.4.1-1mx3n/makensis.exe')
+  assert.ok(fs.existsSync(compiler), 'NSIS compiler required; set ORGTREE_MAKENSIS')
+  const defines = {}
+  await NsisTarget.prototype.configureDefines.call({ options: config.nsis,
+    packager: { info: { cancellationToken: new CancellationToken() },
+      appInfo: { sanitizedProductName: config.productName },
+      getResource: async () => null, expandMacro: value => value } }, false, defines)
+  const macro = label => {
+    const found = source.match(new RegExp(`!macro ${label}\\r?\\n[\\s\\S]*?\\r?\\n!macroend`))
+    assert.ok(found, `${label} must exist`)
+    return found[0]
+  }
+  const variables = source.match(/!ifndef BUILD_UNINSTALLER\r?\nVar OrgUpgradeAvailable[\s\S]*?(?=\r?\n# Snapshot)/)?.[0]
+  assert.ok(variables, 'retain actual variable guards when composing the fixture')
+  const devInclude = fs.readFileSync(config.nsis.include, 'utf8')
+  const fixtureExe = path.join(root, 'never-built.exe')
+  const nsi = `!include LogicLib.nsh
+!include "${path.join(path.dirname(compiler), 'Contrib', 'Modern UI 2', 'MUI2.nsh')}"
+${devInclude.includes('!define ORGTREE_DEV_CHANNEL') ? '!define ORGTREE_DEV_CHANNEL' : ''}
+${Object.hasOwn(defines, 'HIDE_RUN_AFTER_FINISH') ? '!define HIDE_RUN_AFTER_FINISH' : ''}
+Name "Private alpha composition fixture"
+OutFile "${fixtureExe}"
+RequestExecutionLevel user
+!define PRODUCT_NAME "Orgtree"
+!define APP_EXECUTABLE_FILENAME "Orgtree.exe"
+!define UNINSTALL_FILENAME "Uninstall Orgtree.exe"
+!define UNINSTALL_DISPLAY_NAME "Orgtree fixture"
+!define UNINSTALL_REGISTRY_KEY "Software\\FixtureUninstall"
+!define INSTALL_REGISTRY_KEY "Software\\FixtureInstall"
+!define isUpdated '$OrgUpgradeSelected == "1"'
+${variables}
+!macro OrgLog stage detail
+  DetailPrint "\${stage}: \${detail}"
+!macroend
+!macro FixtureExecShellAsUser result exe verb args
+  DetailPrint "FIXTURE_DISPATCH \${exe}"
+  StrCpy \${result} "ok"
+!macroend
+!define StdUtils.ExecShellAsUser '!insertmacro FixtureExecShellAsUser'
+${macro('orgtreeUpgradeFunctions')}
+${macro('customWelcomePage')}
+${macro('customFinishPage')}
+!insertmacro customWelcomePage
+!insertmacro customFinishPage
+!insertmacro MUI_LANGUAGE "English"
+Section
+SectionEnd
+`
+  const file = put(root, `${name}.nsi`, nsi)
+  const result = spawnSync(compiler, ['/V1', '/PPO', file], {
+    encoding: 'utf8', windowsHide: true, timeout: 15000, maxBuffer: 8 * 1024 * 1024 })
+  assert.equal(result.status, 0, result.error?.message || result.stdout + result.stderr)
+  assert.equal(fs.existsSync(fixtureExe), false, 'preprocessing must not build an installer')
+  return { output: result.stdout, hidden: Object.hasOwn(defines, 'HIDE_RUN_AFTER_FINISH') }
+}
+
+function assertNoInstallerLaunch(output) {
+  assert.doesNotMatch(output, /(?:Function|Call) orgtree(?:FinishPageRun|UpgradeFinishPagePre|PrepareUpgradeRelaunch|ScheduleUpgradeRelaunch|DispatchUpgradeRelaunch)\b/,
+    'private installer must contain neither the Run callback nor any upgrade relaunch path')
+  assert.doesNotMatch(output, /FIXTURE_DISPATCH|OrgUpgradeRelaunch|OrgUpgradeLaunchOwned/,
+    'no launch plugin calls, launch claims, preparation, or unused launch variables')
+}
+
+test('actual NSIS composition removes private Run and upgrade relaunch while retaining stable/dev paths',
+  { skip: process.platform !== 'win32' }, async t => {
+    const source = fs.readFileSync('build/installer.nsh', 'utf8')
+    for (const [name, config] of [['private', privateAlphaConfig(pkg.build)], ['stable', pkg.build],
+      ['dev', devPackagingConfig(pkg.build, '2.1.10-dev.gabcdef1234')]]) {
+      const { output, hidden } = await preprocessInstaller(t, source, config, name)
+      assert.equal(hidden, name === 'private')
+      if (hidden) assertNoInstallerLaunch(output)
+      else {
+        for (const callback of ['orgtreeFinishPageRun', 'orgtreePrepareUpgradeRelaunch',
+          'orgtreeScheduleUpgradeRelaunch', 'orgtreeDispatchUpgradeRelaunch']) {
+          assert.ok(new RegExp(`Function ${callback}\\b`).test(output), `${name}: ${callback} definition missing`)
+          assert.ok(new RegExp(`Call ["']?${callback}\\b`).test(output), `${name}: ${callback} call missing`)
+        }
+        assert.match(output, /FIXTURE_DISPATCH/)
+      }
+    }
+  })
+
+test('NSIS no-launch discriminator catches the reviewed unguarded composition',
+  { skip: process.platform !== 'win32' }, async t => {
+    const source = fs.readFileSync('build/installer.nsh', 'utf8')
+    // Disable only the new guards: this restores f1's generated behavior while
+    // keeping runAfterFinish:false and the same real builder + MUI composition.
+    const unguarded = source.replaceAll('!ifndef HIDE_RUN_AFTER_FINISH', '!ifndef FIXTURE_DISABLED_NO_LAUNCH_GUARD')
+    assert.notEqual(unguarded, source, 'negative control must actually remove the protection')
+    const { output, hidden } = await preprocessInstaller(t, unguarded, privateAlphaConfig(pkg.build), 'unguarded')
+    assert.equal(hidden, true)
+    assert.ok(/Call ["']?orgtreeFinishPageRun\b/.test(output), 'negative control must expose the real MUI Run callback')
+    assert.match(output, /Call orgtreeScheduleUpgradeRelaunch\b/)
+    assert.throws(() => assertNoInstallerLaunch(output), /private installer/)
+  })
 
 test('default command only describes the exact private plan and rejects publication flags', () => {
   assert.deepEqual(parsePrivateAlphaArgs([]), { build: false })
