@@ -16,6 +16,13 @@ details and screenshots there. It never deletes a caller's directory and does no
 start the engine or installed application. A negative control deliberately exits
 nonzero; inspect the named failures, rather than treating any failure as success.
 
+`electron-outcome.json` separately records the raw Electron `spawnSync` status,
+signal and spawn error under schema `orgtree.app-composition-process/v1`.
+Consumers must require status 0 for the baseline or 1 for an intended negative,
+with null signal/error, alongside the exact assertion results. The CLI retains
+its existing pass/fail exit convention: exit 1 alone does not distinguish an
+expected assertion failure from an unexpected child exit after writing a receipt.
+
 ## Shipping paths exercised
 
 The renderer entry is the unmodified shipping `renderer/src/main.tsx`, built with

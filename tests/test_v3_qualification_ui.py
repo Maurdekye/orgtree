@@ -6,6 +6,7 @@ import ctypes
 import json
 import os
 from pathlib import Path
+import shutil
 import sys
 import tempfile
 from types import SimpleNamespace
@@ -27,7 +28,9 @@ def payload(mode):
 def validate(receipt, mode="baseline", **overrides):
     arguments = dict(source={**SOURCE,"mode":mode,"entry":"apps/desktop/renderer/src/main.tsx"},
         http={"requests":["GET /api/orgs"],"unexpected":[]},mode=mode,
-        exit_code=0 if mode == "baseline" else 1,expected_source=SOURCE)
+        exit_code=0 if mode == "baseline" else 1,expected_source=SOURCE,
+        electron={"schema":"orgtree.app-composition-process/v1","status":0 if mode == "baseline" else 1,
+                  "signal":None,"error":None})
     arguments.update(overrides)
     return ui.probe_errors(receipt,**arguments)
 
@@ -75,6 +78,16 @@ class UiReceiptTests(unittest.TestCase):
         self.assertTrue(validate(payload("baseline"),source=receipt,
                                  expected_source={**source,"status":source["status"].strip()}))
 
+    def test_collapsed_outer_exit_does_not_hide_inner_exit_signal_or_error(self):
+        good = {"schema":"orgtree.app-composition-process/v1","status":1,"signal":None,"error":None}
+        changes = ({"status":42},{"status":None},{"status":True},{"signal":"SIGTERM"},
+                   {"error":{"code":"ETIMEDOUT"}},{"schema":"unknown"})
+        for change in changes:
+            self.assertTrue(validate(payload("no-bus"),"no-bus",electron={**good,**change}))
+        for missing in (None,{}, {k:v for k,v in good.items() if k != "signal"},
+                        {k:v for k,v in good.items() if k != "error"}):
+            self.assertTrue(validate(payload("no-bus"),"no-bus",electron=missing))
+
     def test_oversized_or_linked_receipts_are_refused(self):
         with tempfile.TemporaryDirectory() as name:
             file = Path(name)/"result.json"
@@ -95,7 +108,9 @@ class UiReceiptTests(unittest.TestCase):
                 receipt = payload(mode)
                 if mode == "baseline": receipt["checks"].pop()
                 for file,value in (("result.json",receipt),("source.json",{**SOURCE,"mode":mode,
-                    "entry":"apps/desktop/renderer/src/main.tsx"}),("http.json",{"requests":["GET /api/orgs"],"unexpected":[]})):
+                    "entry":"apps/desktop/renderer/src/main.tsx"}),("http.json",{"requests":["GET /api/orgs"],"unexpected":[]}),
+                    ("electron-outcome.json",{"schema":"orgtree.app-composition-process/v1",
+                    "status":0 if mode == "baseline" else 1,"signal":None,"error":None})):
                     (run/file).write_text(json.dumps(value))
                 return {"tree_cleanup_completed":True,"errors":[],"exit_code":0 if mode == "baseline" else 1}
             with patch.object(ui,"run_owned",side_effect=run), patch.object(ui.shutil,"which",return_value="node"), \
@@ -122,6 +137,53 @@ def alive(pid):
 
 @unittest.skipUnless(os.name == "nt", "Windows process ownership")
 class UiProcessTests(unittest.TestCase):
+    def test_real_complete_negative_receipt_followed_by_electron_exit42_is_refused(self):
+        repo = Path(__file__).resolve().parents[1]
+        node = shutil.which("node")
+        self.assertIsNotNone(node,"UI qualification tests require the probe's Node dependencies")
+        with tempfile.TemporaryDirectory(prefix="orgtree-ui-inner-exit-test-") as name:
+            root = Path(name).resolve()
+            for directory in ("home","data","temp"): (root/directory).mkdir()
+            hook = root/"unexpected-exit.cjs"
+            hook.write_text(r"""const cp=require('node:child_process'),fs=require('node:fs'),path=require('node:path');
+const original=cp.spawnSync;
+cp.spawnSync=function(command,args,options){
+  if(Array.isArray(args)&&args[0]&&path.basename(args[0])==='main.cjs'){
+    const relative=path.relative(process.env.QUALIFICATION_EXIT_FAULT_ROOT,path.resolve(args[0]));
+    if(path.isAbsolute(relative)||relative.startsWith('..'))throw Error('Fault must stay in the owned generated fixture');
+    const source=fs.readFileSync(args[0],'utf8');
+    const pattern=/(\bapp\.exit\(\w+\.summary\.failing \? )1( : 0\))/g;
+    if([...source.matchAll(pattern)].length!==1)throw Error('Expected exactly one generated terminal exit');
+    fs.writeFileSync(args[0],source.replace(pattern,(_,before,after)=>before+'42'+after));
+    const env={...options.env};delete env.NODE_OPTIONS;
+    return original.call(this,command,args,{...options,env});
+  }
+  return original.apply(this,arguments);
+};
+require('node:module').syncBuiltinESMExports();
+""")
+            env = runner.child_env(root)
+            env.update(NODE_OPTIONS='--require "'+hook.as_posix()+'"',QUALIFICATION_EXIT_FAULT_ROOT=str(root))
+            process = ui.run_owned(repo,sys.executable,[node,str(repo/"tools/run-app-composition-probe.mjs"),
+                str(root/"probe"),"no-bus"],env,root,60)
+            self.assertTrue(process["tree_cleanup_completed"],process)
+            self.assertEqual(process["errors"],[],process)
+            self.assertEqual(process["exit_code"],1,process)  # Old wrapper collapse remains compatible.
+            runs = list((root/"probe").iterdir())
+            self.assertEqual(len(runs),1)
+            receipt,source,http,electron = (ui.read_json(runs[0]/file) for file in (
+                "result.json","source.json","http.json","electron-outcome.json"))
+            self.assertEqual(electron["status"],42)
+            self.assertIsNone(electron["signal"])
+            self.assertIsNone(electron["error"])
+            expected = {key:source[key] for key in ("head","status")}
+            errors = ui.probe_errors(receipt,source,http,"no-bus",process["exit_code"],expected,electron)
+            self.assertEqual(errors,["Electron child did not exit normally with its expected result"])
+            # Prove this complete real three-check receipt otherwise passes.
+            self.assertEqual(ui.probe_errors(receipt,source,http,"no-bus",process["exit_code"],
+                expected,{**electron,"status":1}),[])
+        self.assertFalse(root.exists())
+
     def exercise(self, timeout):
         repo = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory(prefix="orgtree-ui-ownership-test-") as name:

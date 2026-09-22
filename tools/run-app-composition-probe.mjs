@@ -49,6 +49,12 @@ const env = { ...process.env, PROBE_ROOT: run, PROBE_MODE: mode,
 delete env.ELECTRON_RUN_AS_NODE
 const result = spawnSync(createRequire(import.meta.url)('electron'), [path.join(run, 'main.cjs')],
   { env, encoding: 'utf8', timeout: 240000, windowsHide: true })
+// The CLI's pass/fail exit alone cannot distinguish an intended assertion
+// failure from an unexpected Electron exit after result.json was written.
+fs.writeFileSync(path.join(run, 'electron-outcome.json'), JSON.stringify({
+  schema: 'orgtree.app-composition-process/v1', status: result.status, signal: result.signal,
+  error: result.error ? { name: result.error.name, code: result.error.code ?? null, message: result.error.message } : null,
+}, null, 2))
 fs.writeFileSync(path.join(run, 'electron.stdout.log'), result.stdout ?? '')
 fs.writeFileSync(path.join(run, 'electron.stderr.log'), result.stderr ?? '')
 const file = path.join(run, 'result.json')

@@ -166,6 +166,11 @@ third, and the three narrow-header geometry checks for the fourth. All other
 checks must pass. An arbitrary exit 1, crash, missing assertion, duplicate,
 unrelated failure, inconsistent summary, unexpected HTTP request or different
 source identity fails. Controls count only beside a passing baseline.
+The adapter also requires `electron-outcome.json` to report the exact inner
+Electron status (0 baseline, 1 intended negative), null signal and null spawn
+error. The probe wrapper's outer exit 1 cannot hide a child crash, timeout or
+unexpected status. A real regression generates the complete no-bus receipt and
+then exits Electron with 42; only the inner-process gate rejects that result.
 
 These are **composed UI** results. The shipping production-React App, preload,
 Preferences and window/held-event/lifecycle helpers execute. Fixture code owns

@@ -102,7 +102,7 @@ def run_owned(repo, interpreter, command, env, directory, timeout):
     return receipt
 
 
-def probe_errors(payload, source, http, mode, exit_code, expected_source):
+def probe_errors(payload, source, http, mode, exit_code, expected_source, electron):
     """Require every named assertion, exact intended failures and source identity."""
     errors = []
     if not isinstance(payload, dict) or payload.get("mode") != mode:
@@ -125,6 +125,11 @@ def probe_errors(payload, source, http, mode, exit_code, expected_source):
         errors.append("UI probe evidence boundaries changed")
     if type(exit_code) is not int or exit_code != (0 if mode == "baseline" else 1):
         errors.append("UI probe did not exit with its expected result")
+    if (not isinstance(electron, dict) or electron.get("schema") != "orgtree.app-composition-process/v1"
+            or type(electron.get("status")) is not int or electron["status"] != (0 if mode == "baseline" else 1)
+            or "signal" not in electron or electron["signal"] is not None
+            or "error" not in electron or electron["error"] is not None):
+        errors.append("Electron child did not exit normally with its expected result")
     if source != {**expected_source, "mode":mode, "entry":"apps/desktop/renderer/src/main.tsx"}:
         errors.append("UI probe source identity mismatch")
     if (not isinstance(http, dict) or http.get("unexpected") != [] or not isinstance(http.get("requests"), list)
@@ -179,9 +184,10 @@ def run_ui(repo, root, interpreter, env, timeout):
             if len(children) != 1 or children[0].is_symlink() or not children[0].is_dir() or not children[0].name.startswith(mode+"-"):
                 raise ValueError("UI probe did not produce exactly one owned run directory")
             run = children[0]
-            payload, source, http = (read_json(run/name) for name in ("result.json","source.json","http.json"))
-            row.update(receipt=payload,source=source,http=http,artifacts=evidence_files(run))
-            row["errors"].extend(probe_errors(payload,source,http,mode,row["process"]["exit_code"],expected_source))
+            payload, source, http, electron = (read_json(run/name) for name in (
+                "result.json","source.json","http.json","electron-outcome.json"))
+            row.update(receipt=payload,source=source,http=http,electron=electron,artifacts=evidence_files(run))
+            row["errors"].extend(probe_errors(payload,source,http,mode,row["process"]["exit_code"],expected_source,electron))
         except Exception as exc:
             row["errors"].append(f"{type(exc).__name__}: {exc}")
         for name in ("launcher.stdout.log", "launcher.stderr.log"):
