@@ -4,6 +4,11 @@
 
 Add `--wire --migration` to include the separately reviewed wire compatibility
 suites and six synthetic migration preparation scenarios from the same checkout.
+
+Add `--ui` on Windows to run the reviewed whole-App Electron probe's baseline
+and all four deliberate failure controls. This requires the checkout's existing
+Node/Electron/esbuild dependencies. A missing dependency or unsupported platform
+fails a requested slice; it never silently reduces the requested coverage.
 Requested adapters must produce complete passing evidence; missing tools,
 unstructured/empty receipts, timeouts and unexpected refusals fail the slice.
 
@@ -149,6 +154,45 @@ scenarios do not run its separately reviewed abrupt-child-exit test suite. See
 Omitting either flag records its optional adapter as `not_exercised`. Passing
 both still leaves `full_product_qualified` false and `--require-full-product`
 returns 3 after an otherwise passing slice.
+
+## Optional whole-App composition
+
+`--ui` runs `node tools/run-app-composition-probe.mjs <owned-root> <mode>`
+for `baseline`, `no-bus`, `no-readiness`, `no-lifecycle`, and
+`no-compact-header`. The baseline must report exactly 57 named passing checks.
+Each control must have its exact assertion roster and only its intended failures:
+`cold-visible-exact` for the first two controls, `reload-visible-exact` for the
+third, and the three narrow-header geometry checks for the fourth. All other
+checks must pass. An arbitrary exit 1, crash, missing assertion, duplicate,
+unrelated failure, inconsistent summary, unexpected HTTP request or different
+source identity fails. Controls count only beside a passing baseline.
+
+These are **composed UI** results. The shipping production-React App, preload,
+Preferences and window/held-event/lifecycle helpers execute. Fixture code owns
+the main process bindings and window construction; canned loopback HTTP/WS
+supplies state. The probe does not execute production `main/index.ts`, a real
+engine, OS notification service, native confirmation dialog, installed app or
+startup/crash restoration. Attention/Desk and three-org window observations
+retain those boundaries. See [the probe contract](../tests/app-composition.md).
+
+The parent assigns a waiting launcher to the production Windows Job helper
+before allowing Node or Electron to start. On success, failure or timeout it
+terminates the entire owned process tree and waits for zero active processes
+before removing the temporary root. Tests exercise real child/grandchild timeout
+and normal-exit orphan cleanup, plus refusal before ownership is established.
+`cleanup.completed` cannot be true when UI process cleanup is unproven. No
+process-name search or unrelated PID termination is used.
+
+Reports embed complete assertion details, source and HTTP receipts, bounded log
+tails, and SHA-256/size records for generated screenshots and probe evidence.
+Temporary images/builds are removed; the hashes are attribution records, not
+downloadable screenshots. To retain images, run the standalone probe with your
+own output directory. Receipt reads are capped at 2 MB and individual evidence
+files at 16 MB/100 files per mode. Probe durations include build, fixtures and
+deliberate waits; they are not commit-to-paint latency measurements.
+
+Omitting `--ui` records missing optional coverage. Passing it does not clear the
+remaining native/full-product gates or change `--require-full-product` exit 3.
 
 For a short development run:
 

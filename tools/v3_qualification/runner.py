@@ -17,14 +17,15 @@ from collections import Counter
 
 from .evidence import negative_controls
 from .adapters import run_migration, run_wire
+from .ui import run_ui
 
 SCHEMA = "orgtree.v3-qualification/v1"
 MISSING = {
     "native-postgresql": "Private PostgreSQL service, transaction conflicts, WAL and projection recovery are not connected.",
     "rust-backend": "The full Rust runtime is not available in this slice.",
     "migration-rollback": "Synthetic preparation can be measured with --migration; native import, cutover and post-acknowledgment rollback remain unexercised.",
-    "multi-window": "Native window identity, tray/notification routing and restoration adapter pending.",
-    "attention-desk": "Whole-App Attention/Desk retention adapter pending.",
+    "multi-window": "Composed UI can be measured with --ui; production main startup, OS notification routing and crash restoration remain unexercised.",
+    "attention-desk": "Composed App behavior can be measured with --ui; native engine-backed Attention/Desk retention remains unexercised.",
     "full-product": "No installed or packaged desktop, native services or commit-to-paint measurement.",
     "mixed-demand": "Current measured mix is evidence append only; reads/tree/user inbox/answer/settings are not measured.",
     "scale-settle": "Cold start, 10x unrelated history and churn-then-settle are not measured.",
@@ -157,7 +158,8 @@ def component_results(payload, requested):
 def run(repo, args):
     config = {"concurrency":args.concurrency,"operations":args.operations,"rate":args.rate,
               "demand_multipliers":args.demand_multipliers,"components":args.components,
-              "wire":getattr(args,"wire",False),"migration":getattr(args,"migration",False)}
+              "wire":getattr(args,"wire",False),"migration":getattr(args,"migration",False),
+              "ui":getattr(args,"ui",False)}
     report = {"schema":SCHEMA,"candidate":identity(repo),"config":config,
               "started_unix_s":time.time(),"fixture":"new empty synthetic SQLite; no live attachment",
               "adapters":[],"negative_controls":[],"missing_coverage":[
@@ -204,7 +206,8 @@ def run(repo, args):
                 "reason":"Pass --components to reuse existing mail/restart/tool-call suites."})
         for enabled, name, adapter in (
                 (getattr(args,"wire",False), "wire-compatibility", run_wire),
-                (getattr(args,"migration",False), "synthetic-migration-preparation", run_migration)):
+                (getattr(args,"migration",False), "synthetic-migration-preparation", run_migration),
+                (getattr(args,"ui",False), "app-composition-ui", run_ui)):
             if not enabled:
                 report["missing_coverage"].append({"id":name,"classification":"not_exercised",
                     "reason":f"Optional {name} adapter was not requested."})
@@ -212,12 +215,17 @@ def run(repo, args):
             try:
                 if name == "wire-compatibility":
                     rows, controls, errors = adapter(repo,root,interpreter.path,child_env(root),args.timeout,component_results)
+                elif name == "app-composition-ui":
+                    rows, controls, errors = adapter(repo,root,interpreter.path,child_env(root),args.timeout)
                 else:
                     rows, controls, errors = adapter(repo,interpreter.path,child_env(root),args.timeout)
             except Exception as exc:
                 errors = [f"{name}: {type(exc).__name__}: {exc}"]
-                rows, controls = [{"id":name,"level":"component","classification":"failed",
+                rows, controls = [{"id":name,"level":"composed" if name == "app-composition-ui" else "component","classification":"failed",
                     "errors":errors,"limits":["Requested adapter failed before producing a usable receipt"]}], []
+            if name == "app-composition-ui":
+                report["cleanup"]["ui_process_trees_completed"] = bool(rows) and all(
+                    row.get("process",{}).get("tree_cleanup_completed") is True for row in [*rows,*controls])
             report["adapters"].extend(rows)
             report["negative_controls"].extend(controls)
             report["errors"].extend(errors)
@@ -226,7 +234,9 @@ def run(repo, args):
     finally:
         try:
             temporary.cleanup()
-            report["cleanup"]["completed"] = True
+            report["cleanup"]["completed"] = report["cleanup"].get("ui_process_trees_completed", True)
+            if not report["cleanup"]["completed"]:
+                report["errors"].append("UI process-tree cleanup was not proven")
         except OSError as exc:
             report["cleanup"]["error"] = str(exc)
             report["errors"].append("synthetic root cleanup failed")
@@ -253,6 +263,7 @@ def main(argv=None):
     parser.add_argument("--components",action="store_true")
     parser.add_argument("--wire",action="store_true",help="Reuse synthetic TCP HTTP/WS and MCP compatibility suites")
     parser.add_argument("--migration",action="store_true",help="Run six synthetic migration preparation scenarios; no activation")
+    parser.add_argument("--ui",action="store_true",help="Run reviewed whole-App Electron baseline and four failure controls (Windows)")
     parser.add_argument("--require-full-product",action="store_true",help="Exit 3 while full-product coverage is missing")
     parser.add_argument("--worker",choices=["exercise","reopen"],help=argparse.SUPPRESS)
     parser.add_argument("--root",help=argparse.SUPPRESS)
