@@ -53,11 +53,19 @@ export async function runMultiwindowScenarios(ctx: AppScenarioContext): Promise<
   const camera = (r:AppWindow) => js(r,`document.querySelector('.canvas-world .space')?.getAttribute('style')`)
   const settleCamera = async (r:AppWindow) => {
     let previous = '', same = 0
-    await ctx.until(async()=>{ const value=await camera(r); same=value && value===previous ? same+1 : 0; previous=value; return same },n=>n>=4,10000)
+    const settled=await ctx.until(async()=>{ const value=await camera(r); same=value && value===previous ? same+1 : 0; previous=value; return same },n=>n>=4,10000)
+    if(settled<4) throw Error('Camera did not settle: '+r.id)
     return previous
   }
   const counts = (r:AppWindow) => js(r,`document.querySelector('.attn-desk .mcp-tool-count')?.textContent.trim()`)
   try {
+    // The default intro intentionally moves every new Canvas from zoom1.6
+    // to its fit target after rAF begins. A quiet 200ms sample can precede
+    // that first frame in an offscreen window. Use the existing no-intro
+    // setting so MW2 measures an interaction against stationary canvases.
+    const seed=await ctx.create('multi-startup-settings')
+    await js(seed,`localStorage.setItem('orgtree-start-view','org');localStorage.setItem('orgtree-start-zoom','0');true`)
+    ctx.close(seed)
     for (const org of orgs) { const r=await ctx.create('multi-'+org,org); windows.push(r); await mode(r,'Canvas') }
     await ctx.until(async()=>orgs.every(org=>(sockets.get(org)?.size??0)>0),Boolean,10000)
     const identities = await Promise.all(windows.map(r=>js(r,`({path:location.pathname,id:window.orgtreeDesktop.windowIdentity.windowId,org:window.orgtreeDesktop.windowIdentity.org})`)))
@@ -69,11 +77,20 @@ export async function runMultiwindowScenarios(ctx: AppScenarioContext): Promise<
     await ctx.until(()=>camera(windows[0]),value=>!!value && value!==before[0],3000)
     const after = await Promise.all(windows.map(settleCamera))
     ctx.check('MW2', !!before[0] && after[0]!==before[0] && before[1]===after[1] && before[2]===after[2],
-      'Zooming one real Canvas leaves the other two camera transforms unchanged',{before,after})
+      'With startup glide disabled, zooming one real Canvas leaves the other two camera transforms unchanged',{before,after})
     await mode(windows[0],'Attention')
     ctx.check('MW3', (await Promise.all(windows.slice(1).map(r=>js(r,`document.querySelector('.shell-mode[aria-checked="true"]').textContent.trim()`)))).every(x=>x==='Canvas'),
       'Changing one organization to Attention leaves the other two in Canvas')
-    for (const r of windows) { await mode(r,'Attention'); await ready(r,`!!document.querySelector('.attn-desk .mcp-tool-count')`); r.window.blur() }
+    for (const r of windows) {
+      await mode(r,'Attention')
+      // Prior Attention tests deliberately left beta selected and pinned in
+      // studio. Select the unpinned agent explicitly; the visible-pin rule
+      // correctly keeps beta's Desk outside the Attention slot.
+      await ready(r,`!!document.querySelector('[data-attn-agent="agent"]')`)
+      await js(r,`document.querySelector('[data-attn-agent="agent"]').click();true`)
+      await ready(r,`!!document.querySelector('.attn-desk .mcp-tool-count')`)
+      r.window.blur()
+    }
     const beforeCounts=await Promise.all(windows.map(counts))
     const unfocused=windows.map(r=>!r.window.isFocused())
     const connected=orgs.map(org=>sockets.get(org)?.size??0)
