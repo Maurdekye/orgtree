@@ -2256,6 +2256,18 @@ class Org:
     MAIL_SEQ_ORIGIN_MIGRATION: Final = "migration_unproven"
     #: deposited into a key that is not a node — see `deposit_mail`
     MAIL_SEQ_ORIGIN_UNRESOLVED: Final = "unresolved_mailbox"
+    #: the SUPPORTED domain of a row's `seq_origin`: exactly what this class
+    #: mints. An origin from a future version is stored evidence this version
+    #: cannot interpret, so it refuses the mailbox instead of relabelling it.
+    MAIL_SEQ_ORIGINS: Final = (MAIL_SEQ_ORIGIN_DEPOSIT,
+                               MAIL_SEQ_ORIGIN_MIGRATION,
+                               MAIL_SEQ_ORIGIN_UNRESOLVED)
+    #: a row's ordering fields, and the conflict each raises when it is PRESENT
+    #: and outside its domain — see `_unsupported_order_fields`
+    UNSUPPORTED_ORDER_REASONS: Final = (
+        ("recv_seq", "unsupported_ordinal"),
+        ("seq_origin", "unsupported_origin"),
+        ("mailbox", "unsupported_mailbox_stamp"))
 
     def mailbox_identity(self, to: str) -> str | None:
         """This mailbox's durable identity, minted on first use.
@@ -2326,6 +2338,44 @@ class Org:
         if isinstance(value, bool) or not isinstance(value, int):
             return None
         return value if value >= 0 else None
+
+    @classmethod
+    def _unsupported_order_fields(cls, copy: Any) -> list[tuple[str, Any]]:
+        """Every ordering field PRESENT on one physical copy and outside its
+        supported domain, as `(field, value)` pairs. Reads only.
+
+        ⚠ PRESENCE IS THE KEY, NOT THE VALUE. This is the rule `mail_seq_state`
+        already applies to the stored counter, applied to the ROWS that counter
+        counts — the place it was missing. A field that is absent is the
+        pre-M0a legacy row this migration exists for and stays eligible. A
+        field that is THERE holding something outside its domain is stored
+        evidence, and normalising it into an absence is what gives the
+        migration permission to overwrite it with an order nobody observed.
+
+        Reviewer finding f1 (2026-09-22) reproduced exactly that against this
+        candidate: `recv_seq: None` was excluded from the domain check by an
+        `is not None` guard and was then allocated ordinal 1; `seq_origin` and
+        `mailbox` were filtered by TRUTHINESS and coerced with `str()`, so
+        `seq_origin: 'future-unsupported'`, `seq_origin: None`, `mailbox: False`
+        and `mailbox: ''` were each replaced with `migration_unproven` and a
+        freshly minted identity, with no conflict and no refusal reported.
+
+        The three domains. `recv_seq` is `_recv_ordinal`'s — a non-bool int >= 1.
+        `seq_origin` is exactly `MAIL_SEQ_ORIGINS`. `mailbox` is a NON-EMPTY
+        string, because an identity is minted as twelve hex characters and is
+        never `''`, `False` or a number; an empty stamp is not an unstamped
+        row, it is a stamp that lost its value."""
+        if not isinstance(copy, dict):
+            return []
+        bad: list[tuple[str, Any]] = []
+        if "recv_seq" in copy and cls._recv_ordinal(copy["recv_seq"]) is None:
+            bad.append(("recv_seq", copy["recv_seq"]))
+        if "seq_origin" in copy and copy["seq_origin"] not in cls.MAIL_SEQ_ORIGINS:
+            bad.append(("seq_origin", copy["seq_origin"]))
+        if "mailbox" in copy and not (isinstance(copy["mailbox"], str)
+                                      and copy["mailbox"]):
+            bad.append(("mailbox", copy["mailbox"]))
+        return bad
 
     def _assigned_recv_max(self, to: str) -> int:
         """The largest ordinal ALREADY assigned anywhere this mailbox's rows
@@ -2559,7 +2609,13 @@ class Org:
         message, one ordinal for two messages, an ordinal outside the domain,
         a stamp belonging to another mailbox). The second kind cannot be
         resolved by guessing, so every case is reported with its reason and its
-        evidence and the migration refuses the mailbox."""
+        evidence and the migration refuses the mailbox.
+
+        A field that is PRESENT and outside its domain belongs to the second
+        kind, not the first — `_unsupported_order_fields` draws that line for
+        all three row fields, and an absent field stays the ordinary legacy
+        case. The distinction is the same one `mail_seq_state` draws for the
+        stored counter, and it was missing here until reviewer finding f1."""
         mine = (self.nodes.get(to) or {}).get("mailbox_id") or None
         copies: dict[str, list[dict[str, Any]]] = {}
         order: list[str] = []
@@ -2599,29 +2655,41 @@ class Org:
         origins: dict[str, str | None] = {}
         for mid in order:
             ms = copies[mid]
-            bad = [c.get("recv_seq") for c in ms
-                   if c.get("recv_seq") is not None
-                   and self._recv_ordinal(c.get("recv_seq")) is None]
-            if bad:
-                conflicts.append({"mailbox": to, "message": mid,
-                                  "reason": "unsupported_ordinal",
-                                  "values": [repr(v)[:60] for v in bad]})
+            # PRESENT-BUT-UNSUPPORTED COMES FIRST, on all three fields at once.
+            # Every one of them is reported — a row holding both a null ordinal
+            # and a `False` stamp names both, because the point of refusing is
+            # to hand back the evidence, and stopping at the first field hides
+            # half of it. See `_unsupported_order_fields` for the domains and
+            # for what the previous filters did instead.
+            unsupported: dict[str, list[Any]] = {}
+            for c in ms:
+                for field, value in self._unsupported_order_fields(c):
+                    unsupported.setdefault(field, []).append(value)
+            if unsupported:
+                for field, reason in self.UNSUPPORTED_ORDER_REASONS:
+                    if field in unsupported:
+                        conflicts.append(
+                            {"mailbox": to, "message": mid, "reason": reason,
+                             "field": field,
+                             "values": [repr(v)[:60]
+                                        for v in unsupported[field]]})
                 continue
-            seqs = sorted({s for s in (self._recv_ordinal(c.get("recv_seq"))
-                                       for c in ms) if s is not None})
+            # past that check every PRESENT value is in its domain, so these
+            # read the key rather than testing the value: `.get()` and
+            # truthiness are exactly what could not tell the two apart.
+            seqs = sorted({c["recv_seq"] for c in ms if "recv_seq" in c})
             if len(seqs) > 1:
                 conflicts.append({"mailbox": to, "message": mid,
                                   "reason": "conflicting_ordinals",
                                   "values": seqs})
                 continue
-            found = sorted({str(c["seq_origin"]) for c in ms
-                            if c.get("seq_origin")})
+            found = sorted({c["seq_origin"] for c in ms if "seq_origin" in c})
             if len(found) > 1:
                 conflicts.append({"mailbox": to, "message": mid,
                                   "reason": "conflicting_origin",
                                   "values": found})
                 continue
-            stamps = sorted({str(c["mailbox"]) for c in ms if c.get("mailbox")})
+            stamps = sorted({c["mailbox"] for c in ms if "mailbox" in c})
             foreign = [s for s in stamps if s != mine]
             if foreign:
                 conflicts.append({"mailbox": to, "message": mid,
@@ -2697,8 +2765,12 @@ class Org:
         UNRESOLVED STATE IS REFUSED, NOT GUESSED. `_scan_receive_order` decides
         whether a mailbox's existing ordering contradicts itself — two ordinals
         for one message, one ordinal for two messages, an ordinal outside the
-        supported domain, disagreeing origins, a stamp naming another mailbox.
-        Any of those and the WHOLE mailbox is refused: nothing is allocated,
+        supported domain, disagreeing origins, a stamp naming another mailbox,
+        or any of the three row fields PRESENT and holding something outside
+        its domain (`unsupported_ordinal`, `unsupported_origin`,
+        `unsupported_mailbox_stamp`, each naming its `field` and the exact
+        values found). Any of those and the WHOLE mailbox is refused: nothing
+        is allocated,
         nothing is stamped, the counter is not moved, and the mailbox is listed
         in `refused` with every conflict and its evidence. A total order laid
         over a document that already disagrees with itself would be a claim

@@ -561,13 +561,11 @@ class PartiallyStampedCopies(Base):
         self.assertEqual(report['mailboxes']['worker']['reconciled_copies'], 2)
 
 
-class UnresolvedStateIsRefused(Base):
-    """A document that already disagrees with itself cannot be given a total
-    order by guessing which half of the disagreement to keep.
-
-    Every case here returned `ambiguous: 0` and a silent success from b8efd35.
-    The rule now is: report the conflict with its evidence, change nothing in
-    that mailbox, and let a human resolve it."""
+class RefusalCase(Base):
+    """Helpers for the refusal suites. Carries no tests of its own: a suite
+    that inherited another suite would re-run its methods under a second class
+    name, and the fixture mints one org per METHOD name, so the re-run would
+    collide on the slug rather than merely duplicate."""
 
     def prep(self, stored=None, mailbox=None):
         n = self.org.node('worker')
@@ -593,6 +591,15 @@ class UnresolvedStateIsRefused(Base):
         self.assertIn(reason, self.reasons(report))
         self.assertEqual(report['allocated'], 0)
         self.assertEqual(report['mailboxes'], {})
+
+
+class UnresolvedStateIsRefused(RefusalCase):
+    """A document that already disagrees with itself cannot be given a total
+    order by guessing which half of the disagreement to keep.
+
+    Every case here returned `ambiguous: 0` and a silent success from b8efd35.
+    The rule now is: report the conflict with its evidence, change nothing in
+    that mailbox, and let a human resolve it."""
 
     def test_two_ordinals_for_ONE_message_refuse_the_mailbox(self):
         self.prep(stored=9, mailbox='mbox')
@@ -691,6 +698,171 @@ class UnresolvedStateIsRefused(Base):
         self.send('b')
         self.assertEqual(
             self.org.mailbox_receive_order_anomalies('worker')['conflicts'], [])
+
+
+class APresentFieldIsNotAnAbsentOne(RefusalCase):
+    """A row's ordering field that is THERE holding something this version
+    cannot interpret is stored evidence, not a legacy gap.
+
+    Reviewer finding f1 (2026-09-22) reproduced the whole class of this against
+    4536319: `recv_seq: None` skipped the domain check because it was guarded by
+    `is not None`, and `seq_origin` and `mailbox` were filtered by truthiness
+    and coerced with `str()`. Each witness migrated silently — a new ordinal,
+    `migration_unproven`, a freshly minted identity, and a report claiming no
+    conflict at all. It is the same presence-versus-value distinction the
+    stored counter already made; the rows never got it.
+
+    The controls matter as much as the witnesses: an ABSENT field is still the
+    ordinary legacy row this migration exists for, and a supported origin — and
+    that includes `unresolved_mailbox` — still migrates."""
+
+    def witness(self, field, value, reason):
+        """One formal witness: the field present, holding `value`, in both
+        physical copies of an otherwise ordinary legacy message, in a mailbox
+        with no counter and no identity.
+
+        Asserts against a deep copy of the WHOLE document, which is the claim
+        worth making: refusing this mailbox rewrites no row, mints no identity
+        and moves no counter, rather than merely leaving the one field alone."""
+        row = {'id': 'same-message', 'at': '2020-01-01T00:00:00Z',
+               'body': 'durable payload', field: value}
+        self.put(dict(row), table='mail')
+        self.put(dict(row), table='mail_log')
+        before = copy.deepcopy(self.org.d)
+
+        found = self.org.mailbox_receive_order_anomalies('worker')
+        self.assertEqual([c['reason'] for c in found['conflicts']], [reason])
+        self.assertEqual(found['conflicts'][0]['field'], field)
+        self.assertEqual(found['conflicts'][0]['values'],
+                         [repr(value)[:60]] * 2)      # box copy and archive copy
+        self.assertEqual(self.org.d, before)          # the read writes nothing
+
+        report = self.org.migrate_mail_receive_order(
+            ['worker'], expect_stored={'worker': None})
+        self.assertRefused(report, reason)
+        self.assertEqual(self.org.d, before)          # and neither does refusal
+        self.assertIs(self.box()[0][field], value)    # the exact value, not ==
+        return report
+
+    # -- the five formal witnesses ---------------------------------------
+    def test_a_present_NULL_ordinal_is_refused_not_allocated(self):
+        self.witness('recv_seq', None, 'unsupported_ordinal')
+
+    def test_an_UNKNOWN_provenance_string_is_refused_not_relabelled(self):
+        self.witness('seq_origin', 'future-unsupported', 'unsupported_origin')
+
+    def test_a_present_NULL_provenance_is_refused(self):
+        self.witness('seq_origin', None, 'unsupported_origin')
+
+    def test_a_BOOLEAN_mailbox_stamp_is_refused_not_restamped(self):
+        self.witness('mailbox', False, 'unsupported_mailbox_stamp')
+
+    def test_an_EMPTY_mailbox_stamp_is_not_an_unstamped_row(self):
+        self.witness('mailbox', '', 'unsupported_mailbox_stamp')
+
+    # -- the rest of each domain, to pin the common boundary --------------
+    def test_the_ordinal_domain_boundary(self):
+        for value, ok in ((1, True), (2, True), (0, False), (-1, False),
+                          (True, False), (False, False), ('1', False),
+                          (1.0, False), (None, False)):
+            with self.subTest(value=value):
+                bad = ledger.Org._unsupported_order_fields({'recv_seq': value})
+                self.assertEqual(bad == [], ok)
+
+    def test_the_origin_domain_boundary(self):
+        for value, ok in (('deposit', True), ('migration_unproven', True),
+                          ('unresolved_mailbox', True), ('Deposit', False),
+                          ('', False), (None, False), (0, False),
+                          (False, False), (['deposit'], False)):
+            with self.subTest(value=value):
+                bad = ledger.Org._unsupported_order_fields({'seq_origin': value})
+                self.assertEqual(bad == [], ok)
+
+    def test_the_mailbox_stamp_domain_boundary(self):
+        for value, ok in (('mbox', True), ('0', True), ('', False),
+                          (None, False), (False, False), (True, False),
+                          (0, False), (12, False)):
+            with self.subTest(value=value):
+                bad = ledger.Org._unsupported_order_fields({'mailbox': value})
+                self.assertEqual(bad == [], ok)
+
+    def test_every_unsupported_field_on_one_row_is_named_not_just_the_first(self):
+        self.put({'id': 'triple', 'recv_seq': None, 'seq_origin': None,
+                  'mailbox': False})
+        found = self.org.mailbox_receive_order_anomalies('worker')
+        self.assertEqual([(c['reason'], c['field'])
+                          for c in found['conflicts']],
+                         [('unsupported_ordinal', 'recv_seq'),
+                          ('unsupported_origin', 'seq_origin'),
+                          ('unsupported_mailbox_stamp', 'mailbox')])
+
+    # -- controls: what must still migrate --------------------------------
+    def test_the_same_row_with_the_key_REMOVED_migrates(self):
+        # the valid legacy control for every witness above: absent, not null.
+        self.put({'id': 'same-message', 'at': '2020-01-01T00:00:00Z',
+                  'body': 'durable payload'})
+        report = self.org.migrate_mail_receive_order(
+            ['worker'], expect_stored={'worker': None})
+        self.assertEqual(report['refused'], [])
+        self.assertEqual(report['allocated'], 1)
+        self.assertEqual(self.box()[0]['recv_seq'], 1)
+        self.assertEqual(self.box()[0]['seq_origin'], 'migration_unproven')
+
+    def test_a_row_stamped_unresolved_mailbox_still_migrates(self):
+        # deposit_mail marks a row addressed to a non-node this way. It is a
+        # SUPPORTED origin, so the deliberate transition to an ordered row
+        # still happens — it must not be swept up with the unknown ones.
+        self.put({'id': 'was-unresolved', 'at': '2020-01-01T00:00:00Z',
+                  'body': 'b', 'seq_origin': 'unresolved_mailbox'})
+        report = self.org.migrate_mail_receive_order(
+            ['worker'], expect_stored={'worker': None})
+        self.assertEqual(report['refused'], [])
+        self.assertEqual(self.box()[0]['recv_seq'], 1)
+        self.assertEqual(self.box()[0]['seq_origin'], 'migration_unproven')
+
+    def test_a_partially_stamped_message_is_still_reconciled(self):
+        # present-and-supported on one copy, ABSENT on the other: the existing
+        # reconciliation, which the new check must not turn into a refusal.
+        self.prep(stored=4, mailbox='mbox')
+        self.put({'id': 'partial', 'recv_seq': 4, 'seq_origin': 'deposit',
+                  'mailbox': 'mbox'})
+        self.put({'id': 'partial'}, table='mail_log')
+        report = self.org.migrate_mail_receive_order(
+            ['worker'], expect_stored={'worker': 4})
+        self.assertEqual(report['refused'], [])
+        self.assertEqual(report['reconciled_copies'], 1)
+        self.assertEqual(self.org.d['mail_log']['worker'][0]['recv_seq'], 4)
+
+    def test_a_refused_mailbox_does_not_stop_an_independent_one(self):
+        self.org.hire(ledger.USER, None, 'haiku', 0, 'other')
+        self.put({'id': 'nulled', 'recv_seq': None})
+        self.legacy('other', {'id': 'b', 'from': 'x', 'kind': 'message',
+                              'at': '2026-01-01T00:00:00.000Z', 'body': 'b'})
+        report = self.org.migrate_mail_receive_order(['worker', 'other'])
+        self.assertEqual([e['mailbox'] for e in report['refused']], ['worker'])
+        self.assertIsNone(self.box()[0]['recv_seq'])
+        self.assertNotIn('mail_seq', self.org.node('worker'))
+        self.assertNotIn('mailbox_id', self.org.node('worker'))
+        self.assertEqual(self.box('other')[0]['recv_seq'], 1)   # other proceeds
+        self.assertEqual(self.org.node('other')['mail_seq'], 1)
+
+    def test_a_refusal_leaves_an_EXISTING_counter_and_identity_alone(self):
+        self.prep(stored=7, mailbox='kept-identity')
+        self.put({'id': 'nulled', 'recv_seq': None, 'mailbox': 'kept-identity'})
+        report = self.org.migrate_mail_receive_order(
+            ['worker'], expect_stored={'worker': 7})
+        self.assertRefused(report, 'unsupported_ordinal')
+        self.assertEqual(self.org.node('worker')['mail_seq'], 7)
+        self.assertEqual(self.org.node('worker')['mailbox_id'], 'kept-identity')
+
+    def test_a_deposit_into_the_refused_mailbox_still_delivers(self):
+        # refusing a migration must never refuse MAIL. Losing a message to
+        # bookkeeping is the worse failure, and the deposit door stays tolerant.
+        self.put({'id': 'nulled', 'recv_seq': None})
+        self.org.migrate_mail_receive_order(['worker'])
+        self.send('fresh')
+        self.assertEqual(self.box()[-1]['recv_seq'], 1)
+        self.assertEqual(self.box()[-1]['seq_origin'], 'deposit')
 
 
 class TheFloorOutlivesTheRows(Base):
