@@ -9661,6 +9661,83 @@ def _confirm_delivered(slug: str, nid: str, toks: Iterable[str]) -> None:
                 st.get('mail_confirmed', set()).difference_update(drop)
 
 
+def _fold_back_locked(org: Org, nid: str, *,
+                      keep_toks: Iterable[str] = (),
+                      only_toks: Iterable[str] | None = None
+                      ) -> tuple[frozenset[str], frozenset[str]]:
+    """Move undelivered batches from the journal back to the mailbox, in the
+    document the CALLER supplies and holds.
+
+    The `_locked` in the name is the contract: the caller already owns the
+    document, so this takes no lock, loads nothing, saves nothing, writes no
+    transcript, fires no notification or callback, and touches no state
+    outside `org`. It is the mutation half of `_fold_back_undelivered` and
+    nothing else — in particular it does NOT decide that a batch is unowned.
+    The selection arrives from a caller that already established it.
+
+    It RAISES. The wrapper below keeps its historical best-effort catch
+    because its callers are turn-cleanup paths that must not take a turn down
+    with them, but a caller composing this into a larger transaction needs the
+    failure, not a silent no-op that leaves it believing the mail was
+    recovered. That difference is the whole reason for the split: the old
+    helper loaded its own document, so calling it from inside another
+    transaction would overwrite that transaction's work with a stale copy and
+    then report the overwrite as a success.
+
+    Returns `(folded, preserved)` — the exact tokens moved back, and the exact
+    tokens still journaled afterwards. The two are complementary over the
+    node's journal, so a caller can check what it asked for against what
+    happened instead of inferring it from the document.
+
+    Selection, preserved verbatim from the wrapper it came out of:
+    `keep_toks` are batches whose text is still riding an in-memory carrier —
+    they stay journaled. Halt-held tokens are added to that set here, because
+    they are a fact of this document. `only_toks` (exclusive with keep_toks)
+    inverts the selection: fold EXACTLY these and leave the rest alone, minus
+    anything the keep set protects.
+
+    Mail is MOVEMENT, not arrival. Rows go back through `Org.reinsert_mail`,
+    which preserves each row's existing `mailbox`/`recv_seq`/`seq_origin` and
+    allocates no new ordinal — never through a deposit path, which would mint
+    one and rewrite the receive order this move is supposed to preserve
+    (coordinator decision 21). Each folded row's `redelivered` counter goes up
+    by exactly one, the delivery fact the ordinary fold has always recorded.
+    No archive copy is appended.
+    """
+    keep = set(keep_toks)
+    only = set(only_toks) if only_toks is not None else None
+    dlmap = org.d.get("delivering") or {}
+    dl = dlmap.get(nid) or []
+    keep.update(halt.held_tokens(org, nid))
+    if only is not None:
+        only.difference_update(keep)
+    fold = [b for b in dl if b.get("tok") in only] if only is not None \
+        else [b for b in dl if b.get("tok") not in keep]
+    if not fold:
+        return frozenset(), frozenset(b.get("tok") for b in dl)
+    left = [b for b in dl if b.get("tok") not in only] if only is not None \
+        else [b for b in dl if b.get("tok") in keep]
+    if left:
+        dlmap[nid] = left
+    else:
+        dlmap.pop(nid, None)
+    if nid in org.nodes:
+        mails = [m for b in fold for m in b.get("mail") or []]
+        for m in mails:                      # delivery fact, not content (design §6)
+            m["redelivered"] = int(m.get("redelivered") or 0) + 1
+        nots = [p for b in fold for p in b.get("notices") or []]
+        if mails:
+            # M0a — MOVEMENT, not arrival. `reinsert_mail` preserves
+            # each row's existing receive ordinal and allocates none;
+            # this prepend is exactly why array position was never the
+            # receive order in the first place.
+            org.reinsert_mail(nid, mails)
+        if nots:
+            org.d.setdefault("notices", {}).setdefault(nid, [])[0:0] = nots
+    return (frozenset(b.get("tok") for b in fold),
+            frozenset(b.get("tok") for b in left))
+
+
 def _fold_back_undelivered(slug: str, nid: str,
                            keep_toks: Iterable[str] = (),
                            only_toks: Iterable[str] | None = None) -> None:
@@ -9671,43 +9748,25 @@ def _fold_back_undelivered(slug: str, nid: str,
     only_toks (exclusive with keep_toks) inverts the selection: fold back
     EXACTLY these batches and leave the rest alone — for a caller undoing
     its own drain (send_message's no-wake steer race) without disturbing
-    batches other carriers still hold."""
+    batches other carriers still hold.
+
+    Unchanged for its callers. It still reads the confirmation set under the
+    state lock, loads under `DOC_LOCK`, saves once and only when something
+    actually folded, and still swallows everything — `maildrain` reloads and
+    checks the repair itself precisely because this returns nothing either
+    way. The mutation now lives in `_fold_back_locked`, which raises; that
+    failure arrives here and is caught here, exactly where it always was."""
     keep = set(keep_toks)
     st = state(slug, nid)
     with _state_lock:
         keep.update(st.get('mail_confirmed') or [])
-    only = set(only_toks) if only_toks is not None else None
     try:
         with store.DOC_LOCK:
             org = store.load_org(slug)
-            dlmap = org.d.get("delivering") or {}
-            dl = dlmap.get(nid) or []
-            keep.update(halt.held_tokens(org, nid))
-            if only is not None:
-                only.difference_update(keep)
-            fold = [b for b in dl if b.get("tok") in only] if only is not None \
-                else [b for b in dl if b.get("tok") not in keep]
-            if not fold:
+            folded, _preserved = _fold_back_locked(
+                org, nid, keep_toks=keep, only_toks=only_toks)
+            if not folded:
                 return
-            left = [b for b in dl if b.get("tok") not in only] if only is not None \
-                else [b for b in dl if b.get("tok") in keep]
-            if left:
-                dlmap[nid] = left
-            else:
-                dlmap.pop(nid, None)
-            if nid in org.nodes:
-                mails = [m for b in fold for m in b.get("mail") or []]
-                for m in mails:              # delivery fact, not content (design §6)
-                    m["redelivered"] = int(m.get("redelivered") or 0) + 1
-                nots = [p for b in fold for p in b.get("notices") or []]
-                if mails:
-                    # M0a — MOVEMENT, not arrival. `reinsert_mail` preserves
-                    # each row's existing receive ordinal and allocates none;
-                    # this prepend is exactly why array position was never the
-                    # receive order in the first place.
-                    org.reinsert_mail(nid, mails)
-                if nots:
-                    org.d.setdefault("notices", {}).setdefault(nid, [])[0:0] = nots
             store.save_org(org)
     except Exception:                                        # noqa: BLE001
         pass
