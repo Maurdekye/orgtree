@@ -80,6 +80,29 @@ class ReportTests(unittest.TestCase):
         for expected in ("managed_yield", "skipped_self", "dropped_stale_window", "missing", "No start timestamps", "logical", "locality"):
             self.assertIn(expected, text)
 
+    def test_a2_queue_maximum_is_preserved_with_honest_missing_coverage(self):
+        source = fixture()
+        before = reporter.build_report(source)
+        source["records"][0]["lock_queue_ahead_max"] = 3.0
+        source["records"][1]["lock_queue_ahead_max"] = 0.0
+        source["records"][2]["lock_queue_ahead_max"] = None
+        result = reporter.build_report(source)
+        self.assertEqual(result["timeline"][0]["lock_queue_ahead_max"], 3.0)
+        self.assertEqual(result["timeline"][1]["lock_queue_ahead_max"], 0.0)
+        self.assertIsNone(result["timeline"][2]["lock_queue_ahead_max"])
+        self.assertNotIn("lock_queue_ahead_max", result["timeline"][3])
+        self.assertEqual(result["coverage"]["measurement_coverage"]["lock_queue_ahead_max"],
+                         {"known": 2, "missing": 4})
+        self.assertEqual(result["ranks"], before["ranks"],
+                         "queue depth is not a duration and cannot alter latency ranks")
+        self.assertIn("lock_queue_ahead_max", reporter.render_markdown(result))
+        for bad in (True, -1, "3", float("inf"), float("nan"), 2**53):
+            with self.subTest(bad=bad):
+                invalid = fixture()
+                invalid["records"][0]["lock_queue_ahead_max"] = bad
+                with self.assertRaises(reporter.ReportError):
+                    reporter.build_report(invalid)
+
     def test_exact_percentiles_and_cumulative_ranking_with_missing_and_zero(self):
         rows = []
         for value in [1, 2, 3, 4, 5, 6, 7, 8, 9, 100, None]:

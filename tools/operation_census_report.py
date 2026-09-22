@@ -44,7 +44,7 @@ PROFILE_NUMBERS = (
     "org_load_ms", "org_save_ms", "mutate_ms", "org_load_cpu_ms", "org_save_cpu_ms",
     "mutate_cpu_ms", "chat_read_cpu_ms", "history_work_cpu_ms", "lock_wait_ms",
     "lock_hold_ms", "lock_acquires", "lock_contended", "lock_failed", "lock_max_depth",
-    "unattributed_ms",
+    "lock_queue_ahead_max", "unattributed_ms",
 )
 MEASUREMENTS = ("handler_ms", "total_ms", "bytes", "inflight", "targets") + PROFILE_NUMBERS
 IDENTITY = ("op", "method", "route", "tool", "action", "action_of", "sub")
