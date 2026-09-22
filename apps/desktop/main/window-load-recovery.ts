@@ -195,9 +195,10 @@ export interface WindowLoadHooks {
    *  and anything sent to it is gone. This is the hook that lets a caller stop
    *  delivering BEFORE the retry is scheduled.
    *
-   *  Called only for a failure that is terminal by `isTerminalLoadFailure` AND
-   *  that describes the document currently showing - see attachWindowLoadRecovery. */
-  documentLost?(): void
+   *  Called only for a failure classified by `isTerminalLoadFailure`. Return
+   *  false when the caller's document lifecycle proves the failure is stale;
+   *  that vetoes recovery too, so it cannot replace a recovered document. */
+  documentLost?(): void | boolean
   setTimer(fn: () => void, ms: number): unknown
   clearTimer(handle: unknown): void
 }
@@ -227,6 +228,8 @@ export class WindowLoadRecovery {
   /** Set once the engine has moved to an origin this window cannot be pointed
    *  at. Retrying is pointless from then on and the holding page says so. */
   private stranded = false
+  /** Invalidates asynchronous continuations after recovery or disposal. */
+  private generation = 0
 
   constructor(private readonly hooks: WindowLoadHooks) {}
 
@@ -269,8 +272,8 @@ export class WindowLoadRecovery {
     await this.retry(why)
   }
 
-  /** Wire this to the webContents' `did-finish-load`, which is the only thing
-   *  that proves a document is actually up. */
+  /** Called by the attachment for a committed document's finish. A raw
+   *  did-finish-load may belong to an error page and is not sufficient. */
   onLoadFinished(url: string): void {
     if (!this.failed) return
     if (url.startsWith('data:')) return   // the holding page is not recovery
@@ -278,7 +281,7 @@ export class WindowLoadRecovery {
   }
 
   /** Released on shutdown so a pending retry cannot outlive the window. */
-  dispose(): void { this.clear(); this.failed = false }
+  dispose(): void { this.generation++; this.clear(); this.failed = false }
 
   /** Test seam: true while the window is known not to be showing the UI. */
   get isFailed(): boolean { return this.failed }
@@ -291,11 +294,12 @@ export class WindowLoadRecovery {
   get isStranded(): boolean { return this.stranded }
 
   private async enterFailed(detail: string): Promise<void> {
+    const generation = ++this.generation
     this.failed = true
     // The holding page goes up BEFORE the first retry is even scheduled, so
     // there is no window of time in which the user is looking at nothing.
     await this.showHolding(detail)
-    this.schedule()
+    if (generation === this.generation && this.failed) this.schedule()
   }
 
   private async showHolding(detail: string): Promise<void> {
@@ -332,26 +336,34 @@ export class WindowLoadRecovery {
     }
     if (!origin) { this.attempt += 1; this.schedule(); return }
     this.inFlight = true
+    const generation = this.generation
     const attempt = this.attempt
     if (shouldRecordRetry(attempt)) {
       this.hooks.record('window-load-retry', `attempt=${attempt + 1} ${why} target=${origin}`)
     }
     try {
       await this.hooks.load(origin + (this.hooks.route?.() ?? '/'))
-      // `did-finish-load` normally gets here first; this covers the case where
-      // the caller's emitter is not wired, and is idempotent either way.
-      if (this.failed) this.recovered()
+      // loadURL's promise can resolve on a previous document's late finish
+      // while this navigation is still provisional (real Electron 44). Only
+      // the committed-document finish observed by the attachment proves
+      // recovery. Promise resolution alone must not cancel the retry state.
+      // Keep a retry scheduled if that finish never arrives (for example, a
+      // user stops the provisional retry). A real successful finish clears it.
+      if (generation === this.generation && this.failed) this.schedule()
     } catch (error) {
+      // A newer successful load (or disposal) wins over this old promise.
+      if (generation !== this.generation || !this.failed) return
       this.attempt += 1
       const detail = error instanceof Error ? error.message : String(error)
       await this.showHolding(detail)
-      this.schedule()
+      if (generation === this.generation && this.failed) this.schedule()
     } finally {
       this.inFlight = false
     }
   }
 
   private recovered(): void {
+    this.generation++
     const attempts = this.attempt + 1
     this.failed = false
     this.attempt = 0
@@ -360,13 +372,15 @@ export class WindowLoadRecovery {
   }
 }
 
-/** Anything that emits the two webContents events we care about. Structural so
+/** The webContents load/navigation events used together. Structural so
  *  a real Electron WebContents satisfies it without this module importing
  *  Electron. */
 export interface LoadFailureEmitter {
   on(event: 'did-fail-load', listener: (event: unknown, errorCode: number, errorDescription: string,
     validatedURL: string, isMainFrame: boolean) => void): unknown
   on(event: 'did-finish-load', listener: () => void): unknown
+  on(event: 'did-navigate', listener: () => void): unknown
+  on(event: 'did-start-navigation', listener: (details: { isMainFrame: boolean; isSameDocument: boolean }) => void): unknown
 }
 
 /** Attaches the navigation half of window recovery. Returns the recovery so a
@@ -375,6 +389,11 @@ export function attachWindowLoadRecovery(
   contents: LoadFailureEmitter, hooks: WindowLoadHooks, currentUrl: () => string,
 ): WindowLoadRecovery {
   const recovery = new WindowLoadRecovery(hooks)
+  let committed = false
+  contents.on('did-start-navigation', details => {
+    if (details.isMainFrame && !details.isSameDocument) committed = false
+  })
+  contents.on('did-navigate', () => { committed = true })
   contents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
     const failure = { errorCode, errorDescription, validatedURL, isMainFrame }
     // ⚠ BEFORE THE RETRY IS SCHEDULED, and CLASSIFICATION ONLY.
@@ -415,9 +434,15 @@ export function attachWindowLoadRecovery(
     // is NOT sufficient: the recovery retries the SAME url, so a stale failure
     // and a live one are indistinguishable by URL at exactly the moment it
     // matters. The caller owns document identity and makes that call. */
-    if (isTerminalLoadFailure(failure)) hooks.documentLost?.()
+    if (isTerminalLoadFailure(failure) && hooks.documentLost?.() === false) return
+    if (isTerminalLoadFailure(failure)) committed = false
     recovery.onLoadFailure(failure)
   })
-  contents.on('did-finish-load', () => recovery.onLoadFinished(currentUrl()))
+  // Chromium may finish its error document after did-fail-load. Only a
+  // committed replacement can prove recovery; neither that error finish nor
+  // a finish from the document a provisional navigation is leaving can.
+  contents.on('did-finish-load', () => {
+    if (committed) recovery.onLoadFinished(currentUrl())
+  })
   return recovery
 }
