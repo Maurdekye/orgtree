@@ -1,26 +1,10 @@
-"""The fold that puts undelivered mail back, split from the one that saves it.
+"""Document-only fold invariants and ownership-aware runtime cleanup.
 
-`_fold_back_undelivered` loads its own document, mutates it, saves it and
-swallows every exception. Each of those is right for the callers it has —
-turn cleanup must not take a turn down — and each is wrong for a caller that
-wants the fold to be one step inside a larger transaction. Such a caller gets
-its work overwritten by a document loaded after it made its change, and is
-told the overwrite succeeded.
-
-`_fold_back_locked` is the mutation on its own: the caller's document, the
-caller's lock, no load, no save, and failures that propagate. The wrapper is
-unchanged and now delegates to it.
-
-Two of these classes carry the load. `TheStaleDocumentHazard` demonstrates the
-overwrite with the old self-loading wrapper and then shows the primitive not
-doing it — a negative control that fails on the actual hazard rather than on a
-new report key. `ReceiveOrderSurvivesTheFold` re-pins M0a through the
-refactor: ordinals, `mailbox`/`seq_origin` provenance, message identity, the
-stored sequence floor and the archive all have to come out the other side
-untouched, with `redelivered` as the single field the fold is allowed to move.
-
-Storage is a real store under an isolated temporary data root — real
-`reinsert_mail`, real save, no live org, no process, no provider.
+The primitive composes into the caller's transaction. Runtime cleanup now
+uses the shared classifier, so fixtures explicitly create old, stamped orphan
+batches; active, young and uncertain custody is covered by runtime tests.
+The stale-document control demonstrates why transaction callers must use the
+primitive rather than mutating a previously loaded document after cleanup.
 """
 import copy
 import os
@@ -66,9 +50,13 @@ class Base(unittest.TestCase):
         SLUGS.append(self.slug)
         self.org.hire(ledger.USER, None, 'haiku', 0, 'worker')
         self.org.hire(ledger.USER, None, 'haiku', 0, 'bystander')
+        self.org.mailbox_identity('worker')
+        self.org.mailbox_identity('bystander')
         store.save_org(self.org)
 
     def tearDown(self):
+        supervisor._state.pop((self.slug, 'worker'), None)
+        supervisor._state.pop((self.slug, 'bystander'), None)
         store._POOL.close_all(self.slug)
 
     # -- helpers ---------------------------------------------------------
@@ -88,8 +76,10 @@ class Base(unittest.TestCase):
             self.post(body, to=to)
         taken = list(self.box(to))
         (self.org.d.setdefault('mail', {}))[to] = []
-        return supervisor._journal_drain(self.org, to, taken, list(notices),
-                                         via, mode=mode, segments=[])
+        tok = supervisor._journal_drain(self.org, to, taken, list(notices),
+                                        via, mode=mode, segments=[])
+        self.org.d['delivering'][to][-1]['at'] = '2000-01-01T00:00:00Z'
+        return tok
 
     def persist(self):
         store.save_org(self.org)
@@ -212,7 +202,7 @@ class _Forbidden:
         return False
 
 
-class TheWrapperIsUnchangedForItsCallers(Base):
+class OwnershipAwareCleanup(Base):
     """The three production callers — turn-end cleanup, `send_message`'s
     no-wake steer race, and `maildrain` — see exactly what they saw before."""
 
@@ -221,7 +211,7 @@ class TheWrapperIsUnchangedForItsCallers(Base):
         supervisor._fold_back_undelivered(self.slug, 'worker', **kw)
         return self.durable()
 
-    def test_turn_end_cleanup_folds_everything_it_does_not_keep(self):
+    def test_turn_end_cleanup_folds_old_orphans_it_does_not_keep(self):
         kept = self.drain(['riding'])
         dropped = self.drain(['stranded'])
         after = self.fold(keep_toks=[kept])
@@ -236,7 +226,7 @@ class TheWrapperIsUnchangedForItsCallers(Base):
         self.assertEqual([r['body'] for r in self.box(org=after)], ['mine'])
         self.assertEqual([b['tok'] for b in self.journal(org=after)], [theirs])
 
-    def test_maildrain_recovery_folds_the_whole_journal(self):
+    def test_cleanup_folds_each_old_unowned_batch(self):
         self.drain(['one'])
         self.drain(['two'])
         after = self.fold()
@@ -491,43 +481,22 @@ class NothingElseMoved(Base):
                          ['folded-back', 'already-here'])
 
 
-class TheSliceAddsNoRuntimeConsumer(Base):
-    """M0b is a prerequisite, not an activation. If this fails, something was
-    wired up inside what was reviewed as a refactor."""
+class RuntimeEntryPoints(Base):
+    def test_a_young_unowned_batch_remains_journaled(self):
+        tok = self.drain(['young'])
+        self.org.d['delivering']['worker'][0]['at'] = ledger.now()
+        self.persist()
+        supervisor._fold_back_undelivered(self.slug, 'worker', only_toks=[tok])
+        self.assertEqual([b['tok'] for b in self.journal(org=self.durable())], [tok])
+        self.assertEqual(self.box(org=self.durable()), [])
 
-    def readers(self, name, roots):
-        found = []
-        for root in roots:
-            if not root.exists():
-                continue
-            for path in root.rglob('*.py'):
-                text = path.read_text(encoding='utf-8', errors='replace')
-                if name in text:
-                    found.append(str(path.relative_to(CHECKOUT)).replace('\\', '/'))
-        return sorted(found)
-
-    def test_the_strict_primitive_has_exactly_one_production_reference(self):
-        self.assertEqual(
-            self.readers('_fold_back_locked', [CHECKOUT / 'engine', CHECKOUT / 'tools']),
-            ['engine/backend/orgtree/supervisor.py'])
-
-    def test_and_exactly_one_test_module_reads_it(self):
-        self.assertEqual(
-            self.readers('_fold_back_locked', [CHECKOUT / 'tests']),
-            ['tests/test_mail_reclaim_fold.py'])
-
-    def test_the_wrapper_is_the_only_caller_inside_the_supervisor(self):
-        text = (CHECKOUT / 'engine/backend/orgtree/supervisor.py').read_text(encoding='utf-8')
-        self.assertEqual(text.count('_fold_back_locked'), 3,
-                         'expected the definition, the docstring mention and one call')
-        self.assertIn('_fold_back_locked(\n', text)
-
-    def test_delivery_stages_was_not_touched_by_this_slice(self):
-        """The classifier exists precisely so this function does not have to
-        change yet. It still reports the node-wide stage it always did."""
-        text = (CHECKOUT / 'engine/backend/orgtree/supervisor.py').read_text(encoding='utf-8')
-        self.assertIn('owned = bool(st.get("busy") or st.get("waiting")', text)
-        self.assertNotIn('mailownership', text)
+    def test_an_unstamped_historical_batch_is_preserved(self):
+        tok = self.drain(['legacy unknown custody'])
+        self.org.d['delivering']['worker'][0].pop('custody')
+        self.persist()
+        before = self.document()
+        supervisor._fold_back_undelivered(self.slug, 'worker', only_toks=[tok])
+        self.assertEqual(self.document(), before)
 
 
 if __name__ == '__main__':

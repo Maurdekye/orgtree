@@ -146,8 +146,7 @@ def recover(slug: str, nid: str) -> bool:
                 or n.get('frozen') or n.get('limit_locked')
                 or n.get('remote_controlled') or org.d.get('spend_frozen')
                 or (org.d.get('storage_blocked') and sup.sbx.on_disk(slug))
-                or demand.get('retry_at', 0) > time.time()
-                or halt._workers.get((slug, nid))):
+                or demand.get('retry_at', 0) > time.time()):
             return False
         # SAY SO WHEN A SEAT CANNOT BE REACHED AT ALL. Every refusal above is
         # already visible on the agent's card — archived, frozen, limit-
@@ -172,9 +171,6 @@ def recover(slug: str, nid: str) -> bool:
             org.node(nid)['mail_drain'] = demand
             store.save_org(org)
         st = sup.state(slug, nid)
-        with sup._state_lock:
-            if st.get('busy') or st.get('proc_control') or st.get('responding'):
-                return False
         # A receipt save may have failed after the provider consumed a batch.
         # Retry that save BEFORE any fold-back; never knowingly replay it.
         confirmed = list(st.get('mail_confirmed') or [])
@@ -185,35 +181,108 @@ def recover(slug: str, nid: str) -> bool:
             org = store.load_org(slug)
         sup.scan_steer_records(slug, nid)
         with sup._state_lock:
-            sup._fold_steer(st)
-            # Self-contained carriers also own authored/replay context. Keep
-            # their journal/text intact; only pure mail pointers can be rebuilt.
-            keep = {t for c in st['queue'] if isinstance(c, dict)
-                    and not sup._carrier_is_ping(c) for t in c.get('toks') or []}
-        sup._fold_back_undelivered(slug, nid, keep_toks=keep)
-        org = store.load_org(slug)
-        box = (org.d.get('mail') or {}).get(nid) or []
-        outstanding = {str(m.get('id')) for m in box}
-        # If storage repair failed, journal content still owns the demand.
-        journals = (org.d.get('delivering') or {}).get(nid) or []
-        if any(b['tok'] not in keep for b in journals):
-            return False
-        outstanding.update(str(m.get('id')) for b in journals for m in b['mail'])
-        remaining = [i for i in demand['ids'] if i in outstanding]
+            # ⚠ ONLY when the turn has stopped responding. The steer store
+            # means something exactly while `responding` is true — that is the
+            # flag `send_message` reads to append there — so folding it under a
+            # live tool call would take a carrier away from the turn that is
+            # about to collect it.
+            if not st.get('responding'):
+                sup._fold_steer(st)
+        # RECLAIM, then decide whether a turn is owed.
+        #
+        # ⚠ The old code returned here when the node was `busy`, `responding`
+        # or under process control. That is the node-wide bit: it says the node
+        # is doing SOMETHING, never that it is doing something with THIS batch,
+        # and an old batch nothing owns stayed invisible to recovery for as
+        # long as the node stayed busy with anything else. The resolver answers
+        # the actual question per batch, so recovery no longer needs the
+        # blindfold — a live current-turn batch, a queued or steered carrier, a
+        # claim, a lease, a halt hold and a pending confirmation all still
+        # protect, on their own evidence.
+        #
+        # One transaction: the fold and the `mail_drain` bookkeeping go into
+        # the same document through `mutate`, instead of the old sequence of
+        # self-loading wrapper, reload, and a second save against a document
+        # read after an unsynchronized mutation.
+        outcome: dict = {}
+
+        def _settle(o) -> None:
+            box = (o.d.get('mail') or {}).get(nid) or []
+            outstanding = {str(m.get('id')) for m in box}
+            journals = (o.d.get('delivering') or {}).get(nid) or []
+            # A batch still journaled is still owned by something the resolver
+            # protected; its content keeps owning the demand, exactly as
+            # before. Absence of a row is never read as success.
+            outcome['journaled'] = [b['tok'] for b in journals]
+            outstanding.update(str(m.get('id')) for b in journals
+                               for m in b.get('mail') or [])
+            remaining = [i for i in demand['ids'] if i in outstanding]
+            outcome['remaining'] = remaining
+            if not remaining:
+                o.node(nid).pop('mail_drain', None)
+            else:
+                o.node(nid)['mail_drain'] = {**demand, 'ids': remaining}
+
+        with store.DOC_LOCK:
+            org = store.load_org(slug)
+            # `queue_consumer=True`: popping a queued carrier and driving a
+            # turn for it is this function's own next action, so a queued
+            # carrier here really does have a consumer. Without that the
+            # resolver would call it stranded and fold the batch out from under
+            # a carrier still due for delivery — and `_envelope` skips the
+            # mailbox for a carrier that claims to own a batch, so the mail
+            # would then be delivered by nobody at all.
+            # `now` comes from THIS module's clock so the drain hysteresis can
+            # be exercised by the suite the same way the rest of the gate is.
+            try:
+                sup.reclaim_orphans(slug, nid, org=org, pump_toks=(),
+                                    now=time.time(), queue_consumer=True,
+                                    mutate=_settle)
+            except Exception as exc:                         # noqa: BLE001
+                # The transaction did not commit. The in-memory mutation is
+                # discarded with the document and NOTHING is concluded from the
+                # failure: the demand stays exactly as it was on disk and the
+                # next sweep retries. Reporting success here — or clearing the
+                # demand because the fold "probably" happened — is the
+                # absent-evidence mistake this whole protocol refuses.
+                print(f'[orgtree] {slug}/{nid}: mail reclaim will retry: {exc}')
+                return False
+        remaining = outcome.get('remaining') or []
         if not remaining:
-            org.node(nid).pop('mail_drain', None)
-            store.save_org(org)
             _forget(slug, nid)
             return False
-        org.node(nid)['mail_drain'] = {**demand, 'ids': remaining}
-        store.save_org(org)
+        # Anything still journaled is protected by something. A QUEUE carrier
+        # is the one holder this function is itself about to service, so it
+        # does not block; every other holder — a live turn, the steer store, a
+        # claim, a lease, halt retention, a pending confirmation, or a batch
+        # still inside the drain grace — owns the delivery, and starting a
+        # second turn for the same mail would duplicate it. This is the old
+        # `keep` rule, decided from evidence rather than from carrier shape.
         with sup._state_lock:
-            # Journaled carriers were restored to the mailbox above. Remove
-            # their stale copies, keeping commands and ordinary queue order.
+            queued_toks = {t for c in st['queue'] if isinstance(c, dict)
+                           for t in c.get('toks') or []}
+        if [t for t in outcome.get('journaled') or [] if t not in queued_toks]:
+            return False
+        with sup._state_lock:
+            # ADMISSION is still gated on the node being free. Reclaim is safe
+            # while a turn runs; STARTING one is not.
+            if (st.get('busy') or st.get('proc_control') or st.get('responding')
+                    or halt._workers.get((slug, nid))):
+                return False
+        with sup._state_lock:
+            # Protected journaled carriers still own their exact payload.
+            # Only empty obsolete pointers can be removed from this queue.
             st['queue'] = [c for c in st['queue']
-                           if not (sup._carrier_is_ping(c) and c.get('toks'))
-                           and not (sup._carrier_is_ping(c) and c.get('mail_ids')
-                                    and not set(c['mail_ids']).intersection(remaining))]
+                           if not (sup._carrier_is_ping(c) and not c.get('toks')
+                                   and c.get('mail_ids')
+                                   and not set(c['mail_ids']).intersection(remaining))]
+            # A carrier that survived the filter may still name a batch the
+            # reclaim moved back. Strip those tokens: a carrier claiming to own
+            # a row that no longer exists makes `_envelope` skip the mailbox,
+            # so it would deliver neither the folded mail nor the new mail.
+            st['queue'] = [survivor for survivor in
+                           (sup._publishable(st, c) for c in st['queue'])
+                           if survivor is not None]
             carrier = (st['queue'].pop(0) if st['queue'] else sup._mark_ping(
                 '(orgtree) You have new mail above — handle it as appropriate.',
                 mail_ids=remaining))

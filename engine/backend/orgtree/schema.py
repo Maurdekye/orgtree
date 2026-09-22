@@ -289,6 +289,7 @@ class OracleExchange(TypedDict):
 
 
 class InflightInfo(TypedDict):
+    mail_input: NotRequired[dict[str, Any]]  # private input/replay evidence
     """The turn currently running (supervisor): prompt tail + start stamp."""
     at: str
     text: str
@@ -1107,6 +1108,7 @@ class OrgDoc(TypedDict):
     notices: NotRequired[dict[str, list[NoticeEntry]]]
     notice_log: NotRequired[list[NoticeLogEntry]]
     delivering: NotRequired[dict[str, list[dict[str, Any]]]]  # supervisor in-flight mail batches
+    mail_transitions: NotRequired[dict[str, dict[str, dict[str, Any]]]]  # positive atomic reclaim receipts
     steered_log: NotRequired[dict[str, list[dict[str, Any]]]]  # per-NODE steer history, org-keyed
     turn_error_log: NotRequired[dict[str, list[dict[str, Any]]]]  # per-NODE turn failures {at, text, ran_as?} — the durable half of last_error
     # (`account_token_uuid` — the per-org account selection — lived here

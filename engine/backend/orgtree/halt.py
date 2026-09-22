@@ -227,6 +227,8 @@ def _capture(org, nid: str, st, *, force: bool = False) -> None:
         queued = list(st.get("queue") or []) + list(st.get("steer") or [])
         queued.extend(st.get("halt_steering_carriers") or [])
         queued.extend(st.get("halt_aux_carriers") or [])
+        queued.extend(st.get("mail_handoffs") or [])
+        queued.extend(st.get("mail_publication_wait") or [])
         for entry in st.get("steer_limbo") or []:
             queued.extend(entry.get("carriers") or [])
         pending = st.get("halt_pending_carrier")
@@ -235,11 +237,23 @@ def _capture(org, nid: str, st, *, force: bool = False) -> None:
     changed = retain(org, nid, queued)
     # Durable first. A failed save leaves every runtime carrier in place.
     if changed or force:
-        store.save_org(org)
+        try:
+            store.save_org(org)
+        except Exception:
+            # The outer worker may retire its pending slot while unwinding.
+            # Preserve every complete carrier if durability is still unknown.
+            with sup._state_lock:
+                held = st.setdefault("halt_aux_carriers", [])
+                held.extend(c for c in queued if not any(c is h for h in held))
+            raise
     captured = {id(c) for c in queued}
     with sup._state_lock:
         st["queue"] = [c for c in st.get("queue") or [] if id(c) not in captured]
         st["steer"] = [c for c in st.get("steer") or [] if id(c) not in captured]
+        for key in ("mail_handoffs", "mail_publication_wait"):
+            st[key] = [c for c in st.get(key) or [] if id(c) not in captured]
+        st["mail_handoff_owners"] = {key: value for key, value in
+            st.get("mail_handoff_owners", {}).items() if key not in captured}
 
 
 def delivery(empty):

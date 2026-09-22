@@ -148,7 +148,7 @@ class AgentHaltTests(unittest.TestCase):
         self.assertFalse(thread.is_alive())
         self.assertFalse(entered)
 
-    def test_mail_and_delivery_journal_are_not_acknowledged_while_halted(self):
+    def test_halt_blocks_new_delivery_but_accepts_positive_late_consumption(self):
         self.mail("old")
         _, tok, _ = sup._envelope(self.slug, self.nid, "mail", base_view="")
         self.st["steer"] = [{"text": "old mail", "toks": [tok]}]
@@ -160,11 +160,15 @@ class AgentHaltTests(unittest.TestCase):
         self.assertEqual(sup.pop_steer(self.slug, self.nid), [])
         self.assertEqual(sup.pop_steer(self.slug, self.nid, defer_commit=True), [])
         self.assertEqual(sup.claim_steer(self.slug, self.nid, "tool"), (None, []))
-        self.assertEqual(sup.commit_steer(self.slug, self.nid, [{"text":"x", "toks":[tok]}]), [])
+        self.assertEqual(self.org().d["delivering"], before)
+        # This internal callback is positive evidence of earlier consumption,
+        # not a new fetch/ack door. Halt must not turn that evidence into replay.
+        self.assertEqual(sup.commit_steer(self.slug, self.nid, [{"text":"x", "toks":[tok]}]), ["x"])
         sup._confirm_delivered(self.slug, self.nid, [tok])
         sup.scan_steer_records(self.slug, self.nid)
         sup._fold_back_undelivered(self.slug, self.nid)
-        self.assertEqual(self.org().d["delivering"], before)
+        self.assertFalse(self.org().d["delivering"].get(self.nid))
+        self.assertTrue(self.org().node(self.nid).get("halt"))
         self.assertEqual(len(self.org().d["mail"][self.nid]), 1)
         with self.assertRaises(halt.Cancelled):
             sup._envelope(self.slug, self.nid, "rogue drain")
@@ -219,7 +223,7 @@ class AgentHaltTests(unittest.TestCase):
             sup.manual_compact(self.slug, self.nid)
             compact.assert_not_called()
 
-    def test_provider_popped_mail_is_preserved_before_and_after_late_ack(self):
+    def test_provider_popped_mail_is_preserved_until_positive_late_consumption(self):
         self.mail("between pop and steer")
         _, tok, _ = sup._envelope(self.slug, self.nid, "mail", base_view="")
         self.st["steer"] = [{"text": "composed", "view": "visible", "toks": [tok]}]
@@ -227,11 +231,14 @@ class AgentHaltTests(unittest.TestCase):
         self.assertEqual(self.st["steer"], [])
         self.assertFalse(self.st.get("steer_limbo"), "exercise the gap BEFORE limbo exists")
         self.stop()
-        sup.commit_steer(self.slug, self.nid, carriers)
         self.assertEqual(len(self.org().node(self.nid)["halt_queue"]), 1)
         self.assertEqual(halt.held_tokens(self.org(), self.nid), {tok})
         self.assertTrue(self.org().d["delivering"][self.nid])
-        # Release without starting a provider, then accept its delayed receipt.
+        sup.commit_steer(self.slug, self.nid, carriers)
+        self.assertTrue(self.org().node(self.nid).get("halt"))
+        self.assertEqual(self.org().node(self.nid)["halt_queue"], [])
+        self.assertFalse(self.org().d["delivering"].get(self.nid))
+        # Release without starting a provider; another receipt stays idempotent.
         with patch.object(halt, "resume_pending", return_value={"idle": True}):
             halt.unhalt(self.slug, self.nid)
         sup.commit_steer(self.slug, self.nid, carriers)

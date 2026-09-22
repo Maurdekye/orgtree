@@ -37,8 +37,9 @@ import sys
 import threading
 import time
 import uuid
-from collections.abc import (Callable, Iterable, Mapping, MutableMapping,
-                             Sequence)
+from collections.abc import (Callable, Iterable, Iterator, Mapping,
+                             MutableMapping, Sequence)
+import contextlib
 from functools import wraps
 from pathlib import Path
 from typing import Any, Final, Protocol, cast
@@ -48,8 +49,8 @@ from . import (accounts, agentauth, antigravity_limits, appsettings,
                cachecontinuity, clipin, codex_limits, codex_route, deployment,
                envelope, events, events_table, failfix, handoff, imgblock,
                lifecycle, limits,
-               liveness, localtime, net, openrouter, openrouter_harness,
-               opreceipts, providers, registry,
+               liveness, localtime, mailruntime, net, openrouter,
+               openrouter_harness, opreceipts, providers, registry,
                sandbox as sbx, stateprobe, steer, store, workevidence,
                tokens, turnlog, turnusage, warmpool)
 from .fleet_walk import fleet_walk
@@ -9048,19 +9049,36 @@ def _journal_drain(org: Org, nid: str, mail: list[MailEntry] | None,
       "steer" — injected as hook context, which the CLI never transcripts, so
                 the journal is the only thing that can show it
     Durability is identical either way; this only governs display."""
+    # A notice-only drain can be the first use of a mailbox. This is a normal
+    # write boundary; inspection stays pure. Never normalize a present bad ID.
+    node = org.nodes.get(nid)
+    if node is not None and "mailbox_id" not in node:
+        org.mailbox_identity(nid)
     tok = os.urandom(8).hex()
     # DELIVERY ENVELOPE (design §6): mode/attempt/segments live HERE, on the journal
     # row, never inside an event. `attempt` counts re-drains of the same rows (a
     # fold-back stamps `redelivered` on the row it puts back). `segments` is the
     # ordered typed composition the agent text was built from, with FULL events.
     attempt = 1 + max([int(m.get("redelivered") or 0) for m in (mail or [])] or [0])
+    # CUSTODY PROVENANCE. The mailbox identity, generation and session as they
+    # were at the instant the mail left the box — the only durable record of
+    # WHERE this batch came from, and the fence a later reclaim revalidates
+    # against before it moves anything (`mailruntime.revalidate`). It is
+    # provenance and never ownership: it says nothing about who holds the
+    # batch now, and no rule reads it as a holder. Absent fields are omitted
+    # rather than written null, so a node with no mailbox identity yet is
+    # distinguishable from a row stamped with a broken one.
     org.d.setdefault("delivering", {}).setdefault(nid, []).append(
         {"tok": tok, "at": now_iso(), "mail": mail or [],
          "notices": pending or [], "via": via,
+         "custody": mailruntime.stamp_for(org, nid),
          "mode": mode or via, "attempt": attempt,
          "drive": events.encode_ev(drive) if drive is not None else None,
          "segments": segments if segments is not None
          else _segments_for(mail, pending, None, drive=drive)})
+    st = state(org.d["slug"], nid)
+    with _state_lock:
+        mailruntime.adopt(st, attempt=st.get("lifecycle_operation_id"), toks=(tok,))
     return tok
 
 
@@ -9613,56 +9631,62 @@ def _fold_steer(st: dict[str, Any]) -> list[Any]:
     return leftover
 
 
-@halt.delivery(lambda: None)
+# Positive late consumption is recorded even after admission closes.
+# This function owns DOC_LOCK; it starts no work and opens no delivery door.
 def _confirm_delivered(slug: str, nid: str, toks: Iterable[str]) -> None:
-    """Drop confirmed journal batches. WHEN to confirm is the callers' rule
-    (review C1): the turn path confirms on the first non-`system` stdout
-    event — a successful stdin/pipe write is NOT consumption — and the steer
-    path confirms at the hook's fetch (the ratified trade, D-045 Bounds)."""
+    """Record consumption and remove its journal rows in one transaction.
+
+    Callers retain their existing consumption boundary. A failed save keeps
+    pending confirmation evidence; only a durable positive receipt can clear
+    it. Journal absence by itself proves neither delivery nor loss.
+    """
     halt.consumed(slug, nid)
-    if not toks:
-        return
     drop = set(toks)
+    if not drop:
+        return
     st = state(slug, nid)
     with _state_lock:
-        st.setdefault('mail_confirmed', set()).update(drop)
-    saved = False
+        st.setdefault("mail_confirmed", set()).update(drop)
+    net_ids = []
+    receipt = None
     try:
         with store.DOC_LOCK:
             org = store.load_org(slug)
+            with _state_lock:
+                mailruntime.settle_confirmation(org, st, nid)
+            receipt = mailruntime.confirmation_receipt(
+                org, nid, drop, operation=lifecycle.new_operation("mail-confirm"))
+            if receipt is None:
+                return
+            selected = set(receipt["before"])
             dlmap = org.d.get("delivering") or {}
-            dl = dlmap.get(nid)
-            if not dl:
-                saved = True
-                return
-            keep = [b for b in dl if b.get("tok") not in drop]
-            if len(keep) == len(dl):
-                saved = True
-                return
-            # F-06 READ receipts: this is the moment a turn PROVABLY consumed
-            # the batch — collect hub message ids from the confirmed mail and
-            # queue "read" for the net daemon's next flush (in-memory queue;
-            # a restart degrades the far end to "delivered", honestly)
-            net_ids = [str(m["net_id"]) for b in dl
-                       if b.get("tok") in drop
-                       for m in (b.get("mail") or []) if m.get("net_id")]
-            maildrain.discard(org, nid, [str(m.get('id')) for b in dl
-                if b.get('tok') in drop for m in b.get('mail') or []])
+            dl = dlmap.get(nid) or []
+            consumed = [b for b in dl if b.get("tok") in selected]
+            net_ids = [str(m["net_id"]) for b in consumed
+                       for m in b.get("mail") or [] if m.get("net_id")]
+            maildrain.discard(org, nid, [str(m.get("id")) for b in consumed
+                                       for m in b.get("mail") or []])
+            keep = [b for b in dl if b.get("tok") not in selected]
             if keep:
                 dlmap[nid] = keep
             else:
                 dlmap.pop(nid, None)
-            halt.confirmed(org, nid, drop)
-            store.save_org(org)
-            saved = True
+            halt.confirmed(org, nid, selected)
+            mailruntime.write_reclaim_receipt(org, receipt)
+            mailruntime.settle_replay(org, nid)
+            try:
+                store.save_org(org)
+            except Exception:
+                fresh = store.load_org(slug)
+                if mailruntime.reclaim_outcome(fresh, receipt) != "committed":
+                    raise
+                org = fresh
+            with _state_lock:
+                mailruntime.settle_confirmation(org, st, nid)
         if net_ids:
             net.note_read(slug, net_ids)
     except Exception:                                        # noqa: BLE001
-        pass      # retry the receipt before any fold-back on this process
-    finally:
-        if saved:
-            with _state_lock:
-                st.get('mail_confirmed', set()).difference_update(drop)
+        pass  # Keep pending confirmation; retry before any fold-back.
 
 
 def _fold_back_locked(org: Org, nid: str, *,
@@ -9742,36 +9766,131 @@ def _fold_back_locked(org: Org, nid: str, *,
             frozenset(b.get("tok") for b in left))
 
 
+#: For a caller that ALREADY holds `DOC_LOCK` and hands in its own document.
+#: `store.DOC_LOCK` is an RLock in some builds and a plain Lock in others, and
+#: re-entering it must not be what this depends on.
+@contextlib.contextmanager
+def _already_locked() -> Iterator[None]:
+    yield
+
+
+def inspect_mail_ownership(slug: str, nid: str):
+    """Internal-only snapshot through the same classifier as reclaim.
+
+    This inspection allocates no identity and writes no document. Admission
+    gates remain separate from custody; they can prevent a permitted fold.
+    """
+    with store.DOC_LOCK:
+        org = store.load_org(slug)
+        st = state(slug, nid)
+        with _state_lock:
+            facts = mailruntime.runtime_facts(st)
+        return mailruntime.classify(org, nid, facts, now=time.time(), pump_toks=())[0]
+
+
+def _reclaim_blocked(org: Org, nid: str) -> bool:
+    node = org.nodes.get(nid)
+    return bool(node is None or node.get("state") != "live"
+        or node.get("halt") or node.get("frozen") or node.get("limit_locked")
+        or node.get("remote_controlled") or org.d.get("killswitch")
+        or org.d.get("spend_frozen")
+        or (org.d.get("storage_blocked") and sbx.on_disk(org.d["slug"]))
+        or _native_context_hold(org, nid))
+
+
+def reclaim_orphans(slug: str, nid: str, *, org: Org | None = None,
+                    pump_toks: Any = (), now: float | None = None,
+                    queue_consumer: bool = False,
+                    only_toks: Iterable[str] | None = None,
+                    mutate: Callable[[Org], None] | None = None,
+                    ) -> dict[str, Any]:
+    """Fold eligible batches and related recovery state in one document save.
+
+    Caller-supplied documents require DOC_LOCK and must be discarded on error.
+    The brief state lock covers evidence selection and the fold, never a save.
+    A receipt in that same transaction resolves a response lost after commit;
+    failed reads or contradictory state retain the intent and token fence.
+    """
+    st = state(slug, nid)
+    out: dict[str, Any] = {"folded": frozenset(), "refused": {},
+                          "eligible": frozenset(), "saved": False,
+                          "outcome": "unchanged", "resolved": {}}
+    with (store.DOC_LOCK if org is None else _already_locked()):
+        if org is None:
+            org = store.load_org(slug)
+        if _reclaim_blocked(org, nid):
+            return out
+        receipt = None
+        with _state_lock:
+            out["resolved"] = mailruntime.resolve_reclaims(org, st, nid=nid)
+            _retry_mail_publications(st)
+            facts = mailruntime.runtime_facts(st)
+            eligible = mailruntime.eligible_tokens(
+                org, nid, facts, now=time.time() if now is None else now,
+                pump_toks=pump_toks, queue_consumer=queue_consumer)
+            if only_toks is not None:
+                eligible = eligible.intersection(only_toks)
+            out["eligible"] = eligible
+            safe, out["refused"] = mailruntime.revalidate(org, nid, eligible)
+            if safe:
+                receipt = mailruntime.reclaim_receipt(
+                    org, nid, safe, operation=lifecycle.new_operation("mail-reclaim"))
+                mailruntime.fence(st, safe)
+                st.setdefault("mail_reclaim_intents", {})[receipt["operation"]] = receipt
+                try:
+                    folded, _ = _fold_back_locked(org, nid, only_toks=safe)
+                    if folded != safe:
+                        raise RuntimeError("ownership changed before the reclaim fold")
+                    mailruntime.write_reclaim_receipt(org, receipt)
+                    out["folded"] = folded
+                except BaseException:
+                    # Nothing was saved. Discard the caller's document and let
+                    # the next fresh read settle this intent; do not reuse it.
+                    raise
+        try:
+            if mutate is not None:
+                mutate(org)
+            if receipt is not None or mutate is not None:
+                store.save_org(org)
+                out["saved"] = True
+                out["outcome"] = "committed"
+        except Exception:
+            if receipt is None:
+                raise
+            # Save may have raised either before commit or after commit. A new
+            # document is essential: the partially mutated RAM copy proves
+            # neither. Keep the fence when the durable read also fails.
+            try:
+                fresh = store.load_org(slug)
+            except Exception:
+                out["outcome"] = "ambiguous"
+                raise
+            with _state_lock:
+                outcomes = mailruntime.resolve_reclaims(fresh, st, nid=nid)
+            out["outcome"] = outcomes.get(receipt["operation"], "ambiguous")
+            if out["outcome"] != "committed":
+                raise
+            out["saved"] = True
+        if receipt is not None and out["saved"]:
+            with _state_lock:
+                mailruntime.note_reclaimed(st, receipt["before"])
+                mailruntime.unfence(st, receipt["before"])
+                st.get("mail_reclaim_intents", {}).pop(receipt["operation"], None)
+                _retry_mail_publications(st)
+        return out
+
+
 def _fold_back_undelivered(slug: str, nid: str,
                            keep_toks: Iterable[str] = (),
                            only_toks: Iterable[str] | None = None) -> None:
-    """A turn ended without delivering some drained batch(es): put the mail
-    and notices back exactly where the drain took them from, so the next
-    turn's envelope presents them again. keep_toks = batches whose text is
-    still riding an in-memory carrier (queue/steer) — they stay journaled.
-    only_toks (exclusive with keep_toks) inverts the selection: fold back
-    EXACTLY these batches and leave the rest alone — for a caller undoing
-    its own drain (send_message's no-wake steer race) without disturbing
-    batches other carriers still hold.
+    """Best-effort cleanup through the same guarded transition as recovery.
 
-    Unchanged for its callers. It still reads the confirmation set under the
-    state lock, loads under `DOC_LOCK`, saves once and only when something
-    actually folded, and still swallows everything — `maildrain` reloads and
-    checks the repair itself precisely because this returns nothing either
-    way. The mutation now lives in `_fold_back_locked`, which raises; that
-    failure arrives here and is caught here, exactly where it always was."""
-    keep = set(keep_toks)
-    st = state(slug, nid)
-    with _state_lock:
-        keep.update(st.get('mail_confirmed') or [])
+    Explicit retained tokens are additional carrier evidence, not a license
+    to fold every other batch. Live, uncertain, malformed or young custody
+    remains protected; the ordinary recovery worker retries after release.
+    """
     try:
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
-            folded, _preserved = _fold_back_locked(
-                org, nid, keep_toks=keep, only_toks=only_toks)
-            if not folded:
-                return
-            store.save_org(org)
+        reclaim_orphans(slug, nid, pump_toks=tuple(keep_toks), only_toks=only_toks)
     except Exception:                                        # noqa: BLE001
         pass
 
@@ -9806,6 +9925,33 @@ def _fold_back_undelivered(slug: str, nid: str,
 # queue, and that suite exists to prove the iterative drain does not wedge on
 # one. A fix that quietly removes another suite's ability to reach the state it
 # guards is worse than the duplication it saves.
+def _publishable(st: dict[str, Any], carrier: Any) -> Any:
+    """Project proven folds, or retain the complete uncertain carrier. Under state lock."""
+    projected, outcome = mailruntime.project_carrier(st, carrier)
+    if outcome != "ready":
+        mailruntime.retain_publication(st, carrier)
+        return None
+    return projected
+
+
+def _take_queued_carrier(st: dict[str, Any]) -> Any:
+    """Pop and register a local handoff in the same state-lock take."""
+    while st.get("queue"):
+        carrier = _publishable(st, st["queue"].pop(0))
+        if carrier is not None:
+            return mailruntime.hold_handoff(st, carrier)
+    return None
+
+
+def _retry_mail_publications(st: dict[str, Any]) -> None:
+    """Return resolved full carriers to the queue; unknown composition stays held."""
+    pending = st.pop("mail_publication_wait", [])
+    for carrier in pending:
+        ready = _publishable(st, carrier)
+        if ready is not None:
+            st.setdefault("queue", []).append(ready)
+
+
 def _mark_ping(carrier: str | dict[str, Any], reason: str | None = None, *,
                mail_ids: list[str] | None = None
                ) -> dict[str, Any]:
@@ -9938,7 +10084,9 @@ def _drop_ping(slug: str, nid: str) -> str | dict[str, Any] | None:
         if st.get("halt_requested"):
             return None
         if st["queue"]:
-            return st["queue"].pop(0)
+            next_carrier = _take_queued_carrier(st)
+            if next_carrier is not None:
+                return next_carrier
         st["busy"] = False
         return None
 
@@ -10091,6 +10239,10 @@ def _envelope(slug: str, nid: str, text: str,
             return text, None, []
         halt.check(slug, nid)
         held = list(owned_toks or [])         # materialised ONCE (a generator would be spent)
+        st = state(slug, nid)
+        with _state_lock:
+            if mailruntime.adopt(st, attempt=st.get("lifecycle_operation_id"), toks=held):
+                mailruntime.adopt_handoffs(st, held)
         # An older batch already riding this carrier must reach the agent
         # before newly boxed mail. The durable drain admits that mail next.
         mail = [] if held else _take_delivery_mail(org, nid, mail_ids)
@@ -13735,6 +13887,8 @@ def _start_turn_worker(slug: str, nid: str, carrier) -> None:
     """Reserve the next owner before starting it; unwind failed admission."""
     st = state(slug, nid)
     thread = None
+    with _state_lock:
+        mailruntime.hold_handoff(st, carrier)
     try:
         thread = threading.Thread(target=_run_turn, args=(slug, nid, carrier),
                                   daemon=True)
@@ -13777,28 +13931,20 @@ def _run_turn(slug: str, nid: str, text: str | dict[str, Any]) -> None:
     with _state_lock:
         st["turn_activity"] = False
         st["halt_carrier_id"] = text.get("_halt_id") if isinstance(text, dict) else None
-    # A disposable cache read may own the same Claude session between turns.
-    # Real work always wins: kill/reap it before this choke point can resume.
-    _cancel_working_cache(slug, nid)
-    # A real wake is the stale-working clock's activity boundary even when a
-    # later admission/provider failure prevents a completed result. This must
-    # sit AFTER cache cancellation: the cache builder may hold DOC_LOCK, while
-    # cancellation must be able to set its lease flag without waiting for that
-    # build (the check-to-Popen race pinned by the cache lifecycle suite).
-    _note_working_activity(slug, nid)
-    # the single choke point: all three thread starts target this function,
-    # so one gate here covers every way a turn can begin (D-142/a)
-    if not _hold_for_deploy(slug, nid):
-        # Interrupted at the threshold. NOTHING was dequeued — mail is drained
-        # from the doc only AT DELIVERY, inside `_run_one_turn` — so the
-        # mailbox still holds every message and this carrier, a raw nudge, is
-        # simply dropped. The in-memory queue goes with it for the reason the
-        # killswitch clears it (`interrupt_all`): there is no result boundary
-        # to hand it to, and chaining a turn from here would start one BEHIND
-        # the hold that was just refused, which is D-142/a's own warning.
+    # Everything here precedes provider input. A carrier may already contain
+    # journaled mail and authored text, so failure/cancellation retains it whole.
+    try:
+        _cancel_working_cache(slug, nid)
+        _note_working_activity(slug, nid)
+        proceed = _hold_for_deploy(slug, nid)
+    except Exception:
+        with store.DOC_LOCK:
+            halt._capture(store.load_org(slug), nid, st)
+        raise
+    if not proceed:
+        with store.DOC_LOCK:
+            halt._capture(store.load_org(slug), nid, st)
         with _state_lock:
-            st["queue"].clear()
-            st["steer"] = []
             st["live"] = [r for r in (st.get("live") or []) if r.get("sticky")]
             st["busy"] = False
         notify(slug, nid, "turn_done")
@@ -17950,10 +18096,18 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
                     "sender; handle it before continuing your current work]")
                 if halt.blocked(slug, nid):
                     break  # pop_steer retained the carrier for halt/latch
+                toks = _steer_parts(carriers)[2]
+                if not _note_steer_attempt(slug, nid, toks, codexrun.STEER_UNKNOWN,
+                                           "steer sent; acknowledgement pending"):
+                    with _state_lock:
+                        st["queue"].extend(carriers)
+                    continue
                 if turn.steer(wrapped, on_accepted=lambda: commit_steer(slug, nid, carriers)):
                     pass  # reader committed before releasing the corrected output
                 else:
                     # The run ended before a usable invocation boundary.
+                    _note_steer_attempt(slug, nid, toks, codexrun.STEER_REJECTED,
+                                        "steer refused before acceptance")
                     with _state_lock:
                         st["queue"].extend(carriers)
                     _steer_fold_log(slug, nid, len(carriers), "steer refused")
@@ -18228,9 +18382,13 @@ def _run_one_turn(slug: str, nid: str,
     from . import transcript_ingest
     transcript_ingest.capture_safely(slug, nid, beginning=True)
     _trec = turnlog.start(store.DATA_ROOT, slug, nid)
+    operation_id = lifecycle.new_operation("turn")
+    returned = False
     try:
-        return _run_one_turn_recorded(slug, nid, text, probe_token=probe_token,
-                                      trec=_trec)
+        follow = _run_one_turn_recorded(slug, nid, text, probe_token=probe_token,
+                                        trec=_trec, operation_id=operation_id)
+        returned = True
+        return follow
     finally:
         transcript_ingest.capture_safely(slug, nid)
         # `state()` takes `_state_lock` itself.  Resolve the dict before
@@ -18238,7 +18396,14 @@ def _run_one_turn(slug: str, nid: str,
         # every completed turn and hide the lifecycle receipt.
         st = state(slug, nid)
         with _state_lock:
-            st.pop("lifecycle_operation_id", None)
+            if not returned:
+                mailruntime.return_handoffs(st, attempt=operation_id)
+            if st.get("lifecycle_operation_id") == operation_id:
+                st.pop("lifecycle_operation_id", None)
+            mailruntime.release(st, attempt=operation_id)
+            if st.get("mail_attempt_id") == operation_id:
+                st.pop("mail_attempt_id", None)
+                st.pop("mail_attempt_tokens", None)
         if _trec is not None:
             try:
                 _trec.close()
@@ -18250,14 +18415,25 @@ def _run_one_turn_recorded(slug: str, nid: str,
                            text: str | dict[str, Any], *,
                            probe_token: str | None = None,
                            trec: turnlog.Recorder | None = None,
+                           operation_id: str | None = None,
                            ) -> str | dict[str, Any] | None:
     """`_run_one_turn`'s body — see its docstring. `trec` is this attempt's
     recorder handle (None when recording is off)."""
     _trec = trec
     st = state(slug, nid)
-    turn_operation_id = lifecycle.new_operation("turn")
-    with _state_lock:
-        st["lifecycle_operation_id"] = turn_operation_id
+    turn_operation_id = operation_id or lifecycle.new_operation("turn")
+    with store.DOC_LOCK:
+        admission_org = store.load_org(slug)
+        with _state_lock:
+            mailruntime.resolve_reclaims(admission_org, st, nid=nid)
+            text = _publishable(st, text)
+            if text is None:
+                return None
+            st["lifecycle_operation_id"] = turn_operation_id
+            initial_toks = text.get("toks", ()) if isinstance(text, dict) else ()
+            mailruntime.register(st, admission_org, nid,
+                attempt=turn_operation_id, toks=initial_toks)
+            mailruntime.adopt_handoffs(st, initial_toks)
     # WHEN THIS ATTEMPT BEGAN, on this process's wall clock — the lower bound
     # the retry banner filters operation receipts by (Phase 2 of w71d69aac,
     # see `_receipts_into_replay`). Taken HERE, before the slot wait and before
@@ -18331,6 +18507,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
     # the composer needs "brought none" apart from "brought an empty one";
     # `turn_view` flattens both to "" (invariant: `_segments_for`)
     carrier_view: str | None = _carrier_projection(text)
+    mail_replay_base = mailruntime.replay_base(text)
     # the typed composition an already-composed carrier brought (a restart
     # replay). `None` = brought none, and the text/view tail stands.
     carrier_segs: list[dict[str, Any]] | None = (
@@ -18346,7 +18523,22 @@ def _run_one_turn_recorded(slug: str, nid: str,
         turn_view = carrier_view or ""
         retry_payload = str(text.get("retry_payload") or "")
         toks, text = list(text.get("toks") or []), text["text"]
-    st['mail_attempt_tokens'] = toks
+    # CUSTODY REGISTRATION. `mail_attempt_tokens` is kept because
+    # `_bump_hard_fail` reads it to discard the right drain demands, but it is
+    # no longer the ownership fact: a bare list carries no generation, no
+    # session and no attempt, so pairing it with the node's present identity
+    # would fabricate custody for whatever turn happens to ask later. The
+    # registration records all four parts TOGETHER, under the lock, with the
+    # attempt id the lifecycle already minted at the top of this function.
+    # ⚠ under `_state_lock` — the list assignment was not, and a reader taking
+    # the lock could see a half-updated state. The custody registration itself
+    # happens at the drain below, where the document is already in hand:
+    # registering needs the node's mailbox/generation/session, and reaching for
+    # a document HERE would mean taking `DOC_LOCK` while holding `_state_lock`,
+    # which is the one lock order this file must never invert.
+    with _state_lock:
+        st['mail_attempt_tokens'] = toks
+        st['mail_attempt_id'] = turn_operation_id
     text = cast(str, text)    # unwrapped above — plain str from here on
     if _trec is not None:
         # the attempt's inputs, as counts (turnlog header)
@@ -18705,6 +18897,17 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                                             or carrier_segs is not None
                                                             else view_segments)))
                     store.save_org(org)
+                # CUSTODY. THIS attempt now holds every token it is carrying —
+                # the one just drained AND any it inherited from a steer
+                # carrier the boundary folded into the queue. Registered here,
+                # inside the DOC_LOCK that already has the document open, so
+                # the mailbox, generation and session are read in the same take
+                # that drained the mail; `_state_lock` nests inside DOC_LOCK,
+                # never the reverse. Until this runs the batch is journaled and
+                # unowned, which is exactly what `STRANDED_GRACE_S` covers.
+                if toks:
+                    with _state_lock:
+                        mailruntime.adopt(st, attempt=turn_operation_id, toks=toks)
             if cache_forecast_event is not None:
                 stream(slug, nid, {"kind": "cache_forecast",
                                    "forecast": cache_forecast_event})
@@ -18795,6 +18998,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
                         # mid-turn projection compares against what was
                         # actually sent (`_cache_inflight_attempt`).
                         inf["cache_attempt"] = cache_attempt
+                    mailruntime.record_input(o2, nid, toks,
+                        attempt=turn_operation_id, base=mail_replay_base, marker=inf)
                     o2.node(nid)["inflight"] = inf
                     # new work begins: a lingering done/blocked chip would lie —
                     # but the history is kept, not erased (gap audit №13)
@@ -20221,7 +20426,9 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                         and boundary_drained < maildrain.MAX_BATCH):
                                     nxt = None
                                     break
-                                nxt = st["queue"].pop(0)
+                                nxt = _take_queued_carrier(st)
+                                if nxt is None:
+                                    break  # Every queued carrier is held for resolution.
                                 boundary_drained += 1
                                 st["halt_pending_carrier"] = (nxt if isinstance(nxt, dict)
                                                                else {"text": nxt})
@@ -20229,6 +20436,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                 st["responding"] = True
                                 st["boundary_at"] = time.time()  # D-236
                                 st["boundary_polls"] = 0
+                            nboundary_carrier = nxt
+                            nreplay_base = mailruntime.replay_base(nxt)
                             nprobe_token = _carrier_limit_probe_token(nxt)
                             if nprobe_token:
                                 probe_token = nprobe_token
@@ -20350,6 +20559,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                             # marker (`_cache_inflight_attempt`).
                                             if cache_attempt is not None:
                                                 ninf["cache_attempt"] = cache_attempt
+                                        mailruntime.record_input(o2, nid, ntoks,
+                                            attempt=turn_operation_id, base=nreplay_base, marker=ninf)
                                         o2.node(nid)["inflight"] = ninf
                                         store.save_org(o2)
                                         if not ncmd:
@@ -20368,7 +20579,12 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                             except Exception:    # noqa: BLE001
                                                 bnd_inflight_event = None
                             except Exception:                # noqa: BLE001
-                                pass
+                                if ntoks:
+                                    # No provider write is allowed without durable input
+                                    # evidence. Keep the complete original follow-up.
+                                    with _state_lock:
+                                        mailruntime.hold_handoff(st, nboundary_carrier)
+                                    raise
                             if bnd_inflight_event is not None:
                                 stream(slug, nid, {"kind": "cache_forecast",
                                                    "forecast": bnd_inflight_event})
@@ -20418,11 +20634,16 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                 # carrier, folding the drained mail back to the
                                 # mailbox undelivered (user report 2026-08-19).
                                 with _state_lock:
-                                    st["queue"].insert(0, {
+                                    # state-lock-only adopter: a reclaim never
+                                    # excluded it, so it asks whether the batch
+                                    # is still its to carry (`_publishable`)
+                                    _rq = _publishable(st, {
                                         "toks": ntoks, "text": nxt,
                                         "view": nview,
                                         **({"cmd": True} if ncmd else {})}
                                         if (ntoks or ncmd or nview) else nxt)
+                                    if _rq is not None:
+                                        st["queue"].insert(0, _rq)
                                     st["responding"] = False
                                     # the store folds BEHIND the requeued
                                     # carrier, in the same take (review
@@ -20767,9 +20988,14 @@ def _run_one_turn_recorded(slug: str, nid: str,
                             # the finally folds it back into the mailbox, and
                             # the opus retry then drains it a second time on
                             # top of the copy already inside `text`
-                            st["queue"].insert(0, {"toks": list(pend_toks),
-                                                   "text": text}
-                                                if pend_toks else text)
+                            # …unless a reclaim already put that batch back in
+                            # the mailbox, in which case re-queueing the
+                            # envelope is the duplicate, not the protection
+                            _rp = _publishable(st, {"toks": list(pend_toks),
+                                                    "text": text}
+                                               if pend_toks else text)
+                            if _rp is not None:
+                                st["queue"].insert(0, _rp)
                         raise RuntimeError(
                             "a Fable content filter flagged the message — "
                             "converted to opus and retrying (org policy)")
@@ -22119,6 +22345,14 @@ def _run_one_turn_recorded(slug: str, nid: str,
             # observe a non-empty store with nobody owning it; the pop below
             # then hands the oldest carrier straight back as `follow`.
             residual = _fold_steer(st)
+            # CUSTODY RELEASE. The attempt is over, so it asserts nothing about
+            # its tokens any more. This does NOT make them reclaimable: a
+            # queued carrier, a halt hold or a pending confirmation still
+            # protects them on its own evidence, which is why the release can
+            # be unconditional here — it withdraws a claim, it never grants
+            # permission. Same take as the steer fold, which is the one lock
+            # every exit passes through.
+            mailruntime.release(st, attempt=turn_operation_id)
             alive = [t for x in st["queue"]
                      if isinstance(x, dict) for t in x.get("toks") or []]
         if residual:
@@ -22154,7 +22388,9 @@ def _run_one_turn_recorded(slug: str, nid: str,
             elif st.get("halt_requested"):
                 st["busy"] = False
             elif st["queue"]:
-                follow = st["queue"].pop(0)
+                follow = _take_queued_carrier(st)
+                if follow is None:
+                    st["busy"] = False
             else:
                 st["busy"] = False
         with _state_lock:
@@ -25103,7 +25339,7 @@ def manual_compact(slug: str, nid: str) -> None:
             if st.get("halt_requested"):
                 st["busy"] = False
             elif st["queue"]:
-                nxt = st["queue"].pop(0)
+                nxt = _take_queued_carrier(st)
             else:
                 st["busy"] = False
         with _state_lock:
@@ -25518,6 +25754,11 @@ def _admit_message(slug: str, nid: str, text: str,
         eview = eviews[0] if eviews else (view or "")
         carrier = ({"toks": [tok], "text": etext, "view": eview}
                    if tok or eview else etext)
+        if tok and isinstance(carrier, dict):
+            carrier["mail_projection"] = {
+                "base": {"text": text, "view": view or "", **_segs},
+                "chunks": [{"tok": tok, "text": etext[:len(etext) - len(text)],
+                            "view": eview[:len(eview) - len(view or "")]}]}
         if mail_ping:
             carrier = _mark_ping(carrier, ping_reason, mail_ids=send_mail_ids)
         if sender and isinstance(carrier, dict):
@@ -25536,7 +25777,13 @@ def _admit_message(slug: str, nid: str, text: str,
                 carrier["delivery_id"] = lifecycle.identity("delivery", tok)
         with _state_lock:
             if st.get("responding"):
-                st.setdefault("steer", []).append(carrier)
+                # a reclaim may have taken this batch back while the envelope
+                # above was being composed off the lock (`_publishable`)
+                _live = _publishable(st, carrier)
+                if _live is None:
+                    return {"accepted": True, "queued": len(st.get("mail_publication_wait", [])),
+                            "parked": True}
+                st.setdefault("steer", []).append(_live)
                 # ⚠ inlined, NOT `steer_wait()` — that takes `_state_lock`,
                 # which is a plain Lock and is already held here
                 _b = st.get("boundary_at")
@@ -29158,7 +29405,7 @@ def _steer_parts(msgs: list[Any]) -> tuple[list[Any], list[str], list[str]]:
     return out, views, toks
 
 
-@halt.delivery(list)
+# Record already-consumed input even if halt closed new admission.
 def commit_steer(slug: str, nid: str, msgs: list[Any], *,
                  at: str | None = None, level: str = "accepted") -> list[Any]:
     """A steer that was DELIVERED becomes durable, and then visible.
@@ -29207,6 +29454,9 @@ def commit_steer(slug: str, nid: str, msgs: list[Any], *,
     per_carrier: list[list[dict[str, Any]]] = [[] for _ in views]
 
     committed: list[tuple[Org, dict[str, Any]]] = []
+    st = state(slug, nid)
+    with _state_lock:
+        st.setdefault("mail_confirmed", set()).update(toks)
 
     def _record() -> None:
         with store.DOC_LOCK:
@@ -29216,6 +29466,12 @@ def commit_steer(slug: str, nid: str, msgs: list[Any], *,
                 return
             if nid not in org.nodes:
                 return
+            with _state_lock:
+                mailruntime.settle_confirmation(org, st, nid)
+            receipt = mailruntime.confirmation_receipt(org, nid, toks,
+                operation=lifecycle.new_operation("steer-confirm")) if toks else None
+            if toks and receipt is None:
+                return  # Already durable; do not append the visible row twice.
             dlmap = org.d.get("delivering") or {}
             dl = dlmap.get(nid) or []
             by_tok = {str(b.get("tok") or ""): b for b in dl}
@@ -29248,7 +29504,20 @@ def commit_steer(slug: str, nid: str, msgs: list[Any], *,
                 else:
                     dlmap.pop(nid, None)
             halt.confirmed(org, nid, drop, msgs)
-            store.save_org(org)
+            if receipt is not None:
+                mailruntime.write_reclaim_receipt(org, receipt)
+                mailruntime.settle_replay(org, nid)
+            try:
+                store.save_org(org)
+            except Exception:
+                if receipt is None:
+                    raise
+                fresh = store.load_org(slug)
+                if mailruntime.reclaim_outcome(fresh, receipt) != "committed":
+                    raise
+                org = fresh
+            with _state_lock:
+                mailruntime.settle_confirmation(org, st, nid)
     if out or toks:
         try:
             _record()
@@ -29298,7 +29567,8 @@ def pop_steer(slug: str, nid: str, *, return_carriers: bool = False,
     the eventual commit can still confirm its own batch."""
     st = state(slug, nid)
     with _state_lock:
-        pending = st.get("steer") or []
+        pending = [ready for c in st.get("steer") or []
+                   if (ready := _publishable(st, c)) is not None]
         msgs = pending[:32]
         st["steer"] = pending[32:]
         if defer_commit:
@@ -29463,6 +29733,8 @@ def claim_steer(slug: str, nid: str, tool_use_id: str,
     now = time.time()
     did = os.urandom(8).hex()
     with _state_lock:
+        st["steer"] = [ready for c in st.get("steer") or []
+                       if (ready := _publishable(st, c)) is not None]
         chosen: list[dict[str, Any]] = []
         for i, c in enumerate(st.get("steer") or []):
             if not isinstance(c, dict):
@@ -29646,12 +29918,17 @@ def _apply_steer_record(org: Org, nid: str, did: str, att: dict[str, Any],
     dl = dlmap.get(nid) or []
     batches = [b for b in dl if b.get("tok") in toks]
     if batches:
+        receipt = mailruntime.confirmation_receipt(org, nid, [b["tok"] for b in batches],
+            operation="steer-record:" + did)
+        if receipt is not None:
+            mailruntime.write_reclaim_receipt(org, receipt)
         keep = [b for b in dl if b.get("tok") not in toks]
         if keep:
             dlmap[nid] = keep
         else:
             dlmap.pop(nid, None)
         dl = keep
+    mailruntime.settle_replay(org, nid)
     covered = {str(m.get("id")) for b in batches for m in b.get("mail") or [] if m.get("id")}
     leftover = [i for i in ids if i not in covered]
     prior_recorded: set[str] = {x for b in batches for x in b.get("previously_recorded") or []}
@@ -32227,6 +32504,43 @@ def _newer_turn_ended(n: Mapping[str, Any], inf: Mapping[str, Any]) -> bool:
     return ended > started
 
 
+def _reconcile_mail_journal(org: Org) -> frozenset[str]:
+    """Prepare restart folds and receipts on one caller-owned fresh document.
+
+    The caller holds DOC_LOCK and saves once. It must discard the document on
+    error. Protected and unsupported custody survives an empty runtime state.
+    No provider or transcript is read by this helper.
+    """
+    slug = org.d["slug"]
+    all_folded = set()
+    if org.d.get("killswitch"):
+        return frozenset()
+    for nid in list(org.d.get("delivering") or {}):
+        node = org.nodes.get(nid)
+        if _reclaim_blocked(org, nid):
+            continue
+        st = state(slug, nid)
+        with _state_lock:
+            mailruntime.resolve_reclaims(org, st, nid=nid)
+            mailruntime.settle_confirmation(org, st, nid)
+            facts = mailruntime.runtime_facts(st)
+            eligible = mailruntime.eligible_tokens(org, nid, facts,
+                now=time.time(), pump_toks=())
+            safe, _ = mailruntime.revalidate(org, nid, eligible)
+            if not safe:
+                continue
+            receipt = mailruntime.reclaim_receipt(org, nid, safe,
+                operation=lifecycle.new_operation("restart-mail-reclaim"))
+            mailruntime.fence(st, safe)
+            st.setdefault("mail_reclaim_intents", {})[receipt["operation"]] = receipt
+            folded, _ = _fold_back_locked(org, nid, only_toks=safe)
+            if folded != safe:
+                raise RuntimeError("restart journal selection changed")
+            mailruntime.write_reclaim_receipt(org, receipt)
+            all_folded.update(folded)
+    return frozenset(all_folded)
+
+
 def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -> list[str]:
     """№31 eager pass at startup: any ledger-live node that has demonstrably run
     before (cost > 0) but whose transcript is gone cannot resume — say so now,
@@ -32349,6 +32663,11 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
                 continue  # Retain interrupted intent until explicit resolution.
             if n["state"] == "live" and nid not in marked and not n.get("frozen"):
                 inf = n.get("inflight")
+                if inf and "mail_input" in inf:
+                    ready = mailruntime.replay_ready(org, nid, inf)
+                    if ready is None:
+                        continue  # Input outcome unresolved; preserve the original marker.
+                    inf = ready
                 # a command turn can't replay honestly (the restart preamble
                 # would bury the "/" mid-prose and the CLI would run it as
                 # text) — a lost command is dropped, not degraded (review)
@@ -32409,52 +32728,23 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
                 _apply_pending_switch_locked(org, slug, nid, wake=switch_wake,
                                              account_wake=account_wake)
             store.save_org(org)
-        # delivery-journal fold-back: batches drained for a turn whose
-        # delivery never confirmed — the backend died in between. The mail
-        # returns to the mailbox and the revive scan below drives it. (An
-        # inflight replay may overlap a batch caught mid-hand-off — that is
-        # a duplicate delivery, never a loss.)
-        # D1: the transcript is durable even though RAM is gone — commit any
-        # claimed delivery the CLI recorded before folding the rest back.
+        # Positive recorded delivery is applied first. Remaining journal rows
+        # pass through the same ownership rules used by runtime recovery;
+        # process death alone cannot release a claim or uncertain input.
+        recorded = 0
         try:
-            _reconcile_steer_records(org)
+            recorded = _reconcile_steer_records(org)
         except Exception:                                    # noqa: BLE001
             pass
-        dlv = org.d.pop("delivering", None) or {}
-        for dnid, batches in dlv.items():
-            if dnid not in org.nodes:
-                continue
-            held = halt.held_tokens(org, dnid)
-            retained = [b for b in batches if b.get("tok") in held]
-            if retained:
-                org.d.setdefault("delivering", {})[dnid] = retained
-            batches = [b for b in batches if b.get("tok") not in held]
-            mails = [m for b in batches for m in b.get("mail") or []]
-            nots = [p for b in batches for p in b.get("notices") or []]
-            if mails:
-                # M0a — MOVEMENT, not arrival; see the turn-end fold-back.
-                org.reinsert_mail(dnid, mails)
-            if nots:
-                org.d.setdefault("notices", {}).setdefault(dnid, [])[0:0] = nots
-            # audit D3: a batch whose steer attempt was UNKNOWN when the
-            # backend died may already have reached the model. The fold-back
-            # above is unchanged (duplicate over loss); this is the RECEIPT,
-            # so the repeat is explained on the desk instead of silent.
-            unk = sum(len(b.get("mail") or []) + len(b.get("notices") or [])
-                      for b in batches
-                      if isinstance(b.get("attempt"), dict)
-                      and b["attempt"].get("outcome") == "unknown")
-            if unk:
-                log = org.d.setdefault("steered_log", {}).setdefault(dnid, [])
-                log.append({
-                    "at": now_iso(), "fold": unk, "where": "restart",
-                    "outcome": "unknown",
-                    "text": f"{unk} message(s) whose mid-turn delivery had an "
-                            f"UNKNOWN outcome were returned to the mailbox at "
-                            f"restart — the agent may see them twice"})
-
-        if dlv:
+        folded = _reconcile_mail_journal(org)
+        if recorded or folded:
             store.save_org(org)
+            for dnid in org.nodes:
+                rst = state(slug, dnid)
+                with _state_lock:
+                    mailruntime.resolve_reclaims(org, rst, nid=dnid)
+                    mailruntime.settle_confirmation(org, rst, dnid)
+                    _retry_mail_publications(rst)
         # drain-on-start (user clarification 2026-08-06 — an earlier reading
         # briefly retired this; the actual ruling is about mail never being
         # LOST in program state across a refresh, not about suppressing the
