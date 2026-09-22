@@ -46,13 +46,14 @@ const DEFAULT_LIMIT = 64
 export function windowOutbox<E extends { type: string }>(options: OutboxOptions) {
   const limit = options.limit ?? DEFAULT_LIMIT
   let holding = true
+  let navigating = false
   let queue: E[] = []
   let dropped = 0
   return {
     /** Offer an event. `true` means send it now; `false` means it is held and
      *  the host must do nothing — it will come back from `drain`. */
     offer(event: E): boolean {
-      if (!holding || !options.hold(event.type)) return true
+      if ((!holding && !navigating) || !options.hold(event.type)) return true
       queue.push(event)
       while (queue.length > limit) { queue.shift(); dropped += 1 }
       return false
@@ -75,6 +76,16 @@ export function windowOutbox<E extends { type: string }>(options: OutboxOptions)
      *
      *  Idempotent, and safe to call on a queue that is already holding. */
     rearm(): void { holding = true },
+    /** Hold across provisional navigation without forgetting an existing
+     * listener. If navigation is canceled, that same listener can resume. */
+    suspend(): void { navigating = true },
+    resume(): E[] {
+      navigating = false
+      if (holding) return []
+      const held = queue
+      queue = []
+      return held
+    },
     /** There is somewhere to send now. Stops holding UNTIL THE DOCUMENT THAT
      *  proved it goes away - see `rearm`. Hands back
      *  everything that was waiting, in arrival order. Idempotent: a second
@@ -82,12 +93,15 @@ export function windowOutbox<E extends { type: string }>(options: OutboxOptions)
      *  cannot deliver the same event twice. */
     drain(): E[] {
       holding = false
+      // An acknowledgement proves a listener exists, not that its document
+      // will survive the navigation. Remember it for cancellation only.
+      if (navigating) return []
       const held = queue
       queue = []
       return held
     },
     /** Still holding? False once anything has drained. */
-    holding(): boolean { return holding },
+    holding(): boolean { return holding || navigating },
     pending(): number { return queue.length },
     /** How many were dropped to stay inside the bound. Reported rather than
      *  silent: a window that overflowed this is a window whose renderer never

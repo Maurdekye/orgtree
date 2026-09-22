@@ -169,6 +169,8 @@ export interface WindowLoadHooks {
    *  cannot be bound, and a retry aimed at a remembered origin would then be
    *  retrying against nothing for as long as the app ran. */
   target(): string
+  /** Route within target's origin, read again for each recovery attempt. */
+  route?(): string
   /** The origin the window was BUILT for. The preload is given
    *  `--orgtree-ui-origin=<origin>` as a fixed launch argument, so a window
    *  cannot be re-pointed at a different origin by navigating it. */
@@ -335,7 +337,7 @@ export class WindowLoadRecovery {
       this.hooks.record('window-load-retry', `attempt=${attempt + 1} ${why} target=${origin}`)
     }
     try {
-      await this.hooks.load(origin + '/')
+      await this.hooks.load(origin + (this.hooks.route?.() ?? '/'))
       // `did-finish-load` normally gets here first; this covers the case where
       // the caller's emitter is not wired, and is idempotent either way.
       if (this.failed) this.recovered()

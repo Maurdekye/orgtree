@@ -34,6 +34,7 @@ import { popupBounds, trayListHtml, trayNavigationSlug } from './traylist'
 import type { VisualTheme, PresetVisualTheme } from '../../../packages/contracts/visual-theme'
 import { hasInstallerUpgradeRequest } from './installer-upgrade'
 import { attachChildProcessFailureHandler, attachRendererFailureHandlers, crashReportDialog, crashReportFolder, CRASH_REPORTER_OPTIONS, RecoveryBudget } from './process-failure'
+import { attachWindowEventLifecycle } from './window-event-lifecycle'
 import { attachWindowLoadRecovery, type WindowLoadRecovery, type WindowLoadStage } from './window-load-recovery'
 import type { ProcessFailureStage } from './process-failure'
 
@@ -1806,52 +1807,8 @@ else {
         window.on('restore', publish)
         window.on('show', publish)
         window.on('hide', publish)
-        // Windows cancels a taskbar flash on activation; tell the controller so
-        // a later arrival can pulse again without the poll restarting this one.
-        // ⚠ A NAVIGATION DESTROYS THE LISTENER THAT PROVED SOMEBODY WAS
-        // THERE. The outbox lives on this record and outlives every document
-        // the window shows, so it has to be told when the one that
-        // acknowledged it goes away - otherwise the next document's loading
-        // gap is a hole events fall through, which is the defect the outbox
-        // exists to close, reached through a different door. `did-start-
-        // navigation` is the earliest point at which the old document is on
-        // its way out; same-document navigations are excluded because they
-        // destroy nothing.
-        // ⚠ COMMIT, NOT NAVIGATION START, AND THAT CHOICE IS THE WHOLE OF f5.
-        // `did-navigate` fires when a main-frame navigation is DONE, and never
-        // for an in-page one - so it marks the exact instant the old document
-        // is gone and the new one is showing with no listener yet. A
-        // navigation that FAILS never commits and so never fires it — which is
-        // NOT because nothing changed. It is because a failure is a different
-        // event: Chromium replaces the document with an ERROR PAGE, and that
-        // page has no preload and no bridge, so it can never say it is
-        // listening. `documentLost` on the load recovery handles that case and
-        // is the reason this one does not have to. (This comment used to claim
-        // the old document was still on screen and still receiving. It is not,
-        // and held events were being fired into the error page.) Re-arming at navigation
-        // START instead would hold the queue on a promise the navigation might
-        // not keep, and then need every failure mode enumerated to let go
-        // again - which is how a latch wedges shut for the window's life.
-        //
-        // The cost is the sliver between the old document being asked to leave
-        // and the new one committing. Events offered there go live to the OLD
-        // document, which is still showing and still listening, so they are
-        // delivered rather than lost.
-        /** ⚠ WHICH DOCUMENT A NAVIGATION IS LEAVING. Snapshot only - it holds
-         *  nothing and releases nothing, so it cannot wedge anything. It
-         *  exists so a terminal failure can be told from a stale one by
-         *  document identity rather than by URL, which same-url retries make
-         *  meaningless. */
-        window.webContents.on('did-start-navigation', details => {
-          if (!details.isMainFrame || details.isSameDocument) return
-          pendingFrom = record.documentToken
-        })
-        window.webContents.on('did-navigate', () => {
-          // Nothing has announced itself for this document yet, so nothing can
-          // speak for it: the token no message can match until one does.
-          record.documentToken = ''
-          record.outbox.rearm()
-        })
+        const eventLifecycle = attachWindowEventLifecycle(window.webContents, record,
+          event => sendTo(id, event))
         // Windows cancels a flash on activation - for THIS window only, now
         // that several can be pulsing for different organizations at once.
         window.on('focus', () => { windows.activate(id); taskbarAttention.focused(window) })
@@ -1928,48 +1885,17 @@ else {
         // and nothing ever looked at it again. This watches the navigation the
         // reload starts, so a failed load is a state the window leaves rather
         // than the state it ends in.
-        /** The document that was showing when the current navigation began. */
-        let pendingFrom = record.documentToken
         record.loadRecovery = attachWindowLoadRecovery(window.webContents, {
           record: recordWindowLoad,
-          target: () => engine.origin + routeFor(id),
+          target: () => engine.origin,
+          route: () => routeFor(id),
           builtFor: () => initialOrigin,
           load: url => !window.isDestroyed() ? window.loadURL(url) : Promise.resolve(),
           showHolding: html => !window.isDestroyed()
             ? window.webContents.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
             : Promise.resolve(),
           suspended: () => quitting || installerUpgradeShutdown,
-          // ⚠ THE DOCUMENT THAT PROVED SOMEBODY WAS LISTENING IS GONE, and
-          // nothing else tells us: a terminal failure never commits, so the
-          // `did-navigate` handler below does not run. Without this, held
-          // events keep being sent LIVE into Chromium's error page, which has
-          // no preload and no bridge - delivered by our reckoning, received by
-          // nobody. That is the loss the outbox exists to prevent, arriving
-          // through the one door that was not watched.
-          //
-          // ⚠ THE TOKEN IS CLEARED AS WELL AS THE QUEUE RE-ARMED, and both
-          // together. Re-arming alone would leave the dead document's token
-          // valid, so an acknowledgement already in flight from it could still
-          // discharge the queue into the error page - the same loss, one
-          // message later.
-          // ⚠ GATED ON DOCUMENT IDENTITY, NOT ON THE URL. `pendingFrom` is
-          // the token of the document that was showing when the navigation
-          // now failing began. If it is still the current one, that document
-          // is what the error page replaced and this failure is about it. If
-          // the token has moved on, a document has since announced itself -
-          // the retry succeeded - and this failure is stale. Discarding a
-          // LIVE document's token would re-arm behind a listener that has
-          // already registered and never registers again, which is a hold
-          // nothing can release.
-          //
-          // URL equality was tried here and is not enough: the recovery
-          // retries the SAME url, so a stale failure and a live one look
-          // identical by URL at precisely the moment it matters.
-          documentLost: () => {
-            if (record.documentToken !== pendingFrom) return
-            record.documentToken = ''
-            record.outbox.rearm()
-          },
+          documentLost: eventLifecycle.documentLost,
           setTimer: (fn, ms) => setTimeout(fn, ms),
           clearTimer: handle => clearTimeout(handle as ReturnType<typeof setTimeout>),
         }, () => !window.isDestroyed() ? window.webContents.getURL() : '')
