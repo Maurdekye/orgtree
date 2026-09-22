@@ -772,6 +772,71 @@ class ReclaimTransactionTests(unittest.TestCase):
             self.startup()
         self.assert_once()
 
+    def sandboxed(self):
+        org = self.load(self.slug)
+        org.d['sandbox'] = {'enabled': True}
+        self.save(org)
+        self.assertTrue(sup.sbx.is_sandboxed(self.load(self.slug)))
+
+    def test_sandboxed_org_needs_container_evidence_not_just_host_proof(self):
+        # decision35: the provider runs inside the container; the host table
+        # sees only the docker client, so host proof alone is not proof.
+        self.make_legacy()
+        self.sandboxed()
+        for state in (None,                          # docker cannot say
+                      (True, self.MINE - 60)):       # running since before us
+            with self.subTest(state=state):
+                with self.restart_proof(), \
+                        patch.object(sup, '_sandbox_container_state', return_value=state):
+                    self.fresh_state()
+                    self.startup()
+                rows = self.load(self.slug).d.get('delivering', {}).get('worker')
+                self.assertTrue(rows, 'sandboxed row folded without container evidence')
+                self.assertEqual(rows[0].get(mailruntime.ENGINES), [self.PRIOR])
+                self.assertFalse(self.disclosures())
+
+    def test_sandboxed_org_folds_once_container_evidence_is_positive(self):
+        for name, state in (('stopped', (False, self.MINE - 60)),
+                            ('restarted_after_us', (True, self.MINE + 5))):
+            with self.subTest(name=name):
+                org = self.load(self.slug)
+                org.d['delivering']['worker'] = [copy.deepcopy(self.original)]
+                org.d['delivering']['worker'][0].pop('custody')
+                org.d['delivering']['worker'][0].pop(mailruntime.ENGINES, None)
+                org.d['mail']['worker'] = []
+                org.d['sandbox'] = {'enabled': True}
+                self.save(org)
+                with self.restart_proof(), \
+                        patch.object(sup, '_sandbox_container_state', return_value=state):
+                    self.fresh_state()
+                    self.startup()
+                fresh = self.load(self.slug)
+                self.assertFalse(fresh.d.get('delivering', {}).get('worker'))
+                self.assertEqual([m['id'] for m in fresh.d['mail']['worker']],
+                                 [self.message['id']])
+
+    def test_container_state_parsing_refuses_anything_unclear(self):
+        from types import SimpleNamespace as NS
+        cases = {
+            'false 2026-09-22T21:00:00.123456789Z': (False, 1790110800.123456),
+            'true 0001-01-01T00:00:00Z': (True, -62135596800.0),
+            'maybe 2026-09-22T21:00:00Z': None,
+            '': None,
+        }
+        for out, want in cases.items():
+            with self.subTest(out=out), patch.object(
+                    sup.sbx, '_docker', return_value=NS(returncode=0, stdout=out)):
+                got = sup._sandbox_container_state(self.slug)
+                if want is None:
+                    self.assertIsNone(got)
+                else:
+                    self.assertEqual(got[0], want[0])
+                    self.assertAlmostEqual(got[1], want[1], places=3)
+        with patch.object(sup.sbx, '_docker', return_value=NS(returncode=1, stdout='')):
+            self.assertIsNone(sup._sandbox_container_state(self.slug))
+        with patch.object(sup.sbx, '_docker', side_effect=OSError('no docker')):
+            self.assertIsNone(sup._sandbox_container_state(self.slug))
+
     def test_recorded_row_engine_alive_keeps_the_row(self):
         self.record_input()
         org = self.load(self.slug)

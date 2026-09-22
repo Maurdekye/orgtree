@@ -30714,7 +30714,62 @@ def _restart_owners_gone() -> Callable[[Mapping[str, Any]], bool] | None:
         return engines is not None and all(gone(pid) for pid in engines | {prior})
 
     owners_gone.prior = prior  # type: ignore[attr-defined]
+    owners_gone.mine = mine    # type: ignore[attr-defined]
     return owners_gone
+
+
+def _sandbox_container_state(slug: str) -> tuple[bool, float | None] | None:
+    """(running, started_at epoch) of the org's sandbox container, or None
+    when docker cannot say (missing container, docker error, timeout)."""
+    try:
+        r = sbx._docker("container", "inspect", "-f",
+                        "{{.State.Running}} {{.State.StartedAt}}",
+                        sbx.container_name(slug), timeout=15)
+    except Exception:                                        # noqa: BLE001
+        return None
+    if r.returncode != 0:
+        return None
+    parts = (r.stdout or "").strip().split()
+    if len(parts) != 2 or parts[0] not in ("true", "false"):
+        return None
+    started: float | None = None
+    try:
+        stamp = parts[1].rstrip("Z")
+        whole, _, frac = stamp.partition(".")
+        started = _dtm.datetime.fromisoformat(whole).replace(
+            tzinfo=_dtm.timezone.utc).timestamp() + (float("0." + frac) if frac else 0.0)
+    except (ValueError, OverflowError):
+        started = None
+    return parts[0] == "true", started
+
+
+def _sandbox_owner_proof(org: Org, owners_gone: Callable[[Mapping[str, Any]], bool]
+                         ) -> Callable[[Mapping[str, Any]], bool]:
+    """A sandboxed org's provider runs INSIDE its container via `docker exec`;
+    the host table sees only the docker client, and killing that client leaves
+    the in-container process alive (sandbox.py). So the host proof is
+    necessary but not sufficient: also require positive container evidence
+    that no process from before this engine survives. Either the container
+    is not running, or it was (re)started after this engine began. Anything
+    else (running since earlier, missing, docker error, unreadable time)
+    answers 'not proven'."""
+    cache: dict[str, bool] = {}
+    mine = getattr(owners_gone, "mine", None)
+
+    def stopped() -> bool:
+        if "v" not in cache:
+            state = _sandbox_container_state(org.d["slug"])
+            cache["v"] = bool(state is not None and (
+                not state[0] or (isinstance(mine, float) and state[1] is not None
+                                 and state[1] > mine)))
+        return cache["v"]
+
+    def gone(row: Mapping[str, Any]) -> bool:
+        return owners_gone(row) and stopped()
+
+    gone.prior = getattr(owners_gone, "prior", None)  # type: ignore[attr-defined]
+    gone.mine = mine                                  # type: ignore[attr-defined]
+    return gone
 
 
 def _pid_provably_dead(pid: int) -> bool:
@@ -32668,6 +32723,8 @@ def _reconcile_mail_journal(org: Org, *,
     all_folded = set()
     if org.d.get("killswitch"):
         return frozenset()
+    if owners_gone is not None and sbx.is_sandboxed(org):
+        owners_gone = _sandbox_owner_proof(org, owners_gone)
     for nid in list(org.d.get("delivering") or {}):
         node = org.nodes.get(nid)
         if _reclaim_blocked(org, nid):
