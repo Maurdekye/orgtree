@@ -31,6 +31,7 @@ import { DirList } from '../forms'
 import { CloseIcon } from '../icons'
 import { AdvancedOrgModal } from './advancedorg'
 import { desktop } from '../desktop'
+import { beginFirstUse } from '../canvas/firstuse'
 
 export interface CreateOrgViewProps {
   /** what to do when the creation succeeds — bind this window to the new
@@ -103,6 +104,7 @@ export function CreateOrgView({ onCreated, onRequestClose, wrapCreate }: CreateO
       const make = () => createOrg(name, dirs.map((s) => s.trim()).filter(Boolean),
         netAuto, netHubs.map((s) => s.trim()).filter(Boolean))
       const made = wrapCreate ? await wrapCreate(make) : await make()
+      beginFirstUse(made.slug)
       // the flag is cleared BEFORE the bind, because a successful creation is
       // terminal for this form whatever the binding then does
       published.current = false

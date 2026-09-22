@@ -11,6 +11,7 @@ import { EFFORT_LEVELS, EffortLevelBadge } from './effort'
 import { foldKeysOf, FoldProvider, sysFoldKey, thoughtFoldKey, toolFoldKey, useFold, useFoldState } from './foldstate'
 import { useChangedState } from '../changedstate'
 import { messageCopyText, toolCallCopyText, toolResultCopyText } from './copytext'
+import { firstUseSent } from './firstuse'
 import type { MouseEvent as ReplyMouseEvent } from 'react'
 import { readAttachments, storeAttachments } from '../draftstore'
 import { absorbStrandedDrafts, readHistory, recordSent } from '../composerhistory'
@@ -2787,6 +2788,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
     sendMessage(slug, node.id, t, paths, sentReply ? replyWire(sentReply) : undefined, op, armedNotice)
       .then((r) => {
         bindPendingMail(slug, node.id, ghostId, r)
+        if (!r.command) firstUseSent(slug, node.id)
         // review C3: name every real outcome — "delivering" as the fallback
         // lied for frozen nodes (mail waits durably; nothing delivers now)
         flashMode(r.compacting ? 'compacting — the org way (§8)'
@@ -3861,7 +3863,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
             [...e.target.files!].forEach(attach)
             e.target.value = ''
           }} />
-        <textarea rows={2} value={text} disabled={!canMail}
+        <textarea rows={2} value={text} disabled={!canMail} data-first-use-chat={node.id}
           ref={(el) => {
             taRef.current = el
             // autofocus single-desk only, and never let focus scroll the

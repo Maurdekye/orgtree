@@ -9,7 +9,7 @@ import path from 'node:path'
 
 const root = path.resolve(process.argv[2] ?? '.probe-app-composition')
 const mode = process.argv[3] ?? 'baseline'
-if (!['baseline', 'no-bus', 'no-readiness', 'no-lifecycle', 'no-compact-header'].includes(mode)) throw Error('Unknown control')
+if (!['baseline', 'first-use', 'no-bus', 'no-readiness', 'no-lifecycle', 'no-compact-header'].includes(mode)) throw Error('Unknown control')
 // Never recursively delete a caller's directory. A run owns a fresh child.
 fs.mkdirSync(root, { recursive: true })
 const run = fs.mkdtempSync(path.join(root, mode + '-'))

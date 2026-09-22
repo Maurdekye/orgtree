@@ -45,6 +45,7 @@ import { isMobile } from '../mobile'
 import { AgentName, TierChip } from './identity'
 import { PinnedPlaceholder } from './pins'
 import { ConfirmModal, DraftScopeModal } from './modals'
+import { firstUseName, useFirstUse } from './firstuse'
 
 // ------------------------------------------------------------- the overseer
 interface UserNodeProps {
@@ -116,6 +117,7 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
   // Cleared on zoom change so a cluster can't be left floating after the
   // camera moves, same as NodeSquare.
   const [expandedHire, setExpandedHire] = useState(false)
+  const guideHire = useFirstUse(slug)?.step === 'token'
   useEffect(() => { setExpandedHire(false) }, [zoom])
   // The ✉ and ⚙ came BACK on 2026-09-11, but conditionally: the user asked
   // for them "only when Show agent card shortcuts is enabled", and that
@@ -153,7 +155,7 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
     // the user's answer (see .asking), echoed by the header ask icon
     // static edge-b: the eye only has bottom chips, so the nearest-edge
     // gate always resolves to them
-    <div className={'sq user edge-b' + (focused ? ' desk eyeboard' : '')
+    <div className={'sq user edge-b' + (guideHire ? ' first-use-hire' : '') + (focused ? ' desk eyeboard' : '')
       + (isDrop ? ' drop' : '')}
       /* the eye's context menu — NOT at switchboard focus, character for
          character the rule NodeSquare uses for its own desk: the open
@@ -242,7 +244,7 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
         maxTier={kiosk?.max_tier} soleHire codexHire={codexHire}
         claudeHire={claudeHire} onNoHarness={onNoHarness}
         antigravityHire={antigravityHire} openrouterHire={openrouterHire}
-        zoom={focused ? undefined : zoom} expanded={expandedHire}
+        zoom={focused ? undefined : zoom} expanded={expandedHire || guideHire}
         onToggleExpanded={() => setExpandedHire((v) => !v)} />
       {focused && (
         <EyeDesk map={map} op={op} slug={slug} toast={toast}
@@ -602,7 +604,7 @@ function SpawnChips({ onSpawn, free, seats, maxTier, side, soleHire,
     // `or-…` tier id (user ask 2026-09-03)
     const name = tierLabel(t)
     return (
-      <button key={t} disabled={cant} className={'t-' + t}
+      <button key={t} disabled={cant} className={'t-' + t} data-first-use={soleHire ? 'token' : undefined}
         title={cant
           // user report: an exhausted kiosk cap read as an opaque dead
           // end — the tooltip now carries the REMEDY, not just the number
@@ -1005,6 +1007,7 @@ type CharterPreset = {
 export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop, kioskRemaining,
   tree, zoom, pxc, onConfirm, onCancel }: DraftNodeProps) {
   const [name, setName] = useState('')
+  useEffect(() => { firstUseName(tree.slug, name) }, [tree.slug, name])
   const [charter, setCharter] = useState('')
   // pre-hire permissions (user spec): configure the agent's dirs, tool
   // switches, MCP grants and visibility BEFORE hiring — no post-hire
@@ -1607,7 +1610,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
     )
   }
   return (
-    <div data-copy-agent-name={focused ? undefined : node.id} className={cls.join(' ')} style={style}
+    <div data-first-use-agent={node.id} data-copy-agent-name={focused ? undefined : node.id} className={cls.join(' ')} style={style}
       onPointerDown={(e) => {
         downAt.current = { x: e.clientX, y: e.clientY }
         if (!focused) onDragStart(e, node.id)

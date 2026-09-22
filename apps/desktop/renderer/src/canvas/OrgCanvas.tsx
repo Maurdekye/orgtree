@@ -32,6 +32,7 @@ import { ContextWheel, DeskChat, DestinationBusy, LineagePanel, OrgKillswitchCon
 import type { DeskChatProps } from './desk'
 import { OrgDefaultEffort, resolveOrgDefault } from './effort'
 import { TempDeskModal } from './tempdesk'
+import { FirstUseGuide, firstUseToken, firstUseCancel, firstUseHired } from './firstuse'
 import { DocReader } from './docs'
 import { mailRefTarget, useRefRoutes, Written } from './reflinks'
 import type { ResolvedRef } from './reflinks'
@@ -379,6 +380,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   renderOrgSlot, canvasContent = 'shown' }: OrgCanvasProps) {
   const worldHidden = canvasContent === 'hidden'
   const [draft, setDraft] = useState<DraftState | null>(null)
+  // Draft forms are intentionally not restored on reopening. Resume the
+  // incomplete tutorial at the real token instead of pointing to a lost form.
+  useEffect(() => { if (!draft) firstUseCancel(slug) }, [slug, draft])
   // The agent whose desk is open TEMPORARILY (tempdesk.tsx). Plain local state
   // and nothing else: no pin, no popout, no saved layout row, no change to the
   // focused node — which is what makes "closing puts the view back" true by
@@ -2832,6 +2836,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   }, [tree.audiences, map, hidden])
 
   const spawn = (parentId: string, tier: string) => {
+    if (parentId === USER) firstUseToken(slug)
     setDraft({ parent: parentId === USER ? null : parentId, tier })
     // roughly OVERVIEW scale start to finish (user ruling): the form is
     // authored on a 200px virtual surface (scale .6 into the card), so
@@ -2890,6 +2895,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         const ds = springs.current.get(DRAFT)
         // (typeof-narrows the op result's open dict: hire returns {node: str})
         const born = r?.node
+        if (typeof born === 'string' && born) firstUseHired(slug, born)
         if (typeof born === 'string' && born && ds) {
           seedRef.current.set(born, { x: ds.x, y: ds.y, at: performance.now() })
         }
@@ -3040,6 +3046,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
           ⚠ `display: contents` — see the `.canvas-world` rule. A wrapper with a
           box would establish a containing block with no definite height and
           collapse `.tray-wrap`, which derives its height from the viewport. */}
+      <FirstUseGuide slug={slug} root={viewportRef} hidden={worldHidden || !!tree.public || compact} />
       <div ref={worldRef}
         className={'canvas-world' + (worldHidden ? ' canvas-world-hidden' : '')}
         aria-hidden={worldHidden || undefined}>
@@ -3282,7 +3289,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
               maxTop={tree.max_top_grant ?? 1000} kioskRemaining={kioskRemaining}
               defaultTop={tree.default_top_grant ?? 50} tree={tree}
               zoom={view.z} pxc={pxPerCredit}
-              onConfirm={confirmDraft} onCancel={() => setDraft(null)} />
+              onConfirm={confirmDraft} onCancel={() => { firstUseCancel(slug); setDraft(null) }} />
           }
           if (hidden.has(n.id)) return null   // piled-away: no card, no space
           const pileHere = pileByFront.get(n.id)

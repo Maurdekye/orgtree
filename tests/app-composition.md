@@ -4,6 +4,7 @@ Run from the repository root:
 
 ```text
 node tools/run-app-composition-probe.mjs .probe-app-composition baseline
+node tools/run-app-composition-probe.mjs .probe-app-composition first-use
 node tools/run-app-composition-probe.mjs .probe-app-composition no-bus
 node tools/run-app-composition-probe.mjs .probe-app-composition no-readiness
 node tools/run-app-composition-probe.mjs .probe-app-composition no-lifecycle
@@ -40,6 +41,14 @@ windows with independent modal visibility; keyboard menus; header geometry at
 Attention/Desk/pin/popout interactions and mixed-row mutations; and three distinct
 org windows with independent camera/mode and synthetic WebSocket updates while
 unfocused, including two surviving windows after the third closes.
+
+The baseline also drives first-use onboarding through real creation, hire-token,
+name, Hire and chat controls. `first-use` runs that slice plus the cold-reveal
+prerequisite alone. It checks empty existing orgs, failed creation/hire/message,
+cleared names, canceled/reloaded drafts, the actual unobstructed token geometry,
+and completion surviving a new native window. HTTP results remain canned; no
+provider agent is hired or messaged. The tutorial stores UI progress per org in
+the current browser profile and begins only after the actual Create form succeeds.
 
 Two different terminal loads are exercised: failure before document commit, and
 an HTML response that commits then truncates its advertised Content-Length. Each

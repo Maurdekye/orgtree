@@ -18,6 +18,7 @@ import { configureWindow, popoutRegistry } from '../apps/desktop/main/windows'
 import { Preferences } from '../apps/desktop/main/preferences'
 import { runAttentionScenarios } from './app-attention-scenarios'
 import { runMultiwindowScenarios } from './app-multiwindow-scenarios'
+import { runFirstUseScenarios } from './app-firstuse-scenarios'
 
 type Event = { type: string; data?: any }
 type ApiHandler = (req: http.IncomingMessage, res: http.ServerResponse, url: URL) => boolean | Promise<boolean>
@@ -454,7 +455,9 @@ app.whenReady().then(async () => {
       close(truncated)
       await runAttentionScenarios(ctx)
       await runMultiwindowScenarios(ctx)
+      await runFirstUseScenarios(ctx)
     }
+    if (mode === 'first-use') await runFirstUseScenarios(ctx)
   } catch (error) { check('fatal', false, 'fixture could not complete', String((error as Error).stack ?? error)) }
   finally {
     for (const r of records.values()) close(r)
