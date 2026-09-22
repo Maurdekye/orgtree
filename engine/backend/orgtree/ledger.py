@@ -56,9 +56,9 @@ from .schema import (AudienceGrant, DirGrant, FrozenInfo, MailEntry, NodeDoc,
 # tokens at the STANDING price. Promos never set seats — the sonnet-intro
 # precedent, re-affirmed for sol by user ruling 2026-08-28 and for flash by
 # user ruling 2026-09-02. Sonnet was 3, then 2 (user ruling 2026-08-12: $2/M
-# locked in). The codex family (FR-15, same ruling): sol $5 standard (the
-# current $4 is a promo through ≥2026-11-21), terra $2, and gpt-reserve/luna
-# $0.20 → 0.2 each (they used to floor to 1; see the sub-$1 note below).
+# locked in). The codex family initially used sol $5 standard and
+# gpt-reserve/luna $0.20. The user repriced Sol to 2 and Luna to 0.1 on
+# 2026-09-22 across model versions; Terra stays 2 and legacy reserve 0.2.
 # The antigravity family (D-188, re-walked for the Antigravity CLI
 # 2026-09-02): pro $2 standard (the ≤200K band — the >200K long-context
 # surcharge is a cost-dollars concern, never a seat), flash $1.50 STANDING →
@@ -71,11 +71,11 @@ from .schema import (AudienceGrant, DirGrant, FrozenInfo, MailEntry, NodeDoc,
 # ☞ SEATS ARE FRACTIONAL BELOW $1/M (user ruling 2026-09-03). The rule is
 # `openrouter.seat_for`: floor(p) at or above $1, max(0.10, round(p, 2))
 # below it. At or above $1 the old floor still governs, so flash stays 1 (not
-# 1.5), pro 2, terra 2, sol 5, opus 5, fable 10, and haiku 1 (exactly $1/M
+# 1.5), pro 2, terra 2, fable 10, and haiku 1 (exactly $1/M
 # lands on the ≥$1 branch, not the fractional one). BELOW $1 the seat is now
 # the price: gpt-reserve and luna are $0.20/M and cost 0.2, which is the
-# ranking information the old floor-to-1 destroyed — four Codex tiers that
-# used to read 1·1·2·5 now read 0.2·0.2·2·5.
+# ranking information the old floor-to-1 destroyed. The later September 22
+# repricing below sets Opus 4, Sol 2 and Luna 0.1 across model versions.
 #
 # ⚠ REPRICING A TIER IS A SEPARATE ACT FROM ADDING ONE, and it is the reason
 # the second migration block below exists. The user's follow-on ruling
@@ -100,9 +100,9 @@ from .schema import (AudienceGrant, DirGrant, FrozenInfo, MailEntry, NodeDoc,
 # into the favorites file by `add_favorite`, so a BRAND NEW org was being
 # handed the stale 1 as well. That half is fixed at the source, in
 # `openrouter.favorites`; this table's migration is only the document half.
-TIERS: Final[dict[str, float]] = {"fable": 10, "opus": 5, "sonnet": 2, "haiku": 1,
-                                  "sol": 5, "terra": 2, "gpt-reserve": 0.2,
-                                  "luna": 0.2, "astra": 10,
+TIERS: Final[dict[str, float]] = {"fable": 10, "opus": 4, "sonnet": 2, "haiku": 1,
+                                  "sol": 2, "terra": 2, "gpt-reserve": 0.2,
+                                  "luna": 0.1, "astra": 10,
                                   "flash": 1, "pro": 2}
 
 # The credit grid. Every seat is quantised to 0.01 and every credit quantity
@@ -158,15 +158,17 @@ MODELS: Final[dict[str, str]] = {
     # rather than this constant going straight to argv. 5.0 stays reachable as
     # a model VERSION below.
     "fable": clipin.FABLE_5_1,
-    "opus": "claude-opus-5",
+    # Official Anthropic model overview and Claude Code 2.1.280 registry,
+    # 2026-09-22. The Opus tier now costs four credits by the user's ruling.
+    "opus": "claude-opus-5-5",
     "sonnet": "claude-sonnet-5",
     "haiku": "claude-haiku-4-5",
-    # the codex family — ids as the installed CLI's own model/list reports
-    # them (measured, codex-cli 0.150.1)
-    "sol": "gpt-5.6-sol",
+    # the codex family — exact IDs from the installed CLI's model inventory;
+    # Sol and Luna default to GPT-6, with 5.6 available below as versions.
+    "sol": "gpt-6-sol",
     "terra": "gpt-5.6-terra",
     "gpt-reserve": "gpt-reserve",
-    "luna": "gpt-5.6-luna",
+    "luna": "gpt-6-luna",
     # Official model id (OpenAI, 2026-09-04). This is DATA, not proof that
     # the signed-in account may use it: provider admission requires exact
     # live `model/list(includeHidden=true)` membership before offering or
@@ -197,11 +199,14 @@ MODELS: Final[dict[str, str]] = {
 #
 # The KEY is what a node records and the gear shows; the VALUE is the CLI id.
 # The tier's entry in MODELS above remains the default, so a node with no
-# version recorded behaves exactly as before.
+# version recorded follows the latest supported version.
 # ⚠ ids verified against the pinned CLI with a real call (2026-08-04):
 # `claude-opus-4-8` answers; `claude-opus-4.8` and `opus-4-8` are refused.
 MODEL_VERSIONS: Final[dict[str, dict[str, str]]] = {
-    "opus": {"5": "claude-opus-5", "4.8": "claude-opus-4-8"},
+    "sol": {"6": "gpt-6-sol", "5.6": "gpt-5.6-sol"},
+    "luna": {"6": "gpt-6-luna", "5.6": "gpt-5.6-luna"},
+    "opus": {"5.5": "claude-opus-5-5", "5": "claude-opus-5",
+             "4.8": "claude-opus-4-8"},
     # Fable 5.1 is the tier default; 5.0 stays selectable in the gear for the
     # same reason Opus 4.8 does — a version is a subcategory inside the band,
     # never a chip, and never a different price.
@@ -932,6 +937,18 @@ class Org:
         _t = cast("dict[str, Any]", _doc.get("tiers") or {})
         if _t.get("sonnet") == 3:
             _t["sonnet"] = 2
+        # Opus 5.5: user-authorized $4/M input -> four-credit tier (2026-09-22).
+        # Only the old shipped price migrates; custom prices remain. Grants
+        # and bindings are unchanged, while a parent's free allocation rises
+        # by one per live Opus child. Versions still share one tier/seat.
+        if _t.get("opus") == 5:
+            _t["opus"] = 4
+        # User ruling 2026-09-22: one tier price follows the latest version,
+        # including existing 5.6 selections. No version-specific seat ledger.
+        # Migrate only shipped defaults; custom prices, grants and IDs stay.
+        for _tier, _old in (("sol", 5), ("luna", 0.2)):
+            if _t.get(_tier) == _old:
+                _t[_tier] = TIERS[_tier]
         # ☞ …and the SUB-$1 REPRICING, by the same rule and for the same
         # reason (user ruling 2026-09-03: "if we are supporting fractional
         # credts we should reprice agents that are under $1/m"). gpt-reserve
@@ -1000,6 +1017,27 @@ class Org:
         _m = cast("dict[str, Any]", _doc.get("models") or {})
         if _m.get("fable") == clipin.FABLE_5:
             _m["fable"] = clipin.FABLE_5_1
+        # Upgrade only the shipped Opus default; custom organization ids and
+        # explicit per-node version pins remain intact. Opus 5.5 is passed
+        # verbatim to the CLI, never silently substituted with Opus 5.
+        if _m.get("opus") == "claude-opus-5":
+            _m["opus"] = MODELS["opus"]
+        # Fold the short-lived GPT-6 tier spelling into Sol/Luna's version
+        # selector. Existing unpinned Sol/Luna nodes advance with the default;
+        # explicitly pinned choices keep their selected version. A former
+        # GPT-6-tier node keeps its exact model.
+        # Custom organization model IDs are never overwritten.
+        for _tier, _six in (("sol", "gpt-6-sol"), ("luna", "gpt-6-luna")):
+            _old = f"gpt-5.6-{_tier}"
+            for _node in self.nodes.values():
+                if _node.get("model") == _six:
+                    _node["model"] = _tier
+                    _node.setdefault("scope", {})["model_version"] = "6"
+            if _m.get(_tier) == _old:
+                _m[_tier] = MODELS[_tier]
+            # The alias is no longer a tier, including in old saved orgs.
+            _m.pop(_six, None)
+            _t.pop(_six, None)
         # ☞ the flash/pro rows moved with the provider lane (2026-09-02: the
         # Antigravity CLI replaced the previous Google lane, and the ids its
         # registry knows are not the ones the old lane pinned). Same rule:

@@ -37,7 +37,9 @@ import re
 
 #: The version a deploy installs into ``<data-root>/cli`` (see
 #: ``supervisor._PIN``). Latest published at the time of writing.
-PIN = "2.1.258"
+# Opus 5.5 support and its $4/$20 pricing ($0.20 cache reads) were added
+# in the official Claude Code 2.1.280 changelog on 2026-09-22.
+PIN = "2.1.280"
 
 #: The npm package a deploy installs to get it.
 PACKAGE = "@anthropic-ai/claude-code"

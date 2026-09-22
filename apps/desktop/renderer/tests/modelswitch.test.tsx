@@ -10,7 +10,7 @@ import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { ActiveAgentSummary } from '../src/App'
 import { NodeConfig } from '../src/canvas/modals'
-import { setOpenRouterTiers, USER } from '../src/canvas/shared'
+import { CODEX_TIER_SEAT, setOpenRouterTiers, TIER_SEAT, USER } from '../src/canvas/shared'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { OpRequest, OpResult, ProviderInfo, TreeNode, TreePayload } from '../src/types'
 
@@ -30,8 +30,8 @@ function node(tier = 'haiku'): CanvasNode {
 function tree(extra: Partial<TreePayload> = {}): TreePayload {
   return {
     slug: 'org', dirs: [], tiers: {
-      haiku: 1, sonnet: 2, opus: 5, fable: 10,
-      'gpt-reserve': 0.2, luna: 0.2, terra: 2, sol: 5, flash: 1, pro: 2,
+      haiku: 1, sonnet: 2, opus: 4, fable: 10,
+      'gpt-reserve': 0.2, luna: 0.1, terra: 2, sol: 2, flash: 1, pro: 2,
     }, max_top_grant: 100, default_effort: '', effort_default: 'high',
     cascade_hire: true, sandboxed: false, ...extra,
   } as TreePayload
@@ -84,6 +84,75 @@ const options = (el: HTMLElement) =>
   [...el.querySelectorAll<HTMLOptionElement>('.model-switch option')]
 const option = (el: HTMLElement, tier: string) =>
   options(el).find((o) => o.value === tier)!
+
+for (const [tier, seat] of [['sol', 2], ['luna', 0.1]] as const) {
+  configTest(`${tier} offers 6 by default and 5.6 inside one tier`, async (mount) => {
+    const { el, ops } = await mount({ node: { ...node(tier), seat },
+      provider: provider({ tiers: [{ tier, provider: 'openai', seat,
+        model: `gpt-6-${tier}`, letter: tier === 'sol' ? 'S' : 'L' }] }),
+    })
+    assert.equal(option(el, `gpt-6-${tier}`), undefined)
+    assert.match(option(el, tier).textContent ?? '', new RegExp(`seat ${seat}`))
+    assert.equal(CODEX_TIER_SEAT[tier], seat)
+    const versions = [...el.querySelectorAll<HTMLSelectElement>('select')]
+      .find((s) => [...s.options].some((o) => o.textContent === `${tier} 5.6`))!
+    assert.deepEqual([...versions.options].map((o) => [o.value, o.textContent]),
+      [['', 'latest (6)'], ['6', `${tier} 6`], ['5.6', `${tier} 5.6`]])
+    const { act } = await import('react')
+    await act(async () => {
+      versions.value = '5.6'
+      versions.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    const save = [...el.querySelectorAll<HTMLButtonElement>('button')]
+      .find((b) => b.textContent?.trim() === 'save')!
+    const originalFetch = globalThis.fetch
+    const saved: Record<string, unknown>[] = []
+    globalThis.fetch = (input, init) => {
+      if (String(input).endsWith('/nodes/agent/scope'))
+        saved.push(JSON.parse(String(init?.body)))
+      return originalFetch(input, init)
+    }
+    try { await act(async () => { save.click() }) }
+    finally { globalThis.fetch = originalFetch }
+    assert.equal(saved[0]?.model_version, '5.6')
+    assert.equal(ops.some((o) => o.op === 'switch_model'), false)
+  })
+}
+
+configTest('Opus offers 5.5 as latest and saves an explicit older version',
+  async (mount) => {
+    const { el, ops } = await mount({ node: { ...node('opus'), seat: 4 },
+      tree: tree({ tiers: { haiku: 1, sonnet: 2, opus: 4, fable: 10 } }) })
+    assert.equal(TIER_SEAT.opus, 4)
+    assert.match(option(el, 'opus').textContent ?? '', /seat 4/)
+    const { act } = await import('react')
+    const versions = [...el.querySelectorAll<HTMLSelectElement>('select')]
+      .find((s) => [...s.options].some((o) => o.textContent === 'opus 5.5'))!
+    assert.ok(versions, 'Opus version selector is visible')
+    assert.deepEqual([...versions.options].map((o) => [o.value, o.textContent]),
+      [['', 'latest (5.5)'], ['5.5', 'opus 5.5'], ['5', 'opus 5'], ['4.8', 'opus 4.8']])
+    assert.equal(versions.value, '')
+    await act(async () => {
+      versions.value = '5'
+      versions.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    const save = [...el.querySelectorAll<HTMLButtonElement>('button')]
+      .find((b) => b.textContent?.trim() === 'save')!
+    const originalFetch = globalThis.fetch
+    const saved: Record<string, unknown>[] = []
+    globalThis.fetch = (input, init) => {
+      if (String(input).endsWith('/nodes/agent/scope')) {
+        saved.push(JSON.parse(String(init?.body)))
+      }
+      return originalFetch(input, init)
+    }
+    try {
+      await act(async () => { save.click() })
+    } finally { globalThis.fetch = originalFetch }
+    assert.equal(saved.length, 1)
+    assert.equal(saved[0].model_version, '5')
+    assert.equal(ops.some((o) => o.op === 'switch_model'), false)
+  })
 
 test('the header summary counts every provider family', async (t: TestContext) => {
   useFakeClock()
@@ -177,9 +246,9 @@ configTest('the switch lists every provider family with its ledger seats',
       ['Claude', 'Codex', 'Antigravity'])
     assert.deepEqual(options(el).map((o) => [o.value, o.textContent?.trim()]), [
       ['haiku', 'haiku · seat 1'], ['sonnet', 'sonnet · seat 2'],
-      ['opus', 'opus · seat 5'], ['fable', 'fable · seat 10'],
-      ['luna', 'luna · seat 0.2'], ['terra', 'terra · seat 2'],
-      ['sol', 'sol · seat 5'],
+      ['opus', 'opus · seat 4'], ['fable', 'fable · seat 10'],
+      ['luna', 'luna · seat 0.1'], ['terra', 'terra · seat 2'],
+      ['sol', 'sol · seat 2'],
       ['flash', 'flash · seat 1'], ['pro', 'pro · seat 2'],
     ])
   })

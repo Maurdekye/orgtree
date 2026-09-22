@@ -839,9 +839,11 @@ button.badge.audience-fold.alert {
    the same tier colour it wears on cards and pickers. Provider identity
    belongs to the surrounding chrome; these tokens distinguish the models. */
 .chip.agents b.t-luna { color: var(--tier-luna); }
+.chip.agents b.t-gpt-6-luna { color: var(--tier-luna); }
 .chip.agents b.t-gpt-reserve { color: var(--tier-luna); }
 .chip.agents b.t-terra { color: var(--tier-terra); }
 .chip.agents b.t-sol { color: var(--tier-sol); }
+.chip.agents b.t-gpt-6-sol { color: var(--tier-sol); }
 .chip.agents b.t-astra { color: var(--tier-astra); }
 .chip.agents b.t-flash { color: var(--tier-flash); }
 .chip.agents b.t-pro { color: var(--tier-pro); }
@@ -1064,16 +1066,20 @@ button.badge.audience-fold.alert {
    busy ring follows. Keyed on `prov-openai` from cards.tsx, not on the tier
    classes, so a future codex tier joins the theme by joining the family. */
 .sq.tier-luna { --tier-accent: var(--tier-luna); border-top-color: color-mix(in srgb, var(--tier-luna) 55%, var(--line)); }
+.sq.tier-gpt-6-luna { --tier-accent: var(--tier-luna); border-top-color: color-mix(in srgb, var(--tier-luna) 55%, var(--line)); }
 .sq.tier-gpt-reserve { --tier-accent: var(--tier-luna); border-top-color: color-mix(in srgb, var(--tier-luna) 55%, var(--line)); }
 .sq.tier-terra { --tier-accent: var(--tier-terra); border-top-color: color-mix(in srgb, var(--tier-terra) 55%, var(--line)); }
 .sq.tier-sol { --tier-accent: var(--tier-sol); border-top-color: color-mix(in srgb, var(--tier-sol) 55%, var(--line)); }
+.sq.tier-gpt-6-sol { --tier-accent: var(--tier-sol); border-top-color: color-mix(in srgb, var(--tier-sol) 55%, var(--line)); }
 .sq.tier-astra { --tier-accent: var(--tier-astra); border-top-color: color-mix(in srgb, var(--tier-astra) 55%, var(--line)); }
 .sq.tier-flash { --tier-accent: var(--tier-flash); border-top-color: color-mix(in srgb, var(--tier-flash) 55%, var(--line)); }
 .sq.tier-pro { --tier-accent: var(--tier-pro); border-top-color: color-mix(in srgb, var(--tier-pro) 55%, var(--line)); }
 .sq.mini.tier-luna { --mini-tier: var(--tier-luna); }
+.sq.mini.tier-gpt-6-luna { --mini-tier: var(--tier-luna); }
 .sq.mini.tier-gpt-reserve { --mini-tier: var(--tier-luna); }
 .sq.mini.tier-terra { --mini-tier: var(--tier-terra); }
 .sq.mini.tier-sol { --mini-tier: var(--tier-sol); }
+.sq.mini.tier-gpt-6-sol { --mini-tier: var(--tier-sol); }
 .sq.mini.tier-astra { --mini-tier: var(--tier-astra); }
 .sq.mini.tier-flash { --mini-tier: var(--tier-flash); }
 .sq.mini.tier-pro { --mini-tier: var(--tier-pro); }
@@ -1142,9 +1148,11 @@ button.badge.audience-fold.alert {
    other three edges, but its greater specificity would also erase the tier
    stripe. Reassert the independent tier channel on the top edge. */
 .sq.prov-openai.desk.tier-luna { border-top-color: var(--tier-luna); }
+.sq.prov-openai.desk.tier-gpt-6-luna { border-top-color: var(--tier-luna); }
 .sq.prov-openai.desk.tier-gpt-reserve { border-top-color: var(--tier-luna); }
 .sq.prov-openai.desk.tier-terra { border-top-color: var(--tier-terra); }
 .sq.prov-openai.desk.tier-sol { border-top-color: var(--tier-sol); }
+.sq.prov-openai.desk.tier-gpt-6-sol { border-top-color: var(--tier-sol); }
 .sq.prov-openai.desk.tier-astra { border-top-color: var(--tier-astra); }
 /* the antigravity family's card dressing (D-189) — the same inherited-chrome
    contract as the codex block above, bluish-violet where codex is blue. */
@@ -2240,9 +2248,11 @@ button.cc-name:hover {
 .tier.t-opus { color: var(--tier-opus); border-color: color-mix(in srgb, var(--tier-opus) 45%, var(--line)); }
 .tier.t-fable { color: var(--tier-fable); border-color: color-mix(in srgb, var(--tier-fable) 45%, var(--line)); }
 .tier.t-luna { color: var(--tier-luna); border-color: color-mix(in srgb, var(--tier-luna) 45%, var(--line)); }
+.tier.t-gpt-6-luna { color: var(--tier-luna); border-color: color-mix(in srgb, var(--tier-luna) 45%, var(--line)); }
 .tier.t-gpt-reserve { color: var(--tier-luna); border-color: color-mix(in srgb, var(--tier-luna) 45%, var(--line)); }
 .tier.t-terra { color: var(--tier-terra); border-color: color-mix(in srgb, var(--tier-terra) 45%, var(--line)); }
 .tier.t-sol { color: var(--tier-sol); border-color: color-mix(in srgb, var(--tier-sol) 45%, var(--line)); }
+.tier.t-gpt-6-sol { color: var(--tier-sol); border-color: color-mix(in srgb, var(--tier-sol) 45%, var(--line)); }
 .tier.t-astra { color: var(--tier-astra); border-color: color-mix(in srgb, var(--tier-astra) 45%, var(--line)); }
 .tier.t-flash { color: var(--tier-flash); border-color: color-mix(in srgb, var(--tier-flash) 45%, var(--line)); }
 .tier.t-pro { color: var(--tier-pro); border-color: color-mix(in srgb, var(--tier-pro) 45%, var(--line)); }
@@ -3459,9 +3469,11 @@ button.stackbadge:hover { border-color: var(--accent); color: var(--agent-accent
    permanently disabled, so no hover leg. A touch dimmer than the generic
    :disabled .35 would leave them: these are "coming", not "can't afford". */
 .hsof button.t-luna { color: var(--tier-luna); border-color: color-mix(in srgb, var(--tier-luna) 45%, var(--line)); }
+.hsof button.t-gpt-6-luna { color: var(--tier-luna); border-color: color-mix(in srgb, var(--tier-luna) 45%, var(--line)); }
 .hsof button.t-gpt-reserve { color: var(--tier-luna); border-color: color-mix(in srgb, var(--tier-luna) 45%, var(--line)); }
 .hsof button.t-terra { color: var(--tier-terra); border-color: color-mix(in srgb, var(--tier-terra) 45%, var(--line)); }
 .hsof button.t-sol { color: var(--tier-sol); border-color: color-mix(in srgb, var(--tier-sol) 45%, var(--line)); }
+.hsof button.t-gpt-6-sol { color: var(--tier-sol); border-color: color-mix(in srgb, var(--tier-sol) 45%, var(--line)); }
 .hsof button.t-astra { color: var(--tier-astra); border-color: color-mix(in srgb, var(--tier-astra) 45%, var(--line)); }
 .hsof button.t-flash { color: var(--tier-flash); border-color: color-mix(in srgb, var(--tier-flash) 45%, var(--line)); }
 .hsof button.t-pro { color: var(--tier-pro); border-color: color-mix(in srgb, var(--tier-pro) 45%, var(--line)); }

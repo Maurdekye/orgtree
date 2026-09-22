@@ -344,7 +344,7 @@ lineageTest('§3 a codex bearer keeps its own default option', async (mount) => 
   // when codex has been uninstalled under it.
   const el = await mount(withBearer('sol'),
     { claude: true, openai: false, google: false, openrouter: false })
-  assert.match(el.textContent ?? '', /as sol · seat 5/,
+  assert.match(el.textContent ?? '', /as sol · seat 2/,
     'the bearer still IS a sol session — say so, and with a real seat number')
 })
 
