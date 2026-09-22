@@ -21,11 +21,13 @@ one of them true and asserts the others stayed silent:
     lock_max_depth         deepest reentrancy, a maximum not a sum    §6
     lock_hold_ms           outer held time, IO included               §7
 
-THE OBJECT UNDER TEST IS THE SHIPPED ONE. Every case drives
+THE OBJECT UNDER TEST IS THE SHIPPED ONE. All instrumented cases drive
 `store.DOC_LOCK` — the real `_InstrumentedDocLock` with its real FIFO gate —
 rather than a stand-in, because the whole measurement depends on the gate being
 the thing that knows who was in front. A test against a fresh lock instance
-would still pass if the installed lock were never instrumented at all.
+would still pass if the installed lock were never instrumented at all. The
+plain RLock case in section 9 is an explicit positive control, not a claim
+about the installed instrument.
 
 DETERMINISM. Where a case needs rivals to be genuinely queued, it WAITS FOR THE
 QUEUE rather than sleeping and hoping: `_queued_until` polls the gate's own
@@ -508,11 +510,9 @@ class TheConditionPathHasItsOwnCounterSemantics(LockCensusBase):
       * the restore is NOT a second acquisition (`lock_acquires` does not
         move), because the parent's `_acquire_restore` sets the depth directly
         and never runs the acquire bookkeeping;
-      * the hold AFTER the restore is NOT reported. The parent closes its
-        window on `_release_save` and deliberately does not reopen it, so a
-        post-wait hold is UNMEASURED — which is a different statement from
-        zero, and §9 says so out loud rather than leaving a reader to assume
-        the instrument covers it;
+      * both the pre-wait and post-restore profiling hold windows are
+        UNMEASURED. `_release_save` discards the old timer without reporting
+        it, and the parent does not reopen it on restore. Missing is not zero;
       * a restore that has to queue behind a real owner IS counted as
         contention, because it re-enters the same FIFO gate at the tail.
 
@@ -558,13 +558,12 @@ class TheConditionPathHasItsOwnCounterSemantics(LockCensusBase):
         self.assertNotIn('lock_contended', got,
                          f'nobody was in the way on this path: {got}')
 
-    def test_the_hold_after_a_wake_is_unmeasured_and_that_is_deliberate(self):
-        """⚠ NOT ZERO — ABSENT. The parent ends the hold window at
-        `_release_save` and does not reopen it, precisely so a thread that
-        slept for twenty seconds is not reported as having mutated for twenty
-        seconds. The honest consequence is that the work it does after waking
-        is not reported either, and a reader must not add these records up and
-        believe they cover the whole request."""
+    def test_the_hold_after_a_wake_is_unmeasured(self):
+        """The profiling timer is discarded at wait and is not reopened.
+
+        This pins missing post-wake hold coverage, not a claim that all work
+        before the wait was reported or that Condition compatibility is safe.
+        """
         cond = threading.Condition(LOCK)
         ready = threading.Event()
         self.notifier(cond, ready)
@@ -638,12 +637,15 @@ class TheConditionPathHasItsOwnCounterSemantics(LockCensusBase):
         instead of at the gate, so it waits without being counted — the one
         hole in `lock_contended`'s coverage.
 
-        Mutual exclusion and FIFO order are NOT violated, which is why this is
-        a measurement gap and not a correctness bug, and fixing it would
-        change locking behaviour — out of scope for this stage. It is also
-        currently UNREACHABLE in product code: `halt.py` only ever calls
-        `notify_all()` on its Condition, never `wait()`, so nothing outside
-        the tests takes this path at all.
+        This is a pre-existing latent correctness/liveness defect as well
+        as a measurement gap. An admitted rival can own the gate while
+        blocked on this thread's inner lock, preventing the original owner
+        from reentering. The bounded known-negative witness below observes
+        the timed refusal without attempting an unbounded circular wait.
+        Runtime repair is outside this stage. Source inspection at this
+        stage found halt.py's DOC_LOCK Condition used only for notify_all,
+        with no product wait/wait_for caller; this does not establish safety
+        for hypothetical external callers or future code.
         """
         cond = threading.Condition(LOCK)
         ready = threading.Event()
@@ -662,6 +664,99 @@ class TheConditionPathHasItsOwnCounterSemantics(LockCensusBase):
                         '…while this thread still holds the inner RLock')
         LOCK.release()                               # second
         self.assertFalse(LOCK._is_owned(), 'both levels must be released')
+
+
+    def test_wait_discards_the_pre_wait_profile_hold(self):
+        """The pre-wait timer is dropped without emitting either duration."""
+        with threading.Condition(LOCK) as acquired:
+            self.assertTrue(acquired)
+            self.assertIsNotNone(LOCK._held.since,
+                                 'fixture must open a real profiling window')
+            self.assertSilent('lock_hold_ms', 'mutate_ms')
+            # timeout=0 still calls both Condition save/restore hooks.
+            cond = threading.Condition(LOCK)
+            self.assertFalse(cond.wait(timeout=0))
+            self.assertIsNone(LOCK._held.since)
+            self.assertSilent('lock_hold_ms', 'mutate_ms')
+        self.assertSilent('lock_hold_ms', 'mutate_ms')
+
+    def _nested_wait_reentry_with_rival(self, lock, *, observe_gate):
+        """Return same-owner reentry success after a nested wait and release.
+
+        Every acquire, readiness wait and join is bounded. Actual inner-lock
+        ownership drives cleanup, because the wrapper's depth is precisely
+        the state under challenge. No blocking reentry is ever attempted.
+        """
+        started = threading.Event()
+        acquired = threading.Event()
+        failures = []
+        rival = None
+
+        def take():
+            try:
+                started.set()
+                if not lock.acquire(timeout=5):
+                    failures.append('rival acquire timed out')
+                    return
+                try:
+                    acquired.set()
+                finally:
+                    lock.release()
+            except BaseException as exc:
+                failures.append(repr(exc))
+
+        try:
+            self.assertTrue(lock.acquire(timeout=1))
+            self.assertTrue(lock.acquire(timeout=1))
+            self.assertFalse(threading.Condition(lock).wait(timeout=0))
+            lock.release()  # true inner recursion remains one
+            self.assertTrue(lock._is_owned())
+            rival = threading.Thread(target=take, name='condition-reentry-rival')
+            rival.start()
+            self.assertTrue(started.wait(1), 'rival did not start')
+            if observe_gate:
+                deadline = time.monotonic() + 2
+                admitted = False
+                while time.monotonic() < deadline:
+                    with lock._gate:
+                        admitted = lock._owner == rival.ident
+                    if admitted:
+                        break
+                    time.sleep(0.001)
+                self.assertTrue(admitted, 'rival never owned the FIFO gate')
+            self.assertFalse(acquired.is_set(), 'rival bypassed the inner lock')
+            reentered = lock.acquire(timeout=0.05)
+            self.assertTrue(lock._is_owned(), 'original owner lost inner lock')
+            self.assertFalse(acquired.is_set(), 'rival entered before release')
+            return reentered
+        finally:
+            # At most three owned levels: the two initial takes plus reentry.
+            for _ in range(3):
+                if not lock._is_owned():
+                    break
+                lock.release()
+            if rival is not None:
+                rival.join(6)
+                self.assertFalse(rival.is_alive(), 'rival leaked after cleanup')
+                self.assertEqual(failures, [], 'rival failed')
+                self.assertTrue(acquired.is_set(), 'rival never completed')
+            self.assertFalse(lock._is_owned(), 'original owner leaked a level')
+
+    def test_known_negative_nested_condition_can_refuse_its_lock_owner(self):
+        """KNOWN NEGATIVE: current DOC_LOCK violates same-owner reentry.
+
+        A passing witness means the defect was reproduced, not repaired.
+        A owns inner RLock, B owns gate and awaits A's inner RLock. An
+        unbounded A acquire would create a circular wait. A future authorized
+        fix must replace this refusal assertion with the positive contract.
+        """
+        self.assertFalse(self._nested_wait_reentry_with_rival(
+            LOCK, observe_gate=True))
+
+    def test_plain_rlock_reenters_after_the_same_nested_condition_sequence(self):
+        """Positive control: Condition restore preserves RLock reentrancy."""
+        self.assertTrue(self._nested_wait_reentry_with_rival(
+            threading.RLock(), observe_gate=False))
 
 
 if __name__ == '__main__':
