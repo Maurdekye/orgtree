@@ -90,7 +90,7 @@ export function TempDeskModal({ node, close, desk }: TempDeskProps) {
       const index = targets.findIndex(element => element === active)
       const next = index < 0 ? (event.shiftKey ? targets.length - 1 : 0)
         : (index + (event.shiftKey ? -1 : 1) + targets.length) % targets.length
-      targets[next].focus()
+      ;(targets[next] ?? root).focus()
     }
     doc.addEventListener('keydown', trapTab)
     return () => {
