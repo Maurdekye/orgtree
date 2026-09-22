@@ -197,5 +197,22 @@ export async function runAttentionScenarios(ctx: AppScenarioContext): Promise<vo
     ctx.check('TD3', returned.samePin && returned.sameDesk && returned.draft === 'draft survives every surface'
       && JSON.stringify(returned.rect) === JSON.stringify(beforeBorrow.rect) && returned.pins === beforeBorrow.pins,
       'Dismissal returns the same Desk to the same pin with its exact placement and draft', {beforeBorrow, returned})
+
+    // A notification reveals its target over the current view. It must not
+    // select Canvas merely because older notification paths originated there.
+    if (await js(`!!document.querySelector('.gallery-modal')`)) throw new Error('Notification premise already has a gallery')
+    ctx.send(r, {type:'notification-click',data:{id:'studio-document-cold',source_id:'cold',org:'studio',
+      kind:'document',title:'Document cold',body:'Exact composition target'}})
+    await ctx.until(() => js<boolean>(`document.querySelector('.gallery-modal .mailer-read')?.textContent.includes('Visible exact document: cold.') ?? false`), Boolean, 10000)
+    const reveal = await js(`(() => {
+      const pane=document.querySelector('.gallery-modal .mailer-read'); const rect=pane?.getBoundingClientRect();
+      return {exact:pane?.textContent.includes('Visible exact document: cold.'),visible:!!rect && rect.width>0 && rect.height>0,
+        mode:document.querySelector('.attn-stage')?.dataset.attentionActive,
+        sameDesk:document.querySelector('.pinwin[data-id="beta"] textarea')===window.__proofDesk,
+        draft:window.__proofDesk.value,galleries:document.querySelectorAll('.gallery-modal').length};
+    })()`)
+    ctx.check('AT10', reveal.exact && reveal.visible && reveal.mode === 'yes' && reveal.sameDesk
+      && reveal.draft === 'draft survives every surface' && reveal.galleries === 1 && !child.isDestroyed() && child.id === childId,
+      'A targeted notification opens its exact document while preserving Attention, the canonical draft and native popout',reveal)
   } finally { stopApi(); ctx.close(r) }
 }
