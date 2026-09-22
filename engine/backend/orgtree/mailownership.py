@@ -42,11 +42,12 @@ independent facts rather than one overloaded verdict:
 
   `disposition`  PROTECTED / ELIGIBLE / UNAVAILABLE — and `reclaimable` is
                  True for ELIGIBLE and nothing else, ever.
-  `owner`        PROVEN / UNPROVEN / NONE — whether a complete matching
-                 custody tuple actually named the holder.  A bare legacy
-                 `drive_lease` flag stops a destructive reclaim without
-                 proving whose the batch is; those two facts are different
-                 and are reported separately.
+  `owner`        PROVEN / RESOLVED_ELSEWHERE / UNPROVEN / NONE — how well the
+                 HOLDER is established, which is a different question from
+                 whether the batch is protected.  A bare legacy `drive_lease`
+                 flag stops a destructive reclaim without proving whose the
+                 batch is, and a durable claim from a session that has ended
+                 protects its tokens while belonging to nobody present.
   `confirmation` echoed from the evidence supplied, never inferred.  A
                  missing journal row proves neither confirmation nor
                  fold-back, and acknowledgment is not Read.
@@ -61,6 +62,7 @@ from __future__ import annotations
 import dataclasses
 import datetime as _dtm
 import enum
+import math
 from collections.abc import Iterable, Mapping, Sequence
 from types import MappingProxyType
 from typing import Any
@@ -120,9 +122,15 @@ class Disposition(enum.Enum):
 
 
 class OwnerEvidence(enum.Enum):
-    PROVEN = "proven"        # a complete matching custody tuple named the holder
-    UNPROVEN = "unproven"    # something holds it; which holder is not established
-    NONE = "none"            # no holder fact at all
+    """How well the HOLDER is established — a separate question from whether
+    the batch is protected. A durable claim from a session that ended still
+    protects its tokens, and saying it is held by the current turn would be a
+    different and false statement; `RESOLVED_ELSEWHERE` is that distinction."""
+
+    PROVEN = "proven"                        # a complete tuple, equal to the current one
+    RESOLVED_ELSEWHERE = "resolved_elsewhere"  # a complete tuple, some OTHER holder
+    UNPROVEN = "unproven"                    # held, and by whom cannot be established
+    NONE = "none"                            # no holder fact at all
 
 
 class Confirmation(enum.Enum):
@@ -144,10 +152,12 @@ class Reason(enum.Enum):
 
     # --- snapshot- and token-level integrity (rule 6) --------------------
     CURRENT_IDENTITY_UNSUPPORTED = "current_identity_unsupported"
+    CLOCK_UNSUPPORTED = "clock_unsupported"
     UNSUPPORTED_TOKEN = "unsupported_token"
     DUPLICATE_TOKEN_RECORDS = "duplicate_token_records"
     NO_JOURNAL_ROW = "no_journal_row"
     AMBIGUOUS_OWNERSHIP = "ambiguous_ownership"
+    UNSUPPORTED_MESSAGE_IDENTITY = "unsupported_message_identity"
     # --- custody memberships (rule 2) ------------------------------------
     CURRENT_TURN_MEMBERSHIP = "current_turn_membership"
     MANUAL_FETCH_MEMBERSHIP = "manual_fetch_membership"
@@ -162,10 +172,14 @@ class Reason(enum.Enum):
     STEER_LIMBO_REQUESTED = "steer_limbo_requested"
     LIVE_PUMP = "live_pump"
     CARRIER_LIVENESS_UNKNOWN = "carrier_liveness_unknown"
+    CARRIER_TOKENS_UNRESOLVED = "carrier_tokens_unresolved"
+    RETENTION_TOKENS_UNRESOLVED = "retention_tokens_unresolved"
     # --- durable claims and leases (rules 3, 4) --------------------------
     CLAIM_HELD = "claim_held"
     CLAIM_UNRESOLVED = "claim_unresolved"
+    CLAIM_WITHOUT_TOKEN_MEMBERSHIP = "claim_without_token_membership"
     CLAIM_CONFLICT = "claim_conflict"
+    OWNER_RESOLVED_ELSEWHERE = "owner_resolved_elsewhere"
     LEASE_HELD = "lease_held"
     LEASE_EXPIRED = "lease_expired"
     LEASE_UNRESOLVED = "lease_unresolved"
@@ -248,6 +262,36 @@ def _instant(value: Any) -> float | Gap:
         return Gap.UNSUPPORTED
 
 
+def _clock(value: Any) -> float | Gap:
+    """The injected instant: a FINITE real number of epoch seconds.
+
+    NaN and the infinities are refused rather than compared. Every ordering
+    test against NaN is False, so a NaN clock silently reports that no grace
+    is left and that every lease has expired — an unreadable clock arguing
+    for reclaim. `+inf` says the same thing outright. `bool` is refused for
+    the same reason it is refused everywhere here: `True` is an `int`, and a
+    clock of `True` is a broken adapter, not 1970."""
+    if value is None:
+        return Gap.ABSENT
+    if isinstance(value, Gap):
+        return value
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return Gap.UNSUPPORTED
+    if not math.isfinite(value):
+        return Gap.UNSUPPORTED
+    return float(value)
+
+
+def _message_key(value: Any) -> str | None:
+    """A message identity: a non-empty `str`, as `id` is written on every row.
+
+    `None` for everything else, and NOTHING is coerced. An earlier version
+    fell back to `repr()` for unhashable ids, which made a stored `[]` and a
+    requested `'[]'` the same message — a request could name a string and
+    reach a row whose identity was a list."""
+    return value if isinstance(value, str) and value else None
+
+
 def _frozen_tokens(values: Iterable[Any] | Gap | None) -> frozenset[str] | Gap:
     """Token membership, keeping unsupported entries out of the set rather than
     coercing them in.  A membership holding one unsupported entry is reported
@@ -275,6 +319,34 @@ def _frozen_tokens(values: Iterable[Any] | Gap | None) -> frozenset[str] | Gap:
 # --------------------------------------------------------------------------
 # snapshot
 # --------------------------------------------------------------------------
+
+def _sequence(values: Any) -> tuple[Any, ...]:
+    """A collection taken once, by value. A string is wrapped rather than
+    exploded into characters, because a caller that passed one meant one
+    item and would otherwise get a silent expansion instead of a refusal."""
+    if values is None:
+        return ()
+    if isinstance(values, (str, bytes)) or not isinstance(values, Iterable):
+        return (values,)
+    return tuple(values)
+
+
+def _freeze_tokens(record: Any) -> None:
+    """Resolve a record's `tokens` ONCE, at construction, and store the result.
+
+    This is the immutability boundary, and it is load-bearing rather than
+    tidy. `frozen=True` freezes the dataclass's own attributes; it says
+    nothing about what they point at. Two real consequences before this
+    existed: a `tokens=iter([...])` was consumed by the first classification
+    and read as empty by the second, so one snapshot gave two different
+    answers; and a caller's list, handed in and then cleared, retroactively
+    changed a classification that had already been made. Evidence that can be
+    spent or edited after it was submitted is not evidence.
+
+    Resolving here also means an unreadable token list is decided once, in one
+    place, rather than by whichever rule happens to look at it."""
+    object.__setattr__(record, "tokens", _frozen_tokens(record.tokens))
+
 
 @dataclasses.dataclass(frozen=True)
 class CustodyRef:
@@ -322,6 +394,9 @@ class Membership:
     owner: CustodyRef
     tokens: Any = frozenset()
 
+    def __post_init__(self) -> None:
+        _freeze_tokens(self)
+
 
 class CarrierKind(enum.Enum):
     QUEUE = "queue"          # st['queue'] — popped at a result boundary
@@ -345,6 +420,9 @@ class CarrierHold:
     tokens: Any = frozenset()
     live: Any = Gap.UNKNOWN
 
+    def __post_init__(self) -> None:
+        _freeze_tokens(self)
+
 
 @dataclasses.dataclass(frozen=True)
 class Claim:
@@ -355,6 +433,9 @@ class Claim:
     delivery_id: Any = Gap.ABSENT
     acked: Any = Gap.ABSENT
     owner: CustodyRef | None = None
+
+    def __post_init__(self) -> None:
+        _freeze_tokens(self)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -371,6 +452,9 @@ class Lease:
     expires_at: Any = Gap.ABSENT
     owner: CustodyRef | None = None
 
+    def __post_init__(self) -> None:
+        _freeze_tokens(self)
+
 
 class RetentionKind(enum.Enum):
     HALT = "halt"      # halt.retain / halt_queue — complete carriers, kept once
@@ -386,6 +470,9 @@ class Retention:
 
     kind: RetentionKind
     tokens: Any = frozenset()
+
+    def __post_init__(self) -> None:
+        _freeze_tokens(self)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -416,6 +503,9 @@ class JournalBatch:
     mode: Any = Gap.ABSENT
     message_ids: Sequence[Any] = ()
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "message_ids", _sequence(self.message_ids))
+
 
 @dataclasses.dataclass(frozen=True)
 class OwnershipSnapshot:
@@ -426,7 +516,7 @@ class OwnershipSnapshot:
     answering two different things about one document."""
 
     current: CustodyRef
-    now: float
+    now: Any
     batches: Sequence[JournalBatch] = ()
     memberships: Sequence[Membership] = ()
     carriers: Sequence[CarrierHold] = ()
@@ -435,6 +525,17 @@ class OwnershipSnapshot:
     retentions: Sequence[Retention] = ()
     confirmations: Mapping[Any, Any] = MappingProxyType({})
     activity: NodeActivity = NodeActivity()
+
+    def __post_init__(self) -> None:
+        # same boundary as `_freeze_tokens`: take a copy of every collection
+        # now, so a generator is not spent by the first classification and a
+        # caller's list cannot be edited into a different verdict afterwards
+        for field in ("batches", "memberships", "carriers", "claims",
+                      "leases", "retentions"):
+            object.__setattr__(self, field, _sequence(getattr(self, field)))
+        object.__setattr__(self, "confirmations",
+                           MappingProxyType(dict(self.confirmations)))
+        object.__setattr__(self, "now", _clock(self.now))
 
 
 # --------------------------------------------------------------------------
@@ -475,45 +576,58 @@ class Selection:
     whole batches.  `partial_batches` names the batches the request reached
     into without naming all of their messages: the caller takes the whole
     batch or takes nothing, and either way a protected sibling keeps its
-    protection (rule 8)."""
+    protection (rule 8).
+
+    The three ways a request can fail to name a row are kept apart, because
+    they call for different handling:
+
+      `unresolved_messages`         a well-formed id, no such row here
+      `unsupported_messages`        an id outside its domain; matched nothing
+                                    and was not coerced into matching
+      `unreadable_identity_batches` a BATCH storing an id outside its domain.
+                                    Its coverage cannot be established, so it
+                                    is excluded from `reclaimable_tokens` and
+                                    reported partial."""
 
     requested: tuple[Any, ...]
     verdicts: tuple[TokenVerdict, ...]
     reclaimable_tokens: frozenset[str]
     partial_batches: frozenset[str]
     unresolved_messages: tuple[Any, ...]
+    unsupported_messages: tuple[Any, ...] = ()
+    unreadable_identity_batches: frozenset[str] = frozenset()
 
 
 # --------------------------------------------------------------------------
 # classification
 # --------------------------------------------------------------------------
 
+
 def _membership_facts(snapshot: OwnershipSnapshot,
-                      ) -> tuple[dict[str, list[tuple[MembershipKind, Any]]], set[str]]:
-    """Index memberships by token, and collect the tokens whose holders
-    disagree.  Two complete-but-different holders for one token is not a
-    stale membership and not a live one; it is a document that cannot be
-    acted on."""
+                      ) -> tuple[dict[str, list[tuple[MembershipKind, Any]]], set[str], bool]:
+    """Index memberships by token, collect the tokens whose holders disagree,
+    and report whether any membership's token list was unreadable.
+
+    Two complete-but-different holders for one token is not a stale
+    membership and not a live one; it is a document that cannot be acted on."""
     by_token: dict[str, list[tuple[MembershipKind, Any]]] = {}
     holders: dict[str, set[Any]] = {}
+    unreadable = False
     for member in snapshot.memberships:
-        tokens = _frozen_tokens(member.tokens)
-        owner = member.owner.resolved() if isinstance(member.owner, CustodyRef) else Gap.UNSUPPORTED
+        tokens = member.tokens                      # resolved at construction
+        owner = member.owner.resolved() if isinstance(member.owner, CustodyRef) \
+            else Gap.UNSUPPORTED
         if isinstance(tokens, Gap):
-            # an unreadable token list names no token, so it protects none —
-            # but it is reported on every batch, because a carrier whose
-            # membership cannot be read is a carrier that might hold any of them
+            # a membership whose token list cannot be read names no token, so
+            # it protects none of them specifically — and might be holding any
+            unreadable = True
             continue
         for tok in tokens:
             by_token.setdefault(tok, []).append((member.kind, owner))
             if not isinstance(owner, Gap):
                 holders.setdefault(tok, set()).add(owner)
     ambiguous = {tok for tok, names in holders.items() if len(names) > 1}
-    return by_token, ambiguous
-
-
-def _unreadable_membership_tokens(snapshot: OwnershipSnapshot) -> bool:
-    return any(isinstance(_frozen_tokens(m.tokens), Gap) for m in snapshot.memberships)
+    return by_token, ambiguous, unreadable
 
 
 def _confirmation_of(snapshot: OwnershipSnapshot, tok: str) -> Confirmation:
@@ -525,6 +639,24 @@ def _confirmation_of(snapshot: OwnershipSnapshot, tok: str) -> Confirmation:
     return Confirmation.UNKNOWN
 
 
+def _holder(ref: Any, current: Any, reasons: list[Reason]) -> OwnerEvidence:
+    """How well a durable record names its holder.
+
+    A claim or lease carrying a complete tuple that is NOT the current one is
+    resolved — we know exactly whose it is — and it is emphatically not the
+    current turn's. Reporting it as PROVEN would say a batch belongs to the
+    turn that is asking about it."""
+    if not isinstance(ref, CustodyRef):
+        return OwnerEvidence.UNPROVEN
+    resolved = ref.resolved()
+    if isinstance(resolved, Gap):
+        return OwnerEvidence.UNPROVEN
+    if resolved == current:
+        return OwnerEvidence.PROVEN
+    reasons.append(Reason.OWNER_RESOLVED_ELSEWHERE)
+    return OwnerEvidence.RESOLVED_ELSEWHERE
+
+
 def classify(snapshot: OwnershipSnapshot) -> Classification:
     """Classify every journal batch in `snapshot`.
 
@@ -532,9 +664,10 @@ def classify(snapshot: OwnershipSnapshot) -> Classification:
     whatever the disposition, so a PROTECTED batch still reports that its
     grace had passed and an UNAVAILABLE one still reports that halt holds it.
 
-      1. the node's own identity is unsupported — nothing can be judged;
-      2. token integrity: unsupported token, duplicate rows, absent row,
-         holders that disagree;
+      1. the snapshot cannot be judged at all — the node's own identity is
+         outside its domain, or the injected clock is not a finite instant;
+      2. token integrity: unsupported token, duplicate rows, holders that
+         disagree, conflicting claims;
       3. a positive holder: matching custody membership, a live carrier, a
          claim or lease, halt or native retention, confirmation;
       4. unresolved custody evidence — protected without proving a holder;
@@ -543,7 +676,7 @@ def classify(snapshot: OwnershipSnapshot) -> Classification:
     """
     current = snapshot.current.resolved() if isinstance(snapshot.current, CustodyRef) \
         else Gap.UNSUPPORTED
-    identity_broken = isinstance(current, Gap)
+    clock = snapshot.now                            # resolved at construction
 
     seen: dict[str, int] = {}
     for batch in snapshot.batches:
@@ -552,17 +685,18 @@ def classify(snapshot: OwnershipSnapshot) -> Classification:
             seen[key] = seen.get(key, 0) + 1
     duplicates = {tok for tok, count in seen.items() if count > 1}
 
-    if identity_broken:
+    if isinstance(current, Gap):
         members: dict[str, list[tuple[MembershipKind, Any]]] = {}
         ambiguous: set[str] = set()
+        membership_unreadable = any(isinstance(m.tokens, Gap)
+                                    for m in snapshot.memberships)
     else:
-        members, ambiguous = _membership_facts(snapshot)
-    membership_unreadable = _unreadable_membership_tokens(snapshot)
+        members, ambiguous, membership_unreadable = _membership_facts(snapshot)
 
     verdicts: list[TokenVerdict] = []
     by_token: dict[str, TokenVerdict] = {}
     for batch in snapshot.batches:
-        verdict = _verdict_for(snapshot, batch, current, duplicates,
+        verdict = _verdict_for(snapshot, batch, current, clock, duplicates,
                                members, ambiguous, membership_unreadable)
         verdicts.append(verdict)
         key = _token_key(batch.token)
@@ -574,6 +708,7 @@ def classify(snapshot: OwnershipSnapshot) -> Classification:
 def _verdict_for(snapshot: OwnershipSnapshot,
                  batch: JournalBatch,
                  current: tuple[str, int, str, str] | Gap,
+                 clock: float | Gap,
                  duplicates: set[str],
                  members: Mapping[str, list[tuple[MembershipKind, Any]]],
                  ambiguous: set[str],
@@ -592,6 +727,11 @@ def _verdict_for(snapshot: OwnershipSnapshot,
     if isinstance(current, Gap):
         reasons.append(Reason.CURRENT_IDENTITY_UNSUPPORTED)
         unavailable = True
+    if isinstance(clock, Gap):
+        # nothing may be concluded from a clock that is not an instant.  In
+        # particular: not that a grace elapsed, and not that a lease expired.
+        reasons.append(Reason.CLOCK_UNSUPPORTED)
+        unavailable = True
     if isinstance(key, Gap):
         reasons.append(Reason.UNSUPPORTED_TOKEN)
         unavailable = True
@@ -604,19 +744,19 @@ def _verdict_for(snapshot: OwnershipSnapshot,
 
     tok = key if not isinstance(key, Gap) else None
 
-    # --- 3: positive holders ----------------------------------------------
+    # --- 3/4: holders, proven and unresolved ------------------------------
     if tok is not None:
         for kind, holder in members.get(tok, ()):
             if isinstance(holder, Gap):
                 reasons.append(Reason.OWNER_MEMBERSHIP_UNSUPPORTED)
                 protected = True
-                owner = _weaker(owner, OwnerEvidence.UNPROVEN)
+                owner = _strongest(owner, OwnerEvidence.UNPROVEN)
             elif holder == current:
                 reasons.append(Reason.CURRENT_TURN_MEMBERSHIP
                                if kind is MembershipKind.TURN
                                else Reason.MANUAL_FETCH_MEMBERSHIP)
                 protected = True
-                owner = OwnerEvidence.PROVEN
+                owner = _strongest(owner, OwnerEvidence.PROVEN)
             else:
                 # a membership from a generation, session or turn that is not
                 # the current one.  It is resolved — we know exactly whose it
@@ -624,18 +764,17 @@ def _verdict_for(snapshot: OwnershipSnapshot,
                 reasons.append(Reason.OWNER_MEMBERSHIP_STALE)
 
     if membership_unreadable:
-        # a carrier whose token list cannot be read might hold this batch
         reasons.append(Reason.OWNER_MEMBERSHIP_UNSUPPORTED)
         protected = True
-        owner = _weaker(owner, OwnerEvidence.UNPROVEN)
+        owner = _strongest(owner, OwnerEvidence.UNPROVEN)
 
     if tok is not None:
         for hold in snapshot.carriers:
-            tokens = _frozen_tokens(hold.tokens)
+            tokens = hold.tokens
             if isinstance(tokens, Gap):
-                reasons.append(Reason.CARRIER_LIVENESS_UNKNOWN)
+                reasons.append(Reason.CARRIER_TOKENS_UNRESOLVED)
                 protected = True
-                owner = _weaker(owner, OwnerEvidence.UNPROVEN)
+                owner = _strongest(owner, OwnerEvidence.UNPROVEN)
                 continue
             if tok not in tokens:
                 continue
@@ -643,40 +782,48 @@ def _verdict_for(snapshot: OwnershipSnapshot,
             if live is True:
                 reasons.append(_LIVE_REASON[hold.kind])
                 protected = True
-                owner = _weaker(owner, OwnerEvidence.UNPROVEN)
+                owner = _strongest(owner, OwnerEvidence.UNPROVEN)
             elif live is False:
                 if hold.kind in _IDLE_REASON:
                     reasons.append(_IDLE_REASON[hold.kind])
             else:
                 reasons.append(Reason.CARRIER_LIVENESS_UNKNOWN)
                 protected = True
-                owner = _weaker(owner, OwnerEvidence.UNPROVEN)
+                owner = _strongest(owner, OwnerEvidence.UNPROVEN)
 
+        delivery_ids: set[str] = set()
         for claim in snapshot.claims:
-            tokens = _frozen_tokens(claim.tokens)
-            if isinstance(tokens, Gap) or tok not in tokens:
+            tokens = claim.tokens
+            if isinstance(tokens, Gap):
+                # a claim whose token membership cannot be read is a claim
+                # that might be holding THIS token.  Rule 4: unknown custody
+                # is protected, never silently treated as expired.  ABSENT is
+                # the claim naming no tokens at all — the same shape as the
+                # legacy bare lease, and it gets the same two-part answer.
+                reasons.append(Reason.CLAIM_WITHOUT_TOKEN_MEMBERSHIP
+                               if tokens is Gap.ABSENT else Reason.CLAIM_UNRESOLVED)
+                protected = True
+                owner = _strongest(owner, OwnerEvidence.UNPROVEN)
+                continue
+            if tok not in tokens:
                 continue
             delivery = _text(claim.delivery_id)
             if isinstance(delivery, Gap):
                 reasons.append(Reason.CLAIM_UNRESOLVED)
                 protected = True
-                owner = _weaker(owner, OwnerEvidence.UNPROVEN)
+                owner = _strongest(owner, OwnerEvidence.UNPROVEN)
                 continue
+            delivery_ids.add(delivery)
             reasons.append(Reason.CLAIM_HELD)
             protected = True
-            holder = claim.owner.resolved() if isinstance(claim.owner, CustodyRef) else Gap.ABSENT
-            owner = OwnerEvidence.PROVEN if not isinstance(holder, Gap) \
-                else _weaker(owner, OwnerEvidence.UNPROVEN)
+            owner = _strongest(owner, _holder(claim.owner, current, reasons))
 
-        claim_ids = {_text(c.delivery_id) for c in snapshot.claims
-                     if not isinstance(_frozen_tokens(c.tokens), Gap)
-                     and tok in _frozen_tokens(c.tokens)}  # type: ignore[operator]
-        if len({i for i in claim_ids if not isinstance(i, Gap)}) > 1:
+        if len(delivery_ids) > 1:
             reasons.append(Reason.CLAIM_CONFLICT)
             unavailable = True
 
         for lease in snapshot.leases:
-            tokens = _frozen_tokens(lease.tokens)
+            tokens = lease.tokens
             if isinstance(tokens, Gap):
                 if tokens is Gap.ABSENT:
                     # the legacy bare `drive_lease`.  Rule 4, both halves.
@@ -684,30 +831,28 @@ def _verdict_for(snapshot: OwnershipSnapshot,
                 else:
                     reasons.append(Reason.LEASE_UNRESOLVED)
                 protected = True
-                owner = _weaker(owner, OwnerEvidence.UNPROVEN)
+                owner = _strongest(owner, OwnerEvidence.UNPROVEN)
                 continue
             if tok not in tokens:
                 continue
             expiry = _instant(lease.expires_at)
-            if isinstance(expiry, Gap):
+            if isinstance(expiry, Gap) or isinstance(clock, Gap):
                 reasons.append(Reason.LEASE_UNRESOLVED)
                 protected = True
-                owner = _weaker(owner, OwnerEvidence.UNPROVEN)
-            elif snapshot.now < expiry:
+                owner = _strongest(owner, OwnerEvidence.UNPROVEN)
+            elif clock < expiry:
                 reasons.append(Reason.LEASE_HELD)
                 protected = True
-                holder = lease.owner.resolved() if isinstance(lease.owner, CustodyRef) else Gap.ABSENT
-                owner = OwnerEvidence.PROVEN if not isinstance(holder, Gap) \
-                    else _weaker(owner, OwnerEvidence.UNPROVEN)
+                owner = _strongest(owner, _holder(lease.owner, current, reasons))
             else:
                 reasons.append(Reason.LEASE_EXPIRED)
 
         for retention in snapshot.retentions:
-            tokens = _frozen_tokens(retention.tokens)
+            tokens = retention.tokens
             if isinstance(tokens, Gap):
-                reasons.append(Reason.CARRIER_LIVENESS_UNKNOWN)
+                reasons.append(Reason.RETENTION_TOKENS_UNRESOLVED)
                 protected = True
-                owner = _weaker(owner, OwnerEvidence.UNPROVEN)
+                owner = _strongest(owner, OwnerEvidence.UNPROVEN)
                 continue
             if tok not in tokens:
                 continue
@@ -715,7 +860,7 @@ def _verdict_for(snapshot: OwnershipSnapshot,
                            else Reason.NATIVE_HELD)
             protected = True
             retained = True
-            owner = _weaker(owner, OwnerEvidence.UNPROVEN)
+            owner = _strongest(owner, OwnerEvidence.UNPROVEN)
 
     if confirmation is Confirmation.IN_FLIGHT:
         reasons.append(Reason.CONFIRMATION_IN_FLIGHT)
@@ -730,7 +875,7 @@ def _verdict_for(snapshot: OwnershipSnapshot,
         reasons.append(Reason.CONFIRMATION_UNKNOWN)
         protected = True
 
-    # --- the batch itself --------------------------------------------------
+    # --- 5: the batch's own stamp -----------------------------------------
     content = Content.PRESENT
     stamp = _instant(batch.drained_at)
     grace_remaining: float | None = None
@@ -738,8 +883,10 @@ def _verdict_for(snapshot: OwnershipSnapshot,
         reasons.append(Reason.GRACE_STAMP_ABSENT)
     elif isinstance(stamp, Gap):
         reasons.append(Reason.GRACE_STAMP_UNREADABLE)
+    elif isinstance(clock, Gap):
+        pass                      # already UNAVAILABLE; no grace is computable
     else:
-        grace_remaining = DRAIN_GRACE_S - (snapshot.now - stamp)
+        grace_remaining = DRAIN_GRACE_S - (clock - stamp)
         if grace_remaining > 0:
             reasons.append(Reason.WITHIN_DRAIN_GRACE)
             protected = True
@@ -749,6 +896,9 @@ def _verdict_for(snapshot: OwnershipSnapshot,
         # label is not the fact — this is the old `manual_fetch && responding`
         # rule, named so a reader can see it declined.
         reasons.append(Reason.MODE_LABEL_ONLY)
+
+    if any(_message_key(mid) is None for mid in batch.message_ids):
+        reasons.append(Reason.UNSUPPORTED_MESSAGE_IDENTITY)
 
     if unavailable:
         disposition = Disposition.UNAVAILABLE
@@ -776,11 +926,12 @@ _IDLE_REASON = {
     CarrierKind.STEER: Reason.STEER_CARRIER_NO_CONSUMER,
 }
 
-_OWNER_RANK = {OwnerEvidence.NONE: 0, OwnerEvidence.UNPROVEN: 1, OwnerEvidence.PROVEN: 2}
+_OWNER_RANK = {OwnerEvidence.NONE: 0, OwnerEvidence.UNPROVEN: 1,
+               OwnerEvidence.RESOLVED_ELSEWHERE: 2, OwnerEvidence.PROVEN: 3}
 
 
-def _weaker(existing: OwnerEvidence, candidate: OwnerEvidence) -> OwnerEvidence:
-    """Keep the strongest owner evidence seen.  A proven holder is not
+def _strongest(existing: OwnerEvidence, candidate: OwnerEvidence) -> OwnerEvidence:
+    """Keep the best-established holder seen.  A proven holder is not
     downgraded by an unresolved one sitting beside it, and an unresolved one
     is never upgraded by the absence of anything else."""
     return existing if _OWNER_RANK[existing] >= _OWNER_RANK[candidate] else candidate
@@ -791,54 +942,65 @@ def select(snapshot: OwnershipSnapshot, message_ids: Iterable[Any]) -> Selection
 
     A batch is the ownership unit.  Naming one message of a five-message batch
     reaches the whole batch or nothing, and it cannot make the other four
-    reclaimable: the verdict returned for it is the same verdict `classify`
-    gives, with no per-message softening anywhere in the path.  Messages that
-    resolve to no batch are reported, never dropped — a request for mail whose
-    journal row is gone gets an explicit unresolved, not silence that reads
-    like a refusal."""
-    requested = tuple(message_ids)
+    reclaimable: the verdict returned for it is the one `classify` gives, with
+    no per-message softening anywhere in the path.
+
+    Identity is COMPARED, never coerced.  A message id outside its domain —
+    anything that is not a non-empty string — matches nothing and is reported
+    in `unsupported_messages`, separately from a well-formed id whose row is
+    simply not here.  A batch storing such an id is named in
+    `unreadable_identity_batches` and is never reclaimable through a request,
+    because a request cannot be shown to have named all of its messages."""
+    requested = _sequence(message_ids)
     result = classify(snapshot)
 
-    index: dict[Any, list[TokenVerdict]] = {}
-    named: dict[str, set[Any]] = {}
+    index: dict[str, list[tuple[str | None, TokenVerdict]]] = {}
+    sizes: dict[str, set[str]] = {}
+    unreadable: set[str] = set()
     for batch, verdict in zip(snapshot.batches, result.verdicts):
-        for mid in batch.message_ids or ():
-            index.setdefault(_hashable(mid), []).append(verdict)
+        key = _token_key(batch.token)
+        tok = None if isinstance(key, Gap) else key
+        readable: set[str] = set()
+        for mid in batch.message_ids:
+            resolved = _message_key(mid)
+            if resolved is None:
+                if tok is not None:
+                    unreadable.add(tok)
+                continue
+            readable.add(resolved)
+            index.setdefault(resolved, []).append((tok, verdict))
+        if tok is not None:
+            sizes[tok] = readable
 
     touched: list[TokenVerdict] = []
+    seen: set[int] = set()
+    named: dict[str, set[str]] = {}
     unresolved: list[Any] = []
+    unsupported: list[Any] = []
     for mid in requested:
-        found = index.get(_hashable(mid))
+        resolved = _message_key(mid)
+        if resolved is None:
+            unsupported.append(mid)
+            continue
+        found = index.get(resolved)
         if not found:
             unresolved.append(mid)
             continue
-        for verdict in found:
-            key = _token_key(verdict.token)
-            if not isinstance(key, Gap):
-                named.setdefault(key, set()).add(_hashable(mid))
-            if verdict not in touched:
+        for tok, verdict in found:
+            if tok is not None:
+                named.setdefault(tok, set()).add(resolved)
+            if id(verdict) not in seen:
+                seen.add(id(verdict))
                 touched.append(verdict)
 
-    sizes = {}
-    for batch in snapshot.batches:
-        key = _token_key(batch.token)
-        if not isinstance(key, Gap):
-            sizes[key] = {_hashable(m) for m in batch.message_ids or ()}
-
-    partial = frozenset(tok for tok, got in named.items()
-                        if sizes.get(tok, set()) - got)
-    reclaimable = frozenset(v.token for v in touched
-                            if v.reclaimable and isinstance(v.token, str))
+    partial = frozenset(tok for tok in named
+                        if sizes.get(tok, set()) - named[tok] or tok in unreadable)
+    reclaimable = frozenset(
+        tok for tok in named
+        if tok not in unreadable
+        and tok in result.by_token and result.by_token[tok].reclaimable)
     return Selection(requested=requested, verdicts=tuple(touched),
                      reclaimable_tokens=reclaimable, partial_batches=partial,
-                     unresolved_messages=tuple(unresolved))
-
-
-def _hashable(value: Any) -> Any:
-    """Message ids arrive as observed, and an unhashable one must not take the
-    whole request down with a TypeError."""
-    try:
-        hash(value)
-    except TypeError:
-        return repr(value)
-    return value
+                     unresolved_messages=tuple(unresolved),
+                     unsupported_messages=tuple(unsupported),
+                     unreadable_identity_batches=frozenset(unreadable))
