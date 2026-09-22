@@ -8,9 +8,12 @@ import { createOrg } from '../src/api'
 
 test('desktop settings retain providers and runtime while excluding registry and Git calls', async () => {
   const calls: string[] = []
+  const runtimeWrites: unknown[] = []
   const old = globalThis.fetch
   globalThis.fetch = async (url, init) => {
     calls.push(String(url))
+    if (String(url) === '/api/app-settings/runtime' && init?.method === 'PUT')
+      runtimeWrites.push(JSON.parse(String(init.body)))
     const body = String(url).includes('/providers') ? { providers: [
       { id: 'claude', label: 'Claude Code', status: { installed: true, connected: true }, tiers: [], hire_enabled: true },
       { id: 'openai', label: 'Codex', status: { installed: false }, tiers: [], hire_enabled: false },
@@ -31,10 +34,13 @@ test('desktop settings retain providers and runtime while excluding registry and
     assert.equal(calls.some(c => c.includes('/accounts')), true, 'registered accounts belong to provider settings')
     const runtime = [...view.el.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(b => b.textContent === 'Runtime')!
     await inAct(async () => { runtime.click() })
-    const toggle = view.el.querySelector<HTMLInputElement>('#app-settings-panel-runtime input')!
+    // Quick Staffing has its own switch before the process-warming control.
+    const toggle = view.el.querySelector<HTMLInputElement>(
+      '#app-settings-panel-runtime input[role="switch"][aria-label="keep agent processes warm"]')!
     assert.ok(toggle.checked)
     await inAct(async () => { toggle.click(); await flush(10) })
     assert.equal(toggle.checked, false, 'real runtime toggle uses and adopts server response')
+    assert.deepEqual(runtimeWrites, [{ enabled: false }], 'only process warming is changed')
     assert.ok(calls.includes('/api/app-settings/runtime'))
   } finally { await view.unmount(); globalThis.fetch = old }
 })
