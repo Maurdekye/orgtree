@@ -30,7 +30,8 @@ def check_append(observed):
 
 
 def check_control(observed):
-    errors = []
+    errors = check_refusals(observed.get("refusal_snapshots",[]),
+                            ["changed-payload","stale-revision","stale-authorization"])
     if observed["retry_effects"] != 1 or observed["replayed_attempts"] != observed["retry_attempts"]-1:
         errors.append("same-key retry applied other than one effect")
     if observed["changed_payload_status"] != 409 or "op_key conflict" not in observed["changed_payload_detail"]:
@@ -49,7 +50,7 @@ def check_control(observed):
 
 
 def check_recovery(observed):
-    errors = []
+    errors = check_refusals(observed.get("refusal_snapshots",[]),["old-epoch"])
     if observed["before_pid"] == observed["after_pid"]:
         errors.append("reopen did not use a new process")
     if observed["actual_refs"] != observed["expected_refs"] or observed["actual_rev"] != observed["expected_rev"]:
@@ -60,6 +61,16 @@ def check_recovery(observed):
         errors.append("new execution under the prior process epoch was not refused")
     if observed["refs_after_refusal"] != observed["expected_refs"] or observed["rev_after_refusal"] != observed["expected_rev"]:
         errors.append("prior-epoch refusal caused a mutation")
+    return errors
+
+
+def check_refusals(rows, expected):
+    errors = []
+    if Counter(r["id"] for r in rows) != Counter(expected):
+        errors.append("missing, unexpected or duplicate refusal snapshots")
+    for row in rows:
+        if row["before_rev"] != row["after_rev"] or row["before_sha256"] != row["after_sha256"]:
+            errors.append(f"{row['id']} refusal changed the public item state")
     return errors
 
 

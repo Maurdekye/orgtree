@@ -7,6 +7,7 @@ lifespan is started, so this does not launch providers, workers or a listener.
 from __future__ import annotations
 
 import concurrent.futures
+import hashlib
 import json
 import os
 import sys
@@ -85,6 +86,14 @@ class Backend:
         return self.request("orgtree_op_call", {"tool": "orgtree_work", "args": args,
                             "op_key": key, "op_epoch": epoch}, **kw)
 
+    @staticmethod
+    def refusal_snapshot(name, before, after):
+        """Compare the complete public item response without copying its semantics."""
+        def digest(value):
+            return hashlib.sha256(json.dumps(value,sort_keys=True,separators=(",",":")).encode()).hexdigest()
+        return {"id":name,"before_rev":before["rev"],"after_rev":after["rev"],
+                "before_sha256":digest(before),"after_sha256":digest(after)}
+
     def workload(self, mode, concurrency, operations, rate):
         slug, before = self.item(f"{mode} {concurrency} {rate}", concurrency)
         refs = [f"operation-{i}" for i in range(operations)]
@@ -162,7 +171,7 @@ class Backend:
             "stateprobe": {"operations": probe["operations"], "lazy_materializations": probe["lazy_materializations"]}}
 
     def controls(self):
-        slug, _ = self.item("Transport and ordering controls")
+        slug, initial = self.item("Transport and ordering controls")
         args = {"action": "evidence", "slug": slug, "kind": "note", "ref": "original-key", "note": "one intent"}
         epoch = self.call("orgtree_op_epoch", {})["epoch"]
         key = self.receipts.mint_key()
@@ -175,31 +184,37 @@ class Backend:
             responses = list(pool.map(retry, range(4)))
         if any(r.status_code != 200 for r in responses):
             raise RuntimeError(f"retry positive control: {[(r.status_code,r.text[:250]) for r in responses]}")
+        before_conflict = self.work("get", slug=slug)["item"]
         changed = self.keyed({**args, "note": "different intent"}, key, epoch)
         after = self.work("get", slug=slug)["item"]
+        refusal_snapshots = [self.refusal_snapshot("changed-payload",before_conflict,after)]
         retry_effects = sum(r["ref"] == "original-key" for r in after["evidence"])
-        stale_rev = after["rev"]
+        stale_rev = initial["rev"]+1
         ordered = []
         for value in ("first", "second"):
             current = self.work("get", slug=slug)["item"]
             self.work("update", slug=slug, expected_rev=current["rev"],
                       done_so_far=[value], working_on_next=[])
             ordered.append(self.work("get", slug=slug)["item"]["done_so_far"][0])
+        before_stale = self.work("get", slug=slug)["item"]
         stale = self.request("orgtree_work", {"action":"update", "slug":slug,
             "expected_rev":stale_rev, "done_so_far":["stale"], "working_on_next":[]})
         after_stale = self.work("get", slug=slug)["item"]
+        refusal_snapshots.append(self.refusal_snapshot("stale-revision",before_stale,after_stale))
         value_after = after_stale["done_so_far"][0]
         old_token = self.tokens[self.actor]
         # Fixture fault transition only: no real seat/session lifecycle is run.
         with self.store.write_org(self.slug) as org:
             org.node(self.actor)["generation"] += 1
             self.store.save_org(org)
-        revoked = self.request("orgtree_work", {**args,"ref":"revoked"}, token=old_token)
         self.tokens[self.actor] = self.auth.child_env(self.slug,self.actor)["ORGTREE_AGENT_TOKEN"]
+        before_revoked = self.work("get", slug=slug)["item"]
+        revoked = self.request("orgtree_work", {**args,"ref":"revoked"}, token=old_token)
         fresh = self.request("orgtree_work", {"action":"get", "slug":slug})
         if fresh.status_code != 200:
             raise RuntimeError(f"fresh authorization positive control: {fresh.text}")
         after = fresh.json()["item"]
+        refusal_snapshots.append(self.refusal_snapshot("stale-authorization",before_revoked,after))
         observed = {"retry_attempts":4, "retry_effects":retry_effects,
             "replayed_attempts":sum(r.json().get("replayed") is True for r in responses),
             "changed_payload_status":changed.status_code,"changed_payload_detail":changed.json().get("detail", ""),
@@ -208,7 +223,8 @@ class Backend:
             "revoked_effects":sum(r["ref"] == "revoked" for r in after["evidence"]),
             "ordered_values":ordered, "stale_revision_status":stale.status_code,
             "stale_revision_detail":stale.json().get("detail", ""), "value_after_stale":value_after,
-            "expected_control_rev":stale_rev+2,"actual_control_rev":after["rev"]}
+            "expected_control_rev":initial["rev"]+3,"actual_control_rev":after["rev"],
+            "refusal_snapshots":refusal_snapshots}
         errors = check_control(observed)
         checkpoint = {"slug":slug,"args":args,"key":key,"epoch":epoch,"before_pid":os.getpid(),
             "expected_refs":[r["ref"] for r in after["evidence"]],"expected_rev":after["rev"]}
@@ -233,7 +249,8 @@ class Backend:
                     "receipt_state":receipt.get("state"),"unknown_old_epoch_status":refused.status_code,
                     "unknown_old_epoch_detail":refused.json().get("detail", ""),
                     "refs_after_refusal":[r["ref"] for r in after_refusal["evidence"]],
-                    "rev_after_refusal":after_refusal["rev"]}
+                    "rev_after_refusal":after_refusal["rev"],
+                    "refusal_snapshots":[self.refusal_snapshot("old-epoch",item,after_refusal)]}
         errors = check_recovery(observed)
         return {"id":"backend.process-reopen", "level":"composed",
                 "classification":"passed" if not errors else "failed", "errors":errors,"observed":observed,

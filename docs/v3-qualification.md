@@ -33,6 +33,8 @@ Exit 0 means every exercised slice passed. Missing coverage remains
 Exit 1 means an exercised check, worker, provenance or cleanup failed.
 `--require-full-product` exits 3 after a passing slice while full-product evidence
 is missing. A zero-test or unstructured component receipt cannot pass.
+The receipt must contain each requested suite exactly once; missing, duplicate
+or unexpected modules fail even if its overall process returned success.
 
 ## Work and measurements
 
@@ -66,6 +68,11 @@ acknowledged state and the original receipt and refuses a new intent under the
 old process epoch. This is clean process persistence, not crash/power-loss proof.
 The current legacy API uses 422 for stale revision/epoch refusals and 409 for
 changed-payload key conflict; these are checked against actual response details.
+Every refusal has an immediate before/after revision and SHA-256 comparison of
+the complete public item response. The permitted final revision delta is counted
+from item creation, before any control request, so later valid updates cannot
+hide a refusal's side effect. Adapter tests reproduce that risk by injecting a
+real public update after a refused request returns.
 
 Nine **observation-mutation** controls deliberately damage copies of the measured
 results and require the checkers to detect loss, duplicates, missing completion,
@@ -101,6 +108,7 @@ For a short development run:
 ```powershell
 python -B tools/qualify-v3.py --concurrency 1 4 --operations 4 --demand-multipliers 1 --output artifacts/smoke.json
 python -B tools/run-python-verification.py --repo-root . tests/test_v3_qualification.py
+python -B tools/run-python-verification.py --repo-root . tests/test_v3_qualification_adapter.py
 ```
 
 Operations are limited to 1..40 (below the 50-row work evidence cap), concurrency

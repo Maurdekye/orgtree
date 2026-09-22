@@ -13,6 +13,7 @@ import sys
 import tempfile
 import time
 import uuid
+from collections import Counter
 
 from .evidence import negative_controls
 
@@ -125,6 +126,32 @@ def run_child(repo, root, interpreter, phase, nonce, config, timeout):
     return json.loads((root/f"{phase}.json").read_text(encoding="utf-8"))
 
 
+def component_results(payload, requested):
+    """Require exact requested coverage, independent of the producer's summary."""
+    errors, rows = [], []
+    if payload.get("schema") != "orgtree.python-verification/v1":
+        errors.append("unsupported component receipt schema")
+    modules = payload.get("modules")
+    if not isinstance(modules,list) or any(not isinstance(m,dict) for m in modules):
+        return [], [*errors,"component receipt modules must be a list of objects"]
+    names = [m.get("module") for m in modules]
+    if any(not isinstance(name,str) for name in names):
+        return [], [*errors,"component receipt module identity must be a string"]
+    actual, expected = Counter(names), Counter(requested)
+    if actual != expected:
+        errors.append(f"component coverage mismatch: missing={list((expected-actual).elements())}, "
+                      f"extra_or_duplicate={list((actual-expected).elements())}")
+    for module in modules:
+        count = module.get("tests_ran")
+        passed = (module.get("phase") == "pass" and type(count) is int and count > 0
+                  and module.get("structured_result") is True and module.get("exit_code") == 0
+                  and not module.get("failure_id") and module.get("cleanup_errors") == [])
+        rows.append({"id":module["module"],"level":"component",
+            "classification":"passed" if passed else "failed","receipt":module,
+            "limits":["Existing suite boundaries and mocks apply; no desktop/native service qualification"]})
+    return rows, errors
+
+
 def run(repo, args):
     config = {"concurrency":args.concurrency,"operations":args.operations,"rate":args.rate,
               "demand_multipliers":args.demand_multipliers}
@@ -161,11 +188,9 @@ def run(repo, args):
             if not receipt.is_file():
                 raise RuntimeError(f"component runner produced no receipt: {result.stderr[-2000:]}")
             payload = json.loads(receipt.read_text(encoding="utf-8"))
-            for module in payload["modules"]:
-                passed = module["phase"] == "pass" and bool(module["tests_ran"]) and module["structured_result"]
-                report["adapters"].append({"id":module["module"],"level":"component",
-                    "classification":"passed" if passed else "failed","receipt":module,
-                    "limits":["Existing suite boundaries and mocks apply; no desktop/native service qualification"]})
+            rows, errors = component_results(payload,COMPONENTS)
+            report["adapters"].extend(rows)
+            report["errors"].extend(errors)
             if result.returncode or payload["summary"]["cleanup_errors"]:
                 report["errors"].append("component runner failed or reported cleanup errors")
         else:

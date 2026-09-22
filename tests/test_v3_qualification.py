@@ -8,6 +8,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"tools"))
@@ -24,9 +25,14 @@ class QualificationEvidenceTests(unittest.TestCase):
             "revoked_effects":0,"fresh_authorization_status":200,"expected_control_rev":4,"actual_control_rev":4,
             "ordered_values":["first","second"],"stale_revision_status":422,
             "stale_revision_detail":"expected_rev 2, but this item is at rev 3", "value_after_stale":"second"}
+        self.control["refusal_snapshots"] = [dict(id=name,before_rev=3,after_rev=3,
+            before_sha256="a"*64,after_sha256="a"*64) for name in
+            ("changed-payload","stale-revision","stale-authorization")]
         self.recovery = {"before_pid":100,"after_pid":101,"actual_refs":["a"],"expected_refs":["a"],
             "actual_rev":3,"expected_rev":3,"receipt_state":"applied","unknown_old_epoch_status":422,
             "unknown_old_epoch_detail":"op_key refused (epoch)","refs_after_refusal":["a"],"rev_after_refusal":3}
+        self.recovery["refusal_snapshots"] = [dict(id="old-epoch",before_rev=3,after_rev=3,
+            before_sha256="a"*64,after_sha256="a"*64)]
 
     def test_success_requires_exact_effects_revisions_and_completions(self):
         self.assertEqual(evidence.check_append(self.append),[])
@@ -100,6 +106,54 @@ class QualificationEvidenceTests(unittest.TestCase):
     def test_absent_native_and_full_product_adapters_remain_visible(self):
         for key in ("migration-rollback","multi-window","attention-desk","native-postgresql","full-product"):
             self.assertIn(key,runner.MISSING)
+
+    def _run_with_components(self, modules):
+        """Exercise the real runner success gate with controlled producer receipts."""
+        payload = {"schema":"orgtree.python-verification/v1","modules":modules,
+                   "summary":{"cleanup_errors":0}}
+        def component_process(command, **kwargs):
+            Path(command[command.index("--json-output")+1]).write_text(json.dumps(payload),encoding="utf-8")
+            return SimpleNamespace(returncode=0,stderr="")
+        exercised = {"workloads":[{"classification":"passed","observed":self.append}],
+                     "controls":{"classification":"passed","observed":self.control},"provenance":[]}
+        recovered = {"recovery":{"classification":"passed","observed":self.recovery}}
+        options = SimpleNamespace(concurrency=[1],operations=2,rate=24,demand_multipliers=[1],
+                                  python=None,timeout=10,components=True)
+        verification = SimpleNamespace(select_interpreter=lambda *a:SimpleNamespace(path=sys.executable,version="test"))
+        with patch.object(runner,"identity",return_value={"commit":"a"*40}), \
+             patch.object(runner,"verification_module",return_value=verification), \
+             patch.object(runner,"run_child",side_effect=[exercised,recovered]), \
+             patch.object(runner.subprocess,"run",side_effect=component_process):
+            return runner.run(Path(__file__).resolve().parents[1],options)
+
+    def test_runner_requires_every_requested_component_exactly_once(self):
+        good = [dict(module=name,phase="pass",tests_ran=1,structured_result=True,
+                     exit_code=0,failure_id=None,cleanup_errors=[]) for name in runner.COMPONENTS]
+        self.assertTrue(self._run_with_components(good)["slice_passed"])
+        cases = {"empty":[],"omitted":good[:-1],"duplicate":good[:-1]+[good[0]],
+                 "extra":good+[{**good[0],"module":"unexpected.py"}]}
+        for name,modules in cases.items():
+            with self.subTest(name=name):
+                report = self._run_with_components(modules)
+                self.assertFalse(report["slice_passed"])
+                self.assertTrue(any("coverage mismatch" in e for e in report["errors"]),report)
+
+    def test_runner_requires_nonzero_successful_structured_component_results(self):
+        good = [dict(module=name,phase="pass",tests_ran=1,structured_result=True,
+                     exit_code=0,failure_id=None,cleanup_errors=[]) for name in runner.COMPONENTS]
+        for mutation in (dict(tests_ran=0),dict(tests_ran=-1),dict(tests_ran=True),
+                         dict(structured_result=False),dict(structured_result="yes"),dict(exit_code=1),
+                         dict(phase="skip"),dict(failure_id="failed"),dict(cleanup_errors=["left data"])):
+            with self.subTest(mutation=mutation):
+                report = self._run_with_components([{**good[0],**mutation},*good[1:]])
+                self.assertFalse(report["slice_passed"])
+
+    def test_refusal_comparison_detects_content_change_without_revision_change(self):
+        changed = copy.deepcopy(self.control)
+        changed["refusal_snapshots"][0]["after_sha256"] = "b"*64
+        self.assertIn("changed-payload refusal changed the public item state",evidence.check_control(changed))
+        changed["refusal_snapshots"] = []
+        self.assertTrue(evidence.check_control(changed))
 
 
 if __name__ == "__main__":
