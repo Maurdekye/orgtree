@@ -216,7 +216,8 @@ app.whenReady().then(async () => {
     next = 'truncate'; wc.reload()
     await until(() => commits > beforeTruncation.commits && !!record.documentToken
       && record.documentToken !== beforeTruncation.token, 'truncated response commits and mints token')
-    assert.equal(await js('document.querySelector("#root")?.textContent'), 'Loading...')
+    await until(async () => await js('document.querySelector("#root")?.textContent') === 'Loading...',
+      'committed partial HTML parsed before truncation')
     assert.equal(await js('typeof window.received'), 'undefined', 'application listener never mounted')
     reveal(9)
     assert.equal(record.outbox.pending(), 1)
