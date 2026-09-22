@@ -4,7 +4,6 @@ import path from 'node:path'
 import fs from 'node:fs'
 import crypto from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { PRIVATE_ALPHA_VERSION } from './private-alpha-policy.mjs'
 
 // THE UPDATE FIXTURE IS A PROPERTY OF THE BUILD, NOT OF ITS METADATA.
 // `--update-fixture` (or ORGTREE_BUILD_UPDATE_FIXTURE=1) compiles the harmless
@@ -19,8 +18,6 @@ import { PRIVATE_ALPHA_VERSION } from './private-alpha-policy.mjs'
 // sha256 of dist/main/index.cjs recorded below.
 const updateFixture = process.argv.includes('--update-fixture')
   || process.env.ORGTREE_BUILD_UPDATE_FIXTURE === '1'
-const privateAlpha = process.argv.includes('--private-alpha')
-if (privateAlpha && updateFixture) throw new Error('Private alpha cannot include the update fixture')
 if (updateFixture) {
   console.log('⚠ building WITH the update-fixture substitution compiled in. '
     + 'This build must not be published: the release preflight refuses it.')
@@ -31,9 +28,7 @@ await bundle({ entryPoints: ['apps/desktop/main/index.ts'], outfile: 'dist/main/
   // left the preflight's bundle scan depending on dead-code elimination, and the
   // test that measured that FAILED — esbuild kept the eliminated branch's
   // literal. Substituting the marker itself needs no elimination.
-  define: { __ORGTREE_PRIVATE_ALPHA__: JSON.stringify(
-    'ORGTREE-PRIVATE-ALPHA-BUILD:' + (privateAlpha ? 'enabled' : 'disabled')),
-    __ORGTREE_UPDATE_FIXTURE__: JSON.stringify(
+  define: { __ORGTREE_UPDATE_FIXTURE__: JSON.stringify(
     'ORGTREE-UPDATE-FIXTURE-BUILD:' + (updateFixture ? 'enabled' : 'disabled')) } })
 await bundle({ entryPoints: ['apps/desktop/preload/index.ts'], outfile: 'dist/preload/index.cjs',
   bundle: true, platform: 'node', format: 'cjs', external: ['electron'], sourcemap: true })
@@ -75,7 +70,7 @@ const files = ['dist/main/index.cjs', 'dist/preload/index.cjs', 'dist/renderer/i
 // constant compiled into index.cjs above. It is written so a fixture-capable
 // artifact says so about itself and so the release preflight can refuse to
 // package one; nothing at runtime reads it.
-fs.writeFileSync('dist/build-info.json', JSON.stringify({ version: privateAlpha ? PRIVATE_ALPHA_VERSION : JSON.parse(fs.readFileSync('package.json', 'utf8')).version,
-  channel: privateAlpha ? 'private-alpha' : 'release', commit, dirty, mailhubCommit, builtAt: new Date().toISOString(),
+fs.writeFileSync('dist/build-info.json', JSON.stringify({ version: JSON.parse(fs.readFileSync('package.json', 'utf8')).version,
+  channel: 'release', commit, dirty, mailhubCommit, builtAt: new Date().toISOString(),
   ...(updateFixture ? { updateFixture: true } : {}),
   sha256: Object.fromEntries(files.filter(file => fs.existsSync(file)).map(file => [file, hash(file)])) }, null, 2) + '\n')

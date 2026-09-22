@@ -589,34 +589,6 @@ class NodeDoc(TypedDict):
     # ⭐ the user-override record (ruling 2026-08-06): Org.unstick moves the
     # released freeze here {by, at, was} — evidence, never erasure
     unstuck: NotRequired[dict[str, Any]]
-    # ---- M0a: this seat's mailbox, as an ordering authority ----------------
-    # The high-water of receive ordinals handed out for this mailbox. It lives
-    # HERE, on the node, rather than in a document-level map, because the node
-    # dict is what `rehire`, `reseed` and `cheap_compact` mutate IN PLACE (so
-    # it survives them without anyone remembering to carry it), what `rename`
-    # re-keys along with `mail`/`mail_log` (one mailbox keeps one counter
-    # through an identity rename), and what `delete` and
-    # `drop_phantom_generation` POP alongside those same tables — which is what
-    # makes a later hire at a freed name start from zero instead of inheriting
-    # a stranger's sequence. Allocation never trusts this value alone: see
-    # Org._allocate_recv_seq, which takes the maximum of it and every ordinal
-    # already assigned to a row of this mailbox. Supported domain: a non-bool
-    # int >= 0. Anything else present here is unsupported data, NOT an absent
-    # counter, and the migration refuses the mailbox rather than overwrite it.
-    mail_seq: NotRequired[int]
-    # This MAILBOX's durable identity, minted at its first deposit. Distinct
-    # from `seat_id` (the agent) and from the node name (reusable): it answers
-    # "is the mailbox a cursor was taken against still the mailbox standing
-    # here?", which after a delete-and-rehire at the same name is no.
-    mailbox_id: NotRequired[str]
-    # ⚠ BOTH FIELDS ARE AUTHORITY OVER ONE MAILBOX and are NOT inherited by a
-    # copy of this node stored under a different id. Every lineage split builds
-    # its archived predecessor as `dict(n)` under `nid@gen`; the seat at `nid`
-    # keeps the mailbox, and the bearer — separately addressable, and ordinary
-    # mail does land in it — has these stripped so it mints its own. Without
-    # that, two different messages in two different mailboxes carry the same
-    # (mailbox, recv_seq). Org._strip_mailbox_authority is the one place that
-    # does it, and test_mail_receive_order asserts all four sites call it.
 
 
 class AudienceGrant(TypedDict):
@@ -742,33 +714,6 @@ MailEntry = TypedDict("MailEntry", {
     # the row, restored by decode_row_ev). Unknown/malformed values are kept and reported
     # by events.decode as unsupported/malformed; never raised on load.
     "ev": NotRequired[dict[str, Any]],
-    # ---- M0a: the receiver's own arrival fact (ledger.Org.deposit_mail) ----
-    # The RECEIVING mailbox's ordinal for this message, allocated once at the
-    # deposit door and never re-allocated when the row moves. Position in
-    # `mail[node]` is NOT this: the fold-back paths prepend, so a row that
-    # arrived last can sit first. NotRequired because every row written before
-    # the mechanism has none, and nothing back-fills one implicitly — an
-    # ordinal invented after the fact would be a claim about an arrival order
-    # nobody observed.
-    "recv_seq": NotRequired[int],
-    # HOW that ordinal was obtained, so a reader is never left guessing:
-    #   "deposit"            — minted at a real creation door; the order
-    #                          between two such rows of one mailbox happened.
-    #   "migration_unproven" — assigned by Org.migrate_mail_receive_order's
-    #                          deterministic `(at, id)` enumeration over rows
-    #                          predating the mechanism. A TOTAL order, NOT
-    #                          recovered receive history, and deliberately
-    #                          labelled so nothing downstream can present it
-    #                          as one.
-    #   "unresolved_mailbox" — deposited against a key naming no node, so no
-    #                          mailbox existed to allocate from. The message
-    #                          is kept unstamped rather than dropped.
-    "seq_origin": NotRequired[str],
-    # WHICH mailbox the ordinal belongs to (NodeDoc.mailbox_id). A mailbox
-    # deleted and recreated at the same name is a DIFFERENT mailbox, and this
-    # is what lets a cursor or claim taken against the old one be recognised
-    # as stale instead of read as current.
-    "mailbox": NotRequired[str],
 })
 
 
@@ -1094,10 +1039,7 @@ class OrgDoc(TypedDict):
     mail: NotRequired[dict[str, list[MailEntry]]]
     mail_drain_version: NotRequired[int]  # queued-mail upgrade completed
     tool_result_receipts: NotRequired[dict[str, str]]  # atomic tool-result mail outbox receipts
-    # full-body archive. NOT globally capped: `post_mail` and the other deposit
-    # doors retain until manual removal, and the only tail trim in the backend
-    # is the restart notice's own `archive_keep=100`.
-    mail_log: NotRequired[dict[str, list[MailEntry]]]
+    mail_log: NotRequired[dict[str, list[MailEntry]]]   # full-body archive, cap 100/node
     # Bounded identity/state transitions for mail, child tasks, watchdogs and
     # delivery warnings. Bodies remain in their owning records.
     lifecycle: NotRequired[list[dict[str, Any]]]

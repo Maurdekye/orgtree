@@ -15,21 +15,7 @@ test('frameless windows expose only sender-scoped window controls', () => {
   assert.match(main, /desktop:window-toggle-maximize/)
   assert.match(main, /desktop:window-close/)
   assert.match(main, /desktop:window-controls-state/)
-  // ⚠ v3 RESOLVES THE SENDER INSTEAD OF ASSERTING IT, and the property is
-  // STRONGER, not weaker. v2 asked 'is this the one window?'; v3 asks 'WHICH
-  // window is this?', refuses on the same three grounds plus one more - it
-  // must be a REGISTERED main window - and then acts on the window that
-  // actually called. See tests/org-windows.test.mjs for the refusal matrix
-  // driven directly against resolveNativeSender.
-  assert.match(main, /const entry = resolveNativeSender\(event, windows, engine\.origin\)/)
-  assert.doesNotMatch(main, /assertNativeSender/,
-    'the single-window gate is gone, not merely bypassed')
-  // and every window command acts on its CALLER, never on a window named by
-  // an argument the renderer chose
-  assert.match(main, /handle\('desktop:window-minimize', caller => \{ caller\.window\.minimize\(\) \}\)/)
-  assert.match(main, /handle\('desktop:window-close', caller => \{ caller\.window\.close\(\) \}\)/)
-  assert.match(main, /handle\('desktop:popout-minimize', \(caller, name\) => \{ caller\.popouts\.window\(name\)\?\.minimize\(\) \}\)/,
-    "a popout command resolves against the calling window's OWN registry")
+  assert.match(main, /assertNativeSender\(event, main, engine\.origin\)/)
   assert.match(preload, /minimizeWindow: \(\) => ipcRenderer\.invoke\('desktop:window-minimize'\)/)
   assert.match(preload, /getWindowControlsState: \(\) => ipcRenderer\.invoke\('desktop:window-controls-state'\)/)
   assert.match(preload, /toggleMaximizeWindow: \(\) => ipcRenderer\.invoke\('desktop:window-toggle-maximize'\)/)

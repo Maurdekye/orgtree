@@ -34,9 +34,6 @@ Names such as `mount`, `submit` and `TOOLS` are deliberately conservative source
 candidates: a disk mount or an unrelated set can appear and needs disposition,
 not inclusion in an operation denominator. Exception-class hooks also appear as
 expressions rather than being incorrectly treated as literal route strings.
-Task hand-offs are matched by call name, so `asyncio.to_thread` is recorded as
-a task site while `anyio.to_thread.run_sync` — a different call name — is not;
-the second is visible only through the whole-module fingerprints.
 Its import-name resolution does not prove receiver types or exclude local
 shadowing. Arbitrary plugins, aliases and generated dispatch cannot be proven
 complete by AST matching. All Python files in `engine/backend` are therefore

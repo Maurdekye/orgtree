@@ -86,19 +86,12 @@ export function Onboarding({ children, windowControls }: {
   }, [])
   useEffect(() => {
     if (!bridge) return
-    let alive = true, changed = false
-    // ⚠ SUBSCRIBE BEFORE READING, and let a delivered event win over the
-    // read. `preferences` is a live broadcast that is not held, so one
-    // arriving while `getPreferences()` is in flight carries the newer value
-    // — and this panel decides whether FIRST-RUN SETUP shows, so a stale read
-    // can put the setup card in front of an installation that already has
-    // organizations. The error completion is guarded for the same reason: a
-    // failed read must not replace state an event has already recovered.
+    let alive = true
+    bridge.getPreferences().then(p => { if (alive) setPrefs(p) })
+      .catch((e: Error) => { if (alive) setError(e.message) })
     const unsubscribe = bridge.onEvent(e => {
-      if (e.type === 'preferences' && alive) { changed = true; setPrefs(e.data as NativePreferences) }
+      if (e.type === 'preferences' && alive) setPrefs(e.data as NativePreferences)
     })
-    bridge.getPreferences().then(p => { if (alive && !changed) setPrefs(p) })
-      .catch((e: Error) => { if (alive && !changed) setError(e.message) })
     return () => { alive = false; unsubscribe() }
   }, [bridge])
 

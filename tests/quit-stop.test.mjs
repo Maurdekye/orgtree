@@ -308,11 +308,7 @@ test('a quit is wired to stopForQuit, and the update path keeps its own stop', (
   const main = fs.readFileSync('apps/desktop/main/index.ts', 'utf8')
   const handler = main.slice(main.indexOf("app.on('before-quit'"))
   assert.ok(handler.startsWith("app.on('before-quit'"), 'the before-quit handler must exist')
-  // The window is wider than it was because a graceful quit now confirms any
-  // unfinished creation form first and records which windows were open
-  // before teardown. The property asserted is unchanged: the engine is
-  // stopped through stopForQuit, not stop().
-  assert.match(handler.slice(0, 5000), /bounded\(engine\.stopForQuit\(QUIT_STOP_BUDGET_MS\), QUIT_ENGINE_TOTAL_MS\)/,
+  assert.match(handler.slice(0, 2000), /bounded\(engine\.stopForQuit\(QUIT_STOP_BUDGET_MS\), QUIT_ENGINE_TOTAL_MS\)/,
     'the quit must stop the engine through the quit path')
   // The outer bound is DERIVED from the phases, never typed out again: a
   // bound shorter than its path is what makes `bounded` the thing that ends

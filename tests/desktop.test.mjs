@@ -59,22 +59,13 @@ test('notification preferences migrate safely and every independent choice survi
 
 test('preferences default close-to-tray/login and retain explicit off across reload', () => {
   const file = path.join(temp, 'prefs.json'), prefs = new Preferences(file)
-  assert.deepEqual(prefs.get(), { ...defaults, visualTheme: 'orgtree', contrastTheme: 'charcoal', agentColorSource: 'provider', visualThemeExplicit: false, exitOnClose: false, startAtLogin: true, automaticUpdates: true, routineNotifications: false, onboarded: false, startupMode: 'restore' })
+  assert.deepEqual(prefs.get(), { ...defaults, visualTheme: 'orgtree', contrastTheme: 'charcoal', agentColorSource: 'provider', visualThemeExplicit: false, exitOnClose: false, startAtLogin: true, automaticUpdates: true, routineNotifications: false, onboarded: false })
   prefs.set({ exitOnClose: true, startAtLogin: false })
-  assert.deepEqual(new Preferences(file).get(), { ...defaults, visualTheme: 'orgtree', contrastTheme: 'charcoal', agentColorSource: 'provider', visualThemeExplicit: false, exitOnClose: true, startAtLogin: false, automaticUpdates: true, routineNotifications: false, onboarded: false, startupMode: 'restore' })
+  assert.deepEqual(new Preferences(file).get(), { ...defaults, visualTheme: 'orgtree', contrastTheme: 'charcoal', agentColorSource: 'provider', visualThemeExplicit: false, exitOnClose: true, startAtLogin: false, automaticUpdates: true, routineNotifications: false, onboarded: false })
   // first-run setup completion persists like any preference and reloads
   assert.equal(prefs.set({ onboarded: true }).onboarded, true)
   assert.equal(new Preferences(file).get().onboarded, true)
   assert.throws(() => prefs.set({ onboarded: 'yes' }), /Invalid preference/)
-  // ⚠ RESTORING IS THE DEFAULT (settled behavior): an ordinary launch
-  // reopens what was open, and starting at a fresh Homepage is the
-  // alternative the user opts into.
-  assert.equal(prefs.get().startupMode, 'restore')
-  assert.equal(prefs.set({ startupMode: 'homepage' }).startupMode, 'homepage')
-  assert.equal(new Preferences(file).get().startupMode, 'homepage')
-  for (const bad of ['', 'Restore', 'fresh', true, 1, null, {}])
-    assert.throws(() => prefs.set({ startupMode: bad }), /Invalid startup mode/, String(bad))
-  assert.equal(new Preferences(file).get().startupMode, 'homepage', 'a rejected value changes nothing')
   for (const bad of [[], null, { startAtLogin: 'false' }, { token: true }, { toString: true }]) assert.throws(() => prefs.set(bad))
   assert.equal(policy.closeAction(false, false), 'hide')
   assert.equal(policy.closeAction(true, false), 'quit')
@@ -148,7 +139,7 @@ test('all themes persist; invalid themes reject atomically and old preferences m
   assert.equal(new Preferences(path.join(temp, 'legacy-unset.json')).get().visualThemeExplicit, false)
   for (const visualTheme of ['orgtree','claude','codex','antigravity','openrouter']) {
     prefs.set({visualTheme})
-    assert.deepEqual(new Preferences(file).get(), {...defaults,visualTheme,contrastTheme:'charcoal',agentColorSource:'provider',visualThemeExplicit:true,startAtLogin:false,exitOnClose:true,automaticUpdates:true,routineNotifications:false,onboarded:false,startupMode:'restore'})
+    assert.deepEqual(new Preferences(file).get(), {...defaults,visualTheme,contrastTheme:'charcoal',agentColorSource:'provider',visualThemeExplicit:true,startAtLogin:false,exitOnClose:true,automaticUpdates:true,routineNotifications:false,onboarded:false})
   }
   const bytes = fs.readFileSync(file, 'utf8')
   for (const visualTheme of ['unknown', '', true, null, {}, '__proto__']) {

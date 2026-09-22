@@ -11,7 +11,6 @@ import type { PopoutWindowState } from '../../../../packages/contracts'
 import { createPortal } from 'react-dom'
 import { isMobile } from './mobile'
 import { initiatingDocument, keepWorking, noteActionDocument, openSurfaces, pendingRestart, registerWindow, reloadWindows, returnWindows, subscribeWindows, windowRevision } from './windowlife'
-import type { BorrowedSurface } from './windowlife'
 
 interface SurfaceContextValue {
   document: Document
@@ -287,33 +286,12 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
     // Dialogs follow the document, outside any pin stacking context.
     target.ownerDocument.body.appendChild(parts.overlays)
   }
-  /** Bring this surface back into the document.
-   *
-   *  ⚠ NOT EXPOSED WITH ITS PARAMETER, and the parameter is why. `redock` is
-   *  wired straight to `onClick` in two places, so a public
-   *  `(transient = false)` would receive a MouseEvent as its first argument —
-   *  truthy — and every "Return here" click would silently become a borrow
-   *  that never clears the saved row. The typechecker caught exactly that
-   *  when this was one function. Keeping the flag on an internal helper makes
-   *  the mistake unreachable rather than merely fixed at today's call sites.
-   *
-   *  `transient` is a TEMPORARY BORROW rather than a dismissal — see `borrow`
-   *  below. Everything else about the path is identical, so a borrow cannot
-   *  drift away from the ordinary return. */
-  const returnHome = (transient: boolean) => {
+  const redock = () => {
     const restore = pendingRestore.current ?? preservePosition(parts.container)
     pendingRestore.current = null
     epoch.current++
     const w = child.current; child.current = null
-    // ⚠ THE ONE LINE A BORROW MUST NOT RUN. `closeSavedWindow` flips the saved
-    // row to `open: false`, which is right when the user has returned or
-    // dismissed the surface and wrong when it is coming straight back. Left to
-    // run on a borrow it breaks TWO settled rules at once: the arrangement is
-    // not restored when the organization is reopened, and — less obviously —
-    // the return itself lands in the wrong place, because `popupFeatures` only
-    // consults the saved rect when `restoring || saved.open`, so clearing
-    // `open` makes the re-detach compute a fresh position instead.
-    if (!transient) closeSavedWindow(layoutKey)
+    closeSavedWindow(layoutKey)
     for (const fn of cleanups.current.splice(0).reverse()) { try { fn() } catch { /* cleanup is idempotent */ } }
     place(claimDestination())
     initialOwner.current = document
@@ -322,78 +300,6 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
     latest.current.onDetached?.(false)
     restore()
     try { if (w && !w.closed) w.close() } catch { /* user navigated */ }
-  }
-  /** The ordinary return: safe to hand to an event handler, because it takes
-   *  no arguments and therefore cannot be told to borrow by one. */
-  const redock = () => returnHome(false)
-
-  /** Take this surface out of its native window WITHOUT recording it as
-   *  closed, and hand back the function that puts it where it was.
-   *
-   *  This is the seam for TEMPORARY BORROWING — a detached desk pulled into a
-   *  modal for the length of that modal's life and then given back. The user
-   *  rule is that a borrow must never persist as a permanent close, and the
-   *  ordinary `redock` does exactly that.
-   *
-   *  ⚠ LEAVING THE SAVED ROW `open: true` IS WHAT MAKES THE RETURN CORRECT,
-   *  not merely what avoids the wrong record. `popupFeatures` consults the
-   *  saved rect when `restoring || saved.open`, so an untouched row carries
-   *  the geometry home with no extra plumbing at all. The two halves of
-   *  "restore exact prior placement" are the same one line.
-   *
-   *  ⚠ A CLOSURE RATHER THAN A `transient` FLAG ON `redock`, because of the
-   *  MIRROR failure a borrow creates: a saved row left `open: true` with no
-   *  window behind it, which makes startup restoration reopen a window for a
-   *  panel nobody left open. Handing back the way home ties the return to the
-   *  borrower's own lifetime — it holds the closure and calls it when it
-   *  unregisters — instead of leaving "remember to put it back" as prose.
-   *
-   *  ⚠ WHAT THIS DOES NOT GUARANTEE, stated rather than implied. A borrow
-   *  that is never returned WHILE THIS SURFACE STAYS MOUNTED cannot be
-   *  detected from here: the surface is docked and mounted, which is exactly
-   *  what it looks like when borrowed, so there is no moment at which this
-   *  file could conclude anything. It self-corrects at every boundary that
-   *  does exist — an ordinary `redock` or dismissal clears the row, and the
-   *  unmount effect below clears it too — so the lie is bounded by the
-   *  surface's life rather than permanent. Closing the remaining case is the
-   *  borrower's, and it is why the return is a closure it must hold.
-   *
-   *  Borrowing a surface that is NOT detached is a no-op returning a no-op:
-   *  no native window and no saved row are in play, ownership alone moves,
-   *  and this file has nothing to say about it. The returned function is
-   *  idempotent, so calling it twice is harmless. */
-  const borrow = (): BorrowedSurface => {
-    const w = child.current
-    const inert: BorrowedSurface = { restore: () => {}, release: () => {} }
-    if (!w || w.closed) return inert
-    // ⚠ CAPTURE THE LIVE GEOMETRY BEFORE THE WINDOW GOES. The saved rect is
-    // sampled on a 250 ms poll, so a move or resize in the moment before a
-    // borrow has not been recorded yet — and `returnHome` closes the child,
-    // after which the real bounds are unrecoverable and the return would
-    // restore the previous SAMPLE instead of where the window actually was.
-    // The unmount path already does exactly this, for exactly this reason.
-    captureWindow(layoutKey, kind, org, w, true, latest.current.restore)
-    returnHome(true)
-    // ⚠ THE EPOCH AFTER THE BORROW'S OWN INCREMENT IS WHAT MAKES A STALE
-    // HANDLE INERT. A `done` flag alone only stops this handle being used
-    // twice; it says nothing about the world moving on underneath it. An
-    // ordinary redock, an unmount and any other `open` all bump the epoch —
-    // and each of those has already cleared or reconciled the saved row — so
-    // a handle used past one of those boundaries would otherwise resurrect a
-    // window the user had closed, at geometry that is no longer recorded.
-    // Comparing the epoch is how this file already guards every other
-    // asynchronous continuation in it.
-    const mine = epoch.current
-    let done = false
-    const claim = (): boolean => {
-      if (done || epoch.current !== mine) return false
-      done = true
-      return true
-    }
-    return {
-      restore: () => { if (claim()) open(true) },
-      release: () => { if (claim()) closeSavedWindow(layoutKey) },
-    }
   }
 
   /** Bring an already-open popout back into view.
@@ -526,7 +432,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
       if (w.closed || parts.container.ownerDocument !== d || !mount.contains(parts.container)) throw new Error('The surface could not enter the new window.')
       parts.container.classList.add('detached')
       cleanups.current.push(registerWindow({ id: `${kind}:${transaction}:${Math.random()}`, kind, org,
-        editable, window: w, redock, reveal, borrow, identity: () => latest.current.restore,
+        editable, window: w, redock, reveal, identity: () => latest.current.restore,
         flush: () => { captureWindow(layoutKey, kind, org, w!, true, latest.current.restore); latest.current.flush?.() } }))
       captureWindow(layoutKey, kind, org, w, true, latest.current.restore)
       setOwner(d); setDetached(true); setError(''); latest.current.onDetached?.(true)

@@ -1,8 +1,6 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import { MovableSurface, useSurface } from '../popout'
-import { openSurfaces } from '../windowlife'
-import type { BorrowedSurface } from '../windowlife'
 import { isMobile } from '../mobile'
 import { OwnedDeskChat } from './desk'
 import type { DeskChatProps } from './desk'
@@ -21,120 +19,6 @@ interface Slot { id: object; anchor: HTMLElement; props: DeskChatProps }
 interface Entry {
   key: string; invalidated?: boolean; pendingRename?: boolean; slots: Map<object, Slot>; last: Slot; detached: boolean
   show?: () => void; redock?: (slot?: object) => void; popout?: () => void; pendingPopout?: boolean
-  /** the borrowing slot's id, while a temporary surface holds this desk */
-  borrowedBy?: object
-  /** WHERE THE DESK WAS WHEN THE BORROW BEGAN. Read ONCE, on the transition
-   *  into the borrow — never re-read, or a borrower records itself. */
-  borrowedFrom?: { id: object; detached: boolean }
-  /** the two ways a borrowed NATIVE window can end — `restore` puts it back
-   *  exactly where it was, `release` gives it up. Absent unless the desk was
-   *  detached when the borrow began. */
-  borrowedHandle?: BorrowedSurface
-  /** THE OWNER AS OF THE END OF THE PREVIOUS COMMIT — see `settle`. */
-  settled?: object
-}
-
-/** is this slot's destination on screen and reachable right now?
- *
- *  ⚠ NOT "is this the selected org view". It is a fact about ONE destination:
- *  a pinned window is eligible whatever view the org is in, because it is
- *  screen-space and survives the switch, while a canvas card behind a
- *  presented Attention stage is not. Absent means eligible, so every existing
- *  call site is unaffected. */
-const eligible = (slot: Slot) => slot.props.eligible !== false
-
-/** is this registration a VIEW MOUNTING rather than the user asking for this
- *  desk here?
- *
- *  ⚠ THIS FIELD EXISTS BECAUSE ITS PREDECESSOR LIED. The first design carried
- *  `placed` on the DESTINATION — "the user put the desk here" — and protected
- *  any placed owner from any other claim. That rewrote pin ownership in
- *  general, and the user ruled only on the Attention view: it would have
- *  changed today's behaviour for an agent that is pinned AND open in an eye
- *  panel, where the panel currently takes the desk. The offered patch was to
- *  label the eye panel `placed` too, and multi-window-design refused it on the
- *  grounds that an eye panel is not a placed window and the field would then
- *  mean something false (2026-09-21). So the deciding fact moved to where it
- *  actually lives: the CLAIM. Only the Attention stage sets this, and only
- *  while it is the presented stage — pinned or popped out, the user placed it,
- *  so it claims like anything else. */
-const automatic = (slot: Slot) => slot.props.claim === 'automatic'
-
-/** the live native window showing THIS desk, if it is popped out. Keyed the
- *  way `DeskHost` opens it — `desk:<identity>` — which is the same shape
- *  `detachedKind` already matches on. */
-const deskSurface = (key: string) =>
-  openSurfaces().find((s) => s.kind === `desk:${key}`)
-
-/**
- * WHICH SLOT OWNS THE ONE LIVE DESK — the single answer both assignment points
- * now go through.
- *
- * ⚠ THERE WERE TWO OF THEM, AND ONLY ONE WAS EVER REPORTED. `put` promoting
- * every registration was the known half; `DeskHost`'s per-render re-point
- * (below) was the other, and it re-pointed ownership at
- * `[...entry.slots.values()][0]` — the first slot in Map INSERTION ORDER —
- * whenever the owning slot's id was gone. So a fix to `put` alone left
- * ownership landing by registration accident the moment a slot unregistered.
- * Both call this.
- *
- * ⚠ AND `put` FIRES ON EVERY PROP UPDATE, not just on registration
- * (RegisteredSlot's useLayoutEffect depends on `props`). So the live rule this
- * has to preserve is "the last writer wins, on every update", NOT "the first
- * registration wins". An earlier draft of this function preferred the incumbent
- * globally and would have silently changed behaviour for every caller that
- * passes none of the new fields.
- *
- * WHAT IS UNCHANGED FOR EXISTING CALLERS, by construction rather than by
- * argument: steps 2 and 5's eligibility branches are unreachable while nothing
- * passes `eligible={false}` or `claim`, and step 6 is unreachable while 3 or 4
- * can fire. So an all-default registry runs 1 → 3 → 4 → 5 and lands exactly
- * where the previous code did:
- *
- *   put, attached, any registration or prop update  →  3, the incoming slot
- *   put, detached, some other slot                  →  1, no change
- *   put, detached, the owning slot again            →  1's exception, itself
- *   DeskHost, owner still registered                →  4, the owner
- *   DeskHost, owner gone                            →  5, first in order
- */
-function pick(e: Entry, incoming?: Slot): Slot {
-  // 0. BORROWED. A temporary surface holds the desk for as long as it is
-  //    mounted, whatever else registers or re-renders behind it.
-  //
-  //    ⚠ AHEAD OF THE DETACHED GUARD, DELIBERATELY. That guard exists to stop
-  //    an ordinary registration stealing a desk out of a native window by
-  //    accident. A borrow is not an accident: it has already REDOCKED that
-  //    window through `borrow()` (see `put`), so there is no window left to
-  //    protect, and the user ruled that the temporary modal may borrow a
-  //    popped-out desk and must give it back to the same placement.
-  if (e.borrowedBy) {
-    const held = e.slots.get(e.borrowedBy)
-    if (held) return held
-  }
-  // 1. DETACHED. While the desk is a native window ownership does not move at
-  //    all, and the one exception is the owning slot re-registering as itself —
-  //    which is the previous code's `e.last.id === slot.id` term, verbatim.
-  //    Eligibility deliberately plays no part here: a detached desk's
-  //    Show/Return placeholder is the behaviour the ruling says to preserve.
-  if (e.detached) return incoming && e.last.id === incoming.id ? incoming : e.last
-  const cur = e.slots.get(e.last.id)
-  // 2. AN AUTOMATIC CLAIM DEFERS TO A VISIBLE OWNER. This is the whole of the
-  //    Attention rule: a view mounting or re-rendering does not take a desk
-  //    away from a destination the user can currently see. It falls through
-  //    when the incumbent is NOT eligible, which is the other half — a hidden
-  //    embedded owner relinquishes rather than holding the desk somewhere
-  //    nobody can look at.
-  if (incoming && automatic(incoming) && cur && cur.id !== incoming.id && eligible(cur)) return cur
-  // 3. the incoming slot — the previous code's unconditional promotion
-  if (incoming && eligible(incoming)) return incoming
-  // 4. the incumbent — the previous code's `slots.get(entry.last.id)`
-  if (cur && eligible(cur)) return cur
-  // 5. the first ELIGIBLE slot in registration order, where the previous code
-  //    took the first slot in registration order
-  for (const s of e.slots.values()) if (eligible(s)) return s
-  // 6. NEVER HOMELESS. Eligibility reorders preference; it must not leave a
-  //    desk with no host, so an all-ineligible registry still gets an owner.
-  return cur ?? incoming ?? [...e.slots.values()][0] ?? e.last
 }
 class Desks {
   entries = new Map<string, Entry>()
@@ -145,34 +29,7 @@ class Desks {
   listeners = new Set<() => void>()
   subscribe = (fn: () => void) => { this.listeners.add(fn); return () => { this.listeners.delete(fn) } }
   snapshot = () => this.version
-  change = () => {
-    this.version++
-    for (const fn of [...this.listeners]) fn()
-    this.settle()
-  }
-  settling = false
-  /**
-   * REMEMBER WHO OWNED EACH DESK AT THE END OF THE LAST COMMIT.
-   *
-   * ⚠ WITHOUT THIS, A BORROW RECORDS THE WRONG DESTINATION. Registration
-   * re-runs for EVERY slot whenever its parent re-renders — `RegisteredSlot`'s
-   * effect depends on `props`, which is a fresh object each render — so the
-   * slots of one commit re-register in tree order and `last` moves several
-   * times before the commit is over. The modal opening IS such a commit, so
-   * `e.last` at the moment the borrowing slot registers is merely whichever
-   * sibling registered just before it, not the desk's actual pre-open owner.
-   * Reading a value snapshotted in a microtask AFTER the previous commit is
-   * what makes "put it back where it was" mean the place the user was actually
-   * looking at.
-   */
-  settle() {
-    if (this.settling) return
-    this.settling = true
-    queueMicrotask(() => {
-      this.settling = false
-      for (const e of this.entries.values()) if (!e.borrowedBy) e.settled = e.last.id
-    })
-  }
+  change = () => { this.version++; for (const fn of [...this.listeners]) fn() }
   requestPopout(key: string) {
     const entry = this.entries.get(key)
     if (entry?.popout) { entry.popout(); return }
@@ -191,87 +48,13 @@ class Desks {
       this.entries.set(key, e)
     }
     e.slots.set(slot.id, slot)
-    // ⚠ CAPTURED ON THE TRANSITION IN, AND NOWHERE ELSE. This runs again on
-    // every prop change — RegisteredSlot's registration effect depends on
-    // `props` — so an unguarded capture would record the borrower as its OWN
-    // previous owner on its second render, and the restore would silently
-    // become a no-op. Read before `pick` moves `last`, because `last` is the
-    // thing being saved.
-    if (slot.props.borrow && e.borrowedBy !== slot.id) {
-      e.borrowedBy = slot.id
-      // ⚠ `settled`, NOT `e.last` — see `settle()`. `e.last` mid-commit is
-      // whichever sibling re-registered just before this one, because opening
-      // the modal re-renders the whole subtree and every slot re-registers in
-      // tree order. `settled` is the owner as of the end of the last commit,
-      // which is the destination the user was actually looking at.
-      e.borrowedFrom = { id: e.settled ?? e.last.id, detached: e.detached }
-      // A DETACHED DESK IS BORROWED BY REDOCKING IT, and `borrow()` is the only
-      // call that does so without recording the window as closed — an ordinary
-      // `redock` clears the saved row, which both loses the arrangement on
-      // reopen and makes the return land at a freshly computed position rather
-      // than the one it left. The handle is held here, for exactly as long as
-      // the borrowing slot is mounted, and ended once in `endBorrow`.
-      if (e.detached) e.borrowedHandle = deskSurface(key)?.borrow?.()
-    }
-    e.last = pick(e, slot)
+    if (!e.detached || e.last.id === slot.id) e.last = slot
     this.change()
-  }
-
-  /**
-   * THE BORROW ENDS WHEN ITS SLOT UNREGISTERS — a dismissal, an unmount, a
-   * route change and an error teardown all arrive here, because `remove` is a
-   * layout-effect cleanup.
-   *
-   * ⚠ THE NATIVE WINDOW AND THE OWNERSHIP ARE TWO DIFFERENT QUESTIONS, and
-   * fusing them leaks state. The borrow is ALWAYS ENDED — never simply dropped
-   * — because `borrow()` left the saved row `open: true` with its rect and
-   * nothing behind it, so walking away strands exactly the row the seam exists
-   * to protect and startup would reopen a window nobody left open. But ENDED IS
-   * NOT THE SAME AS RESTORED, and this is the correction: exactly ONE of the
-   * two outcomes is used, decided by whether there is anywhere valid to go
-   * back to.
-   *
-   *   destination still registered, identity intact  ->  restore()
-   *   gone, invalidated, or mid-rename               ->  release()
-   *
-   * Never both, and never neither. Ownership follows the same test, so a
-   * removed destination is not resurrected and `pick` finds the desk a home by
-   * the ordinary rules instead (multi-window-design, 2026-09-21).
-   */
-  endBorrow(e: Entry) {
-    const from = e.borrowedFrom
-    const handle = e.borrowedHandle
-    e.borrowedBy = undefined
-    e.borrowedFrom = undefined
-    e.borrowedHandle = undefined
-    // ⚠ RESTORE ONLY FOR A VALID PRIOR DESTINATION *AND* IDENTITY, NEVER BOTH
-    // OUTCOMES (multi-window-design, 2026-09-21). `invalidated` is set when the
-    // tree no longer has this generation, and `pendingRename` while an identity
-    // move is still mid-flight — putting a window back onto either is putting it
-    // onto an agent that is not there any more. The restore branch returns, so
-    // exactly one of the two is ever used.
-    if (from && !e.invalidated && !e.pendingRename) {
-      const target = e.slots.get(from.id)
-      if (target) {
-        e.last = target
-        // it came from a native window, so it goes back to one — at the
-        // geometry it actually had, which `borrow()` captured before closing
-        handle?.restore()
-        return
-      }
-    }
-    // NOTHING VALID TO GO BACK TO. The window must still be given up rather
-    // than simply dropped: `borrow()` left the saved row `open: true` with its
-    // rect and nothing behind it, so a borrow that merely stops makes startup
-    // restoration reopen a window nobody left open — and restoring it here
-    // would resurrect a window with nowhere valid to be.
-    handle?.release()
   }
   remove(key: string, id: object) {
     const e = [...this.entries.values()].find((entry) => entry.slots.has(id))
     if (!e) return
     e.slots.delete(id)
-    if (e.borrowedBy === id) this.endBorrow(e)
     // Slot migration can unregister/register in a single React commit. Give
     // that commit a chance to finish before releasing its stable host.
     queueMicrotask(() => {
@@ -503,11 +286,7 @@ function HostList({ desks, map, slug }: { desks: Desks; map: Map<string, CanvasN
 function DeskHost({ desks, entry, map }: { desks: Desks; entry: Entry; map: Map<string, CanvasNode> }) {
   const current = map.get(entry.last.props.node.id)
   const changedGeneration = !!entry.invalidated || !current || current.generation !== entry.last.props.node.generation
-  // THE SECOND ASSIGNMENT POINT (see `pick`). This used to be
-  // `entry.slots.get(entry.last.id) ?? [...entry.slots.values()][0]`, which
-  // handed ownership to the first slot in Map insertion order once the owner's
-  // id was gone — as likely to be an invisible destination as a visible one.
-  const slot = !entry.detached ? pick(entry) : entry.slots.get(entry.last.id)
+  const slot = entry.slots.get(entry.last.id) ?? [...entry.slots.values()][0]
   if (slot && !entry.detached) entry.last = slot
   const props = entry.last.props
   return <MovableSurface kind={`desk:${deskIdentity(props.slug, props.node)}`} title={`${props.node.id} · desk`}

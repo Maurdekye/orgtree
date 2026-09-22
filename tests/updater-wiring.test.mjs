@@ -66,7 +66,7 @@ test('the update controller is wired end to end: contracts, preload, main proces
     'and there is exactly one such assignment, so the gated one is the only one')
   assert.doesNotMatch(main, /app\.isPackaged \? checkForUpdatesViaEvents/,
     'no update path may gate on app.isPackaged alone any more')
-  assert.match(main, /handleApp\('desktop:update-status', \(\) => updater\.current\(\)\)/)
+  assert.match(main, /handle\('desktop:update-status', \(\) => updater\.current\(\)\)/)
   // ---- checking while an installer is prepared (user 2026-09-11) ----
   // THE DECISION MUST PRECEDE THE DOWNLOAD. electron-updater judges an offer
   // against the RUNNING version, so with a package prepared it calls the very
@@ -82,7 +82,7 @@ test('the update controller is wired end to end: contracts, preload, main proces
   // would reopen the race this closes, so the tray, the renderer IPC and the
   // engine-issued maintenance flow must all go through the same function.
   assert.match(main, /const checkForUpdates = async \(\) => !updatesSupported \? \{ state: 'unavailable' \} as UpdateStatus\r?\n\s*: \(updateApplying \|\| quitting\) \? updater\.current\(\) : updater\.check\(\)/)
-  assert.match(main, /handleApp\('desktop:check-for-updates', \(\) => checkForUpdates\(\)\)/)
+  assert.match(main, /handle\('desktop:check-for-updates', \(\) => checkForUpdates\(\)\)/)
   assert.match(main, /label: 'Check for updates', click: \(\) => \{ void checkForUpdates\(\)\.catch\(\(\) => \{\}\) \}/)
   assert.match(main, /check: async \(\) => \{[\s\S]*?const status = await checkForUpdates\(\)/,
     'the maintenance check must not call the library directly: that route bypassed every guard here')
@@ -205,7 +205,7 @@ test('the update controller is wired end to end: contracts, preload, main proces
 
   // the same answer drives the settings row and the tray item the user asked
   // to be greyed out where nothing can install unattended
-  assert.match(main, /handleApp\('desktop:update-capability', \(\) => \(\{ unattendedInstall: canInstallUnattended\(\)/)
+  assert.match(main, /handle\('desktop:update-capability', \(\) => \(\{ unattendedInstall: canInstallUnattended\(\)/)
   assert.match(main, /automatic\.enabled = canInstallUnattended\(\)/)
   // the engine-issued maintenance update is unattended too, so it must be
   // held by the same rule even though the preference does not govern it

@@ -14,7 +14,6 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 import { REQUIRED_PACKAGE_INPUTS } from './preflight-lib.mjs'
 import { runVerification } from './release-verification.mjs'
-import { assertPublicReleaseAllowed } from './private-alpha-policy.mjs'
 import {
   assertRuntimeImports, assertRuntimeLayout, extractInstallerEngine,
   REPRESENTATIVE_RUNTIME_IMPORTS, RuntimeLayoutError, runtimeTreeDigest,
@@ -266,7 +265,6 @@ export function isPrereleaseVersion(version) {
  *  release build runs with `--publish never` and so resolves no channel — which
  *  is why staging renames it rather than expecting the right name to appear. */
 export function channelFileName(version) {
-  assertPublicReleaseAllowed(version)
   const channel = releaseChannelOf(version)
   return channel === null ? 'latest.yml' : `${channel}.yml`
 }
@@ -282,7 +280,6 @@ export function channelFileName(version) {
  *  not marked latest: still public and downloadable, simply not the release
  *  that `releases/latest` hands out. */
 export function releaseVisibility(version) {
-  assertPublicReleaseAllowed(version)
   const prerelease = isPrereleaseVersion(version)
   return {
     prerelease,
@@ -319,7 +316,6 @@ export function parseReleaseArgs(argv) {
   }
   if (!parsed.help && parsed.version === null) fail(`An explicit target version is required.\n\n${RELEASE_USAGE}`)
   if (!parsed.help && !validReleaseVersion(parsed.version)) fail(badVersionMessage(parsed.version))
-  if (!parsed.help) assertPublicReleaseAllowed(parsed.version)
   return parsed
 }
 
@@ -327,7 +323,6 @@ export function parseReleaseArgs(argv) {
  * useful to callers and fixture tests that need to prove the ordinary command
  * has no tag, push, or GitHub publication operation in its plan. */
 export function releasePlan(version, { publish = false } = {}) {
-  assertPublicReleaseAllowed(version)
   if (!validReleaseVersion(version)) fail(badVersionMessage(version))
   const tag = `v${version}`
   return {
@@ -530,7 +525,6 @@ function assertAllPackageInputs(root) {
 }
 
 export function assertBuildProvenance(info, { root, head, porcelain, version }) {
-  assertPublicReleaseAllowed(version, info)
   if (!info || typeof info !== 'object') fail('dist/build-info.json is not an object')
   if (info.channel !== 'release') fail(`Release packaging refuses build channel ${JSON.stringify(info.channel)}; rebuild the release channel`)
   if (info.version !== version) fail(`Build version ${info.version} does not match target version ${version}`)
@@ -640,7 +634,6 @@ function sameBytes(left, right, label) {
 }
 
 export function stageCanonicalAssets({ root, releaseDir, version, engineHashes, packagedHashes }) {
-  assertPublicReleaseAllowed(version)
   const resources = path.join(releaseDir, 'win-unpacked', 'resources')
   const sourceInstaller = path.join(releaseDir, installerSourceName(version))
   const sourceBlockmap = `${sourceInstaller}.blockmap`
@@ -1052,8 +1045,6 @@ function makeHandoff({ root, releaseDir, manifest, publishedUrl = null }) {
 }
 
 export async function publishRelease({ root, manifest, notes, repository, uploadDir, runExternal, runGit, fetchImpl, spawnSyncImpl }) {
-  assertPublicReleaseAllowed(manifest.version, manifest)
-  assertPublicReleaseAllowed(String(manifest.tag).replace(/^v/, ''))
   const { owner, repo } = repository
   // Recheck immediately before any mutation. The pre-build checks prevent
   // wasted work, while these checks close the race where another release lands
@@ -1099,7 +1090,6 @@ export async function publishRelease({ root, manifest, notes, repository, upload
 }
 
 export async function produceWindowsRelease(options, dependencies = {}) {
-  assertPublicReleaseAllowed(options.version)
   const root = realRoot(dependencies.root || process.cwd())
   const execFileSyncImpl = dependencies.execFileSync || execFileSync
   const spawnSyncImpl = dependencies.spawnSync || spawnSync

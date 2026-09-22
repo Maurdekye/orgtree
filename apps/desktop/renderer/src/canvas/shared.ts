@@ -2262,82 +2262,13 @@ export function useEsc(close: () => void, enabled = true, within?: Document | nu
  *  the data being refreshed. The fetcher is held in a ref so an inline arrow
  *  does not restart the timer on every render; `deps` decides identity.
  */
-/**
- * WHAT A POLLED SURFACE KNOWS ABOUT ITS OWN DATA, beyond the data.
- *
- * `usePolled` returns a value or `null`, and a caller cannot tell those two
- * nulls apart: "the first read has not come back yet" and "the first read
- * FAILED" look identical, and a value retained after a later failure looks
- * exactly like a value that was just confirmed. For most panels that is fine —
- * a slightly old list is a slightly old list. For a surface whose whole job is
- * telling the user what is waiting on them it is not: a queue that last read
- * successfully as EMPTY and then goes unreadable says "nothing is waiting" with
- * full confidence, which reads as "nothing needs you" when the truth is
- * "nothing could be read".
- *
- * So the status is published, and the four states are kept distinct rather than
- * collapsed into a boolean:
- *
- *   loading      no value yet, no failure yet — the first read is in flight
- *   unavailable  no value, and the last attempt FAILED. NOT "loading forever":
- *                the surface knows it could not read, and must say so
- *   stale        there IS a value and the last attempt failed, so what is on
- *                screen may no longer be true
- *   (none set)   the last attempt succeeded; the value is current as of `at`
- */
-export interface PolledStatus {
-  /** the first read for this identity has not come back, and none has failed */
-  loading: boolean
-  /** the most recent attempt failed, whatever else is true */
-  failed: boolean
-  /** a value is on screen AND the most recent attempt failed */
-  stale: boolean
-  /** no value at all AND the most recent attempt failed */
-  unavailable: boolean
-  /** `Date.now()` of the last SUCCESSFUL read, for an "as of" */
-  at: number | null
-  /** the last failure's message, for a surface that wants to show why */
-  error: string | null
-}
-
-const POLL_LOADING: PolledStatus = {
-  loading: true, failed: false, stale: false, unavailable: false, at: null, error: null,
-}
-
-interface Polled<T> { value: T | null; status: PolledStatus }
-
-/**
- * The one polling implementation. `usePolled` is this with the status dropped,
- * so there is exactly one timer, one livebus subscription and one copy of every
- * value in the app — adding a second poller beside this one would put two
- * fetches and two answers behind every panel that wanted to know it had failed.
- *
- * ⚠ ORDERING IS PART OF THE CONTRACT, and it was not before. Two ticks can be
- * in flight at once — the interval and a livebus bump land together routinely —
- * and the previous implementation wrote whichever RESOLVED last. A slow earlier
- * request could therefore overwrite a newer answer, and nothing said otherwise.
- * Each request now carries a sequence number and a completion older than the
- * last accepted one is dropped, for the STATUS as much as the value: a stale
- * failure must not mark a freshly-succeeded read as stale either.
- *
- * ⚠ AND AN IDENTITY CHANGE INVALIDATES EVERYTHING IN FLIGHT. `deps` is the
- * identity of the thing being fetched (slug, node, folder), so an answer issued
- * for the previous organization is not a late answer about this one — it is an
- * answer about something else. The effect's own `dead` flag already carries
- * that (see below); what is new is that it now covers the STATUS too, so the
- * organization the user left failing cannot mark the one they are in as
- * unreadable.
- */
-export function usePolledStatus<T>(
+export function usePolled<T>(
   fetcher: () => Promise<T>, deps: DependencyList, ms = 5000,
   refreshKey: unknown = 0,
-): Polled<T> {
-  const [state, setState] = useState<Polled<T>>({ value: null, status: POLL_LOADING })
+): T | null {
+  const [v, setV] = useState<T | null>(null)
   const ref = useRef(fetcher)
   ref.current = fetcher
-  // the ordering counters for the run in flight
-  const issued = useRef(0)
-  const accepted = useRef(0)
   // ⚠ a DEPS change is an IDENTITY change (new folder, new node, new org) —
   // the previous identity's data must not stay on screen until the new fetch
   // lands (redteam finding, render.test §6.10: a slow fetch left folder A's
@@ -2346,49 +2277,13 @@ export function usePolledStatus<T>(
   // state review opens with. `refreshKey` is the OTHER kind of restart: same
   // identity, fetch again now (the read-ack bump, 89fecd9) — resetting there
   // would blank the inbox on every mark-read, so it deliberately does not.
-  useEffect(() => {
-    issued.current = 0
-    accepted.current = 0
-    setState({ value: null, status: POLL_LOADING })
+  useEffect(() => { setV(null) },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [...deps])
+    [...deps])
   useEffect(() => {
     let dead = false
-    // ⚠ `dead` IS WHAT INVALIDATES A PRIOR IDENTITY, and no separate generation
-    // counter is needed beside it. A deps change re-runs this effect, whose
-    // cleanup sets `dead` on the closure every in-flight request of the old
-    // identity was issued from — so an answer for the organization the user
-    // just left is dropped because it belongs to a dead run, not because a
-    // counter says so. A generation guard stood here briefly and was removed:
-    // deleting it changed no test, which is the definition of a guard nothing
-    // can be seen failing. `seq` is the part `dead` does NOT cover — two ticks
-    // inside ONE run, which is the routine interval/livebus overlap.
-    const usable = (seq: number) => !dead && seq >= accepted.current
     const tick = () => {
-      const seq = ++issued.current
-      void ref.current().then(
-        (r) => {
-          if (!usable(seq)) return
-          accepted.current = seq
-          setState({
-            value: r,
-            status: { loading: false, failed: false, stale: false,
-              unavailable: false, at: Date.now(), error: null },
-          })
-        },
-        (e: unknown) => {
-          if (!usable(seq)) return
-          accepted.current = seq
-          // the VALUE is retained — a failed refresh does not erase what was
-          // last true — and the status is what says it may have moved on
-          setState((prev) => ({
-            value: prev.value,
-            status: { loading: false, failed: true,
-              stale: prev.value !== null, unavailable: prev.value === null,
-              at: prev.status.at,
-              error: e instanceof Error ? e.message : String(e) },
-          }))
-        })
+      void ref.current().then((r) => { if (!dead) setV(r) }).catch(() => {})
     }
     tick()
     const t = setInterval(tick, ms)
@@ -2403,18 +2298,7 @@ export function usePolledStatus<T>(
     // being fetched (slug, node, folder), which is what should restart it
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, ms, refreshKey])
-  return state
-}
-
-/** The value-only reader every existing panel uses. Unchanged in signature and
- *  in behaviour: same one implementation, same timer, same reset rule — the
- *  status is simply not returned, so no call site has to migrate. */
-export function usePolled<T>(
-  fetcher: () => Promise<T>, deps: DependencyList, ms = 5000,
-  refreshKey: unknown = 0,
-): T | null {
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  return usePolledStatus(fetcher, deps, ms, refreshKey).value
+  return v
 }
 
 /** A NAVIGATION REQUEST, with an identity of its own.

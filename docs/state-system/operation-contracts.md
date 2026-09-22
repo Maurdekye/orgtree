@@ -3,8 +3,8 @@
 This bounded package builds on source-inventory commit
 83b2fe414ff416418b4bd45bc7a27bfbb16350fd and frozen v6 design
 b830a69bd71b0cee052e78acfe1ceff6b399532765db7ed55d05a253f0f84dfd.
-It supplies a checked contract format, reservation, material-read, structural
-diagnostic and isolated-preview families, with public-boundary fixtures.
+It supplies a checked contract format, reservation, material-read and structural
+diagnostic families, and public-boundary conformance fixtures.
 **P01 remains incomplete.** It changes no
 backend entry point, database, permission, receipt, dependency or product behavior.
 
@@ -38,8 +38,8 @@ operation-contracts.json uses schema orgtree.state-operation-contracts/v1.
 | Part | Checked requirement |
 |---|---|
 | source_inventory_sha256 | SHA256 of canonical UTF-8 JSON for the full current inventory; sorted keys, compact separators, unescaped Unicode. Whole-module hashes invalidate helper changes, including unrecognized registrations. |
-| entries | Exactly one disposition for each of the 314 inventoried registration sites. Pending, mapped or source-backed exclusion. HTTP/WS/tool entries cannot be excluded as false positives. |
-| dispatch | Exactly one disposition for each of the 226 selector witnesses. A branch is evidence, not another operation. |
+| entries | Exactly one disposition for each of the 309 inventoried registration sites. Pending, mapped or source-backed exclusion. HTTP/WS/tool entries cannot be excluded as false positives. |
+| dispatch | Exactly one disposition for each of the 225 selector witnesses. A branch is evidence, not another operation. |
 | storage | Exactly one disposition for each of the 15 connection candidates. Unknown sockets/factories remain visible. |
 | contracts | Source-entry bindings, optional tool/action selector, explicit argument normalization and conditional variant, domain mode and all nine dimensions. |
 | facets | Source-span-bound assertions for authority, reads, writes, predicates, conflicts, wire, receipt, effects and instrumentation. An unresolved facet requires concrete open questions. |
@@ -97,28 +97,18 @@ Important source behavior is retained:
   and a cold reload.
 
 Within the reservation family, two registration sites and fourteen dispatch
-witnesses map to these variants. Source-backed reservation/item authority and
-legacy receipt semantics are specified; shared wrappers, physical contacts,
-native conflicts, full malformed-input parity and runtime probes remain
-unresolved. Material reads add two cards and two selectors; structural
-diagnostics add two cards and two selectors. Preview adds one card, twelve
-simulation selectors and the shared three-tool diagnostic/preview branch.
-
-Current totals are 16 contracts, seven mapped registrations and 31 mapped
-dispatch witnesses. **604 obligations remain**: 307 registrations, 195 dispatch
-witnesses, 15 storage candidates and 87 unresolved dimension occurrences.
-That was two more registrations than the preceding 598 because the scanner now
-recognizes `asyncio.to_thread` hand-offs; both new witnesses are pending and no
-existing witness identity, disposition or contract changed.
-It is four more than that 600 because the P02-A1 attempt census adds three
-operator HTTP routes under `/api/diagnostics/operation-census` and one
-`body.tool` dispatch branch for the agent read door. All four new witnesses are
-pending with no contracts and no source evidence, the contract count is
-unchanged at 16, and no carried witness changed its disposition, its reason or
-the contracts it binds. 141 witness identities were rebound and 521 source spans
-relocated because `api.py` grew; each carries its own proof.
-This is not a runtime operation count or progress percentage. See the separate
-family documents for their measurements and remaining obligations.
+witnesses map to these variants. Source-backed reservation/item authority and legacy receipt
+semantics are specified; shared wrappers, physical contacts, native conflicts,
+full malformed-input parity and runtime probes remain unresolved. The paired
+material-read package now adds two tool cards and two more dispatch witnesses.
+The structural-diagnostic package adds two further tool cards and two individual
+dispatch witnesses. Across all three families, 303 registrations, 207 dispatch
+witnesses, all 15 storage candidates and 80 dimension occurrences remain pending
+(605 obligations). Each new pair of tools replaced four pending source witnesses
+with detailed contracts exposing twelve unresolved dimension occurrences; this
+is not a runtime operation count or a progress percentage. See
+material-read-boundary.md and state-diagnostic-boundary.md for the executable
+authority, local response and transitive storage evidence and their limits.
 
 `reservation-boundary.json` binds to the canonical hash of this registry and
 requires both aliases and every variant. It records complete top-level and
@@ -187,19 +177,3 @@ Continue P01 by resolving entries/facets and full wire/receipt fixtures under
 review. The preserved http-cover census implementation is input to P02, not
 silently imported or enabled by this package. Use the PostgreSQL qualification
 record for the separate package-adoption gate.
-
-
-## Isolated preview boundary
-
-`preview-boundary.json` and `tests/test_state_preview_boundary.py` pin the
-authenticated agent preview allowlist, selected operator-surface distinctions,
-ordinary ledger authority on a detached document, fresh retries and selected
-result/refusal behavior. Whole persisted-document comparisons and unsafe
-clone/save controls distinguish a simulation from real state changes.
-
-The actual clone materializes unrelated retained history. Account validation
-does not imply account/session simulation parity, and provider preflights are
-not proven effect-free. Only the bounded legacy authority and receipt facets
-are specified; the seven other facets retain concrete open questions. See
-`preview-boundary.md`. Neither a successful preview nor this P01 package
-authorizes a native conversion.

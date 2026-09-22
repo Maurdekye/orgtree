@@ -26,9 +26,6 @@ export interface DesktopPreferences extends NotificationPreferences {
   automaticUpdates: boolean
   routineNotifications: boolean
   onboarded: boolean
-  /** Whether an ordinary launch reopens the windows that were open last time,
-   *  or starts at a fresh Homepage. See StartupMode. */
-  startupMode: StartupMode
 }
 export interface DesktopNotification {
   id: string; title: string; body: string; org: string; agent?: string; item?: string
@@ -42,24 +39,14 @@ export interface ViewTarget { kind: 'organization' | 'agent' | 'docket' | 'docum
 export interface WindowLease { key: string; epoch: number; owner: boolean }
 export interface DesktopWindowState { visible: boolean; restoreWindows: boolean }
 export interface DesktopControlsState extends DesktopWindowState { minimized: boolean; maximized: boolean }
-import type { OrgOpenOutcome, OrgWindowIdentity, StartupMode } from './desktop-window'
-
-export interface DesktopEvent { type: 'engine-status' | 'engine-event' | 'preferences' | 'ownership' | 'update' | 'maintenance' | 'notification-click' | 'notification-poll' | 'main-window-shown' | 'window-state' | 'popout-state' | 'open-org' | 'window-identity' | 'restore-skipped' | 'open-orgs'; data: unknown }
+export interface DesktopEvent { type: 'engine-status' | 'engine-event' | 'preferences' | 'ownership' | 'update' | 'maintenance' | 'notification-click' | 'notification-poll' | 'main-window-shown' | 'window-state' | 'popout-state' | 'open-org'; data: unknown }
 /** One popped-out desk or modal window, addressed by the frame name the
  *  renderer opened it under. A popout is frameless like the main window, so its
  *  own header draws the window controls and needs to know whether the window is
  *  maximized - which the user can also change by double-clicking the drag
  *  region, hence an event rather than a value read once. `present` is false
  *  once the window is gone. */
-export interface PopoutWindowState {
-  name: string; present: boolean; maximized: boolean
-  /** WHY it went away, when it did. `parent-teardown` means its organization's
-   *  main window closed and took it with it, which is NOT the user closing
-   *  that panel — those panels come back when the organization is reopened,
-   *  and recording them as deliberately closed is what would stop them. An
-   *  absent value reads as `user`. */
-  reason?: 'user' | 'parent-teardown'
-}
+export interface PopoutWindowState { name: string; present: boolean; maximized: boolean }
 export type UpdateState = 'idle' | 'checking' | 'downloading' | 'pending-idle' | 'up-to-date' | 'unavailable' | 'failed'
 /** `recheck` is the outcome of a check that ran WHILE an update was already
  *  prepared and left it in place: the state stays 'pending-idle' because the
@@ -122,7 +109,7 @@ export interface DesktopBridge {
   /** Everything still waiting on the user, across organizations, as opaque
    *  identities. The taskbar pulses for a new arrival and stops when the list
    *  empties; an unchanged list is not an event. */
-  setPendingAttention?(ids: string[], items?: { org: string; id: string }[]): Promise<void>
+  setPendingAttention?(ids: string[]): Promise<void>
   openHarnessLink(harness: 'claude' | 'codex' | 'antigravity'): Promise<void>
   openCharterFolder?(): Promise<{ ok: boolean; path?: string; error?: string }>
   /** Reveal an absolute local file in the OS file manager — Explorer opens
@@ -149,52 +136,6 @@ export interface DesktopBridge {
   focusPopout?(name: string): Promise<void>
   checkForUpdates(): Promise<UpdateStatus>
   onEvent(listener: (event: DesktopEvent) => void): () => void
-  // --------------------------------------------- v3 multi-window (optional)
-  // Optional like every bridge addition since getPopoutState, so a plain
-  // browser and the v2 renderer both keep working untouched. See
-  // packages/contracts/desktop-window.ts for the types and the rules.
-  /** This window's identity, authoritatively. `windowIdentity` below is the
-   *  same value resolved before the first paint; prefer that for the initial
-   *  render and this for anything that must not be stale. */
-  getWindowIdentity?(): Promise<OrgWindowIdentity | null>
-  /** A new Homepage window, bound to nothing. */
-  openHomepageWindow?(): Promise<OrgWindowIdentity | null>
-  /** A new Create window. ALWAYS separate, including from a Homepage. */
-  openCreateOrgWindow?(): Promise<OrgWindowIdentity | null>
-  /** THE way an organization is opened. The native host has already finished
-   *  the whole transaction by the time this resolves: `focused`, `opened` and
-   *  `pending` all require nothing further of the caller. */
-  requestOrg?(org: string): Promise<OrgOpenOutcome>
-  /** A creation succeeded: bind THIS create window to the new organization. */
-  bindCreatedOrg?(org: string): Promise<OrgOpenOutcome>
-  /** Whether this window holds unfinished creation input, so a close, a quit
-   *  or a restart confirms before discarding it. */
-  setUnsavedCreation?(dirty: boolean): Promise<void>
-  /** Which organizations currently hold a main window, so a Homepage can mark
-   *  a row "already open" before it is clicked. The `open-orgs` event carries
-   *  the same list whenever it changes. Organizations, not window ids: this
-   *  hands out no way to address another window. */
-  openOrgs?(): Promise<string[]>
-  /** The current engine-issued maintenance state, for a window that mounted
-   *  after it last changed. The `maintenance` event is a live broadcast and is
-   *  gone by the time such a window asks, so this is the only way to learn it.
-   *
-   * ⚠ `null` means NOTHING HAS BEEN REPORTED this run - not "idle", not "no
-   *  maintenance needed". Native retains what was actually sent and invents no
-   *  resting state, so a renderer that wants to show one chooses it knowingly.
-   *  The payload is the same object the event carries. */
-  getMaintenanceStatus?(): Promise<{ state: string } | null>
-  /** Window-scoped events that arrived before this window's renderer was
-   *  listening - an organization to open, an item to reveal, an identity
-   *  change, a restoration report. Call it as soon as `onEvent` is attached;
-   *  it returns what was held and switches this window to live delivery.
-   *  Events that can simply be re-read (window state, popout state) are never
-   *  held, so nothing here is a duplicate of a value you can ask for. */
-  takePendingWindowEvents?(): Promise<DesktopEvent[]>
-  /** This window's identity, resolved SYNCHRONOUSLY before the bridge was
-   *  exposed. Present before the first render, so the shell never paints the
-   *  wrong view for a frame; null only where the bridge itself is refused. */
-  windowIdentity?: OrgWindowIdentity | null
   // Provider sign-in (D-231): the ONE piece of "domain" surface on this
   // bridge, and deliberately so — see LoginProvider's own comment for why
   // the spawn cannot live on the engine side of the HTTP boundary.

@@ -60,7 +60,7 @@ const RELEASE = [
   // release is verified, so it is release tooling, and the lesson of `ed152e5`
   // is that release tooling whose own tests are not in this gate can break them
   // and still be waved through green.
-  ['source', ['node', '--test', 'tests/release-windows.test.mjs', 'tests/private-alpha.test.mjs', 'tests/runtime-layout.test.mjs', 'tests/release-verification.test.mjs', 'tests/test-baseline.test.mjs']],
+  ['source', ['node', '--test', 'tests/release-windows.test.mjs', 'tests/runtime-layout.test.mjs', 'tests/release-verification.test.mjs', 'tests/test-baseline.test.mjs']],
   // ⚠ NEVER run this gate as a bare `python -m unittest`. Orgtree spawns an
   // agent CLI with PYTHONPATH prepended by its own installed backend so the
   // child can import it, so a bare `python` resolves `import orgtree` to
@@ -75,15 +75,12 @@ const RELEASE = [
 ]
 const INSTALLER = [
   ['installer', ['node', '--test', 'tests/installer-elevation.test.mjs', 'tests/installer-upgrade.test.mjs']],
-  ['release', ['node', '--test', 'tests/release-windows.test.mjs', 'tests/private-alpha.test.mjs', 'tests/runtime-layout.test.mjs']],
+  ['release', ['node', '--test', 'tests/release-windows.test.mjs', 'tests/runtime-layout.test.mjs']],
 ]
 
 const VERSION_PATHS = new Set(['package.json', 'package-lock.json'])
 const RELEASE_NOTES_PATH = /^docs\/release-notes-[^/]+\.md$/
 const RELEASE_PATHS = [
-  /^tools\/private-alpha(?:-policy)?\.mjs$/,
-  /^tests\/private-alpha\.test\.mjs$/,
-  /^docs\/private-alpha-packaging\.md$/,
   /^tools\/release-windows\.mjs$/,
   /^tools\/release-verification\.mjs$/,
   /^tools\/runtime-layout\.mjs$/,

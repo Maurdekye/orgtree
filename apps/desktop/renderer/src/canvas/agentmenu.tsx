@@ -72,17 +72,6 @@ export interface AgentMenuHandlers {
    *  and the per-agent pin and popout buttons left the Agents List with it) */
   onPopout?: () => void
   onShowWindow?: () => void
-  /** OPEN THIS AGENT'S DESK TEMPORARILY, in a modal, for a quick look.
-   *
-   *  ⚠ THE POINT IS THAT IT LEAVES NOTHING BEHIND. Reading another agent's
-   *  desk previously meant changing the tree's focus, pinning it, or opening a
-   *  window — each of which rearranges the workspace for a glance. This
-   *  changes no focus, pins nothing, opens no window and persists no layout,
-   *  and dismissing it puts everything back exactly as it was. It is offered
-   *  for EVERY agent, including one whose desk is pinned or popped out: it
-   *  borrows the canonical desk and returns it to the same placement, rather
-   *  than drawing a second read-only imitation. */
-  onOpenTemporary?: () => void
   /** reveal the card's bottom hire chips. There is no single "hire" handler —
    *  the tier choice and its provider gating live in SpawnChips — so this
    *  opens the chips the way a bottom-edge hover does. */
@@ -179,18 +168,6 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
     }
   }
   entries.push({ label: 'Settings', onSelect: () => h.onSettings() })
-  // BEFORE the pin and popout entries, because it is the cheapest of the three
-  // and the one that changes nothing: a glance, then gone. Unconditional —
-  // unlike pin and popout it has no "already in that state" variant to offer,
-  // since it borrows whatever placement the desk currently has and gives it
-  // back.
-  const temporary = h.onOpenTemporary
-  if (temporary) entries.push({
-    label: 'Open desk temporarily',
-    title: `read ${node.id}'s desk in a modal without changing the focused `
-      + 'agent, pinning it, or opening a window — closing puts everything back',
-    onSelect: () => temporary(),
-  })
   const pin = h.onPin, showPin = h.onShowPin
   if (pin && !s.pinned) entries.push({ label: 'Pin desk as a window', onSelect: () => pin() })
   if (s.pinned && showPin) entries.push({ label: 'Show pinned window', onSelect: () => showPin() })

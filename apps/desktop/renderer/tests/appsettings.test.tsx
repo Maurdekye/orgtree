@@ -145,14 +145,9 @@ test('§1 stable accessible tabs navigate by key without swapping identity',
     const view = await mountSettings()
     try {
       const tabs = view.el.querySelectorAll<HTMLButtonElement>('[role="tab"]')
-      // v3 (settled layout): General leads and is where the panel opens — the
-      // startup choice plus the version and repository link the removed
-      // sidebar used to carry. Default org settings closes the strip, having
-      // absorbed the standalone window that sidebar opened.
       assert.deepEqual([...tabs].map((b) => b.textContent?.trim()),
-        ['General', 'Providers', 'Runtime', 'Mail hub', 'Display', 'Import',
-          'Default org settings'])
-      assert.equal(tabs[4]!.querySelector('.app-settings-scope'), null,
+        ['Providers', 'Runtime', 'Mail hub', 'Display', 'Import'])
+      assert.equal(tabs[3]!.querySelector('.app-settings-scope'), null,
         'Display has no device-label pill while retaining its tab identity')
       assert.equal(tabs[0]!.getAttribute('aria-selected'), 'true')
       assert.equal(tabs[1]!.getAttribute('aria-selected'), 'false')
@@ -169,10 +164,10 @@ test('§1 stable accessible tabs navigate by key without swapping identity',
           key: 'End', bubbles: true,
         }))
       })
-      assert.equal(tabs[6]!.getAttribute('aria-selected'), 'true')
-      assert.equal(document.activeElement, tabs[6])
-      const last = view.el.querySelector('#app-settings-panel-defaults')!
-      assert.equal(last.hasAttribute('hidden'), false)
+      assert.equal(tabs[4]!.getAttribute('aria-selected'), 'true')
+      assert.equal(document.activeElement, tabs[4])
+      const display = view.el.querySelector('#app-settings-panel-import')!
+      assert.equal(display.hasAttribute('hidden'), false)
     } finally { await view.unmount(); delete g.fetch }
   })
 

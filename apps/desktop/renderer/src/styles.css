@@ -485,67 +485,6 @@ main {
 .space {
   position: absolute; transform-origin: 0 0;
 }
-/* THE CANVAS WORLD, AND HOW IT IS PUT AWAY (`canvasContent="hidden"`, set by
-   the shell when the organization presents a different view).
-
-   ⚠ IT IS `display: contents`, WHICH IS THE WHOLE TRICK. The wrapper must not
-   generate a box: `.tray-wrap` sets top AND bottom to derive a definite height
-   from the viewport (see its own rule below), and a wrapper that establishes a
-   containing block with no definite height of its own collapses that to zero —
-   MEASURED at 678px through `display: contents` and 0px through
-   `position: relative`, in canvashide-probe.tsx. A box-less wrapper changes
-   nothing about where anything lands.
-
-   ⚠ AND IT IS NEVER PUT ON `.viewport` ITSELF. `adoptPinLayer` appends the pin
-   layer as a real DOM child of the viewport, so hiding the viewport takes every
-   pinned window with it. The world children are wrapped; the pin layer is their
-   sibling and is left alone, which is what keeps a pinned desk visible,
-   clickable and keyboard-reachable while the canvas is away.
-
-   ⚠ `visibility` IS INHERITED BUT A DESCENDANT CAN TAKE IT BACK, and two in
-   here do. `.mailbtn.has` and `.kill-btn.expanded` both set
-   `visibility: visible` WITHOUT a `:hover` gate, so an agent with unread mail
-   or an expanded kill button would have kept painting its chip over the
-   presented view while the rest of the canvas was gone (multi-window-design
-   caught this; the first probe used a world with no such element and passed).
-   The `*` with `!important` is therefore not defensive clutter — it is the only
-   thing that beats those rules, none of which is itself `!important`. It cannot
-   reach a pinned or popped-out panel: those are portaled out, so they are not
-   DOM descendants of this wrapper.
-
-   `visibility` rather than `display: none` because it PRESERVES LAYOUT — the
-   camera, the spring positions and `posOf` survive the switch untouched, so
-   coming back is not a re-layout. */
-/* THE TEMPORARY DESK (docket `open-an-agent-desk-temporarily-as-a-modal`) — a
-   glance at another agent's desk that rearranges nothing. Sized in vh/vw
-   rather than fixed px so it fits a narrow window without its own breakpoint,
-   and capped so it reads as a panel over the canvas rather than a takeover. */
-.tempdesk-over {
-  position: fixed; inset: 0; z-index: 60;
-  display: flex; align-items: center; justify-content: center;
-  background: color-mix(in srgb, var(--bg) 55%, transparent);
-  backdrop-filter: blur(2px);
-}
-.tempdesk-panel {
-  display: flex; flex-direction: column;
-  width: min(900px, 92vw); height: min(720px, 86vh);
-  background: var(--bg); border: 1px solid var(--line);
-  border-radius: 10px; overflow: hidden;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, .45);
-}
-.tempdesk-panel:focus { outline: none; }
-.tempdesk-head {
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 8px; border-bottom: 1px solid var(--line-soft);
-}
-.tempdesk-note { color: var(--dim); font-size: 11px; }
-.tempdesk-close { margin-left: auto; }
-/* the desk fills what is left, and scrolls inside itself as it always does */
-.tempdesk-panel > .desk-slot { flex: 1; min-height: 0; }
-
-.canvas-world { display: contents; }
-.canvas-world-hidden, .canvas-world-hidden * { visibility: hidden !important; }
-.canvas-world-hidden { pointer-events: none; }
 .edges { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
 .edge {
   fill: none; stroke: var(--line); stroke-width: 1.6px; opacity: .8;
@@ -722,28 +661,6 @@ button.badge.serving-account.state-limited { border-color: #46647a; color: var(-
 /* `unobserved` gates nothing and must render as itself rather than as ready */
 button.badge.serving-account.auth-unobserved,
 button.badge.serving-account.auth-unauthenticated { color: var(--dim); }
-/* NON-DEFAULT THINKING EFFORT (docket
-   `show-non-default-effort-level-on-agent-headers`) — a compact header card in
-   the same `.badge` vocabulary as the account, route, cost and lifecycle chips
-   beside it, so it INHERITS their three context sizes (10.5px, 9.5px in
-   `.sq-badges`, 10px in `.desk-body`) rather than restating them and drifting
-   out of step the way the account card did in 2.1.4-RC4.
-   A span, not a button: the level is changed in the composer's effort control
-   on the open desk, and a control out here would swallow the press that
-   focuses the agent (see ActionBadge in cards.tsx).
-   `above`/`below` is the direction against the org default — the ticket's
-   problem is precisely that you cannot tell which — so an agent pinned UP
-   wears the accent and one pinned DOWN reads quietly. Neither is the red of a
-   fault: both are deliberate configuration, not a warning. */
-.badge.effort-level {
-  color: var(--ink);
-  border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
-}
-/* There were `.above` and `.below` variants here, colouring the chip by which
-   side of the org default the level sat on. The user removed that on
-   2026-09-21 ("no just the effort name no need for extra info"), so the card
-   has ONE appearance whatever the level — do not reintroduce a direction
-   colour without a ruling. */
 /* the retired-audience fold chip (2026-08-17): one toggle in every
    audience chip row, same collapse as the desk footer's retired reports */
 button.badge.retired-fold { cursor: pointer; font: inherit; font-size: inherit; }

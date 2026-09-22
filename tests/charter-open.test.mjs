@@ -81,7 +81,7 @@ test('desktop main process registers desktop:open-charter-folder IPC handler', (
   const mainPath = path.resolve('apps/desktop/main/index.ts')
   const mainSource = fs.readFileSync(mainPath, 'utf8')
   assert.ok(
-    mainSource.includes("handleApp('desktop:open-charter-folder'"),
+    mainSource.includes("handle('desktop:open-charter-folder'"),
     'main process registers desktop:open-charter-folder handler',
   )
   assert.ok(

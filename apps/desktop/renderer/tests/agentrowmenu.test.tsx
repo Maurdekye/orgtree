@@ -208,13 +208,6 @@ uiTest('§1 a row offers the agent\'s own menu — the same entries, in the same
     assert.deepEqual(have, [
       'Copy agent name', 'Open desk', 'Open inbox', 'Open docket',
       'Open team docket', 'Settings',
-      // `Open desk temporarily` sits BEFORE the pin and the popout on purpose:
-      // the three are the same family — ways to look at this agent's desk —
-      // ordered cheapest-first, and this one is the only one that leaves
-      // nothing behind. Added 2026-09-21 with the temporary-desk modal; the
-      // parity assertion above caught its first version, which reached the row
-      // menu and not the card's.
-      'Open desk temporarily',
       'Pin desk as a window', 'Open desk in a new window',
       'Hire a subordinate…', 'Retire…',
     ], 'the agent menu, in order')

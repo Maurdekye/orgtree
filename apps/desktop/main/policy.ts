@@ -3,12 +3,11 @@ import { DEFAULT_CONTRAST, isContrastTheme } from '../../../packages/contracts/c
 import { isAgentColorSource } from '../../../packages/contracts/agent-colors'
 import { DEFAULT_NOTIFICATIONS, NOTIFICATION_OPTIONS } from '../../../packages/contracts/notifications'
 import { isAppPath } from '../../../packages/contracts/ui-route'
-import { isStartupMode } from '../../../packages/contracts/desktop-window'
 import path from 'node:path'
 import fs from 'node:fs'
 import type { DesktopPreferences, EngineReady } from '../../../packages/contracts/index'
 
-export const DEFAULT_PREFERENCES: DesktopPreferences = { ...DEFAULT_NOTIFICATIONS, visualTheme: 'orgtree', contrastTheme: DEFAULT_CONTRAST, agentColorSource: 'provider', visualThemeExplicit: false, exitOnClose: false, startAtLogin: true, automaticUpdates: true, routineNotifications: false, onboarded: false, startupMode: 'restore' }
+export const DEFAULT_PREFERENCES: DesktopPreferences = { ...DEFAULT_NOTIFICATIONS, visualTheme: 'orgtree', contrastTheme: DEFAULT_CONTRAST, agentColorSource: 'provider', visualThemeExplicit: false, exitOnClose: false, startAtLogin: true, automaticUpdates: true, routineNotifications: false, onboarded: false }
 export const TOKEN_HEADER = 'X-Orgtree-Desktop-Token'
 export const HARNESS_LINKS = Object.freeze({
   claude: 'https://code.claude.com/docs/en/setup',
@@ -29,9 +28,6 @@ export function preferencesPatch(value: unknown): Partial<DesktopPreferences> {
     } else if (key === 'agentColorSource') {
       if (!isAgentColorSource(val)) throw new Error('Invalid agent color source')
       result.agentColorSource = val
-    } else if (key === 'startupMode') {
-      if (!isStartupMode(val)) throw new Error('Invalid startup mode')
-      result.startupMode = val
     } else if (key === 'visualThemeExplicit') {
       if (typeof val !== 'boolean') throw new Error('Invalid preference')
       result.visualThemeExplicit = val

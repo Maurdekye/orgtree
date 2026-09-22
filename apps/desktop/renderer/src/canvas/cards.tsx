@@ -33,7 +33,6 @@ import {
   AgentWorkstate, ContextWheel, deriveAgentVisualState, deriveTurnState, isUsageFrozen, DeskChat, DestinationBusy, LastTurnAge,
   MapModeIndicator, MapTurnAge, RouteBadge, ServingAccountBadge,
 } from './desk'
-import { EffortLevelBadge } from './effort'
 import { agentNavProps } from './agentnav'
 import { DocChips } from './docs'
 import { useContextMenu } from './contextmenu'
@@ -1265,10 +1264,6 @@ interface NodeSquareProps {
   onPin?: () => void
   /** FR-3: the placeholder's click — raise, un-strand and flash the window */
   onShowPin?: () => void
-  /** "Open desk temporarily" — the host opens the modal (tempdesk.tsx). Takes
-   *  the id because the same handler serves this card and the Agents List row,
-   *  and the two menus must offer the same entries. */
-  onOpenTemporary?: (id: string) => void
   /** "Hire a subordinate…" picked from the AGENTS LIST rather than from this
    *  card (user request 2026-09-12): the chips live here, so the row glides to
    *  the agent and asks its card to open them. A COUNTER, not a flag — picking
@@ -1404,7 +1399,6 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   onRecenter, onJump, pub, kioskRemaining, cascadeAlloc, maxTop, pile, compactAt, maxTier,
   onMailLink, onWorkLink, onDragStart, onDragMove, onDragEnd, onDragCancel,
   mapMode, dogs, oneShotDogs, pinned, pinnedFocus, onPin, onShowPin,
-  onOpenTemporary,
   revealHire, onHireRevealed, onDismiss }: NodeSquareProps) {
   // `focused` below is the card's LAYOUT state — desk-sized, head hidden, no
   // drag — which a pinned placeholder shares with an open desk. Only the
@@ -1483,12 +1477,6 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
         ? () => { desk.requestPopout(); if (!desk.present) onRecenter?.() }
         : undefined,
       onShowWindow: desk.show,
-      // ⚠ NO `onRecenter()` HERE, unlike the popout above. This entry exists
-      // because a glance must not move the camera or change the focused agent,
-      // so it does not mount the desk by walking to it — the modal mounts its
-      // own borrowing slot. Same gate as pin/popout: none of this on mobile.
-      onOpenTemporary: !isMobile && onOpenTemporary
-        ? () => onOpenTemporary(node.id) : undefined,
       onHire: revealHireChips,
       onRetireAsk: setAsking,
       canRetireAll: !pub,
@@ -1847,16 +1835,6 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
               asserted in usageaccountcard.test.tsx rather than left to the
               gate above happening to stay where it is. */}
           <ServingAccountBadge account={node.serving_account} />
-          {/* NON-DEFAULT THINKING EFFORT (docket
-              `show-non-default-effort-level-on-agent-headers`), on the card's
-              badge row as on the desk's — the SAME component, reading the same
-              org default from context, so the two surfaces cannot disagree
-              about the level, the wording, or when it appears at all. Absent
-              whenever the agent is unset or at the ordinary default, and
-              absent as NOTHING rather than as an empty chip, so the row
-              reserves no space for it. Its far-zoom and map exclusions are the
-              ones this whole `.sq-badges` block already carries. */}
-          <EffortLevelBadge node={node} />
           {/* the lineage opens from the desk's own stack badge; out here the
               count is a sign. Same reason as the freeze chip above. */}
           {stackN > 0 &&

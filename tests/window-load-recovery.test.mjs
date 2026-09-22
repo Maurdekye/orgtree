@@ -53,7 +53,7 @@ function emitter() {
  *  controllable outcome for the next navigation, so every branch is reachable
  *  without an Electron, a window or a real engine. */
 function harness(options = {}) {
-  const records = [], loads = [], holding = [], lost = []
+  const records = [], loads = [], holding = []
   let timers = [], nextId = 1
   let url = options.startUrl ?? 'http://127.0.0.1:21350/'
   // `serving` is the engine: when false, every navigation to it fails exactly
@@ -66,7 +66,6 @@ function harness(options = {}) {
   const hooks = {
     record: (stage, detail) => records.push({ stage, detail }),
     target: () => origin,
-    route: options.route,
     builtFor: () => builtFor,
     load: async target => {
       loads.push(target)
@@ -75,33 +74,22 @@ function harness(options = {}) {
         // AND `loadURL` rejects. A harness that only rejected let a mutation
         // removing the in-flight guard survive, because the double signal the
         // guard exists for never happened in the test. Faithful now.
-        //
-        // ⚠ AND THE WINDOW ALREADY REPORTS THE FAILED URL BY THEN. Measured
-        // against real Electron: at `did-fail-load` the error page is showing
-        // and `getURL()` returns the URL that failed, matching `validatedURL`.
-        // The harness used to leave the old URL in place, which made a
-        // currently-showing failure indistinguishable from an obsolete one.
-        url = target
         contents.fire('did-fail-load', -102, 'ERR_CONNECTION_REFUSED', target, true)
         throw new Error('ERR_CONNECTION_REFUSED (-102) loading ' + target)
       }
       url = target
       // A real webContents announces the success; the emitter does too.
-      contents.fire('did-navigate')
       contents.fire('did-finish-load')
       return undefined
     },
     showHolding: async html => { holding.push(html); url = 'data:text/html;charset=utf-8,' + encodeURIComponent(html) },
     suspended: options.suspended,
-    // records.length at the moment of the call makes the ORDERING observable:
-    // this must run before the failure is recorded or any retry scheduled.
-    documentLost: () => { lost.push({ url, recordsAtCall: records.length }) },
     setTimer: (fn, ms) => { const id = nextId++; timers.push({ id, fn, ms }); return id },
     clearTimer: id => { timers = timers.filter(t => t.id !== id) },
   }
   const recovery = attachWindowLoadRecovery(contents, hooks, () => url)
   return {
-    contents, records, loads, holding, recovery, lost,
+    contents, records, loads, holding, recovery,
     stages: () => records.map(r => r.stage),
     pending: () => timers.map(t => t.ms),
     flush,
@@ -112,7 +100,6 @@ function harness(options = {}) {
     tick: async () => { const due = timers; timers = []; for (const t of due) await t.fn(); await flush() },
     setServing: value => { serving = value },
     setOrigin: value => { origin = value },
-    setUrl: value => { url = value },
     url: () => url,
     /** The single question the user cares about. */
     isWhite: () => url === '' || url === 'about:blank',
@@ -313,7 +300,7 @@ test('W1: the refresh route REBUILDS a stranded window instead of calling the gu
   // foreign origin. Removing this branch (the inert-refresh mutation the
   // review reproduced) is exactly what makes this match fail.
   assert.match(main,
-    /handle\('desktop:window-refresh', async caller => \{[\s\S]*?if \(caller\.loadRecovery\?\.isStranded\) \{[\s\S]*?await saveWindowLayout\(\)[\s\S]*?app\.relaunch\(\)[\s\S]*?app\.quit\(\)[\s\S]*?return[\s\S]*?\}[\s\S]*?if \(caller\.loadRecovery\?\.isFailed\) await caller\.loadRecovery\.retryNow\('user refresh'\)/,
+    /handle\('desktop:window-refresh', async \(\) => \{[\s\S]*?if \(windowLoadRecovery\?\.isStranded\) \{[\s\S]*?await saveWindowLayout\(\)[\s\S]*?app\.relaunch\(\)[\s\S]*?app\.quit\(\)[\s\S]*?return[\s\S]*?\}[\s\S]*?if \(windowLoadRecovery\?\.isFailed\) await windowLoadRecovery\.retryNow\('user refresh'\)/,
     'stranded refresh takes the reconstruction path, checked before the retryNow branch')
   // and the reconstruction path it mirrors is still there to mirror
   assert.match(main, /else \{ await saveWindowLayout\(\); app\.relaunch\(\); app\.quit\(\) \}/,
@@ -421,17 +408,14 @@ test('index.ts attaches the window-load recovery to the main window', () => {
   // mutation that left the call in place but short-circuited it away
   // (`= undefined && attachWindowLoadRecovery(...)`), which is exactly the
   // shape a real mistake would take.
-  // v3: every main window gets its own recovery, kept on its own record - so
-  // an organization whose document fails to load is recovered without
-  // touching any other organization's window.
-  assert.match(main, /record\.loadRecovery = attachWindowLoadRecovery\(window\.webContents, \{/,
+  assert.match(main, /windowLoadRecovery = attachWindowLoadRecovery\(main\.webContents, \{/,
     'the recovery is wired to the real window, and its result is what is kept')
   assert.match(main, /import \{ attachWindowLoadRecovery/)
 })
 
 test('index.ts drives the recovery from the engine becoming ready', () => {
   const main = read('apps/desktop/main/index.ts')
-  assert.match(main, /status\.state === 'ready'\) for \(const record of records\.values\(\)\) record\.loadRecovery\?\.onEngineReady\(\)/,
+  assert.match(main, /status\.state === 'ready'\) windowLoadRecovery\?\.onEngineReady\(\)/,
     'the engine returning is what recovers the window — including for a MANAGED engine, '
     + 'which the pre-existing recoverAttached path is gated away from')
 })
@@ -453,160 +437,3 @@ test('the failed-load record shares the durable log the renderer failures use', 
   const updater = read('apps/desktop/main/updater.ts')
   assert.match(updater, /\| WindowLoadStage/, 'the stages are in the log\'s own union')
 })
-
-// ------------------------------------- the document a failure destroys
-
-test('a terminal failure reports the document lost, BEFORE any retry is scheduled', async () => {
-  // ⚠ A TERMINAL LOAD FAILURE NEVER COMMITS. Measured against real Electron: a
-  // connection refusal fires did-start-navigation then did-fail-load and never
-  // did-navigate — while Chromium's error page replaces the document anyway.
-  // So anything keyed to commit does not run, and the document it was about is
-  // already gone. Whoever is holding events for this window has to be told
-  // here or not at all: the error page carries no preload and no bridge, so it
-  // can never say it is listening, and anything sent to it is lost.
-  const h = harness({ serving: false, startUrl: 'http://127.0.0.1:21350/o/acme' })
-  h.contents.fire('did-fail-load', -102, 'ERR_CONNECTION_REFUSED', 'http://127.0.0.1:21350/o/acme', true)
-  assert.equal(h.lost.length, 1, 'the caller was told the document is gone')
-  assert.equal(h.lost[0].url, 'http://127.0.0.1:21350/o/acme')
-  // ⚠ AND TOLD FIRST. Delivery has to stop before anything else happens -
-  // the holding page goes up and a retry is scheduled, and an event sent into
-  // the gap between them reaches the error page and is lost.
-  assert.equal(h.lost[0].recordsAtCall, 0, 'before the failure was even recorded')
-  assert.ok(h.records.length > 0, 'and the recovery still ran afterwards')
-  assert.equal(h.stages()[0], 'window-load-failed')
-})
-
-test('NEGATIVE CONTROL: an aborted navigation does NOT report the document lost', async () => {
-  // ⚠ ERR_ABORTED is an ordinary in-app navigation, and it is also what OUR OWN
-  // retry looks like to the navigation it interrupts. The document that was
-  // showing SURVIVES it — measured: stop() mid-flight fires neither a commit
-  // nor a failure, and the old document is still there. Reporting it lost
-  // would re-arm the queue behind a listener that has already registered and
-  // will never register again, which is a hold nothing can release.
-  const h = harness({ serving: true })
-  h.contents.fire('did-fail-load', -3, 'ERR_ABORTED', 'http://127.0.0.1:1/x', true)
-  assert.deepEqual(h.lost, [], 'an abort leaves the showing document alone')
-})
-
-test('NEGATIVE CONTROL: a subframe failure does NOT report the document lost', () => {
-  // An image, an iframe or a fetch can fail while the interface is perfectly
-  // usable and its listener perfectly alive.
-  const h = harness({ serving: true })
-  h.contents.fire('did-fail-load', -102, 'ERR_CONNECTION_REFUSED', 'http://127.0.0.1:1/img.png', false)
-  assert.deepEqual(h.lost, [], 'only the main frame losing its document counts')
-})
-
-test('this file classifies; it does NOT decide whether the failure is still relevant', () => {
-  // ⚠ A STALE FAILURE MUST NOT DISCARD A LIVE DOCUMENT - but "which document"
-  // is not a question this file can answer, because it does not know what a
-  // document is. Comparing `validatedURL` to the current URL was tried here
-  // and is NOT sufficient: the recovery retries the SAME url, so a stale
-  // failure and a live one are indistinguishable by URL at exactly the moment
-  // it matters. The caller owns document identity and makes that call; this
-  // hook reports the classification and nothing more.
-  const source = read('apps/desktop/main/window-load-recovery.ts')
-  assert.match(source, /if \(isTerminalLoadFailure\(failure\) && hooks\.documentLost\?\.\(\) === false\) return/)
-  assert.doesNotMatch(source, /validatedURL === currentUrl\(\)/,
-    'URL equality is not document identity, and must not stand in for it')
-  // index delegates that question to the production lifecycle. Its behavior
-  // (including stale failure refusing recovery) is exercised independently.
-  const main = read('apps/desktop/main/index.ts')
-  assert.match(main, /documentLost: eventLifecycle\.documentLost/)
-})
-
-test('the same classification decides the retry and the lost document', () => {
-  // One rule, so a subframe failure or an abort cannot be terminal for one of
-  // them and not the other — the drift that puts a window in a state where it
-  // is retrying but still delivering, or delivering but never retrying.
-  const source = read('apps/desktop/main/window-load-recovery.ts')
-  assert.match(source, /if \(isTerminalLoadFailure\(failure\) && hooks\.documentLost\?\.\(\) === false\) return/)
-  assert.match(source, /recovery\.onLoadFailure\(failure\)/)
-})
-
-for (const route of ['/o/studio', '/?create=1']) {
-  test('same-origin retry preserves route ' + route, async () => {
-    const h = harness({ serving: true, route: () => route })
-    h.contents.fire('did-fail-load', -102, 'ERR_CONNECTION_REFUSED', 'http://127.0.0.1:21350' + route, true)
-    await h.flush()
-    await h.tick()
-    assert.deepEqual(h.loads, ['http://127.0.0.1:21350' + route])
-    assert.equal(h.recovery.isStranded, false)
-    assert.equal(h.recovery.isFailed, false)
-  })
-}
-
-test('recovery reads route live after the window identity changes', async () => {
-  let route = '/'
-  const h = harness({ serving: true, route: () => route })
-  h.contents.fire('did-fail-load', -102, 'ERR_CONNECTION_REFUSED', 'http://127.0.0.1:21350/', true)
-  await h.flush()
-  route = '/o/studio'
-  await h.tick()
-  assert.deepEqual(h.loads, ['http://127.0.0.1:21350/o/studio'])
-})
-
-test('an error-page finish cannot report recovery before a replacement commits', async () => {
-  const h = harness()
-  const failedUrl = h.url()
-  h.contents.fire('did-fail-load', -324, 'ERR_EMPTY_RESPONSE', h.url(), true)
-  // A late finish may still expose the failed HTTP URL while the data-page
-  // navigation is provisional. The attachment must require a new commit.
-  h.setUrl(failedUrl)
-  h.contents.fire('did-finish-load')
-  assert.equal(h.recovery.isFailed, true)
-  assert.equal(h.stages().includes('window-load-recovered'), false)
-  await h.flush()
-  assert.equal(h.pending().length, 1)
-})
-
-function deferredRecovery() {
-  let rejectLoad, resolveLoad, resolveHolding
-  const pages = [], timers = [], records = []
-  let deferHolding = false
-  const recovery = new WindowLoadRecovery({
-    target: () => 'http://127.0.0.1:12345', builtFor: () => 'http://127.0.0.1:12345',
-    load: () => new Promise((resolve, reject) => { resolveLoad = resolve; rejectLoad = reject }),
-    showHolding: html => { pages.push(html); return deferHolding
-      ? new Promise(resolve => { resolveHolding = resolve }) : Promise.resolve() },
-    setTimer: fn => { timers.push(fn); return fn }, clearTimer: () => { timers.length = 0 },
-    record: stage => records.push(stage),
-  })
-  return { recovery, pages, timers, records, fail: () => recovery.onLoadFailure(REAL_FAILURE),
-    reject: () => rejectLoad(new Error('late obsolete rejection')),
-    resolve: () => resolveLoad(), hold: () => { deferHolding = true }, finishHolding: () => resolveHolding(),
-  }
-}
-
-test('a load promise resolving alone does not prove a committed UI recovered', async () => {
-  const h = deferredRecovery(); h.fail(); await flush()
-  const retry = h.recovery.retryNow()
-  h.resolve(); await retry
-  assert.equal(h.recovery.isFailed, true)
-  assert.equal(h.records.includes('window-load-recovered'), false)
-  assert.equal(h.timers.length, 1, 'a resolved promise with no committed finish cannot strand recovery')
-  h.recovery.onLoadFinished('http://127.0.0.1:12345/')
-  assert.equal(h.recovery.isFailed, false)
-  assert.equal(h.timers.length, 0)
-})
-
-test('late retry rejection cannot replace a newer recovered document', async () => {
-  const h = deferredRecovery(); h.fail(); await flush()
-  const retry = h.recovery.retryNow()
-  h.recovery.onLoadFinished('http://127.0.0.1:12345/')
-  const pages = h.pages.length
-  h.reject(); await retry
-  assert.equal(h.pages.length, pages)
-  assert.equal(h.recovery.isFailed, false)
-  assert.equal(h.timers.length, 0)
-})
-
-for (const ending of ['recovered', 'disposed']) {
-  test('late holding completion cannot schedule a retry after ' + ending, async () => {
-    const h = deferredRecovery(); h.hold(); h.fail()
-    if (ending === 'recovered') h.recovery.onLoadFinished('http://127.0.0.1:12345/')
-    else h.recovery.dispose()
-    h.finishHolding(); await flush()
-    assert.equal(h.timers.length, 0)
-    assert.equal(h.recovery.isFailed, false)
-  })
-}

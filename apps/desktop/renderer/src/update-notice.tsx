@@ -69,19 +69,8 @@ export function UpdateNotice({ transientMs = 6000 }: { transientMs?: number } = 
       if (hideTimer.current) clearTimeout(hideTimer.current)
       if (TRANSIENT_STATES.has(next.state)) hideTimer.current = setTimeout(() => { if (alive) setVisible(false) }, transientMs)
     }
-    // ⚠ THE EVENT IS NEWER THAN THE READ. An `update` broadcast landing while
-    // `getUpdateStatus()` is in flight carries the later state, and without a
-    // guard the older status overwrites it — so a download that just finished
-    // reverts to 'downloading' and the notice stops offering the install. The
-    // revision idiom this codebase already uses elsewhere for the same race.
-    let revision = 0
-    const unsubscribe = bridge.onEvent(event => {
-      if (alive && event.type === 'update') { revision++; apply(event.data as UpdateStatus) }
-    })
-    const initial = revision
-    void bridge.getUpdateStatus()
-      .then(s => { if (initial === revision) apply(s) })
-      .catch(() => {})
+    void bridge.getUpdateStatus().then(apply).catch(() => {})
+    const unsubscribe = bridge.onEvent(event => { if (alive && event.type === 'update') apply(event.data as UpdateStatus) })
     return () => { alive = false; unsubscribe(); if (hideTimer.current) clearTimeout(hideTimer.current) }
   }, [transientMs])
   if (!status || !visible) return null

@@ -351,13 +351,9 @@ function SlugText({ item }: { item: WorkItem }) {
   )
 }
 
-export function DocketToolbarButton({ summary, onClick, label }: {
+export function DocketToolbarButton({ summary, onClick }: {
   summary?: { attention: number; active: number } | null
   onClick?: () => void
-  /** the v3 compact header shows the familiar action buttons with a visible
-   *  word beside the icon at wide widths. Absent everywhere else, so the
-   *  button is byte-identical in every surface that already renders it. */
-  label?: string
 }) {
   const { attention, active } = summary ?? { attention: 0, active: 0 }
   const hasAttn = attention > 0
@@ -379,7 +375,6 @@ export function DocketToolbarButton({ summary, onClick, label }: {
         + (waiting ? ` — ${pending.docket} ticket(s) still waiting on you` : '')}
       onClick={onClick}>
       <DocketIcon fontSize="inherit" />
-      {label && <span className="shell-action-label">{label}</span>}
       {waiting && <i className="attn-dot" aria-hidden="true" />}
       {count > 0 && (
         <b className={'eye-count' + (hasAttn ? ' docket-attn asks' : '')}>

@@ -6,12 +6,6 @@ boundaries. This package records the current behavior of
 `orgtree_state_inspect` and `orgtree_capabilities` before native conversion.
 It changes only contract data, documentation and tests.
 
-The following counts describe the diagnostic package at d7ec387. The later
-preview package maps the shared diagnostic/preview branch; current totals are
-in `operation-contracts.md`. The measured diagnostic fixture directly blocks
-process launches, domain saves and transcript reads. Provider-network absence
-was source-inspected, not universally blocked by an executable guard.
-
 Two tool cards and their two individual dispatch selectors now map to explicit
 contracts. The shared diagnostic/preview branch, general HTTP route and storage
 connection sites remain pending. The registry now has 15 contracts, six mapped

@@ -1,6 +1,5 @@
 import fs from 'node:fs'
 import crypto from 'node:crypto'
-import { assertPublicReleaseAllowed, PRIVATE_ALPHA_MARKER } from './private-alpha-policy.mjs'
 
 /** Everything a packaged build cannot function without. Shared by the release
  *  preflight and the development packaging path: an installer of either channel
@@ -33,13 +32,9 @@ export function assertPackageInputsPresent(io = fs) {
  *  published build has the substitution compiled OUT and cannot perform one at
  *  all; this exists so WE cannot publish a fixture build by accident. */
 export function assertNoUpdateFixture(info, bundle = 'dist/main/index.cjs', io = fs) {
-  assertPublicReleaseAllowed(info.version, info)
   if (info.updateFixture !== undefined) {
     throw new Error('Release packaging refuses a build that discloses the update '
       + 'fixture: rebuild with `npm run build` (without --update-fixture) before packaging a release')
-  }
-  if (io.readFileSync(bundle, 'utf8').includes(PRIVATE_ALPHA_MARKER)) {
-    throw new Error('Release packaging refuses a compiled private-alpha build')
   }
   if (io.readFileSync(bundle, 'utf8').includes('ORGTREE-UPDATE-FIXTURE-BUILD' + ':enabled')) {
     throw new Error('Release packaging refuses ' + bundle + ': the update-fixture '
@@ -72,7 +67,6 @@ export function assertMailhubSubmodule(info, status, head, io = fs) {
 }
 
 export function assertReleaseProvenance(info, head, porcelain, io = fs) {
-  assertPublicReleaseAllowed(info.version, info)
   if (info.channel !== 'release') throw new Error('Release packaging refuses build channel "' + info.channel + '": rebuild with `npm run build` before packaging a release')
   if (!info.commit || info.dirty !== false || info.commit !== head || porcelain.trim()) {
     throw new Error('Release packaging requires a clean committed source tree matching the build')
