@@ -1821,9 +1821,14 @@ else {
         // `did-navigate` fires when a main-frame navigation is DONE, and never
         // for an in-page one - so it marks the exact instant the old document
         // is gone and the new one is showing with no listener yet. A
-        // navigation that FAILS never commits and so never fires it, which is
-        // precisely right: the old document is still on screen, it already
-        // acknowledged, and nothing should change. Re-arming at navigation
+        // navigation that FAILS never commits and so never fires it — which is
+        // NOT because nothing changed. It is because a failure is a different
+        // event: Chromium replaces the document with an ERROR PAGE, and that
+        // page has no preload and no bridge, so it can never say it is
+        // listening. `documentLost` on the load recovery handles that case and
+        // is the reason this one does not have to. (This comment used to claim
+        // the old document was still on screen and still receiving. It is not,
+        // and held events were being fired into the error page.) Re-arming at navigation
         // START instead would hold the queue on a promise the navigation might
         // not keep, and then need every failure mode enumerated to let go
         // again - which is how a latch wedges shut for the window's life.
@@ -1832,6 +1837,15 @@ else {
         // and the new one committing. Events offered there go live to the OLD
         // document, which is still showing and still listening, so they are
         // delivered rather than lost.
+        /** ⚠ WHICH DOCUMENT A NAVIGATION IS LEAVING. Snapshot only - it holds
+         *  nothing and releases nothing, so it cannot wedge anything. It
+         *  exists so a terminal failure can be told from a stale one by
+         *  document identity rather than by URL, which same-url retries make
+         *  meaningless. */
+        window.webContents.on('did-start-navigation', details => {
+          if (!details.isMainFrame || details.isSameDocument) return
+          pendingFrom = record.documentToken
+        })
         window.webContents.on('did-navigate', () => {
           // Nothing has announced itself for this document yet, so nothing can
           // speak for it: the token no message can match until one does.
@@ -1914,6 +1928,8 @@ else {
         // and nothing ever looked at it again. This watches the navigation the
         // reload starts, so a failed load is a state the window leaves rather
         // than the state it ends in.
+        /** The document that was showing when the current navigation began. */
+        let pendingFrom = record.documentToken
         record.loadRecovery = attachWindowLoadRecovery(window.webContents, {
           record: recordWindowLoad,
           target: () => engine.origin + routeFor(id),
@@ -1923,6 +1939,37 @@ else {
             ? window.webContents.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
             : Promise.resolve(),
           suspended: () => quitting || installerUpgradeShutdown,
+          // ⚠ THE DOCUMENT THAT PROVED SOMEBODY WAS LISTENING IS GONE, and
+          // nothing else tells us: a terminal failure never commits, so the
+          // `did-navigate` handler below does not run. Without this, held
+          // events keep being sent LIVE into Chromium's error page, which has
+          // no preload and no bridge - delivered by our reckoning, received by
+          // nobody. That is the loss the outbox exists to prevent, arriving
+          // through the one door that was not watched.
+          //
+          // ⚠ THE TOKEN IS CLEARED AS WELL AS THE QUEUE RE-ARMED, and both
+          // together. Re-arming alone would leave the dead document's token
+          // valid, so an acknowledgement already in flight from it could still
+          // discharge the queue into the error page - the same loss, one
+          // message later.
+          // ⚠ GATED ON DOCUMENT IDENTITY, NOT ON THE URL. `pendingFrom` is
+          // the token of the document that was showing when the navigation
+          // now failing began. If it is still the current one, that document
+          // is what the error page replaced and this failure is about it. If
+          // the token has moved on, a document has since announced itself -
+          // the retry succeeded - and this failure is stale. Discarding a
+          // LIVE document's token would re-arm behind a listener that has
+          // already registered and never registers again, which is a hold
+          // nothing can release.
+          //
+          // URL equality was tried here and is not enough: the recovery
+          // retries the SAME url, so a stale failure and a live one look
+          // identical by URL at precisely the moment it matters.
+          documentLost: () => {
+            if (record.documentToken !== pendingFrom) return
+            record.documentToken = ''
+            record.outbox.rearm()
+          },
           setTimer: (fn, ms) => setTimeout(fn, ms),
           clearTimer: handle => clearTimeout(handle as ReturnType<typeof setTimeout>),
         }, () => !window.isDestroyed() ? window.webContents.getURL() : '')
@@ -1958,7 +2005,22 @@ else {
         if (identity) sendTo(moved.owner, { type: 'window-identity', data: identity })
       }
       /** The identity of a window changed — a Homepage became an organization.
-       *  Navigate it to its own route and tell its renderer what it now is. */
+       *
+       *  ⚠ THIS DOES NOT NAVIGATE, and the comment that said it did was wrong
+       *  for long enough to send a composition probe after a defect that is not
+       *  there. Native tells the renderer WHAT THE WINDOW NOW IS; the renderer
+       *  moves itself to the route with `history.pushState` (App.tsx). That is
+       *  a SAME-DOCUMENT navigation: measured against real Electron, it fires
+       *  `did-start-navigation` with `isSameDocument: true` and
+       *  `did-navigate-in-page`, never `did-navigate`, and the document
+       *  survives.
+       *
+       *  Which is why a bind needs no held-event handling at all: nothing is
+       *  replaced, so the outbox never re-arms, the document token stays
+       *  valid, the listener stays attached, and events keep reaching the same
+       *  living document now showing the organization's route. A reader who
+       *  believes this function loads a document will look for a gap between
+       *  an old document and a new one, and there is no new one. */
       adoptIdentity = (record: MainWindowRecord) => {
         const identity = windows.identity(record.id)
         if (!identity) return

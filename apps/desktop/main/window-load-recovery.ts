@@ -180,6 +180,22 @@ export interface WindowLoadHooks {
   /** True while the app is shutting down; nothing is recovered then, because
    *  re-navigating a window would fight the teardown it is reacting to. */
   suspended?(): boolean
+  /** ⚠ THE DOCUMENT THAT WAS SHOWING IS GONE, replaced by an error page.
+   *
+   *  A terminal load failure swaps the document for Chromium's error page and
+   *  does NOT fire `did-navigate` - measured against real Electron, a
+   *  connection refusal fires `did-start-navigation` then `did-fail-load` and
+   *  never commits. Anything keyed to commit therefore does not run, while the
+   *  document it was about has already been destroyed.
+   *
+   *  That matters to whoever is holding events for this window: the error page
+   *  carries no preload and no bridge, so it can never say it is listening,
+   *  and anything sent to it is gone. This is the hook that lets a caller stop
+   *  delivering BEFORE the retry is scheduled.
+   *
+   *  Called only for a failure that is terminal by `isTerminalLoadFailure` AND
+   *  that describes the document currently showing - see attachWindowLoadRecovery. */
+  documentLost?(): void
   setTimer(fn: () => void, ms: number): unknown
   clearTimer(handle: unknown): void
 }
@@ -358,7 +374,47 @@ export function attachWindowLoadRecovery(
 ): WindowLoadRecovery {
   const recovery = new WindowLoadRecovery(hooks)
   contents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
-    recovery.onLoadFailure({ errorCode, errorDescription, validatedURL, isMainFrame })
+    const failure = { errorCode, errorDescription, validatedURL, isMainFrame }
+    // ⚠ BEFORE THE RETRY IS SCHEDULED, and CLASSIFICATION ONLY.
+    //
+    // ⚠⚠ WHY SHARING THE RETRY'S PREDICATE IS LOAD-BEARING, and not merely
+    // tidy. The codes that replace a document were never enumerated, so a
+    // misclassification is possible - and the DANGEROUS direction is the
+    // over-broad one: calling a failure terminal when the document actually
+    // survived clears a LIVE document's token and re-arms behind a listener
+    // that has already registered and never registers again. That is f5 in a
+    // new place, and it would cost the window its events for the rest of its
+    // life. The shipping renderer confirms the trap rather than softening it:
+    // several modules call `onEvent`, each acknowledgement quotes the
+    // preload's unchanged token, and a cleared record token can never match
+    // one again.
+    //
+    // IT CANNOT HAPPEN, STRUCTURALLY RATHER THAN EMPIRICALLY, and this line is
+    // the whole reason. `documentLost` is driven by the SAME predicate that
+    // drives the retry, so any failure that clears the token also schedules a
+    // re-navigation - whose commit re-arms, whose new document re-mints, and
+    // whose acknowledgement drains. A misclassification therefore costs at
+    // most one retry interval, never the window's life. Writing a second
+    // classification here, however careful, would throw that away.
+    //
+    // The one asymmetry is `suspended()` - quitting or an installer shutdown -
+    // where this fires and no retry follows. The app is going away and nothing
+    // is owed. (Identified by v3-ux-review-opus reviewing ead3ca4; recorded
+    // here because it lived only in the shape of the code.)
+    //
+    // The same rule the retry uses, so a subframe failure or an ERR_ABORTED
+    // cannot be terminal for one of them and not the other.
+    //
+    // WHETHER THIS FAILURE IS STILL RELEVANT IS NOT DECIDED HERE. A failure
+    // for a navigation that has since been overtaken must not discard a
+    // document that is alive and already listening - but "which document" is a
+    // question this file cannot answer, because it does not know what a
+    // document IS. Comparing `validatedURL` to the current URL was tried and
+    // is NOT sufficient: the recovery retries the SAME url, so a stale failure
+    // and a live one are indistinguishable by URL at exactly the moment it
+    // matters. The caller owns document identity and makes that call. */
+    if (isTerminalLoadFailure(failure)) hooks.documentLost?.()
+    recovery.onLoadFailure(failure)
   })
   contents.on('did-finish-load', () => recovery.onLoadFinished(currentUrl()))
   return recovery
