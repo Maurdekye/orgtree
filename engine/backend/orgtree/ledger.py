@@ -2372,10 +2372,24 @@ class Org:
             bad.append(("recv_seq", copy["recv_seq"]))
         if "seq_origin" in copy and copy["seq_origin"] not in cls.MAIL_SEQ_ORIGINS:
             bad.append(("seq_origin", copy["seq_origin"]))
-        if "mailbox" in copy and not (isinstance(copy["mailbox"], str)
-                                      and copy["mailbox"]):
+        if "mailbox" in copy and cls._mailbox_stamp(copy["mailbox"]) is None:
             bad.append(("mailbox", copy["mailbox"]))
         return bad
+
+    @staticmethod
+    def _mailbox_stamp(value: Any) -> str | None:
+        """The SUPPORTED domain of a row's `mailbox` stamp, or None for "not a
+        stamp". An identity is minted as twelve hex characters, so the domain
+        is a NON-EMPTY string.
+
+        Same rule as `_recv_ordinal` and the same warning: None here means
+        OUTSIDE THE DOMAIN, never absent. `False`, `None`, `''`, `0`, `[]` and
+        `{}` are all present data that this is not able to read as an identity,
+        and every one of them is a different thing from a row that carries no
+        stamp at all — which is the supported legacy case, a row numbered
+        before stamping existed. Both readers below check the key themselves
+        and then ask this what the value is."""
+        return value if isinstance(value, str) and value else None
 
     def _assigned_recv_max(self, to: str) -> int:
         """The largest ordinal ALREADY assigned anywhere this mailbox's rows
@@ -2576,23 +2590,50 @@ class Org:
         found this view presenting exactly that row as ordinary ordered data.
         `mailbox_receive_order_anomalies` names such rows explicitly.
 
-        Mints nothing: the identity is read straight off the node rather than
-        through `mailbox_identity`, which would write one.
+        ⚠ AND A STAMP THAT IS THERE BUT UNREADABLE IS NOT AN ABSENT ONE. The
+        absent stamp is a SUPPORTED exception — a row numbered before stamping
+        existed — and it is the only one. `False`, `None`, `''`, `0`, `[]` and
+        `{}` are present data outside the domain, and this used to collapse all
+        of them into "absent" with `r.get("mailbox") or None`, which put them in
+        the ordered partition and sorted them AHEAD of correctly stamped mail
+        on the strength of an ordinal nothing could attribute. Reviewer finding
+        f2 (2026-09-22) measured it: `[legacy, good(2, own stamp),
+        subject(1, mailbox=False)]` read back as `[subject, good, legacy]`
+        while `mailbox_receive_order_anomalies` was simultaneously reporting
+        `subject` as `unsupported_mailbox_stamp`. The two helpers have to agree
+        about what this document says.
+
+        Unsupported and FOREIGN stamps land in the same unordered tail. They
+        are not the same finding — the anomaly report distinguishes them — but
+        they make the same claim here: this ordinal is not a position in this
+        mailbox's order.
+
+        Repairs nothing. A row is classified, never rewritten, and no identity
+        is minted: `mine` is read straight off the node rather than through
+        `mailbox_identity`, which would write one.
 
         Nothing live reads this yet. It exists so the ordering this stage
         establishes is inspectable and testable without a consumer, and so the
         stage that does consume it has one definition to consume."""
-        mine = (self.nodes.get(to) or {}).get("mailbox_id") or None
+        mine = self._mailbox_stamp((self.nodes.get(to) or {}).get("mailbox_id"))
         rows = list((self.d.get("mail") or {}).get(to) or [])
         keyed: list[tuple[tuple[int, int, int], dict[str, Any]]] = []
         for i, r in enumerate(rows):
-            seq = (self._recv_ordinal(r.get("recv_seq"))
-                   if isinstance(r, dict) else None)
-            stamp = ((r.get("mailbox") or None)
-                     if isinstance(r, dict) else None)
-            keyed.append(((1, 0, i) if seq is None or
-                          (stamp is not None and stamp != mine)
-                          else (0, seq, i), r))
+            if not isinstance(r, dict):
+                keyed.append(((1, 0, i), r))
+                continue
+            seq = self._recv_ordinal(r.get("recv_seq"))
+            if "mailbox" in r:
+                # PRESENT: ordered only when it reads as this mailbox's own
+                # identity. An unsupported value fails the same way a foreign
+                # one does, and a mailbox with no identity of its own can match
+                # nothing at all.
+                own = (mine is not None
+                       and self._mailbox_stamp(r["mailbox"]) == mine)
+            else:
+                own = True                  # ABSENT: the one legacy exception
+            keyed.append(((0, seq, i) if seq is not None and own
+                          else (1, 0, i), r))
         return [r for _, r in sorted(keyed, key=lambda p: p[0])]
 
     def _scan_receive_order(self, to: str) -> dict[str, Any]:

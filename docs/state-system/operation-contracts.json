@@ -1,6 +1,6 @@
 {
   "schema": "orgtree.state-operation-contracts/v1",
-  "source_inventory_sha256": "f21b2ffd7fe31f4e9dab9f509e6aadaa244255e3d98aef71f33a5f0c44e9b7a0",
+  "source_inventory_sha256": "e6f3bbdd6dfbe13f52fea88723b7b468b24ec690ea4dbd84d31d4ef333121ab9",
   "qualification": {
     "runtime_census": false,
     "conversion_authorized": false
@@ -33,38 +33,38 @@
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 11737,
-          "end": 11738,
+          "start": 11778,
+          "end": 11779,
           "sha256": "04fc6e0ec4625a663738e8a32e03ace93db4f1bb119218ff644cb3fdffb8949f"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 11763,
-          "end": 11764,
+          "start": 11804,
+          "end": 11805,
           "sha256": "4aad179e3b8c96caea17b2b2d7399b2e5ca96be5f517caeb01ee5d968b547934"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 11914,
-          "end": 11922,
+          "start": 11955,
+          "end": 11963,
           "sha256": "5b2e58ed823e8b783c1d165692e7e223ed70bbcc6ca6f5c6617a21ed36b16acd"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 12007,
-          "end": 12038,
+          "start": 12048,
+          "end": 12079,
           "sha256": "6b91c5995ff3b33cb138382b1fe51ef6c42c0c1bdc93fab2ded6a6f63dcac9c7"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 12216,
-          "end": 12241,
+          "start": 12257,
+          "end": 12282,
           "sha256": "20d74d816998c1ce219e183d7cb009aed0c09957d66a682e83e28087f4d83048"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 12438,
-          "end": 12475,
+          "start": 12479,
+          "end": 12516,
           "sha256": "38ad20cec5614c406331e26821a5a2ff7ddce1e2ea85473ab4ebf23595617356"
         },
         {
@@ -87,8 +87,8 @@
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 3251,
-          "end": 3283,
+          "start": 3292,
+          "end": 3324,
           "sha256": "465cb82bb81352b0b77a4ce81c0a4b70f95bbff9efc65dd94825d1b96fdcb368"
         }
       ],
@@ -1280,20 +1280,20 @@
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 11737,
-          "end": 11738,
+          "start": 11778,
+          "end": 11779,
           "sha256": "04fc6e0ec4625a663738e8a32e03ace93db4f1bb119218ff644cb3fdffb8949f"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 11876,
-          "end": 11917,
+          "start": 11917,
+          "end": 11958,
           "sha256": "e9f1a427dda4b6e4d0ea25dfbae95923015b2a21e501f60a2348e5abbeb5d8b7"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 12260,
-          "end": 12433,
+          "start": 12301,
+          "end": 12474,
           "sha256": "7b9a4072313c91406cabd70a01ba649105755ef1f850a921cbbcbace7e45866d"
         }
       ],
@@ -1328,20 +1328,20 @@
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 11737,
-          "end": 11738,
+          "start": 11778,
+          "end": 11779,
           "sha256": "04fc6e0ec4625a663738e8a32e03ace93db4f1bb119218ff644cb3fdffb8949f"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 11876,
-          "end": 11917,
+          "start": 11917,
+          "end": 11958,
           "sha256": "e9f1a427dda4b6e4d0ea25dfbae95923015b2a21e501f60a2348e5abbeb5d8b7"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 12260,
-          "end": 12433,
+          "start": 12301,
+          "end": 12474,
           "sha256": "7b9a4072313c91406cabd70a01ba649105755ef1f850a921cbbcbace7e45866d"
         }
       ],
@@ -2792,68 +2792,68 @@
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 4612,
-          "end": 4660,
+          "start": 4653,
+          "end": 4701,
           "sha256": "26d6dd756580ad0809282ed9b44cca01b0421dc8da22cfb30e9513c8a2752f70"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 5279,
-          "end": 5311,
+          "start": 5320,
+          "end": 5352,
           "sha256": "bd353447776562fc7ba08f408584d797b7a71a1141efe593b40e52afd29e2f6e"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 5410,
-          "end": 5520,
+          "start": 5451,
+          "end": 5561,
           "sha256": "bfbd5a531a2db9e7f0ccff7a51a261327eb8c566707c8c59247805c70eb2fc73"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 5778,
-          "end": 5839,
+          "start": 5819,
+          "end": 5880,
           "sha256": "5030dc00ceef9febd1f5d286c0bd147ff1bbe2375df7c05b4476cbe4cb24f779"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 5895,
-          "end": 5917,
+          "start": 5936,
+          "end": 5958,
           "sha256": "0e742920bd3f2de7ca5f67dd454e3fd8216eade7b5a988f3151e090736d2489c"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 6141,
-          "end": 6207,
+          "start": 6182,
+          "end": 6248,
           "sha256": "c969cbc1055f018f76236e8b4e217c5f799cfe04f932f6225ebe35bf79eda82a"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 6396,
-          "end": 6453,
+          "start": 6437,
+          "end": 6494,
           "sha256": "506d4313147f6449b8e9c6d81b7bb9ddfd8d5fb5545727fc123f1697f5765df5"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 6906,
-          "end": 6918,
+          "start": 6947,
+          "end": 6959,
           "sha256": "4b10a4c0404fc6ed58c0c1842ff5dc75d3fe462c2b7b67647ea4547aa58b222b"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 7225,
-          "end": 7336,
+          "start": 7266,
+          "end": 7377,
           "sha256": "74b4d77644204da3969d19e0ba68edb53b008d2fb7a9afbe84a6be2418affb54"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 3748,
-          "end": 3834,
+          "start": 3789,
+          "end": 3875,
           "sha256": "0abb333e9dccc371e6de41b9697150b31473ca769eb76edf945e6d6766b810cd"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 3965,
-          "end": 4022,
+          "start": 4006,
+          "end": 4063,
           "sha256": "fb49f96b580d3beceb7189acf9a9697257f5ace495c88c1ea410533f8f06c545"
         },
         {
@@ -3197,68 +3197,68 @@
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 4612,
-          "end": 4660,
+          "start": 4653,
+          "end": 4701,
           "sha256": "26d6dd756580ad0809282ed9b44cca01b0421dc8da22cfb30e9513c8a2752f70"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 5279,
-          "end": 5311,
+          "start": 5320,
+          "end": 5352,
           "sha256": "bd353447776562fc7ba08f408584d797b7a71a1141efe593b40e52afd29e2f6e"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 5410,
-          "end": 5520,
+          "start": 5451,
+          "end": 5561,
           "sha256": "bfbd5a531a2db9e7f0ccff7a51a261327eb8c566707c8c59247805c70eb2fc73"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 5778,
-          "end": 5839,
+          "start": 5819,
+          "end": 5880,
           "sha256": "5030dc00ceef9febd1f5d286c0bd147ff1bbe2375df7c05b4476cbe4cb24f779"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 5895,
-          "end": 5917,
+          "start": 5936,
+          "end": 5958,
           "sha256": "0e742920bd3f2de7ca5f67dd454e3fd8216eade7b5a988f3151e090736d2489c"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 6141,
-          "end": 6207,
+          "start": 6182,
+          "end": 6248,
           "sha256": "c969cbc1055f018f76236e8b4e217c5f799cfe04f932f6225ebe35bf79eda82a"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 6396,
-          "end": 6453,
+          "start": 6437,
+          "end": 6494,
           "sha256": "506d4313147f6449b8e9c6d81b7bb9ddfd8d5fb5545727fc123f1697f5765df5"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 6906,
-          "end": 6918,
+          "start": 6947,
+          "end": 6959,
           "sha256": "4b10a4c0404fc6ed58c0c1842ff5dc75d3fe462c2b7b67647ea4547aa58b222b"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 7225,
-          "end": 7336,
+          "start": 7266,
+          "end": 7377,
           "sha256": "74b4d77644204da3969d19e0ba68edb53b008d2fb7a9afbe84a6be2418affb54"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 3748,
-          "end": 3834,
+          "start": 3789,
+          "end": 3875,
           "sha256": "0abb333e9dccc371e6de41b9697150b31473ca769eb76edf945e6d6766b810cd"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 3965,
-          "end": 4022,
+          "start": 4006,
+          "end": 4063,
           "sha256": "fb49f96b580d3beceb7189acf9a9697257f5ace495c88c1ea410533f8f06c545"
         },
         {
@@ -8515,84 +8515,84 @@
       "source_refs": []
     },
     {
-      "id": "1f1f309a9ba43569a528a644f3e692ca50af7d131ab6050ed4886f35a18cb944",
+      "id": "0a9ddb4d789194301817e745e712e92665b37d798787a0ac0b4018305668d5da",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "8825874e0f7d7fba4d6ea78c53bffb97effcfa0169cf8cb56650bf31387df7aa",
+      "id": "ec70d514d6d98c0b4c37911aa601ceca37cc49f0aa6663feb6579ee96c532f54",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "833e0697448af0d931a8a02bfacff461aca06b10ba9f518a93f959f81def88ae",
+      "id": "e92e2213e78cb04b3e4838ab05d51c0037fef8227f5c800ddbc491c098a21457",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "a5c15d3f7a400b2ebdaeec6e0eb9a9683e9688658de4be9ac1377a999c10be77",
+      "id": "0130b2efe75aef0c3365ee115e2a8ceddbca4b1b32a6a3f0c02773c2f8b49103",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "83df407e76fd7b1d4864583183e3b481dfa44b99f884f8a2ae2f7ae971b8e6db",
+      "id": "755e08f3bfac7e0e72d4ba6dec313504c7faf2cece098db4fec0a689bb4d3c39",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "99988b39a4b4f683691859e4c1a25cd3afa5a8c2d31be33384854d78c0c7ad63",
+      "id": "f271754c9275c2e347fce5a4ba2beed1c3b9f85338eb2bc175998371d0eaebbf",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "f13c0b1e83cdaf242fc15cfb9c9421a9060027417f6e3755f90485243909bfae",
+      "id": "252c2a09b77f8d681b00b389ac8d8b0707e40dd9623211ef8cc50d584f6fa2d7",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "6a8a92ccbfb9ed730b370900427c20b1c5ca7f69a51d3e101e2714b7aff37bd6",
+      "id": "082337e58bd3b1ec47709830c88ea5614286b06d612bed5cdab0d608c7126ed6",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "b7d9a1186b803bfd9958b1d7ee27f9fa4f56f148793ab24c1965a4c4a92a1b81",
+      "id": "7d0890c14a998fa54d134110c98817cf075ab87ad891a63db5be83b905e92a53",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "db43242ec41d6c4a328b361e349eef7ade8bf717a9ac04d21fdc413f0170db16",
+      "id": "45709031d4c3c812f04a5cb748d84ebc3cf94c556c554570d66138e509648f03",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "a224d2566835fb148f2f7d194d18d4226e9ceeeab33e112dd0d1d16e38018d21",
+      "id": "082f5d092bb5e9e62c745cff629e4c69e8ad8b6c893785fa5b22eac62912aec9",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "b5716b50baf3cb4f78aece960192cfcdbd9a59f12b5d8d6d4d07810e78883922",
+      "id": "b096a491be762a423662932f485778eb3b5bbdab434f4aff1b7a732d1b2aeaa6",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",

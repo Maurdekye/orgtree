@@ -209,6 +209,127 @@ class MovementIsNotArrival(Base):
         self.assertEqual(len(self.archive()), 1)
 
 
+class AnUnreadableStampIsNotAnAbsentOne(Base):
+    """The READ side of the same distinction, and the same collapse.
+
+    `mailbox_in_receive_order` normalised the stamp with `r.get('mailbox') or
+    None`, so `False`, `None`, `''`, `0`, `[]` and `{}` all read as "no stamp"
+    — the one SUPPORTED exception, a row numbered before stamping existed.
+    Each of them therefore entered the ordered partition and sorted ahead of
+    correctly stamped mail on an ordinal nothing could attribute, while
+    `mailbox_receive_order_anomalies` was reporting the very same row as
+    `unsupported_mailbox_stamp`. Reviewer finding f2 (2026-09-22).
+
+    The fixture is the reviewer's: `good` holds ordinal 2 and this mailbox's
+    own stamp, `subject` holds ordinal 1 and the witness stamp, and `legacy`
+    holds no ordinal at all. If `subject`'s stamp is readable and ours it wins
+    on ordinal 1; if it is unreadable it belongs behind every ordered row,
+    where `legacy` already is."""
+
+    MINE = 'retained-mailbox'
+
+    def setUpFixture(self, stamp='absent', mine=MINE):
+        if mine is not None:
+            self.org.node('worker')['mailbox_id'] = mine
+        subject = {'id': 'subject', 'from': 'x', 'kind': 'message',
+                   'at': '2020-01-01T00:00:00.000Z', 'body': 's', 'recv_seq': 1}
+        if stamp != 'absent':
+            subject['mailbox'] = stamp
+        good = {'id': 'good', 'from': 'x', 'kind': 'message',
+                'at': '2020-01-01T00:00:00.000Z', 'body': 'g', 'recv_seq': 2}
+        if mine is not None:
+            good['mailbox'] = mine
+        self.org.d['mail'] = {'worker': [
+            {'id': 'legacy', 'from': 'x', 'kind': 'message',
+             'at': '2020-01-01T00:00:00.000Z', 'body': 'l'},
+            good, subject]}
+
+    def read(self):
+        before = copy.deepcopy(self.org.d)
+        out = [r['id'] for r in self.org.mailbox_in_receive_order('worker')]
+        self.assertEqual(self.org.d, before)        # the read stays pure
+        return out
+
+    # -- the six reviewer witnesses --------------------------------------
+    def test_a_FALSE_stamp_does_not_sort_ahead_of_stamped_mail(self):
+        self.setUpFixture(stamp=False)
+        self.assertEqual(self.read(), ['good', 'legacy', 'subject'])
+
+    def test_a_NULL_stamp_does_not_sort_ahead_of_stamped_mail(self):
+        self.setUpFixture(stamp=None)
+        self.assertEqual(self.read(), ['good', 'legacy', 'subject'])
+
+    def test_an_EMPTY_STRING_stamp_does_not_sort_ahead_of_stamped_mail(self):
+        self.setUpFixture(stamp='')
+        self.assertEqual(self.read(), ['good', 'legacy', 'subject'])
+
+    def test_a_ZERO_stamp_does_not_sort_ahead_of_stamped_mail(self):
+        self.setUpFixture(stamp=0)
+        self.assertEqual(self.read(), ['good', 'legacy', 'subject'])
+
+    def test_an_EMPTY_LIST_stamp_does_not_sort_ahead_of_stamped_mail(self):
+        self.setUpFixture(stamp=[])
+        self.assertEqual(self.read(), ['good', 'legacy', 'subject'])
+
+    def test_an_EMPTY_DICT_stamp_does_not_sort_ahead_of_stamped_mail(self):
+        self.setUpFixture(stamp={})
+        self.assertEqual(self.read(), ['good', 'legacy', 'subject'])
+
+    # -- the controls that discriminate the boundary ----------------------
+    def test_an_ABSENT_stamp_IS_the_supported_legacy_exception(self):
+        # the whole reason the collapse was not obvious: this row SHOULD win.
+        self.setUpFixture(stamp='absent')
+        self.assertEqual(self.read(), ['subject', 'good', 'legacy'])
+
+    def test_the_mailboxs_OWN_stamp_still_orders(self):
+        self.setUpFixture(stamp=self.MINE)
+        self.assertEqual(self.read(), ['subject', 'good', 'legacy'])
+
+    def test_a_FOREIGN_nonempty_stamp_is_unordered_as_it_already_was(self):
+        self.setUpFixture(stamp='some-other-mailbox')
+        self.assertEqual(self.read(), ['good', 'legacy', 'subject'])
+
+    def test_an_ordinal_outside_the_domain_is_still_unordered(self):
+        self.setUpFixture(stamp=self.MINE)
+        self.org.d['mail']['worker'][2]['recv_seq'] = 0
+        self.assertEqual(self.read(), ['good', 'legacy', 'subject'])
+
+    def test_the_read_mints_no_identity_when_the_node_has_none(self):
+        self.setUpFixture(stamp=False, mine=None)
+        # with no identity of its own this mailbox can match no stamp at all.
+        # `good` and `legacy` carry none either, so the legacy exception still
+        # orders `good`; only the unreadable stamp is held back.
+        self.assertEqual(self.read(), ['good', 'legacy', 'subject'])
+        self.assertNotIn('mailbox_id', self.org.node('worker'))
+        self.assertNotIn('mail_seq', self.org.node('worker'))
+
+    def test_several_unreadable_rows_keep_their_ORIGINAL_relative_order(self):
+        self.org.node('worker')['mailbox_id'] = self.MINE
+        rows = [{'id': f'bad-{i}', 'from': 'x', 'kind': 'message',
+                 'at': '2020-01-01T00:00:00.000Z', 'body': 'b',
+                 'recv_seq': 9 - i, 'mailbox': stamp}
+                for i, stamp in enumerate([False, '', 0, [], {}, None])]
+        ordered = {'id': 'good', 'from': 'x', 'kind': 'message',
+                   'at': '2020-01-01T00:00:00.000Z', 'body': 'g',
+                   'recv_seq': 1, 'mailbox': self.MINE}
+        self.org.d['mail'] = {'worker': [*rows, ordered]}
+        # descending ordinals: had any of them been ordered it would have
+        # sorted ahead of `good`, and the tail would not be in document order.
+        self.assertEqual(self.read(),
+                         ['good', 'bad-0', 'bad-1', 'bad-2', 'bad-3', 'bad-4',
+                          'bad-5'])
+
+    def test_the_two_helpers_agree_about_the_same_row(self):
+        # the mismatch f2 actually names: the scanner called it unsupported
+        # while the reader presented it as ordered.
+        self.setUpFixture(stamp=False)
+        found = self.org.mailbox_receive_order_anomalies('worker')
+        self.assertEqual([(c['reason'], c['message'])
+                          for c in found['conflicts']],
+                         [('unsupported_mailbox_stamp', 'subject')])
+        self.assertEqual(self.read()[-1], 'subject')
+
+
 class Lifecycle(Base):
     def test_rehire_after_retire_keeps_the_counter_and_the_mailbox(self):
         self.send('a')
