@@ -499,8 +499,11 @@ class AWholeBatchIsTheUnit(Case):
         self.assertEqual(selection.requested, ('m-1', 'm-99'))
 
     def test_an_unhashable_message_id_does_not_take_the_request_down(self):
-        self.assertEqual(mo.select(self.populated(), [['m-1']]).unresolved_messages,
-                         (['m-1'],))
+        """It is reported as an UNSUPPORTED identity, which is a different
+        statement from "no such row" — see `AMessageIdentityIsCompared`."""
+        selection = mo.select(self.populated(), [['m-1']])
+        self.assertEqual(selection.unsupported_messages, (['m-1'],))
+        self.assertEqual(selection.unresolved_messages, ())
 
 
 class APureFunctionStaysPure(Case):
@@ -519,11 +522,16 @@ class APureFunctionStaysPure(Case):
             activity=mo.NodeActivity(busy=True))
 
     def test_the_snapshot_is_unchanged_by_classification(self):
+        """Compared by `repr` rather than by a deep copy: since the input
+        boundary resolves every collection at construction, a snapshot holds a
+        `mappingproxy`, and `copy.deepcopy` cannot copy one. That is the
+        immutability doing its job, so the check reads the whole structure
+        instead of duplicating it."""
         snapshot = self.rich()
-        before = copy.deepcopy(snapshot)
+        before = repr(snapshot)
         mo.classify(snapshot)
         mo.select(snapshot, ['m-1'])
-        self.assertEqual(snapshot, before)
+        self.assertEqual(repr(snapshot), before)
 
     def test_the_same_snapshot_classifies_identically_every_time(self):
         snapshot = self.rich()
@@ -675,7 +683,254 @@ class NothingInTheProductCallsThisYet(Case):
         tests = CHECKOUT / 'tests'
         readers = sorted(p.name for p in tests.rglob('*.py')
                          if 'mailownership' in p.read_text(encoding='utf-8', errors='replace'))
-        self.assertEqual(readers, ['test_mail_ownership.py'])
+        self.assertEqual(readers, ['test_mail_ownership.py',
+                                   'test_mail_reclaim_fold.py'],
+                         'the fold module names it only to assert the supervisor '
+                         'does NOT import it')
+
+
+class UnreadableCustodyStillHolds(Case):
+    """Owner preflight, finding 1. A claim whose token membership cannot be
+    read is a claim that might be holding this token, and skipping it made a
+    valid old batch reclaimable — the exact outcome rule 4 forbids.
+
+    The two controls at the bottom are what keep this from degenerating into
+    "any claim protects everything": a claim that names an empty set, and one
+    that names somebody else's token, still protect nothing."""
+
+    UNREADABLE = {
+        'gap-unknown': mo.Gap.UNKNOWN,
+        'gap-unsupported': mo.Gap.UNSUPPORTED,
+        'present-null': None,
+        'bool': False,
+        'scalar-string': 'tok-a',          # a string is one value, not an iterable of tokens
+        'one-invalid-entry': ('tok-a', None),
+    }
+
+    def test_a_claim_with_an_unreadable_token_list_protects_every_batch(self):
+        for label, value in self.UNREADABLE.items():
+            with self.subTest(tokens=label):
+                result = mo.classify(self.snap(
+                    batches=(self.batch('tok-a'), self.batch('tok-b')),
+                    claims=(mo.Claim(tokens=value, delivery_id='d-1'),)))
+                for token in ('tok-a', 'tok-b'):
+                    verdict = result.by_token[token]
+                    self.assertIs(verdict.disposition, mo.Disposition.PROTECTED)
+                    self.assertIs(verdict.owner, mo.OwnerEvidence.UNPROVEN)
+                    self.assertFalse(verdict.reclaimable)
+
+    def test_absent_and_unreadable_claim_membership_are_reported_apart(self):
+        absent = self.verdict(self.snap(claims=(mo.Claim(tokens=None, delivery_id='d-1'),)))
+        self.assertReasons(absent, mo.Reason.CLAIM_WITHOUT_TOKEN_MEMBERSHIP)
+
+        unreadable = self.verdict(self.snap(
+            claims=(mo.Claim(tokens=mo.Gap.UNSUPPORTED, delivery_id='d-1'),)))
+        self.assertReasons(unreadable, mo.Reason.CLAIM_UNRESOLVED)
+
+    def test_an_unreadable_carrier_or_retention_says_which_it_was(self):
+        carrier = self.verdict(self.snap(carriers=(
+            mo.CarrierHold(mo.CarrierKind.QUEUE, tokens=None, live=True),)))
+        self.assertIs(carrier.disposition, mo.Disposition.PROTECTED)
+        self.assertReasons(carrier, mo.Reason.CARRIER_TOKENS_UNRESOLVED)
+
+        retention = self.verdict(self.snap(retentions=(
+            mo.Retention(mo.RetentionKind.HALT, tokens=('tok-a', None)),)))
+        self.assertIs(retention.disposition, mo.Disposition.PROTECTED)
+        self.assertReasons(retention, mo.Reason.RETENTION_TOKENS_UNRESOLVED)
+        self.assertFalse(retention.retained_carrier,
+                         'which tokens are retained is exactly what is unreadable')
+
+    def test_a_claim_naming_no_tokens_protects_nothing(self):
+        verdict = self.verdict(self.snap(
+            claims=(mo.Claim(tokens=frozenset(), delivery_id='d-1'),)))
+        self.assertIs(verdict.disposition, mo.Disposition.ELIGIBLE)
+
+    def test_a_claim_naming_another_token_protects_nothing(self):
+        verdict = self.verdict(self.snap(
+            claims=(mo.Claim(tokens=frozenset({'somebody-else'}), delivery_id='d-1'),)))
+        self.assertIs(verdict.disposition, mo.Disposition.ELIGIBLE)
+
+
+class TheHolderIsNotAlwaysTheAskingTurn(Case):
+    """Owner preflight, the diagnostics finding. A durable claim carrying a
+    complete tuple from a session that has ended still protects its tokens —
+    and reporting that as `proven` said the batch belonged to the very turn
+    asking about it."""
+
+    def claim_owned_by(self, holder):
+        return self.verdict(self.snap(claims=(
+            mo.Claim(frozenset({'tok-a'}), delivery_id='d-1', owner=holder),)))
+
+    def test_a_matching_holder_is_proven(self):
+        verdict = self.claim_owned_by(CURRENT)
+        self.assertIs(verdict.owner, mo.OwnerEvidence.PROVEN)
+        self.assertNotIn(mo.Reason.OWNER_RESOLVED_ELSEWHERE, verdict.reasons)
+
+    def test_a_stale_or_foreign_holder_is_resolved_elsewhere(self):
+        for label, holder in (
+                ('stale', mo.CustodyRef('mb-worker', 2, 'sess-6', 'turn-41')),
+                ('foreign', mo.CustodyRef('mb-other', 3, 'sess-7', 'turn-42'))):
+            with self.subTest(holder=label):
+                verdict = self.claim_owned_by(holder)
+                self.assertIs(verdict.disposition, mo.Disposition.PROTECTED)
+                self.assertIs(verdict.owner, mo.OwnerEvidence.RESOLVED_ELSEWHERE)
+                self.assertReasons(verdict, mo.Reason.OWNER_RESOLVED_ELSEWHERE)
+
+    def test_an_unnamed_or_unreadable_holder_stays_unproven(self):
+        for holder in (None, mo.CustodyRef(), mo.CustodyRef('mb-worker', True, 's', 't')):
+            with self.subTest(holder=repr(holder)):
+                self.assertIs(self.claim_owned_by(holder).owner,
+                              mo.OwnerEvidence.UNPROVEN)
+
+    def test_a_proven_holder_is_not_downgraded_by_an_unresolved_one_beside_it(self):
+        verdict = self.verdict(self.snap(
+            memberships=(mo.Membership(mo.MembershipKind.TURN, CURRENT,
+                                       frozenset({'tok-a'})),),
+            leases=(mo.Lease(tokens=mo.Gap.ABSENT),)))
+        self.assertIs(verdict.owner, mo.OwnerEvidence.PROVEN)
+
+
+class TheInputBoundaryIsImmutable(Case):
+    """Owner preflight, finding 2. `frozen=True` freezes the dataclass's own
+    attributes and says nothing about what they point at, so a snapshot could
+    hold a one-shot iterator or a list the caller still owned. Evidence that
+    can be spent by reading it, or edited after it was submitted, is not
+    evidence: the same snapshot answered PROTECTED and then ELIGIBLE."""
+
+    def member(self, tokens):
+        return mo.Membership(mo.MembershipKind.TURN, CURRENT, tokens)
+
+    def test_a_one_shot_iterator_is_not_spent_by_the_first_classification(self):
+        snapshot = self.snap(memberships=(self.member(iter(['tok-a'])),))
+        first, second = self.verdict(snapshot), self.verdict(snapshot)
+        self.assertIs(first.disposition, mo.Disposition.PROTECTED)
+        self.assertEqual(first, second)
+
+    def test_editing_the_list_afterwards_cannot_change_the_answer(self):
+        tokens = ['tok-a']
+        snapshot = self.snap(memberships=(self.member(tokens),))
+        first = self.verdict(snapshot)
+        tokens.clear()
+        tokens.append('something-else')
+        self.assertEqual(self.verdict(snapshot), first)
+
+    def test_every_token_collection_is_taken_by_value(self):
+        for label, build in (
+                ('membership', lambda t: dict(memberships=(self.member(t),))),
+                ('carrier', lambda t: dict(carriers=(
+                    mo.CarrierHold(mo.CarrierKind.QUEUE, t, live=True),))),
+                ('claim', lambda t: dict(claims=(mo.Claim(t, delivery_id='d-1'),))),
+                ('lease', lambda t: dict(leases=(
+                    mo.Lease(t, expires_at=iso(NOW + 30.0)),))),
+                ('retention', lambda t: dict(retentions=(
+                    mo.Retention(mo.RetentionKind.HALT, t),))),
+        ):
+            with self.subTest(record=label):
+                tokens = ['tok-a']
+                snapshot = self.snap(**build(tokens))
+                first = self.verdict(snapshot)
+                self.assertIs(first.disposition, mo.Disposition.PROTECTED)
+                tokens.clear()
+                self.assertEqual(self.verdict(snapshot), first)
+
+    def test_a_generator_of_batches_survives_being_classified_twice(self):
+        snapshot = self.snap(batches=iter([self.batch('tok-a')]))
+        self.assertEqual(mo.classify(snapshot).verdicts,
+                         mo.classify(snapshot).verdicts)
+        self.assertEqual(len(mo.classify(snapshot).verdicts), 1)
+
+    def test_the_confirmation_map_is_copied_not_aliased(self):
+        confirmations = {'tok-a': mo.Confirmation.IN_FLIGHT}
+        snapshot = self.snap(confirmations=confirmations)
+        first = self.verdict(snapshot)
+        confirmations.clear()
+        self.assertEqual(self.verdict(snapshot), first)
+
+    def test_a_resolved_token_set_is_what_the_record_stores(self):
+        """The resolution happens once, at construction, so every rule reads
+        the same answer instead of each re-deriving it."""
+        self.assertEqual(mo.Claim(tokens=['a', 'b']).tokens, frozenset({'a', 'b'}))
+        self.assertIs(mo.Claim(tokens='a').tokens, mo.Gap.UNSUPPORTED)
+        self.assertIs(mo.Claim(tokens=None).tokens, mo.Gap.ABSENT)
+
+
+class TheClockIsEvidenceToo(Case):
+    """Owner preflight, finding 3. Every ordering comparison against NaN is
+    False, so a NaN clock silently reported that no grace was left and that
+    every lease had expired — an unreadable clock arguing for reclaim."""
+
+    UNSUPPORTED = {'nan': float('nan'), 'infinity': float('inf'),
+                   'negative-infinity': float('-inf'), 'null': None,
+                   'bool': True, 'text': '2026-09-22T00:00:00+00:00', 'list': []}
+
+    def test_an_unreadable_clock_refuses_instead_of_expiring_things(self):
+        for label, value in self.UNSUPPORTED.items():
+            with self.subTest(now=label):
+                verdict = self.verdict(self.snap(now=value))
+                self.assertIs(verdict.disposition, mo.Disposition.UNAVAILABLE)
+                self.assertFalse(verdict.reclaimable)
+                self.assertIsNone(verdict.grace_remaining)
+                self.assertReasons(verdict, mo.Reason.CLOCK_UNSUPPORTED)
+
+    def test_an_unreadable_clock_does_not_expire_a_lease(self):
+        verdict = self.verdict(self.snap(
+            now=float('nan'),
+            leases=(mo.Lease(frozenset({'tok-a'}), expires_at=iso(NOW - 30.0)),)))
+        self.assertReasons(verdict, mo.Reason.LEASE_UNRESOLVED)
+        self.assertNotIn(mo.Reason.LEASE_EXPIRED, verdict.reasons)
+
+    def test_an_unreadable_clock_never_raises(self):
+        for value in self.UNSUPPORTED.values():
+            with self.subTest(now=repr(value)):
+                mo.classify(self.snap(now=value))
+                mo.select(self.snap(now=value), ['m-1'])
+
+    def test_a_finite_instant_is_still_accepted_as_an_int_or_a_float(self):
+        for value in (NOW, int(NOW), 0, 0.0):
+            with self.subTest(now=value):
+                self.assertNotIn(mo.Reason.CLOCK_UNSUPPORTED,
+                                 self.verdict(self.snap(now=value)).reasons)
+
+
+class AMessageIdentityIsCompared(Case):
+    """Owner preflight, finding 4. `select` fell back to `repr()` for an
+    unhashable id, so a stored `[]` and a requested `'[]'` became the same
+    message and a request naming a string reclaimed a batch whose identity was
+    a list. Identity is now compared, never coerced."""
+
+    def test_a_stored_and_a_requested_value_of_different_types_never_alias(self):
+        snapshot = self.snap(batches=(self.batch('tok-a', message_ids=([],)),))
+        selection = mo.select(snapshot, ('[]',))
+        self.assertEqual(selection.reclaimable_tokens, frozenset())
+        self.assertEqual(selection.unresolved_messages, ('[]',))
+
+    def test_a_batch_with_an_unreadable_identity_is_named_and_not_reclaimable(self):
+        snapshot = self.snap(batches=(
+            self.batch('tok-a', message_ids=('m-1', 17)),))
+        selection = mo.select(snapshot, ['m-1'])
+        self.assertEqual(selection.unreadable_identity_batches, frozenset({'tok-a'}))
+        self.assertEqual(selection.reclaimable_tokens, frozenset())
+        self.assertIn('tok-a', selection.partial_batches)
+        self.assertReasons(self.verdict(snapshot),
+                           mo.Reason.UNSUPPORTED_MESSAGE_IDENTITY)
+
+    def test_an_unsupported_requested_id_is_reported_apart_from_an_unknown_one(self):
+        snapshot = self.snap(batches=(self.batch('tok-a', message_ids=('m-1',)),))
+        selection = mo.select(snapshot, ['m-1', 'm-99', 17, None, '', ['m-1']])
+        self.assertEqual(selection.unresolved_messages, ('m-99',))
+        self.assertEqual(selection.unsupported_messages, (17, None, '', ['m-1']))
+        self.assertEqual(selection.reclaimable_tokens, frozenset({'tok-a'}))
+
+    def test_an_unsupported_request_matches_nothing_at_all(self):
+        snapshot = self.snap(batches=(self.batch('tok-a', message_ids=('m-1',)),))
+        selection = mo.select(snapshot, [17])
+        self.assertEqual(selection.verdicts, ())
+        self.assertEqual(selection.reclaimable_tokens, frozenset())
+
+    def test_a_single_string_request_is_one_id_not_a_run_of_characters(self):
+        snapshot = self.snap(batches=(self.batch('tok-a', message_ids=('m-1',)),))
+        self.assertEqual(mo.select(snapshot, 'm-1').reclaimable_tokens,
+                         frozenset({'tok-a'}))
 
 
 if __name__ == '__main__':
