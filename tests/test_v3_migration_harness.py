@@ -186,6 +186,107 @@ raise SystemExit(74)
         self.assertEqual(plain_tree(root / "restored"), original)
         self.assertFalse(source.exists())
 
+    def test_metadata_aliases_refuse_without_rewriting_evidence(self):
+        cases = [
+            ("plan.json", ("harness_version",), True),
+            ("plan.json", ("harness_version",), 1.0),
+            ("plan.json", ("adapter", "version"), True),
+            ("plan.json", ("adapter", "version"), 1.0),
+            ("plan.json", ("activation_allowed",), 0),
+            ("plan.json", ("inventory", "organizations"), True),
+            ("plan.json", ("source_manifest", "app-settings.json", "bytes"), "as_float"),
+            ("receipt.json", ("format",), True),
+            ("receipt.json", ("format",), 1.0),
+            ("receipt.json", ("plan", "adapter", "version"), True),
+            ("receipt.json", ("plan", "adapter", "version"), 1.0),
+            ("receipt.json", ("plan", "activation_allowed"), 0),
+            ("receipt.json", ("plan", "source_manifest", "app-settings.json", "bytes"), "as_float"),
+        ]
+        for phase in ("prepared", "complete"):
+            phase_cases = cases + ([("receipt.json", ("target_manifest", "envelope.json", "bytes"), "as_float")] if phase == "complete" else [])
+            for filename, keys, replacement in phase_cases:
+                with self.subTest(phase=phase, file=filename, field=keys, value=replacement):
+                    root = self.fixture()
+                    if phase == "prepared":
+                        with self.assertRaises(Interrupted):
+                            Rehearsal(root, checkpoint=stop_at("prepared")).migrate()
+                    else:
+                        harness = Rehearsal(root)
+                        first = harness.migrate()
+                        self.assertEqual(harness.migrate(), first)
+                    path = root / filename
+                    value = decode(path.read_bytes())
+                    field = value
+                    for key in keys[:-1]:
+                        field = field[key]
+                    original = field[keys[-1]]
+                    field[keys[-1]] = float(original) if replacement == "as_float" else replacement
+                    # This is the unsafe comparison the regression must reject.
+                    self.assertEqual(original, field[keys[-1]])
+                    self.assertIsNot(type(original), type(field[keys[-1]]))
+                    path.write_bytes(encode(value))
+                    changed = plain_tree(root)
+                    for action in ("migrate", "rollback"):
+                        with self.subTest(action=action):
+                            with self.assertRaises(Refused):
+                                getattr(Rehearsal(root), action)()
+                            self.assertEqual(plain_tree(root), changed)
+
+    def test_rollback_metadata_aliases_refuse(self):
+        cases = [(("format",), True), (("format",), 1.0),
+                 (("post_activation",), 0), (("post_activation",), 0.0),
+                 (("source_manifest", "app-settings.json", "bytes"), "as_float"),
+                 (("restored_manifest", "app-settings.json", "bytes"), "as_float")]
+        for keys, replacement in cases:
+            with self.subTest(field=keys, value=replacement):
+                root = self.fixture()
+                harness = Rehearsal(root)
+                harness.migrate()
+                first = harness.rollback()
+                self.assertEqual(harness.rollback(), first)
+                path = root / "rollback.json"
+                value = decode(path.read_bytes())
+                field = value
+                for key in keys[:-1]:
+                    field = field[key]
+                original = field[keys[-1]]
+                field[keys[-1]] = float(original) if replacement == "as_float" else replacement
+                self.assertEqual(original, field[keys[-1]])
+                self.assertIsNot(type(original), type(field[keys[-1]]))
+                path.write_bytes(encode(value))
+                changed = plain_tree(root)
+                with self.assertRaises(Refused):
+                    harness.rollback()
+                self.assertEqual(plain_tree(root), changed)
+
+    def test_candidate_metadata_version_alias_refuses_before_completion(self):
+        for version in (True, 1.0):
+            with self.subTest(version=version):
+                root = self.fixture()
+                with self.assertRaises(Interrupted):
+                    Rehearsal(root, checkpoint=stop_at("published")).migrate()
+                path = root / "target/envelope.json"
+                value = decode(path.read_bytes())
+                value["version"] = version
+                path.write_bytes(encode(value))
+                changed = plain_tree(root)
+                with self.assertRaisesRegex(Refused, "version"):
+                    EnvelopeAdapter().read(root / "target")
+                with self.assertRaises(Refused):
+                    Rehearsal(root).migrate()
+                self.assertEqual(plain_tree(root), changed)
+
+    def test_adapter_metadata_requires_string_identity_and_integer_version(self):
+        for identity, version in (("test", True), ("test", 1.0), ("test", 0), ("test", -1), ("test", None), ("", 1), (True, 1)):
+            with self.subTest(identity=identity, version=version):
+                root = self.fixture()
+                adapter = EnvelopeAdapter()
+                adapter.identity, adapter.version = identity, version
+                original = plain_tree(root)
+                with self.assertRaisesRegex(Refused, "adapter"):
+                    Rehearsal(root, adapter)
+                self.assertEqual(plain_tree(root), original)
+
     def test_retry_refuses_changed_source_key_or_adapter(self):
         for mutation in ("source", "key", "adapter"):
             with self.subTest(mutation=mutation):

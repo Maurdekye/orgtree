@@ -1,4 +1,4 @@
-﻿# Synthetic 2.x migration and rollback rehearsal
+# Synthetic 2.x migration and rollback rehearsal
 
 2.x migration changes need repeatable preservation tests without using user data.
 This first slice provides generated legacy fixtures, read-only fixture readers,
@@ -113,6 +113,9 @@ used by the harness; the CLI owns and cleans its newly generated temp root.
    the target manifest. Retry after publication but before receipt recognizes
    that target; an unchanged complete retry returns exactly the same receipt.
    Changed source, operation key, adapter version, candidate or receipt refuses.
+   Control documents are compared with JSON types preserved at every depth;
+   boolean/integer/float aliases such as `true`, `1` and `1.0` are not interchangeable.
+   Adapter identities are nonempty strings and versions are positive integers.
 6. `rollback()` verifies the backup and rebuilds `restored/`, never overwriting
    the source. It proves file-byte equality and readable legacy equivalence,
    then persists `rollback.json`. It resumes interrupted copy/receipt boundaries.

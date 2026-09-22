@@ -19,6 +19,16 @@ CHECKPOINTS = ("planned", "backup-file", "backed-up", "prepared", "staged",
                "published", "complete", "restore-file", "restored")
 
 
+def same_json(actual, expected):
+    """Compare complete JSON control documents without Python numeric aliases.
+
+    Canonical encoding preserves bool/int/float distinctions at every depth,
+    while permitting insignificant input whitespace and object-key order.
+    Expected documents are derived from the source and fixed protocol schema.
+    """
+    return encode(actual) == encode(expected)
+
+
 def atomic_write(path, body):
     temporary = path.with_name(path.name + ".part")
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -96,7 +106,11 @@ class EnvelopeAdapter:
         if set(files) != {"envelope.json"}:
             raise Refused("unexpected candidate files")
         value = decode(files["envelope.json"])
-        if not isinstance(value, dict) or set(value) != {"adapter", "version", "bundle"} or value["adapter"] != self.identity or value["version"] != self.version:
+        if (not isinstance(value, dict)
+                or set(value) != {"adapter", "version", "bundle"}
+                or type(value["version"]) is not int
+                or not same_json([value["adapter"], value["version"]],
+                                 [self.identity, self.version])):
             raise Refused("candidate adapter/version mismatch")
         return value["bundle"]
 
@@ -104,7 +118,10 @@ class EnvelopeAdapter:
 class Rehearsal:
     def __init__(self, root, adapter=None, checkpoint=None):
         self.root = Path(root).absolute()
-        self.adapter = adapter or EnvelopeAdapter()
+        self.adapter = adapter if adapter is not None else EnvelopeAdapter()
+        if (type(self.adapter.identity) is not str or not self.adapter.identity
+                or type(self.adapter.version) is not int or self.adapter.version < 1):
+            raise Refused("adapter needs a nonempty string identity and positive integer version")
         self.checkpoint = checkpoint or (lambda _: None)
         self._guard()
 
@@ -131,7 +148,7 @@ class Rehearsal:
         plan = self._make_plan(operation_key, bundle, files)
         path = self.root / "plan.json"
         if path.exists():
-            if decode(path.read_bytes()) != plan:
+            if not same_json(decode(path.read_bytes()), plan):
                 raise Refused("operation/source/adapter changed since preparation")
         else:
             if any((self.root / name).exists() for name in ("backup", "stage", "target", "receipt.json", "restored", "rollback.json")):
@@ -166,10 +183,10 @@ class Rehearsal:
 
     def _backup(self, plan, files):
         if (self.root / "receipt.json").exists():
-            if not (self.root / "backup").is_dir() or manifest(plain_tree(self.root / "backup")) != plan["source_manifest"]:
+            if not (self.root / "backup").is_dir() or not same_json(manifest(plain_tree(self.root / "backup")), plan["source_manifest"]):
                 raise Refused("previously verified backup missing or changed")
         self._copy_exact(self.root / "backup", files, "backup-file")
-        if manifest(plain_tree(self.root / "source")) != plan["source_manifest"]:
+        if not same_json(manifest(plain_tree(self.root / "source")), plan["source_manifest"]):
             raise Refused("source changed while backing up")
         self.checkpoint("backed-up")
 
@@ -187,11 +204,11 @@ class Rehearsal:
         value = decode(path.read_bytes())
         prepared = {"format": HARNESS_VERSION, "state": "prepared", "plan": plan,
                     "backup_sha256": digest(encode(plan["source_manifest"]))}
-        if value == prepared:
+        if same_json(value, prepared):
             return value
         if isinstance(value, dict) and value.get("state") == "complete":
             expected = dict(prepared, state="complete", target_manifest=self._verify_target(bundle))
-            if value == expected:
+            if same_json(value, expected):
                 return value
         raise Refused("receipt does not match operation/backup/candidate")
 
@@ -224,7 +241,7 @@ class Rehearsal:
             raise Refused("both staged and published candidates exist")
         self.checkpoint("published")
         target_manifest = self._verify_target(bundle)
-        if manifest(plain_tree(self.root / "source")) != plan["source_manifest"] or manifest(plain_tree(self.root / "backup")) != plan["source_manifest"]:
+        if not same_json(manifest(plain_tree(self.root / "source")), plan["source_manifest"]) or not same_json(manifest(plain_tree(self.root / "backup")), plan["source_manifest"]):
             raise Refused("source/backup changed before receipt")
         receipt = dict(prepared, state="complete", target_manifest=target_manifest)
         atomic_write(self.root / "receipt.json", encode(receipt))
@@ -244,10 +261,13 @@ class Rehearsal:
         if not (self.root / "plan.json").exists():
             raise Refused("no prepared operation to restore")
         plan = decode((self.root / "plan.json").read_bytes())
-        if not isinstance(plan, dict) or plan.get("harness_version") != HARNESS_VERSION or plan.get("operation_key") != operation_key or plan.get("adapter") != {"id": self.adapter.identity, "version": self.adapter.version}:
+        if (not isinstance(plan, dict)
+                or type(plan.get("harness_version")) is not int
+                or not same_json([plan.get("harness_version"), plan.get("operation_key"), plan.get("adapter")],
+                                 [HARNESS_VERSION, operation_key, {"id": self.adapter.identity, "version": self.adapter.version}])):
             raise Refused("rollback operation/adapter/version mismatch")
         backup_path = self.root / "backup"
-        if not backup_path.is_dir() or manifest(plain_tree(backup_path)) != plan.get("source_manifest"):
+        if not backup_path.is_dir() or not same_json(manifest(plain_tree(backup_path)), plan.get("source_manifest")):
             # Interruption during initial backup: finish from the unchanged
             # original. Once a receipt exists, never repair a damaged backup.
             if (self.root / "receipt.json").exists():
@@ -255,7 +275,7 @@ class Rehearsal:
             plan, bundle, files = self._prepare(operation_key)
             self._backup(plan, files)
         bundle = read_source(backup_path)
-        if self._make_plan(operation_key, bundle, plain_tree(backup_path)) != plan:
+        if not same_json(self._make_plan(operation_key, bundle, plain_tree(backup_path)), plan):
             raise Refused("backup logical digest/plan mismatch")
         self._receipt(plan, bundle)
         if (self.root / "target").exists():
@@ -270,7 +290,7 @@ class Rehearsal:
                    "bundle_sha256": plan["bundle_sha256"], "post_activation": False}
         path = self.root / "rollback.json"
         if path.exists():
-            if decode(path.read_bytes()) != receipt:
+            if not same_json(decode(path.read_bytes()), receipt):
                 raise Refused("rollback receipt mismatch")
         else:
             atomic_write(path, encode(receipt))
