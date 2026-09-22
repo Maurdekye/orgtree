@@ -765,7 +765,7 @@ test('tray handles failed, unavailable, current and invalid progress states hone
   assert.match(main, /id: 'update-install'[\s\S]*?requestUpdateInstall\(\)/)
   assert.match(main, /id: 'update-check'[^}]*?checkForUpdates\(\)/,
     'the tray item must go through the one guarded entry point, not straight to the controller')
-  assert.match(main, /report: status => \{[\s\S]*?broadcast\(\{ type: 'update'[\s\S]*?refreshTrayUpdates\(\)/)
+  assert.match(main, /report: status => \{[\s\S]*?broadcastAll\(\{ type: 'update'[\s\S]*?refreshTrayUpdates\(\)/)
   // a download - first or replacement - means nothing on disk is installable
   assert.match(main, /if \(status\.state === 'downloading'\) downloaded = false/)
   // An OPEN menu refreshes in place rather than being rebuilt. The engine's
