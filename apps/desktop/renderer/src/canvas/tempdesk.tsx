@@ -64,7 +64,37 @@ export function TempDeskModal({ node, close, desk }: TempDeskProps) {
   useEffect(() => {
     opener.current = doc.activeElement
     panel.current?.focus?.()
+    const trapTab = (event: KeyboardEvent) => {
+      const root = panel.current
+      if (event.key !== 'Tab' || event.defaultPrevented || !root) return
+      // A Desk can open its own dialog or menu. Let its handler consume Tab
+      // first, and leave focus alone while another modal owns it.
+      const active = doc.activeElement
+      const dialog = active?.closest('[role="dialog"][aria-modal="true"]')
+      if (dialog && dialog !== root) return
+      const targets = Array.from(root.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex], [contenteditable="true"]',
+      )).filter(element => {
+        if (element.tabIndex < 0 || element.matches(':disabled') || element.closest('[hidden], [inert]')) return false
+        // The canonical Desk carries collapsed panes as well as visible ones.
+        // Compute visibility in its own document, including hidden ancestors.
+        for (let current: HTMLElement | null = element; current; current = current.parentElement) {
+          const style = doc.defaultView?.getComputedStyle(current)
+          if (style?.display === 'none' || style?.visibility === 'hidden' || style?.visibility === 'collapse') return false
+          if (current === root) break
+        }
+        return true
+      })
+      event.preventDefault()
+      if (!targets.length) { root.focus(); return }
+      const index = targets.findIndex(element => element === active)
+      const next = index < 0 ? (event.shiftKey ? targets.length - 1 : 0)
+        : (index + (event.shiftKey ? -1 : 1) + targets.length) % targets.length
+      targets[next].focus()
+    }
+    doc.addEventListener('keydown', trapTab)
     return () => {
+      doc.removeEventListener('keydown', trapTab)
       const back = opener.current
       if (back instanceof HTMLElement && back.isConnected) back.focus()
     }

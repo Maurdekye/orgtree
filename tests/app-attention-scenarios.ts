@@ -108,6 +108,16 @@ export async function runAttentionScenarios(ctx: AppScenarioContext): Promise<vo
     ctx.check('TD2', !!beforeBorrow.transform && borrowed.pins === beforeBorrow.pins && borrowed.transform === beforeBorrow.transform
       && [...r.popouts.values()].filter(w => !w.isDestroyed()).length === windowsBefore,
       'Temporary opening leaves persisted pins, Canvas camera and native window count unchanged', {beforeBorrow, borrowed})
+    // Drive Chromium's keyboard input: aria-modal alone does not contain Tab.
+    await js(`document.querySelector('.tempdesk-close').focus(); true`)
+    r.window.webContents.sendInputEvent({type:'keyDown',keyCode:'Tab',modifiers:['shift']})
+    r.window.webContents.sendInputEvent({type:'keyUp',keyCode:'Tab',modifiers:['shift']})
+    const wrappedBack = await ctx.until(() => js<boolean>(`document.querySelector('.tempdesk-panel').contains(document.activeElement) && document.activeElement !== document.querySelector('.tempdesk-close')`), Boolean, 3000)
+    r.window.webContents.sendInputEvent({type:'keyDown',keyCode:'Tab'})
+    r.window.webContents.sendInputEvent({type:'keyUp',keyCode:'Tab'})
+    const wrappedForward = await ctx.until(() => js<boolean>(`document.activeElement === document.querySelector('.tempdesk-close')`), Boolean, 3000)
+    ctx.check('TD4', !!wrappedBack && !!wrappedForward,
+      'Native Shift+Tab and Tab wrap between the first and last visible temporary Desk controls', {wrappedBack, wrappedForward})
     await click('.tempdesk-close')
     await ready(`!document.querySelector('.tempdesk-panel') && !!document.querySelector('.pinwin[data-id="beta"] textarea')`)
     const returned = await js(`(() => {
