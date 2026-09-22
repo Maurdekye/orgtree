@@ -16,7 +16,11 @@ reclaim — must use instead of re-deriving it.  It is deliberately a leaf:
     takes no lock, loads and saves nothing, opens no transcript, calls no
     provider, and mints no identifier of any kind;
   * every fact it judges arrives inside one frozen `OwnershipSnapshot`,
-    including the clock, so the same snapshot classifies identically forever;
+    including the clock, so the same snapshot classifies identically forever.
+    That includes the TIMEZONE: every stamp it reads must state its own UTC
+    offset, because a stamp that does not is resolved through the process
+    timezone, and an ambient setting must never be able to move a batch from
+    protected to reclaimable.  See `_instant`;
   * it has NO production consumer in this slice, and building the snapshot
     from a live node is explicitly NOT part of it.
 
@@ -239,7 +243,7 @@ def _count(value: Any) -> int | Gap:
 
 
 def _instant(value: Any) -> float | Gap:
-    """An ISO-8601 stamp as epoch seconds.
+    """An ISO-8601 stamp, WITH A STATED UTC OFFSET, as epoch seconds.
 
     The domain is a non-empty ISO string and nothing else, because that is
     what `now_iso()` writes on every journal row. A bare number is refused
@@ -249,6 +253,30 @@ def _instant(value: Any) -> float | Gap:
     unresolved. Absent and unparseable are kept apart even though
     `_batch_is_young` folds them together: both are still "not young", so the
     characterisation is preserved exactly, but the reason says which happened.
+
+    THE OFFSET IS PART OF THE DOMAIN (review finding f4). A stamp that parses
+    but states no offset is UNSUPPORTED, not midnight-somewhere. `.timestamp()`
+    resolves such a value through the PROCESS timezone, which is a global this
+    module is not allowed to read: one frozen snapshot, classified twice in one
+    process whose `TZ` changed in between, returned `lease_held` and then
+    `lease_expired` — an ambient setting deciding a destructive permission.
+    Refusing is the conservative half of that fix, and it costs nothing real:
+    `ledger.now()` stamps every row it writes with a trailing `Z`, so no stamp
+    the product produces is affected, and a naive one can only reach here from
+    a hand-edited or corrupt document.
+
+    What a refusal MEANS is decided by the caller, and both callers already had
+    the right answer for an unreadable stamp, so neither needed a new rule: an
+    unresolved lease expiry is LEASE_UNRESOLVED — protected, holder unproven,
+    never expired — and an unresolved drain stamp is GRACE_STAMP_UNREADABLE,
+    which is "not young", exactly as `_batch_is_young` already treats a stamp it
+    cannot read. This is deliberately NOT a new grace policy.
+
+    ⚠ It IS a knowing divergence from `_batch_is_young`, which passes a naive
+    stamp to `.timestamp()` and so reads it in local time. That function is base
+    behaviour outside this slice's ten authorised paths and is not touched here;
+    for every stamp the product actually writes the two agree, because those
+    stamps all carry `Z`.
     """
     if value is None:
         return Gap.ABSENT
@@ -257,7 +285,13 @@ def _instant(value: Any) -> float | Gap:
     if not isinstance(value, str) or not value:
         return Gap.UNSUPPORTED
     try:
-        return _dtm.datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+        parsed = _dtm.datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.utcoffset() is None:
+            # naive, or a tzinfo that declines to resolve one.  Either way the
+            # instant is not stated, and only the process timezone could
+            # supply it.
+            return Gap.UNSUPPORTED
+        return parsed.timestamp()
     except (TypeError, ValueError, OverflowError):
         return Gap.UNSUPPORTED
 
@@ -587,7 +621,13 @@ class Selection:
       `unreadable_identity_batches` a BATCH storing an id outside its domain.
                                     Its coverage cannot be established, so it
                                     is excluded from `reclaimable_tokens` and
-                                    reported partial."""
+                                    reported partial.
+
+    That last exclusion is now a SECOND statement of a refusal `classify`
+    already makes (finding f3): such a batch is UNAVAILABLE there, so it could
+    not be reclaimable here either way.  It is kept because it is what names
+    the batch and makes it partial, and because a selector that agreed only by
+    accident is how the two answers drifted apart the first time."""
 
     requested: tuple[Any, ...]
     verdicts: tuple[TokenVerdict, ...]
@@ -898,7 +938,23 @@ def _verdict_for(snapshot: OwnershipSnapshot,
         reasons.append(Reason.MODE_LABEL_ONLY)
 
     if any(_message_key(mid) is None for mid in batch.message_ids):
+        # Review finding f3. This used to be a diagnostic and nothing more, so
+        # the batch fell through to ELIGIBLE while `select` refused the very
+        # same batch through its own unreadable set: two exported answers
+        # disagreeing about one permission, and the more permissive one was
+        # the primary classifier. The refusal belongs HERE, where both answers
+        # come from, so `classify`, `Classification.reclaimable_tokens` and
+        # `select` cannot diverge again.
+        #
+        # UNAVAILABLE rather than PROTECTED, for the same reason an unsupported
+        # token is: nothing here holds the batch, its CONTENTS simply cannot be
+        # established, and that is what "the evidence does not support any
+        # conclusion" says. Integrity outranks a holder throughout this
+        # function — a halt-held batch with an unreadable identity still
+        # reports HALT_HELD in its reasons — and both dispositions permit
+        # exactly nothing. No identity is repaired, coerced or minted.
         reasons.append(Reason.UNSUPPORTED_MESSAGE_IDENTITY)
+        unavailable = True
 
     if unavailable:
         disposition = Disposition.UNAVAILABLE

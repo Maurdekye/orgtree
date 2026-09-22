@@ -28,8 +28,10 @@ import copy
 import dataclasses
 import datetime as _dtm
 import itertools
+import json
 from pathlib import Path
 import re
+import subprocess
 import sys
 import unittest
 
@@ -345,7 +347,8 @@ class TheGraceIsTheOneThatAlreadyExists(Case):
         self.assertIsNone(absent.grace_remaining)
         self.assertReasons(absent, mo.Reason.GRACE_STAMP_ABSENT)
 
-        for junk in ('not-a-date', '', 0, False, [], {'at': 1}):
+        for junk in ('not-a-date', '', 0, False, [], {'at': 1},
+                     '2027-01-15T07:58:20'):   # parses, states no offset (f4)
             with self.subTest(stamp=repr(junk)):
                 verdict = self.verdict(self.snap(batches=(self.batch(at=junk),)))
                 self.assertIs(verdict.disposition, mo.Disposition.ELIGIBLE)
@@ -356,6 +359,20 @@ class TheGraceIsTheOneThatAlreadyExists(Case):
             batches=(self.batch(at='2027-01-15T07:58:20Z'),),
             now=1_800_000_000.0))
         self.assertIsNotNone(verdict.grace_remaining)
+
+    def test_the_stamp_the_product_actually_writes_carries_its_offset(self):
+        """The `Z` form above is not a convenience of this test: `ledger.now()`
+        is what stamps every `delivering` row, and it ends in `Z` on every
+        path. That is why requiring an offset (f4) refuses nothing the product
+        produces — a stamp without one can only come from a hand-edited or
+        corrupt document."""
+        source = (CHECKOUT / 'engine/backend/orgtree/ledger.py').read_text(
+            encoding='utf-8', errors='strict')
+        body = re.search(r'^def now\(\) -> str:\n(.*?)^\S', source,
+                         re.M | re.S)
+        self.assertIsNotNone(body, 'ledger.now() no longer parses')
+        self.assertIn('Z"', body.group(1),
+                      'ledger.now() stopped stamping an explicit zone')
 
 
 class TheEvidenceIsNotFabricated(Case):
@@ -892,6 +909,231 @@ class TheClockIsEvidenceToo(Case):
                                  self.verdict(self.snap(now=value)).reasons)
 
 
+#: Classify one frozen snapshot in a CHILD whose CRT timezone has been set,
+#: and report what came back. It runs in a child on purpose: the thing under
+#: test is a process-global, and a suite that set its own would leak the
+#: setting into every test that ran after it if a restore ever failed. The
+#: child restores in a `finally` anyway, and then exits.
+_TZ_CHILD = r'''
+import ctypes, json, os, sys, time
+
+tz, backend = sys.argv[1], sys.argv[2]
+previous = os.environ.get('TZ')
+
+
+def apply(value):
+    if value is None:
+        os.environ.pop('TZ', None)
+    else:
+        os.environ['TZ'] = value
+    if hasattr(time, 'tzset'):
+        time.tzset()
+    else:
+        crt = ctypes.CDLL('msvcrt', use_errno=True)
+        crt._putenv_s(b'TZ', (value or '').encode('ascii'))
+        crt._tzset()
+
+
+try:
+    apply(tz)
+    sys.path.insert(0, backend)
+    from orgtree import mailownership as mo
+
+    current = mo.CustodyRef(mailbox_id='mb', generation=3,
+                            session='sess', turn_token='turn')
+    batch = mo.JournalBatch(token='tok', drained_at='2026-09-22T11:59:30+00:00',
+                            mode='steer', message_ids=('good',))
+    out = {}
+    for label, expiry in (('lease_naive', '2026-09-22T13:00:00'),
+                          ('lease_aware_utc', '2026-09-22T13:00:00+00:00'),
+                          ('lease_aware_offset', '2026-09-22T22:00:00+09:00')):
+        snap = mo.OwnershipSnapshot(
+            current=current, now=1790078400.0, batches=(batch,),
+            leases=(mo.Lease(tokens=['tok'], expires_at=expiry, owner=current),))
+        first = mo.classify(snap).by_token['tok']
+        again = mo.classify(snap).by_token['tok']
+        out[label] = {
+            'disposition': first.disposition.value,
+            'owner': first.owner.value,
+            'reasons': [r.value for r in first.reasons],
+            'reclaimable': first.reclaimable,
+            'select': sorted(mo.select(snap, ['good']).reclaimable_tokens),
+            'repeat_identical': (first.disposition is again.disposition
+                                 and first.reasons == again.reasons),
+            'snapshot_repr': repr(snap),
+        }
+    for label, stamp in (('drain_naive', '2026-09-22T11:59:55'),
+                         ('drain_aware', '2026-09-22T11:59:55+00:00')):
+        snap = mo.OwnershipSnapshot(
+            current=current, now=1790078400.0,
+            batches=(mo.JournalBatch(token='tok', drained_at=stamp, mode='steer',
+                                     message_ids=('good',)),))
+        verdict = mo.classify(snap).by_token['tok']
+        out[label] = {'disposition': verdict.disposition.value,
+                      'reasons': [r.value for r in verdict.reasons],
+                      'grace_remaining': verdict.grace_remaining}
+    sys.stdout.write(json.dumps(out, sort_keys=True))
+finally:
+    apply(previous)
+'''
+
+TZ_SETTINGS = ('UTC0', 'JST-9', 'EST5')
+
+
+class AnAmbientSettingIsNotEvidence(Case):
+    """Review finding f4. `_instant` read a timezone-free stamp through
+    `.timestamp()`, which resolves it in the PROCESS timezone. One frozen
+    snapshot therefore classified a lease as held under `TZ=UTC0` and as
+    EXPIRED — reclaimable, owner none — under `TZ=JST-9`, with the snapshot
+    byte-identical throughout. A destructive permission was being decided by an
+    environment variable.
+
+    The correction is to require a stated offset, so the classifier refuses to
+    resolve what it was not told. What a refusal MEANS was already settled for
+    an unreadable stamp and is unchanged: an unresolved lease stays protected
+    and unproven, and an unresolved drain stamp is "not young", exactly as
+    `_batch_is_young` already treats one. No new grace policy is introduced."""
+
+    def child(self, tz):
+        backend = str(CHECKOUT / 'engine/backend')
+        proc = subprocess.run(
+            [sys.executable, '-c', _TZ_CHILD, tz, backend],
+            capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0,
+                         f'tz child {tz} failed: {proc.stdout}\n{proc.stderr}')
+        return json.loads(proc.stdout)
+
+    def test_one_frozen_snapshot_classifies_identically_in_three_timezones(self):
+        results = {tz: self.child(tz) for tz in TZ_SETTINGS}
+        baseline = results[TZ_SETTINGS[0]]
+        for case in baseline:
+            with self.subTest(case=case):
+                for tz in TZ_SETTINGS[1:]:
+                    self.assertEqual(
+                        results[tz][case], baseline[case],
+                        f'{case} moved between TZ={TZ_SETTINGS[0]} and TZ={tz}')
+
+    def test_the_snapshot_is_the_same_snapshot_in_every_timezone(self):
+        """The control that makes the test above mean something: if the input
+        itself changed with the timezone, identical verdicts would prove
+        nothing about the classifier."""
+        reprs = {self.child(tz)['lease_naive']['snapshot_repr']
+                 for tz in TZ_SETTINGS}
+        self.assertEqual(len(reprs), 1)
+
+    def test_the_timezone_free_lease_is_protected_and_never_expired(self):
+        """Direction matters. Agreeing on ELIGIBLE in all three zones would
+        also be timezone-independent, and would be the dangerous answer."""
+        for tz in TZ_SETTINGS:
+            with self.subTest(tz=tz):
+                case = self.child(tz)['lease_naive']
+                self.assertEqual(case['disposition'], 'protected')
+                self.assertEqual(case['owner'], 'unproven')
+                self.assertIn('lease_unresolved', case['reasons'])
+                self.assertNotIn('lease_expired', case['reasons'])
+                self.assertFalse(case['reclaimable'])
+                self.assertEqual(case['select'], [])
+                self.assertTrue(case['repeat_identical'])
+
+    def test_a_stated_offset_is_still_read_and_still_expires(self):
+        """The refusal is not a blanket one. A lease that says where it is
+        keeps working, from any offset, in any process timezone."""
+        for tz in TZ_SETTINGS:
+            with self.subTest(tz=tz):
+                result = self.child(tz)
+                for case in ('lease_aware_utc', 'lease_aware_offset'):
+                    self.assertEqual(result[case]['disposition'], 'protected')
+                    self.assertIn('lease_held', result[case]['reasons'])
+                    self.assertEqual(result[case]['owner'], 'proven')
+                self.assertEqual(result['drain_aware']['disposition'], 'protected')
+                self.assertIn('within_drain_grace', result['drain_aware']['reasons'])
+
+    # --- the same domain, asserted without spawning anything ---------------
+
+    def test_a_timezone_free_lease_expiry_is_unresolved_not_expired(self):
+        verdict = self.verdict(self.snap(leases=(
+            mo.Lease(tokens=['tok-a'], expires_at='2026-09-22T13:00:00',
+                     owner=CURRENT),)))
+        self.assertIs(verdict.disposition, mo.Disposition.PROTECTED)
+        self.assertIs(verdict.owner, mo.OwnerEvidence.UNPROVEN)
+        self.assertReasons(verdict, mo.Reason.LEASE_UNRESOLVED)
+        self.assertNotIn(mo.Reason.LEASE_EXPIRED, verdict.reasons)
+
+    def test_a_timezone_free_drain_stamp_keeps_the_not_young_answer(self):
+        """`_batch_is_young` calls a stamp it cannot read "not young". An
+        unresolved stamp is unreadable, so it gets that same answer — this is
+        the existing characterisation, not a new grace."""
+        verdict = self.verdict(self.snap(batches=(
+            self.batch(at=iso(NOW - 1.0).replace('+00:00', '')),)))
+        self.assertIs(verdict.disposition, mo.Disposition.ELIGIBLE)
+        self.assertIsNone(verdict.grace_remaining)
+        self.assertReasons(verdict, mo.Reason.GRACE_STAMP_UNREADABLE)
+        self.assertNotIn(mo.Reason.WITHIN_DRAIN_GRACE, verdict.reasons)
+
+    def test_the_offset_is_what_is_required_not_a_particular_zone(self):
+        """Two spellings of one instant classify the same, and a third that
+        genuinely is an hour later classifies differently. The rule is that the
+        stamp states its offset, not that the offset is zero."""
+        for expiry in ('2026-09-22T13:00:00+00:00', '2026-09-22T13:00:00Z',
+                       '2026-09-22T22:00:00+09:00', '2026-09-22T08:00:00-05:00'):
+            with self.subTest(expiry=expiry):
+                verdict = self.verdict(self.snap(
+                    now=1_790_078_400.0,
+                    leases=(mo.Lease(tokens=['tok-a'], expires_at=expiry,
+                                     owner=CURRENT),)))
+                self.assertIs(verdict.disposition, mo.Disposition.PROTECTED)
+                self.assertReasons(verdict, mo.Reason.LEASE_HELD)
+
+        past = self.verdict(self.snap(
+            now=1_790_078_400.0,
+            leases=(mo.Lease(tokens=['tok-a'], expires_at='2026-09-22T11:00:00+00:00',
+                             owner=CURRENT),)))
+        self.assertReasons(past, mo.Reason.LEASE_EXPIRED)
+
+    def test_the_expiry_boundary_is_unmoved(self):
+        """`clock < expiry`, exactly as before: an expiry equal to now has
+        passed. The f4 fix changed the DOMAIN of the stamp, not the comparison
+        made with it."""
+        at_boundary = self.verdict(self.snap(
+            now=1_790_078_400.0,
+            leases=(mo.Lease(tokens=['tok-a'],
+                             expires_at='2026-09-22T12:00:00+00:00',
+                             owner=CURRENT),)))
+        self.assertReasons(at_boundary, mo.Reason.LEASE_EXPIRED)
+
+        just_ahead = self.verdict(self.snap(
+            now=1_790_078_400.0,
+            leases=(mo.Lease(tokens=['tok-a'],
+                             expires_at='2026-09-22T12:00:01+00:00',
+                             owner=CURRENT),)))
+        self.assertReasons(just_ahead, mo.Reason.LEASE_HELD)
+
+    def test_the_instant_domain_refuses_only_what_it_cannot_resolve(self):
+        """`_instant` directly, because the reason codes above are two layers
+        of interpretation away from the domain that actually moved."""
+        self.assertIs(mo._instant(None), mo.Gap.ABSENT)
+        for unsupported in ('2026-09-22T13:00:00', 'not-a-date', '', 0, False,
+                            [], 17, {'at': 1}):
+            with self.subTest(value=repr(unsupported)):
+                self.assertIs(mo._instant(unsupported), mo.Gap.UNSUPPORTED)
+        for supported in ('2026-09-22T12:00:00+00:00', '2026-09-22T12:00:00Z',
+                          '2026-09-22T21:00:00+09:00'):
+            with self.subTest(value=supported):
+                self.assertEqual(mo._instant(supported), 1_790_078_400.0)
+
+    def test_the_classifier_still_reads_no_clock_of_its_own(self):
+        """f4 was an ambient read. The module-level check that no wall clock is
+        reachable is in `APureFunctionStaysPure`; this one states the narrower
+        fact that the fix did not smuggle a timezone in to compensate."""
+        source = (CHECKOUT / 'engine/backend/orgtree/mailownership.py').read_text(
+            encoding='utf-8', errors='strict')
+        body = source.split('"""', 2)[2]    # past the module docstring
+        for forbidden in ('astimezone(', 'tzlocal', 'localtime', 'time.time(',
+                          'datetime.now(', 'utcnow('):
+            self.assertNotIn(forbidden, body,
+                             f'{forbidden} reaches for an ambient time source')
+
+
 class AMessageIdentityIsCompared(Case):
     """Owner preflight, finding 4. `select` fell back to `repr()` for an
     unhashable id, so a stored `[]` and a requested `'[]'` became the same
@@ -913,6 +1155,130 @@ class AMessageIdentityIsCompared(Case):
         self.assertIn('tok-a', selection.partial_batches)
         self.assertReasons(self.verdict(snapshot),
                            mo.Reason.UNSUPPORTED_MESSAGE_IDENTITY)
+
+
+class OneRefusalNotTwoOpinions(Case):
+    """Review finding f3. An unsupported stored message identity was a
+    diagnostic and nothing more, so `classify` returned ELIGIBLE for a batch
+    that `select` refused through its own unreadable set — two exported answers
+    disagreeing about one permission, and the primary classifier held the more
+    permissive one. The refusal now lives in the shared verdict, so all four
+    answers come from the same place.
+
+    The eight stored values below are the reviewer's reproduction. They are
+    written out rather than generated because each is a distinct way a stored
+    id can be present and unreadable, and a loop over a list nobody reads is
+    how a case quietly stops being covered."""
+
+    MALFORMED = (17, None, False, 0, '', [], {}, ['m-1'])
+
+    def snapshot_with(self, stored):
+        return self.snap(batches=(
+            self.batch('tok-a', message_ids=('m-1', stored)),))
+
+    def test_every_malformed_identity_is_refused_by_all_four_answers(self):
+        for stored in self.MALFORMED:
+            with self.subTest(stored=repr(stored)):
+                snapshot = self.snapshot_with(stored)
+                result = mo.classify(snapshot)
+                verdict = result.by_token['tok-a']
+                selection = mo.select(snapshot, ['m-1'])
+
+                # 1. the per-batch verdict
+                self.assertIs(verdict.disposition, mo.Disposition.UNAVAILABLE)
+                self.assertFalse(verdict.reclaimable)
+                self.assertReasons(verdict, mo.Reason.UNSUPPORTED_MESSAGE_IDENTITY)
+                # 2. the aggregate the verdict feeds
+                self.assertEqual(result.reclaimable_tokens, frozenset())
+                # 3. the selector's own answer
+                self.assertEqual(selection.reclaimable_tokens, frozenset())
+                # 4. and the verdict the selector hands back inside it, which
+                #    is the one that used to say the opposite
+                self.assertTrue(selection.verdicts)
+                for embedded in selection.verdicts:
+                    self.assertFalse(embedded.reclaimable)
+
+    def test_the_residual_eligible_marker_stops_firing_when_it_stops_being_true(self):
+        """`UNOWNED_PAST_GRACE` means "nothing holds this and it may be taken".
+        On a batch that may NOT be taken it would be a false statement, so it
+        goes — the same way it already goes for an unsupported token. Every
+        EVIDENCE reason is untouched; only the disposition marker moves."""
+        verdict = self.verdict(self.snapshot_with(17))
+        self.assertNotIn(mo.Reason.UNOWNED_PAST_GRACE, verdict.reasons)
+
+    def test_the_refusal_does_not_silence_the_evidence(self):
+        """Integrity outranks a holder here, as it already did for a bad token.
+        The holder is still reported, because the reasons say what is true
+        about the batch and not merely what decided its disposition."""
+        snapshot = self.snap(
+            batches=(self.batch('tok-a', message_ids=('m-1', 17)),),
+            retentions=(mo.Retention(kind=mo.RetentionKind.HALT,
+                                     tokens=frozenset({'tok-a'})),))
+        verdict = self.verdict(snapshot)
+        self.assertIs(verdict.disposition, mo.Disposition.UNAVAILABLE)
+        self.assertReasons(verdict, mo.Reason.HALT_HELD,
+                           mo.Reason.UNSUPPORTED_MESSAGE_IDENTITY)
+        self.assertTrue(verdict.retained_carrier)
+
+    def test_a_fully_readable_batch_is_still_reclaimable_in_both_answers(self):
+        """The control that makes the refusal mean something. Without it, a
+        classifier that refused everything would pass the assertions above."""
+        snapshot = self.snap(batches=(
+            self.batch('tok-a', message_ids=('m-1', 'm-2')),))
+        result = mo.classify(snapshot)
+        self.assertIs(result.by_token['tok-a'].disposition, mo.Disposition.ELIGIBLE)
+        self.assertEqual(result.reclaimable_tokens, frozenset({'tok-a'}))
+        self.assertEqual(mo.select(snapshot, ['m-1', 'm-2']).reclaimable_tokens,
+                         frozenset({'tok-a'}))
+
+    def test_an_actual_hold_is_still_told_apart_from_the_refusal(self):
+        """Held and unreadable are different answers. Both refuse; only one of
+        them says a holder exists."""
+        snapshot = self.snap(
+            batches=(self.batch('tok-a', message_ids=('m-1',)),),
+            retentions=(mo.Retention(kind=mo.RetentionKind.HALT,
+                                     tokens=frozenset({'tok-a'})),))
+        verdict = self.verdict(snapshot)
+        self.assertIs(verdict.disposition, mo.Disposition.PROTECTED)
+        self.assertNotIn(mo.Reason.UNSUPPORTED_MESSAGE_IDENTITY, verdict.reasons)
+        self.assertEqual(mo.select(snapshot, ['m-1']).reclaimable_tokens,
+                         frozenset())
+
+    def test_one_unreadable_batch_does_not_contaminate_its_neighbours(self):
+        """Rule 8 is about whole BATCHES, not whole documents. A sibling keeps
+        its own answer — the protected one stays protected rather than
+        inheriting the refusal, and the clean one stays reclaimable."""
+        snapshot = self.snap(
+            batches=(self.batch('tok-bad', message_ids=('m-1', 17)),
+                     self.batch('tok-held', message_ids=('m-2',)),
+                     self.batch('tok-free', message_ids=('m-3',))),
+            retentions=(mo.Retention(kind=mo.RetentionKind.HALT,
+                                     tokens=frozenset({'tok-held'})),))
+        result = mo.classify(snapshot)
+        self.assertIs(result.by_token['tok-bad'].disposition,
+                      mo.Disposition.UNAVAILABLE)
+        self.assertIs(result.by_token['tok-held'].disposition,
+                      mo.Disposition.PROTECTED)
+        self.assertIs(result.by_token['tok-free'].disposition,
+                      mo.Disposition.ELIGIBLE)
+        self.assertEqual(result.reclaimable_tokens, frozenset({'tok-free'}))
+        selection = mo.select(snapshot, ['m-1', 'm-2', 'm-3'])
+        self.assertEqual(selection.reclaimable_tokens, frozenset({'tok-free'}))
+        self.assertEqual(selection.unreadable_identity_batches,
+                         frozenset({'tok-bad'}))
+
+    def test_nothing_is_repaired_coerced_or_minted(self):
+        """The refusal is a refusal. The stored value is still whatever it was,
+        and no id was invented to stand in for it."""
+        stored = ['m-1']
+        batch = self.batch('tok-a', message_ids=('m-1', stored))
+        snapshot = self.snap(batches=(batch,))
+        mo.classify(snapshot)
+        self.assertEqual(list(snapshot.batches[0].message_ids), ['m-1', ['m-1']])
+        self.assertIs(snapshot.batches[0].message_ids[1], stored)
+        # and the request still cannot reach the batch by spelling the list
+        self.assertEqual(mo.select(snapshot, ["['m-1']"]).reclaimable_tokens,
+                         frozenset())
 
     def test_an_unsupported_requested_id_is_reported_apart_from_an_unknown_one(self):
         snapshot = self.snap(batches=(self.batch('tok-a', message_ids=('m-1',)),))
