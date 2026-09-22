@@ -6,6 +6,7 @@ These tests never import or start the Orgtree backend.
 from __future__ import annotations
 
 import ast
+from contextlib import closing
 import json
 import os
 from pathlib import Path
@@ -436,16 +437,17 @@ raise SystemExit(74)
             "INSERT INTO doc VALUES ('events','[]')",
             "UPDATE nodes SET ord=0",
         ]
+        # SQLite context managers finish transactions but do not close handles.
         for sql in changes:
             with self.subTest(sql=sql):
                 root = self.fixture("sqlite")
-                with sqlite3.connect(root / "source/orgs/alpha.db") as conn:
+                with closing(sqlite3.connect(root / "source/orgs/alpha.db")) as conn, conn:
                     conn.execute(sql)
                 with self.assertRaises(Refused):
                     Rehearsal(root).migrate()
                 self.assertFalse((root / "backup").exists())
         root = self.fixture()
-        with sqlite3.connect(root / "source/tool-waits.db") as conn:
+        with closing(sqlite3.connect(root / "source/tool-waits.db")) as conn, conn:
             conn.execute("CREATE TABLE future_state (body TEXT)")
         with self.assertRaisesRegex(Refused, "unsupported sidecar"):
             Rehearsal(root).migrate()
