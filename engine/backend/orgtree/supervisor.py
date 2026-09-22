@@ -9072,6 +9072,7 @@ def _journal_drain(org: Org, nid: str, mail: list[MailEntry] | None,
         {"tok": tok, "at": now_iso(), "mail": mail or [],
          "notices": pending or [], "via": via,
          "custody": mailruntime.stamp_for(org, nid),
+         mailruntime.ENGINES: [os.getpid()],
          "mode": mode or via, "attempt": attempt,
          "drive": events.encode_ev(drive) if drive is not None else None,
          "segments": segments if segments is not None
@@ -29348,6 +29349,7 @@ def _note_steer_attempt(slug: str, nid: str, toks: Iterable[str],
                                     "at": now_iso(),
                                     "n": int(prev.get("n") or 0) + 1,
                                     "reason": str(reason or "")[:200]}
+                    mailruntime.note_engine(b)
                     hit = True
             if hit:
                 store.save_org(org)
@@ -30587,6 +30589,132 @@ def _wd_proc_alive(target: str) -> bool:
     the tri-state cannot drift into two different answers about one pid.
     """
     return liveness.alive(liveness.observe(target))
+
+
+def _process_created(pid: int) -> float | None:
+    """Creation time (epoch seconds) of a live process, or None when it cannot
+    be read. Windows only; elsewhere None, which every caller treats as
+    'cannot prove', never as 'gone'."""
+    if os.name != "nt" or pid <= 0:
+        return None
+    import ctypes
+    from ctypes import wintypes
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.OpenProcess.restype = wintypes.HANDLE
+    k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    h = k32.OpenProcess(0x1000, False, int(pid))    # QUERY_LIMITED_INFORMATION
+    if not h:
+        return None
+    try:
+        times = [wintypes.FILETIME() for _ in range(4)]
+        if not k32.GetProcessTimes(wintypes.HANDLE(h), *(ctypes.byref(t) for t in times)):
+            return None
+        ticks = (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime
+        return ticks / 1e7 - 11644473600.0
+    finally:
+        k32.CloseHandle(wintypes.HANDLE(h))
+
+
+def _process_parents() -> dict[int, int] | None:
+    """{pid: parent pid} for every process on the machine, or None when the
+    table cannot be read. On Windows an orphan keeps the pid of the parent
+    that spawned it, which is what lets a restart find children that outlived
+    the engine before it (the job-object leash is best-effort)."""
+    if os.name != "nt":
+        return None
+    import ctypes
+    from ctypes import wintypes
+
+    class _Entry(ctypes.Structure):
+        _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD),
+                    ("th32ProcessID", wintypes.DWORD),
+                    ("th32DefaultHeapID", ctypes.c_size_t),
+                    ("th32ModuleID", wintypes.DWORD), ("cntThreads", wintypes.DWORD),
+                    ("th32ParentProcessID", wintypes.DWORD),
+                    ("pcPriClassBase", ctypes.c_long), ("dwFlags", wintypes.DWORD),
+                    ("szExeFile", ctypes.c_wchar * 260)]
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    k32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    snap = k32.CreateToolhelp32Snapshot(0x2, 0)     # TH32CS_SNAPPROCESS
+    if not snap or snap == ctypes.c_void_p(-1).value:
+        return None
+    try:
+        entry = _Entry()
+        entry.dwSize = ctypes.sizeof(_Entry)
+        out: dict[int, int] = {}
+        ok = k32.Process32FirstW(wintypes.HANDLE(snap), ctypes.byref(entry))
+        if not ok:
+            return None
+        while ok:
+            out[int(entry.th32ProcessID)] = int(entry.th32ParentProcessID)
+            ok = k32.Process32NextW(wintypes.HANDLE(snap), ctypes.byref(entry))
+        return out
+    finally:
+        k32.CloseHandle(wintypes.HANDLE(snap))
+
+
+def _runtime_gone(pid: int, mine: float, parents: Mapping[int, int]) -> bool:
+    """Is engine `pid` provably gone, together with every child it spawned?
+
+    `mine` is this engine's creation time. The engine is gone when the OS says
+    no such process, or when the pid now names a process created after this
+    one (a reuse: the engine that held the data root before us cannot have
+    started after us). Its children are gone when no live process that still
+    names it as parent was created before this engine; one created later
+    belongs to a pid-reusing successor. Any unreadable fact answers False."""
+    if not _pid_provably_dead(pid):
+        created = _process_created(pid)
+        if created is None or created < mine:
+            return False
+    for child, parent in parents.items():
+        if parent != pid or child == os.getpid():
+            continue
+        if _pid_provably_dead(child):
+            continue
+        created = _process_created(child)
+        if created is None or created < mine:
+            return False
+    return True
+
+
+def _restart_owners_gone() -> Callable[[Mapping[str, Any]], bool] | None:
+    """decision33's owner proof, or None when this is not a process restart.
+
+    The prior engine is the one the restart-wake registry still names: this
+    runs from `reconcile` at startup, before `restart_wake.on_backend_startup`
+    records the new pid, and holding the data-root lock already means that
+    engine released it. A later, non-startup `reconcile` finds its own pid
+    there and gets None, so live runtime reclaim never uses this. A row's
+    owners are that engine plus every engine recorded on the row; the row may
+    return to the mailbox only if each is `_runtime_gone`. Backend restart
+    alone is never taken as proof that an external child ended."""
+    try:
+        from . import restart_wake                          # noqa: PLC0415
+        prior = int(restart_wake._wakes_read().get("running_backend_pid") or 0)
+    except Exception:                                        # noqa: BLE001
+        return None
+    me = os.getpid()
+    if prior <= 0 or prior == me:
+        return None
+    mine = _process_created(me)
+    parents = _process_parents()
+    cache: dict[int, bool] = {}
+
+    def gone(pid: int) -> bool:
+        if mine is None or parents is None or pid == me:
+            return False
+        if pid not in cache:
+            cache[pid] = _runtime_gone(pid, mine, parents)
+        return cache[pid]
+
+    def owners_gone(row: Mapping[str, Any]) -> bool:
+        engines = mailruntime.row_engines(row)
+        return engines is not None and all(gone(pid) for pid in engines | {prior})
+
+    owners_gone.prior = prior  # type: ignore[attr-defined]
+    return owners_gone
 
 
 def _pid_provably_dead(pid: int) -> bool:
@@ -32517,12 +32645,24 @@ def _newer_turn_ended(n: Mapping[str, Any], inf: Mapping[str, Any]) -> bool:
     return ended > started
 
 
-def _reconcile_mail_journal(org: Org) -> frozenset[str]:
+def _reconcile_mail_journal(org: Org, *,
+                            owners_gone: Callable[[Mapping[str, Any]], bool] | None = None,
+                            changed: list[str] | None = None) -> frozenset[str]:
     """Prepare restart folds and receipts on one caller-owned fresh document.
 
     The caller holds DOC_LOCK and saves once. It must discard the document on
     error. Protected and unsupported custody survives an empty runtime state.
     No provider or transcript is read by this helper.
+
+    decision33: with `owners_gone` (a process restart only), a row protected
+    only by its own history — uncertain input, an unknown steer outcome, or a
+    missing legacy stamp — returns to the mailbox once every engine that could
+    own it is proven gone with its children: `redelivered` +1, a positive
+    receipt, and a steered_log disclosure that the agent may see it twice. A
+    marker whose mail was folded replays its authored base only. When the
+    proof fails, the prior engine is added to the row's owners (`changed`) so
+    a later restart still checks it. Claims, halt/native retention, manual
+    custody, identity changes and malformed state keep protecting.
     """
     slug = org.d["slug"]
     all_folded = set()
@@ -32538,10 +32678,26 @@ def _reconcile_mail_journal(org: Org) -> frozenset[str]:
             mailruntime.settle_confirmation(org, st, nid)
             facts = mailruntime.runtime_facts(st)
             eligible = mailruntime.eligible_tokens(org, nid, facts,
-                now=time.time(), pump_toks=())
-            safe, _ = mailruntime.revalidate(org, nid, eligible)
+                now=time.time(), pump_toks=(), owners_gone=owners_gone)
+            safe, _ = mailruntime.revalidate(org, nid, eligible,
+                                             owners_gone=owners_gone)
+            rows = [r for r in (org.d.get("delivering") or {}).get(nid) or []
+                    if isinstance(r, dict)]
+            prior = getattr(owners_gone, "prior", None)
+            for row in rows:
+                if (isinstance(prior, int) and row.get("tok") not in safe
+                        and mailruntime.restart_uncertain(row)
+                        and mailruntime.row_engines(row) is not None
+                        and prior not in mailruntime.row_engines(row)):
+                    engines = [p for p in row.get(mailruntime.ENGINES) or []]
+                    row[mailruntime.ENGINES] = engines + [prior]
+                    if changed is not None:
+                        changed.append(str(row.get("tok")))
             if not safe:
                 continue
+            ambiguous = sum(len(r.get("mail") or []) + len(r.get("notices") or [])
+                            for r in rows if r.get("tok") in safe
+                            and mailruntime.restart_uncertain(r))
             receipt = mailruntime.reclaim_receipt(org, nid, safe,
                 operation=lifecycle.new_operation("restart-mail-reclaim"))
             mailruntime.fence(st, safe)
@@ -32551,6 +32707,16 @@ def _reconcile_mail_journal(org: Org) -> frozenset[str]:
                 raise RuntimeError("restart journal selection changed")
             mailruntime.write_reclaim_receipt(org, receipt)
             mailruntime.compact_receipts(org, st, nid, keep=(receipt["operation"],))
+            # The marker now replays its authored base only (never the mail).
+            mailruntime.settle_replay(org, nid)
+            if ambiguous:
+                org.d.setdefault("steered_log", {}).setdefault(nid, []).append({
+                    "at": now_iso(), "fold": ambiguous, "where": "restart",
+                    "outcome": "unknown",
+                    "text": f"{ambiguous} message(s) whose delivery to a runtime "
+                            f"that has since ended could not be confirmed were "
+                            f"returned to the mailbox at restart — the agent may "
+                            f"see them twice"})
             all_folded.update(folded)
     return frozenset(all_folded)
 
@@ -32667,6 +32833,7 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
         # operator pressing resume-import while any ordinary agent was
         # mid-turn lost that agent's turn outright.
         recovery_seats: set[str] = set()
+        deferred_input: list[str] = []
         dropped_cmd = False
         for nid, n in org.nodes.items():
             if n.get("halt"):
@@ -32680,7 +32847,10 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
                 if inf and "mail_input" in inf:
                     ready = mailruntime.replay_ready(org, nid, inf)
                     if ready is None:
-                        continue  # Input outcome unresolved; preserve the original marker.
+                        # Input outcome unresolved; preserve the original
+                        # marker. A restart fold below may settle it.
+                        deferred_input.append(nid)
+                        continue
                     inf = ready
                 # a command turn can't replay honestly (the restart preamble
                 # would bury the "/" mid-prose and the CLI would run it as
@@ -32750,8 +32920,10 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
             recorded = _reconcile_steer_records(org)
         except Exception:                                    # noqa: BLE001
             pass
-        folded = _reconcile_mail_journal(org)
-        if recorded or folded:
+        restart_changed: list[str] = []
+        folded = _reconcile_mail_journal(org, owners_gone=_restart_owners_gone(),
+                                         changed=restart_changed)
+        if recorded or folded or restart_changed:
             store.save_org(org)
             for dnid in org.nodes:
                 rst = state(slug, dnid)
@@ -32759,6 +32931,19 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
                     mailruntime.resolve_reclaims(org, rst, nid=dnid)
                     mailruntime.settle_confirmation(org, rst, dnid)
                     _retry_mail_publications(rst)
+        # decision33: a marker held above only because its mail input was
+        # uncertain replays its authored base once that mail is back in the
+        # mailbox (the fold rewrote the stored marker to that base).
+        for nid in deferred_input:
+            _dn = org.nodes.get(nid)
+            _dinf = _dn.get("inflight") if _dn is not None else None
+            if _dinf and "mail_input" in _dinf:
+                _ready = mailruntime.replay_ready(org, nid, _dinf)
+                if _ready is not None and _ready == _dinf and not _ready.get("cmd"):
+                    inflight.append((nid, _ready))
+                    if recovery_observer is not None \
+                            and _import_recovery_unsettled(org, nid):
+                        recovery_seats.add(nid)
         # drain-on-start (user clarification 2026-08-06 — an earlier reading
         # briefly retired this; the actual ruling is about mail never being
         # LOST in program state across a refresh, not about suppressing the

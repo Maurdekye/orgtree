@@ -639,6 +639,204 @@ class ReclaimTransactionTests(unittest.TestCase):
             sup.reconcile(self.slug, active_only=True)
         return dispatched
 
+    # ---- decision33: restart fold-back once the prior runtime is proven gone ----
+
+    MINE = 1000.0      # this engine's creation time in the synthetic process table
+    PRIOR = 4242       # the engine the restart-wake registry names
+
+    def restart_proof(self, *, prior=None, dead=None, parents=None, created=None,
+                      table=True):
+        """Patch only the OS/registry evidence; every product rule stays real."""
+        import contextlib
+        from orgtree import restart_wake
+        prior = self.PRIOR if prior is None else prior
+        dead = {prior} if dead is None else set(dead)
+        created = dict(created or {})
+        created.setdefault(os.getpid(), self.MINE)
+        stack = contextlib.ExitStack()
+        stack.enter_context(patch.object(restart_wake, '_wakes_read',
+                                         return_value={'running_backend_pid': prior}))
+        stack.enter_context(patch.object(sup, '_pid_provably_dead',
+                                         side_effect=lambda pid: pid in dead))
+        stack.enter_context(patch.object(sup, '_process_created',
+                                         side_effect=lambda pid: created.get(pid)))
+        stack.enter_context(patch.object(sup, '_process_parents',
+                                         return_value=(dict(parents or {}) if table else None)))
+        return stack
+
+    def fresh_state(self):
+        sup._state.pop((self.slug, 'worker'), None)
+        self.st = sup.state(self.slug, 'worker')
+
+    def make_legacy(self):
+        org = self.load(self.slug)
+        row = org.d['delivering']['worker'][0]
+        row.pop('custody')
+        row.pop(mailruntime.ENGINES, None)
+        self.save(org)
+
+    def written_by_prior(self):
+        """The rows a restart meets were written by the engine before it."""
+        org = self.load(self.slug)
+        for row in org.d['delivering']['worker']:
+            row[mailruntime.ENGINES] = [self.PRIOR]
+        self.save(org)
+
+    def test_rows_written_by_this_engine_are_never_restart_folded(self):
+        self.record_input()                   # engines == [this process]
+        with self.restart_proof():
+            self.fresh_state()
+            self.assertEqual(self.startup(), [])
+        self.assertTrue(self.load(self.slug).d['delivering']['worker'])
+
+    def disclosures(self):
+        return [e for e in self.load(self.slug).d.get('steered_log', {}).get('worker', [])
+                if e.get('where') == 'restart']
+
+    def test_restart_folds_legacy_row_once_when_prior_runtime_is_gone(self):
+        self.make_legacy()
+        self.fresh_state()
+        with self.restart_proof():
+            self.startup()
+        fresh = self.assert_once()
+        self.assertEqual([d['fold'] for d in self.disclosures()], [1])
+        self.assertIn(self.tok, mailruntime.settled_tokens(fresh, 'worker',
+                                                           outcomes={'reclaimed'}))
+        self.fresh_state()
+        with self.restart_proof():           # repeated restart is idempotent
+            self.startup()
+        self.assert_once()
+        self.assertEqual(len(self.disclosures()), 1)
+
+    def test_restart_folds_uncertain_input_and_replays_authored_base_only(self):
+        self.record_input()
+        self.written_by_prior()
+        self.fresh_state()
+        with self.restart_proof():
+            dispatched = self.startup()
+        self.assertEqual(len(dispatched), 1)
+        self.assertIn('authored [MAIL] quotation', dispatched[0][1])
+        self.assertNotIn('generated mail', dispatched[0][1])
+        self.assert_once()
+        self.assertEqual([d['fold'] for d in self.disclosures()], [1])
+        self.fresh_state()
+        with self.restart_proof():
+            again = self.startup()
+        # The marker was spent: no second replay. The folded mail still waits
+        # (the fake dispatch ran no turn), so only the ordinary nudge remains.
+        self.assertNotIn('authored [MAIL] quotation', ''.join(c for _, c in again))
+        self.assertNotIn('generated mail', ''.join(c for _, c in again))
+        self.assert_once()
+        self.assertEqual(len(self.disclosures()), 1)
+
+    def test_surviving_child_of_prior_runtime_keeps_the_row_until_it_is_gone(self):
+        self.record_input()
+        self.written_by_prior()
+        child = {9001: self.PRIOR}
+        with self.restart_proof(parents=child, created={9001: self.MINE - 5}):
+            self.fresh_state()
+            self.assertEqual(self.startup(), [])
+        fresh = self.load(self.slug)
+        row = fresh.d['delivering']['worker'][0]
+        self.assertEqual(row['input_attempt'], 'actual-attempt')
+        self.assertIn(self.PRIOR, row[mailruntime.ENGINES])       # owner remembered
+        self.assertFalse(self.disclosures())
+        # A later restart names a newer engine; the old child is still alive.
+        with self.restart_proof(prior=5555, dead={5555, self.PRIOR},
+                                parents=child, created={9001: self.MINE - 5}):
+            self.fresh_state()
+            self.assertEqual(self.startup(), [])
+        self.assertTrue(self.load(self.slug).d['delivering']['worker'])
+        # The child has ended: now the row returns, once.
+        with self.restart_proof(prior=5555, dead={5555, self.PRIOR, 9001}):
+            self.fresh_state()
+            self.assertEqual(len(self.startup()), 1)
+        self.assert_once()
+
+    def test_unproven_legacy_owner_is_remembered_across_restarts(self):
+        self.make_legacy()
+        child = {9001: self.PRIOR}
+        with self.restart_proof(parents=child, created={9001: self.MINE - 5}):
+            self.fresh_state()
+            self.startup()
+        row = self.load(self.slug).d['delivering']['worker'][0]
+        self.assertEqual(row.get(mailruntime.ENGINES), [self.PRIOR])
+        # Next restart: a newer engine, while the first one's child still runs.
+        with self.restart_proof(prior=5555, dead={5555, self.PRIOR},
+                                parents=child, created={9001: self.MINE - 5}):
+            self.fresh_state()
+            self.startup()
+        self.assertTrue(self.load(self.slug).d['delivering']['worker'])
+        with self.restart_proof(prior=5555, dead={5555, self.PRIOR, 9001}):
+            self.fresh_state()
+            self.startup()
+        self.assert_once()
+
+    def test_recorded_row_engine_alive_keeps_the_row(self):
+        self.record_input()
+        org = self.load(self.slug)
+        org.d['delivering']['worker'][0][mailruntime.ENGINES] = [7777]
+        self.save(org)
+        with self.restart_proof(created={7777: self.MINE - 60}):
+            self.fresh_state()
+            self.assertEqual(self.startup(), [])
+        self.assertTrue(self.load(self.slug).d['delivering']['worker'])
+
+    def test_pid_reused_after_this_engine_started_counts_as_gone(self):
+        self.make_legacy()
+        with self.restart_proof(dead=set(), created={self.PRIOR: self.MINE + 30},
+                                parents={9002: self.PRIOR},
+                                ) as _:
+            with patch.object(sup, '_process_created',
+                              side_effect=lambda pid: {os.getpid(): self.MINE,
+                                                       self.PRIOR: self.MINE + 30,
+                                                       9002: self.MINE + 40}.get(pid)):
+                self.fresh_state()
+                self.startup()
+        self.assert_once()
+
+    def test_no_restart_fold_outside_a_process_restart(self):
+        self.make_legacy()
+        with self.restart_proof(prior=os.getpid()):
+            self.fresh_state()
+            self.startup()
+        self.assertTrue(self.load(self.slug).d['delivering']['worker'])
+        self.assertFalse(self.disclosures())
+
+    def test_unreadable_process_table_keeps_the_row(self):
+        self.make_legacy()
+        with self.restart_proof(table=False):
+            self.fresh_state()
+            self.startup()
+        self.assertTrue(self.load(self.slug).d['delivering']['worker'])
+
+    def test_restart_proof_never_releases_other_custody(self):
+        for field in ('claim', 'manual', 'halt', 'native', 'durable_attempt',
+                      'mailbox_changed', 'malformed_stamp', 'malformed_engines'):
+            with self.subTest(field=field):
+                org = self.load(self.slug)
+                org.d['delivering']['worker'] = [copy.deepcopy(self.original)]
+                org.nodes['worker'].pop('halt_queue', None)
+                org.nodes['worker'].pop('native_held_carriers', None)
+                org.d.get('steer_attempts', {}).pop('worker', None)
+                row = org.d['delivering']['worker'][0]
+                row['input_attempt'] = 'uncertain'      # would fold on its own
+                row[mailruntime.ENGINES] = [self.PRIOR]  # owners proven gone
+                if field == 'claim': row['claim'] = {'delivery_id': 'claim', 'acked': False}
+                if field == 'manual': row['mode'] = 'manual_fetch'
+                if field == 'halt': org.nodes['worker']['halt_queue'] = [self.carrier()]
+                if field == 'native': org.nodes['worker']['native_held_carriers'] = [self.carrier()]
+                if field == 'durable_attempt': org.d['steer_attempts'] = {'worker': {'claim': {'toks': [self.tok], 'acked': False}}}
+                if field == 'mailbox_changed': row['custody'] = dict(row['custody'], mailbox='older-box')
+                if field == 'malformed_stamp': row['custody'] = 'not a stamp'
+                if field == 'malformed_engines': row[mailruntime.ENGINES] = 'not a list'
+                self.save(org)
+                self.fresh_state()
+                with self.restart_proof(), store.DOC_LOCK:
+                    fresh = self.load(self.slug)
+                    owners = sup._restart_owners_gone()
+                    self.assertFalse(sup._reconcile_mail_journal(fresh, owners_gone=owners))
+
     def test_restart_preserves_unknown_input_without_replay_or_reclaim(self):
         marker = self.record_input()
         sup._state.pop((self.slug, 'worker'), None)

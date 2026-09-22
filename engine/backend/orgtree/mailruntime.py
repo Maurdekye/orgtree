@@ -111,6 +111,49 @@ def stamp_for(org: Any, nid: str) -> dict[str, Any]:
     return out
 
 
+#: Journal-row field listing every engine process (pid) that drained, fed or
+#: steered the row. A restart may fold uncertain or unstamped rows back only
+#: when every one of these, and the engine that last owned the data root, is
+#: provably gone together with every child it could have handed input to.
+ENGINES = "engines"
+
+
+def note_engine(row: dict[str, Any], pids: Iterable[int] = ()) -> None:
+    """Add this engine (and any `pids`) to the row's owner list. Normal write
+    boundary only: drain, input write, steer attempt, unsettled restart."""
+    import os
+    have = row.get(ENGINES)
+    have = [p for p in have if isinstance(p, int)] if isinstance(have, list) else []
+    for pid in (os.getpid(), *pids):
+        if isinstance(pid, int) and pid > 0 and pid not in have:
+            have.append(pid)
+    row[ENGINES] = have
+
+
+def row_engines(row: Mapping[str, Any]) -> frozenset[int] | None:
+    """The recorded owner engines; None when the field is malformed."""
+    value = row.get(ENGINES, [])
+    if not isinstance(value, list) or not all(
+            isinstance(p, int) and not isinstance(p, bool) and p > 0 for p in value):
+        return None
+    return frozenset(value)
+
+
+def restart_uncertain(row: Mapping[str, Any]) -> bool:
+    """Would this row still be protected at restart only by its own history?
+
+    True for input written to a provider (`input_attempt`), a steer whose
+    outcome was unknown, and a legacy row with no custody stamp. Exactly these
+    may return to the mailbox at restart once their owners are proven gone
+    (decision33); claims, retention, manual custody, identity changes and
+    malformed stamps are never in this set.
+    """
+    attempt = row.get("attempt")
+    return bool("input_attempt" in row
+                or (isinstance(attempt, Mapping) and attempt.get("outcome") == "unknown")
+                or "custody" not in row)
+
+
 def _ref(mailbox: Any, generation: Any, session: Any,
          attempt: Any) -> own.CustodyRef:
     return own.CustodyRef(mailbox_id=mailbox, generation=generation,
@@ -401,8 +444,14 @@ def _memberships(facts: Mapping[str, Any]
 
 
 def snapshot(org: Any, nid: str, facts: Mapping[str, Any], *,
-             now: float, pump_toks: Any) -> own.OwnershipSnapshot:
-    """Pure ownership evidence. Unknown data is represented, never discarded."""
+             now: float, pump_toks: Any,
+             owners_gone: Any = None) -> own.OwnershipSnapshot:
+    """Pure ownership evidence. Unknown data is represented, never discarded.
+
+    `owners_gone(row) -> bool` is supplied ONLY by restart reconciliation. For
+    a `restart_uncertain` row whose owners it proves gone, the row's own
+    uncertainty (input, unknown steer, missing stamp) no longer protects it;
+    every other holder still does."""
     missing = set(STATE_SOURCES) - set(facts.get("sources") or ())
     if missing:
         raise IncompleteEvidence(f"missing carrier sources {sorted(missing)}")
@@ -431,9 +480,12 @@ def snapshot(org: Any, nid: str, facts: Mapping[str, Any], *,
             durable_claims.append(own.Claim(tokens=(tok,),
                 delivery_id=claim.get("delivery_id", own.Gap.ABSENT),
                 acked=claim.get("acked", own.Gap.ABSENT)))
+        released = bool(owners_gone is not None and restart_uncertain(row)
+                        and owners_gone(row))
         attempt = row.get("attempt")
-        if (isinstance(attempt, Mapping) and attempt.get("outcome") == "unknown"
-                or "input_attempt" in row):
+        if not released and (isinstance(attempt, Mapping)
+                             and attempt.get("outcome") == "unknown"
+                             or "input_attempt" in row):
             # A request may have reached a provider before the process died.
             # RAM disappearance is not evidence that it was never consumed.
             members.append(own.Membership(kind=own.MembershipKind.TURN,
@@ -442,7 +494,8 @@ def snapshot(org: Any, nid: str, facts: Mapping[str, Any], *,
         if row.get("mode") == CUSTODY_MANUAL_FETCH:
             members.append(own.Membership(kind=own.MembershipKind.MANUAL_FETCH,
                                           owner=None, tokens=(tok,)))
-        if _custody_problem(org, nid, row) is not None:
+        problem = _custody_problem(org, nid, row)
+        if problem is not None and not (released and problem == "custody_unproven"):
             members.append(own.Membership(kind=own.MembershipKind.TURN,
                                           owner=None, tokens=(tok,)))
 
@@ -499,21 +552,24 @@ def snapshot(org: Any, nid: str, facts: Mapping[str, Any], *,
 
 
 def classify(org: Any, nid: str, facts: Mapping[str, Any], *,
-             now: float, pump_toks: Any,
+             now: float, pump_toks: Any, owners_gone: Any = None,
              ) -> tuple[own.Classification, own.OwnershipSnapshot]:
-    snap = snapshot(org, nid, facts, now=now, pump_toks=pump_toks)
+    snap = snapshot(org, nid, facts, now=now, pump_toks=pump_toks,
+                    owners_gone=owners_gone)
     return own.classify(snap), snap
 
 
 def eligible_tokens(org: Any, nid: str, facts: Mapping[str, Any], *,
-                    now: float, pump_toks: Any) -> frozenset[str]:
+                    now: float, pump_toks: Any,
+                    owners_gone: Any = None) -> frozenset[str]:
     """The tokens this node may reclaim, and nothing else.
 
     A token under the reclaim fence is excluded even when the classifier calls
     it eligible: another transaction is already moving it, and two folds of one
     batch is the duplicate the whole protocol exists to avoid.
     """
-    result, _ = classify(org, nid, facts, now=now, pump_toks=pump_toks)
+    result, _ = classify(org, nid, facts, now=now, pump_toks=pump_toks,
+                         owners_gone=owners_gone)
     return result.reclaimable_tokens  # fences are represented in the same snapshot
 
 
@@ -521,7 +577,8 @@ def eligible_tokens(org: Any, nid: str, facts: Mapping[str, Any], *,
 # the mutation guard
 # --------------------------------------------------------------------------
 
-def revalidate(org: Any, nid: str, toks: Iterable[str]
+def revalidate(org: Any, nid: str, toks: Iterable[str], *,
+               owners_gone: Any = None
                ) -> tuple[frozenset[str], dict[str, str]]:
     safe = set()
     refused = {}
@@ -532,6 +589,9 @@ def revalidate(org: Any, nid: str, toks: Iterable[str]
             refused[tok] = "journal_membership_changed"
             continue
         problem = _custody_problem(org, nid, matching[0])
+        if (problem == "custody_unproven" and owners_gone is not None
+                and owners_gone(matching[0])):
+            problem = None  # legacy row, owners proven gone (restart only)
         if problem:
             refused[tok] = problem
         else:
@@ -543,9 +603,14 @@ def _custody_problem(org: Any, nid: str, row: Mapping[str, Any]) -> str | None:
     node = (getattr(org, "nodes", None) or {}).get(nid)
     if not isinstance(node, Mapping):
         return "node_absent"
-    stamp = row.get("custody")
-    if not isinstance(stamp, Mapping):
+    # ABSENT stamp = a row from a build before stamping (legacy, "unproven");
+    # a PRESENT stamp that is not a mapping is malformed ("unsupported"). Only
+    # the first may ever be released by a restart owner proof (decision33).
+    if "custody" not in row:
         return "custody_unproven"
+    stamp = row["custody"]
+    if not isinstance(stamp, Mapping):
+        return "custody_unsupported"
     ref = _ref(stamp.get("mailbox", own.Gap.ABSENT),
                stamp.get("generation", own.Gap.ABSENT),
                stamp.get("session", own.Gap.ABSENT), IDLE_ATTEMPT)
@@ -914,6 +979,7 @@ def record_input(org: Any, nid: str, toks: Iterable[str], *, attempt: str,
         raise ValueError("input journal membership is unproven")
     for row in selected:
         row["input_attempt"] = attempt
+        note_engine(row)
     marker["mail_input"] = {"attempt": attempt, "tokens": sorted(wanted),
                             "base": copy.deepcopy(base)}
 
@@ -922,7 +988,8 @@ def replay_ready(org: Any, nid: str, marker: Mapping[str, Any]) -> dict[str, Any
     """Old markers keep their old behavior; new mail input needs positive proof.
 
     Uncertain input remains held with its complete original marker. Once every
-    token is positively confirmed, replay contains only the recorded base.
+    token is positively confirmed or durably folded back, replay contains only
+    the recorded base.
     """
     import copy
     if "mail_input" not in marker:
@@ -932,7 +999,10 @@ def replay_ready(org: Any, nid: str, marker: Mapping[str, Any]) -> dict[str, Any
         return None
     toks = _token_membership(evidence.get("tokens", own.Gap.ABSENT))
     base = evidence.get("base")
-    if (isinstance(toks, own.Gap) or not toks or not toks.issubset(confirmed_tokens(org, nid))
+    # Consumed (confirmed) or returned to the mailbox (reclaimed, e.g. by a
+    # restart fold): either way the generated mail must not be replayed.
+    settled = settled_tokens(org, nid, outcomes={"confirmed", "reclaimed"})
+    if (isinstance(toks, own.Gap) or not toks or not toks.issubset(settled)
             or not isinstance(base, Mapping) or not isinstance(base.get("text"), str)
             or not isinstance(base.get("view"), str)):
         return None
