@@ -66,6 +66,7 @@ function harness(options = {}) {
   const hooks = {
     record: (stage, detail) => records.push({ stage, detail }),
     target: () => origin,
+    route: options.route,
     builtFor: () => builtFor,
     load: async target => {
       loads.push(target)
@@ -86,6 +87,7 @@ function harness(options = {}) {
       }
       url = target
       // A real webContents announces the success; the emitter does too.
+      contents.fire('did-navigate')
       contents.fire('did-finish-load')
       return undefined
     },
@@ -110,6 +112,7 @@ function harness(options = {}) {
     tick: async () => { const due = timers; timers = []; for (const t of due) await t.fn(); await flush() },
     setServing: value => { serving = value },
     setOrigin: value => { origin = value },
+    setUrl: value => { url = value },
     url: () => url,
     /** The single question the user cares about. */
     isWhite: () => url === '' || url === 'about:blank',
@@ -502,13 +505,13 @@ test('this file classifies; it does NOT decide whether the failure is still rele
   // it matters. The caller owns document identity and makes that call; this
   // hook reports the classification and nothing more.
   const source = read('apps/desktop/main/window-load-recovery.ts')
-  assert.match(source, /if \(isTerminalLoadFailure\(failure\)\) hooks\.documentLost\?\.\(\)/)
+  assert.match(source, /if \(isTerminalLoadFailure\(failure\) && hooks\.documentLost\?\.\(\) === false\) return/)
   assert.doesNotMatch(source, /validatedURL === currentUrl\(\)/,
     'URL equality is not document identity, and must not stand in for it')
-  // and index.ts gates it on the token, which IS identity
+  // index delegates that question to the production lifecycle. Its behavior
+  // (including stale failure refusing recovery) is exercised independently.
   const main = read('apps/desktop/main/index.ts')
-  assert.match(main, /if \(record\.documentToken !== pendingFrom\) return/)
-  assert.match(main, /pendingFrom = record\.documentToken/)
+  assert.match(main, /documentLost: eventLifecycle\.documentLost/)
 })
 
 test('the same classification decides the retry and the lost document', () => {
@@ -516,6 +519,94 @@ test('the same classification decides the retry and the lost document', () => {
   // them and not the other — the drift that puts a window in a state where it
   // is retrying but still delivering, or delivering but never retrying.
   const source = read('apps/desktop/main/window-load-recovery.ts')
-  assert.match(source, /if \(isTerminalLoadFailure\(failure\)\) hooks\.documentLost\?\.\(\)/)
+  assert.match(source, /if \(isTerminalLoadFailure\(failure\) && hooks\.documentLost\?\.\(\) === false\) return/)
   assert.match(source, /recovery\.onLoadFailure\(failure\)/)
 })
+
+for (const route of ['/o/studio', '/?create=1']) {
+  test('same-origin retry preserves route ' + route, async () => {
+    const h = harness({ serving: true, route: () => route })
+    h.contents.fire('did-fail-load', -102, 'ERR_CONNECTION_REFUSED', 'http://127.0.0.1:21350' + route, true)
+    await h.flush()
+    await h.tick()
+    assert.deepEqual(h.loads, ['http://127.0.0.1:21350' + route])
+    assert.equal(h.recovery.isStranded, false)
+    assert.equal(h.recovery.isFailed, false)
+  })
+}
+
+test('recovery reads route live after the window identity changes', async () => {
+  let route = '/'
+  const h = harness({ serving: true, route: () => route })
+  h.contents.fire('did-fail-load', -102, 'ERR_CONNECTION_REFUSED', 'http://127.0.0.1:21350/', true)
+  await h.flush()
+  route = '/o/studio'
+  await h.tick()
+  assert.deepEqual(h.loads, ['http://127.0.0.1:21350/o/studio'])
+})
+
+test('an error-page finish cannot report recovery before a replacement commits', async () => {
+  const h = harness()
+  const failedUrl = h.url()
+  h.contents.fire('did-fail-load', -324, 'ERR_EMPTY_RESPONSE', h.url(), true)
+  // A late finish may still expose the failed HTTP URL while the data-page
+  // navigation is provisional. The attachment must require a new commit.
+  h.setUrl(failedUrl)
+  h.contents.fire('did-finish-load')
+  assert.equal(h.recovery.isFailed, true)
+  assert.equal(h.stages().includes('window-load-recovered'), false)
+  await h.flush()
+  assert.equal(h.pending().length, 1)
+})
+
+function deferredRecovery() {
+  let rejectLoad, resolveLoad, resolveHolding
+  const pages = [], timers = [], records = []
+  let deferHolding = false
+  const recovery = new WindowLoadRecovery({
+    target: () => 'http://127.0.0.1:12345', builtFor: () => 'http://127.0.0.1:12345',
+    load: () => new Promise((resolve, reject) => { resolveLoad = resolve; rejectLoad = reject }),
+    showHolding: html => { pages.push(html); return deferHolding
+      ? new Promise(resolve => { resolveHolding = resolve }) : Promise.resolve() },
+    setTimer: fn => { timers.push(fn); return fn }, clearTimer: () => { timers.length = 0 },
+    record: stage => records.push(stage),
+  })
+  return { recovery, pages, timers, records, fail: () => recovery.onLoadFailure(REAL_FAILURE),
+    reject: () => rejectLoad(new Error('late obsolete rejection')),
+    resolve: () => resolveLoad(), hold: () => { deferHolding = true }, finishHolding: () => resolveHolding(),
+  }
+}
+
+test('a load promise resolving alone does not prove a committed UI recovered', async () => {
+  const h = deferredRecovery(); h.fail(); await flush()
+  const retry = h.recovery.retryNow()
+  h.resolve(); await retry
+  assert.equal(h.recovery.isFailed, true)
+  assert.equal(h.records.includes('window-load-recovered'), false)
+  assert.equal(h.timers.length, 1, 'a resolved promise with no committed finish cannot strand recovery')
+  h.recovery.onLoadFinished('http://127.0.0.1:12345/')
+  assert.equal(h.recovery.isFailed, false)
+  assert.equal(h.timers.length, 0)
+})
+
+test('late retry rejection cannot replace a newer recovered document', async () => {
+  const h = deferredRecovery(); h.fail(); await flush()
+  const retry = h.recovery.retryNow()
+  h.recovery.onLoadFinished('http://127.0.0.1:12345/')
+  const pages = h.pages.length
+  h.reject(); await retry
+  assert.equal(h.pages.length, pages)
+  assert.equal(h.recovery.isFailed, false)
+  assert.equal(h.timers.length, 0)
+})
+
+for (const ending of ['recovered', 'disposed']) {
+  test('late holding completion cannot schedule a retry after ' + ending, async () => {
+    const h = deferredRecovery(); h.hold(); h.fail()
+    if (ending === 'recovered') h.recovery.onLoadFinished('http://127.0.0.1:12345/')
+    else h.recovery.dispose()
+    h.finishHolding(); await flush()
+    assert.equal(h.timers.length, 0)
+    assert.equal(h.recovery.isFailed, false)
+  })
+}

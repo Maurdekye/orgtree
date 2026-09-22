@@ -1,115 +1,12 @@
-/** THE HELD-EVENT COMPOSITION FIXTURE: production host, production preload,
- *  a real renderer consumer.
+/** Production held-event handlers, resolver, registry, outbox, navigation
+ * lifecycle and preload feeding the shipping heldbus/useNativeNotifications.
+ * A/B prove acknowledgement and take receipt, C stale-token refusal, D the
+ * same-document Homepage bind, E registry refusal, F retention across reload.
  *
- *  ⚠ WHAT IT ESTABLISHES THAT NOTHING ELSE DOES. Every earlier test of the
- *  held-event path exercised a COPY of the three channels, because until
- *  `main/held-events.ts` was extracted they were closures inside
- *  `app.whenReady()` and no test could reach them. This one imports and
- *  registers the SHIPPING `registerHeldEventChannels`, against the real
- *  `orgWindowRegistry` and the real `windowOutbox`, in a window running the
- *  UNMODIFIED production preload — including its private document token,
- *  which page script cannot see or forge. The renderer is the shipping
- *  `events/heldbus.ts` feeding the shipping `useNativeNotifications`.
- *
- *  The four things it is here to answer, all of which were open:
- *
- *    A  ACK-ONLY, NO TAKE. A renderer that never calls
- *       `takePendingWindowEvents` — the v2 one, and any renderer whose take
- *       loses the race — still RECEIVES a held event, and a real consumer
- *       really acts on it. Native's probe drained into a main-process array;
- *       nothing had ever been received by a renderer.
- *    B  THE TAKE PATH, end to end, through the same production guard.
- *    C  A STALE DOCUMENT'S ACK DOES NOT RELEASE, and the current document's
- *       then does — measured at the CONSUMER, not in a main-process array.
- *    D  THE HOMEPAGE BIND, as the product actually performs it. It does NOT
- *       replace the document: `adoptIdentity` does not navigate, and the
- *       renderer routes with `history.pushState`, which is same-document. So
- *       the outbox never re-arms, the token stays valid, and a reveal across
- *       a bind is received normally. An earlier version of this section bound
- *       with `loadURL` and concluded the opposite — see the note on D.
- *    F  A RELOAD RACING A REVEAL, which is where a document really IS
- *       replaced while listening. That one loses the reveal. It is real,
- *       rarer than a bind, and does NOT justify holding from
- *       `did-start-navigation` — a navigation that never commits would wedge
- *       the queue for the life of the window.
- *
- *  ⚠ NO ENGINE, NO LIVE DATA, NO INSTALLED APP. A throwaway HTTP server on
- *  127.0.0.1 serves the document and one canned notifications body; Electron's
- *  own state is redirected under the out directory. Nothing is installed,
- *  launched, deployed or restarted.
- *
- *  ⚠ WHAT IS THE FIXTURE'S OWN WIRING RATHER THAN PRODUCTION'S, stated so no
- *  one cites this for more than it shows: the window-creation glue — creating
- *  the BrowserWindow, registering it, and re-arming the outbox on
- *  `did-navigate` — lives in index.ts's window builder and is restated here.
- *  The REAL `did-navigate` timing (that commit is where the rearm lands, and
- *  that the provisional-load window is therefore unheld) is measured in
- *  tests/multi-window-native.probe.ts against real Electron. What is NOT
- *  restated, and is the whole point, is the three channels and their guard.
- *
- *  ⚠⚠ AND WHAT THE HOST IS HANDED, WHICH IS WHERE THIS FIXTURE COULD BE
- *  HOLLOW WITHOUT LOOKING IT (v3-native-opus, relaying their reviewer, before
- *  this was written). The seam makes the JUDGEMENT non-substitutable —
- *  `resolveNativeSender` is called inside held-events.ts and `currentDocument`
- *  is private to it — but the host interface necessarily hands over the STATE
- *  that judgement operates on. A registry whose `bySender` answered for
- *  anything would leave the real resolver refusing nothing while still being,
- *  genuinely, the real resolver; `OrgWindowRegistry` is structurally typed, so
- *  a hand-written literal of the right shape compiles. Their reviewer's
- *  sentence is the one to keep:
- *
- *    "This extraction makes the shipping path EXECUTABLE; it does not make
- *     every execution of it MEANINGFUL, and the whole difference is in what
- *     the caller passes."
- *
- *  So, precisely: `windows` is a real `orgWindowRegistry()`, every window is a
- *  real `BrowserWindow` registered in it by its real `webContents.id`, the
- *  outboxes are real `windowOutbox()`s, and `record`/`token`/`setToken` read
- *  and write one per-window field each — the same shapes index.ts passes.
- *
- *  And rather than leave that as a promise, CHECK E MEASURES IT. The reviewer
- *  did not take my word for that either: they built two hollow registries and
- *  ran them, and the results correct a sentence that used to stand here.
- *
- *    a `bySender` answering with ANY registered entry   fails E1 and E3,
- *                                                       and PASSES E2
- *    a `bySender` MISMAPPING a real sender to the
- *    holder's window id                                 fails E2 outright,
- *                                                       holding:false pending:0
- *
- *  ⚠ SO "A HOLLOW REGISTRY WOULD PASS EVERYTHING ELSE AND FAIL E2" WAS WRONG,
- *  and it is the kind of sentence a later reader leans on. The cruder
- *  hollowness is caught by E1/E3, not E2, because `resolveNativeSender`'s
- *  frame-identity comparison refuses INDEPENDENTLY of the registry. E2 is
- *  what catches a registry that maps a real sender to the wrong window. The
- *  substance — that E discriminates and is not decoration — holds; the
- *  attribution did not.
- *
- *  ⚠⚠ WHAT "THE CONSUMER RECEIVED IT" MEANS HERE, AND WHAT IT DOES NOT
- *  (multi-window-design, 2026-09-21). `useNativeNotifications` is the shipping
- *  hook and everything inside it is real — the paging read, the preference
- *  gate, the recheck on activation. But the CALLBACK it is given is this
- *  fixture's, not App's. So `PROBE.opened` proves HOOK RECEIPT: the event
- *  reached the real consumer and survived its whole validation path. It does
- *  NOT prove the reveal ACTION — that the real App then shows the targeted
- *  item in the right surface.
- *
- *  THE ACTION IS PROVED NEXT DOOR, in heldreveal.test.tsx, which mounts the
- *  real App, delivers the click BEFORE App exists, and asserts what the USER
- *  SEES: the organization route, the Presentations pane, the document body.
- *  It carries its own control — with no bus started, the same click at the
- *  same moment reveals nothing at all.
- *
- *  So the chain is covered in two halves with a named seam, and the seam is
- *  not a copy: the SAME `events/heldbus.ts` and the SAME
- *  `useNativeNotifications` run in both.
- *
- *    here     native host + production preload → heldbus → the hook   RECEIPT
- *    there    heldbus → the hook → App's own callback → the pane      ACTION
- *
- *  What NEITHER covers, stated so it is not read as closed: the native half
- *  and the App half have never run in one process against one another. jsdom
- *  has no preload and no IPC; the Electron fixture has no App.
+ * The listener callback records hook receipt; the full-App action proof is
+ * separately owned by app-composition.probe.ts. Host creation/plumbing uses
+ * isolated real windows, real registry/accessors and loopback canned data.
+ * No engine, live user data or installed application is used.
  */
 import { app, BrowserWindow, ipcMain } from 'electron'
 import http from 'node:http'
@@ -118,6 +15,7 @@ import path from 'node:path'
 import { registerHeldEventChannels } from '../apps/desktop/main/held-events'
 import { orgWindowRegistry } from '../apps/desktop/main/org-windows'
 import { windowOutbox } from '../apps/desktop/main/window-outbox'
+import { attachWindowEventLifecycle } from '../apps/desktop/main/window-event-lifecycle'
 
 const OUT = process.env.PROBE_OUT!
 const ROOT = process.env.PROBE_ROOT!
@@ -125,23 +23,13 @@ const log = (m: unknown) => {
   try { fs.appendFileSync(OUT + '.log', String(m) + '\n') } catch { /* best effort */ }
 }
 
-/** ⚠ `recording: true` MEANS THIS ROW CANNOT FAIL. F4 is written as
- *  `check('F4', true, ...)` on purpose — it carries a MEASUREMENT of a known-
- *  open defect, and the suite must stay green whether the reload loses the
- *  reveal or starts receiving it. F1–F3 do assert the exercise conditions, so
- *  the measurement is never taken on a run that missed the window.
- *
- *  But it means the headline count is not what it looks like, and the reviewer
- *  was right to say so: "26 checks, 26 passing" is 25 ASSERTIONS and one
- *  RECORDING. The summary below states both numbers so nobody reads the count
- *  as 26 things that could have failed. */
 interface Check { id: string; ok: boolean; note: string; recording?: boolean; detail?: unknown }
 const checks: Check[] = []
 const check = (id: string, ok: boolean, note: string, detail?: unknown) => {
   checks.push({ id, ok, note, detail })
   log((ok ? 'ok   ' : 'FAIL ') + id + ' — ' + note + (detail === undefined ? '' : ' ' + JSON.stringify(detail)))
 }
-const RECORDING_ROWS = new Set(['F4'])
+const RECORDING_ROWS = new Set<string>()
 const write = () => {
   const assertions = checks.filter((c) => !RECORDING_ROWS.has(c.id))
   const summary = {
@@ -150,7 +38,7 @@ const write = () => {
     recordings: checks.length - assertions.length,
     failing: assertions.filter((c) => !c.ok).length,
     note: 'assertions are rows that could have failed; recordings carry a '
-      + 'measurement of a known-open defect and stay green either way',
+      + 'measurement; this fixture currently has no recording-only rows',
   }
   try {
     fs.writeFileSync(OUT, JSON.stringify({
@@ -193,7 +81,7 @@ app.whenReady().then(async () => {
   // the commit had already happened and measured an ordinary held delivery
   // while reporting it as the gap. Stalling the document response widens the
   // window to something a test can aim at, and changes nothing about what is
-  // under test: the outbox still re-arms at COMMIT and the old document is
+  // under test: the old document is
   // still the one showing.
   let stallNextDocument = 0
   const server = http.createServer(async (req, res) => {
@@ -213,8 +101,7 @@ app.whenReady().then(async () => {
     }
     // ⚠ `/` and `/o/<slug>` are the app paths `isAppPath` admits, and the
     // production sender gate requires one of them. Both serve the same
-    // document, so a navigation between them is a real document replacement
-    // of the kind a Homepage bind performs.
+    // document. loadURL replaces it; Homepage binding instead uses pushState.
     if (stallNextDocument) {
       const ms = stallNextDocument
       stallNextDocument = 0
@@ -232,7 +119,7 @@ app.whenReady().then(async () => {
   // --------------------------------------------- the production host, wired
   const windows = orgWindowRegistry<BrowserWindow, Event>()
   interface Record {
-    id: string; window: BrowserWindow; token: string
+    id: string; window: BrowserWindow; documentToken: string
     outbox: ReturnType<typeof windowOutbox<Event>>
     navStarted: number; navCommitted: number
   }
@@ -286,8 +173,8 @@ app.whenReady().then(async () => {
     origin: () => liveOrigin,
     registry: windows,
     record: (id) => records.get(id),
-    token: (r) => r.token,
-    setToken: (r, t) => { r.token = t },
+    token: (r) => r.documentToken,
+    setToken: (r, t) => { r.documentToken = t },
     drain: (r) => r.outbox.drain(),
     send: (r, e) => { if (!r.window.isDestroyed()) r.window.webContents.send('desktop:event', e) },
   })
@@ -308,22 +195,21 @@ app.whenReady().then(async () => {
       },
     })
     const record: Record = {
-      id, window, token: '', navStarted: 0, navCommitted: 0,
+      id, window, documentToken: '', navStarted: 0, navCommitted: 0,
       outbox: windowOutbox<Event>({ hold: (t) => HELD.has(t) }),
     }
     records.set(id, record)
     windows.register({ id, senderId: window.webContents.id, window, kind: org ? 'org' : 'homepage', org })
-    // ⚠ THE DOCUMENT WENT AWAY, SO THE EVIDENCE WENT WITH IT. index.ts does
-    // exactly this on commit; the real timing is measured in
-    // multi-window-native.probe.ts.
-    window.webContents.on('did-start-navigation', (_e, url, _inPage, isMainFrame) => {
-      if (isMainFrame) { record.navStarted += 1; log('did-start-navigation ' + id + ' ' + url) }
+    attachWindowEventLifecycle(window.webContents, record,
+      event => { if (!window.isDestroyed()) window.webContents.send('desktop:event', event) })
+    window.webContents.on('did-start-navigation', details => {
+      if (details.isMainFrame && !details.isSameDocument) {
+        record.navStarted += 1; log('did-start-navigation ' + id + ' ' + details.url)
+      }
     })
     window.webContents.on('did-navigate', () => {
-      record.token = ''
-      record.outbox.rearm()
       record.navCommitted += 1
-      log('did-navigate: token cleared, outbox re-armed')
+      log('did-navigate: production lifecycle invalidates the previous listener')
     })
     window.webContents.on('console-message', (_e, lvl, msg) => {
       if (lvl >= 2) log('CONSOLE' + lvl + ': ' + String(msg).slice(0, 400))
@@ -409,9 +295,9 @@ app.whenReady().then(async () => {
       const other = makeWindow('other')
       await load(other, origin + '/?mode=idle')
       await wait(700)
-      check('E1', !!holder.token && !!other.token && holder.token !== other.token,
+      check('E1', !!holder.documentToken && !!other.documentToken && holder.documentToken !== other.documentToken,
         'each document minted its OWN token through the production channel',
-        { holder: !!holder.token, other: !!other.token, distinct: holder.token !== other.token })
+        { holder: !!holder.documentToken, other: !!other.documentToken, distinct: holder.documentToken !== other.documentToken })
       check('E2', holder.outbox.holding() === true && holder.outbox.pending() === 1,
         "another window's acknowledgement released nothing here — sender resolution "
         + 'really maps a message to the window that sent it',
@@ -498,12 +384,12 @@ app.whenReady().then(async () => {
       const r = makeWindow('stale')
       await load(r, origin + '/?mode=idle')
       await wait(400)
-      const mintedFirst = r.token
+      const mintedFirst = r.documentToken
       // a fresh event, and the document's token replaced under it
       r.outbox.rearm()
       sendTo(r, { type: 'notification-click', data: NOTICE })
-      r.token = 'a-token-from-a-later-document'
-      check('C0', !!mintedFirst && mintedFirst !== r.token && r.outbox.pending() === 1,
+      r.documentToken = 'a-token-from-a-later-document'
+      check('C0', !!mintedFirst && mintedFirst !== r.documentToken && r.outbox.pending() === 1,
         'the document holds a token that is no longer current, and an event is held',
         { pending: r.outbox.pending() })
 
@@ -516,7 +402,7 @@ app.whenReady().then(async () => {
         { holding: r.outbox.holding(), pending: r.outbox.pending() })
 
       // now make that document current again and acknowledge once more
-      r.token = mintedFirst
+      r.documentToken = mintedFirst
       await r.window.webContents.executeJavaScript(
         'window.__validAck = !!window.orgtreeDesktop.onEvent((e) => { (window.PROBE.late ||= []).push(e.type) }); true')
       await wait(600)
@@ -585,21 +471,8 @@ app.whenReady().then(async () => {
       records.delete('bind')
     }
 
-    // ================== F  A RELOAD RACING A REVEAL — WHERE THE GAP IS REAL
-    //
-    // The bind does not replace the document, but some things do: a user
-    // pressing refresh, and the load-recovery path. There the old document
-    // genuinely IS still showing and listening during the provisional window,
-    // genuinely IS about to be replaced, and the outbox does not re-arm until
-    // COMMIT. This measures that case honestly and claims nothing beyond it.
-    //
-    // ⚠ AND IT IS NOT AN ARGUMENT FOR HOLDING FROM `did-start-navigation`.
-    // v3-native-opus's objection stands and is recorded with the finding: a
-    // navigation that never COMMITS would leave the queue held for the life of
-    // the window, because the old document is still showing, its listener
-    // already ran, and `onEvent` does not fire again. That is the f5 wedge in
-    // a new place. What this establishes is that the case EXISTS, not what the
-    // answer to it should be.
+    // A reveal during a real cross-document reload must survive into the
+    // replacement document. Cancellation is covered by window-reload.probe.
     {
       const r = makeWindow('reload')
       await load(r, origin + '/?mode=take')
@@ -624,29 +497,15 @@ app.whenReady().then(async () => {
         'the reveal was sent inside the provisional window: after '
         + 'did-start-navigation and before did-navigate',
         { startedBeforeSend, committedBeforeSend })
-      check('F2', heldDuringNav === 0,
-        'and it was NOT held — the outbox re-arms at COMMIT',
+      check('F2', heldDuringNav === 1,
+        'the provisional navigation suspends delivery without losing readiness',
         { heldDuringNav })
       check('F3', !!second?.docId && second.docId !== first?.docId,
         'the document really was replaced, so what follows is about the NEW one',
         { before: first?.docId, after: second?.docId })
-      const exercised = startedBeforeSend && !committedBeforeSend
-        && !!second?.docId && second.docId !== first?.docId
-      const lost = (second?.opened?.length ?? 0) === 0
-      check('F4', true,
-        !exercised
-          ? 'NOT EXERCISED — the send did not land between START and COMMIT, or the '
-            + 'document was not replaced, so nothing here is claimed. (The first run '
-            + 'of this case DID conclude from exactly that state: the reload had '
-            + 'already committed, the event was held normally, and it read as a pass.)'
-          : lost
-          ? 'MEASURED: the reloaded document received NOTHING. A reveal delivered '
-            + 'into a reload is lost, and renderer-side buffering cannot help — the '
-            + 'buffer dies with the document that held it. Real, rarer than a bind, '
-            + 'and needing a design rather than a one-line hold.'
-          : 'MEASURED: the reloaded document DID receive it, so even a reload does '
-            + 'not lose a reveal on this path.',
-        { reloadedDocumentOpened: second?.opened, lost, exercised })
+      check('F4', (second?.opened?.length ?? 0) === 1,
+        'the reloaded document receives the retained reveal exactly once',
+        { reloadedDocumentOpened: second?.opened })
       r.window.destroy()
       records.delete('reload')
     }
