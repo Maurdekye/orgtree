@@ -1,0 +1,6894 @@
+{
+ "schema": "orgtree.backend-codec-vectors/v1",
+ "oracle": {
+  "python": "3.13.15",
+  "unicode": "15.1.0",
+  "anchors": [
+   {
+    "path": "engine/backend/orgtree/ledger.py",
+    "sha256": "83279ad74ea3c9f4a9e813823c64270415a163cf14fadbb00847bd63e4767745"
+   },
+   {
+    "path": "engine/backend/orgtree/openrouter.py",
+    "sha256": "00df266f1cae4b0d4f8c4ed546c0d22b700bcdecf3dacc9ae724fdd5e9fed073"
+   },
+   {
+    "path": "engine/backend/orgtree/agentauth.py",
+    "sha256": "c107bebcf68920f1838fc4214cdacbe833fa3b3046c1652be9e2efc5d848a337"
+   },
+   {
+    "path": "engine/backend/orgtree/api.py",
+    "sha256": "e04946ea40f07436de700ed6eb9a07f0a97ffe6c08c808eec5eb58aae8139dda"
+   }
+  ]
+ },
+ "limits": "Synthetic inputs only. Expected values are current Python behavior, not a new contract.",
+ "py_round2": [
+  {
+   "bits": "0000000000000000",
+   "python_repr": "0.0",
+   "rust": {
+    "hundredths": 0,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "8000000000000000",
+   "python_repr": "-0.0",
+   "rust": {
+    "hundredths": 0,
+    "negative_zero": true
+   }
+  },
+  {
+   "bits": "3fb999999999999a",
+   "python_repr": "0.1",
+   "rust": {
+    "hundredths": 10,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "3fc999999999999a",
+   "python_repr": "0.2",
+   "rust": {
+    "hundredths": 20,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "3fc0000000000000",
+   "python_repr": "0.12",
+   "rust": {
+    "hundredths": 12,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "3fd8000000000000",
+   "python_repr": "0.38",
+   "rust": {
+    "hundredths": 38,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "3f747ae147ae147b",
+   "python_repr": "0.01",
+   "rust": {
+    "hundredths": 1,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "3f8eb851eb851eb8",
+   "python_repr": "0.01",
+   "rust": {
+    "hundredths": 1,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "3f9999999999999a",
+   "python_repr": "0.03",
+   "rust": {
+    "hundredths": 3,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4005666666666666",
+   "python_repr": "2.67",
+   "rust": {
+    "hundredths": 267,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "3ff0147ae147ae14",
+   "python_repr": "1.0",
+   "rust": {
+    "hundredths": 100,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "bf50624dd2f1a9fc",
+   "python_repr": "-0.0",
+   "rust": {
+    "hundredths": 0,
+    "negative_zero": true
+   }
+  },
+  {
+   "bits": "bf70624dd2f1a9fc",
+   "python_repr": "-0.0",
+   "rust": {
+    "hundredths": 0,
+    "negative_zero": true
+   }
+  },
+  {
+   "bits": "bf747ae147ae147b",
+   "python_repr": "-0.01",
+   "rust": {
+    "hundredths": -1,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "bf789374bc6a7efa",
+   "python_repr": "-0.01",
+   "rust": {
+    "hundredths": -1,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c005666666666666",
+   "python_repr": "-2.67",
+   "rust": {
+    "hundredths": -267,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "01a56e1fc2f8f359",
+   "python_repr": "0.0",
+   "rust": {
+    "hundredths": 0,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "0000000000000001",
+   "python_repr": "0.0",
+   "rust": {
+    "hundredths": 0,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "8000000000000001",
+   "python_repr": "-0.0",
+   "rust": {
+    "hundredths": 0,
+    "negative_zero": true
+   }
+  },
+  {
+   "bits": "3fefd7082491afc0",
+   "python_repr": "0.99",
+   "rust": {
+    "hundredths": 99,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "3fefd70a3d70a3d7",
+   "python_repr": "0.99",
+   "rust": {
+    "hundredths": 99,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "3feff7ced916872b",
+   "python_repr": "1.0",
+   "rust": {
+    "hundredths": 100,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "3ff0000000000000",
+   "python_repr": "1.0",
+   "rust": {
+    "hundredths": 100,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "3ff8000000000000",
+   "python_repr": "1.5",
+   "rust": {
+    "hundredths": 150,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4000000000000000",
+   "python_repr": "2.0",
+   "rust": {
+    "hundredths": 200,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4010000000000000",
+   "python_repr": "4.0",
+   "rust": {
+    "hundredths": 400,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4024000000000000",
+   "python_repr": "10.0",
+   "rust": {
+    "hundredths": 1000,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "3fbae147ae147ae1",
+   "python_repr": "0.1",
+   "rust": {
+    "hundredths": 10,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "3fbd70a3d70a3d71",
+   "python_repr": "0.12",
+   "rust": {
+    "hundredths": 12,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "412f6ee11c28f5c3",
+   "python_repr": "1030000.56",
+   "rust": {
+    "hundredths": 103000056,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "412f6ee0028f5c29",
+   "python_repr": "1030000.01",
+   "rust": {
+    "hundredths": 103000001,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "42a2309ce53ffffb",
+   "python_repr": "9999999999999.99",
+   "rust": {
+    "hundredths": 999999999999999,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "42a2309ce53ffffe",
+   "python_repr": "10000000000000.0",
+   "rust": {
+    "error": "out_of_range"
+   }
+  },
+  {
+   "bits": "42a2309ce5400000",
+   "python_repr": "10000000000000.0",
+   "rust": {
+    "error": "out_of_range"
+   }
+  },
+  {
+   "bits": "430c6bf526340000",
+   "python_repr": "1000000000000000.0",
+   "rust": {
+    "error": "out_of_range"
+   }
+  },
+  {
+   "bits": "7e37e43c8800759c",
+   "python_repr": "1e+300",
+   "rust": {
+    "error": "out_of_range"
+   }
+  },
+  {
+   "bits": "419d6f3454800000",
+   "python_repr": "123456789.12",
+   "rust": {
+    "hundredths": 12345678912,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "3fd3333333333334",
+   "python_repr": "0.3",
+   "rust": {
+    "hundredths": 30,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "7ff8000000000000",
+   "python_repr": "NaN",
+   "rust": {
+    "error": "not_finite"
+   }
+  },
+  {
+   "bits": "7ff0000000000000",
+   "python_repr": "Infinity",
+   "rust": {
+    "error": "not_finite"
+   }
+  },
+  {
+   "bits": "fff0000000000000",
+   "python_repr": "-Infinity",
+   "rust": {
+    "error": "not_finite"
+   }
+  },
+  {
+   "bits": "c03428b439581062",
+   "python_repr": "-20.16",
+   "rust": {
+    "hundredths": -2016,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4036e66666666666",
+   "python_repr": "22.9",
+   "rust": {
+    "hundredths": 2290,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4085180000000000",
+   "python_repr": "675.0",
+   "rust": {
+    "hundredths": 67500,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40758d5e353f7cee",
+   "python_repr": "344.84",
+   "rust": {
+    "hundredths": 34484,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "407368096bb98c7e",
+   "python_repr": "310.5",
+   "rust": {
+    "hundredths": 31050,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "407c200000000000",
+   "python_repr": "450.0",
+   "rust": {
+    "hundredths": 45000,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4057a00000000000",
+   "python_repr": "94.5",
+   "rust": {
+    "hundredths": 9450,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "406dc5c28f5c28f6",
+   "python_repr": "238.18",
+   "rust": {
+    "hundredths": 23818,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c08511e13e3e2930",
+   "python_repr": "-674.23",
+   "rust": {
+    "hundredths": -67423,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "407215eb851eb852",
+   "python_repr": "289.37",
+   "rust": {
+    "hundredths": 28937,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c06d800000000000",
+   "python_repr": "-236.0",
+   "rust": {
+    "hundredths": -23600,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c07260a3d70a3d71",
+   "python_repr": "-294.04",
+   "rust": {
+    "hundredths": -29404,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c0899ef7ced91687",
+   "python_repr": "-819.87",
+   "rust": {
+    "hundredths": -81987,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "408603b020c49ba6",
+   "python_repr": "704.46",
+   "rust": {
+    "hundredths": 70446,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4081d9999999999a",
+   "python_repr": "571.2",
+   "rust": {
+    "hundredths": 57120,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c086666666666666",
+   "python_repr": "-716.8",
+   "rust": {
+    "hundredths": -71680,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4080ef7e90ff9724",
+   "python_repr": "541.94",
+   "rust": {
+    "hundredths": 54194,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40854f1394317acc",
+   "python_repr": "681.88",
+   "rust": {
+    "hundredths": 68188,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4050deb851eb851f",
+   "python_repr": "67.48",
+   "rust": {
+    "hundredths": 6748,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c082fa06594af4f1",
+   "python_repr": "-607.25",
+   "rust": {
+    "hundredths": -60725,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c08a24147ae147ae",
+   "python_repr": "-836.51",
+   "rust": {
+    "hundredths": -83651,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40855110624dd2f2",
+   "python_repr": "682.13",
+   "rust": {
+    "hundredths": 68213,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "403e28793dd97f63",
+   "python_repr": "30.16",
+   "rust": {
+    "hundredths": 3016,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c08af4cccccccccd",
+   "python_repr": "-862.6",
+   "rust": {
+    "hundredths": -86260,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c08365c28f5c28f6",
+   "python_repr": "-620.72",
+   "rust": {
+    "hundredths": -62072,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c08bca6666666666",
+   "python_repr": "-889.3",
+   "rust": {
+    "hundredths": -88930,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4082b53333333333",
+   "python_repr": "598.65",
+   "rust": {
+    "hundredths": 59865,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "408b000000000000",
+   "python_repr": "864.0",
+   "rust": {
+    "hundredths": 86400,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40861a6666666666",
+   "python_repr": "707.3",
+   "rust": {
+    "hundredths": 70730,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "405acc83e425aee6",
+   "python_repr": "107.2",
+   "rust": {
+    "hundredths": 10720,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c081d0f5c28f5c29",
+   "python_repr": "-570.12",
+   "rust": {
+    "hundredths": -57012,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c08a4084bb1af3a1",
+   "python_repr": "-840.06",
+   "rust": {
+    "hundredths": -84006,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4082da1f1bef49cf",
+   "python_repr": "603.27",
+   "rust": {
+    "hundredths": 60327,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c07ad45336deb95e",
+   "python_repr": "-429.27",
+   "rust": {
+    "hundredths": -42927,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c0747125657fb69a",
+   "python_repr": "-327.07",
+   "rust": {
+    "hundredths": -32707,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c08b40b851eb851f",
+   "python_repr": "-872.09",
+   "rust": {
+    "hundredths": -87209,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40550d70a3d70a3d",
+   "python_repr": "84.21",
+   "rust": {
+    "hundredths": 8421,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40647e353f7ced91",
+   "python_repr": "163.94",
+   "rust": {
+    "hundredths": 16394,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40668ceb463497b7",
+   "python_repr": "180.4",
+   "rust": {
+    "hundredths": 18040,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c067800000000000",
+   "python_repr": "-188.0",
+   "rust": {
+    "hundredths": -18800,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40805051eb851eb8",
+   "python_repr": "522.04",
+   "rust": {
+    "hundredths": 52204,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "bfdf9c0ebedfa440",
+   "python_repr": "-0.49",
+   "rust": {
+    "hundredths": -49,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4033edb8bac710cb",
+   "python_repr": "19.93",
+   "rust": {
+    "hundredths": 1993,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "408e1fe048e043a2",
+   "python_repr": "963.98",
+   "rust": {
+    "hundredths": 96398,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c064accccccccccd",
+   "python_repr": "-165.4",
+   "rust": {
+    "hundredths": -16540,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c07aa00000000000",
+   "python_repr": "-426.0",
+   "rust": {
+    "hundredths": -42600,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c05c949d495182aa",
+   "python_repr": "-114.32",
+   "rust": {
+    "hundredths": -11432,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c07801b9a176ddad",
+   "python_repr": "-384.11",
+   "rust": {
+    "hundredths": -38411,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c06823172ef0ae53",
+   "python_repr": "-193.1",
+   "rust": {
+    "hundredths": -19310,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c08c4bc6dc5d6388",
+   "python_repr": "-905.47",
+   "rust": {
+    "hundredths": -90547,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "407ec80000000000",
+   "python_repr": "492.5",
+   "rust": {
+    "hundredths": 49250,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4076100000000000",
+   "python_repr": "353.0",
+   "rust": {
+    "hundredths": 35300,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "407413663c74fb55",
+   "python_repr": "321.21",
+   "rust": {
+    "hundredths": 32121,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40760fc1dd1a21ea",
+   "python_repr": "352.98",
+   "rust": {
+    "hundredths": 35298,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4069f66666666666",
+   "python_repr": "207.7",
+   "rust": {
+    "hundredths": 20770,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c06e0de353f7ced9",
+   "python_repr": "-240.43",
+   "rust": {
+    "hundredths": -24043,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c071c8f06f694467",
+   "python_repr": "-284.56",
+   "rust": {
+    "hundredths": -28456,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4073240d1d8a5482",
+   "python_repr": "306.25",
+   "rust": {
+    "hundredths": 30625,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c0753cde0b4e11dc",
+   "python_repr": "-339.8",
+   "rust": {
+    "hundredths": -33980,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4076580000000000",
+   "python_repr": "357.5",
+   "rust": {
+    "hundredths": 35750,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c031000000000000",
+   "python_repr": "-17.0",
+   "rust": {
+    "hundredths": -1700,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40521fae147ae148",
+   "python_repr": "72.5",
+   "rust": {
+    "hundredths": 7250,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4042483126e978d5",
+   "python_repr": "36.56",
+   "rust": {
+    "hundredths": 3656,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c089ec95810624dd",
+   "python_repr": "-829.57",
+   "rust": {
+    "hundredths": -82957,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c086ba147ae147ae",
+   "python_repr": "-727.26",
+   "rust": {
+    "hundredths": -72726,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c07fc717f62b6ae8",
+   "python_repr": "-508.44",
+   "rust": {
+    "hundredths": -50844,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c08be7ed916872b0",
+   "python_repr": "-892.99",
+   "rust": {
+    "hundredths": -89299,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "408c065d249e44fa",
+   "python_repr": "896.8",
+   "rust": {
+    "hundredths": 89680,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "405dfde353f7ced9",
+   "python_repr": "119.97",
+   "rust": {
+    "hundredths": 11997,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c00bcc692f6e8295",
+   "python_repr": "-3.47",
+   "rust": {
+    "hundredths": -347,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "407f3c8f5c28f5c3",
+   "python_repr": "499.79",
+   "rust": {
+    "hundredths": 49979,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40826ccccccccccd",
+   "python_repr": "589.6",
+   "rust": {
+    "hundredths": 58960,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c07e8cac083126e9",
+   "python_repr": "-488.79",
+   "rust": {
+    "hundredths": -48879,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "406981703afb7e91",
+   "python_repr": "204.04",
+   "rust": {
+    "hundredths": 20404,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "401ad02de00d1b71",
+   "python_repr": "6.7",
+   "rust": {
+    "hundredths": 670,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "407bcd0a3d70a3d7",
+   "python_repr": "444.81",
+   "rust": {
+    "hundredths": 44481,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40818bcac083126f",
+   "python_repr": "561.47",
+   "rust": {
+    "hundredths": 56147,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "408d339945b6c376",
+   "python_repr": "934.45",
+   "rust": {
+    "hundredths": 93445,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4063f9999999999a",
+   "python_repr": "159.8",
+   "rust": {
+    "hundredths": 15980,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c049cd42c3c9eecc",
+   "python_repr": "-51.6",
+   "rust": {
+    "hundredths": -5160,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c086722296b3354c",
+   "python_repr": "-718.27",
+   "rust": {
+    "hundredths": -71827,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c07843999999999a",
+   "python_repr": "-388.23",
+   "rust": {
+    "hundredths": -38823,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4087bd999999999a",
+   "python_repr": "759.7",
+   "rust": {
+    "hundredths": 75970,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4068000000000000",
+   "python_repr": "192.0",
+   "rust": {
+    "hundredths": 19200,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "408797999999999a",
+   "python_repr": "754.95",
+   "rust": {
+    "hundredths": 75495,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c07a804467381d7e",
+   "python_repr": "-424.02",
+   "rust": {
+    "hundredths": -42402,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40855ffdf3b645a2",
+   "python_repr": "684.0",
+   "rust": {
+    "hundredths": 68400,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c0815e6666666666",
+   "python_repr": "-555.8",
+   "rust": {
+    "hundredths": -55580,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40889017b2031ceb",
+   "python_repr": "786.01",
+   "rust": {
+    "hundredths": 78601,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c088032a55087011",
+   "python_repr": "-768.4",
+   "rust": {
+    "hundredths": -76840,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c07305645a1cac08",
+   "python_repr": "-304.34",
+   "rust": {
+    "hundredths": -30434,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4081df999999999a",
+   "python_repr": "571.95",
+   "rust": {
+    "hundredths": 57195,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c066cbeac8605682",
+   "python_repr": "-182.37",
+   "rust": {
+    "hundredths": -18237,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "408b700000000000",
+   "python_repr": "878.0",
+   "rust": {
+    "hundredths": 87800,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c07093e6f9335d25",
+   "python_repr": "-265.24",
+   "rust": {
+    "hundredths": -26524,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c05788bac710cb29",
+   "python_repr": "-94.14",
+   "rust": {
+    "hundredths": -9414,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "407f500000000000",
+   "python_repr": "501.0",
+   "rust": {
+    "hundredths": 50100,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "408978c49ba5e354",
+   "python_repr": "815.1",
+   "rust": {
+    "hundredths": 81510,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c08a3e6666666666",
+   "python_repr": "-839.8",
+   "rust": {
+    "hundredths": -83980,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "401fb1ee2435696e",
+   "python_repr": "7.92",
+   "rust": {
+    "hundredths": 792,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c0851b0493426784",
+   "python_repr": "-675.38",
+   "rust": {
+    "hundredths": -67538,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "404e8e4ec636b096",
+   "python_repr": "61.11",
+   "rust": {
+    "hundredths": 6111,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c07ad00000000000",
+   "python_repr": "-429.0",
+   "rust": {
+    "hundredths": -42900,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c07bc964840e171a",
+   "python_repr": "-444.59",
+   "rust": {
+    "hundredths": -44459,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c08f3fc6a7ef9db2",
+   "python_repr": "-999.97",
+   "rust": {
+    "hundredths": -99997,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c06c58027525460b",
+   "python_repr": "-226.75",
+   "rust": {
+    "hundredths": -22675,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c0676c7ae147ae14",
+   "python_repr": "-187.39",
+   "rust": {
+    "hundredths": -18739,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c070d051eb851eb8",
+   "python_repr": "-269.02",
+   "rust": {
+    "hundredths": -26902,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "406d367ef9db22d1",
+   "python_repr": "233.7",
+   "rust": {
+    "hundredths": 23370,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c088c1df2ba9d1f6",
+   "python_repr": "-792.23",
+   "rust": {
+    "hundredths": -79223,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "403acbe0ded288ce",
+   "python_repr": "26.8",
+   "rust": {
+    "hundredths": 2680,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40849a726fa3fcca",
+   "python_repr": "659.31",
+   "rust": {
+    "hundredths": 65931,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40825deb851eb852",
+   "python_repr": "587.74",
+   "rust": {
+    "hundredths": 58774,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "407323e277c45cbc",
+   "python_repr": "306.24",
+   "rust": {
+    "hundredths": 30624,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40380c504816f007",
+   "python_repr": "24.05",
+   "rust": {
+    "hundredths": 2405,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c065800000000000",
+   "python_repr": "-172.0",
+   "rust": {
+    "hundredths": -17200,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "408071be76c8b439",
+   "python_repr": "526.22",
+   "rust": {
+    "hundredths": 52622,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c083834189374bc7",
+   "python_repr": "-624.41",
+   "rust": {
+    "hundredths": -62441,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c06c6ccccccccccd",
+   "python_repr": "-227.4",
+   "rust": {
+    "hundredths": -22740,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c07c6170a3d70a3d",
+   "python_repr": "-454.09",
+   "rust": {
+    "hundredths": -45409,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "408bd2a3d70a3d71",
+   "python_repr": "890.33",
+   "rust": {
+    "hundredths": 89033,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4069472b020c49ba",
+   "python_repr": "202.22",
+   "rust": {
+    "hundredths": 20222,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40737428f5c28f5c",
+   "python_repr": "311.26",
+   "rust": {
+    "hundredths": 31126,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c086714dcebfec14",
+   "python_repr": "-718.16",
+   "rust": {
+    "hundredths": -71816,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4076771d7dbf4880",
+   "python_repr": "359.44",
+   "rust": {
+    "hundredths": 35944,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c085d80000000000",
+   "python_repr": "-699.0",
+   "rust": {
+    "hundredths": -69900,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40822ccccccccccd",
+   "python_repr": "581.6",
+   "rust": {
+    "hundredths": 58160,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "407d700000000000",
+   "python_repr": "471.0",
+   "rust": {
+    "hundredths": 47100,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c078f6e4b87bdcf0",
+   "python_repr": "-399.43",
+   "rust": {
+    "hundredths": -39943,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4075e87ae147ae14",
+   "python_repr": "350.53",
+   "rust": {
+    "hundredths": 35053,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "406461d2f1a9fbe7",
+   "python_repr": "163.06",
+   "rust": {
+    "hundredths": 16306,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c0833d8cc6822ff1",
+   "python_repr": "-615.69",
+   "rust": {
+    "hundredths": -61569,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c07c2cbb6ed67770",
+   "python_repr": "-450.8",
+   "rust": {
+    "hundredths": -45080,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c08d9d624dd2f1aa",
+   "python_repr": "-947.67",
+   "rust": {
+    "hundredths": -94767,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4083c60000000000",
+   "python_repr": "632.75",
+   "rust": {
+    "hundredths": 63275,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c030dc28f5c28f5c",
+   "python_repr": "-16.86",
+   "rust": {
+    "hundredths": -1686,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c066433333333333",
+   "python_repr": "-178.1",
+   "rust": {
+    "hundredths": -17810,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c088d00000000000",
+   "python_repr": "-794.0",
+   "rust": {
+    "hundredths": -79400,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c051218dac258d58",
+   "python_repr": "-68.52",
+   "rust": {
+    "hundredths": -6852,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c073f00000000000",
+   "python_repr": "-319.0",
+   "rust": {
+    "hundredths": -31900,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40834e2b020c49ba",
+   "python_repr": "617.77",
+   "rust": {
+    "hundredths": 61777,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4087080000000000",
+   "python_repr": "737.0",
+   "rust": {
+    "hundredths": 73700,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c06f477ced916873",
+   "python_repr": "-250.23",
+   "rust": {
+    "hundredths": -25023,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "408382e978d4fdf4",
+   "python_repr": "624.36",
+   "rust": {
+    "hundredths": 62436,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c0779c978d4fdf3b",
+   "python_repr": "-377.79",
+   "rust": {
+    "hundredths": -37779,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c084d489374bc6a8",
+   "python_repr": "-666.57",
+   "rust": {
+    "hundredths": -66657,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "407a2ff27bb2fec5",
+   "python_repr": "419.0",
+   "rust": {
+    "hundredths": 41900,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c06097e76c8b4396",
+   "python_repr": "-132.75",
+   "rust": {
+    "hundredths": -13275,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "406fc00000000000",
+   "python_repr": "254.0",
+   "rust": {
+    "hundredths": 25400,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40848b7f2e48e8a7",
+   "python_repr": "657.44",
+   "rust": {
+    "hundredths": 65744,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "41227a6541de8206",
+   "python_repr": "605490.63",
+   "rust": {
+    "hundredths": 60549063,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "412cda30f08ca219",
+   "python_repr": "945432.47",
+   "rust": {
+    "hundredths": 94543247,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "41354e33edbac88c",
+   "python_repr": "1396275.93",
+   "rust": {
+    "hundredths": 139627593,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4118d4fb04ef9da3",
+   "python_repr": "406846.75",
+   "rust": {
+    "hundredths": 40684675,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "41369b429e64943e",
+   "python_repr": "1481538.62",
+   "rust": {
+    "hundredths": 148153862,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "411f59b3d17ed5ec",
+   "python_repr": "513644.95",
+   "rust": {
+    "hundredths": 51364495,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "413338b17cc2d5db",
+   "python_repr": "1259697.49",
+   "rust": {
+    "hundredths": 125969749,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4137c8034ba1f96d",
+   "python_repr": "1558531.3",
+   "rust": {
+    "hundredths": 155853130,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "412bed8a65f1c880",
+   "python_repr": "915141.2",
+   "rust": {
+    "hundredths": 91514120,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "413b998fd0560b3a",
+   "python_repr": "1808783.81",
+   "rust": {
+    "hundredths": 180878381,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "413e3fcc9d77faa6",
+   "python_repr": "1982412.62",
+   "rust": {
+    "hundredths": 198241262,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "411d31412b63fc2a",
+   "python_repr": "478288.29",
+   "rust": {
+    "hundredths": 47828829,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "411f00680399bb17",
+   "python_repr": "507930.0",
+   "rust": {
+    "hundredths": 50793000,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4131064b70581d50",
+   "python_repr": "1115723.44",
+   "rust": {
+    "hundredths": 111572344,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "41391a2f63d6a1f5",
+   "python_repr": "1645103.39",
+   "rust": {
+    "hundredths": 164510339,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "41371e5059c6b776",
+   "python_repr": "1515088.35",
+   "rust": {
+    "hundredths": 151508835,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4131aa9d3cad2835",
+   "python_repr": "1157789.24",
+   "rust": {
+    "hundredths": 115778924,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4126ff7817539680",
+   "python_repr": "753596.05",
+   "rust": {
+    "hundredths": 75359605,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "412f8bd834f60a7f",
+   "python_repr": "1033708.1",
+   "rust": {
+    "hundredths": 103370810,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "413cdc8bbd096700",
+   "python_repr": "1891467.74",
+   "rust": {
+    "hundredths": 189146774,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "413daf2d050f31b6",
+   "python_repr": "1945389.02",
+   "rust": {
+    "hundredths": 194538902,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "41298dfbcb5e255d",
+   "python_repr": "837373.9",
+   "rust": {
+    "hundredths": 83737390,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "411c7c6573d02c15",
+   "python_repr": "466713.36",
+   "rust": {
+    "hundredths": 46671336,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "412b86a3bc5364e1",
+   "python_repr": "901969.87",
+   "rust": {
+    "hundredths": 90196987,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "41208969f1f58a36",
+   "python_repr": "541876.97",
+   "rust": {
+    "hundredths": 54187697,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "41331025b90f3588",
+   "python_repr": "1249317.72",
+   "rust": {
+    "hundredths": 124931772,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4129e5d40ccc17f1",
+   "python_repr": "848618.02",
+   "rust": {
+    "hundredths": 84861802,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40e42db7b3646e46",
+   "python_repr": "41325.74",
+   "rust": {
+    "hundredths": 4132574,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4137f18a2c27212b",
+   "python_repr": "1569162.17",
+   "rust": {
+    "hundredths": 156916217,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "413abe0095109ee8",
+   "python_repr": "1752576.58",
+   "rust": {
+    "hundredths": 175257658,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "41278036edd079c8",
+   "python_repr": "770075.46",
+   "rust": {
+    "hundredths": 77007546,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "411e50a80a2702f1",
+   "python_repr": "496682.01",
+   "rust": {
+    "hundredths": 49668201,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40d001604d742c32",
+   "python_repr": "16389.5",
+   "rust": {
+    "hundredths": 1638950,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4134f47f8c0a271d",
+   "python_repr": "1373311.55",
+   "rust": {
+    "hundredths": 137331155,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "41342965f5bf585e",
+   "python_repr": "1321317.96",
+   "rust": {
+    "hundredths": 132131796,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4129dd98171f230f",
+   "python_repr": "847564.05",
+   "rust": {
+    "hundredths": 84756405,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "41332d2f586ebb07",
+   "python_repr": "1256751.35",
+   "rust": {
+    "hundredths": 125675135,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "41087312356350cf",
+   "python_repr": "200290.28",
+   "rust": {
+    "hundredths": 20029028,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "412fdcaa9e321b9f",
+   "python_repr": "1044053.31",
+   "rust": {
+    "hundredths": 104405331,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4111cc925f7d8f9e",
+   "python_repr": "291620.59",
+   "rust": {
+    "hundredths": 29162059,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "41132fc3d3ed6d34",
+   "python_repr": "314352.96",
+   "rust": {
+    "hundredths": 31435296,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4130880280b16c09",
+   "python_repr": "1083394.5",
+   "rust": {
+    "hundredths": 108339450,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "412db80724ea412d",
+   "python_repr": "973827.57",
+   "rust": {
+    "hundredths": 97382757,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "412112f7254d4d66",
+   "python_repr": "559483.57",
+   "rust": {
+    "hundredths": 55948357,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "41242d7942bf249d",
+   "python_repr": "661180.63",
+   "rust": {
+    "hundredths": 66118063,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "412d80b3be9dfb8c",
+   "python_repr": "966745.87",
+   "rust": {
+    "hundredths": 96674587,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "413a933b38b83b35",
+   "python_repr": "1741627.22",
+   "rust": {
+    "hundredths": 174162722,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "412428f508d08f28",
+   "python_repr": "660602.52",
+   "rust": {
+    "hundredths": 66060252,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4105733eb0bd577d",
+   "python_repr": "175719.84",
+   "rust": {
+    "hundredths": 17571984,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "412e3f438b7dc151",
+   "python_repr": "991137.77",
+   "rust": {
+    "hundredths": 99113777,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "413103d5585edf4f",
+   "python_repr": "1115093.35",
+   "rust": {
+    "hundredths": 111509335,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "413d654d69cada88",
+   "python_repr": "1926477.41",
+   "rust": {
+    "hundredths": 192647741,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "411e76186450cd62",
+   "python_repr": "499078.1",
+   "rust": {
+    "hundredths": 49907810,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4119dff8fd6fadb1",
+   "python_repr": "423934.25",
+   "rust": {
+    "hundredths": 42393425,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "410614ff5eebf3eb",
+   "python_repr": "180895.92",
+   "rust": {
+    "hundredths": 18089592,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "41238f23a89dbf12",
+   "python_repr": "640913.83",
+   "rust": {
+    "hundredths": 64091383,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4138a067b7d74038",
+   "python_repr": "1613927.72",
+   "rust": {
+    "hundredths": 161392772,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "41388da895c70923",
+   "python_repr": "1609128.59",
+   "rust": {
+    "hundredths": 160912859,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4123af765e3baa9a",
+   "python_repr": "645051.18",
+   "rust": {
+    "hundredths": 64505118,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "413069572a107ae7",
+   "python_repr": "1075543.16",
+   "rust": {
+    "hundredths": 107554316,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "41234093a73daf12",
+   "python_repr": "630857.83",
+   "rust": {
+    "hundredths": 63085783,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "411ded14a5bd7921",
+   "python_repr": "490309.16",
+   "rust": {
+    "hundredths": 49030916,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40f79ed478d08606",
+   "python_repr": "96749.28",
+   "rust": {
+    "hundredths": 9674928,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4139055def091a4e",
+   "python_repr": "1639773.93",
+   "rust": {
+    "hundredths": 163977393,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "411c41b671f58b53",
+   "python_repr": "462957.61",
+   "rust": {
+    "hundredths": 46295761,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40f3421bb3e04c7a",
+   "python_repr": "78881.73",
+   "rust": {
+    "hundredths": 7888173,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "413cae83fb8739ba",
+   "python_repr": "1879683.98",
+   "rust": {
+    "hundredths": 187968398,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40f302da73f61645",
+   "python_repr": "77869.65",
+   "rust": {
+    "hundredths": 7786965,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "413b6ea7af26b877",
+   "python_repr": "1797799.68",
+   "rust": {
+    "hundredths": 179779968,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "412c2952da180906",
+   "python_repr": "922793.43",
+   "rust": {
+    "hundredths": 92279343,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "413e833c067ebe99",
+   "python_repr": "1999676.03",
+   "rust": {
+    "hundredths": 199967603,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "412414595c1fd9fa",
+   "python_repr": "657964.68",
+   "rust": {
+    "hundredths": 65796468,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4116d9ce6651102e",
+   "python_repr": "374387.6",
+   "rust": {
+    "hundredths": 37438760,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4135e514c88e87b1",
+   "python_repr": "1434900.78",
+   "rust": {
+    "hundredths": 143490078,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "411c3cb9949f0c43",
+   "python_repr": "462638.4",
+   "rust": {
+    "hundredths": 46263840,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "413e7349ba28cb31",
+   "python_repr": "1995593.73",
+   "rust": {
+    "hundredths": 199559373,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "41203584dac6b886",
+   "python_repr": "531138.43",
+   "rust": {
+    "hundredths": 53113843,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4132c118e5901fb9",
+   "python_repr": "1229080.9",
+   "rust": {
+    "hundredths": 122908090,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4130fb8a59c41176",
+   "python_repr": "1112970.35",
+   "rust": {
+    "hundredths": 111297035,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "413c0b9278b01269",
+   "python_repr": "1837970.47",
+   "rust": {
+    "hundredths": 183797047,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4139db8d622ee701",
+   "python_repr": "1694605.38",
+   "rust": {
+    "hundredths": 169460538,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "410c6532bf0f5153",
+   "python_repr": "232614.34",
+   "rust": {
+    "hundredths": 23261434,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "412530d22b49b310",
+   "python_repr": "694377.08",
+   "rust": {
+    "hundredths": 69437708,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4139257ce2863963",
+   "python_repr": "1647996.88",
+   "rust": {
+    "hundredths": 164799688,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "41176ce722d510ee",
+   "python_repr": "383801.78",
+   "rust": {
+    "hundredths": 38380178,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4118f2ace4ce80e2",
+   "python_repr": "408747.22",
+   "rust": {
+    "hundredths": 40874722,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4130e48f8b78fb0e",
+   "python_repr": "1107087.54",
+   "rust": {
+    "hundredths": 110708754,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4130c71a0c29b5de",
+   "python_repr": "1099546.05",
+   "rust": {
+    "hundredths": 109954605,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "413aba392383298a",
+   "python_repr": "1751609.14",
+   "rust": {
+    "hundredths": 175160914,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "410defc9a303de11",
+   "python_repr": "245241.2",
+   "rust": {
+    "hundredths": 24524120,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "413d12b53a4a0899",
+   "python_repr": "1905333.23",
+   "rust": {
+    "hundredths": 190533323,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4126958a520b9f0b",
+   "python_repr": "740037.16",
+   "rust": {
+    "hundredths": 74003716,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "412d800f6e1f99ab",
+   "python_repr": "966663.72",
+   "rust": {
+    "hundredths": 96666372,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "41348c220ace96f0",
+   "python_repr": "1346594.04",
+   "rust": {
+    "hundredths": 134659404,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "41324de62231d3f0",
+   "python_repr": "1199590.13",
+   "rust": {
+    "hundredths": 119959013,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "412591855005751e",
+   "python_repr": "706754.66",
+   "rust": {
+    "hundredths": 70675466,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4121563deb2a93bc",
+   "python_repr": "568094.96",
+   "rust": {
+    "hundredths": 56809496,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4137c450065200ec",
+   "python_repr": "1557584.02",
+   "rust": {
+    "hundredths": 155758402,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "413b17b5746ae2d3",
+   "python_repr": "1775541.45",
+   "rust": {
+    "hundredths": 177554145,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "412dbaa605c7b05c",
+   "python_repr": "974163.01",
+   "rust": {
+    "hundredths": 97416301,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40f5b2573126e978",
+   "python_repr": "88869.45",
+   "rust": {
+    "hundredths": 8886945,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40ef77ba5a1cac08",
+   "python_repr": "64445.82",
+   "rust": {
+    "hundredths": 6444582,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40f4decec28f5c29",
+   "python_repr": "85484.92",
+   "rust": {
+    "hundredths": 8548492,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40f253a433333333",
+   "python_repr": "75066.26",
+   "rust": {
+    "hundredths": 7506626,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40d52bab5c28f5c2",
+   "python_repr": "21678.68",
+   "rust": {
+    "hundredths": 2167868,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40ed64ed43958106",
+   "python_repr": "60199.41",
+   "rust": {
+    "hundredths": 6019941,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40eb8b2445a1cac1",
+   "python_repr": "56409.13",
+   "rust": {
+    "hundredths": 5640913,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40ea7763ba5e3540",
+   "python_repr": "54203.12",
+   "rust": {
+    "hundredths": 5420312,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40f6aa66be76c8b4",
+   "python_repr": "92838.42",
+   "rust": {
+    "hundredths": 9283842,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40f11d7cb645a1ca",
+   "python_repr": "70103.79",
+   "rust": {
+    "hundredths": 7010379,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40d8ab469fbe76c8",
+   "python_repr": "25261.1",
+   "rust": {
+    "hundredths": 2526110,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40eaed2fc28f5c29",
+   "python_repr": "55145.49",
+   "rust": {
+    "hundredths": 5514549,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40d299f9a1cac083",
+   "python_repr": "19047.9",
+   "rust": {
+    "hundredths": 1904790,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40d4730fa5e353f7",
+   "python_repr": "20940.24",
+   "rust": {
+    "hundredths": 2094024,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40f0bc6e645a1cac",
+   "python_repr": "68550.9",
+   "rust": {
+    "hundredths": 6855090,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40bec174dd2f1aa0",
+   "python_repr": "7873.46",
+   "rust": {
+    "hundredths": 787346,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40cda2d4ed916873",
+   "python_repr": "15173.66",
+   "rust": {
+    "hundredths": 1517366,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40f097d99374bc6a",
+   "python_repr": "67965.6",
+   "rust": {
+    "hundredths": 6796560,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40e5580543958106",
+   "python_repr": "43712.16",
+   "rust": {
+    "hundredths": 4371216,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40f5e6d40624dd2f",
+   "python_repr": "89709.25",
+   "rust": {
+    "hundredths": 8970925,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40ecd1f0a7ef9db2",
+   "python_repr": "59023.52",
+   "rust": {
+    "hundredths": 5902352,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40d02ad50624dd2f",
+   "python_repr": "16555.33",
+   "rust": {
+    "hundredths": 1655533,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40cfdf1f4bc6a7f0",
+   "python_repr": "16318.24",
+   "rust": {
+    "hundredths": 1631824,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40d457c30a3d70a3",
+   "python_repr": "20831.05",
+   "rust": {
+    "hundredths": 2083105,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40d206a7d70a3d70",
+   "python_repr": "18458.62",
+   "rust": {
+    "hundredths": 1845862,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40c347871a9fbe77",
+   "python_repr": "9871.06",
+   "rust": {
+    "hundredths": 987106,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40f4aa14a9fbe76c",
+   "python_repr": "84641.29",
+   "rust": {
+    "hundredths": 8464129,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40d0c5dc72b020c4",
+   "python_repr": "17175.44",
+   "rust": {
+    "hundredths": 1717544,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40f77c818b439581",
+   "python_repr": "96200.1",
+   "rust": {
+    "hundredths": 9620010,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40d61feaf9db22d0",
+   "python_repr": "22655.67",
+   "rust": {
+    "hundredths": 2265567,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40e7e6c93b645a1d",
+   "python_repr": "48950.29",
+   "rust": {
+    "hundredths": 4895029,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40e62f4553f7ced9",
+   "python_repr": "45434.17",
+   "rust": {
+    "hundredths": 4543417,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40f4ddc82f1a9fbe",
+   "python_repr": "85468.51",
+   "rust": {
+    "hundredths": 8546851,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40f3e5e8eb851eb8",
+   "python_repr": "81502.56",
+   "rust": {
+    "hundredths": 8150256,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40d0f94c83126e97",
+   "python_repr": "17381.2",
+   "rust": {
+    "hundredths": 1738120,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40e7ed36a3d70a3e",
+   "python_repr": "49001.71",
+   "rust": {
+    "hundredths": 4900171,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40eadf8b5810624e",
+   "python_repr": "55036.35",
+   "rust": {
+    "hundredths": 5503635,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40bcf5e26e978d50",
+   "python_repr": "7413.88",
+   "rust": {
+    "hundredths": 741388,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40c2d3e5d2f1a9fc",
+   "python_repr": "9639.8",
+   "rust": {
+    "hundredths": 963980,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40ead604d0e56042",
+   "python_repr": "54960.15",
+   "rust": {
+    "hundredths": 5496015,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40f35afcdf3b645a",
+   "python_repr": "79279.8",
+   "rust": {
+    "hundredths": 7927980,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40c602023d70a3d7",
+   "python_repr": "11268.02",
+   "rust": {
+    "hundredths": 1126802,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40f2d54d9374bc6a",
+   "python_repr": "77140.85",
+   "rust": {
+    "hundredths": 7714085,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40e6ba1b89374bc7",
+   "python_repr": "46544.86",
+   "rust": {
+    "hundredths": 4654486,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40d3e40245a1cac0",
+   "python_repr": "20368.04",
+   "rust": {
+    "hundredths": 2036804,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40e022abb22d0e56",
+   "python_repr": "33045.37",
+   "rust": {
+    "hundredths": 3304537,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40cac860d4fdf3b6",
+   "python_repr": "13712.76",
+   "rust": {
+    "hundredths": 1371276,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40e74fb75810624e",
+   "python_repr": "47741.73",
+   "rust": {
+    "hundredths": 4774173,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40f154bd66666666",
+   "python_repr": "70987.84",
+   "rust": {
+    "hundredths": 7098784,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "40e46ccbc28f5c29",
+   "python_repr": "41830.37",
+   "rust": {
+    "hundredths": 4183037,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c1c7227c6392e2cd",
+   "python_repr": "-776272071.15",
+   "rust": {
+    "hundredths": -77627207115,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "254fe3d5375a007a",
+   "python_repr": "0.0",
+   "rust": {
+    "hundredths": 0,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "08ca04ed15c47530",
+   "python_repr": "0.0",
+   "rust": {
+    "hundredths": 0,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "1b520728d7524841",
+   "python_repr": "0.0",
+   "rust": {
+    "hundredths": 0,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "614485b514baac82",
+   "python_repr": "3.606563790648878e+160",
+   "rust": {
+    "error": "out_of_range"
+   }
+  },
+  {
+   "bits": "f3d022d78f025f6f",
+   "python_repr": "-7.220629143194511e+249",
+   "rust": {
+    "error": "out_of_range"
+   }
+  },
+  {
+   "bits": "b84618f7fb45cbbb",
+   "python_repr": "-0.0",
+   "rust": {
+    "hundredths": 0,
+    "negative_zero": true
+   }
+  },
+  {
+   "bits": "990178ccc88f59b0",
+   "python_repr": "-0.0",
+   "rust": {
+    "hundredths": 0,
+    "negative_zero": true
+   }
+  },
+  {
+   "bits": "1799b0cc770b8181",
+   "python_repr": "0.0",
+   "rust": {
+    "hundredths": 0,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "c6812c2f729d66db",
+   "python_repr": "-4.353771084612749e+31",
+   "rust": {
+    "error": "out_of_range"
+   }
+  },
+  {
+   "bits": "fdc28f3c2f6fe561",
+   "python_repr": "-6.06893217940883e+297",
+   "rust": {
+    "error": "out_of_range"
+   }
+  },
+  {
+   "bits": "5a1094e4d609c96b",
+   "python_repr": "7.015281108757864e+125",
+   "rust": {
+    "error": "out_of_range"
+   }
+  },
+  {
+   "bits": "b6f16387e16ff0d6",
+   "python_repr": "-0.0",
+   "rust": {
+    "hundredths": 0,
+    "negative_zero": true
+   }
+  },
+  {
+   "bits": "47b16c71506c679d",
+   "python_repr": "2.3159942273153187e+37",
+   "rust": {
+    "error": "out_of_range"
+   }
+  },
+  {
+   "bits": "1458588ff988b2fe",
+   "python_repr": "0.0",
+   "rust": {
+    "hundredths": 0,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "574052c067a0139a",
+   "python_repr": "1.9627952062547313e+112",
+   "rust": {
+    "error": "out_of_range"
+   }
+  },
+  {
+   "bits": "4106e534c58b7f12",
+   "python_repr": "187558.6",
+   "rust": {
+    "hundredths": 18755860,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "2687d12592a6b9c0",
+   "python_repr": "0.0",
+   "rust": {
+    "hundredths": 0,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "6f3f0b522496dcf0",
+   "python_repr": "7.354235313683325e+227",
+   "rust": {
+    "error": "out_of_range"
+   }
+  },
+  {
+   "bits": "14b82bcbc9683617",
+   "python_repr": "0.0",
+   "rust": {
+    "hundredths": 0,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "be1d89671585beb6",
+   "python_repr": "-0.0",
+   "rust": {
+    "hundredths": 0,
+    "negative_zero": true
+   }
+  },
+  {
+   "bits": "e25d26ed3744ff52",
+   "python_repr": "-6.715012707811692e+165",
+   "rust": {
+    "error": "out_of_range"
+   }
+  },
+  {
+   "bits": "ea95c970f788aee7",
+   "python_repr": "-2.732323398839908e+205",
+   "rust": {
+    "error": "out_of_range"
+   }
+  },
+  {
+   "bits": "46f0205635de327e",
+   "python_repr": "5.233288571073489e+33",
+   "rust": {
+    "error": "out_of_range"
+   }
+  },
+  {
+   "bits": "45c666fcb5dbc6a4",
+   "python_repr": "1.386634808144234e+28",
+   "rust": {
+    "error": "out_of_range"
+   }
+  },
+  {
+   "bits": "a59fcb9278c099ec",
+   "python_repr": "-0.0",
+   "rust": {
+    "hundredths": 0,
+    "negative_zero": true
+   }
+  },
+  {
+   "bits": "b2d795a39e9a36e3",
+   "python_repr": "-0.0",
+   "rust": {
+    "hundredths": 0,
+    "negative_zero": true
+   }
+  },
+  {
+   "bits": "bcdbe7b44af0c18a",
+   "python_repr": "-0.0",
+   "rust": {
+    "hundredths": 0,
+    "negative_zero": true
+   }
+  },
+  {
+   "bits": "2d743e89cfb15330",
+   "python_repr": "0.0",
+   "rust": {
+    "hundredths": 0,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "4a5b9577559ca5e9",
+   "python_repr": "1.6125538031725857e+50",
+   "rust": {
+    "error": "out_of_range"
+   }
+  },
+  {
+   "bits": "51de59b21c418e2d",
+   "python_repr": "2.358429097383485e+86",
+   "rust": {
+    "error": "out_of_range"
+   }
+  },
+  {
+   "bits": "46d7539ac07915f3",
+   "python_repr": "1.8924770069990138e+33",
+   "rust": {
+    "error": "out_of_range"
+   }
+  },
+  {
+   "bits": "d2a246d031ec6517",
+   "python_repr": "-1.1634412769504664e+90",
+   "rust": {
+    "error": "out_of_range"
+   }
+  },
+  {
+   "bits": "0c0a8ce88626b106",
+   "python_repr": "0.0",
+   "rust": {
+    "hundredths": 0,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "20cd17273779f67c",
+   "python_repr": "0.0",
+   "rust": {
+    "hundredths": 0,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "70bd2af499cec390",
+   "python_repr": "1.159258346455774e+235",
+   "rust": {
+    "error": "out_of_range"
+   }
+  },
+  {
+   "bits": "20a45c03dced6fd8",
+   "python_repr": "0.0",
+   "rust": {
+    "hundredths": 0,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "611d8e33b54b5a7c",
+   "python_repr": "6.492555710408514e+159",
+   "rust": {
+    "error": "out_of_range"
+   }
+  },
+  {
+   "bits": "c25e67a0de8301ea",
+   "python_repr": "-522350459404.03",
+   "rust": {
+    "hundredths": -52235045940403,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "5e63ddaffd959180",
+   "python_repr": "4.961324207941608e+146",
+   "rust": {
+    "error": "out_of_range"
+   }
+  },
+  {
+   "bits": "9852e756a91773c0",
+   "python_repr": "-0.0",
+   "rust": {
+    "hundredths": 0,
+    "negative_zero": true
+   }
+  },
+  {
+   "bits": "0470681332034b2d",
+   "python_repr": "0.0",
+   "rust": {
+    "hundredths": 0,
+    "negative_zero": false
+   }
+  },
+  {
+   "bits": "6ef1643f76e73f75",
+   "python_repr": "2.574993457156242e+226",
+   "rust": {
+    "error": "out_of_range"
+   }
+  },
+  {
+   "bits": "9a0d091c3c4d2dff",
+   "python_repr": "-0.0",
+   "rust": {
+    "hundredths": 0,
+    "negative_zero": true
+   }
+  },
+  {
+   "bits": "bd0569317f43a60d",
+   "python_repr": "-0.0",
+   "rust": {
+    "hundredths": 0,
+    "negative_zero": true
+   }
+  },
+  {
+   "bits": "742e58439be4c235",
+   "python_repr": "4.345206427764963e+251",
+   "rust": {
+    "error": "out_of_range"
+   }
+  },
+  {
+   "bits": "d0a284594ceccb9c",
+   "python_repr": "-2.744474473715405e+80",
+   "rust": {
+    "error": "out_of_range"
+   }
+  },
+  {
+   "bits": "b2bfcd18e302cb58",
+   "python_repr": "-0.0",
+   "rust": {
+    "hundredths": 0,
+    "negative_zero": true
+   }
+  },
+  {
+   "bits": "7633e49a135e1a26",
+   "python_repr": "2.446898825698026e+261",
+   "rust": {
+    "error": "out_of_range"
+   }
+  },
+  {
+   "bits": "68851398e1e9498d",
+   "python_repr": "3.07713647606575e+195",
+   "rust": {
+    "error": "out_of_range"
+   }
+  }
+ ],
+ "seat_for": [
+  {
+   "bits": "0000000000000000",
+   "python_repr": "0.1",
+   "rust": {
+    "hundredths": 10
+   }
+  },
+  {
+   "bits": "8000000000000000",
+   "python_repr": "0.1",
+   "rust": {
+    "hundredths": 10
+   }
+  },
+  {
+   "bits": "3f947ae147ae147b",
+   "python_repr": "0.1",
+   "rust": {
+    "hundredths": 10
+   }
+  },
+  {
+   "bits": "3fb999999999999a",
+   "python_repr": "0.1",
+   "rust": {
+    "hundredths": 10
+   }
+  },
+  {
+   "bits": "3fba9fbe76c8b439",
+   "python_repr": "0.1",
+   "rust": {
+    "hundredths": 10
+   }
+  },
+  {
+   "bits": "3fbae147ae147ae1",
+   "python_repr": "0.1",
+   "rust": {
+    "hundredths": 10
+   }
+  },
+  {
+   "bits": "3fbb22d0e5604189",
+   "python_repr": "0.11",
+   "rust": {
+    "hundredths": 11
+   }
+  },
+  {
+   "bits": "3fc999999999999a",
+   "python_repr": "0.2",
+   "rust": {
+    "hundredths": 20
+   }
+  },
+  {
+   "bits": "3fe8000000000000",
+   "python_repr": "0.75",
+   "rust": {
+    "hundredths": 75
+   }
+  },
+  {
+   "bits": "3fefd70a3d70a3d7",
+   "python_repr": "0.99",
+   "rust": {
+    "hundredths": 99
+   }
+  },
+  {
+   "bits": "3fefffffca501acb",
+   "python_repr": "1.0",
+   "rust": {
+    "hundredths": 100
+   }
+  },
+  {
+   "bits": "3ff0000000000000",
+   "python_repr": "1.0",
+   "rust": {
+    "hundredths": 100
+   }
+  },
+  {
+   "bits": "3ff8000000000000",
+   "python_repr": "1.0",
+   "rust": {
+    "hundredths": 100
+   }
+  },
+  {
+   "bits": "4000000000000000",
+   "python_repr": "2.0",
+   "rust": {
+    "hundredths": 200
+   }
+  },
+  {
+   "bits": "4007fffffffc9064",
+   "python_repr": "3.0",
+   "rust": {
+    "hundredths": 300
+   }
+  },
+  {
+   "bits": "4007ffffffdda3e8",
+   "python_repr": "3.0",
+   "rust": {
+    "hundredths": 300
+   }
+  },
+  {
+   "bits": "4008000000000000",
+   "python_repr": "3.0",
+   "rust": {
+    "hundredths": 300
+   }
+  },
+  {
+   "bits": "4010000000000000",
+   "python_repr": "4.0",
+   "rust": {
+    "hundredths": 400
+   }
+  },
+  {
+   "bits": "4014000000000000",
+   "python_repr": "5.0",
+   "rust": {
+    "hundredths": 500
+   }
+  },
+  {
+   "bits": "403e000000000000",
+   "python_repr": "30.0",
+   "rust": {
+    "hundredths": 3000
+   }
+  },
+  {
+   "bits": "426d1a94a2000000",
+   "python_repr": "1000000000000.0",
+   "rust": {
+    "hundredths": 100000000000000
+   }
+  },
+  {
+   "bits": "c014000000000000",
+   "python_repr": "0.1",
+   "rust": {
+    "hundredths": 10
+   }
+  },
+  {
+   "bits": "7ff8000000000000",
+   "python_repr": "0.1",
+   "rust": {
+    "hundredths": 10
+   }
+  },
+  {
+   "bits": "7ff0000000000000",
+   "python_raises": "OverflowError"
+  },
+  {
+   "bits": "fff0000000000000",
+   "python_repr": "0.1",
+   "rust": {
+    "hundredths": 10
+   }
+  },
+  {
+   "bits": "7e37e43c8800759c",
+   "python_repr": "1e+300",
+   "rust": {
+    "outside_parity": true
+   }
+  },
+  {
+   "bits": "3fe81bb8d6e5bfe5",
+   "python_repr": "0.75",
+   "rust": {
+    "hundredths": 75
+   }
+  },
+  {
+   "bits": "3fefed30138dc4ad",
+   "python_repr": "1.0",
+   "rust": {
+    "hundredths": 100
+   }
+  },
+  {
+   "bits": "3fe9e93f8ab33cdd",
+   "python_repr": "0.81",
+   "rust": {
+    "hundredths": 81
+   }
+  },
+  {
+   "bits": "3feb12dc0147665d",
+   "python_repr": "0.85",
+   "rust": {
+    "hundredths": 85
+   }
+  },
+  {
+   "bits": "3fdfb6fca465ff36",
+   "python_repr": "0.5",
+   "rust": {
+    "hundredths": 50
+   }
+  },
+  {
+   "bits": "3fc22653a5d0e658",
+   "python_repr": "0.14",
+   "rust": {
+    "hundredths": 14
+   }
+  },
+  {
+   "bits": "3fe76bce766f438e",
+   "python_repr": "0.73",
+   "rust": {
+    "hundredths": 73
+   }
+  },
+  {
+   "bits": "3fdc0c283f5ece64",
+   "python_repr": "0.44",
+   "rust": {
+    "hundredths": 44
+   }
+  },
+  {
+   "bits": "3fe6633f45b64eaa",
+   "python_repr": "0.7",
+   "rust": {
+    "hundredths": 70
+   }
+  },
+  {
+   "bits": "3fda8a82661007d0",
+   "python_repr": "0.41",
+   "rust": {
+    "hundredths": 41
+   }
+  },
+  {
+   "bits": "3fe4a112d944f656",
+   "python_repr": "0.64",
+   "rust": {
+    "hundredths": 64
+   }
+  },
+  {
+   "bits": "3fe838dc3dd731a5",
+   "python_repr": "0.76",
+   "rust": {
+    "hundredths": 76
+   }
+  },
+  {
+   "bits": "3fd534ce86a03542",
+   "python_repr": "0.33",
+   "rust": {
+    "hundredths": 33
+   }
+  },
+  {
+   "bits": "3fe74d1322e3f48d",
+   "python_repr": "0.73",
+   "rust": {
+    "hundredths": 73
+   }
+  },
+  {
+   "bits": "3feb0b2d7c9f4389",
+   "python_repr": "0.85",
+   "rust": {
+    "hundredths": 85
+   }
+  },
+  {
+   "bits": "3f4fd22f4f84bc00",
+   "python_repr": "0.1",
+   "rust": {
+    "hundredths": 10
+   }
+  },
+  {
+   "bits": "3fe5a6d72e3b8c7e",
+   "python_repr": "0.68",
+   "rust": {
+    "hundredths": 68
+   }
+  },
+  {
+   "bits": "3fe2c61086ad72cc",
+   "python_repr": "0.59",
+   "rust": {
+    "hundredths": 59
+   }
+  },
+  {
+   "bits": "3fb4adcd62573de0",
+   "python_repr": "0.1",
+   "rust": {
+    "hundredths": 10
+   }
+  },
+  {
+   "bits": "3fe0068ad1811536",
+   "python_repr": "0.5",
+   "rust": {
+    "hundredths": 50
+   }
+  },
+  {
+   "bits": "3fd1d957d8cef33e",
+   "python_repr": "0.28",
+   "rust": {
+    "hundredths": 28
+   }
+  },
+  {
+   "bits": "3fd39b90f88ea89e",
+   "python_repr": "0.31",
+   "rust": {
+    "hundredths": 31
+   }
+  },
+  {
+   "bits": "3feeb6f935680dec",
+   "python_repr": "0.96",
+   "rust": {
+    "hundredths": 96
+   }
+  },
+  {
+   "bits": "3fdaaab93cdb8410",
+   "python_repr": "0.42",
+   "rust": {
+    "hundredths": 42
+   }
+  },
+  {
+   "bits": "3fe32cde5bdd99dd",
+   "python_repr": "0.6",
+   "rust": {
+    "hundredths": 60
+   }
+  },
+  {
+   "bits": "3fe21d9aebd86fe2",
+   "python_repr": "0.57",
+   "rust": {
+    "hundredths": 57
+   }
+  },
+  {
+   "bits": "3fd9fb33585d26c8",
+   "python_repr": "0.41",
+   "rust": {
+    "hundredths": 41
+   }
+  },
+  {
+   "bits": "3fe2ffe0fbd25fa2",
+   "python_repr": "0.59",
+   "rust": {
+    "hundredths": 59
+   }
+  },
+  {
+   "bits": "3fe29d018571ad20",
+   "python_repr": "0.58",
+   "rust": {
+    "hundredths": 58
+   }
+  },
+  {
+   "bits": "3fc28cff591abde0",
+   "python_repr": "0.14",
+   "rust": {
+    "hundredths": 14
+   }
+  },
+  {
+   "bits": "3fec91374d318b15",
+   "python_repr": "0.89",
+   "rust": {
+    "hundredths": 89
+   }
+  },
+  {
+   "bits": "3fe00e0e75f669fd",
+   "python_repr": "0.5",
+   "rust": {
+    "hundredths": 50
+   }
+  },
+  {
+   "bits": "3fc500a67ee25148",
+   "python_repr": "0.16",
+   "rust": {
+    "hundredths": 16
+   }
+  },
+  {
+   "bits": "3fe140325e0c04f4",
+   "python_repr": "0.54",
+   "rust": {
+    "hundredths": 54
+   }
+  },
+  {
+   "bits": "3f9f9fde8eccf7a0",
+   "python_repr": "0.1",
+   "rust": {
+    "hundredths": 10
+   }
+  },
+  {
+   "bits": "3fe2f1b702a4ddda",
+   "python_repr": "0.59",
+   "rust": {
+    "hundredths": 59
+   }
+  },
+  {
+   "bits": "3fe8531453f6339f",
+   "python_repr": "0.76",
+   "rust": {
+    "hundredths": 76
+   }
+  },
+  {
+   "bits": "3fd7bc527d09b20e",
+   "python_repr": "0.37",
+   "rust": {
+    "hundredths": 37
+   }
+  },
+  {
+   "bits": "3face35ce66e5cc0",
+   "python_repr": "0.1",
+   "rust": {
+    "hundredths": 10
+   }
+  },
+  {
+   "bits": "3fe5900f34664169",
+   "python_repr": "0.67",
+   "rust": {
+    "hundredths": 67
+   }
+  },
+  {
+   "bits": "3feb939d4a97c184",
+   "python_repr": "0.86",
+   "rust": {
+    "hundredths": 86
+   }
+  },
+  {
+   "bits": "3fd51b96b8465afe",
+   "python_repr": "0.33",
+   "rust": {
+    "hundredths": 33
+   }
+  },
+  {
+   "bits": "3fd2cdb9cc95c634",
+   "python_repr": "0.29",
+   "rust": {
+    "hundredths": 29
+   }
+  },
+  {
+   "bits": "3fd853998a57de1a",
+   "python_repr": "0.38",
+   "rust": {
+    "hundredths": 38
+   }
+  },
+  {
+   "bits": "3fe1c65d0070b3f4",
+   "python_repr": "0.56",
+   "rust": {
+    "hundredths": 56
+   }
+  },
+  {
+   "bits": "3fcc6511ddd470bc",
+   "python_repr": "0.22",
+   "rust": {
+    "hundredths": 22
+   }
+  },
+  {
+   "bits": "3fcfc96a88157e08",
+   "python_repr": "0.25",
+   "rust": {
+    "hundredths": 25
+   }
+  },
+  {
+   "bits": "3fe642ddc5f69e00",
+   "python_repr": "0.7",
+   "rust": {
+    "hundredths": 70
+   }
+  },
+  {
+   "bits": "3fddf1a9181dc89a",
+   "python_repr": "0.47",
+   "rust": {
+    "hundredths": 47
+   }
+  },
+  {
+   "bits": "3fe7efe9f0a7fee0",
+   "python_repr": "0.75",
+   "rust": {
+    "hundredths": 75
+   }
+  },
+  {
+   "bits": "3f965f150ee97200",
+   "python_repr": "0.1",
+   "rust": {
+    "hundredths": 10
+   }
+  },
+  {
+   "bits": "3fe39c476426b80c",
+   "python_repr": "0.61",
+   "rust": {
+    "hundredths": 61
+   }
+  },
+  {
+   "bits": "3fe98432e188cb99",
+   "python_repr": "0.8",
+   "rust": {
+    "hundredths": 80
+   }
+  },
+  {
+   "bits": "3fe86883380703fc",
+   "python_repr": "0.76",
+   "rust": {
+    "hundredths": 76
+   }
+  },
+  {
+   "bits": "3fa73b662fefe180",
+   "python_repr": "0.1",
+   "rust": {
+    "hundredths": 10
+   }
+  },
+  {
+   "bits": "3fec7a7aeecb981e",
+   "python_repr": "0.89",
+   "rust": {
+    "hundredths": 89
+   }
+  },
+  {
+   "bits": "3fe30d0ef809b92d",
+   "python_repr": "0.6",
+   "rust": {
+    "hundredths": 60
+   }
+  },
+  {
+   "bits": "3fd2e4f41cdb3bfa",
+   "python_repr": "0.3",
+   "rust": {
+    "hundredths": 30
+   }
+  },
+  {
+   "bits": "3fe4fd3bcf1337b8",
+   "python_repr": "0.66",
+   "rust": {
+    "hundredths": 66
+   }
+  },
+  {
+   "bits": "3fd1aff9ea8bf900",
+   "python_repr": "0.28",
+   "rust": {
+    "hundredths": 28
+   }
+  },
+  {
+   "bits": "4017cad166edf706",
+   "python_repr": "5.0",
+   "rust": {
+    "hundredths": 500
+   }
+  },
+  {
+   "bits": "404028a7def17736",
+   "python_repr": "32.0",
+   "rust": {
+    "hundredths": 3200
+   }
+  },
+  {
+   "bits": "4057699434c05b82",
+   "python_repr": "93.0",
+   "rust": {
+    "hundredths": 9300
+   }
+  },
+  {
+   "bits": "404fc4b3b757867e",
+   "python_repr": "63.0",
+   "rust": {
+    "hundredths": 6300
+   }
+  },
+  {
+   "bits": "40112c051fa234de",
+   "python_repr": "4.0",
+   "rust": {
+    "hundredths": 400
+   }
+  },
+  {
+   "bits": "403f3013f922325b",
+   "python_repr": "31.0",
+   "rust": {
+    "hundredths": 3100
+   }
+  },
+  {
+   "bits": "40567197146a2ada",
+   "python_repr": "89.0",
+   "rust": {
+    "hundredths": 8900
+   }
+  },
+  {
+   "bits": "40345792e14ce8dd",
+   "python_repr": "20.0",
+   "rust": {
+    "hundredths": 2000
+   }
+  },
+  {
+   "bits": "4031a2897839a11b",
+   "python_repr": "17.0",
+   "rust": {
+    "hundredths": 1700
+   }
+  },
+  {
+   "bits": "403045a5d246ccaa",
+   "python_repr": "16.0",
+   "rust": {
+    "hundredths": 1600
+   }
+  },
+  {
+   "bits": "403ca3f167cf6412",
+   "python_repr": "28.0",
+   "rust": {
+    "hundredths": 2800
+   }
+  },
+  {
+   "bits": "401495c28759ae9c",
+   "python_repr": "5.0",
+   "rust": {
+    "hundredths": 500
+   }
+  },
+  {
+   "bits": "40500fc078e6656c",
+   "python_repr": "64.0",
+   "rust": {
+    "hundredths": 6400
+   }
+  },
+  {
+   "bits": "4036ce152405d2bb",
+   "python_repr": "22.0",
+   "rust": {
+    "hundredths": 2200
+   }
+  },
+  {
+   "bits": "40454851e9c5c95d",
+   "python_repr": "42.0",
+   "rust": {
+    "hundredths": 4200
+   }
+  },
+  {
+   "bits": "405380773c55b386",
+   "python_repr": "78.0",
+   "rust": {
+    "hundredths": 7800
+   }
+  },
+  {
+   "bits": "4046889a76b28a76",
+   "python_repr": "45.0",
+   "rust": {
+    "hundredths": 4500
+   }
+  },
+  {
+   "bits": "404bb16df710acde",
+   "python_repr": "55.0",
+   "rust": {
+    "hundredths": 5500
+   }
+  },
+  {
+   "bits": "40528e9a2972ec76",
+   "python_repr": "74.0",
+   "rust": {
+    "hundredths": 7400
+   }
+  },
+  {
+   "bits": "4058c6e348f4c05d",
+   "python_repr": "99.0",
+   "rust": {
+    "hundredths": 9900
+   }
+  },
+  {
+   "bits": "404d218b367ac09f",
+   "python_repr": "58.0",
+   "rust": {
+    "hundredths": 5800
+   }
+  },
+  {
+   "bits": "404b02619e7a4471",
+   "python_repr": "54.0",
+   "rust": {
+    "hundredths": 5400
+   }
+  },
+  {
+   "bits": "404ce98cafc3dc13",
+   "python_repr": "57.0",
+   "rust": {
+    "hundredths": 5700
+   }
+  },
+  {
+   "bits": "404359098bbc2fca",
+   "python_repr": "38.0",
+   "rust": {
+    "hundredths": 3800
+   }
+  },
+  {
+   "bits": "4024a84d1bfcf07e",
+   "python_repr": "10.0",
+   "rust": {
+    "hundredths": 1000
+   }
+  },
+  {
+   "bits": "404b42b0633dd00d",
+   "python_repr": "54.0",
+   "rust": {
+    "hundredths": 5400
+   }
+  },
+  {
+   "bits": "40542742e3976058",
+   "python_repr": "80.0",
+   "rust": {
+    "hundredths": 8000
+   }
+  },
+  {
+   "bits": "4037e5d9312c53e0",
+   "python_repr": "23.0",
+   "rust": {
+    "hundredths": 2300
+   }
+  },
+  {
+   "bits": "405774b3a07ad876",
+   "python_repr": "93.0",
+   "rust": {
+    "hundredths": 9300
+   }
+  },
+  {
+   "bits": "4052720e8d27ac89",
+   "python_repr": "73.0",
+   "rust": {
+    "hundredths": 7300
+   }
+  },
+  {
+   "bits": "40530aafea24c31c",
+   "python_repr": "76.0",
+   "rust": {
+    "hundredths": 7600
+   }
+  },
+  {
+   "bits": "40583506540d8f37",
+   "python_repr": "96.0",
+   "rust": {
+    "hundredths": 9600
+   }
+  },
+  {
+   "bits": "40502d4faf262284",
+   "python_repr": "64.0",
+   "rust": {
+    "hundredths": 6400
+   }
+  },
+  {
+   "bits": "40266955d044fecf",
+   "python_repr": "11.0",
+   "rust": {
+    "hundredths": 1100
+   }
+  },
+  {
+   "bits": "4035b399e433798f",
+   "python_repr": "21.0",
+   "rust": {
+    "hundredths": 2100
+   }
+  },
+  {
+   "bits": "403db98e441300ed",
+   "python_repr": "29.0",
+   "rust": {
+    "hundredths": 2900
+   }
+  },
+  {
+   "bits": "4040ea3cd8228e9e",
+   "python_repr": "33.0",
+   "rust": {
+    "hundredths": 3300
+   }
+  },
+  {
+   "bits": "40506c324a8bc181",
+   "python_repr": "65.0",
+   "rust": {
+    "hundredths": 6500
+   }
+  },
+  {
+   "bits": "404e83738a971ae2",
+   "python_repr": "61.0",
+   "rust": {
+    "hundredths": 6100
+   }
+  },
+  {
+   "bits": "40244f754635268d",
+   "python_repr": "10.0",
+   "rust": {
+    "hundredths": 1000
+   }
+  }
+ ],
+ "parse_exact": [
+  {
+   "lexeme": "0",
+   "rust": {
+    "hundredths": 0
+   },
+   "python_q_json": "0",
+   "python_type": "int"
+  },
+  {
+   "lexeme": "-0",
+   "rust": {
+    "hundredths": 0
+   },
+   "python_q_json": "0",
+   "python_type": "int"
+  },
+  {
+   "lexeme": "0.0",
+   "rust": {
+    "hundredths": 0
+   },
+   "python_q_json": "0.0",
+   "python_type": "float"
+  },
+  {
+   "lexeme": "-0.00",
+   "rust": {
+    "hundredths": 0
+   },
+   "python_q_json": "-0.0",
+   "python_type": "float"
+  },
+  {
+   "lexeme": "1",
+   "rust": {
+    "hundredths": 100
+   },
+   "python_q_json": "1",
+   "python_type": "int"
+  },
+  {
+   "lexeme": "10",
+   "rust": {
+    "hundredths": 1000
+   },
+   "python_q_json": "10",
+   "python_type": "int"
+  },
+  {
+   "lexeme": "0.1",
+   "rust": {
+    "hundredths": 10
+   },
+   "python_q_json": "0.1",
+   "python_type": "float"
+  },
+  {
+   "lexeme": "0.10",
+   "rust": {
+    "hundredths": 10
+   },
+   "python_q_json": "0.1",
+   "python_type": "float"
+  },
+  {
+   "lexeme": "0.25",
+   "rust": {
+    "hundredths": 25
+   },
+   "python_q_json": "0.25",
+   "python_type": "float"
+  },
+  {
+   "lexeme": "0.125",
+   "rust": {
+    "error": "precision"
+   },
+   "python_q_json": "0.12",
+   "python_type": "float"
+  },
+  {
+   "lexeme": "0.005",
+   "rust": {
+    "error": "precision"
+   },
+   "python_q_json": "0.01",
+   "python_type": "float"
+  },
+  {
+   "lexeme": "1.23",
+   "rust": {
+    "hundredths": 123
+   },
+   "python_q_json": "1.23",
+   "python_type": "float"
+  },
+  {
+   "lexeme": "1.230",
+   "rust": {
+    "hundredths": 123
+   },
+   "python_q_json": "1.23",
+   "python_type": "float"
+  },
+  {
+   "lexeme": "1.2300000",
+   "rust": {
+    "hundredths": 123
+   },
+   "python_q_json": "1.23",
+   "python_type": "float"
+  },
+  {
+   "lexeme": "1e2",
+   "rust": {
+    "hundredths": 10000
+   },
+   "python_q_json": "100.0",
+   "python_type": "float"
+  },
+  {
+   "lexeme": "1E2",
+   "rust": {
+    "hundredths": 10000
+   },
+   "python_q_json": "100.0",
+   "python_type": "float"
+  },
+  {
+   "lexeme": "1e-2",
+   "rust": {
+    "hundredths": 1
+   },
+   "python_q_json": "0.01",
+   "python_type": "float"
+  },
+  {
+   "lexeme": "1.5e-1",
+   "rust": {
+    "hundredths": 15
+   },
+   "python_q_json": "0.15",
+   "python_type": "float"
+  },
+  {
+   "lexeme": "1.55e-1",
+   "rust": {
+    "error": "precision"
+   },
+   "python_q_json": "0.15",
+   "python_type": "float"
+  },
+  {
+   "lexeme": "1.5e+1",
+   "rust": {
+    "hundredths": 1500
+   },
+   "python_q_json": "15.0",
+   "python_type": "float"
+  },
+  {
+   "lexeme": "12.345",
+   "rust": {
+    "error": "precision"
+   },
+   "python_q_json": "12.35",
+   "python_type": "float"
+  },
+  {
+   "lexeme": "-12.34",
+   "rust": {
+    "hundredths": -1234
+   },
+   "python_q_json": "-12.34",
+   "python_type": "float"
+  },
+  {
+   "lexeme": "1030000.55",
+   "rust": {
+    "hundredths": 103000055
+   },
+   "python_q_json": "1030000.55",
+   "python_type": "float"
+  },
+  {
+   "lexeme": "9999999999999.99",
+   "rust": {
+    "hundredths": 999999999999999
+   },
+   "python_q_json": "9999999999999.99",
+   "python_type": "float"
+  },
+  {
+   "lexeme": "10000000000000",
+   "rust": {
+    "error": "out_of_range"
+   },
+   "python_q_json": "10000000000000",
+   "python_type": "int"
+  },
+  {
+   "lexeme": "10000000000000.00",
+   "rust": {
+    "error": "out_of_range"
+   },
+   "python_q_json": "10000000000000.0",
+   "python_type": "float"
+  },
+  {
+   "lexeme": "0.30000000000000004",
+   "rust": {
+    "error": "precision"
+   },
+   "python_q_json": "0.3",
+   "python_type": "float"
+  },
+  {
+   "lexeme": "123456789012345678901234567890",
+   "rust": {
+    "error": "out_of_range"
+   },
+   "python_q_json": "123456789012345678901234567890",
+   "python_type": "int"
+  },
+  {
+   "lexeme": "1e400",
+   "rust": {
+    "error": "out_of_range"
+   },
+   "python_q_json": "Infinity",
+   "python_type": "float"
+  },
+  {
+   "lexeme": "1e-400",
+   "rust": {
+    "error": "precision"
+   },
+   "python_q_json": "0.0",
+   "python_type": "float"
+  },
+  {
+   "lexeme": "0e999999",
+   "rust": {
+    "hundredths": 0
+   },
+   "python_q_json": "0.0",
+   "python_type": "float"
+  },
+  {
+   "lexeme": "5e-3",
+   "rust": {
+    "error": "precision"
+   },
+   "python_q_json": "0.01",
+   "python_type": "float"
+  },
+  {
+   "lexeme": "0.009999999999999999999",
+   "rust": {
+    "error": "precision"
+   },
+   "python_q_json": "0.01",
+   "python_type": "float"
+  }
+ ],
+ "hire_grant": [
+  {
+   "json": "0",
+   "python_stored_json": "0"
+  },
+  {
+   "json": "3",
+   "python_stored_json": "3"
+  },
+  {
+   "json": "-0",
+   "python_stored_json": "0"
+  },
+  {
+   "json": "-1",
+   "python_raises": "LedgerError"
+  },
+  {
+   "json": "3.0",
+   "python_stored_json": "3"
+  },
+  {
+   "json": "-0.0",
+   "python_stored_json": "0"
+  },
+  {
+   "json": "2.5",
+   "python_raises": "LedgerError"
+  },
+  {
+   "json": "-2.5",
+   "python_raises": "LedgerError"
+  },
+  {
+   "json": "1e2",
+   "python_stored_json": "100"
+  },
+  {
+   "json": "1e-2",
+   "python_raises": "LedgerError"
+  },
+  {
+   "json": "true",
+   "python_stored_json": "1"
+  },
+  {
+   "json": "false",
+   "python_stored_json": "0"
+  },
+  {
+   "json": "null",
+   "python_raises": "TypeError"
+  },
+  {
+   "json": "\"3\"",
+   "python_raises": "TypeError"
+  },
+  {
+   "json": "[]",
+   "python_raises": "TypeError"
+  },
+  {
+   "json": "{}",
+   "python_raises": "TypeError"
+  },
+  {
+   "json": "NaN",
+   "python_raises": "ValueError"
+  },
+  {
+   "json": "Infinity",
+   "python_raises": "OverflowError"
+  },
+  {
+   "json": "-Infinity",
+   "python_raises": "LedgerError"
+  },
+  {
+   "json": "9007199254740993",
+   "python_stored_json": "9007199254740993"
+  },
+  {
+   "json": "1e15",
+   "python_stored_json": "1000000000000000"
+  },
+  {
+   "json": "99999999999999999999999",
+   "python_stored_json": "99999999999999999999999",
+   "rust_outside_parity": true
+  }
+ ],
+ "json": [
+  {
+   "text": "{}",
+   "python": "ok",
+   "python_value": [
+    "dict",
+    []
+   ],
+   "strict": "ok"
+  },
+  {
+   "text": "[]",
+   "python": "ok",
+   "python_value": [
+    "list",
+    []
+   ],
+   "strict": "ok"
+  },
+  {
+   "text": "null",
+   "python": "ok",
+   "python_value": [
+    "null"
+   ],
+   "strict": "ok"
+  },
+  {
+   "text": "true",
+   "python": "ok",
+   "python_value": [
+    "bool",
+    true
+   ],
+   "strict": "ok"
+  },
+  {
+   "text": "0",
+   "python": "ok",
+   "python_value": [
+    "int",
+    "0"
+   ],
+   "strict": "ok"
+  },
+  {
+   "text": "-0",
+   "python": "ok",
+   "python_value": [
+    "int",
+    "0"
+   ],
+   "strict": "ok"
+  },
+  {
+   "text": "1.5",
+   "python": "ok",
+   "python_value": [
+    "float",
+    "3ff8000000000000"
+   ],
+   "strict": "ok"
+  },
+  {
+   "text": "\"x\"",
+   "python": "ok",
+   "python_value": [
+    "str",
+    "x"
+   ],
+   "strict": "ok"
+  },
+  {
+   "text": "{\"a\":1,\"b\":null}",
+   "python": "ok",
+   "python_value": [
+    "dict",
+    [
+     [
+      "a",
+      [
+       "int",
+       "1"
+      ]
+     ],
+     [
+      "b",
+      [
+       "null"
+      ]
+     ]
+    ]
+   ],
+   "strict": "ok"
+  },
+  {
+   "text": "{\"a\":1,\"a\":2}",
+   "python": "ok",
+   "python_value": [
+    "dict",
+    [
+     [
+      "a",
+      [
+       "int",
+       "2"
+      ]
+     ]
+    ]
+   ],
+   "strict": "duplicate_key"
+  },
+  {
+   "text": "{\"a\":1,\"b\":2,\"a\":3}",
+   "python": "ok",
+   "python_value": [
+    "dict",
+    [
+     [
+      "a",
+      [
+       "int",
+       "3"
+      ]
+     ],
+     [
+      "b",
+      [
+       "int",
+       "2"
+      ]
+     ]
+    ]
+   ],
+   "strict": "duplicate_key"
+  },
+  {
+   "text": "{\"a\":{\"x\":1,\"x\":2}}",
+   "python": "ok",
+   "python_value": [
+    "dict",
+    [
+     [
+      "a",
+      [
+       "dict",
+       [
+        [
+         "x",
+         [
+          "int",
+          "2"
+         ]
+        ]
+       ]
+      ]
+     ]
+    ]
+   ],
+   "strict": "duplicate_key"
+  },
+  {
+   "text": "[NaN]",
+   "python": "ok",
+   "python_value": [
+    "list",
+    [
+     [
+      "float",
+      "7ff8000000000000"
+     ]
+    ]
+   ],
+   "strict": "nonfinite_constant"
+  },
+  {
+   "text": "[Infinity, -Infinity]",
+   "python": "ok",
+   "python_value": [
+    "list",
+    [
+     [
+      "float",
+      "7ff0000000000000"
+     ],
+     [
+      "float",
+      "fff0000000000000"
+     ]
+    ]
+   ],
+   "strict": "nonfinite_constant"
+  },
+  {
+   "text": "[nan]",
+   "python": "error",
+   "python_error": "JSONDecodeError",
+   "strict": "error"
+  },
+  {
+   "text": "[-NaN]",
+   "python": "error",
+   "python_error": "JSONDecodeError",
+   "strict": "error"
+  },
+  {
+   "text": "[+1]",
+   "python": "error",
+   "python_error": "JSONDecodeError",
+   "strict": "error"
+  },
+  {
+   "text": "[01]",
+   "python": "error",
+   "python_error": "JSONDecodeError",
+   "strict": "error"
+  },
+  {
+   "text": "[1.]",
+   "python": "error",
+   "python_error": "JSONDecodeError",
+   "strict": "error"
+  },
+  {
+   "text": "[.5]",
+   "python": "error",
+   "python_error": "JSONDecodeError",
+   "strict": "error"
+  },
+  {
+   "text": "[1e]",
+   "python": "error",
+   "python_error": "JSONDecodeError",
+   "strict": "error"
+  },
+  {
+   "text": "[1e+]",
+   "python": "error",
+   "python_error": "JSONDecodeError",
+   "strict": "error"
+  },
+  {
+   "text": "[1.5e3]",
+   "python": "ok",
+   "python_value": [
+    "list",
+    [
+     [
+      "float",
+      "4097700000000000"
+     ]
+    ]
+   ],
+   "strict": "ok"
+  },
+  {
+   "text": "[-1E-2]",
+   "python": "ok",
+   "python_value": [
+    "list",
+    [
+     [
+      "float",
+      "bf847ae147ae147b"
+     ]
+    ]
+   ],
+   "strict": "ok"
+  },
+  {
+   "text": "[\"\\ud83d\\ude00\"]",
+   "python": "ok",
+   "python_value": [
+    "list",
+    [
+     [
+      "str",
+      "\ud83d\ude00"
+     ]
+    ]
+   ],
+   "strict": "ok"
+  },
+  {
+   "text": "[\"\\ud800\"]",
+   "python": "outside_parity",
+   "strict": "lone_surrogate"
+  },
+  {
+   "text": "[\"\\udc00\"]",
+   "python": "outside_parity",
+   "strict": "lone_surrogate"
+  },
+  {
+   "text": "[\"\\ud800\\u0041\"]",
+   "python": "outside_parity",
+   "strict": "lone_surrogate"
+  },
+  {
+   "text": "[\"a\\u0000b\"]",
+   "python": "ok",
+   "python_value": [
+    "list",
+    [
+     [
+      "str",
+      "a\u0000b"
+     ]
+    ]
+   ],
+   "strict": "ok"
+  },
+  {
+   "text": "[\"tab\there\"]",
+   "python": "error",
+   "python_error": "JSONDecodeError",
+   "strict": "error"
+  },
+  {
+   "text": "[\"\\x\"]",
+   "python": "error",
+   "python_error": "JSONDecodeError",
+   "strict": "error"
+  },
+  {
+   "text": "[\"\\/\"]",
+   "python": "ok",
+   "python_value": [
+    "list",
+    [
+     [
+      "str",
+      "/"
+     ]
+    ]
+   ],
+   "strict": "ok"
+  },
+  {
+   "text": "[\"\u00e9\u212a\"]",
+   "python": "ok",
+   "python_value": [
+    "list",
+    [
+     [
+      "str",
+      "\u00e9\u212a"
+     ]
+    ]
+   ],
+   "strict": "ok"
+  },
+  {
+   "text": "{\"k\" : [1 , 2] }",
+   "python": "ok",
+   "python_value": [
+    "dict",
+    [
+     [
+      "k",
+      [
+       "list",
+       [
+        [
+         "int",
+         "1"
+        ],
+        [
+         "int",
+         "2"
+        ]
+       ]
+      ]
+     ]
+    ]
+   ],
+   "strict": "ok"
+  },
+  {
+   "text": " \t\r\n[1]\n",
+   "python": "ok",
+   "python_value": [
+    "list",
+    [
+     [
+      "int",
+      "1"
+     ]
+    ]
+   ],
+   "strict": "ok"
+  },
+  {
+   "text": "[1] [2]",
+   "python": "error",
+   "python_error": "JSONDecodeError",
+   "strict": "error"
+  },
+  {
+   "text": "[1,]",
+   "python": "error",
+   "python_error": "JSONDecodeError",
+   "strict": "error"
+  },
+  {
+   "text": "{\"a\":1,}",
+   "python": "error",
+   "python_error": "JSONDecodeError",
+   "strict": "error"
+  },
+  {
+   "text": "{a:1}",
+   "python": "error",
+   "python_error": "JSONDecodeError",
+   "strict": "error"
+  },
+  {
+   "text": "{'a':1}",
+   "python": "error",
+   "python_error": "JSONDecodeError",
+   "strict": "error"
+  },
+  {
+   "text": "\ufeff[1]",
+   "python": "error",
+   "python_error": "JSONDecodeError",
+   "strict": "error"
+  },
+  {
+   "text": "",
+   "python": "error",
+   "python_error": "JSONDecodeError",
+   "strict": "error"
+  },
+  {
+   "text": " ",
+   "python": "error",
+   "python_error": "JSONDecodeError",
+   "strict": "error"
+  },
+  {
+   "text": "[",
+   "python": "error",
+   "python_error": "JSONDecodeError",
+   "strict": "error"
+  },
+  {
+   "text": "\"unterminated",
+   "python": "error",
+   "python_error": "JSONDecodeError",
+   "strict": "error"
+  },
+  {
+   "text": "[\"\u007f\"]",
+   "python": "ok",
+   "python_value": [
+    "list",
+    [
+     [
+      "str",
+      "\u007f"
+     ]
+    ]
+   ],
+   "strict": "ok"
+  },
+  {
+   "text": "[1e400]",
+   "python": "ok",
+   "python_value": [
+    "list",
+    [
+     [
+      "float",
+      "7ff0000000000000"
+     ]
+    ]
+   ],
+   "strict": "ok"
+  },
+  {
+   "text": "[-1e400]",
+   "python": "ok",
+   "python_value": [
+    "list",
+    [
+     [
+      "float",
+      "fff0000000000000"
+     ]
+    ]
+   ],
+   "strict": "ok"
+  },
+  {
+   "text": "[123456789012345678901234567890]",
+   "python": "ok",
+   "python_value": [
+    "list",
+    [
+     [
+      "int",
+      "123456789012345678901234567890"
+     ]
+    ]
+   ],
+   "strict": "ok"
+  },
+  {
+   "text": "[1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111]",
+   "python": "ok",
+   "python_value": [
+    "list",
+    [
+     [
+      "int",
+      "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111"
+     ]
+    ]
+   ],
+   "strict": "ok"
+  },
+  {
+   "text": "[11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111]",
+   "python": "error",
+   "python_error": "ValueError",
+   "strict": "error"
+  },
+  {
+   "text": "[999999999999999999999999999999.5]",
+   "python": "ok",
+   "python_value": [
+    "list",
+    [
+     [
+      "float",
+      "46293e5939a08cea"
+     ]
+    ]
+   ],
+   "strict": "ok"
+  },
+  {
+   "text": "[true, false, null, \"s\", {\"n\": [[], {}]}]",
+   "python": "ok",
+   "python_value": [
+    "list",
+    [
+     [
+      "bool",
+      true
+     ],
+     [
+      "bool",
+      false
+     ],
+     [
+      "null"
+     ],
+     [
+      "str",
+      "s"
+     ],
+     [
+      "dict",
+      [
+       [
+        "n",
+        [
+         "list",
+         [
+          [
+           "list",
+           []
+          ],
+          [
+           "dict",
+           []
+          ]
+         ]
+        ]
+       ]
+      ]
+     ]
+    ]
+   ],
+   "strict": "ok"
+  }
+ ],
+ "presence": [
+  {
+   "json": "{}",
+   "key": "k",
+   "python": "absent"
+  },
+  {
+   "json": "{\"k\":null}",
+   "key": "k",
+   "python": "null"
+  },
+  {
+   "json": "{\"k\":0}",
+   "key": "k",
+   "python": "present"
+  },
+  {
+   "json": "{\"k\":false}",
+   "key": "k",
+   "python": "present"
+  },
+  {
+   "json": "{\"k\":\"\"}",
+   "key": "k",
+   "python": "present"
+  },
+  {
+   "json": "{\"k\":[]}",
+   "key": "k",
+   "python": "present"
+  },
+  {
+   "json": "{\"K\":1}",
+   "key": "k",
+   "python": "absent"
+  },
+  {
+   "json": "{\"k \":1}",
+   "key": "k",
+   "python": "absent"
+  },
+  {
+   "json": "{\"a\":{\"k\":1}}",
+   "key": "k",
+   "python": "absent"
+  }
+ ],
+ "generation": [
+  {
+   "json": "{}",
+   "api_value": 0,
+   "strict": {
+    "absent": true
+   }
+  },
+  {
+   "json": "{\"generation\":null}",
+   "api_raises": "TypeError",
+   "strict": {
+    "error": "null"
+   }
+  },
+  {
+   "json": "{\"generation\":0}",
+   "api_value": 0,
+   "strict": {
+    "value": 0
+   }
+  },
+  {
+   "json": "{\"generation\":3}",
+   "api_value": 3,
+   "strict": {
+    "value": 3
+   }
+  },
+  {
+   "json": "{\"generation\":-0}",
+   "api_value": 0,
+   "strict": {
+    "value": 0
+   }
+  },
+  {
+   "json": "{\"generation\":-1}",
+   "api_value": -1,
+   "strict": {
+    "error": "negative"
+   }
+  },
+  {
+   "json": "{\"generation\":true}",
+   "api_value": 1,
+   "strict": {
+    "error": "not_integer"
+   }
+  },
+  {
+   "json": "{\"generation\":false}",
+   "api_value": 0,
+   "strict": {
+    "error": "not_integer"
+   }
+  },
+  {
+   "json": "{\"generation\":1.9}",
+   "api_value": 1,
+   "strict": {
+    "error": "not_integer"
+   }
+  },
+  {
+   "json": "{\"generation\":-0.5}",
+   "api_value": 0,
+   "strict": {
+    "error": "not_integer"
+   }
+  },
+  {
+   "json": "{\"generation\":2.0}",
+   "api_value": 2,
+   "strict": {
+    "error": "not_integer"
+   }
+  },
+  {
+   "json": "{\"generation\":1e2}",
+   "api_value": 100,
+   "strict": {
+    "error": "not_integer"
+   }
+  },
+  {
+   "json": "{\"generation\":\"2\"}",
+   "api_value": 2,
+   "api_rust_outside_parity": true,
+   "strict": {
+    "error": "not_integer"
+   }
+  },
+  {
+   "json": "{\"generation\":[]}",
+   "api_raises": "TypeError",
+   "strict": {
+    "error": "not_integer"
+   }
+  },
+  {
+   "json": "{\"generation\":{}}",
+   "api_raises": "TypeError",
+   "strict": {
+    "error": "not_integer"
+   }
+  },
+  {
+   "json": "{\"generation\":NaN}",
+   "api_raises": "ValueError",
+   "strict": {
+    "error": "not_integer"
+   }
+  },
+  {
+   "json": "{\"generation\":Infinity}",
+   "api_raises": "OverflowError",
+   "strict": {
+    "error": "not_integer"
+   }
+  },
+  {
+   "json": "{\"generation\":1e400}",
+   "api_raises": "OverflowError",
+   "strict": {
+    "error": "not_integer"
+   }
+  },
+  {
+   "json": "{\"generation\":9223372036854775807}",
+   "api_value": 9223372036854775807,
+   "strict": {
+    "value": 9223372036854775807
+   }
+  },
+  {
+   "json": "{\"generation\":9223372036854775808}",
+   "api_value": 9223372036854775808,
+   "api_rust_outside_parity": true,
+   "strict": {
+    "error": "out_of_range"
+   }
+  }
+ ],
+ "slugify": [
+  {
+   "input": "Alice",
+   "python": "alice"
+  },
+  {
+   "input": "  alice  ",
+   "python": "alice"
+  },
+  {
+   "input": "Hello, World!",
+   "python": "hello-world"
+  },
+  {
+   "input": "a--b",
+   "python": "a-b"
+  },
+  {
+   "input": "-a-",
+   "python": "a"
+  },
+  {
+   "input": "---",
+   "python_raises": "LedgerError"
+  },
+  {
+   "input": "",
+   "python_raises": "LedgerError"
+  },
+  {
+   "input": "   ",
+   "python_raises": "LedgerError"
+  },
+  {
+   "input": "@user",
+   "python": "user"
+  },
+  {
+   "input": "user",
+   "python": "user"
+  },
+  {
+   "input": "system",
+   "python": "system"
+  },
+  {
+   "input": "\u0130stanbul",
+   "python": "i-stanbul"
+  },
+  {
+   "input": "\u0130x",
+   "python": "i-x"
+  },
+  {
+   "input": "\u212aelvin",
+   "python": "kelvin"
+  },
+  {
+   "input": "\u03a3\u0391\u03a3",
+   "python_raises": "LedgerError"
+  },
+  {
+   "input": "\uff21\uff22\uff23",
+   "python_raises": "LedgerError"
+  },
+  {
+   "input": "caf\u00e9 cr\u00e8me",
+   "python": "caf-cr-me"
+  },
+  {
+   "input": "\u01c4emal",
+   "python": "emal"
+  },
+  {
+   "input": "\u00df",
+   "python_raises": "LedgerError"
+  },
+  {
+   "input": "\ufb01le",
+   "python": "le"
+  },
+  {
+   "input": "x\u0130y",
+   "python": "xi-y"
+  },
+  {
+   "input": "\u0130",
+   "python": "i"
+  },
+  {
+   "input": "a_b",
+   "python": "a-b"
+  },
+  {
+   "input": "a.b",
+   "python": "a-b"
+  },
+  {
+   "input": "1-2-3",
+   "python": "1-2-3"
+  },
+  {
+   "input": "\ud83d\ude00 agent",
+   "python": "agent"
+  },
+  {
+   "input": "tab\there",
+   "python": "tab-here"
+  },
+  {
+   "input": "line\nbreak",
+   "python": "line-break"
+  },
+  {
+   "input": "\u00a0nbsp\u00a0",
+   "python": "nbsp"
+  },
+  {
+   "input": "\u2028sep",
+   "python": "sep"
+  },
+  {
+   "input": "W12345678",
+   "python": "w12345678"
+  },
+  {
+   "input": "Opus 5.5 reviewer",
+   "python": "opus-5-5-reviewer"
+  },
+  {
+   "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "python": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+   "input": "AbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAb!",
+   "python": "abababababababababababababababababababababababababababababab"
+  },
+  {
+   "input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-yy",
+   "python": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-yy"
+  },
+  {
+   "input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-y",
+   "python": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-y"
+  },
+  {
+   "input": ".\u0130\u03a3.\u00e9\t_aZ\u0307_",
+   "python": "i-az"
+  },
+  {
+   "input": "Z\t0Z\u212a.a\u03a3\u212aa_\u00df\u0307\u212a\u00e9 ",
+   "python": "z-0zk-a-ka-k"
+  },
+  {
+   "input": "9\u0130\u0307\u0307\u212aZ@ ",
+   "python": "9i-kz"
+  },
+  {
+   "input": "\ud83d\ude00\u0307\ud83d\ude000\u00e9",
+   "python": "0"
+  },
+  {
+   "input": ".@.\u00df-0",
+   "python": "0"
+  },
+  {
+   "input": "0\ud83d\ude00@\u212aa\u0130\u0307",
+   "python": "0-kai"
+  },
+  {
+   "input": "_a\tZ@\u00e9\u00e99Z",
+   "python": "a-z-9z"
+  },
+  {
+   "input": "0\u0307a9@\u0130Z\ud83d\ude00\ud83d\ude00\u03a3\u00dfZ@-\ud83d\ude00@",
+   "python": "0-a9-i-z-z"
+  },
+  {
+   "input": "\t\u03a3\u0307Z\u03a39",
+   "python": "z-9"
+  },
+  {
+   "input": "\u00df\u03a3",
+   "python_raises": "LedgerError"
+  },
+  {
+   "input": "  \u00e9",
+   "python_raises": "LedgerError"
+  },
+  {
+   "input": "Za\u03a3\u01309\u00e9\u03070\u03a3\ud83d\ude00\u0307\u0307\u0130. \u03a30.\t.",
+   "python": "za-i-9-0-i-0"
+  },
+  {
+   "input": "\u0130\u00e999\u00df",
+   "python": "i-99"
+  },
+  {
+   "input": "\u03070.-a\u0130",
+   "python": "0-ai"
+  },
+  {
+   "input": "\u00e9\u00e9\u00df\u212a9.",
+   "python": "k9"
+  },
+  {
+   "input": "a\u00e9",
+   "python": "a"
+  },
+  {
+   "input": "\u212a\u212aa. 0.\u01300@9\t\u212a\ta\u0130 ",
+   "python": "kka-0-i-0-9-k-ai"
+  },
+  {
+   "input": "@\u212a\u0130 \u0307\u212a.\u0307\t\u0130\t0\u0130\u00df -\u0130\u00df\u0130",
+   "python": "ki-k-i-0i-i-i"
+  },
+  {
+   "input": "\u03a3",
+   "python_raises": "LedgerError"
+  },
+  {
+   "input": "0",
+   "python": "0"
+  },
+  {
+   "input": "\u00e9\u00df",
+   "python_raises": "LedgerError"
+  },
+  {
+   "input": "@\ud83d\ude00a@\u00df\u212a@_-\ud83d\ude00\u00e9",
+   "python": "a-k"
+  },
+  {
+   "input": "- _\ud83d\ude00\u00e90\u00df-\u00e9Z.",
+   "python": "0-z"
+  },
+  {
+   "input": "\t.@Z9\tZ",
+   "python": "z9-z"
+  },
+  {
+   "input": " ._\u0130\u03a3Z",
+   "python": "i-z"
+  },
+  {
+   "input": "\u03a3\u0307\u0307\u03070\u212a.",
+   "python": "0k"
+  },
+  {
+   "input": "@\u01300\u0307a\ud83d\ude00\t.\u03079\u212a-\u212a9\u00e9\u0307_",
+   "python": "i-0-a-9k-k9"
+  },
+  {
+   "input": "a0\u00dfa_._\u0130\u0307\u0130 9_",
+   "python": "a0-a-i-i-9"
+  },
+  {
+   "input": "@_\u01300\u03a39\u0130-\u00e9Z\u00e9.\ud83d\ude00_\u212a",
+   "python": "i-0-9i-z-k"
+  },
+  {
+   "input": "\u0130.",
+   "python": "i"
+  },
+  {
+   "input": "_-0 \ud83d\ude0090\t0a\u00e9",
+   "python": "0-90-0a"
+  },
+  {
+   "input": "\u00e9\t\u03a3__9\u00e9\u00e9",
+   "python": "9"
+  },
+  {
+   "input": "Za0\u0307\u0307\u0130\ud83d\ude00-\u00df\u0307\u212a-\u00df\t\u0130@ ",
+   "python": "za0-i-k-i"
+  },
+  {
+   "input": "\u00df0\ud83d\ude00\u00e99\u03079\u0307@\u03a3\u00df\u03a3\u212aa..",
+   "python": "0-9-9-ka"
+  },
+  {
+   "input": "\u00e99\ud83d\ude00\u0307\t\t\t0\u03a3-\u00e90\u0307-\u00df- 9\u00e9Z",
+   "python": "9-0-0-9-z"
+  },
+  {
+   "input": "\u0130 ",
+   "python": "i"
+  },
+  {
+   "input": "a\ud83d\ude000-@@\u212a9\u0307",
+   "python": "a-0-k9"
+  },
+  {
+   "input": "--@ .-\ud83d\ude00",
+   "python_raises": "LedgerError"
+  },
+  {
+   "input": "999\u00df\tZ._\u0130\t",
+   "python": "999-z-i"
+  },
+  {
+   "input": "\t\ud83d\ude00-\u03a3\u212a\u0307--_\ud83d\ude00\u00e9\u00dfa9a0\t-",
+   "python": "k-a9a0"
+  },
+  {
+   "input": "",
+   "python_raises": "LedgerError"
+  },
+  {
+   "input": "\u03a3\u0307\t\u0307\u03a3-\u01300a\u03a3\t\u00df ",
+   "python": "i-0a"
+  },
+  {
+   "input": "\ud83d\ude00.\u00e9.\u0307\u00e9a\u212a",
+   "python": "ak"
+  },
+  {
+   "input": "\u0130\u0130\u03a3\u00e9 \u00df-a_-\u03a39a\u00e9-\ud83d\ude00aa\u0307\ud83d\ude00",
+   "python": "i-i-a-9a-aa"
+  },
+  {
+   "input": " Z\u212a\u0307-_",
+   "python": "zk"
+  },
+  {
+   "input": "a\u212aZ\u00e9__9\u03a3\u00df-\u00e9\u0307\u03a3\u00df\u0130\u0307\u0130\u03079",
+   "python": "akz-9-i-i-9"
+  },
+  {
+   "input": "-\ud83d\ude00 _\u00e9-@ \u212a0\t.\u0307",
+   "python": "k0"
+  },
+  {
+   "input": "--",
+   "python_raises": "LedgerError"
+  },
+  {
+   "input": "\u0307\t\u03a3Z",
+   "python": "z"
+  },
+  {
+   "input": "Za\u0130\u00e9\u0307\u0307\u0130.9@@\u00df--9\u03a3\u03a3",
+   "python": "zai-i-9-9"
+  },
+  {
+   "input": "-Z\ud83d\ude000\u03a30",
+   "python": "z-0-0"
+  },
+  {
+   "input": "",
+   "python_raises": "LedgerError"
+  },
+  {
+   "input": "\u03079\t\u0130Z0\ud83d\ude00\u00df",
+   "python": "9-i-z0"
+  },
+  {
+   "input": "a",
+   "python": "a"
+  },
+  {
+   "input": "",
+   "python_raises": "LedgerError"
+  },
+  {
+   "input": "\ud83d\ude00 \u00df0\u0307@\u212a@\u212a.9",
+   "python": "0-k-k-9"
+  },
+  {
+   "input": "",
+   "python_raises": "LedgerError"
+  },
+  {
+   "input": "_\u0307\ud83d\ude00\ud83d\ude00\u212aZ\u03a30Z0@\u212a\t",
+   "python": "kz-0z0-k"
+  },
+  {
+   "input": "a\u00e99Z_\u0130\u00df09-_a\u00df\u00e9\u212a\u212a 0\u00df\t",
+   "python": "a-9z-i-09-a-kk-0"
+  },
+  {
+   "input": "-@\u00dfa\ta \u0130\u00e9_\u0130",
+   "python": "a-a-i-i"
+  },
+  {
+   "input": "@-..-0\u212a",
+   "python": "0k"
+  },
+  {
+   "input": "\u212a\u212a@_a.\u00e9Z\u0130_Z\u00e9\u00e9\t\ud83d\ude00\u00df\u03a39",
+   "python": "kk-a-zi-z-9"
+  },
+  {
+   "input": "\u00df  \u00e9\u0130\t\u00e99\u00df\u0307\u00df \u0307\u00df",
+   "python": "i-9"
+  },
+  {
+   "input": "-a\u0130.",
+   "python": "ai"
+  },
+  {
+   "input": "\u00e9  \u00df\u0130\u03a3\ud83d\ude00\t\t9",
+   "python": "i-9"
+  },
+  {
+   "input": "\u03a3-\t_\u212a0a\u03a3",
+   "python": "k0a"
+  },
+  {
+   "input": "_a_Z",
+   "python": "a-z"
+  },
+  {
+   "input": "\u03a3Z9\ud83d\ude00\u0307.-a.aZ\ud83d\ude00\u212a9",
+   "python": "z9-a-az-k9"
+  },
+  {
+   "input": "9\u03a3\u03070 _\u00dfZ\u0130.\u00df",
+   "python": "9-0-zi"
+  },
+  {
+   "input": ".\u212a. \u0130\u0130\u212a_\u212a .9aZ.\u0130\u00e9 0",
+   "python": "k-i-i-k-k-9az-i-0"
+  },
+  {
+   "input": "\u00df\u01300.\ud83d\ude00\u0307@@\u212a\u03a300a\t\u212a__",
+   "python": "i-0-k-00a-k"
+  },
+  {
+   "input": "0\u0307\u03a3\t_\u0307\u00df -9\t\u03079@",
+   "python": "0-9-9"
+  },
+  {
+   "input": "\ud83d\ude00\u03a3\u00e9\u03a3\u0307 9 9\u212a\u030790\u0307 \u03070\u03a3",
+   "python": "9-9k-90-0"
+  },
+  {
+   "input": "",
+   "python_raises": "LedgerError"
+  },
+  {
+   "input": "a..\u0130\ud83d\ude00.",
+   "python": "a-i"
+  },
+  {
+   "input": "-9Z\u00df_\u0130 - \u03a3\u00df9\u00df\u03a39\u0130-a_",
+   "python": "9z-i-9-9i-a"
+  },
+  {
+   "input": "\ud83d\ude00.90\t\u0307\u00e9Z\t.\u212a0@@\u212aZ",
+   "python": "90-z-k0-kz"
+  },
+  {
+   "input": "\t\t 99@a0@\u03a3a\u0130@\u00e9\u00df\u0130\u03a3\u03a3a",
+   "python": "99-a0-ai-i-a"
+  },
+  {
+   "input": "\ud83d\ude00\u03a39.\u00e9\u0130Z -\ud83d\ude00 @  a\u0307\t.",
+   "python": "9-i-z-a"
+  },
+  {
+   "input": "",
+   "python_raises": "LedgerError"
+  },
+  {
+   "input": " \u0130\u03a3\t-0_\u212a",
+   "python": "i-0-k"
+  },
+  {
+   "input": "a-\u212a\tZ\u0130 \u212a\u00df.\u0307\u0130- \ud83d\ude00",
+   "python": "a-k-zi-k-i"
+  },
+  {
+   "input": "\ud83d\ude00-.\u0130@@\u00e9Z",
+   "python": "i-z"
+  },
+  {
+   "input": ".\u00df9.-0a\u212a.\u00df@\u03a30",
+   "python": "9-0ak-0"
+  },
+  {
+   "input": ".a\u03a3@-\u01300\u212a\u00df\u00e9",
+   "python": "a-i-0k"
+  },
+  {
+   "input": "\ud83d\ude00Z\u00df__",
+   "python": "z"
+  },
+  {
+   "input": "\t\u0130\u00df0\u00df \t\u00df.\u212a",
+   "python": "i-0-k"
+  },
+  {
+   "input": "a ",
+   "python": "a"
+  },
+  {
+   "input": "0__\t\u03a30\ud83d\ude00",
+   "python": "0-0"
+  },
+  {
+   "input": "\u03a3_\ud83d\ude00\tZ0\u00df@",
+   "python": "z0"
+  },
+  {
+   "input": "- \u00df\u00e9Z\u03a3a\u0307\u00e9\ud83d\ude00\u00e99\u00df\u00df\u0307\t00",
+   "python": "z-a-9-00"
+  },
+  {
+   "input": "Z\u03a3Z\u03a39\u212a\u212a\u00e9",
+   "python": "z-z-9kk"
+  },
+  {
+   "input": "\ta\u00df",
+   "python": "a"
+  },
+  {
+   "input": "\u03a3__0\u0130-\u212a9\u03a3\u00e90\u00df\u00df",
+   "python": "0i-k9-0"
+  },
+  {
+   "input": "\u212a_",
+   "python": "k"
+  },
+  {
+   "input": "\ud83d\ude00\u03a3\u0130aa",
+   "python": "i-aa"
+  },
+  {
+   "input": "9\u00e9Z__0\u212a \u03079@",
+   "python": "9-z-0k-9"
+  },
+  {
+   "input": "\u03a3\u03a3\ta\u01309\t\u03a3",
+   "python": "ai-9"
+  },
+  {
+   "input": "-\u0307\u01309",
+   "python": "i-9"
+  },
+  {
+   "input": "\u212a9Z-\u0307\u0307\t\u212a\u00e9\u0307@\t0",
+   "python": "k9z-k-0"
+  },
+  {
+   "input": "\u00e9\ud83d\ude00Z\ud83d\ude00_\u0307@0 - @Z\u03a3ZZ",
+   "python": "z-0-z-zz"
+  },
+  {
+   "input": "_Z\tZ\u0130 \t\u0307..\u212a-\u0307\t\ud83d\ude00@  ",
+   "python": "z-zi-k"
+  },
+  {
+   "input": "_- a0--@9\u212a\ud83d\ude00-\u00e9",
+   "python": "a0-9k"
+  },
+  {
+   "input": "9\u212a\u0130 \u0307a9\u212a\u03a3\u0130a\ud83d\ude00@0-Z.",
+   "python": "9ki-a9k-i-a-0-z"
+  },
+  {
+   "input": "@",
+   "python_raises": "LedgerError"
+  },
+  {
+   "input": "-\u00dfa\u0307\tZ.\u0130\u0307\u0307\u00e9",
+   "python": "a-z-i"
+  },
+  {
+   "input": "a99\u0130_-9\u212a_9@Z\u212a\u00e9.\t0\u00df@Z",
+   "python": "a99i-9k-9-zk-0-z"
+  },
+  {
+   "input": "0\u0307Z\u00df_\ta\u00e9\t\u212a-\u0130\u0307@",
+   "python": "0-z-a-k-i"
+  },
+  {
+   "input": "\u212a@\u212a\u212a\u0307Z\u0130\u212a\u0307\u03a3@0\u0307-\u03a3\u00df.\u0307a.",
+   "python": "k-kk-zi-k-0-a"
+  },
+  {
+   "input": "-\u212a ._0\u00df-",
+   "python": "k-0"
+  },
+  {
+   "input": "\u00e9\u0307a.a \u00e999@\u00e9\ud83d\ude00_aZ\t",
+   "python": "a-a-99-az"
+  },
+  {
+   "input": "9-9_ _",
+   "python": "9-9"
+  },
+  {
+   "input": "-@\u01300\u01300_.\u212a\u212a.9_-\u00e9\u212a",
+   "python": "i-0i-0-kk-9-k"
+  },
+  {
+   "input": " aa9",
+   "python": "aa9"
+  },
+  {
+   "input": "\u00e9_\u03a3\u00df\u0130  \u0130999_\ta.\u00e9",
+   "python": "i-i-999-a"
+  },
+  {
+   "input": "\u0307\u0130\u03a3 ",
+   "python": "i"
+  },
+  {
+   "input": "\t\u03a3_@-\u0130 0\u0130\u03a3 .\ud83d\ude00_\u0307\u0130-@",
+   "python": "i-0i-i"
+  },
+  {
+   "input": "9-\u00df0\ud83d\ude00\u212aZ.\ud83d\ude00\u0130 ",
+   "python": "9-0-kz-i"
+  },
+  {
+   "input": " \u0130   _\u0307\ud83d\ude00_Z-",
+   "python": "i-z"
+  },
+  {
+   "input": "\u0307\u00e9\u03a3Z\ta\u00df\u0307\u212a",
+   "python": "z-a-k"
+  }
+ ],
+ "work_slugify": [
+  {
+   "input": "Alice",
+   "python": "alice"
+  },
+  {
+   "input": "  alice  ",
+   "python": "alice"
+  },
+  {
+   "input": "Hello, World!",
+   "python": "hello-world"
+  },
+  {
+   "input": "a--b",
+   "python": "a-b"
+  },
+  {
+   "input": "-a-",
+   "python": "a"
+  },
+  {
+   "input": "---",
+   "python": "item"
+  },
+  {
+   "input": "",
+   "python": "item"
+  },
+  {
+   "input": "   ",
+   "python": "item"
+  },
+  {
+   "input": "@user",
+   "python": "user"
+  },
+  {
+   "input": "user",
+   "python": "user"
+  },
+  {
+   "input": "system",
+   "python": "system"
+  },
+  {
+   "input": "\u0130stanbul",
+   "python": "i-stanbul"
+  },
+  {
+   "input": "\u0130x",
+   "python": "i-x"
+  },
+  {
+   "input": "\u212aelvin",
+   "python": "kelvin"
+  },
+  {
+   "input": "\u03a3\u0391\u03a3",
+   "python": "item"
+  },
+  {
+   "input": "\uff21\uff22\uff23",
+   "python": "item"
+  },
+  {
+   "input": "caf\u00e9 cr\u00e8me",
+   "python": "caf-cr-me"
+  },
+  {
+   "input": "\u01c4emal",
+   "python": "emal"
+  },
+  {
+   "input": "\u00df",
+   "python": "item"
+  },
+  {
+   "input": "\ufb01le",
+   "python": "le"
+  },
+  {
+   "input": "x\u0130y",
+   "python": "xi-y"
+  },
+  {
+   "input": "\u0130",
+   "python": "i"
+  },
+  {
+   "input": "a_b",
+   "python": "a-b"
+  },
+  {
+   "input": "a.b",
+   "python": "a-b"
+  },
+  {
+   "input": "1-2-3",
+   "python": "1-2-3"
+  },
+  {
+   "input": "\ud83d\ude00 agent",
+   "python": "agent"
+  },
+  {
+   "input": "tab\there",
+   "python": "tab-here"
+  },
+  {
+   "input": "line\nbreak",
+   "python": "line-break"
+  },
+  {
+   "input": "\u00a0nbsp\u00a0",
+   "python": "nbsp"
+  },
+  {
+   "input": "\u2028sep",
+   "python": "sep"
+  },
+  {
+   "input": "W12345678",
+   "python": "w12345678"
+  },
+  {
+   "input": "Opus 5.5 reviewer",
+   "python": "opus-5-5-reviewer"
+  },
+  {
+   "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "python": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+   "input": "AbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAb!",
+   "python": "abababababababababababababababababababababababab"
+  },
+  {
+   "input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-yy",
+   "python": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+   "input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-y",
+   "python": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+   "input": ".\u0130\u03a3.\u00e9\t_aZ\u0307_",
+   "python": "i-az"
+  },
+  {
+   "input": "Z\t0Z\u212a.a\u03a3\u212aa_\u00df\u0307\u212a\u00e9 ",
+   "python": "z-0zk-a-ka-k"
+  },
+  {
+   "input": "9\u0130\u0307\u0307\u212aZ@ ",
+   "python": "9i-kz"
+  },
+  {
+   "input": "\ud83d\ude00\u0307\ud83d\ude000\u00e9",
+   "python": "0"
+  },
+  {
+   "input": ".@.\u00df-0",
+   "python": "0"
+  },
+  {
+   "input": "0\ud83d\ude00@\u212aa\u0130\u0307",
+   "python": "0-kai"
+  },
+  {
+   "input": "_a\tZ@\u00e9\u00e99Z",
+   "python": "a-z-9z"
+  },
+  {
+   "input": "0\u0307a9@\u0130Z\ud83d\ude00\ud83d\ude00\u03a3\u00dfZ@-\ud83d\ude00@",
+   "python": "0-a9-i-z-z"
+  },
+  {
+   "input": "\t\u03a3\u0307Z\u03a39",
+   "python": "z-9"
+  },
+  {
+   "input": "\u00df\u03a3",
+   "python": "item"
+  },
+  {
+   "input": "  \u00e9",
+   "python": "item"
+  },
+  {
+   "input": "Za\u03a3\u01309\u00e9\u03070\u03a3\ud83d\ude00\u0307\u0307\u0130. \u03a30.\t.",
+   "python": "za-i-9-0-i-0"
+  },
+  {
+   "input": "\u0130\u00e999\u00df",
+   "python": "i-99"
+  },
+  {
+   "input": "\u03070.-a\u0130",
+   "python": "0-ai"
+  },
+  {
+   "input": "\u00e9\u00e9\u00df\u212a9.",
+   "python": "k9"
+  },
+  {
+   "input": "a\u00e9",
+   "python": "a"
+  },
+  {
+   "input": "\u212a\u212aa. 0.\u01300@9\t\u212a\ta\u0130 ",
+   "python": "kka-0-i-0-9-k-ai"
+  },
+  {
+   "input": "@\u212a\u0130 \u0307\u212a.\u0307\t\u0130\t0\u0130\u00df -\u0130\u00df\u0130",
+   "python": "ki-k-i-0i-i-i"
+  },
+  {
+   "input": "\u03a3",
+   "python": "item"
+  },
+  {
+   "input": "0",
+   "python": "0"
+  },
+  {
+   "input": "\u00e9\u00df",
+   "python": "item"
+  },
+  {
+   "input": "@\ud83d\ude00a@\u00df\u212a@_-\ud83d\ude00\u00e9",
+   "python": "a-k"
+  },
+  {
+   "input": "- _\ud83d\ude00\u00e90\u00df-\u00e9Z.",
+   "python": "0-z"
+  },
+  {
+   "input": "\t.@Z9\tZ",
+   "python": "z9-z"
+  },
+  {
+   "input": " ._\u0130\u03a3Z",
+   "python": "i-z"
+  },
+  {
+   "input": "\u03a3\u0307\u0307\u03070\u212a.",
+   "python": "0k"
+  },
+  {
+   "input": "@\u01300\u0307a\ud83d\ude00\t.\u03079\u212a-\u212a9\u00e9\u0307_",
+   "python": "i-0-a-9k-k9"
+  },
+  {
+   "input": "a0\u00dfa_._\u0130\u0307\u0130 9_",
+   "python": "a0-a-i-i-9"
+  },
+  {
+   "input": "@_\u01300\u03a39\u0130-\u00e9Z\u00e9.\ud83d\ude00_\u212a",
+   "python": "i-0-9i-z-k"
+  },
+  {
+   "input": "\u0130.",
+   "python": "i"
+  },
+  {
+   "input": "_-0 \ud83d\ude0090\t0a\u00e9",
+   "python": "0-90-0a"
+  },
+  {
+   "input": "\u00e9\t\u03a3__9\u00e9\u00e9",
+   "python": "9"
+  },
+  {
+   "input": "Za0\u0307\u0307\u0130\ud83d\ude00-\u00df\u0307\u212a-\u00df\t\u0130@ ",
+   "python": "za0-i-k-i"
+  },
+  {
+   "input": "\u00df0\ud83d\ude00\u00e99\u03079\u0307@\u03a3\u00df\u03a3\u212aa..",
+   "python": "0-9-9-ka"
+  },
+  {
+   "input": "\u00e99\ud83d\ude00\u0307\t\t\t0\u03a3-\u00e90\u0307-\u00df- 9\u00e9Z",
+   "python": "9-0-0-9-z"
+  },
+  {
+   "input": "\u0130 ",
+   "python": "i"
+  },
+  {
+   "input": "a\ud83d\ude000-@@\u212a9\u0307",
+   "python": "a-0-k9"
+  },
+  {
+   "input": "--@ .-\ud83d\ude00",
+   "python": "item"
+  },
+  {
+   "input": "999\u00df\tZ._\u0130\t",
+   "python": "999-z-i"
+  },
+  {
+   "input": "\t\ud83d\ude00-\u03a3\u212a\u0307--_\ud83d\ude00\u00e9\u00dfa9a0\t-",
+   "python": "k-a9a0"
+  },
+  {
+   "input": "",
+   "python": "item"
+  },
+  {
+   "input": "\u03a3\u0307\t\u0307\u03a3-\u01300a\u03a3\t\u00df ",
+   "python": "i-0a"
+  },
+  {
+   "input": "\ud83d\ude00.\u00e9.\u0307\u00e9a\u212a",
+   "python": "ak"
+  },
+  {
+   "input": "\u0130\u0130\u03a3\u00e9 \u00df-a_-\u03a39a\u00e9-\ud83d\ude00aa\u0307\ud83d\ude00",
+   "python": "i-i-a-9a-aa"
+  },
+  {
+   "input": " Z\u212a\u0307-_",
+   "python": "zk"
+  },
+  {
+   "input": "a\u212aZ\u00e9__9\u03a3\u00df-\u00e9\u0307\u03a3\u00df\u0130\u0307\u0130\u03079",
+   "python": "akz-9-i-i-9"
+  },
+  {
+   "input": "-\ud83d\ude00 _\u00e9-@ \u212a0\t.\u0307",
+   "python": "k0"
+  },
+  {
+   "input": "--",
+   "python": "item"
+  },
+  {
+   "input": "\u0307\t\u03a3Z",
+   "python": "z"
+  },
+  {
+   "input": "Za\u0130\u00e9\u0307\u0307\u0130.9@@\u00df--9\u03a3\u03a3",
+   "python": "zai-i-9-9"
+  },
+  {
+   "input": "-Z\ud83d\ude000\u03a30",
+   "python": "z-0-0"
+  },
+  {
+   "input": "",
+   "python": "item"
+  },
+  {
+   "input": "\u03079\t\u0130Z0\ud83d\ude00\u00df",
+   "python": "9-i-z0"
+  },
+  {
+   "input": "a",
+   "python": "a"
+  },
+  {
+   "input": "",
+   "python": "item"
+  },
+  {
+   "input": "\ud83d\ude00 \u00df0\u0307@\u212a@\u212a.9",
+   "python": "0-k-k-9"
+  },
+  {
+   "input": "",
+   "python": "item"
+  },
+  {
+   "input": "_\u0307\ud83d\ude00\ud83d\ude00\u212aZ\u03a30Z0@\u212a\t",
+   "python": "kz-0z0-k"
+  },
+  {
+   "input": "a\u00e99Z_\u0130\u00df09-_a\u00df\u00e9\u212a\u212a 0\u00df\t",
+   "python": "a-9z-i-09-a-kk-0"
+  },
+  {
+   "input": "-@\u00dfa\ta \u0130\u00e9_\u0130",
+   "python": "a-a-i-i"
+  },
+  {
+   "input": "@-..-0\u212a",
+   "python": "0k"
+  },
+  {
+   "input": "\u212a\u212a@_a.\u00e9Z\u0130_Z\u00e9\u00e9\t\ud83d\ude00\u00df\u03a39",
+   "python": "kk-a-zi-z-9"
+  },
+  {
+   "input": "\u00df  \u00e9\u0130\t\u00e99\u00df\u0307\u00df \u0307\u00df",
+   "python": "i-9"
+  },
+  {
+   "input": "-a\u0130.",
+   "python": "ai"
+  },
+  {
+   "input": "\u00e9  \u00df\u0130\u03a3\ud83d\ude00\t\t9",
+   "python": "i-9"
+  },
+  {
+   "input": "\u03a3-\t_\u212a0a\u03a3",
+   "python": "k0a"
+  },
+  {
+   "input": "_a_Z",
+   "python": "a-z"
+  },
+  {
+   "input": "\u03a3Z9\ud83d\ude00\u0307.-a.aZ\ud83d\ude00\u212a9",
+   "python": "z9-a-az-k9"
+  },
+  {
+   "input": "9\u03a3\u03070 _\u00dfZ\u0130.\u00df",
+   "python": "9-0-zi"
+  },
+  {
+   "input": ".\u212a. \u0130\u0130\u212a_\u212a .9aZ.\u0130\u00e9 0",
+   "python": "k-i-i-k-k-9az-i-0"
+  },
+  {
+   "input": "\u00df\u01300.\ud83d\ude00\u0307@@\u212a\u03a300a\t\u212a__",
+   "python": "i-0-k-00a-k"
+  },
+  {
+   "input": "0\u0307\u03a3\t_\u0307\u00df -9\t\u03079@",
+   "python": "0-9-9"
+  },
+  {
+   "input": "\ud83d\ude00\u03a3\u00e9\u03a3\u0307 9 9\u212a\u030790\u0307 \u03070\u03a3",
+   "python": "9-9k-90-0"
+  },
+  {
+   "input": "",
+   "python": "item"
+  },
+  {
+   "input": "a..\u0130\ud83d\ude00.",
+   "python": "a-i"
+  },
+  {
+   "input": "-9Z\u00df_\u0130 - \u03a3\u00df9\u00df\u03a39\u0130-a_",
+   "python": "9z-i-9-9i-a"
+  },
+  {
+   "input": "\ud83d\ude00.90\t\u0307\u00e9Z\t.\u212a0@@\u212aZ",
+   "python": "90-z-k0-kz"
+  },
+  {
+   "input": "\t\t 99@a0@\u03a3a\u0130@\u00e9\u00df\u0130\u03a3\u03a3a",
+   "python": "99-a0-ai-i-a"
+  },
+  {
+   "input": "\ud83d\ude00\u03a39.\u00e9\u0130Z -\ud83d\ude00 @  a\u0307\t.",
+   "python": "9-i-z-a"
+  },
+  {
+   "input": "",
+   "python": "item"
+  },
+  {
+   "input": " \u0130\u03a3\t-0_\u212a",
+   "python": "i-0-k"
+  },
+  {
+   "input": "a-\u212a\tZ\u0130 \u212a\u00df.\u0307\u0130- \ud83d\ude00",
+   "python": "a-k-zi-k-i"
+  },
+  {
+   "input": "\ud83d\ude00-.\u0130@@\u00e9Z",
+   "python": "i-z"
+  },
+  {
+   "input": ".\u00df9.-0a\u212a.\u00df@\u03a30",
+   "python": "9-0ak-0"
+  },
+  {
+   "input": ".a\u03a3@-\u01300\u212a\u00df\u00e9",
+   "python": "a-i-0k"
+  },
+  {
+   "input": "\ud83d\ude00Z\u00df__",
+   "python": "z"
+  },
+  {
+   "input": "\t\u0130\u00df0\u00df \t\u00df.\u212a",
+   "python": "i-0-k"
+  },
+  {
+   "input": "a ",
+   "python": "a"
+  },
+  {
+   "input": "0__\t\u03a30\ud83d\ude00",
+   "python": "0-0"
+  },
+  {
+   "input": "\u03a3_\ud83d\ude00\tZ0\u00df@",
+   "python": "z0"
+  },
+  {
+   "input": "- \u00df\u00e9Z\u03a3a\u0307\u00e9\ud83d\ude00\u00e99\u00df\u00df\u0307\t00",
+   "python": "z-a-9-00"
+  },
+  {
+   "input": "Z\u03a3Z\u03a39\u212a\u212a\u00e9",
+   "python": "z-z-9kk"
+  },
+  {
+   "input": "\ta\u00df",
+   "python": "a"
+  },
+  {
+   "input": "\u03a3__0\u0130-\u212a9\u03a3\u00e90\u00df\u00df",
+   "python": "0i-k9-0"
+  },
+  {
+   "input": "\u212a_",
+   "python": "k"
+  },
+  {
+   "input": "\ud83d\ude00\u03a3\u0130aa",
+   "python": "i-aa"
+  },
+  {
+   "input": "9\u00e9Z__0\u212a \u03079@",
+   "python": "9-z-0k-9"
+  },
+  {
+   "input": "\u03a3\u03a3\ta\u01309\t\u03a3",
+   "python": "ai-9"
+  },
+  {
+   "input": "-\u0307\u01309",
+   "python": "i-9"
+  },
+  {
+   "input": "\u212a9Z-\u0307\u0307\t\u212a\u00e9\u0307@\t0",
+   "python": "k9z-k-0"
+  },
+  {
+   "input": "\u00e9\ud83d\ude00Z\ud83d\ude00_\u0307@0 - @Z\u03a3ZZ",
+   "python": "z-0-z-zz"
+  },
+  {
+   "input": "_Z\tZ\u0130 \t\u0307..\u212a-\u0307\t\ud83d\ude00@  ",
+   "python": "z-zi-k"
+  },
+  {
+   "input": "_- a0--@9\u212a\ud83d\ude00-\u00e9",
+   "python": "a0-9k"
+  },
+  {
+   "input": "9\u212a\u0130 \u0307a9\u212a\u03a3\u0130a\ud83d\ude00@0-Z.",
+   "python": "9ki-a9k-i-a-0-z"
+  },
+  {
+   "input": "@",
+   "python": "item"
+  },
+  {
+   "input": "-\u00dfa\u0307\tZ.\u0130\u0307\u0307\u00e9",
+   "python": "a-z-i"
+  },
+  {
+   "input": "a99\u0130_-9\u212a_9@Z\u212a\u00e9.\t0\u00df@Z",
+   "python": "a99i-9k-9-zk-0-z"
+  },
+  {
+   "input": "0\u0307Z\u00df_\ta\u00e9\t\u212a-\u0130\u0307@",
+   "python": "0-z-a-k-i"
+  },
+  {
+   "input": "\u212a@\u212a\u212a\u0307Z\u0130\u212a\u0307\u03a3@0\u0307-\u03a3\u00df.\u0307a.",
+   "python": "k-kk-zi-k-0-a"
+  },
+  {
+   "input": "-\u212a ._0\u00df-",
+   "python": "k-0"
+  },
+  {
+   "input": "\u00e9\u0307a.a \u00e999@\u00e9\ud83d\ude00_aZ\t",
+   "python": "a-a-99-az"
+  },
+  {
+   "input": "9-9_ _",
+   "python": "9-9"
+  },
+  {
+   "input": "-@\u01300\u01300_.\u212a\u212a.9_-\u00e9\u212a",
+   "python": "i-0i-0-kk-9-k"
+  },
+  {
+   "input": " aa9",
+   "python": "aa9"
+  },
+  {
+   "input": "\u00e9_\u03a3\u00df\u0130  \u0130999_\ta.\u00e9",
+   "python": "i-i-999-a"
+  },
+  {
+   "input": "\u0307\u0130\u03a3 ",
+   "python": "i"
+  },
+  {
+   "input": "\t\u03a3_@-\u0130 0\u0130\u03a3 .\ud83d\ude00_\u0307\u0130-@",
+   "python": "i-0i-i"
+  },
+  {
+   "input": "9-\u00df0\ud83d\ude00\u212aZ.\ud83d\ude00\u0130 ",
+   "python": "9-0-kz-i"
+  },
+  {
+   "input": " \u0130   _\u0307\ud83d\ude00_Z-",
+   "python": "i-z"
+  },
+  {
+   "input": "\u0307\u00e9\u03a3Z\ta\u00df\u0307\u212a",
+   "python": "z-a-k"
+  },
+  {
+   "input": null,
+   "python": "item"
+  }
+ ],
+ "lower_table": [
+  [
+   304,
+   "i\u0307"
+  ],
+  [
+   8490,
+   "k"
+  ]
+ ],
+ "retired_shape": [
+  {
+   "input": "w12345678",
+   "python": true
+  },
+  {
+   "input": "w1234567",
+   "python": false
+  },
+  {
+   "input": "w123456789",
+   "python": false
+  },
+  {
+   "input": "W12345678",
+   "python": false
+  },
+  {
+   "input": "w1234567g",
+   "python": false
+  },
+  {
+   "input": "w12345678\n",
+   "python": true
+  },
+  {
+   "input": "w12345678\n\n",
+   "python": false
+  },
+  {
+   "input": "\nw12345678",
+   "python": false
+  },
+  {
+   "input": "w12345678 ",
+   "python": false
+  },
+  {
+   "input": "wabcdef01",
+   "python": true
+  },
+  {
+   "input": "w1234abcd-x",
+   "python": false
+  },
+  {
+   "input": "",
+   "python": false
+  }
+ ],
+ "actor": [
+  {
+   "input": "@user",
+   "expected": {
+    "kind": "user"
+   }
+  },
+  {
+   "input": "@system",
+   "expected": {
+    "kind": "system"
+   }
+  },
+  {
+   "input": "@extern",
+   "expected": {
+    "kind": "extern"
+   }
+  },
+  {
+   "input": "@User",
+   "expected": {
+    "error": "unknown_sentinel"
+   }
+  },
+  {
+   "input": "@org:x",
+   "expected": {
+    "error": "unknown_sentinel"
+   }
+  },
+  {
+   "input": "@",
+   "expected": {
+    "error": "unknown_sentinel"
+   }
+  },
+  {
+   "input": "user",
+   "expected": {
+    "kind": "agent"
+   }
+  },
+  {
+   "input": "system",
+   "expected": {
+    "kind": "agent"
+   }
+  },
+  {
+   "input": "agent-1",
+   "expected": {
+    "kind": "agent"
+   }
+  },
+  {
+   "input": "Agent-1",
+   "expected": {
+    "error": "not_canonical_key"
+   }
+  },
+  {
+   "input": "a--b",
+   "expected": {
+    "error": "not_canonical_key"
+   }
+  },
+  {
+   "input": "-a",
+   "expected": {
+    "error": "not_canonical_key"
+   }
+  },
+  {
+   "input": "a-",
+   "expected": {
+    "error": "not_canonical_key"
+   }
+  },
+  {
+   "input": "",
+   "expected": {
+    "error": "not_canonical_key"
+   }
+  },
+  {
+   "input": "a b",
+   "expected": {
+    "error": "not_canonical_key"
+   }
+  },
+  {
+   "input": "\u00e9",
+   "expected": {
+    "error": "not_canonical_key"
+   }
+  },
+  {
+   "input": "v3-model-review-opus55",
+   "expected": {
+    "kind": "agent"
+   }
+  }
+ ],
+ "new_work_name": [
+  {
+   "title": "Build a Rust backend codec foundation",
+   "uuid": "4279600bcf274e7090b486bc6379344e",
+   "expected": "build-a-rust-backend-codec-foundation--ij4wac6pe5hhbefuq26gg6jujy",
+   "provenance": "v6 DATA-PLACEMENT format; current source does not mint these yet"
+  },
+  {
+   "title": "",
+   "uuid": "e71359634a45450da1041f09bfc94096",
+   "expected": "item--44jvsy2kivcq3iied4e37skasy",
+   "provenance": "v6 DATA-PLACEMENT format; current source does not mint these yet"
+  },
+  {
+   "title": null,
+   "uuid": "f8d1949a3fa44e6cb812dda6b8ba0808",
+   "expected": "item--7dizjgr7urhgzoas3wtlroqiba",
+   "provenance": "v6 DATA-PLACEMENT format; current source does not mint these yet"
+  },
+  {
+   "title": "\u0130",
+   "uuid": "e6eb9d46ff134ea991ee945a6f2dea97",
+   "expected": "i--43vz2rx7cnhkteposrng6lpks4",
+   "provenance": "v6 DATA-PLACEMENT format; current source does not mint these yet"
+  },
+  {
+   "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "uuid": "014bc8ea97dc40ce810a264190e26754",
+   "expected": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx--aff4r2ux3ram5aikezazbythkq",
+   "provenance": "v6 DATA-PLACEMENT format; current source does not mint these yet"
+  },
+  {
+   "title": "--!!--",
+   "uuid": "8613f4aa757e4eafb7cbcace1766b1ea",
+   "expected": "item--qyj7jktvpzhk7n6lzlhbozvr5i",
+   "provenance": "v6 DATA-PLACEMENT format; current source does not mint these yet"
+  },
+  {
+   "title": "W12345678",
+   "uuid": "9b41694942ce4c1084686b888a94aabc",
+   "expected": "w12345678--tnawsskczzgbbbdinoeivffkxq",
+   "provenance": "v6 DATA-PLACEMENT format; current source does not mint these yet"
+  },
+  {
+   "title": "Include recent model releases in private v3",
+   "uuid": "f5f1fd8cf25949d6b1ad459d876927f9",
+   "expected": "include-recent-model-releases-in-private-v3--6xy73dhslfe5nmnniwoyo2jh7e",
+   "provenance": "v6 DATA-PLACEMENT format; current source does not mint these yet"
+  }
+ ],
+ "credential_encode": [
+  {
+   "org": "wire-actions",
+   "node": "caller",
+   "generation": 0,
+   "python_payload": "WyJ3aXJlLWFjdGlvbnMiLCJjYWxsZXIiLDBd"
+  },
+  {
+   "org": "o",
+   "node": "n",
+   "generation": 1,
+   "python_payload": "WyJvIiwibiIsMV0"
+  },
+  {
+   "org": "org",
+   "node": "agent-2",
+   "generation": 12345,
+   "python_payload": "WyJvcmciLCJhZ2VudC0yIiwxMjM0NV0"
+  },
+  {
+   "org": "\u00e9",
+   "node": "\u212a",
+   "generation": 7,
+   "python_payload": "WyJcdTAwZTkiLCJcdTIxMmEiLDdd"
+  },
+  {
+   "org": "q\"uote",
+   "node": "back\\slash",
+   "generation": 0,
+   "python_payload": "WyJxXCJ1b3RlIiwiYmFja1xcc2xhc2giLDBd"
+  },
+  {
+   "org": "",
+   "node": "",
+   "generation": 0,
+   "python_payload": "WyIiLCIiLDBd"
+  },
+  {
+   "org": "o",
+   "node": "n",
+   "generation": -1,
+   "python_raises": "ValueError"
+  },
+  {
+   "org": "o",
+   "node": "n",
+   "generation": 4611686018427387904,
+   "python_payload": "WyJvIiwibiIsNDYxMTY4NjAxODQyNzM4NzkwNF0"
+  },
+  {
+   "org": "\ud83d\ude00",
+   "node": "tab\t",
+   "generation": 3,
+   "python_payload": "WyJcdWQ4M2RcdWRlMDAiLCJ0YWJcdCIsM10"
+  }
+ ],
+ "credential_decode": [
+  {
+   "payload": "WyJvIiwibiIsMV0",
+   "python": {
+    "claim": [
+     "o",
+     "n",
+     1
+    ]
+   },
+   "canonical_ok": true
+  },
+  {
+   "payload": "WyJvIiwibiIsLTFd",
+   "python": {
+    "claim": [
+     "o",
+     "n",
+     -1
+    ]
+   },
+   "canonical_ok": false
+  },
+  {
+   "payload": "WyJvIiwibiIsLTBd",
+   "python": {
+    "claim": [
+     "o",
+     "n",
+     0
+    ]
+   },
+   "canonical_ok": false
+  },
+  {
+   "payload": "WyJvIiwibiIsMS4wXQ",
+   "python": "rejected",
+   "canonical_ok": false
+  },
+  {
+   "payload": "WyJvIiwibiIsdHJ1ZV0",
+   "python": "rejected",
+   "canonical_ok": false
+  },
+  {
+   "payload": "WyJvIiwibiIsMWUyXQ",
+   "python": "rejected",
+   "canonical_ok": false
+  },
+  {
+   "payload": "WyAibyIgLCAibiIgLCAxIF0",
+   "python": {
+    "claim": [
+     "o",
+     "n",
+     1
+    ]
+   },
+   "canonical_ok": false
+  },
+  {
+   "payload": "WyJvIiwibiJd",
+   "python": "rejected",
+   "canonical_ok": false
+  },
+  {
+   "payload": "WyJvIiwibiIsMSwyXQ",
+   "python": "rejected",
+   "canonical_ok": false
+  },
+  {
+   "payload": "ImFiYyI",
+   "python": "rejected",
+   "canonical_ok": false
+  },
+  {
+   "payload": "eyJhIjoxLCJiIjoyLCJjIjozfQ",
+   "python": "rejected",
+   "canonical_ok": false
+  },
+  {
+   "payload": "WyJvIiwibiIsIjEiXQ",
+   "python": "rejected",
+   "canonical_ok": false
+  },
+  {
+   "payload": "WyJvIixudWxsLDFd",
+   "python": "rejected",
+   "canonical_ok": false
+  },
+  {
+   "payload": "Mw",
+   "python": "rejected",
+   "canonical_ok": false
+  },
+  {
+   "payload": "bm90IGpzb24",
+   "python": "rejected",
+   "canonical_ok": false
+  },
+  {
+   "payload": "",
+   "python": "rejected",
+   "canonical_ok": false
+  },
+  {
+   "payload": "WyJcdTAwZTkiLCJuIiwxXQ",
+   "python": {
+    "claim": [
+     "\u00e9",
+     "n",
+     1
+    ]
+   },
+   "canonical_ok": true
+  },
+  {
+   "payload": "WyLDqSIsIm4iLDFd",
+   "python": {
+    "claim": [
+     "\u00e9",
+     "n",
+     1
+    ]
+   },
+   "canonical_ok": false
+  },
+  {
+   "payload": "WyJvIiwibiIsTmFOXQ",
+   "python": "rejected",
+   "canonical_ok": false
+  },
+  {
+   "payload": "WyJvIiwibiIsOTk5OTk5OTk5OTk5OTk5OTk5OTld",
+   "python": {
+    "claim": [
+     "o",
+     "n",
+     99999999999999999999
+    ]
+   },
+   "legacy_outside_parity": true,
+   "canonical_ok": false
+  },
+  {
+   "payload": "WyJvIiwibiIsMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTFd",
+   "python": "rejected",
+   "canonical_ok": false
+  },
+  {
+   "payload": "WyJvIiwibiIsMV1",
+   "python": {
+    "claim": [
+     "o",
+     "n",
+     1
+    ]
+   },
+   "canonical_ok": false
+  },
+  {
+   "payload": "WyJvIiwibiIsMTIzXR",
+   "python": {
+    "claim": [
+     "o",
+     "n",
+     123
+    ]
+   },
+   "canonical_ok": false
+  },
+  {
+   "payload": "WyJvIiwibiIsMV",
+   "python": "rejected",
+   "canonical_ok": false
+  },
+  {
+   "payload": "WyJvIiwibiIsMV0A",
+   "python": "rejected",
+   "canonical_ok": false
+  },
+  {
+   "payload": "YQ",
+   "python": "rejected",
+   "canonical_ok": false
+  },
+  {
+   "payload": "YR",
+   "python": "rejected",
+   "canonical_ok": false
+  },
+  {
+   "payload": "YWI",
+   "python": "rejected",
+   "canonical_ok": false
+  },
+  {
+   "payload": "YWJ",
+   "python": "rejected",
+   "canonical_ok": false
+  },
+  {
+   "payload": "Y",
+   "python": "rejected",
+   "canonical_ok": false
+  },
+  {
+   "payload": "YW*Jj",
+   "python": "rejected",
+   "legacy_outside_parity": true,
+   "canonical_ok": false
+  },
+  {
+   "payload": "YW+J",
+   "python": "rejected",
+   "legacy_outside_parity": true,
+   "canonical_ok": false
+  },
+  {
+   "payload": "YW=J",
+   "python": "rejected",
+   "legacy_outside_parity": true,
+   "canonical_ok": false
+  }
+ ]
+}
