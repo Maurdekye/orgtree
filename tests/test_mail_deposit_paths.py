@@ -54,25 +54,24 @@ SLUGS: list[str] = []
 
 
 def tearDownModule():
+    """Same minted-slug rule as test_mail_receive_order: close the pool under
+    the slug `create_org` produced, then remove the root strictly.
+
+    The swallowed `OSError` that used to live here was written off as Windows
+    noise near exit. It was not: three methods hold uppercase, `create_org`
+    lowercased them, and the close missed the pooled connection entirely. A
+    silent except is how that stayed invisible while the module reported OK.
+    """
     for slug in SLUGS:
-        try:
-            store._POOL.close_all(slug)
-        except Exception:                                    # noqa: BLE001
-            pass
-    try:
-        _root.cleanup()
-    except OSError:
-        # Windows can still hold an org's sqlite file when the interpreter is
-        # this close to exiting. The runner gives this module a private data
-        # root it removes itself, so a stuck temp dir is noise, not a result.
-        pass
+        store._POOL.close_all(slug)
+    _root.cleanup()
 
 
 class Base(unittest.TestCase):
     def setUp(self):
-        self.slug = self._testMethodName.replace('_', '-')[:58]
+        self.org = store.create_org(self._testMethodName.replace('_', '-')[:58])
+        self.slug = self.org.d['slug']       # what was minted, not what was asked for
         SLUGS.append(self.slug)
-        self.org = store.create_org(self.slug)
         self.org.hire(ledger.USER, None, 'haiku', 0, 'worker')
         store.save_org(self.org)
 

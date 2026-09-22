@@ -31,11 +31,31 @@ from orgtree import ledger, store
 
 assert Path(store.DATA_ROOT).resolve() == Path(_root.name).resolve()
 
+SLUGS: list[str] = []
+
+
+def tearDownModule():
+    """Close the pool under the slug `create_org` MINTED, then remove the data
+    root here instead of leaving it to the interpreter's exit finalizer.
+
+    `create_org` slugifies the name it is handed, so a method holding uppercase
+    (`..._AHEAD_...`) or truncated to a trailing dash is pooled under a slug the
+    test never spelled. Closing the unnormalized name closed nothing: the
+    connection survived to exit and the TemporaryDirectory finalizer raised
+    WinError 32 on the still-open `.db` — long after the runner had summarised
+    the module as passing with no cleanup errors. Both removals are strict, so
+    a future leak fails the module rather than printing past its own verdict.
+    """
+    for slug in SLUGS:
+        store._POOL.close_all(slug)
+    _root.cleanup()
+
 
 class Base(unittest.TestCase):
     def setUp(self):
-        self.slug = self._testMethodName.replace('_', '-')[:60]
-        self.org = store.create_org(self.slug)
+        self.org = store.create_org(self._testMethodName.replace('_', '-')[:60])
+        self.slug = self.org.d['slug']       # what was minted, not what was asked for
+        SLUGS.append(self.slug)
         self.org.hire(ledger.USER, None, 'haiku', 0, 'worker')
 
     def tearDown(self):
@@ -902,6 +922,33 @@ class Durability(Base):
         self.assertEqual(again.node('worker')['mail_seq'], 2)
         again.post_mail(ledger.USER, 'worker', 'c')
         self.assertEqual((again.d['mail'])['worker'][-1]['recv_seq'], 3)
+
+
+class TheFixtureCloseWhatItOpened(Base):
+    """Pinned because a fixture leak is invisible from the verdict: every test
+    passed, the runner reported `cleanup_errors 0`, and the WinError 32 landed
+    at interpreter exit — after the module had already been summarised."""
+
+    def asked_for(self):
+        return self._testMethodName.replace('_', '-')[:60]
+
+    def test_the_slug_we_CLOSE_is_the_slug_create_org_MINTED(self):
+        asked = self.asked_for()
+        self.assertNotEqual(asked, self.slug)            # this name holds uppercase
+        self.assertEqual(self.slug, ledger.slugify(asked))
+        self.assertIn(self.slug, SLUGS)
+
+    def test_closing_the_UNNORMALIZED_name_closes_nothing(self):
+        # The negative control for the correction: the old teardown passed the
+        # name it asked for, and the pool is keyed by the name it got.
+        asked = self.asked_for()
+        self.assertNotEqual(asked, self.slug)
+        store.load_org(self.slug)
+        store._POOL.close_all(asked)
+        self.assertTrue(store._POOL._idle.get(self.slug),
+                        'the unnormalized key closed a connection it should not have')
+        store._POOL.close_all(self.slug)
+        self.assertFalse(store._POOL._idle.get(self.slug))
 
 
 if __name__ == '__main__':
