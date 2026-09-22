@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { req } from './api'
 import { onLiveBump } from './livebus'
 import { desktop } from './desktop'
+import { onHeldEvent } from './events/heldbus'
 import type { NativeNotice } from './desktop'
 import type { NotificationIdentity } from '../../../../packages/contracts'
 import { notificationEnabled, notificationPreferences } from '../../../../packages/contracts/notifications'
@@ -73,8 +74,33 @@ async function readNotices() {
 }
 
 /** The native clock drives attention reads even while the owner is hidden.
- * Only successful native deliveries are remembered across renderer reloads. */
-export function useNativeNotifications(open: (notice: DesktopNotice) => void) {
+ * Only successful native deliveries are remembered across renderer reloads.
+ *
+ * ⚠ TWO HALVES, AND ONLY ONE OF THEM IS PER-WINDOW (v3 multi-window).
+ *
+ * The GLOBAL half — paging `/api/desktop/notifications`, which is the
+ * CROSS-ORGANIZATION attention projection; `setPendingAttention`, which writes
+ * the taskbar aggregate; `syncNotifications`, which tells the operating system
+ * which notifications should still exist; and `notifyOnce`, which dispatches
+ * them — must run in EXACTLY ONE window. Several windows doing it means N
+ * renderers racing one reconciliation: the taskbar is written by whichever
+ * finished last, and two windows disagreeing about the eligible set retract
+ * each other's notifications. The `seen` dedup set is shared through
+ * localStorage but guarded only by an in-process `inFlight`, so concurrent
+ * windows are a real duplicate-alert race rather than a theoretical one.
+ *
+ * The PER-WINDOW half is the `notification-click` branch. Every window handles
+ * the click aimed at it, owner or not — that is how a targeted reveal reaches
+ * the organization window it belongs to.
+ *
+ * `owner` gates the first and never the second. It defaults to true so a plain
+ * browser, the shipped single-window shell, and every existing caller behave
+ * exactly as before. Losing ownership tears this effect down, which sets
+ * `alive` false, and every `await` in the poll is followed by an `alive`
+ * check — so a pass in flight when the duty moves completes without writing.
+ */
+export function useNativeNotifications(open: (notice: DesktopNotice) => void,
+  owner = true) {
   const target = useRef(open); target.current = open
   const bridge = desktop()
   useEffect(() => {
@@ -97,7 +123,9 @@ export function useNativeNotifications(open: (notice: DesktopNotice) => void) {
       finally { loadingPrefs = false }
     }
     const poll = async (mutation = false) => {
-      if (!alive) return
+      // the global half. A non-owner window reads nothing, syncs nothing and
+      // writes no taskbar state — see the note on the hook.
+      if (!alive || !owner) return
       if (!prefsReady) { void loadPrefs(); return }
       if (running) { dirty ||= mutation; return }
       running = true
@@ -129,7 +157,12 @@ export function useNativeNotifications(open: (notice: DesktopNotice) => void) {
           // that finds the same items cannot restart the pulse.
           if (publishPending(summarizePending(candidates)) || !attentionSent) {
             attentionSent = true
-            await bridge.setPendingAttention?.(pendingAttention().ids)
+            // ids AND the same rows with their organization said out loud, so
+            // the taskbar pulse can flash the affected item's own window
+            // rather than every main window (user ruling 2026-09-21). One
+            // call, one projection pass, no second read.
+            const aggregate = pendingAttention()
+            await bridge.setPendingAttention?.(aggregate.ids, aggregate.items)
             if (!alive) return
           }
           // A card already on screen has reached the user. Remember it until
@@ -163,13 +196,28 @@ export function useNativeNotifications(open: (notice: DesktopNotice) => void) {
       finally { running = false }
     }
     void poll()
+    // A NON-OWNER STILL NEEDS PREFERENCES. `poll` is what used to load them,
+    // and it now returns immediately in a window without the duty — so the
+    // click branch below would filter with defaults and could reveal an item
+    // whose category the user has muted. Load them directly instead.
+    if (!owner) void loadPrefs()
+    // ⚠ THE TWO CHANNELS ARE SPLIT BY WHETHER NATIVE HOLDS THE TYPE, and the
+    // split is not cosmetic. `preferences` and `notification-poll` are live
+    // facts a renderer can simply re-read, so they take the ordinary
+    // subscription. `notification-click` is HELD — it is the one event in this
+    // hook that cannot be rediscovered, and it is the one most likely to
+    // arrive before this effect has ever run, because clicking a notification
+    // is what COLD-STARTS the window. It comes through the held bus, which was
+    // listening from the document's first statement and hands over whatever
+    // was waiting the moment this line runs. See events/heldbus.ts.
     const offNative = bridge.onEvent(event => {
       if (event.type === 'preferences') {
         prefsRevision++; prefs = notificationPreferences(event.data as Parameters<typeof notificationPreferences>[0]); prefsReady = true
         void poll(true); return
       }
       if (event.type === 'notification-poll') { void poll(); return }
-      if (event.type !== 'notification-click') return
+    })
+    const offClick = onHeldEvent('notification-click', (event) => {
       const n = event.data as NativeNotice
       if (!n || typeof n.id !== 'string' || typeof n.org !== 'string') return
       const request = ++click
@@ -183,8 +231,9 @@ export function useNativeNotifications(open: (notice: DesktopNotice) => void) {
       }).catch(() => { /* the main window is still shown if the engine is down */ })
     })
     // Compatibility with shells predating the native poll/cleanup contract.
-    const timer = bridge.syncNotifications ? undefined : setInterval(() => { void poll() }, 6000)
+    const timer = owner && !bridge.syncNotifications
+      ? setInterval(() => { void poll() }, 6000) : undefined
     const off = onLiveBump(() => { void poll(true) })
-    return () => { alive = false; clearInterval(timer); off(); offNative() }
-  }, [bridge])
+    return () => { alive = false; clearInterval(timer); off(); offNative(); offClick() }
+  }, [bridge, owner])
 }

@@ -17,6 +17,11 @@ import { DEFAULT_NOTIFICATIONS, notificationEnabled, notificationPreferences } f
 const labels = ['Questions', 'Urgent mail', 'Terminal failures', 'Docket attention', 'All mail', 'New presented document', 'Agent frozen', 'Notify while Orgtree is focused']
 const keys = ['notifyQuestions', 'notifyUrgentMail', 'notifyTerminalFailures', 'notifyDocketAttention', 'notifyAllMail', 'notifyDocuments', 'notifyFrozen', 'notifyWhileFocused'] as const
 const response = (data: unknown) => ({ ok: true, headers: new Headers(), json: async () => data } as Response)
+// ⚠ `notification-click` is a HELD type and is consumed through
+// events/heldbus.ts, so a document has TWO listeners now — the bus and the
+// hook. A single-slot `onEvent` fake keeps only one of them, and which one
+// it keeps decides what the test measures. See heldevents.ts.
+import { eventFanout, startBus } from './heldevents'
 const native = (value?: unknown) => Object.defineProperty(window, 'orgtreeDesktop', { value, configurable: true })
 const settle = () => inAct(async () => { await flush(30) })
 const ask = { id: 'question-exact', node: 'agent', kind: 'question', status: 'open', question: 'Choose the approach' } as AskInfo
@@ -32,10 +37,12 @@ function focused(doc: Document, value: boolean) {
 }
 
 test('eight native settings use exact defaults, save separately and accept broadcasts over stale load', async () => {
-  let resolve!: (value: unknown) => void, event!: (e: { type: string; data: unknown }) => void
+  let resolve!: (value: unknown) => void
+  const fan = eventFanout()
+  const event = fan.emit
   let prefs = { ...DEFAULT_NOTIFICATIONS }
   const writes: unknown[] = []
-  native({ getPreferences: () => new Promise(r => { resolve = r }), onEvent: (fn: typeof event) => { event = fn; return () => {} },
+  native({ getPreferences: () => new Promise(r => { resolve = r }), onEvent: fan.onEvent,
     setPreferences: async (patch: Partial<typeof prefs>) => { writes.push(patch); return prefs = { ...prefs, ...patch } } })
   const v = await mountView(<DesktopSettings />, el => el)
   try {
@@ -103,11 +110,13 @@ test('category switches, visible questions, new documents and stale clicks share
   localStorage.clear()
   const oldFetch = globalThis.fetch, visibility = Object.getOwnPropertyDescriptor(document, 'visibilityState')
   Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
-  let event!: (e: { type: string; data: unknown }) => void
+  const fan = eventFanout()
+  const event = fan.emit
   let prefs = { ...DEFAULT_NOTIFICATIONS }, notices: NativeNotice[] = []
   const delivered: NativeNotice[] = [], opened: NativeNotice[] = [], synced: unknown[][] = []
   native({ getPreferences: async () => prefs, notify: async (n: NativeNotice) => { delivered.push(n); return true },
-    syncNotifications: async (active: unknown[]) => { synced.push(active) }, onEvent: (fn: typeof event) => { event = fn; return () => {} } })
+    syncNotifications: async (active: unknown[]) => { synced.push(active) }, onEvent: fan.onEvent })
+  const stopBus = startBus()
   globalThis.fetch = async () => response({ notices, active: notices.map(({ org, id }) => ({ org, id })), truncated: false, total: notices.length })
   function View({ card = true }: { card?: boolean }) { useNativeNotifications(n => opened.push(n)); return card ? <AskCard ask={ask} slug="one" toast={() => {}} /> : null }
   const v = await mountView(<View />, el => el)
@@ -140,7 +149,7 @@ test('category switches, visible questions, new documents and stale clicks share
     await inAct(async () => { event({ type: 'notification-click', data: delivered.at(-1) }); await flush(20) })
     assert.equal(opened.length, 1)
   } finally {
-    await v.unmount(); native(); globalThis.fetch = oldFetch
+    stopBus(); await v.unmount(); native(); globalThis.fetch = oldFetch
     if (visibility) Object.defineProperty(document, 'visibilityState', visibility)
     else delete (document as unknown as Record<string, unknown>).visibilityState
   }
@@ -199,14 +208,15 @@ test('the app routes an other-organization document click into its exact Present
   const g = globalThis as unknown as Record<string, unknown>
   g.history ??= window.history; g.location ??= window.location
   window.history.replaceState(null, '', '/')
-  const events = new Set<(e: { type: string; data: unknown }) => void>()
+  const fan = eventFanout()
   const notice: NativeNotice = { id: 'other-document', source_id: 'exact', org: 'other', kind: 'document', title: 'Exact document', body: 'New plan' }
   const doc = { id: 'exact', node: 'agent', title: 'Exact document', at: '2026-09-12', node_state: 'live', evicted: false }
   const root = { id: 'agent', title: 'agent', tier: 'haiku', model_id: 'haiku', generation: 2, state: 'live', seat: 1,
     grant: 0, free: 0, mail_pending: 0, documents: [], children: [], lineage: [], turns: [], audiences_held: [],
     scope: { tools: {}, add_dirs: [], permission_mode: 'default', org_visibility: 'team' } }
   native({ getPreferences: async () => ({ ...DEFAULT_NOTIFICATIONS, notifyDocuments: true }), notify: async () => false,
-    syncNotifications: async () => {}, onEvent: (fn: (e: { type: string; data: unknown }) => void) => { events.add(fn); return () => events.delete(fn) } })
+    syncNotifications: async () => {}, onEvent: fan.onEvent })
+  const stopBus = startBus()
   globalThis.fetch = async url => {
     const path = String(url).split('?')[0]
     if (path === '/api/desktop/notifications') return response({ notices: [notice], total: 1, truncated: false, active: [notice].map(({ org, id }) => ({ org, id })) })
@@ -225,13 +235,13 @@ test('the app routes an other-organization document click into its exact Present
   const v = await mountView(<App />, el => el)
   try {
     await settle()
-    await inAct(async () => { for (const fn of [...events]) fn({ type: 'notification-click', data: notice }); await flush(60) })
+    await inAct(async () => { fan.emit({ type: 'notification-click', data: notice }); await flush(60) })
     assert.equal(window.location.pathname, '/o/other')
     const pane = v.el.querySelector('.gallery-modal .mailer-read')
     assert.match(pane?.textContent ?? '', /Notification selected this precise document/)
     assert.equal(v.el.querySelectorAll('.gallery-modal').length, 1)
   } finally {
-    await v.unmount(); native(); globalThis.fetch = oldFetch
+    stopBus(); await v.unmount(); native(); globalThis.fetch = oldFetch
     forgetModalPins(); forgetModalOpenCache(); window.history.replaceState(null, '', '/')
   }
 })
@@ -239,12 +249,14 @@ test('the app routes an other-organization document click into its exact Present
 test('a failed preference read retries from the native clock and honors the stored disabled category', async () => {
   localStorage.clear()
   const oldFetch = globalThis.fetch
-  let reads = 0, delivered = 0, fetched = 0, event!: (e: { type: string; data: unknown }) => void
+  let reads = 0, delivered = 0, fetched = 0
+  const fan = eventFanout()
+  const event = fan.emit
   native({ getPreferences: async () => {
     if (++reads === 1) throw Error('temporary IPC error')
     return { ...DEFAULT_NOTIFICATIONS, notifyQuestions: false }
   }, notify: async () => { delivered++; return true }, syncNotifications: async () => {},
-  onEvent: (fn: typeof event) => { event = fn; return () => {} } })
+  onEvent: fan.onEvent })
   globalThis.fetch = async () => { fetched++; return response({ notices: [{ id: 'disabled', org: 'org', kind: 'question', title: 'Q', body: '?' }], total: 1, truncated: false }) }
   function View() { useNativeNotifications(() => {}); return null }
   const v = await mountView(<View />, el => el)
@@ -266,12 +278,13 @@ test('a document removed during navigation reports the missing target and consum
 })
 
 test('global Notifications switch defaults on, gates specific toggles in UI, preserves values and restores configuration', async () => {
-  let event!: (e: { type: string; data: unknown }) => void
+  const fan = eventFanout()
+  const event = fan.emit
   let prefs = { ...DEFAULT_NOTIFICATIONS, notifyQuestions: false, notifyUrgentMail: true, notifyDocketAttention: false, notifyAllMail: true, notifyDocuments: true }
   const writes: unknown[] = []
   native({
     getPreferences: async () => prefs,
-    onEvent: (fn: typeof event) => { event = fn; return () => {} },
+    onEvent: fan.onEvent,
     setPreferences: async (patch: Partial<typeof prefs>) => { writes.push(patch); prefs = { ...prefs, ...patch }; return prefs },
   })
   const v = await mountView(<DesktopSettings />, el => el)
@@ -359,14 +372,15 @@ test('master notifications switch off suppresses native polling dispatch and cli
   localStorage.clear()
   const oldFetch = globalThis.fetch, visibility = Object.getOwnPropertyDescriptor(document, 'visibilityState')
   Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
-  let event!: (e: { type: string; data: unknown }) => void
+  const fan = eventFanout()
+  const event = fan.emit
   let prefs = { ...DEFAULT_NOTIFICATIONS, notifyAllMail: true, notifyDocuments: true }
   const delivered: NativeNotice[] = [], opened: NativeNotice[] = [], synced: unknown[][] = []
   native({
     getPreferences: async () => prefs,
     notify: async (n: NativeNotice) => { delivered.push(n); return true },
     syncNotifications: async (active: unknown[]) => { synced.push(active) },
-    onEvent: (fn: typeof event) => { event = fn; return () => {} },
+    onEvent: fan.onEvent,
   })
   const row = (kind: NativeNotice['kind'], id: string = kind): NativeNotice => ({ id, kind, org: 'one', title: kind, body: 'detail', agent: 'agent', generation: 2, source_id: id })
   const notices = [row('question', 'q1'), row('urgent-mail', 'u1'), row('routine', 'r1')]
