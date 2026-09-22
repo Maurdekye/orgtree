@@ -299,7 +299,6 @@ def on_backend_startup(*, dry_run: bool = False) -> dict[str, Any]:
                             # Typed (family runtime_recovery): runtime.restart_notice
                             # on the BuildRef; the body is its frozen rendering —
                             # byte for byte the former literal (test_events_producers §R).
-                            box = org.d.setdefault("mail", {}).setdefault(nid, [])
                             ev = events.mint(
                                 "runtime.restart_notice",
                                 {"kind": "system", "id": "@system"},
@@ -324,26 +323,27 @@ def on_backend_startup(*, dry_run: bool = False) -> dict[str, Any]:
                             # Supersede an existing unread restart notice: the typed
                             # variant first, then the durable flag; the body test is
                             # the pre-typed rows' shape and stays for them only.
-                            existing_idx = None
-                            for idx, m in enumerate(box):
-                                if (events.decode(m.get("ev"), m).get("ev") or {}).get(
-                                        "variant") == "runtime.restart_notice" \
-                                        or m.get("restart_notice") or (
-                                    m.get("from") == "orgtree"
-                                    and m.get("kind") == "notice"
-                                    and "[ORGTREE RESTART" in m.get("body", "")
-                                ):
-                                    existing_idx = idx
-                                    break
-                            if existing_idx is not None:
-                                box[existing_idx] = entry
-                            else:
-                                box.append(entry)
+                            def supersedes(m: Any) -> bool:
+                                return bool(
+                                    (events.decode(m.get("ev"), m).get("ev") or {}
+                                     ).get("variant") == "runtime.restart_notice"
+                                    or m.get("restart_notice") or (
+                                        m.get("from") == "orgtree"
+                                        and m.get("kind") == "notice"
+                                        and "[ORGTREE RESTART" in m.get("body", "")))
 
-                            # Also mirror into mail_log
-                            log = org.d.setdefault("mail_log", {}).setdefault(nid, [])
-                            log.append(dict(entry))
-                            del log[:-100]
+                            # M0a — ONE DEPOSIT DOOR. This notice is a fresh
+                            # creation, so it takes a receive ordinal like any
+                            # other created message. When it SUPERSEDES an
+                            # unread predecessor it is still a new message with
+                            # a new id: it takes a NEW ordinal and merely
+                            # occupies the old row's position. No other row's
+                            # identity or ordinal is touched, the mail_log
+                            # mirror is unchanged, and this path's own
+                            # 100-entry archive tail is now stated here rather
+                            # than trimmed by hand beside the append.
+                            org.deposit_mail(nid, entry, archive_keep=100,
+                                             supersede=supersedes)
 
                             changed = True
                             notified.append({"org": slug, "node": nid})

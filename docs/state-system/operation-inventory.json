@@ -307,7 +307,7 @@
     },
     {
       "path": "engine/backend/orgtree/ledger.py",
-      "normalized_source_sha256": "33990b949e6fadff1bd520043cf150c95b7a3580affaf674f571aff3e93f3a32"
+      "normalized_source_sha256": "85eae4fcfef19347c01da7ab3e9b0f57759c7adf5c1fe1676a60b7a31a8b6ab2"
     },
     {
       "path": "engine/backend/orgtree/lifecycle.py",
@@ -395,7 +395,7 @@
     },
     {
       "path": "engine/backend/orgtree/restart_wake.py",
-      "normalized_source_sha256": "4bac430214b0c30999fc06a80dd5a44455ac7b53b858dc0d2667d12a85e9d4ba"
+      "normalized_source_sha256": "b30d75e0b5a54213e1e409976e747f995a90ad9a1db10e1efd2dc7545374c106"
     },
     {
       "path": "engine/backend/orgtree/sandbox.py",
@@ -403,7 +403,7 @@
     },
     {
       "path": "engine/backend/orgtree/schema.py",
-      "normalized_source_sha256": "ddf2eaddde8e2aae28c2512ae12a4a4c55f020bd86491a621e32f18c465ca22c"
+      "normalized_source_sha256": "3c9bb97058d25cfe80bb875024ab33d198424d2d7f3bacee9c52c110b044f966"
     },
     {
       "path": "engine/backend/orgtree/scope_diagnostics.py",
@@ -443,7 +443,7 @@
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
-      "normalized_source_sha256": "ea0b2023255a76c0ae0be9dd2cc48fb89ae85e893c40bbb0676580aebfd13091"
+      "normalized_source_sha256": "be33cdaa7dde77d2c72dbab528a370dda724e5091feb6019bc4bb59dd47bc848"
     },
     {
       "path": "engine/backend/orgtree/tokens.py",
@@ -5585,8 +5585,8 @@
       "source": {
         "path": "engine/backend/orgtree/supervisor.py",
         "symbol": "_launch_working_cache_read",
-        "line": 12760,
-        "end_line": 12761,
+        "line": 12762,
+        "end_line": 12763,
         "syntax_sha256": "bd72850583af62bd0c7c79dbce1255ff7ace23c5c295f56714f7b05ce9e36267"
       },
       "mechanism": "threading.Thread",
@@ -5599,8 +5599,8 @@
       "source": {
         "path": "engine/backend/orgtree/supervisor.py",
         "symbol": "start_working_cache_keeper",
-        "line": 12956,
-        "end_line": 12957,
+        "line": 12958,
+        "end_line": 12959,
         "syntax_sha256": "56541a6281c161e2bee2a8069dc52baca4eb612e367de73c9a8d6fe670a6c6ca"
       },
       "mechanism": "threading.Thread",
@@ -5613,8 +5613,8 @@
       "source": {
         "path": "engine/backend/orgtree/supervisor.py",
         "symbol": "_arm_deploy_window",
-        "line": 13034,
-        "end_line": 13034,
+        "line": 13036,
+        "end_line": 13036,
         "syntax_sha256": "ecb8092bc1114b441ba366bac1ab4fb0be8ee0e537421618ac70b0b6ea54c1a0"
       },
       "mechanism": "threading.Thread",
@@ -5627,8 +5627,8 @@
       "source": {
         "path": "engine/backend/orgtree/supervisor.py",
         "symbol": "_start_turn_worker",
-        "line": 13675,
-        "end_line": 13676,
+        "line": 13677,
+        "end_line": 13678,
         "syntax_sha256": "fdfcd1bf48f07951704e3787cc15b3372805f55eb8e1c87e9ba092aa41b62346"
       },
       "mechanism": "threading.Thread",
@@ -5641,8 +5641,8 @@
       "source": {
         "path": "engine/backend/orgtree/supervisor.py",
         "symbol": "_codex_leg_attempt._on_event",
-        "line": 16285,
-        "end_line": 16286,
+        "line": 16287,
+        "end_line": 16288,
         "syntax_sha256": "7c6f175e79db7d6388c38fed01bf51b31d7579f0cad663c72f626bf928c8ea97"
       },
       "mechanism": "threading.Thread",
@@ -5655,8 +5655,8 @@
       "source": {
         "path": "engine/backend/orgtree/supervisor.py",
         "symbol": "_codex_leg_attempt",
-        "line": 16399,
-        "end_line": 16416,
+        "line": 16401,
+        "end_line": 16418,
         "syntax_sha256": "2e4a09b4ed6f41ea6a627c64965cc1ff459a9012a9cdbdf8c0d7acd4069ea81e"
       },
       "mechanism": "codexrun.CodexTurn",
@@ -5670,8 +5670,8 @@
       "source": {
         "path": "engine/backend/orgtree/supervisor.py",
         "symbol": "_codex_leg_attempt._steer_pump",
-        "line": 16709,
-        "end_line": 16710,
+        "line": 16711,
+        "end_line": 16712,
         "syntax_sha256": "7262d6d3e43de612f385b91ca508905b803110f2b0ab35ab0b3d49c5315b7895"
       },
       "mechanism": "turn.steer",
@@ -5685,8 +5685,8 @@
       "source": {
         "path": "engine/backend/orgtree/supervisor.py",
         "symbol": "_codex_leg_attempt",
-        "line": 16855,
-        "end_line": 16857,
+        "line": 16857,
+        "end_line": 16859,
         "syntax_sha256": "10b78ab51ca34d3e83154c720fd910d5374286afd4004ffff48e210b88a963d2"
       },
       "mechanism": "threading.Thread",
@@ -5699,8 +5699,8 @@
       "source": {
         "path": "engine/backend/orgtree/supervisor.py",
         "symbol": "_antigravity_leg",
-        "line": 17789,
-        "end_line": 17792,
+        "line": 17791,
+        "end_line": 17794,
         "syntax_sha256": "f2f944be14508cda62e3bacd26f47d385272a42dff48050da472d4c7238ec52d"
       },
       "mechanism": "antigravityrun.AntigravityTurn",
@@ -5714,8 +5714,8 @@
       "source": {
         "path": "engine/backend/orgtree/supervisor.py",
         "symbol": "_antigravity_leg",
-        "line": 17895,
-        "end_line": 17896,
+        "line": 17897,
+        "end_line": 17898,
         "syntax_sha256": "47809c0cd78636dec5e51069d13fac362edace1510216e3511ff4169f69fea08"
       },
       "mechanism": "threading.Thread",
@@ -5728,8 +5728,8 @@
       "source": {
         "path": "engine/backend/orgtree/supervisor.py",
         "symbol": "_run_one_turn_recorded._start_cold_mcp_pump",
-        "line": 19099,
-        "end_line": 19101,
+        "line": 19101,
+        "end_line": 19103,
         "syntax_sha256": "b05319e0c4a86e58ae56539aa2381a06531cdc354046714c6efc988a97c36df5"
       },
       "mechanism": "threading.Thread",
@@ -5742,8 +5742,8 @@
       "source": {
         "path": "engine/backend/orgtree/supervisor.py",
         "symbol": "_run_one_turn_recorded",
-        "line": 19310,
-        "end_line": 19311,
+        "line": 19312,
+        "end_line": 19313,
         "syntax_sha256": "43306c171548804244a4c710f8e4732523faea759634b83db5a3143059c481c5"
       },
       "mechanism": "threading.Thread",
@@ -5756,8 +5756,8 @@
       "source": {
         "path": "engine/backend/orgtree/supervisor.py",
         "symbol": "maybe_storage_check",
-        "line": 26299,
-        "end_line": 26299,
+        "line": 26301,
+        "end_line": 26301,
         "syntax_sha256": "d35c119968b2fd29b23a5d09d45b09fc3488ff2df22c98dd95ed0c0f25bb97b4"
       },
       "mechanism": "threading.Thread",
@@ -5770,8 +5770,8 @@
       "source": {
         "path": "engine/backend/orgtree/supervisor.py",
         "symbol": "immediate_command",
-        "line": 26426,
-        "end_line": 26426,
+        "line": 26428,
+        "end_line": 26428,
         "syntax_sha256": "d35c119968b2fd29b23a5d09d45b09fc3488ff2df22c98dd95ed0c0f25bb97b4"
       },
       "mechanism": "threading.Thread",
@@ -5784,8 +5784,8 @@
       "source": {
         "path": "engine/backend/orgtree/supervisor.py",
         "symbol": "start_storage_watchdog",
-        "line": 26469,
-        "end_line": 26469,
+        "line": 26471,
+        "end_line": 26471,
         "syntax_sha256": "d35c119968b2fd29b23a5d09d45b09fc3488ff2df22c98dd95ed0c0f25bb97b4"
       },
       "mechanism": "threading.Thread",
@@ -5798,8 +5798,8 @@
       "source": {
         "path": "engine/backend/orgtree/supervisor.py",
         "symbol": "resume_frozen",
-        "line": 26902,
-        "end_line": 26903,
+        "line": 26904,
+        "end_line": 26905,
         "syntax_sha256": "4deefdfa525e27f26fe47b5446a4e8310a0f24fed73ab59cba3260500830cdde"
       },
       "mechanism": "threading.Thread",
@@ -5812,8 +5812,8 @@
       "source": {
         "path": "engine/backend/orgtree/supervisor.py",
         "symbol": "start_auto_resume_loop",
-        "line": 27573,
-        "end_line": 27573,
+        "line": 27580,
+        "end_line": 27580,
         "syntax_sha256": "d1a51803178cffe6d1ca13827d4f0cf58d029db73a6ac9fc79af86d3b3477cd1"
       },
       "mechanism": "threading.Thread",
@@ -5826,8 +5826,8 @@
       "source": {
         "path": "engine/backend/orgtree/supervisor.py",
         "symbol": "_fire_prime",
-        "line": 28747,
-        "end_line": 28748,
+        "line": 28754,
+        "end_line": 28755,
         "syntax_sha256": "a7ab84fd363a5bc368b511872038bf29d3355d0fff5674df20daa6d313efabdd"
       },
       "mechanism": "threading.Thread",
@@ -5840,8 +5840,8 @@
       "source": {
         "path": "engine/backend/orgtree/supervisor.py",
         "symbol": "start_prime_restart_engine",
-        "line": 28895,
-        "end_line": 28895,
+        "line": 28902,
+        "end_line": 28902,
         "syntax_sha256": "c042af94f61446b4807fd743d3326a34bdf3c36c5cbebbc67363938f431d2fce"
       },
       "mechanism": "threading.Thread",
@@ -5854,8 +5854,8 @@
       "source": {
         "path": "engine/backend/orgtree/supervisor.py",
         "symbol": "start_steer_late_watchdog",
-        "line": 30009,
-        "end_line": 30009,
+        "line": 30016,
+        "end_line": 30016,
         "syntax_sha256": "09e4ae094b8577d94ab5bddc00b4f03da7933e4dc6a7bb4ae181b07c406deff6"
       },
       "mechanism": "threading.Thread",
@@ -5868,8 +5868,8 @@
       "source": {
         "path": "engine/backend/orgtree/supervisor.py",
         "symbol": "start_cred_watcher",
-        "line": 30188,
-        "end_line": 30188,
+        "line": 30195,
+        "end_line": 30195,
         "syntax_sha256": "82ba5541b5e2230b7f19d25fddcd247e638a16ba1af894065a6853cf455e667c"
       },
       "mechanism": "threading.Thread",
@@ -5882,8 +5882,8 @@
       "source": {
         "path": "engine/backend/orgtree/supervisor.py",
         "symbol": "wd_smoke",
-        "line": 30844,
-        "end_line": 30844,
+        "line": 30851,
+        "end_line": 30851,
         "syntax_sha256": "8453c355a5b3e5ae79236f7bdb819604ba0da0e1f570020816c9601f6e0182fe"
       },
       "mechanism": "threading.Thread",
@@ -5896,8 +5896,8 @@
       "source": {
         "path": "engine/backend/orgtree/supervisor.py",
         "symbol": "_wd_cmd_submit",
-        "line": 31427,
-        "end_line": 31427,
+        "line": 31434,
+        "end_line": 31434,
         "syntax_sha256": "ea33d11b01620028eb0a61d8f2dc982f0ec8df23582638792d22dee2e55a0335"
       },
       "mechanism": "_wd_cmd_pool.submit",
@@ -5911,8 +5911,8 @@
       "source": {
         "path": "engine/backend/orgtree/supervisor.py",
         "symbol": "_wd_ensure_stream",
-        "line": 31590,
-        "end_line": 31591,
+        "line": 31597,
+        "end_line": 31598,
         "syntax_sha256": "78f06a90a7cd1a35447b329cd96a2dedcf201c711f1f0a00a98a7d185bd382fd"
       },
       "mechanism": "threading.Thread",
@@ -5925,8 +5925,8 @@
       "source": {
         "path": "engine/backend/orgtree/supervisor.py",
         "symbol": "start_extern_sweeper",
-        "line": 31719,
-        "end_line": 31719,
+        "line": 31726,
+        "end_line": 31726,
         "syntax_sha256": "8b07938da145002532ec8a30036b24c5a35d918ff2781420ebd3f0b8ad9618d3"
       },
       "mechanism": "threading.Thread",
@@ -5939,8 +5939,8 @@
       "source": {
         "path": "engine/backend/orgtree/supervisor.py",
         "symbol": "start_watchdog_engine",
-        "line": 31742,
-        "end_line": 31742,
+        "line": 31749,
+        "end_line": 31749,
         "syntax_sha256": "9cf78342ea1ad9792b7eced0bb1142a2c5d7eeb61cd01269febff08d09ad19cf"
       },
       "mechanism": "threading.Thread",
@@ -8508,8 +8508,8 @@
       "source": {
         "path": "engine/backend/orgtree/ledger.py",
         "symbol": "Org.watchdog_action",
-        "line": 7705,
-        "end_line": 7705,
+        "line": 8051,
+        "end_line": 8051,
         "syntax_sha256": "da5efb6c0ae563bb730830c037a9dfdfcdf9b619100fb9b33e180ce80bd97b0f"
       },
       "kind": "action",
@@ -8523,8 +8523,8 @@
       "source": {
         "path": "engine/backend/orgtree/ledger.py",
         "symbol": "Org.watchdog_action",
-        "line": 7707,
-        "end_line": 7707,
+        "line": 8053,
+        "end_line": 8053,
         "syntax_sha256": "5be12f2dffd6959a845f52a06de4002b191815e32609d4e706d298fd8693d55b"
       },
       "kind": "action",
@@ -8538,8 +8538,8 @@
       "source": {
         "path": "engine/backend/orgtree/ledger.py",
         "symbol": "Org.watchdog_action",
-        "line": 7713,
-        "end_line": 7713,
+        "line": 8059,
+        "end_line": 8059,
         "syntax_sha256": "2e6cbe4ac3592181015b912fa5e0ffe30a419afb8f54c03999ebfdecadc70f34"
       },
       "kind": "action",
@@ -8553,8 +8553,8 @@
       "source": {
         "path": "engine/backend/orgtree/ledger.py",
         "symbol": "Org.watchdog_action",
-        "line": 7720,
-        "end_line": 7720,
+        "line": 8066,
+        "end_line": 8066,
         "syntax_sha256": "2769a806588413757cfb3fde29544f758ee180a4cac11cb758672f60be8edc58"
       },
       "kind": "action",
@@ -8568,8 +8568,8 @@
       "source": {
         "path": "engine/backend/orgtree/ledger.py",
         "symbol": "Org.watchdog_action",
-        "line": 7747,
-        "end_line": 7747,
+        "line": 8093,
+        "end_line": 8093,
         "syntax_sha256": "2e6cbe4ac3592181015b912fa5e0ffe30a419afb8f54c03999ebfdecadc70f34"
       },
       "kind": "action",
@@ -8583,8 +8583,8 @@
       "source": {
         "path": "engine/backend/orgtree/ledger.py",
         "symbol": "Org.watchdog_action",
-        "line": 7748,
-        "end_line": 7748,
+        "line": 8094,
+        "end_line": 8094,
         "syntax_sha256": "2769a806588413757cfb3fde29544f758ee180a4cac11cb758672f60be8edc58"
       },
       "kind": "action",
@@ -8598,8 +8598,8 @@
       "source": {
         "path": "engine/backend/orgtree/ledger.py",
         "symbol": "Org.credit_request_action",
-        "line": 8497,
-        "end_line": 8497,
+        "line": 8845,
+        "end_line": 8845,
         "syntax_sha256": "d77ad7b87188f4dabafed5f9a8e159e3b4e29004d3f88249acb23bedc6309ea0"
       },
       "kind": "action",
@@ -8614,8 +8614,8 @@
       "source": {
         "path": "engine/backend/orgtree/ledger.py",
         "symbol": "Org.credit_request_action",
-        "line": 8501,
-        "end_line": 8501,
+        "line": 8849,
+        "end_line": 8849,
         "syntax_sha256": "b237a09c3fe9c2f38a08e989bd2dc9f0cb43263904a2df7d4cc642a3fd515ca3"
       },
       "kind": "action",
@@ -8629,8 +8629,8 @@
       "source": {
         "path": "engine/backend/orgtree/ledger.py",
         "symbol": "Org.prime_restart_gate",
-        "line": 9351,
-        "end_line": 9351,
+        "line": 9699,
+        "end_line": 9699,
         "syntax_sha256": "ead4c6c16d1c5874182ea27bd5f3b5d4af03973235e1ead230afe5a91b8fb35d"
       },
       "kind": "action",
@@ -8644,8 +8644,8 @@
       "source": {
         "path": "engine/backend/orgtree/ledger.py",
         "symbol": "Org._work_status_at",
-        "line": 13556,
-        "end_line": 13556,
+        "line": 13904,
+        "end_line": 13904,
         "syntax_sha256": "794f53d28f231ab76de2a3cb970abb13a7ed21a1e547da254a9dfc838275d045"
       },
       "kind": "action",
@@ -8661,8 +8661,8 @@
       "source": {
         "path": "engine/backend/orgtree/ledger.py",
         "symbol": "Org._work_status_at",
-        "line": 13557,
-        "end_line": 13557,
+        "line": 13905,
+        "end_line": 13905,
         "syntax_sha256": "d64da19051a4ba4e067258b739171ddd97405c63ff5c1d6272099a387192ee69"
       },
       "kind": "action",
@@ -8676,8 +8676,8 @@
       "source": {
         "path": "engine/backend/orgtree/ledger.py",
         "symbol": "Org._work_status_at",
-        "line": 13564,
-        "end_line": 13564,
+        "line": 13912,
+        "end_line": 13912,
         "syntax_sha256": "2486603fa555515e524dff7d6567cb02a40c28cfcdd91c2176566687348549df"
       },
       "kind": "action",
@@ -9312,8 +9312,8 @@
       "source": {
         "path": "engine/backend/orgtree/supervisor.py",
         "symbol": "_read_chat_source",
-        "line": 33691,
-        "end_line": 33692,
+        "line": 33699,
+        "end_line": 33700,
         "syntax_sha256": "8ca745b8fdd8a06db5406ce8f78cf54f164551d6dece2a19e489ea3ac4603ab0"
       },
       "kind": "tool",
@@ -9327,8 +9327,8 @@
       "source": {
         "path": "engine/backend/orgtree/supervisor.py",
         "symbol": "_read_chat_source",
-        "line": 33716,
-        "end_line": 33717,
+        "line": 33724,
+        "end_line": 33725,
         "syntax_sha256": "b4d07d4a4273ef7cd8197917a85eac32cbd4719a69d2ef0d726f4bb7291fca12"
       },
       "kind": "tool",
@@ -9342,8 +9342,8 @@
       "source": {
         "path": "engine/backend/orgtree/supervisor.py",
         "symbol": "_read_chat_source",
-        "line": 33743,
-        "end_line": 33745,
+        "line": 33751,
+        "end_line": 33753,
         "syntax_sha256": "8ac3dd3940a580eb8a007d7f18d0201726861ff1fb8ccdc5065c9ba1d3f82ea5"
       },
       "kind": "tool",
@@ -9359,8 +9359,8 @@
       "source": {
         "path": "engine/backend/orgtree/supervisor.py",
         "symbol": "_read_chat_source",
-        "line": 33779,
-        "end_line": 33780,
+        "line": 33787,
+        "end_line": 33788,
         "syntax_sha256": "749e2458eeb0af4418d7cabae7a17a49acdcc572d6dae9fe1c24b0cb188ed3e5"
       },
       "kind": "tool",
@@ -10699,687 +10699,687 @@
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_envelope",
-      "line": 10019,
-      "end_line": 10019,
+      "line": 10023,
+      "end_line": 10023,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_working_checkup_reserve",
-      "line": 12133,
-      "end_line": 12133,
+      "line": 12137,
+      "end_line": 12137,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_auto_wake_cancel",
-      "line": 12177,
-      "end_line": 12177,
+      "line": 12180,
+      "end_line": 12180,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_note_working_activity",
-      "line": 12195,
-      "end_line": 12195,
+      "line": 12198,
+      "end_line": 12198,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_idle_docket_reminder_reserve",
-      "line": 12235,
-      "end_line": 12235,
+      "line": 12238,
+      "end_line": 12238,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_working_cache_read",
-      "line": 12563,
-      "end_line": 12563,
+      "line": 12565,
+      "end_line": 12565,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_working_cache_read",
-      "line": 12691,
-      "end_line": 12691,
+      "line": 12693,
+      "end_line": 12693,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_abandoned_docket_recovery_pass",
-      "line": 12896,
-      "end_line": 12896,
+      "line": 12898,
+      "end_line": 12898,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_retire_breadcrumb_splice",
-      "line": 13144,
-      "end_line": 13144,
+      "line": 13146,
+      "end_line": 13146,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "drive_unfrozen_by_switch",
-      "line": 13351,
-      "end_line": 13351,
+      "line": 13353,
+      "end_line": 13353,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_run_turn",
-      "line": 13751,
-      "end_line": 13751,
+      "line": 13753,
+      "end_line": 13753,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "spend_unrun_pardon",
-      "line": 13865,
-      "end_line": 13865,
+      "line": 13867,
+      "end_line": 13867,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "assign_account",
-      "line": 14279,
-      "end_line": 14279,
+      "line": 14281,
+      "end_line": 14281,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "announce_missing_rebind_candidates",
-      "line": 14564,
-      "end_line": 14564,
+      "line": 14566,
+      "end_line": 14566,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_codex_route_persist",
-      "line": 15443,
-      "end_line": 15443,
+      "line": 15445,
+      "end_line": 15445,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_record_codex_native_home",
-      "line": 15469,
-      "end_line": 15469,
+      "line": 15471,
+      "end_line": 15471,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_codex_leg_attempt._open_journal",
-      "line": 16490,
-      "end_line": 16490,
+      "line": 16492,
+      "end_line": 16492,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_codex_leg_attempt",
-      "line": 16604,
-      "end_line": 16604,
+      "line": 16606,
+      "end_line": 16606,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_antigravity_leg",
-      "line": 17839,
-      "end_line": 17839,
+      "line": 17841,
+      "end_line": 17841,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_run_one_turn_recorded",
-      "line": 18344,
-      "end_line": 18344,
+      "line": 18346,
+      "end_line": 18346,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_run_one_turn_recorded",
-      "line": 18399,
-      "end_line": 18399,
+      "line": 18401,
+      "end_line": 18401,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_run_one_turn_recorded",
-      "line": 18437,
-      "end_line": 18437,
+      "line": 18439,
+      "end_line": 18439,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_run_one_turn_recorded",
-      "line": 18477,
-      "end_line": 18477,
+      "line": 18479,
+      "end_line": 18479,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_run_one_turn_recorded",
-      "line": 18700,
-      "end_line": 18700,
+      "line": 18702,
+      "end_line": 18702,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_run_one_turn_recorded._spend_pass_now",
-      "line": 18851,
-      "end_line": 18851,
+      "line": 18853,
+      "end_line": 18853,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_run_one_turn_recorded",
-      "line": 20092,
-      "end_line": 20092,
+      "line": 20094,
+      "end_line": 20094,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_run_one_turn_recorded",
-      "line": 20267,
-      "end_line": 20267,
+      "line": 20269,
+      "end_line": 20269,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_run_one_turn_recorded",
-      "line": 20675,
-      "end_line": 20675,
+      "line": 20677,
+      "end_line": 20677,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_run_one_turn_recorded",
-      "line": 20689,
-      "end_line": 20689,
+      "line": 20691,
+      "end_line": 20691,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_run_one_turn_recorded",
-      "line": 20982,
-      "end_line": 20982,
+      "line": 20984,
+      "end_line": 20984,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_run_one_turn_recorded",
-      "line": 21505,
-      "end_line": 21505,
+      "line": 21507,
+      "end_line": 21507,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_run_one_turn_recorded",
-      "line": 21759,
-      "end_line": 21759,
+      "line": 21761,
+      "end_line": 21761,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_run_one_turn_recorded",
-      "line": 21921,
-      "end_line": 21921,
+      "line": 21923,
+      "end_line": 21923,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_run_one_turn_recorded",
-      "line": 21982,
-      "end_line": 21982,
+      "line": 21984,
+      "end_line": 21984,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_turn_abandoned",
-      "line": 22230,
-      "end_line": 22230,
+      "line": 22232,
+      "end_line": 22232,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_bump_hard_fail",
-      "line": 22342,
-      "end_line": 22342,
+      "line": 22344,
+      "end_line": 22344,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_retry_exhausted",
-      "line": 22396,
-      "end_line": 22396,
+      "line": 22398,
+      "end_line": 22398,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_parked_announce",
-      "line": 22600,
-      "end_line": 22600,
+      "line": 22602,
+      "end_line": 22602,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_limit_announce",
-      "line": 22739,
-      "end_line": 22739,
+      "line": 22741,
+      "end_line": 22741,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_bg_orphaned",
-      "line": 22881,
-      "end_line": 22881,
+      "line": 22883,
+      "end_line": 22883,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_bg_task_stopped",
-      "line": 22943,
-      "end_line": 22943,
+      "line": 22945,
+      "end_line": 22945,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_charge_killed_turn",
-      "line": 22988,
-      "end_line": 22988,
+      "line": 22990,
+      "end_line": 22990,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_charge_reported_spend",
-      "line": 23148,
-      "end_line": 23148,
+      "line": 23150,
+      "end_line": 23150,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_log_turn_error",
-      "line": 23207,
-      "end_line": 23207,
+      "line": 23209,
+      "end_line": 23209,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_after_turn",
-      "line": 23468,
-      "end_line": 23468,
+      "line": 23470,
+      "end_line": 23470,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_after_turn",
-      "line": 23702,
-      "end_line": 23702,
+      "line": 23704,
+      "end_line": 23704,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_after_turn",
-      "line": 23785,
-      "end_line": 23785,
+      "line": 23787,
+      "end_line": 23787,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_after_turn",
-      "line": 23843,
-      "end_line": 23843,
+      "line": 23845,
+      "end_line": 23845,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "drop_phantom_generation",
-      "line": 24376,
-      "end_line": 24376,
+      "line": 24378,
+      "end_line": 24378,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "recover_lost_generation",
-      "line": 24403,
-      "end_line": 24403,
+      "line": 24405,
+      "end_line": 24405,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "recover_lost_generation",
-      "line": 24530,
-      "end_line": 24530,
+      "line": 24532,
+      "end_line": 24532,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_compact_split_codex_body",
-      "line": 24713,
-      "end_line": 24713,
+      "line": 24715,
+      "end_line": 24715,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_compact_split_body",
-      "line": 24780,
-      "end_line": 24780,
+      "line": 24782,
+      "end_line": 24782,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_compact_split_body",
-      "line": 24896,
-      "end_line": 24896,
+      "line": 24898,
+      "end_line": 24898,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "manual_compact",
-      "line": 24998,
-      "end_line": 24998,
+      "line": 25000,
+      "end_line": 25000,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_remote_unpark",
-      "line": 25068,
-      "end_line": 25068,
+      "line": 25070,
+      "end_line": 25070,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_remote_control_start_owned",
-      "line": 25099,
-      "end_line": 25099,
+      "line": 25101,
+      "end_line": 25101,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_remote_control_start_owned",
-      "line": 25159,
-      "end_line": 25159,
+      "line": 25161,
+      "end_line": 25161,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "remote_reap",
-      "line": 25203,
-      "end_line": 25203,
+      "line": 25205,
+      "end_line": 25205,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "remote_control_stop",
-      "line": 25228,
-      "end_line": 25228,
+      "line": 25230,
+      "end_line": 25230,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_admit_message",
-      "line": 25355,
-      "end_line": 25355,
+      "line": 25357,
+      "end_line": 25357,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_admit_message",
-      "line": 25425,
-      "end_line": 25425,
+      "line": 25427,
+      "end_line": 25427,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "freeze_provider_limit",
-      "line": 25918,
-      "end_line": 25918,
+      "line": 25920,
+      "end_line": 25920,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "hard_freeze",
-      "line": 26032,
-      "end_line": 26032,
+      "line": 26034,
+      "end_line": 26034,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_storage_check_disk",
-      "line": 26147,
-      "end_line": 26147,
+      "line": 26149,
+      "end_line": 26149,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "storage_check",
-      "line": 26214,
-      "end_line": 26214,
+      "line": 26216,
+      "end_line": 26216,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "interrupt_all",
-      "line": 26512,
-      "end_line": 26512,
+      "line": 26514,
+      "end_line": 26514,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "resume_frozen",
-      "line": 26756,
-      "end_line": 26756,
+      "line": 26758,
+      "end_line": 26758,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "resume_frozen",
-      "line": 26867,
-      "end_line": 26867,
+      "line": 26869,
+      "end_line": 26869,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "deliver_org_inbox",
-      "line": 26929,
-      "end_line": 26929,
+      "line": 26931,
+      "end_line": 26931,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "deliver_org_inbox",
-      "line": 26969,
-      "end_line": 26969,
+      "line": 26971,
+      "end_line": 26971,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "interorg_send",
-      "line": 26999,
-      "end_line": 26999,
+      "line": 27001,
+      "end_line": 27001,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_invariant_sweep_org",
-      "line": 27403,
-      "end_line": 27403,
+      "line": 27405,
+      "end_line": 27405,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_invariant_sweep_org",
-      "line": 27500,
-      "end_line": 27500,
+      "line": 27502,
+      "end_line": 27502,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_auto_resume_org",
-      "line": 27580,
-      "end_line": 27580,
+      "line": 27587,
+      "end_line": 27587,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_auto_resume_org",
-      "line": 27649,
-      "end_line": 27649,
+      "line": 27656,
+      "end_line": 27656,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_log_escalation_to_org",
-      "line": 28795,
-      "end_line": 28795,
+      "line": 28802,
+      "end_line": 28802,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_note_steer_attempt",
-      "line": 29011,
-      "end_line": 29011,
+      "line": 29018,
+      "end_line": 29018,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_steer_fold_log",
-      "line": 29058,
-      "end_line": 29058,
+      "line": 29065,
+      "end_line": 29065,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "commit_steer._record",
-      "line": 29140,
-      "end_line": 29140,
+      "line": 29147,
+      "end_line": 29147,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "claim_steer",
-      "line": 29414,
-      "end_line": 29414,
+      "line": 29421,
+      "end_line": 29421,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "ack_steer",
-      "line": 29490,
-      "end_line": 29490,
+      "line": 29497,
+      "end_line": 29497,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "scan_steer_records",
-      "line": 29668,
-      "end_line": 29668,
+      "line": 29675,
+      "end_line": 29675,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "scan_steer_records",
-      "line": 29717,
-      "end_line": 29717,
+      "line": 29724,
+      "end_line": 29724,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_steer_late_sweep",
-      "line": 30069,
-      "end_line": 30069,
+      "line": 30076,
+      "end_line": 30076,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "start_cred_watcher.run",
-      "line": 30150,
-      "end_line": 30150,
+      "line": 30157,
+      "end_line": 30157,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_wd_pause",
-      "line": 30999,
-      "end_line": 30999,
+      "line": 31006,
+      "end_line": 31006,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_wd_fire",
-      "line": 31038,
-      "end_line": 31038,
+      "line": 31045,
+      "end_line": 31045,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_wd_alert",
-      "line": 31178,
-      "end_line": 31178,
+      "line": 31185,
+      "end_line": 31185,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_wd_cmd_submit.done",
-      "line": 31398,
-      "end_line": 31398,
+      "line": 31405,
+      "end_line": 31405,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_wd_tick",
-      "line": 31481,
-      "end_line": 31481,
+      "line": 31488,
+      "end_line": 31488,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_wd_ensure_stream",
-      "line": 31549,
-      "end_line": 31549,
+      "line": 31556,
+      "end_line": 31556,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "_wd_stream_stats",
-      "line": 31606,
-      "end_line": 31606,
+      "line": 31613,
+      "end_line": 31613,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "sweep_extern_handles",
-      "line": 31665,
-      "end_line": 31665,
+      "line": 31672,
+      "end_line": 31672,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "reconcile",
-      "line": 32163,
-      "end_line": 32163,
+      "line": 32170,
+      "end_line": 32170,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "reconcile",
-      "line": 32443,
-      "end_line": 32443,
+      "line": 32451,
+      "end_line": 32451,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "reconcile",
-      "line": 32570,
-      "end_line": 32570,
+      "line": 32578,
+      "end_line": 32578,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
       "symbol": "reconcile",
-      "line": 32648,
-      "end_line": 32648,
+      "line": 32656,
+      "end_line": 32656,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {

@@ -9701,7 +9701,11 @@ def _fold_back_undelivered(slug: str, nid: str,
                     m["redelivered"] = int(m.get("redelivered") or 0) + 1
                 nots = [p for b in fold for p in b.get("notices") or []]
                 if mails:
-                    org.d.setdefault("mail", {}).setdefault(nid, [])[0:0] = mails
+                    # M0a — MOVEMENT, not arrival. `reinsert_mail` preserves
+                    # each row's existing receive ordinal and allocates none;
+                    # this prepend is exactly why array position was never the
+                    # receive order in the first place.
+                    org.reinsert_mail(nid, mails)
                 if nots:
                     org.d.setdefault("notices", {}).setdefault(nid, [])[0:0] = nots
             store.save_org(org)
@@ -12160,10 +12164,9 @@ def _working_checkup_reserve(slug: str, nid: str, now: float) -> str | None:
                 "status after 20 minutes without an agent wake"),
         }
         entry["ev"] = events.encode_row_ev(ev, entry)
-        box = org.d.setdefault("mail", {})
-        box.setdefault(nid, []).append(cast(MailEntry, dict(entry)))
-        log = org.d.setdefault("mail_log", {}).setdefault(nid, [])
-        log.append(cast(MailEntry, dict(entry)))
+        # M0a — ONE DEPOSIT DOOR (ledger.Org.deposit_mail): pending copy,
+        # archive copy and the receive ordinal, in one place.
+        org.deposit_mail(nid, cast("dict[str, Any]", dict(entry)))
 
         store.save_org(org)
         return mid
@@ -12280,10 +12283,9 @@ def _idle_docket_reminder_reserve(
                 "without a wake"),
         }
         entry["ev"] = events.encode_row_ev(ev, entry)
-        box = org.d.setdefault("mail", {})
-        box.setdefault(nid, []).append(cast(MailEntry, dict(entry)))
-        log = org.d.setdefault("mail_log", {}).setdefault(nid, [])
-        log.append(cast(MailEntry, dict(entry)))
+        # M0a — ONE DEPOSIT DOOR (ledger.Org.deposit_mail): pending copy,
+        # archive copy and the receive ordinal, in one place.
+        org.deposit_mail(nid, cast("dict[str, Any]", dict(entry)))
 
         store.save_org(org)
         return mid, items
@@ -27502,9 +27504,14 @@ def _invariant_sweep_org(slug: str) -> None:
                 live_sup = (sup and sup in o2.nodes
                             and o2.nodes[sup]["state"] == "live")
                 if live_sup:
-                    o2.d.setdefault("mail", {}).setdefault(sup, []).append({
+                    # M0a — ONE DEPOSIT DOOR. `archive=False`: this producer
+                    # deliberately keeps no `mail_log` copy, and stating the
+                    # exception as a parameter here keeps it visible at the
+                    # call site instead of hiding it in a second raw append.
+                    o2.deposit_mail(sup, {
                         "id": uuid_hex8(), "from": SYSTEM, "kind": "notice",
-                        "at": now_iso(), "body": "(orgtree) " + body})
+                        "at": now_iso(), "body": "(orgtree) " + body},
+                        archive=False)
                 else:
                     o2.to_user_inbox({
                         "id": uuid_hex8(), "from": SYSTEM, "kind": "notice",
@@ -32360,7 +32367,8 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
             mails = [m for b in batches for m in b.get("mail") or []]
             nots = [p for b in batches for p in b.get("notices") or []]
             if mails:
-                org.d.setdefault("mail", {}).setdefault(dnid, [])[0:0] = mails
+                # M0a — MOVEMENT, not arrival; see the turn-end fold-back.
+                org.reinsert_mail(dnid, mails)
             if nots:
                 org.d.setdefault("notices", {}).setdefault(dnid, [])[0:0] = nots
             # audit D3: a batch whose steer attempt was UNKNOWN when the
