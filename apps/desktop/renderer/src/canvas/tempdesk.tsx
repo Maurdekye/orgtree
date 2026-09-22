@@ -63,6 +63,7 @@ export function TempDeskModal({ node, close, desk }: TempDeskProps) {
   // user on `document.body` would leave the next keystroke going nowhere.
   useEffect(() => {
     opener.current = doc.activeElement
+    const mountedPanel = panel.current
     panel.current?.focus?.()
     const trapTab = (event: KeyboardEvent) => {
       const root = panel.current
@@ -96,7 +97,13 @@ export function TempDeskModal({ node, close, desk }: TempDeskProps) {
     return () => {
       doc.removeEventListener('keydown', trapTab)
       const back = opener.current
-      if (back instanceof HTMLElement && back.isConnected) back.focus()
+      const active = doc.activeElement
+      const focusLeft = active && active !== doc.body && !mountedPanel?.contains(active)
+      // Adopted Desk elements can retain another window's constructor realm.
+      // Match the available focus operation, and preserve any action that
+      // deliberately moved focus elsewhere before dismissing this modal.
+      if (!focusLeft && back?.isConnected && back !== doc.body
+        && 'focus' in back && typeof back.focus === 'function') back.focus()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
