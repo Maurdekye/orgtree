@@ -1,5 +1,5 @@
 import type { ModalDimensions, WindowRestore } from './windowlayout'
-import { captureWindow, closeSavedWindow, popupFeatures, restoredWindows, useRestoreWindows, windowLayoutKey } from './windowlayout'
+import { captureWindow, closeSavedWindow, popupFeatures, restoredWindows, savedWindows, useRestoreWindows, windowLayoutKey } from './windowlayout'
 import { openLightboxIfEligibleImage } from './canvas/lightbox'
 import { copyCodeFromEvent } from './canvas/shared'
 import { ObjectMenuBoundary } from './canvas/contextmenu'
@@ -86,6 +86,14 @@ export function useOrgTransition(slug: string | null, commit: (slug: string | nu
  *  existing window with the same name, and two surfaces must never collide onto
  *  one window. */
 let popoutSeq = 0
+
+/** What a failed pop-out tells the user. See `recover` in MovableSurface.
+ *  ⚠ "WILL NOT", NOT "WAS ERASED": `closeSavedWindow` keeps the row's rect and
+ *  only marks it closed, so the coordinates still exist — what the user loses
+ *  is that nothing uses them any more (`popupFeatures` ignores a closed row
+ *  unless restoring, and startup restores only open rows). */
+const STYLING_FAILED = 'Window styling failed. Your surface was returned.'
+const NOT_RESTORED = 'Its window will not reopen automatically, and popping it out again will not use its previous position.'
 
 /** The window controls for a popped-out desk or modal, placed in that surface's
  *  OWN header because the popout window is frameless and has no title bar to
@@ -327,6 +335,44 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
    *  no arguments and therefore cannot be told to borrow by one. */
   const redock = () => returnHome(false)
 
+  /** FAILURE RECOVERY: the pop-out broke, the user did not close it. Four
+   *  routes come here — (1) a later style sync thrown from the MutationObserver,
+   *  (2) the same from the 500 ms CSSOM poll, (3) `restoreWhenStyled` giving up
+   *  on a stylesheet, (4) the `open()` catch: blocked window, a throw while
+   *  adopting the document, or the surface failing to enter it. The two
+   *  DELIBERATE-close routes (the child's `pagehide`, the owner document going
+   *  away) call `redock` directly and are not failures.
+   *
+   *  ⚠ ALL FOUR CLEAR THE SAVED ROW — the ordinary `redock`, NEVER
+   *  `returnHome(true)` — and that is a decision, not an oversight (docket item
+   *  a-failed-pop-out-forgets-the-window-the-user-had). The borrow keeps the
+   *  row open because it is coming straight back AND the borrower holds the
+   *  closure that ends the claim. A failure has neither, so keeping
+   *  `open: true` would leave a row claiming a window that does not exist,
+   *  with nothing to correct it — and the renderer ACTS on that claim live:
+   *   · `useAwaitingRestore` (attention/AttentionView.tsx) keeps a hidden
+   *     panel subtree mounted for it — for the Desk panel a live `DeskSlot`
+   *     competing for the agent the user is looking at;
+   *   · OrgCanvas reads an open `agent-list` row as "the tray is detached" and
+   *     stops closing the docked tray on an outside click or Escape;
+   *   · on the next launch the restore runs again, and a deterministic failure
+   *     (a stylesheet that never loads, pop-ups blocked) would repeat the same
+   *     error at every start instead of once.
+   *  The cost is the one the item names: the row keeps its rect, but
+   *  `popupFeatures` ignores a closed row's rect, so the next pop-out opens in
+   *  a fresh place. Keeping the rect IN USE without claiming the window is
+   *  open would need a new row state in windowlayout.ts, outside this item.
+   *
+   *  So the error says what happened to the arrangement — but only when there
+   *  was one to lose: a first pop-out that fails, or one in a browser with no
+   *  saved layout, changed nothing and must not claim it did. */
+  const recover = (message: string) => {
+    const savedOpen = () => savedWindows().some(r => r.key === layoutKey && r.open)
+    const had = savedOpen()
+    redock()
+    setError(had && !savedOpen() ? `${message} ${NOT_RESTORED}` : message)
+  }
+
   /** Take this surface out of its native window WITHOUT recording it as
    *  closed, and hand back the function that puts it where it was.
    *
@@ -498,14 +544,14 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
       syncStyles()
       const observer = new MutationObserver(() => {
         if (transaction !== epoch.current) return
-        try { syncStyles() } catch { setError('Window styling failed. Your surface was returned.'); redock() }
+        try { syncStyles() } catch { recover(STYLING_FAILED) }   // failure route (1)
       })
       observer.observe(document.head, { childList: true, subtree: true, characterData: true, attributes: true })
       observer.observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'class'] })
       cleanups.current.push(() => observer.disconnect())
       const cssom = window.setInterval(() => {
         if (transaction !== epoch.current) return
-        try { syncStyles() } catch { setError('Window styling failed. Your surface was returned.'); redock() }
+        try { syncStyles() } catch { recover(STYLING_FAILED) }   // failure route (2)
       }, 500)
       cleanups.current.push(() => window.clearInterval(cssom))
       d.body.className = 'popout-document'
@@ -533,11 +579,11 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
       restore(); w.focus()
       pendingRestore.current = restore
       cleanups.current.push(restoreWhenStyled(w, () => epoch.current === transaction && !w!.closed, restore, () => { pendingRestore.current = null },
-        () => { setError('Window styling failed. Your surface was returned.'); redock() }))
+        () => recover(STYLING_FAILED)))   // failure route (3)
     } catch (e) {
-      redock()
+      // failure route (4)
+      recover(e instanceof Error ? e.message : 'Could not open a window. Your surface was returned.')
       try { w?.close() } catch { /* inaccessible */ }
-      setError(e instanceof Error ? e.message : 'Could not open a window. Your surface was returned.')
     }
   }
 

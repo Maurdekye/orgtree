@@ -255,18 +255,23 @@ test('borrowing something that is not detached is a no-op, not an error', () => 
     'and the caller still gets a usable handle rather than having to null-check')
 })
 
-test('the four failure-recovery redock sites are untouched', () => {
+test('the four failure-recovery routes clear the row through the ordinary redock, not the borrow', () => {
   const popout = src('popout.tsx')
-  // Agreed with v3-effort-opus and multi-window-design: recording "Window
-  // styling failed. Your surface was returned." as the user closing the panel
-  // is the same smell, but it is EXISTING behaviour and folding it into the
-  // borrow seam would make it an unreviewed extra. It gets its own item or it
-  // stays as it is.
-  const recoveries = [...popout.matchAll(/Window styling failed\. Your surface was returned\.'\); redock\(\)/g)]
-  assert.ok(recoveries.length >= 3,
-    'the failure-recovery path still calls the ordinary redock, unchanged')
-  assert.doesNotMatch(popout, /Window styling failed[^\n]*returnHome\(true\)/,
-    'and no failure path was quietly converted into a borrow')
+  // This was left out of the borrow seam on purpose and given its own item
+  // (a-failed-pop-out-forgets-the-window-the-user-had). That item DECIDED the
+  // failure routes clear the row — the reasons sit beside `recover` in
+  // popout.tsx — and routed all four through that one helper. Its behaviour,
+  // route by route, is pinned in popoutrecovery.test.tsx; this keeps the
+  // seam-level half: recovery is a dismissal, never a borrow.
+  const routes = [...popout.matchAll(/recover\([^\n]*\)[^\n]*\/\/ failure route \((\d)\)|\/\/ failure route \((\d)\)\r?\n\s*recover\(/g)]
+  assert.deepEqual(routes.map((m) => m[1] ?? m[2]).sort(), ['1', '2', '3', '4'],
+    'each of the four failure routes goes through recover()')
+  assert.match(popout, /const recover = \(message: string\) => \{[\s\S]{0,300}?\bredock\(\)/,
+    'and recover() uses the ordinary redock, which clears the saved row')
+  assert.doesNotMatch(popout, /const recover = \(message: string\) => \{[\s\S]{0,300}?returnHome\(true\)/,
+    'no failure path was quietly converted into a borrow')
+  assert.doesNotMatch(popout, /setError\('Window styling failed/,
+    'no styling failure bypasses recover() with its own inline redock')
 })
 
 test('the layout key is unchanged, so no saved arrangement is orphaned', () => {
