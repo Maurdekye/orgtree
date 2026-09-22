@@ -15,6 +15,7 @@ const controls = {
   'no-suspension': ['window-event-lifecycle.ts', 'record.outbox.suspend()', 'void 0'],
   'forget-cancelled-listener': ['window-event-lifecycle.ts', 'record.outbox.suspend()', 'record.outbox.suspend(); record.outbox.rearm()'],
   'error-finish-is-success': ['window-load-recovery.ts', 'if (committed) recovery.onLoadFinished(currentUrl())', 'recovery.onLoadFinished(currentUrl())'],
+  'ignore-committed-failure': ['window-event-lifecycle.ts', "if (phase === 'idle' || (phase === 'provisional' && record.documentToken !== pendingFrom)) return false", "if (phase !== 'provisional' || record.documentToken !== pendingFrom) return false"],
 }
 if (control && !controls[control]) throw new Error('Unknown reload probe control: ' + control)
 const plugins = !control ? [] : [{ name: 'reload-negative-control', setup(build) {

@@ -130,3 +130,42 @@ test('terminal loss invalidates token and readiness together; stale failure afte
   h.reveal(2)
   assert.deepEqual(h.sent.map(e => e.data), [1, 2])
 })
+
+test('a committed but unfinished response can fail after its new preload token was minted', async () => {
+  const h = fixture()
+  h.invoke('events-listening', 'first-document')
+  h.start(); h.contents.emit('did-navigate')
+  h.record.documentToken = 'incomplete-document'
+  h.reveal(1)
+  h.fail(-354)
+  assert.equal(h.record.documentToken, '')
+  assert.equal(h.recovery.isFailed, true)
+  assert.equal(h.holding.length, 1)
+  assert.deepEqual(h.invoke('take-pending-events', 'incomplete-document'), [])
+  h.invoke('events-listening', 'incomplete-document')
+  assert.equal(h.record.outbox.pending(), 1)
+  await new Promise(r => setImmediate(r))
+  assert.equal(h.timers.length, 1)
+  h.start(); h.contents.emit('did-navigate')
+  h.record.documentToken = 'finished-document'
+  h.invoke('events-listening', 'finished-document')
+  h.contents.emit('did-finish-load')
+  // Check finish itself, before did-stop-loading has a chance to mask it.
+  h.fail(-354)
+  assert.equal(h.record.documentToken, 'finished-document')
+  assert.equal(h.recovery.isFailed, false)
+  assert.equal(h.holding.length, 1)
+  assert.deepEqual(h.sent.map(e => e.data), [1])
+})
+
+test('old-document finish during a provisional successor cannot hide its current failure', () => {
+  const h = fixture()
+  h.start(); h.contents.emit('did-navigate')
+  h.record.documentToken = 'committed-document'
+  h.start() // the committed page is now being replaced
+  h.contents.emit('did-finish-load') // delayed finish of that old page
+  h.reveal(1); h.fail(-102)
+  assert.equal(h.recovery.isFailed, true)
+  assert.equal(h.record.documentToken, '')
+  assert.equal(h.record.outbox.pending(), 1)
+})

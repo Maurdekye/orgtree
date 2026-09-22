@@ -37,8 +37,9 @@ if (!location.search.includes('idle')) window.listen();
 </script></body>`
 
 app.whenReady().then(async () => {
-  let next: 'serve' | 'stall' | 'fail' = 'serve'
+  let next: 'serve' | 'stall' | 'fail' | 'truncate' = 'serve'
   const stalled: http.ServerResponse[] = []
+  let truncated: http.ServerResponse | undefined
   let requests = 0
   const server = http.createServer((req, res) => {
     if (req.url === '/favicon.ico') { res.writeHead(204); res.end(); return }
@@ -47,6 +48,14 @@ app.whenReady().then(async () => {
     const mode = next; next = 'serve'
     if (mode === 'stall') { stalled.push(res); return }
     if (mode === 'fail') { req.socket.destroy(); return }
+    if (mode === 'truncate') {
+      // Commit a real app-path response and run its preload, but never deliver
+      // the application script. The test closes it only after observing commit.
+      res.writeHead(200, { 'content-type': 'text/html', 'content-length': '100000', 'cache-control': 'no-store' })
+      res.write('<!doctype html><body><div id="root">Loading...</div>' + ' '.repeat(4096))
+      truncated = res
+      return
+    }
     res.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store' }); res.end(document)
   })
   await new Promise<void>(r => server.listen(0, '127.0.0.1', r))
@@ -202,6 +211,26 @@ app.whenReady().then(async () => {
     assert.equal((await seen()).doc, recovered.doc)
     assert.equal(holdingPages, pageCount); assert.equal(recovery.isFailed, false)
     passed.push('injected late same-URL terminal failure leaves recovered document and delivery intact')
+
+    const beforeTruncation = { commits, token: record.documentToken }
+    next = 'truncate'; wc.reload()
+    await until(() => commits > beforeTruncation.commits && !!record.documentToken
+      && record.documentToken !== beforeTruncation.token, 'truncated response commits and mints token')
+    assert.equal(await js('document.querySelector("#root")?.textContent'), 'Loading...')
+    assert.equal(await js('typeof window.received'), 'undefined', 'application listener never mounted')
+    reveal(9)
+    assert.equal(record.outbox.pending(), 1)
+    truncated!.destroy()
+    await until(() => recovery.isFailed && !!timer && wc.getURL().startsWith('data:'), 'committed truncation holding page and retry')
+    assert.ok((trace as { event: string; code?: number }[]).some(e => e.event === 'failure' && e.code === -354),
+      'real Content-Length truncation produced ERR_CONTENT_LENGTH_MISMATCH')
+    assert.equal(record.documentToken, '')
+    assert.equal(record.outbox.pending(), 1)
+    const retryTruncation = timer!; timer = undefined; retryTruncation()
+    await ready(); await expectEvents([9])
+    assert.equal(wc.getURL(), origin + '/o/studio')
+    assert.equal(recovery.isFailed, false)
+    passed.push('committed response truncation before App mount recovers and delivers the retained reveal')
     fs.writeFileSync(path.join(root, 'result.json'), JSON.stringify({ ok: true, passed, trace }, null, 2))
   } catch (error) {
     fs.writeFileSync(path.join(root, 'result.json'), JSON.stringify({ ok: false, error: String((error as Error).stack), passed, trace }, null, 2))
