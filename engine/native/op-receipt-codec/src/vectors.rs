@@ -7,8 +7,10 @@
 use crate::admission::{self, AdmitCall};
 use crate::canonical::{canonical_with, py_float_repr, py_json_float};
 use crate::eviction::plan_append_with;
+use crate::eviction::AppendPlan;
 use crate::fingerprint::fingerprint_with;
 use crate::key::{parse_key_with, DECIMAL_ZEROS, PY_SPACE};
+use crate::pyint::PyInt;
 use crate::sha256::{hex, sha256_with};
 use crate::{PyOutcome, Rules};
 use orgtree_backend_codec::json::{self, JsonErrorKind, Limits, Object, Profile, Value};
@@ -82,6 +84,24 @@ fn int(v: Option<&Value>) -> Option<i64> {
     match v {
         Some(Value::Number(n)) => n.to_i64(),
         _ => None,
+    }
+}
+
+/// An exact expected integer: a JSON integer, or a decimal string for one
+/// longer than the 4300 digits a JSON integer may have.
+fn big(v: Option<&Value>) -> Option<PyInt> {
+    match v {
+        Some(Value::Number(n)) if n.is_integer_lexeme() => PyInt::parse_decimal(n.lexeme()),
+        Some(Value::String(s)) => PyInt::parse_decimal(s),
+        _ => None,
+    }
+}
+
+fn opt_big_eq(want: Option<&Value>, got: Option<&PyInt>) -> bool {
+    match (want, got) {
+        (None | Some(Value::Null), None) => true,
+        (Some(w), Some(g)) => big(Some(w)).as_ref() == Some(g),
+        _ => false,
     }
 }
 
@@ -171,14 +191,14 @@ fn check_key(row: &Object, rules: &Rules) -> Result<(), String> {
     }
 }
 
-fn check_py_int(row: &Object, _: &Rules) -> Result<(), String> {
+fn check_py_int(row: &Object, rules: &Rules) -> Result<(), String> {
     let doc = match text(row, "json") {
         Some(j) => format!(r#"{{"op_receipts_meta":{{"from_ms":{j}}}}}"#),
         None => r#"{"op_receipts_meta":{}}"#.to_owned(),
     };
     let doc = parse_object(&doc)?;
-    outcome(row, &admission::watermark(&doc), |w, g| {
-        int(Some(w)) == Some(*g)
+    outcome(row, &admission::watermark_with(&doc, rules), |w, g| {
+        big(Some(w)).as_ref() == Some(g)
     })
 }
 
@@ -260,19 +280,15 @@ fn check_fingerprint(row: &Object, rules: &Rules) -> Result<(), String> {
     let Some(args) = parse_args(row, true)? else {
         return Ok(());
     };
-    let generation = int(field(row, "generation")).ok_or("no generation")?;
+    let generation = big(field(row, "generation")).ok_or("no generation")?;
     let got = fingerprint_with(
         text(row, "tool").ok_or("no tool")?,
         text(row, "node").ok_or("no node")?,
-        generation,
+        &generation,
         &args,
         rules,
     );
-    outcome(
-        row,
-        &PyOutcome::Value(got),
-        |w, g| matches!(w, Value::String(s) if s == g),
-    )
+    outcome(row, &got, |w, g| matches!(w, Value::String(s) if s == g))
 }
 
 fn check_find(row: &Object, rules: &Rules) -> Result<(), String> {
@@ -308,7 +324,7 @@ fn check_find(row: &Object, rules: &Rules) -> Result<(), String> {
     })
 }
 
-fn check_meta(row: &Object, _: &Rules) -> Result<(), String> {
+fn check_meta(row: &Object, rules: &Rules) -> Result<(), String> {
     let doc = match text(row, "meta_json") {
         Some(m) => format!(r#"{{"slug":"oracle","op_receipts_meta":{m}}}"#),
         None => r#"{"slug":"oracle"}"#.to_owned(),
@@ -322,12 +338,12 @@ fn check_meta(row: &Object, _: &Rules) -> Result<(), String> {
         .ok_or("no watermark")?;
     outcome(
         want_ahead,
-        &admission::schema_ahead(&doc),
+        &admission::schema_ahead_with(&doc, rules),
         |w, g| matches!(w, Value::Bool(b) if b == g),
     )
     .map_err(|e| format!("schema_ahead {e}"))?;
-    outcome(want_wm, &admission::watermark(&doc), |w, g| {
-        int(Some(w)) == Some(*g)
+    outcome(want_wm, &admission::watermark_with(&doc, rules), |w, g| {
+        big(Some(w)).as_ref() == Some(g)
     })
     .map_err(|e| format!("watermark {e}"))
 }
@@ -339,11 +355,11 @@ fn check_admission(row: &Object, rules: &Rules) -> Result<(), String> {
     };
     let call = AdmitCall {
         node: text(row, "node").ok_or("no node")?,
-        generation: int(field(row, "generation")).ok_or("no generation")?,
+        generation: big(field(row, "generation")).ok_or("no generation")?,
         key: text(row, "key").ok_or("no key")?,
         tool: text(row, "tool").ok_or("no tool")?,
         args: &args,
-        now_ms: int(field(row, "now_ms")).ok_or("no now_ms")?,
+        now_ms: big(field(row, "now_ms")).ok_or("no now_ms")?,
         epoch_ok: boolean(row, "epoch_ok").ok_or("no epoch_ok")?,
     };
     let got = admission::admit_with(&doc, &call, rules);
@@ -393,14 +409,14 @@ fn append_doc(row: &Object) -> Result<Object, String> {
 
 fn check_append(row: &Object, rules: &Rules) -> Result<(), String> {
     let doc = append_doc(row)?;
-    outcome(row, &plan_append_with(&doc, rules), |w, p| {
+    outcome(row, &plan_append_with(&doc, rules), |w, p: &AppendPlan| {
         as_obj(w).is_some_and(|w| {
             matches!(field(w, "created_meta"), Some(Value::Bool(b)) if *b == p.created_meta)
-                && int(field(w, "seq")) == Some(p.seq)
+                && big(field(w, "seq")).as_ref() == Some(&p.seq)
                 && int(field(w, "len")) == Some(p.len_after as i64)
                 && int(field(w, "cut")) == Some(p.cut as i64)
-                && int(field(w, "watermark")) == Some(p.watermark_after)
-                && opt_int_eq(field(w, "evicted"), p.evicted_total)
+                && big(field(w, "watermark")).as_ref() == Some(&p.watermark_after)
+                && opt_big_eq(field(w, "evicted"), p.evicted_total.as_ref())
         })
     })
 }

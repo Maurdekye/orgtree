@@ -13,18 +13,27 @@
 //! crate's domain: the JSON reader refuses such input before it gets here.
 
 use crate::canonical::{py_json_string, write_value};
+use crate::pyint::PyInt;
 use crate::sha256::{hex, sha256_with};
-use crate::Rules;
+use crate::{PyException, PyOutcome, Rules};
 use orgtree_backend_codec::json::Value;
 
 /// The exact text that is hashed.
+///
+/// The generation is an exact integer of any width. `json.dumps` renders it
+/// with `int.__repr__`, which raises `ValueError` beyond Python's 4300-digit
+/// string-conversion limit. The arguments cannot hit that limit: the JSON
+/// reader refuses such an integer before it gets here, as `json.loads` does.
 pub fn canonical_call(
     tool: &str,
     node: &str,
-    generation: i64,
+    generation: &PyInt,
     args: &Value,
     rules: &Rules,
-) -> String {
+) -> PyOutcome<String> {
+    if generation.digit_count() > rules.int_str_max_digits {
+        return PyOutcome::Raises(PyException::ValueError);
+    }
     let mut out = String::from("{\"args\":");
     write_value(args, rules, &mut out);
     out.push_str(",\"generation\":");
@@ -34,24 +43,28 @@ pub fn canonical_call(
     out.push_str(",\"tool\":");
     out.push_str(&py_json_string(tool, rules));
     out.push('}');
-    out
+    PyOutcome::Value(out)
 }
 
 /// `opreceipts.fingerprint(tool, node, generation, args)`: 64 lowercase hex
-/// characters.
-pub fn fingerprint(tool: &str, node: &str, generation: i64, args: &Value) -> String {
+/// characters, or the `ValueError` Python raises for a generation too long
+/// to render.
+pub fn fingerprint(tool: &str, node: &str, generation: &PyInt, args: &Value) -> PyOutcome<String> {
     fingerprint_with(tool, node, generation, args, &Rules::LEGACY)
 }
 
 pub fn fingerprint_with(
     tool: &str,
     node: &str,
-    generation: i64,
+    generation: &PyInt,
     args: &Value,
     rules: &Rules,
-) -> String {
-    let text = canonical_call(tool, node, generation, args, rules);
+) -> PyOutcome<String> {
+    if rules.i64_ints && generation.to_i64().is_none() {
+        return PyOutcome::OutsideParityDomain("integer beyond i64");
+    }
+    let text = tri!(canonical_call(tool, node, generation, args, rules));
     let mut h = hex(&sha256_with(text.as_bytes(), rules.sha256_k));
     h.truncate(rules.fingerprint_hex_len);
-    h
+    PyOutcome::Value(h)
 }

@@ -255,6 +255,52 @@ fn c21_corrupted_sha256_round_constant() {
     );
 }
 
+/// The defect this crate had before it carried exact integers: values
+/// beyond `i64` were reported as outside the parity domain.
+#[test]
+fn c22_integers_narrowed_to_i64() {
+    detected_only_in(
+        Rules {
+            i64_ints: true,
+            ..L
+        },
+        &["py_int", "fingerprint", "meta", "admission", "append"],
+    );
+}
+
+#[test]
+fn c23_int_str_limit_one_too_high() {
+    detected_only_in(
+        Rules {
+            int_str_max_digits: 4301,
+            ..L
+        },
+        &["fingerprint", "admission"],
+    );
+}
+
+#[test]
+fn c24_int_str_limit_one_too_low() {
+    detected_only_in(
+        Rules {
+            int_str_max_digits: 4299,
+            ..L
+        },
+        &["fingerprint", "admission"],
+    );
+}
+
+#[test]
+fn c25_refusal_detail_exceptions_dropped() {
+    detected_only_in(
+        Rules {
+            detail_raises: false,
+            ..L
+        },
+        &["admission"],
+    );
+}
+
 #[test]
 fn legacy_rules_pass() {
     let report = run(COMMITTED, &L);

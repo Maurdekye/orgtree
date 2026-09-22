@@ -10,8 +10,9 @@
 //! and has no default, as in Python.
 
 use crate::fingerprint::fingerprint_with;
-use crate::key::{parse_key_with, py_int_or_zero, py_str_or, py_truthy};
-use crate::{PyOutcome, Rules, COVERAGE, META, SCHEMA, SECTION};
+use crate::key::{parse_key_with, py_int_or_zero_with, py_str_or, py_truthy};
+use crate::pyint::PyInt;
+use crate::{PyException, PyOutcome, Rules, COVERAGE, META, SCHEMA, SECTION};
 use orgtree_backend_codec::json::{Object, Value};
 use orgtree_backend_codec::presence::Presence;
 
@@ -125,26 +126,35 @@ fn is_str(p: Presence<&Value>, s: &str) -> bool {
     matches!(p, Presence::Present(Value::String(v)) if v == s)
 }
 
-/// `watermark(d)`: `int(meta.get("from_ms") or 0)`.
-pub fn watermark(doc: &Object) -> PyOutcome<i64> {
+/// `watermark(d)`: `int(meta.get("from_ms") or 0)`, exact at any width.
+pub fn watermark(doc: &Object) -> PyOutcome<PyInt> {
+    watermark_with(doc, &Rules::LEGACY)
+}
+
+pub fn watermark_with(doc: &Object, rules: &Rules) -> PyOutcome<PyInt> {
     let meta = tri!(receipt_meta(doc));
-    py_int_or_zero(member(meta, "from_ms"))
+    py_int_or_zero_with(member(meta, "from_ms"), rules)
 }
 
 /// `schema_ahead(d) != ""`: rows written by a newer receipts build.
 pub fn schema_ahead(doc: &Object) -> PyOutcome<bool> {
+    schema_ahead_with(doc, &Rules::LEGACY)
+}
+
+pub fn schema_ahead_with(doc: &Object, rules: &Rules) -> PyOutcome<bool> {
     let meta = tri!(receipt_meta(doc));
-    if tri!(py_int_or_zero(member(meta, "schema"))) > SCHEMA {
+    if tri!(py_int_or_zero_with(member(meta, "schema"), rules)) > PyInt::from(SCHEMA) {
         return PyOutcome::Value(true);
     }
-    PyOutcome::Value(tri!(py_int_or_zero(member(meta, "coverage"))) > COVERAGE)
+    let coverage = tri!(py_int_or_zero_with(member(meta, "coverage"), rules));
+    PyOutcome::Value(coverage > PyInt::from(COVERAGE))
 }
 
 fn find_in(
     rows: &[&Object],
     node: &str,
     key: &str,
-    generation: Option<i64>,
+    generation: Option<&PyInt>,
     rules: &Rules,
 ) -> PyOutcome<Option<usize>> {
     let order: Box<dyn Iterator<Item = usize>> = if rules.find_newest_first {
@@ -158,7 +168,7 @@ fn find_in(
             continue;
         }
         if let Some(g) = generation {
-            if tri!(py_int_or_zero(row.get("gen"))) != g {
+            if &tri!(py_int_or_zero_with(row.get("gen"), rules)) != g {
                 continue;
             }
         }
@@ -191,8 +201,8 @@ fn matches_in(
     } else {
         caller_node.to_owned()
     };
-    let generation = tri!(py_int_or_zero(row.get("gen")));
-    let fp = fingerprint_with(tool, &subject, generation, args, rules);
+    let generation = tri!(py_int_or_zero_with(row.get("gen"), rules));
+    let fp = tri!(fingerprint_with(tool, &subject, &generation, args, rules));
     PyOutcome::Value(is_str(row.get("tool"), tool) && is_str(row.get("fp"), &fp))
 }
 
@@ -227,16 +237,31 @@ pub fn classify(row: Option<&Object>, tool: &str, args: &Value) -> PyOutcome<Row
     classify_in(row, tool, args, "", &Rules::LEGACY)
 }
 
+/// Whether Python's `a / 1000` overflows a float for an `int` `a >= 0`.
+///
+/// `admit` formats a refused key's age as `f"{(mint - ms) / 1000:.0f}"`.
+/// Integer true division is correctly rounded and raises `OverflowError`
+/// when the rounded quotient would exceed the largest float, that is when
+/// `a >= 1000 * (f64::MAX + 2^970)` (half an ulp above `f64::MAX`; the tie
+/// rounds away because `f64::MAX` has an odd significand).
+fn age_text_overflows(a: &PyInt) -> bool {
+    let max = PyInt::from_f64_trunc(f64::MAX).unwrap_or_default();
+    let half_ulp = PyInt::from_f64_trunc(2f64.powi(970)).unwrap_or_default();
+    *a >= max.add(&half_ulp).mul_u32(1000)
+}
+
 /// The inputs of one `admit` call. `now_ms` and `epoch_ok` are the caller's
-/// clock reading and custody proof; this crate has neither.
-#[derive(Clone, Copy, Debug)]
+/// clock reading and custody proof; this crate has neither. `generation` and
+/// `now_ms` are Python `int`s, exact at any width, as `admit`'s
+/// `int(generation)` and `int(now_ms)` are.
+#[derive(Clone, Debug)]
 pub struct AdmitCall<'a> {
     pub node: &'a str,
-    pub generation: i64,
+    pub generation: PyInt,
     pub key: &'a str,
     pub tool: &'a str,
     pub args: &'a Value,
-    pub now_ms: i64,
+    pub now_ms: PyInt,
     pub epoch_ok: bool,
 }
 
@@ -250,12 +275,13 @@ pub fn admit(doc: &Object, call: &AdmitCall<'_>) -> PyOutcome<Admission> {
 /// (conflict, fenced, foreign generation, replay), newer schema, evicted
 /// horizon, admit.
 pub fn admit_with(doc: &Object, call: &AdmitCall<'_>, rules: &Rules) -> PyOutcome<Admission> {
-    let ms = i128::from(call.now_ms);
+    let ms = tri!(crate::key::narrow(call.now_ms.clone(), rules));
     let Some(mint) = parse_key_with(call.key, rules) else {
         return PyOutcome::Value(Admission::refuse("malformed_key"));
     };
+    let generation = tri!(crate::key::narrow(call.generation.clone(), rules));
     let row_filter = if rules.generation_matches_in_find {
-        Some(call.generation)
+        Some(&generation)
     } else {
         None
     };
@@ -270,24 +296,33 @@ pub fn admit_with(doc: &Object, call: &AdmitCall<'_>, rules: &Rules) -> PyOutcom
             ..Admission::refuse("stale_epoch")
         });
     }
-    let m = i128::from(mint);
+    let m = PyInt::from(mint);
+    let ahead = ms.add(&PyInt::from(rules.skew_ms));
     let future = if rules.future_inclusive {
-        m >= ms + i128::from(rules.skew_ms)
+        m >= ahead
     } else {
-        m > ms + i128::from(rules.skew_ms)
+        m > ahead
     };
     if future {
+        if rules.detail_raises && age_text_overflows(&m.sub(&ms)) {
+            return PyOutcome::Raises(PyException::OverflowError);
+        }
         return PyOutcome::Value(Admission::refuse("key_from_the_future"));
     }
+    let age = ms.sub(&m);
+    let horizon = PyInt::from(rules.horizon_ms);
     let stale = if rules.stale_inclusive {
-        ms - m >= i128::from(rules.horizon_ms)
+        age >= horizon
     } else {
-        ms - m > i128::from(rules.horizon_ms)
+        age > horizon
     };
     if stale {
+        if rules.detail_raises && age_text_overflows(&age) {
+            return PyOutcome::Raises(PyException::OverflowError);
+        }
         return PyOutcome::Value(Admission::refuse("key_stale"));
     }
-    if rules.schema_before_row && tri!(schema_ahead(doc)) {
+    if rules.schema_before_row && tri!(schema_ahead_with(doc, rules)) {
         return PyOutcome::Value(Admission::refuse("schema_ahead"));
     }
     let rows = tri!(receipt_rows(doc));
@@ -307,7 +342,7 @@ pub fn admit_with(doc: &Object, call: &AdmitCall<'_>, rules: &Rules) -> PyOutcom
                 ..found(Decision::Conflict, Some("key_reused"))
             });
         }
-        let foreign = tri!(py_int_or_zero(row.get("gen"))) != call.generation;
+        let foreign = tri!(py_int_or_zero_with(row.get("gen"), rules)) != generation;
         if rules.foreign_before_fenced && foreign {
             return PyOutcome::Value(found(Decision::Refuse, Some("foreign_generation")));
         }
@@ -315,6 +350,11 @@ pub fn admit_with(doc: &Object, call: &AdmitCall<'_>, rules: &Rules) -> PyOutcom
             return PyOutcome::Value(found(Decision::Refuse, Some("fenced")));
         }
         if foreign {
+            // The detail text formats the caller's `generation` with
+            // `str()`, which raises past Python's digit limit.
+            if rules.detail_raises && generation.digit_count() > rules.int_str_max_digits {
+                return PyOutcome::Raises(PyException::ValueError);
+            }
             return PyOutcome::Value(found(Decision::Refuse, Some("foreign_generation")));
         }
         return PyOutcome::Value(Admission {
@@ -322,10 +362,10 @@ pub fn admit_with(doc: &Object, call: &AdmitCall<'_>, rules: &Rules) -> PyOutcom
             ..found(Decision::Replay, None)
         });
     }
-    if !rules.schema_before_row && tri!(schema_ahead(doc)) {
+    if !rules.schema_before_row && tri!(schema_ahead_with(doc, rules)) {
         return PyOutcome::Value(Admission::refuse("schema_ahead"));
     }
-    let wm = i128::from(tri!(watermark(doc)));
+    let wm = tri!(watermark_with(doc, rules));
     let evicted = if rules.watermark_inclusive {
         m <= wm
     } else {

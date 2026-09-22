@@ -50,6 +50,12 @@ REQUIRED_SOURCE = {
 }
 NOW = 1_758_000_000_000
 I64_MAX = 2**63 - 1
+# Python's default `str(int)` limit. Integers are exact at any width; a vector
+# integer longer than this is written as a decimal string (see `encode_ints`).
+INT_DIGITS = 4300
+BIG = 10**INT_DIGITS - 1  # the widest int `str()` still renders
+# `(ms - mint) / 1000` overflows a float from exactly this age on.
+AGE_OVERFLOW = 1000 * (int(sys.float_info.max) + 2**970)
 
 
 def exc_name(e: BaseException) -> str:
@@ -86,10 +92,6 @@ def outcome(fn):
         return {"outside": True}
     except (ValueError, TypeError, OverflowError, UnicodeEncodeError) as e:
         return {"raises": exc_name(e)}
-
-
-def in_i64(v) -> bool:
-    return not isinstance(v, int) or isinstance(v, bool) or -I64_MAX - 1 <= v <= I64_MAX
 
 
 def key(mint, h=0xABC) -> str:
@@ -133,6 +135,9 @@ INT_CASES = [
     "NaN", "Infinity", "-Infinity", "[]", "[1]", "{}", '{"a": 1}', "9223372036854775807",
     "-9223372036854775808", "9223372036854775808", '"9223372036854775808"',
     '"' + "1" * 4300 + '"', '"' + "1" * 4301 + '"', '"' + "0" * 4301 + '"', "1e18", "9.3e18",
+    "18446744073709551616", "-18446744073709551617", "9" * 4300, "-" + "9" * 4300, '"' + "9" * 4300 + '"',
+    '"-' + "9" * 30 + '"', '" 1_000_000_000_000_000_000_000 "', "1e19", "-1.7976931348623157e308",
+    "1.2345678901234567e29", "5e-324", "-9223372036854775809", '"' + chr(0xFF11) + "0" * 25 + '"',
 ]
 
 
@@ -143,8 +148,6 @@ def section_py_int(op):
     for text in INT_CASES:
         meta = {} if text is None else {"from_ms": json.loads(text)}
         res = outcome(lambda: op.watermark({op.META: meta}))
-        if "value" in res and not in_i64(res["value"]):
-            res = {"outside": True}
         rows.append({"json": text, **res})
     return rows
 
@@ -237,10 +240,17 @@ def section_fingerprint(op):
         tool, node, gen = calls[i % len(calls)]
         args = json.loads(text)
         res = outcome(lambda: op.fingerprint(tool, node, gen, args))
-        if "raises" in res:
+        if res.get("raises") == "UnicodeEncodeError":
             res = {"outside": True}
         rows.append({"tool": tool, "node": node, "generation": gen, "args_json": text, **res})
+    for gen in BIG_GENERATIONS:
+        res = outcome(lambda: op.fingerprint(TOOL, "alpha", gen, dict(ARGS)))
+        rows.append({"tool": TOOL, "node": "alpha", "generation": gen, "args_json": json.dumps(ARGS), **res})
     return rows
+
+
+# Generations beyond i64, up to and past the widest `str()` renders.
+BIG_GENERATIONS = [2**63, -(2**63) - 1, 2**64, 10**40, -(10**40), BIG, -BIG, BIG + 1, -(BIG + 1)]
 
 
 TOOL = "orgtree_message"
@@ -350,6 +360,32 @@ def admission_cases(op):
     add(doc(op, [mkrow(op, 43, args={"n": 1.0})]), args={"n": 1})
     add(doc(op, [mkrow(op, 44, args={"b": 1, "a": 2})]), args={"a": 2, "b": 1})
     add(doc(op, [mkrow(op, 45)]), node="alpha", generation=1, now_ms=NOW + 900_000)
+    # Integers beyond i64 are exact: generations, clocks and metadata.
+    g64 = 2**64
+    add(doc(op, [mkrow(op, 46, gen=g64)]), generation=g64)
+    add(doc(op, [mkrow(op, 47, gen=g64)]), generation=g64 + 1)
+    add(doc(op, [mkrow(op, 48, gen=g64, edit={"gen": str(g64)})]), generation=g64)
+    add(doc(op, [mkrow(op, 49, gen=10**20, edit={"gen": 1e20})]), generation=10**20)
+    add(doc(op, [mkrow(op, 50, gen=-(2**70))]), generation=-(2**70))
+    add(doc(op, [mkrow(op, 51, gen=BIG)]), generation=BIG)
+    add(doc(op, [mkrow(op, 52, gen=BIG)]), generation=BIG - 1)
+    add(doc(op, [mkrow(op, 53)]), generation=BIG)
+    add(doc(op, [mkrow(op, 54)]), generation=BIG + 1)
+    add(doc(op, [mkrow(op, 55, result="fenced")]), generation=BIG + 1)
+    add(doc(op), generation=BIG + 1)
+    add(doc(op, [mkrow(op, 56, edit={"gen": "1" * 4301})]))
+    add(doc(op, [mkrow(op, 57, gen=int("9" * 4300), edit={"gen": "9" * 4300})]), generation=int("9" * 4300))
+    add(doc(op), now_ms=10**20)
+    add(doc(op), now_ms=-(10**20))
+    add(doc(op), now_ms=10**400, epoch_ok=False)
+    add(doc(op), now_ms=NOW + AGE_OVERFLOW - 1)
+    add(doc(op), now_ms=NOW + AGE_OVERFLOW)
+    add(doc(op), now_ms=NOW - AGE_OVERFLOW + 1)
+    add(doc(op), now_ms=NOW - AGE_OVERFLOW)
+    add(doc(op), now_ms=-BIG)
+    for meta in ({"from_ms": 10**30}, {"from_ms": "-" + "9" * 40}, {"schema": 10**30}, {"schema": -(10**30)},
+                 {"coverage": "9" * 50}, {"from_ms": 1e300}, {"from_ms": BIG}, {"schema": -BIG, "from_ms": -BIG}):
+        add(doc(op, meta=meta))
     return c
 
 
@@ -431,6 +467,15 @@ def section_append(op):
         ({"n": 3, "base": NOW, "step": 1}, "null", "{}"),
         ({"n": 3, "base": NOW, "step": 1}, None, "[]"),
         ({"n": 500, "base": NOW, "step": 1}, None, '{"from_ms": NaN}'),
+        ({"n": 3, "base": NOW, "step": 1}, None, '{"seq": ' + "9" * 4300 + "}"),
+        ({"n": 3, "base": NOW, "step": 1}, None, '{"seq": -' + "9" * 30 + ', "from_ms": -' + "9" * 30 + "}"),
+        ({"n": 500, "base": NOW, "step": 1}, None, '{"from_ms": ' + str(10**30) + ', "evicted": ' + "9" * 4300 + "}"),
+        ({"n": 500, "base": NOW, "step": 10, "overrides": [{"i": 3, "json": "1e30"}]}, None, "{}"),
+        ({"n": 500, "base": NOW, "step": 10, "overrides": [{"i": 7, "json": '"' + "9" * 40 + '"'}]}, None, "{}"),
+        ({"n": 500, "base": NOW, "step": 10, "overrides": [{"i": 9, "json": "9" * 4300}]}, None, "{}"),
+        ({"n": 500, "base": NOW, "step": 10, "overrides": [{"i": 0, "json": "-" + "9" * 40}]},
+         None, '{"from_ms": -' + "9" * 50 + "}"),
+        ({"n": 500, "base": NOW, "step": 1}, None, '{"evicted": "-' + "9" * 40 + '"}'),
     ]
     out = []
     for spec, section, meta_text in cases:
@@ -460,7 +505,10 @@ def section_meta(op):
     for text in (None, "null", "{}", "[]", '"x"', "0", '{"schema": 1}', '{"schema": 2}', '{"schema": "2"}',
                  '{"schema": 1.9}', '{"schema": 2.0}', '{"coverage": 2}', '{"coverage": "x"}',
                  '{"schema": 2, "coverage": "x"}', '{"schema": true}', '{"schema": [2]}',
-                 '{"from_ms": 5, "schema": 0}', '{"schema": "\\u0662"}'):
+                 '{"from_ms": 5, "schema": 0}', '{"schema": 100000000000000000000}',
+                 '{"coverage": "99999999999999999999"}', '{"schema": -100000000000000000000, "coverage": 1}',
+                 '{"from_ms": -1e300}', '{"from_ms": ' + "9" * 4300 + "}", '{"from_ms": "-' + "9" * 4300 + '"}',
+                 '{"schema": "\\u0662"}'):
         d = {"slug": "oracle"} if text is None else {"slug": "oracle", op.META: json.loads(text)}
         rows.append({"meta_json": text,
                      "schema_ahead": outcome(lambda: op.schema_ahead(d) != ""),
@@ -519,8 +567,26 @@ def sections(op, rng, repo: Path) -> dict:
     }
 
 
+def encode_ints(v):
+    """Integers are exact at any width. One longer than Python's default
+    `str()` limit cannot be a JSON number that `json.loads` (or the Rust
+    reader) accepts, so it is written as its decimal string."""
+    if isinstance(v, dict):
+        return {k: encode_ints(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [encode_ints(x) for x in v]
+    if isinstance(v, int) and not isinstance(v, bool) and abs(v) > BIG:
+        old = sys.get_int_max_str_digits()
+        sys.set_int_max_str_digits(0)
+        try:
+            return str(v)
+        finally:
+            sys.set_int_max_str_digits(old)
+    return v
+
+
 def render(doc: dict) -> str:
-    return json.dumps(doc, ensure_ascii=True, indent=1) + "\n"
+    return json.dumps(encode_ints(doc), ensure_ascii=True, indent=1) + "\n"
 
 
 def main() -> int:

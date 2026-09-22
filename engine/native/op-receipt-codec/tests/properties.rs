@@ -8,7 +8,7 @@ use orgtree_op_receipt_codec::eviction::plan_append;
 use orgtree_op_receipt_codec::fingerprint::fingerprint;
 use orgtree_op_receipt_codec::key::{parse_key, py_decimal_value};
 use orgtree_op_receipt_codec::sha256::{hex, sha256};
-use orgtree_op_receipt_codec::{PyOutcome, CEILING, TRIM_TO};
+use orgtree_op_receipt_codec::{PyInt, PyOutcome, CEILING, TRIM_TO};
 
 /// A small deterministic generator; the tests read no clock or entropy.
 struct Rng(u64);
@@ -63,17 +63,26 @@ fn canonical_text_ignores_member_order() {
 #[test]
 fn fingerprint_is_full_lowercase_hex_and_covers_every_identity_field() {
     let args = value(r#"{"to": "beta"}"#);
-    let base = fingerprint("orgtree_message", "alpha", 1, &args);
+    let fp = |tool: &str, node: &str, generation: i64, args: &Value| match fingerprint(
+        tool,
+        node,
+        &PyInt::from(generation),
+        args,
+    ) {
+        PyOutcome::Value(h) => h,
+        other => panic!("{other:?}"),
+    };
+    let base = fp("orgtree_message", "alpha", 1, &args);
     assert_eq!(base.len(), 64);
     assert!(base
         .bytes()
         .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));
-    assert_ne!(base, fingerprint("orgtree_message", "alpha", 2, &args));
-    assert_ne!(base, fingerprint("orgtree_message", "alphb", 1, &args));
-    assert_ne!(base, fingerprint("orgtree_messagf", "alpha", 1, &args));
+    assert_ne!(base, fp("orgtree_message", "alpha", 2, &args));
+    assert_ne!(base, fp("orgtree_message", "alphb", 1, &args));
+    assert_ne!(base, fp("orgtree_messagf", "alpha", 1, &args));
     assert_ne!(
         base,
-        fingerprint("orgtree_message", "alpha", 1, &value(r#"{"to": "betb"}"#))
+        fp("orgtree_message", "alpha", 1, &value(r#"{"to": "betb"}"#))
     );
 }
 
@@ -130,11 +139,11 @@ fn rows_of_other_nodes_do_not_change_admission() {
     let key = "1758000000000-000000000000000000000abc";
     let call = AdmitCall {
         node: "alpha",
-        generation: 1,
+        generation: PyInt::from(1i64),
         key,
         tool: "orgtree_message",
         args: &args,
-        now_ms: 1_758_000_000_000,
+        now_ms: PyInt::from(1_758_000_000_000i64),
         epoch_ok: true,
     };
     let plain = admit(&obj(r#"{}"#), &call);
@@ -169,14 +178,95 @@ fn eviction_watermark_never_decreases_and_passes_every_evicted_mint() {
             panic!("plan failed")
         };
         assert!(plan.len_after <= CEILING);
-        assert!(plan.watermark_after >= old);
+        assert!(plan.watermark_after >= PyInt::from(old));
         if plan.cut > 0 {
             assert_eq!(plan.len_after, TRIM_TO);
-            assert!(mints[..plan.cut].iter().all(|m| *m < plan.watermark_after));
+            assert!(mints[..plan.cut]
+                .iter()
+                .all(|m| PyInt::from(*m) < plan.watermark_after));
         } else {
-            assert_eq!(plan.watermark_after, old);
+            assert_eq!(plan.watermark_after, PyInt::from(old));
         }
     }
+}
+
+/// A random value around the `i64` edge, scaled by up to 2^60 either way.
+fn edge_i128(rng: &mut Rng) -> i128 {
+    let v = i128::from(rng.next() as i64);
+    match rng.next() % 4 {
+        0 => v,
+        1 => v << (rng.next() % 60),
+        2 => v >> (rng.next() % 60),
+        _ => i128::from(i64::MAX) + i128::from((rng.next() % 5) as i64) - 2,
+    }
+}
+
+fn big(v: i128) -> PyInt {
+    PyInt::parse_decimal(&v.to_string()).expect("decimal")
+}
+
+#[test]
+fn exact_integers_agree_with_i128_arithmetic() {
+    let mut rng = Rng(7);
+    for _ in 0..20_000 {
+        let (a, b) = (edge_i128(&mut rng), edge_i128(&mut rng));
+        let (x, y) = (big(a), big(b));
+        assert_eq!(x.to_string(), a.to_string());
+        assert_eq!(x.cmp(&y), a.cmp(&b), "{a} vs {b}");
+        assert_eq!(x.add(&y).to_string(), (a + b).to_string());
+        assert_eq!(x.sub(&y).to_string(), (a - b).to_string());
+        assert_eq!(x.to_i64(), i64::try_from(a).ok());
+        assert_eq!(x.digit_count(), a.unsigned_abs().to_string().len());
+    }
+    assert_eq!(PyInt::parse_decimal("-0"), Some(PyInt::zero()));
+    assert_eq!(
+        PyInt::parse_decimal("000123").map(|v| v.to_string()),
+        Some("123".to_owned())
+    );
+    for bad in ["", "-", "+1", "1_0", " 1", "1.0"] {
+        assert_eq!(PyInt::parse_decimal(bad), None, "{bad:?}");
+    }
+}
+
+#[test]
+fn float_to_int_truncates_exactly() {
+    let mut rng = Rng(11);
+    for _ in 0..20_000 {
+        let x = f64::from_bits(rng.next());
+        if !x.is_finite() || x.abs() >= 2f64.powi(126) {
+            continue;
+        }
+        // `as i128` truncates toward zero and is exact below 2^127.
+        assert_eq!(PyInt::from_f64_trunc(x), Some(big(x as i128)), "{x:e}");
+    }
+    let max = PyInt::from_f64_trunc(f64::MAX).expect("finite");
+    assert_eq!(max.digit_count(), 309);
+    assert_eq!(
+        max.to_string(),
+        "179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368"
+    );
+    assert_eq!(PyInt::from_f64_trunc(-0.9), Some(PyInt::zero()));
+    assert_eq!(PyInt::from_f64_trunc(f64::NAN), None);
+    assert_eq!(PyInt::from_f64_trunc(f64::NEG_INFINITY), None);
+}
+
+#[test]
+fn wide_watermarks_stay_exact_and_monotonic() {
+    let wide = "123456789012345678901234567890";
+    let rows: Vec<String> = (0..501).map(|i| format!(r#"{{"mint_ms": {i}}}"#)).collect();
+    let doc = obj(&format!(
+        r#"{{"op_receipts": [{}], "op_receipts_meta": {{"from_ms": {wide}, "seq": {wide}, "evicted": -{wide}}}}}"#,
+        rows.join(",")
+    ));
+    let PyOutcome::Value(plan) = plan_append(&doc) else {
+        panic!("plan failed")
+    };
+    assert_eq!(plan.watermark_after.to_string(), wide);
+    assert_eq!(plan.seq.to_string(), "123456789012345678901234567891");
+    assert_eq!(
+        plan.evicted_total.map(|v| v.to_string()),
+        Some("-123456789012345678901234567788".to_owned())
+    );
 }
 
 /// The library holds no listener, storage, SQL, clock, entropy, process or
@@ -186,6 +276,7 @@ fn library_source_has_no_authority() {
     let sources = [
         include_str!("../src/lib.rs"),
         include_str!("../src/key.rs"),
+        include_str!("../src/pyint.rs"),
         include_str!("../src/canonical.rs"),
         include_str!("../src/sha256.rs"),
         include_str!("../src/fingerprint.rs"),

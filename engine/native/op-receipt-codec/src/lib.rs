@@ -43,10 +43,12 @@ pub mod canonical;
 pub mod eviction;
 pub mod fingerprint;
 pub mod key;
+pub mod pyint;
 pub mod sha256;
 pub mod vectors;
 
 pub use orgtree_backend_codec::{PyException, PyOutcome};
+pub use pyint::PyInt;
 
 /// `opreceipts.SCHEMA`: the receipt row shape this build understands.
 pub const SCHEMA: i64 = 1;
@@ -118,6 +120,16 @@ pub struct Rules {
     pub monotonic_watermark: bool,
     /// SHA-256 round constants.
     pub sha256_k: &'static [u32; 64],
+    /// Narrow stored integers to `i64` and report wider ones as outside the
+    /// parity domain (Python integers have no width).
+    pub i64_ints: bool,
+    /// Python's `str(int)` digit limit (`sys.get_int_max_str_digits()`, 4300
+    /// by default), which `json.dumps` hits when it renders the generation.
+    pub int_str_max_digits: usize,
+    /// Reproduce the exceptions `admit` raises while formatting its refusal
+    /// detail (`OverflowError` for a key age too large for a float,
+    /// `ValueError` for a generation too long to print).
+    pub detail_raises: bool,
 }
 
 impl Rules {
@@ -144,6 +156,9 @@ impl Rules {
         watermark_from_last_evicted: false,
         monotonic_watermark: true,
         sha256_k: &sha256::K,
+        i64_ints: false,
+        int_str_max_digits: orgtree_backend_codec::json::PYTHON_INT_MAX_STR_DIGITS,
+        detail_raises: true,
     };
 }
 
@@ -178,6 +193,6 @@ pub const UNRESOLVED: &[Unresolved] = &[
     },
     Unresolved {
         id: "U-RCPT-6",
-        summary: "the human-readable refusal detail text is not reproduced; decisions, reasons and row identity are",
+        summary: "the human-readable refusal detail text is not reproduced; decisions, reasons, row identity and the exceptions its formatting raises are",
     },
 ];

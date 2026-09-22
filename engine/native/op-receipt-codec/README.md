@@ -39,9 +39,20 @@ Details that are easy to get wrong, and are pinned by the vectors:
   `from_ms = max(old, largest evicted mint + 1)`.
 - Stored values keep Python coercions: `int(x or 0)` (with Unicode digits,
   whitespace and underscores), truthiness and `str(x or y or "")`.
+- Integers are exact at any width, as Python's are (`src/pyint.rs`). A
+  generation, clock reading, watermark, sequence counter, eviction count or
+  mint time beyond `i64` is compared, added and fingerprinted exactly, and
+  `int(float)` keeps every digit of the float's value.
+- Python's exceptions on huge integers are reproduced: `ValueError` when
+  `json.dumps` or the `foreign_generation` detail text must print an
+  integer longer than 4300 digits, and `OverflowError` when the refusal
+  detail divides a key age too large for a float (`age / 1000`). An integer
+  argument longer than 4300 digits cannot occur: `json.loads` and the JSON
+  reader both refuse it.
 
 The results are the decision, reason, row index, row state and mint time. The
-human-readable `detail` text is not reproduced.
+human-readable `detail` text is not reproduced, but the exceptions raised
+while formatting it are.
 
 ## Inputs and parity domain
 
@@ -55,7 +66,6 @@ taken **after** the API's own normalization. Raw request normalization
 (`ValueError`, `TypeError`, `OverflowError`). `PyOutcome::OutsideParityDomain`
 means Python has an answer this crate does not reproduce:
 
-- integers beyond `i64`;
 - `str()` of a list or dict;
 - a receipt section that is not a list, or rows or meta that are not objects;
 - lone surrogates. Python cannot UTF-8 encode them, and the JSON reader refuses them first.
@@ -69,7 +79,7 @@ means Python has an answer this crate does not reproduce:
 - **U-RCPT-3:** the input domain is normalized arguments.
 - **U-RCPT-4:** lone surrogates and non-JSON values are outside the parity domain.
 - **U-RCPT-5:** malformed legacy documents are outside the parity domain.
-- **U-RCPT-6:** the detail text is not reproduced.
+- **U-RCPT-6:** the detail text is not reproduced; the exceptions its formatting raises are.
 
 ## Explicitly excluded
 
@@ -104,5 +114,5 @@ engine/runtime/python.exe tools/run-python-verification.py --repo-root . --pytho
 ```
 
 - **Oracle:** `oracle/generate_vectors.py` runs only on the engine CPython 3.13. It calls the real `opreceipts` functions and anchors the module's sha256 plus the exact rule text.
-- **Rust controls:** `tests/controls.rs` changes one rule at a time (21 controls) and requires the vectors to fail only in the sections that exercise it.
+- **Rust controls:** `tests/controls.rs` changes one rule at a time (25 controls) and requires the vectors to fail only in the sections that exercise it.
 - **Python drift test:** `tests/test_op_receipt_codec_vectors.py` patches horizon, skew, separators, ceiling and the key parser, and requires the regenerated vectors to change.

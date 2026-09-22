@@ -20,7 +20,8 @@
 //! duplicate.
 
 use crate::admission::{member, receipt_rows};
-use crate::key::py_int_or_zero;
+use crate::key::{narrow, py_int_or_zero_with};
+use crate::pyint::PyInt;
 use crate::{PyOutcome, Rules, META};
 use orgtree_backend_codec::json::{Object, Value};
 use orgtree_backend_codec::presence::Presence;
@@ -31,15 +32,15 @@ pub struct AppendPlan {
     /// `append` creates the meta because `d.get(META)` was `None`.
     pub created_meta: bool,
     /// The new `meta["seq"]`.
-    pub seq: i64,
+    pub seq: PyInt,
     /// Rows in the log after the append and any trim.
     pub len_after: usize,
     /// Oldest rows removed by the trim (0 when none).
     pub cut: usize,
     /// `watermark(d)` after the append.
-    pub watermark_after: i64,
+    pub watermark_after: PyInt,
     /// The new `meta["evicted"]`, set only when a trim ran.
-    pub evicted_total: Option<i64>,
+    pub evicted_total: Option<PyInt>,
 }
 
 /// Plan `append(d, row)` for the org document `doc`. The appended row's
@@ -56,10 +57,9 @@ pub fn plan_append_with(doc: &Object, rules: &Rules) -> PyOutcome<AppendPlan> {
             return PyOutcome::OutsideParityDomain("receipt meta is not a dict")
         }
     };
-    let old_seq = tri!(py_int_or_zero(member(meta, "seq")));
-    let Some(seq) = old_seq.checked_add(1) else {
-        return PyOutcome::OutsideParityDomain("integer beyond i64");
-    };
+    let one = PyInt::from(1i64);
+    let old_seq = tri!(py_int_or_zero_with(member(meta, "seq"), rules));
+    let seq = tri!(narrow(old_seq.add(&one), rules));
     let rows = tri!(receipt_rows(doc));
     let len = rows.len() + 1;
     let over = if rules.ceiling_inclusive {
@@ -68,7 +68,7 @@ pub fn plan_append_with(doc: &Object, rules: &Rules) -> PyOutcome<AppendPlan> {
         len > rules.ceiling
     };
     if !over {
-        let watermark_after = tri!(py_int_or_zero(member(meta, "from_ms")));
+        let watermark_after = tri!(py_int_or_zero_with(member(meta, "from_ms"), rules));
         return PyOutcome::Value(AppendPlan {
             created_meta,
             seq,
@@ -81,27 +81,23 @@ pub fn plan_append_with(doc: &Object, rules: &Rules) -> PyOutcome<AppendPlan> {
     let cut = len - rules.trim_to;
     let mut mints = Vec::with_capacity(cut);
     for row in &rows[..cut] {
-        mints.push(tri!(py_int_or_zero(row.get("mint_ms"))));
+        mints.push(tri!(py_int_or_zero_with(row.get("mint_ms"), rules)));
     }
     let hi = if rules.watermark_from_last_evicted {
-        mints.last().copied()
+        mints.pop()
     } else {
-        mints.iter().copied().max()
+        mints.into_iter().max()
     }
-    .unwrap_or(0);
-    let old_from = tri!(py_int_or_zero(member(meta, "from_ms")));
-    let Some(next) = hi.checked_add(1) else {
-        return PyOutcome::OutsideParityDomain("integer beyond i64");
-    };
+    .unwrap_or_default();
+    let old_from = tri!(py_int_or_zero_with(member(meta, "from_ms"), rules));
+    let next = tri!(narrow(hi.add(&one), rules));
     let from_ms = if rules.monotonic_watermark {
         old_from.max(next)
     } else {
         next
     };
-    let old_evicted = tri!(py_int_or_zero(member(meta, "evicted")));
-    let Some(evicted_total) = old_evicted.checked_add(cut as i64) else {
-        return PyOutcome::OutsideParityDomain("integer beyond i64");
-    };
+    let old_evicted = tri!(py_int_or_zero_with(member(meta, "evicted"), rules));
+    let evicted_total = tri!(narrow(old_evicted.add(&PyInt::from(cut)), rules));
     PyOutcome::Value(AppendPlan {
         created_meta,
         seq,

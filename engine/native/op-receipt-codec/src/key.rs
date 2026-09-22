@@ -13,6 +13,7 @@
 //! over values decoded from the org document by `json.loads`.
 
 use crate::canonical::{py_float_repr, py_int_lexeme};
+use crate::pyint::PyInt;
 use crate::{PyException, PyOutcome, Rules};
 use orgtree_backend_codec::json::{Number, Value, PYTHON_INT_MAX_STR_DIGITS};
 use orgtree_backend_codec::presence::Presence;
@@ -98,9 +99,9 @@ pub fn parse_key_with(key: &str, rules: &Rules) -> Option<i64> {
 /// CPython first maps every Unicode decimal digit to its ASCII digit and
 /// every `str.isspace()` character to a space, then parses: optional
 /// surrounding spaces, an optional sign, and ASCII digits with single
-/// underscores allowed only between digits. Values beyond `i64` are outside
-/// this crate's parity domain; more than 4300 digits raise `ValueError`.
-pub fn py_int_from_str(s: &str) -> PyOutcome<i64> {
+/// underscores allowed only between digits. The value is exact at any
+/// width; more than 4300 digits raise `ValueError`.
+pub fn py_int_from_str(s: &str) -> PyOutcome<PyInt> {
     let mut t = String::with_capacity(s.len());
     for c in s.chars() {
         if is_py_space(c) {
@@ -126,30 +127,23 @@ pub fn py_int_from_str(s: &str) -> PyOutcome<i64> {
         return PyOutcome::Raises(PyException::ValueError);
     }
     let mut prev_underscore = false;
-    let mut count = 0usize;
-    let mut value: i128 = 0;
-    let mut too_wide = false;
+    let mut plain = Vec::with_capacity(digits.len());
     for &c in digits {
         match c {
             b'_' if !prev_underscore => prev_underscore = true,
             b'0'..=b'9' => {
                 prev_underscore = false;
-                count += 1;
-                if !too_wide {
-                    value = value * 10 + i128::from(c - b'0');
-                    too_wide = value > i128::from(i64::MAX) + 1;
-                }
+                plain.push(c);
             }
             _ => return PyOutcome::Raises(PyException::ValueError),
         }
     }
-    if count > PYTHON_INT_MAX_STR_DIGITS {
+    if plain.len() > PYTHON_INT_MAX_STR_DIGITS {
         return PyOutcome::Raises(PyException::ValueError);
     }
-    let v = if neg { -value } else { value };
-    match i64::try_from(v) {
-        Ok(v) if !too_wide => PyOutcome::Value(v),
-        _ => PyOutcome::OutsideParityDomain("integer beyond i64"),
+    match PyInt::from_ascii_digits(neg, &plain) {
+        Some(v) => PyOutcome::Value(v),
+        None => PyOutcome::Raises(PyException::ValueError),
     }
 }
 
@@ -175,32 +169,53 @@ fn truthy_member(p: Presence<&Value>) -> Option<&Value> {
     }
 }
 
-/// Python `int(x or 0)` where `x` is a member that may be absent.
-pub fn py_int_or_zero(p: Presence<&Value>) -> PyOutcome<i64> {
+/// Python `int(x or 0)` where `x` is a member that may be absent. The value
+/// is exact at any width.
+pub fn py_int_or_zero(p: Presence<&Value>) -> PyOutcome<PyInt> {
+    py_int_or_zero_with(p, &Rules::LEGACY)
+}
+
+/// `int(x or 0)` under the given rules. Only the negative control that
+/// narrows integers to `i64` changes the answer.
+pub fn py_int_or_zero_with(p: Presence<&Value>, rules: &Rules) -> PyOutcome<PyInt> {
     let Some(v) = truthy_member(p) else {
-        return PyOutcome::Value(0);
+        return PyOutcome::Value(PyInt::zero());
     };
-    match v {
-        Value::Bool(_) => PyOutcome::Value(1),
-        Value::Number(n) if n.is_integer_lexeme() => match n.to_i64() {
+    let out = match v {
+        Value::Bool(_) => PyOutcome::Value(PyInt::from(1i64)),
+        Value::Number(n) if n.is_integer_lexeme() => match PyInt::parse_decimal(n.lexeme()) {
             Some(i) => PyOutcome::Value(i),
-            None => PyOutcome::OutsideParityDomain("integer beyond i64"),
+            None => PyOutcome::Raises(PyException::ValueError),
         },
         Value::Number(n) => {
             let f = n.to_f64();
             if f.is_nan() {
                 PyOutcome::Raises(PyException::ValueError)
-            } else if f.is_infinite() {
-                PyOutcome::Raises(PyException::OverflowError)
-            } else if f.trunc().abs() >= (i64::MIN as f64).abs() {
-                PyOutcome::OutsideParityDomain("integer beyond i64")
             } else {
-                PyOutcome::Value(f.trunc() as i64)
+                match PyInt::from_f64_trunc(f) {
+                    Some(i) => PyOutcome::Value(i),
+                    None => PyOutcome::Raises(PyException::OverflowError),
+                }
             }
         }
         Value::String(s) => py_int_from_str(s),
         Value::Array(_) | Value::Object(_) => PyOutcome::Raises(PyException::TypeError),
-        Value::Null => PyOutcome::Value(0),
+        Value::Null => PyOutcome::Value(PyInt::zero()),
+    };
+    match out {
+        PyOutcome::Value(i) => narrow(i, rules),
+        other => other,
+    }
+}
+
+/// The identity under [`Rules::LEGACY`]. The `i64_ints` negative control
+/// reports a value beyond `i64` as outside the parity domain instead, which
+/// is what this crate did before it carried exact integers.
+pub fn narrow(v: PyInt, rules: &Rules) -> PyOutcome<PyInt> {
+    if rules.i64_ints && v.to_i64().is_none() {
+        PyOutcome::OutsideParityDomain("integer beyond i64")
+    } else {
+        PyOutcome::Value(v)
     }
 }
 
