@@ -69,10 +69,8 @@ export function windowOutbox<E extends { type: string }>(options: OutboxOptions)
      *  navigation gap, and the events would be lost exactly as they were
      *  before any of this existed.
      *
-     *  The sharpest case is not a user pressing refresh: it is a Homepage
-     *  window binding an organization, which navigates precisely because an
-     *  organization was just opened - which is when a targeted reveal for that
-     *  organization is most likely to be in flight.
+     *  A reload suspends delivery before commit. Commit discards the old
+     *  readiness; cancellation instead resumes that existing listener.
      *
      *  Idempotent, and safe to call on a queue that is already holding. */
     rearm(): void { holding = true },
@@ -100,7 +98,7 @@ export function windowOutbox<E extends { type: string }>(options: OutboxOptions)
       queue = []
       return held
     },
-    /** Still holding? False once anything has drained. */
+    /** Delivery is held until both listener readiness and navigation allow it. */
     holding(): boolean { return holding || navigating },
     pending(): number { return queue.length },
     /** How many were dropped to stay inside the bound. Reported rather than

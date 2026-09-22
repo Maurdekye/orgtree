@@ -33,8 +33,9 @@ import { createRequire } from 'node:module'
 import fs from 'node:fs'
 import path from 'node:path'
 
-const root = path.resolve(process.argv[2] ?? '.probe-composition')
-fs.rmSync(root, { recursive: true, force: true })
+const parent = path.resolve(process.argv[2] ?? '.probe-composition')
+fs.mkdirSync(parent, { recursive: true })
+const root = fs.mkdtempSync(path.join(parent, 'run-'))
 fs.mkdirSync(path.join(root, 'home'), { recursive: true })
 fs.mkdirSync(path.join(root, 'data'), { recursive: true })
 
@@ -64,6 +65,7 @@ fs.writeFileSync(path.join(root, 'probe.html'),
   '<!doctype html><meta charset="utf-8"><title>composition</title>'
   + '<body><div id="root"></div><script src="/probe.js"></script></body>')
 
+console.error('probe output', root)
 const out = path.join(root, 'result.json')
 const exe = createRequire(import.meta.url)('electron')
 const env = {
@@ -84,13 +86,11 @@ if (!fs.existsSync(out)) { console.log('NO RESULT FILE'); process.exitCode = 1 }
 else {
   const result = JSON.parse(fs.readFileSync(out, 'utf8'))
   console.log(JSON.stringify(result, null, 2))
-  // ⚠ RECORDING ROWS ARE NOT ASSERTIONS. F4 carries a measurement of a
-  // known-open defect and stays green either way, so the exit status is
-  // decided by the rows that COULD have failed — and the summary prints both
-  // numbers so "26 passing" is never read as 26 things that could have.
+  // F4 now asserts receipt by the replacement document, rather than merely
+  // recording the old loss. Process failure is also a failing probe.
   const s = result.summary
   const rows = result.checks ?? []
   const failed = rows.filter((c) => !c.ok && !c.recording)
   if (s) console.error(`checks ${s.total} = ${s.assertions} assertions + ${s.recordings} recording; failing ${s.failing}`)
-  process.exitCode = failed.length || !rows.length ? 1 : 0
+  process.exitCode = r.status !== 0 || failed.length || !rows.length ? 1 : 0
 }

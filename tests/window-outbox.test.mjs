@@ -139,16 +139,15 @@ test('NEGATIVE CONTROL (f4): a navigation re-arms, because the listener it prove
   assert.equal(outbox.offer(ev('open-org', 'live-again')), true)
 })
 
-test('f4: the Homepage-bind case, which is the sharp one', () => {
-  // A Homepage window binds an organization and navigates to /o/<slug>. It is
-  // navigating precisely BECAUSE an organization was just opened, which is
-  // when a targeted reveal for that organization is most likely in flight.
+test('a reload suspends delivery before commit and needs a replacement listener afterwards', () => {
   const outbox = make()
-  outbox.drain()                                  // the Homepage document acknowledged, minutes ago
-  outbox.rearm()                                  // binding navigates the window
+  outbox.drain()
+  outbox.suspend()
   assert.equal(outbox.offer(ev('notification-click', 'reveal-for-acme')), false)
-  assert.deepEqual(outbox.drain().map(e => e.data), ['reveal-for-acme'],
-    'the reveal reaches the organization document that was being loaded for it')
+  assert.deepEqual(outbox.drain(), [], 'old listener cannot take during navigation')
+  outbox.rearm()
+  assert.deepEqual(outbox.resume(), [], 'commit does not invent a new listener')
+  assert.deepEqual(outbox.drain().map(e => e.data), ['reveal-for-acme'])
 })
 
 test('f4: re-arming is idempotent and never resurrects what was already handed over', () => {

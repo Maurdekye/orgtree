@@ -129,12 +129,9 @@ else {
      *  preload's synchronous identity call, which happens once per document
      *  load, and replaced when the next one does.
      *
-     *  It exists because "is this window mid-navigation?" was the wrong
-     *  question. A latch on that has to be released by enumerating every way a
-     *  navigation can end, and a navigation that never commits releases
-     *  nothing - which wedged the queue shut for the window's life. A token
-     *  makes a stale message recognisable by WHAT IT IS rather than by WHEN it
-     *  arrives, so no navigation outcome has to be enumerated at all. */
+     *  Stale acknowledgements cannot consume a successor's held events.
+     *  Provisional navigation separately suspends delivery while preserving
+     *  this token and listener readiness for cancellation. */
     documentToken: string
     /** Set while this window is closing its own popouts, so their state
      *  events say the parent took them rather than the user. */

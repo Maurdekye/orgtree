@@ -323,30 +323,10 @@ test('events that cannot be asked for again are held until there is somewhere to
   // navigation destroys the very thing that proved somebody was there — while
   // the outbox lives on the window and outlives every document it shows.
   //
-  // ⚠ COMMIT, NOT NAVIGATION START. `did-navigate` fires when a main-frame
-  // navigation is DONE and never for an in-page one, so it marks the instant
-  // the old document is gone and the new one is showing with no listener yet.
-  // A navigation that FAILS never commits and so never fires it, which is
-  // exactly right: the old document is still there and already acknowledged.
-  // Re-arming at navigation START would hold on a promise the navigation might
-  // not keep, and then need every failure mode enumerated to let go again —
-  // which is how a latch wedges shut for the window's life.
-  assert.match(main, /window\.webContents\.on\('did-navigate', \(\) => \{/)
-  const commit = main.slice(main.indexOf("window.webContents.on('did-navigate'"))
-  assert.match(commit.slice(0, 400), /record\.documentToken = ''/)
-  assert.match(commit.slice(0, 400), /record\.outbox\.rearm\(\)/)
-  // ⚠ HOLDING STARTS AT COMMIT, NOT AT NAVIGATION START - and THAT is the
-  // property, not the absence of a listener. f5 was a latch set at navigation
-  // start that a non-committing navigation never released. A listener that
-  // only SNAPSHOTS cannot do that, so the assertion is about what the listener
-  // touches: no queue state may be changed there. (An earlier version forbade
-  // the string itself, which blocked both the explanation of why a bind needs
-  // none of this and the identity snapshot the failure guard depends on.)
-  const startNav = main.includes("window.webContents.on('did-start-navigation'")
-    ? main.slice(main.indexOf("window.webContents.on('did-start-navigation'"), main.indexOf("window.webContents.on('did-navigate'"))
-    : ''
-  assert.doesNotMatch(startNav, /rearm|drain|offer/,
-    'holding starts at commit, not at navigation start')
+  // The production lifecycle is shared with the real Electron fixture.
+  // Behavioral cancellation and stale-message checks live in window-event-lifecycle.
+  assert.match(main, /const eventLifecycle = attachWindowEventLifecycle\(window\.webContents, record,/)
+  assert.match(main, /event => sendTo\(id, event\)/)
 
   // ⚠ AND A BIND DOES NOT NAVIGATE AT ALL, which is why it needs no held-event
   // handling. Native tells the renderer what the window now is; the renderer
@@ -489,39 +469,9 @@ test('real Electron probe: a renderer cannot see its own window, so native measu
   assert.match(res.stdout, /POPOUT_BOUNDS_PASS/)
 })
 
-test('a failed load discards the document it actually killed, and never a live one', () => {
+test('recovery shares the per-window lifecycle and preserves routed retry targets', () => {
   const main = read('apps/desktop/main/index.ts')
-  const recovery = read('apps/desktop/main/window-load-recovery.ts')
-
-  // ⚠ A TERMINAL LOAD FAILURE NEVER COMMITS. Chromium replaces the document
-  // with an error page and fires did-fail-load, not did-navigate — so the
-  // commit handler does not run, and without this the outbox stayed live and
-  // held events were sent into a page with no preload, no bridge and no
-  // listener. Delivered by our reckoning, received by nobody.
-  assert.match(main, /documentLost: \(\) => \{/)
-  // the token is cleared AND the queue re-armed, together: re-arming alone
-  // leaves the dead document's token valid, so an acknowledgement already in
-  // flight from it could still discharge the queue into the error page
-  const lost = main.slice(main.indexOf('documentLost: () => {'), main.indexOf('setTimer: (fn, ms)'))
-  assert.match(lost, /record\.documentToken = ''/)
-  assert.match(lost, /record\.outbox\.rearm\(\)/)
-
-  // ⚠ GATED ON DOCUMENT IDENTITY, NOT ON THE URL. The recovery retries the
-  // SAME url, so a stale failure and a live one are indistinguishable by URL
-  // at exactly the moment it matters. `pendingFrom` is the token of the
-  // document the navigation was leaving; if the current token has moved on, a
-  // document has since announced itself and this failure is stale. Discarding
-  // a LIVE document's token would re-arm behind a listener that already
-  // registered and never registers again — a hold nothing can release.
-  assert.match(lost, /if \(record\.documentToken !== pendingFrom\) return/)
-  assert.match(main, /pendingFrom = record\.documentToken/)
-  assert.doesNotMatch(recovery, /validatedURL === currentUrl\(\)/,
-    'URL equality is not document identity and must not stand in for it')
-
-  // the snapshot listener holds nothing and releases nothing, so it cannot wedge
-  const snapshot = main.slice(main.indexOf("window.webContents.on('did-start-navigation'"), main.indexOf("window.webContents.on('did-navigate'"))
-  assert.doesNotMatch(snapshot, /rearm|drain|outbox/, 'the snapshot touches no queue state')
-
-  // and the classification is the one the retry already uses
-  assert.match(recovery, /if \(isTerminalLoadFailure\(failure\)\) hooks\.documentLost\?\.\(\)/)
+  assert.match(main, /documentLost: eventLifecycle\.documentLost/)
+  assert.match(main, /target: \(\) => engine\.origin,/)
+  assert.match(main, /route: \(\) => routeFor\(id\)/)
 })
