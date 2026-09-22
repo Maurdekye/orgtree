@@ -217,6 +217,86 @@ class Lifecycle(Base):
         self.send('b', to='worker-two')
         self.assertEqual(self.seqs(self.box('worker-two')), [1, 2])
 
+    # -- the bearer is a DIFFERENT mailbox ------------------------------
+    #
+    # Every lineage split builds its archived predecessor as `dict(n)` under a
+    # new `nid@gen` key. The SEAT survives at `nid` and rightly keeps the
+    # mailbox; the bearer is separately addressable and ordinary mail lands in
+    # it. Owner preflight of b8efd35 reproduced the consequence of cloning the
+    # two authority fields: a message to the successor and a message to the
+    # bearer, two genuinely different messages in two genuinely different
+    # mailboxes, carrying the SAME (mailbox, recv_seq) pair.
+
+    def assertSeparateMailbox(self, successor, bearer):
+        self.assertNotIn('mail_seq', self.org.node(bearer))
+        self.assertNotIn('mailbox_id', self.org.node(bearer))
+        a = self.row(self.send('to the successor', to=successor)['id'],
+                     successor)
+        b = self.row(self.send('to the bearer', to=bearer)['id'], bearer)
+        self.assertNotEqual(a['id'], b['id'])
+        self.assertNotEqual((a['mailbox'], a['recv_seq']),
+                            (b['mailbox'], b['recv_seq']))
+        self.assertEqual(b['recv_seq'], 1)           # its own order, from 1
+        return a, b
+
+    def test_a_cheap_compact_bearer_does_not_inherit_the_mailbox(self):
+        self.send('a')
+        kept = dict(self.org.node('worker'))
+        self.org.cheap_compact(ledger.USER, 'worker')
+        bearer = self.org.node('worker')['predecessor']
+        succ, _ = self.assertSeparateMailbox('worker', bearer)
+        # …and the successor's own identity and counter are untouched
+        self.assertEqual(succ['mailbox'], kept['mailbox_id'])
+        self.assertEqual(succ['recv_seq'], kept['mail_seq'] + 1)
+
+    def test_a_compact_split_bearer_does_not_inherit_the_mailbox(self):
+        self.send('a')
+        bearer = self.org.compact_split('worker', 'fresh-session-id')
+        self.assertSeparateMailbox('worker', bearer)
+
+    def test_a_cli_compaction_bearer_does_not_inherit_the_mailbox(self):
+        self.send('a')
+        bearer = self.org.record_cli_compaction('worker')
+        self.assertSeparateMailbox('worker', bearer)
+
+    def test_a_reseed_bearer_does_not_inherit_the_mailbox(self):
+        self.send('a')
+        self.org.node('worker')['state'] = 'unrecoverable'   # reseed's entry
+        bearer = self.org.reseed(ledger.USER, 'worker',
+                                 'fresh-session-id')['predecessor']
+        self.assertSeparateMailbox('worker', bearer)
+
+    def test_a_bearers_own_mail_stays_its_own_across_a_second_split(self):
+        self.send('a')
+        self.org.cheap_compact(ledger.USER, 'worker')
+        first = self.org.node('worker')['predecessor']
+        self.send('to the first bearer', to=first)
+        held = dict(self.org.node(first))
+        self.org.cheap_compact(ledger.USER, 'worker')
+        second = self.org.node('worker')['predecessor']
+        self.assertNotEqual(first, second)
+        # the older bearer is not disturbed by a later generation splitting
+        self.assertEqual(self.org.node(first)['mailbox_id'], held['mailbox_id'])
+        self.assertEqual(self.org.node(first)['mail_seq'], held['mail_seq'])
+        ids = {self.org.node(x).get('mailbox_id')
+               for x in ('worker', first, second) if self.org.node(x).get('mailbox_id')}
+        self.assertEqual(len(ids), 2)   # second has none until it receives
+
+    def test_every_predecessor_COPY_site_strips_mailbox_authority(self):
+        # a structural guard, not a behavioural one: a fifth lineage split
+        # written later must not reintroduce the clone. It fails the moment a
+        # `dict(n)` predecessor reaches `self.nodes[...]` without the strip.
+        src = Path(ledger.__file__).read_text(encoding='utf-8').splitlines()
+        sites = [i for i, line in enumerate(src)
+                 if 'pred = cast(NodeDoc, dict(n))' in line]
+        self.assertEqual(len(sites), 4, 'lineage split count changed')
+        for i in sites:
+            end = next(j for j in range(i, len(src))
+                       if 'self.nodes[pred_id] = pred' in src[j])
+            self.assertIn('self._strip_mailbox_authority(pred)',
+                          '\n'.join(src[i:end + 1]),
+                          f'unstripped predecessor copy at ledger.py:{i + 1}')
+
     def test_delete_and_rehire_at_the_same_name_FENCES(self):
         # the invariant a stale cursor depends on: a new mailbox at an old
         # name must not look like the old mailbox continuing
@@ -375,6 +455,279 @@ class Migration(Base):
         fresh = self.box()[-1]
         self.assertEqual(fresh['recv_seq'], 3)
         self.assertEqual(fresh['seq_origin'], 'deposit')
+
+
+class PartiallyStampedCopies(Base):
+    """One message, three physical copies, and only one of them numbered.
+
+    That is not a conflict — it is ONE assignment recorded in one place, and a
+    migration that leaves the other two bare hands every later reader a
+    different answer depending on which table it happened to look in. Owner
+    preflight of b8efd35 found exactly that: `preserved=1`, `ambiguous=0`, and
+    an archive copy with no ordinal at all."""
+
+    def mixed(self, mid='same', seq=5, origin='deposit', mailbox='mbox'):
+        self.org.node('worker')['mail_seq'] = seq
+        self.org.node('worker')['mailbox_id'] = mailbox
+        stamped = {'id': mid, 'from': 'x', 'kind': 'message',
+                   'at': '2026-01-01T00:00:00.000Z', 'body': 'b',
+                   'recv_seq': seq, 'mailbox': mailbox}
+        if origin is not None:
+            stamped['seq_origin'] = origin
+        bare = {k: v for k, v in stamped.items()
+                if k not in ('recv_seq', 'seq_origin', 'mailbox')}
+        self.org.d['mail'] = {'worker': [dict(stamped)]}
+        self.org.d['mail_log'] = {'worker': [dict(bare)]}
+        self.org.d['delivering'] = {'worker': [{'tok': 't', 'mail': [dict(bare)]}]}
+
+    def copies(self):
+        return [self.org.d['mail']['worker'][0],
+                self.org.d['mail_log']['worker'][0],
+                self.org.d['delivering']['worker'][0]['mail'][0]]
+
+    def test_the_existing_assignment_is_carried_to_every_copy(self):
+        self.mixed()
+        report = self.org.migrate_mail_receive_order(
+            ['worker'], expect_stored={'worker': 5})
+        self.assertEqual(report['refused'], [])
+        self.assertEqual([c.get('recv_seq') for c in self.copies()], [5, 5, 5])
+        self.assertEqual([c.get('seq_origin') for c in self.copies()],
+                         ['deposit'] * 3)
+        self.assertEqual([c.get('mailbox') for c in self.copies()], ['mbox'] * 3)
+
+    def test_it_reconciles_WITHOUT_allocating_a_second_ordinal(self):
+        self.mixed()
+        report = self.org.migrate_mail_receive_order(
+            ['worker'], expect_stored={'worker': 5})
+        self.assertEqual(report['allocated'], 0)
+        self.assertEqual(report['unproven'], 0)
+        self.assertEqual(report['mailboxes']['worker']['preserved'], 1)
+        self.assertEqual(report['mailboxes']['worker']['reconciled_copies'], 2)
+        self.assertEqual(self.org.node('worker')['mail_seq'], 5)
+
+    def test_it_does_not_invent_an_origin_the_copies_never_stated(self):
+        # an ordinal with no origin anywhere stays an ordinal with no origin.
+        # Labelling it `migration_unproven` would claim the enumeration
+        # produced it; labelling it `deposit` would claim a door did.
+        self.mixed(origin=None)
+        self.org.migrate_mail_receive_order(['worker'],
+                                            expect_stored={'worker': 5})
+        self.assertEqual([c.get('recv_seq') for c in self.copies()], [5, 5, 5])
+        self.assertEqual([c.get('seq_origin') for c in self.copies()],
+                         [None, None, None])
+
+    def test_reconciling_is_idempotent(self):
+        self.mixed()
+        self.org.migrate_mail_receive_order(['worker'],
+                                            expect_stored={'worker': 5})
+        snapshot = [dict(c) for c in self.copies()]
+        again = self.org.migrate_mail_receive_order(['worker'],
+                                                    expect_stored={'worker': 5})
+        self.assertEqual(again['allocated'], 0)
+        self.assertEqual(again['reconciled_copies'], 0)
+        self.assertEqual([dict(c) for c in self.copies()], snapshot)
+
+    def test_a_mixture_of_assigned_and_unassigned_messages_still_works(self):
+        self.mixed()
+        self.legacy('worker', {'id': 'later', 'from': 'x', 'kind': 'message',
+                               'at': '2026-01-02T00:00:00.000Z', 'body': 'l'})
+        report = self.org.migrate_mail_receive_order(
+            ['worker'], expect_stored={'worker': 5})
+        by_id = {r['id']: r for r in self.box()}
+        self.assertEqual(by_id['same']['recv_seq'], 5)
+        self.assertEqual(by_id['later']['recv_seq'], 6)
+        self.assertEqual(by_id['later']['seq_origin'], 'migration_unproven')
+        self.assertEqual(report['mailboxes']['worker']['reconciled_copies'], 2)
+
+
+class UnresolvedStateIsRefused(Base):
+    """A document that already disagrees with itself cannot be given a total
+    order by guessing which half of the disagreement to keep.
+
+    Every case here returned `ambiguous: 0` and a silent success from b8efd35.
+    The rule now is: report the conflict with its evidence, change nothing in
+    that mailbox, and let a human resolve it."""
+
+    def prep(self, stored=None, mailbox=None):
+        n = self.org.node('worker')
+        if stored is not None:
+            n['mail_seq'] = stored
+        if mailbox is not None:
+            n['mailbox_id'] = mailbox
+
+    def put(self, *rows, table='mail'):
+        self.org.d.setdefault(table, {}).setdefault('worker', []).extend(
+            dict({'from': 'x', 'kind': 'message',
+                  'at': '2026-01-01T00:00:00.000Z', 'body': 'b'}, **r)
+            for r in rows)
+
+    def reasons(self, report):
+        out = []
+        for entry in report['refused']:
+            out.append(entry['reason'])
+            out.extend(c['reason'] for c in entry.get('conflicts', []))
+        return out
+
+    def assertRefused(self, report, reason):
+        self.assertIn(reason, self.reasons(report))
+        self.assertEqual(report['allocated'], 0)
+        self.assertEqual(report['mailboxes'], {})
+
+    def test_two_ordinals_for_ONE_message_refuse_the_mailbox(self):
+        self.prep(stored=9, mailbox='mbox')
+        self.put({'id': 'same', 'recv_seq': 5, 'seq_origin': 'deposit',
+                  'mailbox': 'mbox'})
+        self.put({'id': 'same', 'recv_seq': 9, 'seq_origin': 'deposit',
+                  'mailbox': 'mbox'}, table='mail_log')
+        report = self.org.migrate_mail_receive_order(
+            ['worker'], expect_stored={'worker': 9})
+        self.assertRefused(report, 'conflicting_ordinals')
+        self.assertEqual([self.org.d['mail']['worker'][0]['recv_seq'],
+                          self.org.d['mail_log']['worker'][0]['recv_seq']],
+                         [5, 9])          # both values preserved as evidence
+
+    def test_ONE_ordinal_for_two_messages_refuses_the_mailbox(self):
+        self.prep(stored=4, mailbox='mbox')
+        self.put({'id': 'first', 'recv_seq': 4, 'mailbox': 'mbox'},
+                 {'id': 'second', 'recv_seq': 4, 'mailbox': 'mbox'})
+        report = self.org.migrate_mail_receive_order(
+            ['worker'], expect_stored={'worker': 4})
+        self.assertRefused(report, 'duplicate_ordinal')
+        self.assertEqual(self.seqs(self.box()), [4, 4])
+
+    def test_a_stamp_naming_ANOTHER_mailbox_refuses_the_mailbox(self):
+        self.prep(stored=9, mailbox='new-mailbox')
+        self.put({'id': 'stale', 'recv_seq': 9, 'seq_origin': 'deposit',
+                  'mailbox': 'old-mailbox'})
+        report = self.org.migrate_mail_receive_order(
+            ['worker'], expect_stored={'worker': 9})
+        self.assertRefused(report, 'foreign_mailbox')
+        self.assertEqual(self.box()[0]['mailbox'], 'old-mailbox')
+
+    def test_a_foreign_stamped_row_is_not_PRESENTED_as_ordered(self):
+        # the ordinal is real, but it belongs to a different mailbox's order.
+        # It sorts with the unordered tail rather than ahead of this
+        # mailbox's own rows.
+        self.prep(mailbox='new-mailbox')
+        self.put({'id': 'stale', 'recv_seq': 1, 'mailbox': 'old-mailbox'},
+                 {'id': 'mine', 'recv_seq': 2, 'mailbox': 'new-mailbox'})
+        self.assertEqual([r['id'] for r in
+                          self.org.mailbox_in_receive_order('worker')],
+                         ['mine', 'stale'])
+
+    def test_disagreeing_origins_for_one_message_refuse_the_mailbox(self):
+        self.prep(stored=5, mailbox='mbox')
+        self.put({'id': 'same', 'recv_seq': 5, 'seq_origin': 'deposit',
+                  'mailbox': 'mbox'})
+        self.put({'id': 'same', 'recv_seq': 5, 'mailbox': 'mbox',
+                  'seq_origin': 'migration_unproven'}, table='mail_log')
+        report = self.org.migrate_mail_receive_order(
+            ['worker'], expect_stored={'worker': 5})
+        self.assertRefused(report, 'conflicting_origin')
+
+    def test_an_ordinal_outside_the_supported_domain_refuses_the_mailbox(self):
+        self.prep(stored=3, mailbox='mbox')
+        self.put({'id': 'zero', 'recv_seq': 0, 'mailbox': 'mbox'})
+        report = self.org.migrate_mail_receive_order(
+            ['worker'], expect_stored={'worker': 3})
+        self.assertRefused(report, 'unsupported_ordinal')
+        self.assertEqual(self.box()[0]['recv_seq'], 0)
+
+    def test_a_bool_is_not_the_ordinal_one(self):
+        # isinstance(True, int) is True in Python. A row carrying recv_seq
+        # True must never sort as ordinal 1, count towards the assigned
+        # maximum, or pass for an assignment.
+        self.prep(stored=3, mailbox='mbox')
+        self.put({'id': 'boolish', 'recv_seq': True, 'mailbox': 'mbox'})
+        self.assertEqual(self.org.mail_seq_state('worker')['assigned_max'], 0)
+        report = self.org.migrate_mail_receive_order(
+            ['worker'], expect_stored={'worker': 3})
+        self.assertRefused(report, 'unsupported_ordinal')
+        self.assertIs(self.box()[0]['recv_seq'], True)
+
+    def test_one_refused_mailbox_does_not_stop_the_others(self):
+        self.org.hire(ledger.USER, None, 'haiku', 0, 'other')
+        self.prep(stored=4, mailbox='mbox')
+        self.put({'id': 'first', 'recv_seq': 4, 'mailbox': 'mbox'},
+                 {'id': 'second', 'recv_seq': 4, 'mailbox': 'mbox'})
+        self.legacy('other', {'id': 'b', 'from': 'x', 'kind': 'message',
+                              'at': '2026-01-01T00:00:00.000Z', 'body': 'b'})
+        report = self.org.migrate_mail_receive_order(['worker', 'other'])
+        self.assertEqual([e['mailbox'] for e in report['refused']], ['worker'])
+        self.assertEqual(self.box('other')[0]['recv_seq'], 1)
+
+    def test_the_anomaly_read_names_the_conflict_and_writes_nothing(self):
+        self.put({'id': 'first', 'recv_seq': 4}, {'id': 'second', 'recv_seq': 4})
+        found = self.org.mailbox_receive_order_anomalies('worker')
+        self.assertEqual([c['reason'] for c in found['conflicts']],
+                         ['duplicate_ordinal'])
+        self.assertEqual(found['conflicts'][0]['messages'], ['first', 'second'])
+        self.assertNotIn('mailbox_id', self.org.node('worker'))
+        self.assertNotIn('mail_seq', self.org.node('worker'))
+
+    def test_a_self_consistent_mailbox_reports_no_conflicts(self):
+        self.send('a')
+        self.send('b')
+        self.assertEqual(
+            self.org.mailbox_receive_order_anomalies('worker')['conflicts'], [])
+
+
+class AnUnsupportedCounterIsNotAnAbsentOne(Base):
+    """`expect_stored: None` is a claim: "I observed this mailbox to have no
+    counter." Normalising a stored string to None makes that claim compare
+    equal to data the caller never saw, and the CAS then admits a write over
+    it. b8efd35 did exactly that and overwrote the value with 1."""
+
+    def test_an_unsupported_stored_counter_is_refused_not_overwritten(self):
+        self.org.node('worker')['mail_seq'] = 'unsupported-stored-value'
+        self.legacy('worker', {'id': 'a', 'from': 'x', 'kind': 'message',
+                               'at': '2026-01-01T00:00:00.000Z', 'body': 'a'})
+        report = self.org.migrate_mail_receive_order(
+            ['worker'], expect_stored={'worker': None})
+        self.assertEqual([(e['mailbox'], e['reason']) for e in report['refused']],
+                         [('worker', 'unsupported_stored')])
+        self.assertEqual(report['allocated'], 0)
+        self.assertEqual(self.org.node('worker')['mail_seq'],
+                         'unsupported-stored-value')
+        self.assertNotIn('recv_seq', self.box()[0])
+
+    def test_a_float_counter_is_refused_too(self):
+        self.org.node('worker')['mail_seq'] = 2.5
+        report = self.org.migrate_mail_receive_order(['worker'])
+        self.assertEqual([e['reason'] for e in report['refused']],
+                         ['unsupported_stored'])
+        self.assertEqual(self.org.node('worker')['mail_seq'], 2.5)
+
+    def test_an_unsupported_EXPECTATION_is_refused_too(self):
+        self.legacy('worker', {'id': 'a', 'from': 'x', 'kind': 'message',
+                               'at': '2026-01-01T00:00:00.000Z', 'body': 'a'})
+        report = self.org.migrate_mail_receive_order(
+            ['worker'], expect_stored={'worker': 'nonsense'})
+        self.assertEqual([e['reason'] for e in report['refused']],
+                         ['unsupported_expectation'])
+        self.assertNotIn('recv_seq', self.box()[0])
+
+    def test_the_pure_read_says_the_counter_is_unsupported(self):
+        self.org.node('worker')['mail_seq'] = 'unsupported-stored-value'
+        state = self.org.mail_seq_state('worker')
+        self.assertIsNone(state['stored'])
+        self.assertTrue(state['stored_present'])
+        self.assertFalse(state['stored_supported'])
+        self.assertEqual(state['stored_type'], 'str')
+
+    def test_an_ORDINARY_missing_counter_stays_eligible(self):
+        # the legacy case the migration exists for must not be caught by any
+        # of the above: absent is absent, and absent migrates.
+        self.legacy('worker', {'id': 'a', 'from': 'x', 'kind': 'message',
+                               'at': '2026-01-01T00:00:00.000Z', 'body': 'a'})
+        state = self.org.mail_seq_state('worker')
+        self.assertIsNone(state['stored'])
+        self.assertFalse(state['stored_present'])
+        self.assertTrue(state['stored_supported'])
+        report = self.org.migrate_mail_receive_order(
+            ['worker'], expect_stored={'worker': None})
+        self.assertEqual(report['refused'], [])
+        self.assertEqual(self.box()[0]['recv_seq'], 1)
 
 
 class NothingRunsItByAccident(Base):

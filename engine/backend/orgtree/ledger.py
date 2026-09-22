@@ -2272,6 +2272,61 @@ class Org:
             n["mailbox_id"] = mid
         return str(mid)
 
+    #: node fields carrying MAILBOX AUTHORITY — see `_strip_mailbox_authority`
+    MAILBOX_AUTHORITY_FIELDS: Final = ("mailbox_id", "mail_seq")
+
+    @staticmethod
+    def _strip_mailbox_authority(node: Any) -> None:
+        """Remove the mailbox identity and its high-water from a node dict that
+        was COPIED to a NEW, separately addressable id.
+
+        The lineage splits (`_archive_session_in_place`, `_compact_split_apply`,
+        the CLI compaction registration and `reseed`) each build their archived
+        predecessor as `dict(n)` — every field of the live node, under a new
+        `nid@gen` key. The SEAT survives at `nid`, so `nid` rightly keeps the
+        mailbox and the counter. The predecessor is a DIFFERENT mailbox: it has
+        its own key, it can be messaged, and ordinary deposits land in it. If it
+        inherited `mailbox_id` and `mail_seq` it would mint ordinals under the
+        successor's identity from the successor's counter, and two genuinely
+        different messages in two genuinely different mailboxes would carry the
+        same `(mailbox, recv_seq)` — which is precisely the pair everything
+        downstream is meant to be able to treat as unique. Owner preflight of
+        b8efd35 reproduced that with cheap_compact.
+
+        Popped, not zeroed: absent is what a mailbox that has never received
+        anything looks like, and the predecessor has not. Its first deposit
+        mints a fresh identity and starts at 1. Historical rows are NOT touched
+        — they stay in the successor's `mail`/`mail_log` under the successor's
+        key and keep the ids, ordinals and stamps they were given."""
+        for field in Org.MAILBOX_AUTHORITY_FIELDS:
+            node.pop(field, None)
+
+    @staticmethod
+    def _recv_ordinal(value: Any) -> int | None:
+        """The SUPPORTED domain of a `recv_seq`, or None for "not an ordinal".
+
+        None NEVER means "absent" — a caller that must tell an absent field
+        from a present unsupported one checks for the key itself. Two traps
+        this closes, both reproduced in owner preflight: `bool` IS an `int` in
+        Python, so a plain `isinstance(v, int)` reads `recv_seq: True` as
+        ordinal 1 and sorts a row by it; and ordinals are allocated from 1
+        upward, so 0 and negatives are outside the domain rather than early."""
+        if isinstance(value, bool) or not isinstance(value, int):
+            return None
+        return value if value >= 1 else None
+
+    @staticmethod
+    def _stored_high_water(value: Any) -> int | None:
+        """The SUPPORTED domain of a stored `mail_seq`: a non-bool int >= 0.
+
+        Same rule as `_recv_ordinal` and the same warning: None here means
+        "outside the domain", and the caller decides whether that is an absent
+        field (fine, a legacy mailbox) or present unsupported data (not fine —
+        refuse and report it, never normalise it into an absence)."""
+        if isinstance(value, bool) or not isinstance(value, int):
+            return None
+        return value if value >= 0 else None
+
     def _assigned_recv_max(self, to: str) -> int:
         """The largest ordinal ALREADY assigned anywhere this mailbox's rows
         can still be seen: pending box, archive, and the delivery journal.
@@ -2287,30 +2342,45 @@ class Org:
         for rows in (((self.d.get("mail") or {}).get(to) or []),
                      ((self.d.get("mail_log") or {}).get(to) or [])):
             for m in rows:
-                if isinstance(m, dict) and isinstance(m.get("recv_seq"), int):
-                    best = max(best, int(m["recv_seq"]))
+                if isinstance(m, dict):
+                    seq = self._recv_ordinal(m.get("recv_seq"))
+                    best = max(best, seq or 0)
         for b in ((self.d.get("delivering") or {}).get(to) or []):
             if isinstance(b, dict):
                 for m in (b.get("mail") or []):
-                    if isinstance(m, dict) and isinstance(m.get("recv_seq"), int):
-                        best = max(best, int(m["recv_seq"]))
+                    if isinstance(m, dict):
+                        seq = self._recv_ordinal(m.get("recv_seq"))
+                        best = max(best, seq or 0)
         return best
 
     def mail_seq_state(self, to: str) -> dict[str, Any]:
         """PURE READ of one mailbox's ordering state. Mints nothing, allocates
         nothing, writes nothing — `mailbox` is whatever is already stored, or
         None for a mailbox never deposited into. This is the value a caller
-        observes and then hands back as `expect_stored`."""
+        observes and then hands back as `expect_stored`.
+
+        `stored` is the counter when it is in the supported domain. It is None
+        both for a mailbox that has none and for one holding something that is
+        not a counter at all, so `stored_present` and `stored_supported` say
+        which: a mailbox reading `stored=None, stored_present=True,
+        stored_supported=False` is holding unsupported data, and handing its
+        None back as `expect_stored` is NOT an observation of absence — the
+        migration refuses it rather than overwriting."""
         n = self.nodes.get(to) or {}
-        stored = n.get("mail_seq")
-        stored_int = int(stored) if isinstance(stored, int) else 0
+        raw = n.get("mail_seq")
+        present = raw is not None
+        stored = self._stored_high_water(raw) if present else None
         assigned = self._assigned_recv_max(to)
         return {"mailbox": (str(n["mailbox_id"]) if n.get("mailbox_id")
                             else None),
                 "node_exists": to in self.nodes,
-                "stored": (int(stored) if isinstance(stored, int) else None),
+                "stored": stored,
+                "stored_present": present,
+                "stored_supported": (not present) or stored is not None,
+                "stored_type": (type(raw).__name__
+                                if present and stored is None else None),
                 "assigned_max": assigned,
-                "base": max(stored_int, assigned)}
+                "base": max(stored or 0, assigned)}
 
     def _allocate_recv_seq(self, to: str, count: int = 1) -> list[int]:
         """Hand out `count` consecutive ordinals for one mailbox and advance
@@ -2321,12 +2391,18 @@ class Org:
         and the write here. The migration entry point additionally compares
         against the value ITS caller observed, because that caller may have
         read the document at some earlier point — see
-        `migrate_mail_receive_order`."""
+        `migrate_mail_receive_order`.
+
+        A stored value OUTSIDE the supported domain is tolerated here and
+        allocation proceeds from the assigned maximum, because the alternative
+        is refusing a DEPOSIT — and losing a message to bookkeeping is a far
+        worse failure than an unordered one. The migration is the opposite
+        case: it is explicitly invoked, it rewrites nothing that would be lost
+        by stopping, and it REFUSES such a mailbox instead."""
         n = self.nodes.get(to)
         if n is None:
             return []
-        stored = n.get("mail_seq")
-        base = max(int(stored) if isinstance(stored, int) else 0,
+        base = max(self._stored_high_water(n.get("mail_seq")) or 0,
                    self._assigned_recv_max(to))
         seqs = list(range(base + 1, base + 1 + max(0, int(count))))
         if seqs:
@@ -2423,19 +2499,154 @@ class Org:
     def mailbox_in_receive_order(self, to: str) -> list[dict[str, Any]]:
         """PURE READ: this mailbox's pending rows in receive order.
 
-        Rows carrying an ordinal sort by it. Rows without one keep their
-        relative order and sort AFTER every ordered row — "unordered" is a
+        A row is ORDERED here only when its ordinal is in the supported domain
+        AND its `mailbox` stamp is this mailbox's own identity (or absent, for
+        a row numbered before stamping existed). Everything else keeps its
+        relative position and sorts AFTER every ordered row — "unordered" is a
         different claim from "newest", and a caller can tell which it is
-        looking at because `recv_seq` is simply absent.
+        looking at because `recv_seq` is absent, out of domain, or stamped for
+        somebody else.
+
+        THE STAMP CHECK IS THE POINT. An ordinal is only meaningful inside the
+        mailbox that minted it; a row carrying `mailbox: old-mailbox` in a
+        mailbox whose identity is `new-mailbox` is evidence of an unresolved
+        document, not a position in this order. Owner preflight of b8efd35
+        found this view presenting exactly that row as ordinary ordered data.
+        `mailbox_receive_order_anomalies` names such rows explicitly.
+
+        Mints nothing: the identity is read straight off the node rather than
+        through `mailbox_identity`, which would write one.
 
         Nothing live reads this yet. It exists so the ordering this stage
         establishes is inspectable and testable without a consumer, and so the
         stage that does consume it has one definition to consume."""
+        mine = (self.nodes.get(to) or {}).get("mailbox_id") or None
         rows = list((self.d.get("mail") or {}).get(to) or [])
-        return [r for _, r in sorted(
-            ((((0, int(r["recv_seq"]), 0)
-               if isinstance(r.get("recv_seq"), int) else (1, 0, i)), r)
-             for i, r in enumerate(rows)), key=lambda p: p[0])]
+        keyed: list[tuple[tuple[int, int, int], dict[str, Any]]] = []
+        for i, r in enumerate(rows):
+            seq = (self._recv_ordinal(r.get("recv_seq"))
+                   if isinstance(r, dict) else None)
+            stamp = ((r.get("mailbox") or None)
+                     if isinstance(r, dict) else None)
+            keyed.append(((1, 0, i) if seq is None or
+                          (stamp is not None and stamp != mine)
+                          else (0, seq, i), r))
+        return [r for _, r in sorted(keyed, key=lambda p: p[0])]
+
+    def _scan_receive_order(self, to: str) -> dict[str, Any]:
+        """PURE READ of every physical copy of every message one mailbox can
+        still see — pending box, archive, delivery journal — together with the
+        UNRESOLVED state found among them. Mints nothing and writes nothing.
+
+        Copies are correlated by message id, which is the only durable handle
+        that survives a row being in three tables at once. What the scan is
+        really for is the difference between two things that look alike from a
+        single copy: a mailbox whose ordering is merely INCOMPLETE (some copies
+        stamped, some not — reconcilable, and the migration does reconcile it)
+        and one whose ordering CONTRADICTS itself (two ordinals for one
+        message, one ordinal for two messages, an ordinal outside the domain,
+        a stamp belonging to another mailbox). The second kind cannot be
+        resolved by guessing, so every case is reported with its reason and its
+        evidence and the migration refuses the mailbox."""
+        mine = (self.nodes.get(to) or {}).get("mailbox_id") or None
+        copies: dict[str, list[dict[str, Any]]] = {}
+        order: list[str] = []
+        undated: set[str] = set()
+        unidentified = 0
+        conflicts: list[dict[str, Any]] = []
+
+        def see(m: Any) -> None:
+            nonlocal unidentified
+            if not isinstance(m, dict):
+                return
+            mid = str(m.get("id") or "")
+            if not mid:
+                # no durable identity to enumerate BY: this row cannot be
+                # correlated across box, archive and journal, so giving it an
+                # ordinal risks handing a second copy of the same message a
+                # second one. Counted, left alone.
+                unidentified += 1
+                return
+            if mid not in copies:
+                copies[mid] = []
+                order.append(mid)
+            copies[mid].append(m)
+            if not isinstance(m.get("at"), str) or not m["at"]:
+                undated.add(mid)
+
+        for m in ((self.d.get("mail") or {}).get(to) or []):
+            see(m)
+        for m in ((self.d.get("mail_log") or {}).get(to) or []):
+            see(m)
+        for b in ((self.d.get("delivering") or {}).get(to) or []):
+            if isinstance(b, dict):
+                for m in (b.get("mail") or []):
+                    see(m)
+
+        assigned: dict[str, int] = {}
+        origins: dict[str, str | None] = {}
+        for mid in order:
+            ms = copies[mid]
+            bad = [c.get("recv_seq") for c in ms
+                   if c.get("recv_seq") is not None
+                   and self._recv_ordinal(c.get("recv_seq")) is None]
+            if bad:
+                conflicts.append({"mailbox": to, "message": mid,
+                                  "reason": "unsupported_ordinal",
+                                  "values": [repr(v)[:60] for v in bad]})
+                continue
+            seqs = sorted({s for s in (self._recv_ordinal(c.get("recv_seq"))
+                                       for c in ms) if s is not None})
+            if len(seqs) > 1:
+                conflicts.append({"mailbox": to, "message": mid,
+                                  "reason": "conflicting_ordinals",
+                                  "values": seqs})
+                continue
+            found = sorted({str(c["seq_origin"]) for c in ms
+                            if c.get("seq_origin")})
+            if len(found) > 1:
+                conflicts.append({"mailbox": to, "message": mid,
+                                  "reason": "conflicting_origin",
+                                  "values": found})
+                continue
+            stamps = sorted({str(c["mailbox"]) for c in ms if c.get("mailbox")})
+            foreign = [s for s in stamps if s != mine]
+            if foreign:
+                conflicts.append({"mailbox": to, "message": mid,
+                                  "reason": "foreign_mailbox",
+                                  "values": foreign, "expected": mine})
+                continue
+            if seqs:
+                assigned[mid] = seqs[0]
+                origins[mid] = found[0] if found else None
+
+        holders: dict[int, list[str]] = {}
+        for mid, seq in assigned.items():
+            holders.setdefault(seq, []).append(mid)
+        for seq, mids in sorted(holders.items()):
+            if len(mids) > 1:
+                conflicts.append({"mailbox": to, "reason": "duplicate_ordinal",
+                                  "values": [seq], "messages": sorted(mids)})
+        return {"mailbox": mine, "copies": copies, "order": order,
+                "undated": undated, "unidentified": unidentified,
+                "assigned": assigned, "origins": origins,
+                "conflicts": conflicts}
+
+    def mailbox_receive_order_anomalies(self, to: str) -> dict[str, Any]:
+        """PURE READ: the unresolved ordering state in one mailbox, named.
+
+        `conflicts` is the list the migration refuses on, each entry carrying
+        its `reason` and the offending values; `unidentified` counts rows with
+        no message id and `undated` names messages with no `at` stamp, neither
+        of which blocks anything but both of which bound what the enumeration
+        can honestly claim. An empty `conflicts` means the mailbox's existing
+        ordering state is self-consistent — NOT that it is complete."""
+        scan = self._scan_receive_order(to)
+        return {"mailbox": scan["mailbox"],
+                "conflicts": scan["conflicts"],
+                "unidentified": scan["unidentified"],
+                "undated": sorted(scan["undated"]),
+                "assigned": dict(sorted(scan["assigned"].items()))}
 
     def migrate_mail_receive_order(
             self, nodes: Iterable[str] | None = None, *,
@@ -2456,16 +2667,49 @@ class Org:
         bodies are not rewritten. So a second pass assigns nothing and an empty
         pass changes nothing, and the report says so in `allocated`.
 
+        PARTIAL COPIES ARE RECONCILED, NOT RE-ALLOCATED. A message whose
+        pending copy carries an ordinal while its archive and journal copies do
+        not has ONE assigned identity, merely recorded in one place; the
+        migration carries that same ordinal, origin and stamp onto the other
+        copies and counts them in `reconciled_copies`. It never allocates a
+        second ordinal for a message that already has one, and never invents an
+        origin the existing copies do not state.
+
+        UNRESOLVED STATE IS REFUSED, NOT GUESSED. `_scan_receive_order` decides
+        whether a mailbox's existing ordering contradicts itself — two ordinals
+        for one message, one ordinal for two messages, an ordinal outside the
+        supported domain, disagreeing origins, a stamp naming another mailbox.
+        Any of those and the WHOLE mailbox is refused: nothing is allocated,
+        nothing is stamped, the counter is not moved, and the mailbox is listed
+        in `refused` with every conflict and its evidence. A total order laid
+        over a document that already disagrees with itself would be a claim
+        about receive history that nobody can stand behind, and quietly
+        overwriting one of the two conflicting values destroys the evidence
+        needed to work out which was right.
+
         COMPARE-AND-SET. `expect_stored` maps mailbox -> the `mail_seq` the
         caller OBSERVED (None meaning observed-absent). A mailbox whose stored
         value has since moved is refused and listed in `stale`, untouched; the
         other mailboxes still run. Allocation then starts above the maximum of
         that observed value and every already-assigned ordinal, so a counter
         BEHIND its rows cannot cause a collision and one AHEAD of them cannot
-        make the pass fail forever."""
-        report: dict[str, Any] = {"mailboxes": {}, "stale": [],
+        make the pass fail forever.
+
+        A STORED VALUE OUTSIDE THE DOMAIN IS NOT AN ABSENT ONE. `mail_seq`
+        holding a string, a float or a bool is refused as `unsupported_stored`
+        and left exactly as found. It must never be normalised to None, because
+        then an `expect_stored` of None — an honest claim of "I observed no
+        counter" — would compare equal to it and the CAS would admit a write
+        over data it never actually observed."""
+        report: dict[str, Any] = {"mailboxes": {}, "stale": [], "refused": [],
                                   "allocated": 0, "unproven": 0,
+                                  "reconciled_copies": 0, "conflicts": 0,
                                   "ambiguous": 0, "skipped_no_node": []}
+
+        def refuse(to: str, reason: str, **detail: Any) -> None:
+            report["refused"].append({"mailbox": to, "reason": reason,
+                                      **detail})
+
         targets = (list(nodes) if nodes is not None
                    else sorted({*(self.d.get("mail") or {}),
                                 *(self.d.get("mail_log") or {}),
@@ -2476,50 +2720,37 @@ class Org:
                 continue
             n = self.nodes[to]
             stored_now = n.get("mail_seq")
-            observed = int(stored_now) if isinstance(stored_now, int) else None
+            observed = self._stored_high_water(stored_now)
+            if stored_now is not None and observed is None:
+                refuse(to, "unsupported_stored",
+                       stored_type=type(stored_now).__name__,
+                       stored_repr=repr(stored_now)[:120])
+                continue
             if expect_stored is not None and to in expect_stored:
                 want = expect_stored[to]
-                if observed != (int(want) if isinstance(want, int) else None):
+                want_int = self._stored_high_water(want)
+                if want is not None and want_int is None:
+                    refuse(to, "unsupported_expectation",
+                           expected_type=type(want).__name__,
+                           expected_repr=repr(want)[:120])
+                    continue
+                if observed != want_int:
                     report["stale"].append({"mailbox": to, "expected": want,
                                             "observed": observed})
                     continue
-            # every physical copy of every distinct message, keyed by id
-            copies: dict[str, list[dict[str, Any]]] = {}
-            order: list[str] = []
-            undated: set[str] = set()
-            unidentified = 0
 
-            def see(m: Any) -> None:
-                nonlocal unidentified
-                if not isinstance(m, dict):
-                    return
-                mid = str(m.get("id") or "")
-                if not mid:
-                    # no durable identity to enumerate BY: this row cannot be
-                    # correlated across box, archive and journal, so giving it
-                    # an ordinal risks handing a second copy of the same
-                    # message a second one. Counted, left alone.
-                    unidentified += 1
-                    return
-                if mid not in copies:
-                    copies[mid] = []
-                    order.append(mid)
-                copies[mid].append(m)
-                if not isinstance(m.get("at"), str) or not m["at"]:
-                    undated.add(mid)
+            scan = self._scan_receive_order(to)
+            if scan["conflicts"]:
+                refuse(to, "unresolved_order", conflicts=scan["conflicts"])
+                report["conflicts"] += len(scan["conflicts"])
+                continue
 
-            for m in ((self.d.get("mail") or {}).get(to) or []):
-                see(m)
-            for m in ((self.d.get("mail_log") or {}).get(to) or []):
-                see(m)
-            for b in ((self.d.get("delivering") or {}).get(to) or []):
-                if isinstance(b, dict):
-                    for m in (b.get("mail") or []):
-                        see(m)
-
-            already = {mid for mid, ms in copies.items()
-                       if any(isinstance(c.get("recv_seq"), int) for c in ms)}
-            pending = [mid for mid in order if mid not in already]
+            copies = cast("dict[str, list[dict[str, Any]]]", scan["copies"])
+            order = cast("list[str]", scan["order"])
+            assigned = cast("dict[str, int]", scan["assigned"])
+            origins = cast("dict[str, str | None]", scan["origins"])
+            undated = cast("set[str]", scan["undated"])
+            pending = [mid for mid in order if mid not in assigned]
 
             def sort_key(mid: str) -> tuple[str, str]:
                 at = next((str(c["at"]) for c in copies[mid]
@@ -2529,30 +2760,43 @@ class Org:
             pending.sort(key=sort_key)
             seqs = self._allocate_recv_seq(to, len(pending))
             mailbox_id = (self.mailbox_identity(to)
-                          if (pending or already) else None)
+                          if (pending or assigned) else None)
             for mid, seq in zip(pending, seqs):
                 for c in copies[mid]:
                     c["recv_seq"] = seq
                     c["seq_origin"] = self.MAIL_SEQ_ORIGIN_MIGRATION
                     if mailbox_id:
                         c["mailbox"] = mailbox_id
-            if mailbox_id:
-                # a row that already HAD an ordinal but no mailbox stamp gets
-                # the stamp — the same fact, recorded later. Its ordinal and
-                # its origin label are left exactly as they were.
-                for mid in already:
-                    for c in copies[mid]:
-                        c.setdefault("mailbox", mailbox_id)
-            ambiguous = len(undated & set(pending)) + unidentified
+            reconciled = 0
+            for mid, seq in assigned.items():
+                # the one consistent assignment this message already has,
+                # written onto every copy that was missing part of it. The
+                # ordinal is NOT re-allocated and the origin is NOT invented:
+                # a message whose copies state no origin keeps stating none.
+                origin = origins.get(mid)
+                for c in copies[mid]:
+                    was = (c.get("recv_seq"), c.get("seq_origin"),
+                           c.get("mailbox"))
+                    c["recv_seq"] = seq
+                    if origin is not None:
+                        c["seq_origin"] = origin
+                    if mailbox_id:
+                        c["mailbox"] = mailbox_id
+                    if was != (c.get("recv_seq"), c.get("seq_origin"),
+                               c.get("mailbox")):
+                        reconciled += 1
+            ambiguous = len(undated & set(pending)) + scan["unidentified"]
             report["mailboxes"][to] = {
                 "mailbox": mailbox_id,
                 "stored_before": observed,
-                "preserved": len(already),
+                "preserved": len(assigned),
                 "allocated": len(seqs),
+                "reconciled_copies": reconciled,
                 "ambiguous": ambiguous,
                 "high_water_after": n.get("mail_seq")}
             report["allocated"] += len(seqs)
             report["unproven"] += len(seqs)
+            report["reconciled_copies"] += reconciled
             report["ambiguous"] += ambiguous
         return report
 
@@ -4437,6 +4681,9 @@ class Org:
         # clears, rehire included (redteam 2026-08-18). Kept because the
         # record is TRUE, and because the exemption should not rest on
         # one clause. reseed's bearer is the opposite case and pops it.)
+        # The SEAT keeps its mailbox; this separately addressable bearer must
+        # not inherit authority over it (see _strip_mailbox_authority).
+        self._strip_mailbox_authority(pred)
         self.nodes[pred_id] = pred
         n["session_id"] = str(uuid.uuid4())
         n["generation"] = gen + 1
@@ -10337,6 +10584,7 @@ class Org:
         # transcript is real (and its loss is real damage), and the
         # successor's id comes from the CLI's fork, which writes one.
         pred.pop("session_unrun", None)
+        self._strip_mailbox_authority(pred)
         self.nodes[pred_id] = pred
         n["session_id"] = new_session_id
         n["generation"] = gen + 1
@@ -10461,6 +10709,7 @@ class Org:
             # points at the wrong boundary — cutting a bearer from the wrong
             # moment, which looks like success and is not.
             pred["cli_boundary_offset"] = int(boundary_offset)
+        self._strip_mailbox_authority(pred)
         self.nodes[pred_id] = pred
         n["generation"] = gen + 1
         n["predecessor"] = pred_id
@@ -10695,6 +10944,7 @@ class Org:
         # true (redteam 2026-08-18). cheap_compact's bearer is the
         # opposite case and keeps it.
         pred.pop("session_unrun", None)
+        self._strip_mailbox_authority(pred)
         self.nodes[pred_id] = pred
         # A RETIRED import binding describes this seat, not the dead session:
         # left pointing at the session re-seed just buried it would hold the

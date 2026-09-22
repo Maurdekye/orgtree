@@ -600,13 +600,23 @@ class NodeDoc(TypedDict):
     # makes a later hire at a freed name start from zero instead of inheriting
     # a stranger's sequence. Allocation never trusts this value alone: see
     # Org._allocate_recv_seq, which takes the maximum of it and every ordinal
-    # already assigned to a row of this mailbox.
+    # already assigned to a row of this mailbox. Supported domain: a non-bool
+    # int >= 0. Anything else present here is unsupported data, NOT an absent
+    # counter, and the migration refuses the mailbox rather than overwrite it.
     mail_seq: NotRequired[int]
     # This MAILBOX's durable identity, minted at its first deposit. Distinct
     # from `seat_id` (the agent) and from the node name (reusable): it answers
     # "is the mailbox a cursor was taken against still the mailbox standing
     # here?", which after a delete-and-rehire at the same name is no.
     mailbox_id: NotRequired[str]
+    # ⚠ BOTH FIELDS ARE AUTHORITY OVER ONE MAILBOX and are NOT inherited by a
+    # copy of this node stored under a different id. Every lineage split builds
+    # its archived predecessor as `dict(n)` under `nid@gen`; the seat at `nid`
+    # keeps the mailbox, and the bearer — separately addressable, and ordinary
+    # mail does land in it — has these stripped so it mints its own. Without
+    # that, two different messages in two different mailboxes carry the same
+    # (mailbox, recv_seq). Org._strip_mailbox_authority is the one place that
+    # does it, and test_mail_receive_order asserts all four sites call it.
 
 
 class AudienceGrant(TypedDict):
