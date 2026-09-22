@@ -9,7 +9,7 @@ import path from 'node:path'
 
 const root = path.resolve(process.argv[2] ?? '.probe-app-composition')
 const mode = process.argv[3] ?? 'baseline'
-if (!['baseline', 'no-bus', 'no-readiness', 'no-lifecycle'].includes(mode)) throw Error('Unknown control')
+if (!['baseline', 'no-bus', 'no-readiness', 'no-lifecycle', 'no-compact-header'].includes(mode)) throw Error('Unknown control')
 // Never recursively delete a caller's directory. A run owns a fresh child.
 fs.mkdirSync(root, { recursive: true })
 const run = fs.mkdtempSync(path.join(root, mode + '-'))
@@ -29,6 +29,13 @@ await build({ ...common, entryPoints: ['apps/desktop/renderer/src/main.tsx'],
       const source = fs.readFileSync(file, 'utf8')
       if (!source.includes('\nstartHeldEvents()')) throw Error('Control no longer matches shipping startup')
       return { contents: source.replace('\nstartHeldEvents()', '\n/* negative control: bus start removed */'), loader: 'tsx' }
+    })
+  } }] : mode === 'no-compact-header' ? [{ name: 'remove-compact-header', setup(b) {
+    b.onLoad({ filter: /renderer[\\/]src[\\/]shell\.css$/ }, async ({ path: file }) => {
+      const source = fs.readFileSync(file, 'utf8')
+      const rule = /@container shellheader \(max-width: 760px\) \{[\s\S]*?\r?\n\}/
+      if (!rule.test(source)) throw Error('Control no longer matches compact header repair')
+      return { contents: source.replace(rule, '/* negative control: compact header removed */'), loader: 'css' }
     })
   } }] : [] })
 fs.writeFileSync(path.join(run, 'app.html'), `<!doctype html><html><head><meta charset="utf-8"><title>App composition fixture</title><link rel="stylesheet" href="/app.css"></head><body><div id="root"></div><script>window.__APP_PROBE_DOC=crypto.randomUUID();window.__APP_PROBE_ERRORS=[];addEventListener('error',e=>window.__APP_PROBE_ERRORS.push(String(e.error?.stack||e.message)));addEventListener('unhandledrejection',e=>window.__APP_PROBE_ERRORS.push(String(e.reason?.stack||e.reason)))</script><script src="/app.js"></script></body></html>`)

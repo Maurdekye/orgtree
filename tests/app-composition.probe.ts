@@ -6,6 +6,7 @@
  */
 import { app, BrowserWindow, ipcMain } from 'electron'
 import http from 'node:http'
+import type { Duplex } from 'node:stream'
 import fs from 'node:fs'
 import path from 'node:path'
 import { registerHeldEventChannels } from '../apps/desktop/main/held-events'
@@ -16,9 +17,11 @@ import { attachWindowLoadRecovery } from '../apps/desktop/main/window-load-recov
 import { configureWindow, popoutRegistry } from '../apps/desktop/main/windows'
 import { Preferences } from '../apps/desktop/main/preferences'
 import { runAttentionScenarios } from './app-attention-scenarios'
+import { runMultiwindowScenarios } from './app-multiwindow-scenarios'
 
 type Event = { type: string; data?: any }
 type ApiHandler = (req: http.IncomingMessage, res: http.ServerResponse, url: URL) => boolean | Promise<boolean>
+type UpgradeHandler = (req: http.IncomingMessage, socket: Duplex, head: Buffer) => boolean
 export interface AppWindow {
   id: string; window: BrowserWindow; documentToken: string
   outbox: ReturnType<typeof windowOutbox<Event>>
@@ -36,9 +39,11 @@ export interface AppScenarioContext {
   records: Map<string, AppWindow>
   origin: string
   routeApi(handler: ApiHandler): () => void
+  routeUpgrade(handler: UpgradeHandler): () => void
 }
 const ROOT = process.env.PROBE_ROOT!
-const mode = process.env.PROBE_MODE ?? 'baseline'
+const control = process.env.PROBE_MODE ?? 'baseline'
+const mode = control === 'no-compact-header' ? 'baseline' : control
 const checks: { id: string; ok: boolean; note: string; detail?: unknown }[] = []
 const log = (value: unknown) => fs.appendFileSync(path.join(ROOT, 'main.log'), String(value) + '\n')
 const check: AppScenarioContext['check'] = (id, ok, note, detail) => {
@@ -59,7 +64,7 @@ const nodes = ['agent', 'beta'].map(id => ({ id, title: id, tier: 'haiku', model
 const orgs = ['studio', 'other'].map(slug => ({ slug, name: slug === 'studio' ? 'Studio' : 'Other', live: 2, working: 0, seats: 2 }))
 const notice = (source_id: string, org = 'studio') => ({ id: `${org}-document-${source_id}`,
   source_id, org, kind: 'document', title: `Document ${source_id}`, body: 'Exact composition target' })
-const notices = ['cold', 'bind', 'reload', 'retry', 'guard'].map(id => notice(id))
+const notices = ['cold', 'bind', 'reload', 'retry', 'truncated', 'guard'].map(id => notice(id))
 const documentRow = (id: string) => ({ id, node: 'agent', title: `Document ${id}`,
   at: '2026-09-22T07:00:00Z', node_state: 'live', evicted: false })
 const tree = (slug: string) => ({ slug, name: orgs.find(o => o.slug === slug)?.name ?? slug, roots: nodes,
@@ -77,11 +82,16 @@ for (const key of ['userData', 'sessionData', 'cache', 'temp', 'logs', 'crashDum
 app.whenReady().then(async () => {
   const requests: string[] = [], unexpected: string[] = []
   const routes: ApiHandler[] = []
+  const upgrades: UpgradeHandler[] = []
   const routeApi = (handler: ApiHandler) => {
     routes.push(handler)
     return () => { const at = routes.lastIndexOf(handler); if (at >= 0) routes.splice(at, 1) }
   }
-  let stallDocument = 0, failDocuments = false, rejectCreation = true
+  const routeUpgrade = (handler: UpgradeHandler) => {
+    upgrades.push(handler)
+    return () => { const at = upgrades.lastIndexOf(handler); if (at >= 0) upgrades.splice(at, 1) }
+  }
+  let stallDocument = 0, failDocuments = false, truncateDocuments = false, rejectCreation = true
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url!, 'http://fixture'), p = url.pathname
     requests.push(`${req.method} ${req.url}`)
@@ -113,7 +123,7 @@ app.whenReady().then(async () => {
       if (/\/staffing-options$/.test(p)) return json({ tiers: [], accounts: [], providers: [] })
       if (p === '/api/defaults') return json({})
       if (p === '/api/openrouter') return json({})
-      // Deliberately no live stream: App exercises ordinary HTTP polling.
+      // The multiwindow module installs its own synthetic socket upgrade route.
       if (/\/ws$/.test(p)) return json({ detail: 'WebSocket not provided by composition fixture' }, 503)
       if (/\/agents\//.test(p) || /\/nodes\//.test(p)) return json({ messages: [], turns: [], items: [], events: [] })
       if (/crash|client-log|freeze/.test(p)) return json({ ok: true })
@@ -122,6 +132,14 @@ app.whenReady().then(async () => {
     if (p === '/' || p.startsWith('/o/') || p === '/not-an-app-path') {
       if (stallDocument) { const ms = stallDocument; stallDocument = 0; await pause(ms) }
       if (failDocuments) { req.socket.destroy(); return }
+      if (truncateDocuments) {
+        // Commit a real HTML response, then violate Content-Length before App
+        // can mount. This is distinct from the pre-commit socket failure.
+        res.writeHead(200, { 'content-type': 'text/html', 'content-length': '1000000', 'cache-control': 'no-store' })
+        res.write('<!doctype html><html><head><title>Incomplete response</title></head><body>Committed incomplete document')
+        setTimeout(() => res.destroy(), 350)
+        return
+      }
       res.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store' })
       res.end(fs.readFileSync(path.join(ROOT, 'app.html'))); return
     }
@@ -131,6 +149,10 @@ app.whenReady().then(async () => {
       if (fs.existsSync(file)) { res.writeHead(200, { 'content-type': filename.endsWith('.js') ? 'text/javascript' : filename.endsWith('.css') ? 'text/css' : 'application/octet-stream' }); res.end(fs.readFileSync(file)); return }
     }
     res.writeHead(404); res.end()
+  })
+  server.on('upgrade', (req, socket, head) => {
+    for (const handler of [...upgrades].reverse()) if (handler(req, socket, head)) return
+    socket.destroy()
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`
@@ -161,7 +183,7 @@ app.whenReady().then(async () => {
   })
   const close = (r: AppWindow) => { r.recovery?.dispose(); r.closePopouts?.(); if (!r.window.isDestroyed()) r.window.destroy(); records.delete(r.id); windows.forget(r.id) }
   const construct = (id: string, org?: string, kind: 'org' | 'homepage' | 'create' = org ? 'org' : 'homepage'): AppWindow => {
-    const window = new BrowserWindow({ show: false, width: 1180, height: 820,
+    const window = new BrowserWindow({ show: false, frame: false, width: 1180, height: 820,
       webPreferences: { contextIsolation: true, sandbox: false, nodeIntegration: false,
         preload: path.join(ROOT, 'preload.cjs'), additionalArguments: ['--orgtree-ui-origin=' + origin] } })
     window.webContents.setBackgroundThrottling(false)
@@ -222,6 +244,8 @@ app.whenReady().then(async () => {
   handle('desktop:status', () => ({ state: 'running', origin }))
   handle('desktop:window-state', () => ({ maximized: false, fullscreen: false }))
   handle('desktop:window-controls-state', () => ({ maximized: false }))
+  // Fixture-owned binding, same caller-scoped close operation as main/index.ts.
+  handle('desktop:window-close', r => r.window.close())
   handle('desktop:update-status', () => ({ state: 'idle' }))
   handle('desktop:update-capability', () => ({ unattendedInstall: false, installDirectory: ROOT }))
   handle('desktop:maintenance-status', () => null)
@@ -232,11 +256,14 @@ app.whenReady().then(async () => {
   handle('desktop:popout-state', (r, name) => { const w = r.popouts.get(name); return { name, present: !!w && !w.isDestroyed(), maximized: !!w && !w.isDestroyed() && w.isMaximized() } })
   handle('desktop:popout-close', (r, name) => r.popouts.get(name)?.close())
   handle('desktop:popout-focus', (r, name) => { const w = r.popouts.get(name); w?.restore(); w?.focus() })
-  const ctx: AppScenarioContext = { create, close, check, eval: evaluate, until, send, records, origin, routeApi }
+  const ctx: AppScenarioContext = { create, close, check, eval: evaluate, until, send, records, origin, routeApi, routeUpgrade }
   const visible = (r: AppWindow, id: string) => evaluate<any>(r, `(() => { const p=document.querySelector('.gallery-modal .mailer-read');return {doc:window.__APP_PROBE_DOC,path:location.pathname,galleries:document.querySelectorAll('.gallery-modal').length,visible:!!p&&p.getBoundingClientRect().width>0&&p.getBoundingClientRect().height>0&&getComputedStyle(p).visibility!=='hidden',text:p?.innerText||'',errors:window.__APP_PROBE_ERRORS,exact:!!p?.innerText.includes(${JSON.stringify('Visible exact document: ' + id + '.')})} })()`)
   const awaitVisible = (r: AppWindow, id: string, ms = 12000) => until(() => visible(r, id), v => v.exact && v.visible, ms)
   const click = async (r: AppWindow, selector: string) => evaluate(r, `(() => { const e=document.querySelector(${JSON.stringify(selector)});if(!e)throw Error('Missing control '+${JSON.stringify(selector)});e.click();return true })()`)
-  const screenshot = async (r: AppWindow, name: string) => fs.writeFileSync(path.join(ROOT, name + '.png'), (await r.window.webContents.capturePage()).toPNG())
+  const screenshot = async (r: AppWindow, name: string) => {
+    await evaluate(r, 'new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+    fs.writeFileSync(path.join(ROOT, name + '.png'), (await r.window.webContents.capturePage()).toPNG())
+  }
   try {
     if (mode !== 'no-lifecycle') {
       const r = construct('cold', 'studio')
@@ -275,10 +302,36 @@ app.whenReady().then(async () => {
       close(home); close(r)
 
       const a = await create('settings-a', 'studio'), b = await create('settings-b', 'other')
-      a.window.setSize(700, 820)
-      await until(() => evaluate<boolean>(a, 'innerWidth < 750 && [...document.querySelectorAll(".shell-action-label")].every(e=>getComputedStyle(e).display==="none")'), Boolean)
-      const narrow = await evaluate<any>(a, `({width:innerWidth,actions:[...document.querySelectorAll('.shell-action')].map(e=>({label:e.getAttribute('aria-label'),width:e.getBoundingClientRect().width,right:e.getBoundingClientRect().right})),modes:[...document.querySelectorAll('.shell-mode')].map(e=>({text:e.textContent.trim(),width:e.getBoundingClientRect().width})),controls:[...document.querySelectorAll('.shell-header .window-control')].map(e=>({label:e.getAttribute('aria-label'),right:e.getBoundingClientRect().right}))})`)
-      check('narrow-header', narrow.actions.length >= 5 && narrow.actions.every((e: any) => e.label && e.width > 0 && e.right <= narrow.width) && narrow.modes.length === 2 && narrow.modes.every((e: any) => e.text && e.width > 0) && narrow.controls.length >= 3 && narrow.controls.every((e: any) => e.right <= narrow.width), 'real App narrow header retains named direct actions, labeled modes and native controls within viewport', narrow)
+      const header = () => evaluate<any>(a, `({width:innerWidth,actions:[...document.querySelectorAll('.shell-header-actions button')].map(e=>({label:e.getAttribute('aria-label')||e.getAttribute('title')||e.textContent.trim(),width:e.getBoundingClientRect().width,right:e.getBoundingClientRect().right})),modes:[...document.querySelectorAll('.shell-mode')].map(e=>({text:e.textContent.trim(),width:e.getBoundingClientRect().width})),controls:[...document.querySelectorAll('.shell-header .window-control')].map(e=>({label:e.getAttribute('aria-label'),right:e.getBoundingClientRect().right})),actionRight:document.querySelector('.shell-header-actions').getBoundingClientRect().right,controlLeft:document.querySelector('.shell-header > .window-controls').getBoundingClientRect().left,titleWidth:document.querySelector('.shell-header-title').getBoundingClientRect().width,drawnActionLabels:[...document.querySelectorAll('.shell-action-label')].filter(e=>e.getBoundingClientRect().width>0).length})`)
+      const noOverlap = (s: any) => s.actionRight <= s.controlLeft && s.titleWidth > 0
+        && s.actions.every((e: any) => e.width === 0 || e.right <= s.controlLeft)
+        && ['work docket', 'your inbox', 'Presentations', 'Usage', 'Org settings'].every(label => s.actions.some((e: any) => e.label === label && e.width > 0 && e.right <= s.controlLeft))
+        && s.modes.length === 2 && s.modes.every((e: any) => e.text && e.width > 0)
+        && s.controls.length === 4 && s.controls.every((e: any) => e.label && e.right <= s.width)
+      const wide = await header()
+      check('wide-header', wide.width === 1180 && noOverlap(wide) && wide.drawnActionLabels === 5, 'real wide App header displays action labels without overlapping native controls', wide)
+      a.window.setSize(640, 820)
+      await until(() => evaluate<boolean>(a, 'innerWidth === 640 && [...document.querySelectorAll(".shell-action-label")].every(e=>getComputedStyle(e).display==="none")'), Boolean)
+      const narrow = await header()
+      check('narrow-header', narrow.width === 640 && noOverlap(narrow) && narrow.drawnActionLabels === 0, 'real frameless App at native640px minimum retains named actions, org title and mode labels without overlapping native controls', narrow)
+      await screenshot(a, 'narrow-header')
+      await click(a, '.shell-header-actions .kill-latch')
+      await until(() => evaluate<boolean>(a, '(document.querySelector(".shell-header-actions .kill-btn.expanded:not(:disabled)")?.getBoundingClientRect().width ?? 0) >= 100'), Boolean)
+      const armed = await header()
+      check('narrow-header-armed', noOverlap(armed) && armed.actions.some((e: any) => e.label === 'halt every agent in this org until explicit release' && e.width >= 100), 'expanded kill switch remains reachable with org identity, modes, actions and native controls at640px', armed)
+      await screenshot(a, 'narrow-header-armed')
+      await click(a, '.shell-header-actions .kill-latch')
+      const stopHalted = routeApi((req, res, url) => {
+        if (req.method !== 'GET' || url.pathname !== '/api/orgs/studio') return false
+        res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' })
+        res.end(JSON.stringify({ ...tree('studio'), killswitch: true })); return true
+      })
+      const releaseVisible = await until(() => evaluate<boolean>(a, '(document.querySelector(".shell-header-actions .kill-release")?.getBoundingClientRect().width ?? 0) >= 100'), Boolean)
+      const halted = await header()
+      check('narrow-header-halted', releaseVisible && noOverlap(halted), 'actual halted-tree state keeps the full release control and all header controls reachable at640px', halted)
+      await screenshot(a, 'narrow-header-halted')
+      stopHalted()
+      await until(() => evaluate<boolean>(a, '!!document.querySelector(".shell-header-actions .kill-latch")'), Boolean)
       await evaluate(a, `document.querySelector('.shell-menu-button').focus();true`)
       a.window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Down' })
       a.window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Down' })
@@ -287,7 +340,7 @@ app.whenReady().then(async () => {
       a.window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
       const returnedMenuFocus = await until(() => evaluate<boolean>(a, 'document.activeElement?.classList.contains("shell-menu-button") && !document.querySelector("[role=menu]")'), Boolean)
       check('shell-menu-keyboard', focusedMenu && returnedMenuFocus, 'real Chromium ArrowDown enters App menu; Escape closes it and returns focus')
-      await screenshot(a, 'narrow-header'); a.window.setSize(1180, 820)
+      a.window.setSize(1180, 820)
       const settingsOpen = (r: AppWindow) => evaluate<boolean>(r, '(()=>{const p=document.querySelector(".acct-panel");return !!p&&p.getBoundingClientRect().width>0&&p.getBoundingClientRect().height>0&&getComputedStyle(p).visibility!=="hidden"})()')
       const openSettings = async (r: AppWindow) => { await click(r, '.shell-menu-button'); await until(() => evaluate<boolean>(r, '!!document.querySelector("[role=menu]")'), Boolean); await evaluate(r, `([...document.querySelectorAll('[role=menuitem]')].find(e=>e.textContent.includes('App settings')).click(),true)`); await until(() => settingsOpen(r), Boolean) }
       await openSettings(a)
@@ -380,15 +433,35 @@ app.whenReady().then(async () => {
       const shown = await awaitVisible(r, 'retry')
       check('retry-visible-exact', shown.doc !== before && shown.exact && shown.visible && shown.path === '/o/studio', 'production holding-page Refresh retries bound route and exact target is visible in new App', shown)
       await screenshot(r, 'retry'); close(r)
+      const truncated = await create('truncated', 'studio')
+      const previousDoc = await evaluate<string>(truncated, 'window.__APP_PROBE_DOC')
+      const previousCommits = truncated.navCommitted
+      truncateDocuments = true; truncated.window.webContents.reload()
+      await until(async () => truncated.navCommitted, n => n > previousCommits)
+      send(truncated, { type: 'notification-click', data: notice('truncated') })
+      check('truncated-committed', truncated.navCommitted > previousCommits && truncated.outbox.pending() === 1, 'real incomplete HTML response commits before terminal failure, with exact reveal held', { before: previousCommits, after: truncated.navCommitted, queued: truncated.outbox.pending() })
+      const holding = await until(async () => ({ failed: truncated.recovery?.isFailed === true,
+        ready: await evaluate<boolean>(truncated, `location.protocol === 'data:' && document.readyState === 'complete' && !!document.querySelector('[aria-label="Refresh app view"]')`).catch(() => false) }), s => s.failed && s.ready, 5000)
+      check('truncated-holding', holding.failed && holding.ready && truncated.outbox.pending() === 1, 'committed-body truncation reaches production holding page and retains reveal', holding)
+      await screenshot(truncated, 'truncated-holding')
+      truncateDocuments = false
+      if (holding.failed && holding.ready) {
+        await evaluate(truncated, `document.querySelector('[aria-label="Refresh app view"]').click();true`)
+        const target = await awaitVisible(truncated, 'truncated')
+        check('truncated-visible-exact', target.doc !== previousDoc && target.exact && target.visible && target.path === '/o/studio', 'Refresh after committed-body truncation opens exact document in the recovered App', target)
+        await screenshot(truncated, 'truncated-recovered')
+      } else check('truncated-visible-exact', false, 'recovery cannot reveal exact target without its holding page', holding)
+      close(truncated)
       await runAttentionScenarios(ctx)
+      await runMultiwindowScenarios(ctx)
     }
   } catch (error) { check('fatal', false, 'fixture could not complete', String((error as Error).stack ?? error)) }
   finally {
     for (const r of records.values()) close(r)
     server.close()
     fs.writeFileSync(path.join(ROOT, 'http.json'), JSON.stringify({ requests, unexpected }, null, 2))
-    const report = { mode, summary: { assertions: checks.length, failing: checks.filter(c => !c.ok).length }, checks,
-      limits: ['main/index.ts startup/IPC glue is not executed; fixture-owned bindings are described in source header', 'canned loopback HTTP, no real engine/WebSocket stream, OS notification service, install or updater', 'main BrowserWindows are offscreen; screenshots and DOM geometry assert rendered visibility', 'Create close cancellation is a native registry decision; no OS confirmation dialog is shown', 'App, preload, Preferences, held-event registration, registry/outbox and lifecycle modules are production code; controls explicitly remove the named mechanism'] }
+    const report = { mode: control, summary: { assertions: checks.length, failing: checks.filter(c => !c.ok).length }, checks,
+      limits: ['main/index.ts startup/IPC glue is not executed; fixture-owned bindings are described in source header', 'canned loopback HTTP and synthetic WebSocket frames; no real engine, OS notification service, install or updater', 'main BrowserWindows are offscreen; screenshots and DOM geometry assert rendered visibility', 'Create close cancellation is a native registry decision; no OS confirmation dialog is shown', 'App, preload, Preferences, held-event registration, registry/outbox and lifecycle modules are production code; controls explicitly remove the named mechanism'] }
     fs.writeFileSync(path.join(ROOT, 'result.json'), JSON.stringify(report, null, 2))
     app.exit(report.summary.failing ? 1 : 0)
   }
