@@ -283,7 +283,8 @@ TIER_CONTEXT: dict[str, int] = {"haiku": 200_000, "sonnet": 1_000_000,
 # the codex family shares the published model window
 # (providers.CODEX_CONTEXT).  It is added before the env override so the
 # user's ORGTREE_CONTEXT_WINDOWS still wins for these tiers too.
-TIER_CONTEXT.update({t: providers.CODEX_CONTEXT for t in providers.CODEX_TIERS})
+TIER_CONTEXT.update({t: providers.CODEX_CONTEXT for t in providers.CODEX_TIERS
+                     if t not in providers.CODEX_UNPINNED_CONTEXT_TIERS})
 TIER_CONTEXT.update({t: providers.ANTIGRAVITY_CONTEXT
                      for t in providers.ANTIGRAVITY_TIERS})
 try:
@@ -615,10 +616,10 @@ def claude_model_for(org: Org, nid: str) -> str:
     that has not redeployed yet; the alternative was breaking every fable turn
     on it.
 
-    ⚠ NOT the place to enforce anything else. Every other model id in the
-    table predates the current floor, so this deliberately touches ONE id
-    rather than growing into a general "is this model known" filter that would
-    need a per-version registry orgtree has no way to keep honest.
+    This remains a Fable-only compatibility rule. In particular, Opus 5.5
+    must reach the CLI verbatim, even if an operator resolves an older CLI;
+    silently replacing it with Opus 5 would run a different requested model.
+    The packaged CLI pin includes Opus 5.5 support and pricing.
     """
     want = org.model_for(nid)
     if want == clipin.FABLE_5_1 and not cli_knows_fable_5_1():

@@ -163,9 +163,9 @@ test('§7 a toggle names itself to a screen reader without reading out its own '
     const panel = view.el.querySelector<HTMLElement>(
       '#app-settings-panel-runtime')!
     const rows = [...panel.querySelectorAll<HTMLElement>('.set-row')].filter(row => row.querySelector('input[role="switch"]'))
-    // warm processes, working checkups, MCP readiness wait, idle docket
-    // reminders, and the blocked-docket variant that joined them later
-    assert.equal(rows.length, 5)
+    // All six shipped runtime switches retain distinct accessible names
+    // and visible state.
+    assert.equal(rows.length, 6)
     for (const row of rows) {
       const box = row.querySelector<HTMLInputElement>('.set-lead input')!
       const name = box.getAttribute('aria-label')
@@ -179,11 +179,12 @@ test('§7 a toggle names itself to a screen reader without reading out its own '
         box.checked ? 'on' : 'off')
     }
     // …and it still tracks through a real flip that goes to the server
-    const first = rows[0]!.querySelector<HTMLInputElement>('.set-lead input')!
+    const first = panel.querySelector<HTMLInputElement>(
+      'input[aria-label="keep agent processes warm"]')!
     assert.equal(first.checked, true)
     await inAct(async () => { first.click(); await flush(10) })
     assert.equal(first.checked, false)
-    assert.equal(rows[0]!.querySelector('.set-state')!.textContent, 'off')
+    assert.equal(first.closest('.set-row')!.querySelector('.set-state')!.textContent, 'off')
   } finally { await view.unmount(); delete g.fetch; localStorage.clear() }
 })
 

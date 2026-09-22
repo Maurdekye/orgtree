@@ -31,7 +31,8 @@ test('desktop settings retain providers and runtime while excluding registry and
     assert.equal(calls.some(c => c.includes('/accounts')), true, 'registered accounts belong to provider settings')
     const runtime = [...view.el.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(b => b.textContent === 'Runtime')!
     await inAct(async () => { runtime.click() })
-    const toggle = view.el.querySelector<HTMLInputElement>('#app-settings-panel-runtime input')!
+    const toggle = view.el.querySelector<HTMLInputElement>(
+      '#app-settings-panel-runtime input[aria-label="keep agent processes warm"]')!
     assert.ok(toggle.checked)
     await inAct(async () => { toggle.click(); await flush(10) })
     assert.equal(toggle.checked, false, 'real runtime toggle uses and adopts server response')

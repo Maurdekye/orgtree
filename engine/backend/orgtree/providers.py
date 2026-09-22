@@ -73,19 +73,20 @@ class TierInfo(TypedDict):
 # canvas node can wear both families until codex hire is enabled.
 _CODEX_LETTER: Final[dict[str, str]] = {
     "gpt-reserve": "R", "luna": "L", "terra": "T", "sol": "S",
-    "astra": "A"}
+    "astra": "A", "gpt-6-sol": "S", "gpt-6-luna": "L"}
 
 #: which tier names belong to the codex provider — the AXIS, nothing more.
 #: Seats and model ids live in ledger.TIERS / ledger.MODELS (the
 #: budget-bearing tables, codex rows added at M4 hire enablement); these
-#: views derive from them so there is exactly one copy to drift. Seat rule
-#: (user ruling 2026-08-28, ask card): STANDING API $ per M input — sol $5
-#: standard (the $4 promo, through ≥2026-11-21, never sets a seat), terra
-#: $2, and gpt-reserve/luna $0.20 → 0.2 each since the sub-$1 repricing
-#: (user ruling 2026-09-03); they used to floor to 1, which made the four
-#: bands read 1·1·2·5 and lost luna's 10× advantage over terra.
+#: views derive from them so there is exactly one copy to drift. User ruling
+#: 2026-09-22 sets Sol to 2 and Luna to 0.1 credits across model versions;
+#: Terra stays 2 and the legacy reserve tier stays 0.2.
 _CODEX_ALWAYS_TIER_NAMES: Final = ("gpt-reserve", "luna", "terra", "sol")
-_CODEX_TIER_NAMES: Final = _CODEX_ALWAYS_TIER_NAMES + ("astra",)
+_CODEX_TIER_NAMES: Final = _CODEX_ALWAYS_TIER_NAMES + (
+    "astra", "gpt-6-sol", "gpt-6-luna")
+# Context limits were not supplied with the GPT-6 release/pricing ruling.
+# Keep using observed CLI context instead of inheriting GPT-5.6's ceiling.
+CODEX_UNPINNED_CONTEXT_TIERS: Final = frozenset({"gpt-6-sol", "gpt-6-luna"})
 #: LEGACY tokens: known to the AXIS (an existing node on one still loads,
 #: prices, restarts and runs its lane) but never OFFERED for a new hire or a
 #: switch. `gpt-reserve` (user ruling 2026-09-04, audit item 12): reserve is
@@ -129,6 +130,9 @@ CODEX_PRICES: Final[dict[str, tuple[float, float, float]]] = {
     "terra": (2.00, 0.20, 12.00),
     "gpt-reserve": (0.20, 0.02, 1.20),
     "luna": (0.20, 0.02, 1.20),
+    # User-confirmed release pricing, 2026-09-22; half each 5.6 rate.
+    "gpt-6-sol": (2.00, 0.20, 10.00),
+    "gpt-6-luna": (0.10, 0.01, 0.60),
 }
 
 
