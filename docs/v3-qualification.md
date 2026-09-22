@@ -114,6 +114,10 @@ evidence. No externally supplied report is trusted as a qualification today.
 All outputs remain bound to the runner's before/after source identity. The same
 temporary environment removes inherited Orgtree/provider selectors. Adapter
 processes receive fixed commands; there is no live endpoint or source-root input.
+Child TEMP/TMP/TMPDIR paths are contained inside the parent's owned temporary
+root, so timing out a migration CLI also removes the fixture whose own cleanup
+context could not run. A real-CLI regression pauses after each of the six real
+fixtures is created, times out the process and checks containment and removal.
 
 `--wire` reuses `test_wire_contract.py` and `test_wire_contract_controls.py` through
 the existing isolated verification runner. Both exact module identities must

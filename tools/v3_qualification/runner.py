@@ -68,6 +68,7 @@ def child_env(root):
     env.update(ORGTREE_DATA=str(root/"data"), ORGTREE_STORE="sqlite",
                HOME=str(root/"home"), USERPROFILE=str(root/"home"),
                APPDATA=str(root/"home"), LOCALAPPDATA=str(root/"home"), XDG_CONFIG_HOME=str(root/"home"),
+               TEMP=str(root/"temp"), TMP=str(root/"temp"), TMPDIR=str(root/"temp"),
                ORGTREE_V2_TOKEN="qualification-only", PYTHONIOENCODING="utf-8",
                PYTHONDONTWRITEBYTECODE="1", GIT_OPTIONAL_LOCKS="0")
     return env
@@ -170,6 +171,9 @@ def run(repo, args):
     try:
         (root/"data").mkdir()
         (root/"home").mkdir()
+        # Child CLI TemporaryDirectory contexts cannot run after a hard timeout.
+        # Keep every child-owned fixture within the parent's cleanup boundary.
+        (root/"temp").mkdir()
         nonce = uuid.uuid4().hex
         (root/"qualification-root.json").write_text(json.dumps({"schema":SCHEMA,"nonce":nonce,"root":str(root)}),encoding="utf-8")
         exercise = run_child(repo,root,interpreter.path,"exercise",nonce,config,args.timeout)

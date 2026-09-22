@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -141,6 +142,55 @@ class OptionalAdapterTests(unittest.TestCase):
         self.assertEqual(migration.call_count,1)
         self.assertTrue(any(row.get("id") == "wire-compatibility" and row["classification"] == "failed" for row in report["adapters"]))
         self.assertTrue(any(row.get("id") == "migration.ordinary" for row in report["adapters"]))
+
+    def test_real_migration_cli_timeout_fixtures_are_owned_and_cleaned_by_parent(self):
+        # Run the real CLI, pausing only after its real fixture was created.
+        # A separate test-owned outer directory contains old-behavior leaks too.
+        options = SimpleNamespace(concurrency=[1],operations=2,rate=24,demand_multipliers=[1],
+                                  python=None,timeout=3,components=False,wire=False,migration=True)
+        verification = SimpleNamespace(select_interpreter=lambda *a:SimpleNamespace(path=sys.executable,version="test"))
+        passed = {"classification":"passed","observed":{}}
+        exercise = {"workloads":[passed],"controls":passed,"provenance":[]}
+        real_process = adapters.subprocess.run
+        script = '''import os,runpy,sys,time
+from pathlib import Path
+sys.path.insert(0,sys.argv[1])
+from tools.migration_harness import fixtures
+original = fixtures.create_fixture
+def paused(root, scenario):
+    original(root, scenario)
+    with Path(os.environ["QUALIFICATION_TIMEOUT_PATHS"]).open("a",encoding="utf-8") as stream:
+        stream.write(str(root)+"\\n")
+    time.sleep(60)
+fixtures.create_fixture = paused
+sys.argv = sys.argv[2:]
+runpy.run_module("tools.migration_harness",run_name="__main__")
+'''
+        with tempfile.TemporaryDirectory(prefix="qualification-timeout-test-") as directory:
+            outer = Path(directory).resolve()
+            paths = outer/"created-paths.txt"
+            owned_roots = []
+            def process(command, **kwargs):
+                command = list(command)
+                command[command.index("-c")+1] = script
+                kwargs["env"] = {**kwargs["env"],"QUALIFICATION_TIMEOUT_PATHS":str(paths)}
+                owned_roots.append(Path(kwargs["env"]["ORGTREE_DATA"]).parent)
+                return real_process(command,**kwargs)
+            with patch.dict(os.environ,{"TEMP":str(outer),"TMP":str(outer),"TMPDIR":str(outer)}), \
+                 patch.object(runner,"identity",return_value={"commit":"a"*40}), \
+                 patch.object(runner,"verification_module",return_value=verification), \
+                 patch.object(runner,"run_child",side_effect=[exercise,{"recovery":passed}]), \
+                 patch.object(runner,"negative_controls",return_value=[{"classification":"expected_negative"}]), \
+                 patch.object(adapters.subprocess,"run",side_effect=process):
+                report = runner.run(Path(__file__).resolve().parents[1],options)
+            created = [Path(path) for path in paths.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(len(created),6,"Each real CLI must create its fixture before timing out")
+            self.assertFalse(report["slice_passed"])
+            self.assertTrue(report["cleanup"]["completed"])
+            self.assertEqual(len(report["errors"]),6)
+            for fixture,owner in zip(created,owned_roots):
+                self.assertTrue(fixture.is_relative_to(owner),f"Fixture escaped parent cleanup: {fixture}")
+                self.assertFalse(fixture.exists(),f"Timed-out CLI fixture remained: {fixture}")
 
 
 if __name__ == "__main__":
