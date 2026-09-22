@@ -2,6 +2,11 @@
 
 `python -B tools/qualify-v3.py --components --output artifacts/v3-qualification.json`
 
+Add `--wire --migration` to include the separately reviewed wire compatibility
+suites and six synthetic migration preparation scenarios from the same checkout.
+Requested adapters must produce complete passing evidence; missing tools,
+unstructured/empty receipts, timeouts and unexpected refusals fail the slice.
+
 This first slice runs against the source checkout. It creates an empty temporary
 SQLite data directory, drives production `TokenGate` and `/api/agent` through
 HTTP/ASGI, closes that worker, and checks the same synthetic database in a new
@@ -102,6 +107,44 @@ missing runner must remain `not_exercised`. Future adapters must use their
 production interfaces and reusable synthetic fixtures. Do not promote a
 schema-neutral migration envelope or a renderer mock to native/full-product
 evidence. No externally supplied report is trusted as a qualification today.
+
+## Optional reviewed adapters
+
+`adapters.py` invokes sibling tools without reimplementing their product behavior.
+All outputs remain bound to the runner's before/after source identity. The same
+temporary environment removes inherited Orgtree/provider selectors. Adapter
+processes receive fixed commands; there is no live endpoint or source-root input.
+
+`--wire` reuses `test_wire_contract.py` and `test_wire_contract_controls.py` through
+the existing isolated verification runner. Both exact module identities must
+appear once, with successful structured results and the reviewed counts of 11
+and 1 tests. The latter test owns six fault subtests; the outer receipt counts
+the test, not six independently enumerated outcomes. Changes to these counts
+require deliberate adapter review. This is composed current-Python TCP HTTP/WS
+and real MCP stdio compatibility evidence. It does not execute application
+lifespan, providers or the native v3 durable-feed protocol. See
+[wire conformance](wire-conformance.md) for the complete fixture and control limits.
+
+`--migration` invokes the reviewed migration CLI for ordinary, SQLite, partial,
+large, interrupted and malformed synthetic fixtures. Five positive scenarios
+must provide all six named conservation checks, complete import and restored
+receipts, matching source/restore manifests and consistent SHA-256 fields. Their
+mapping remains `preserved_unmapped`, authority `none`, and activation false.
+The malformed control counts only when the five baselines pass and the CLI
+returns its exact invalid-JSON refusal with exit 1. A crash, unrelated refusal
+or missing result fails. Interrupted identifies its Python exception after
+local publication. CLI durations include fixture generation and rehearsal, and
+are not native migration latency measurements.
+
+This migration evidence is component-level synthetic preparation. It preserves
+all reported native gaps and never qualifies native schema import, live capture,
+writer fences, activation, current-state post-acknowledgment rollback, power-loss
+durability, streaming bounds or external-effect reconciliation. The CLI's six
+scenarios do not run its separately reviewed abrupt-child-exit test suite. See
+[synthetic migration](state-system/synthetic-migration-harness.md) for that scope.
+Omitting either flag records its optional adapter as `not_exercised`. Passing
+both still leaves `full_product_qualified` false and `--require-full-product`
+returns 3 after an otherwise passing slice.
 
 For a short development run:
 

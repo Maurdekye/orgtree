@@ -16,12 +16,13 @@ import uuid
 from collections import Counter
 
 from .evidence import negative_controls
+from .adapters import run_migration, run_wire
 
 SCHEMA = "orgtree.v3-qualification/v1"
 MISSING = {
     "native-postgresql": "Private PostgreSQL service, transaction conflicts, WAL and projection recovery are not connected.",
     "rust-backend": "The full Rust runtime is not available in this slice.",
-    "migration-rollback": "Migration/rollback adapter pending; no native cutover or post-acknowledgment rollback evidence.",
+    "migration-rollback": "Synthetic preparation can be measured with --migration; native import, cutover and post-acknowledgment rollback remain unexercised.",
     "multi-window": "Native window identity, tray/notification routing and restoration adapter pending.",
     "attention-desk": "Whole-App Attention/Desk retention adapter pending.",
     "full-product": "No installed or packaged desktop, native services or commit-to-paint measurement.",
@@ -154,7 +155,8 @@ def component_results(payload, requested):
 
 def run(repo, args):
     config = {"concurrency":args.concurrency,"operations":args.operations,"rate":args.rate,
-              "demand_multipliers":args.demand_multipliers}
+              "demand_multipliers":args.demand_multipliers,"components":args.components,
+              "wire":getattr(args,"wire",False),"migration":getattr(args,"migration",False)}
     report = {"schema":SCHEMA,"candidate":identity(repo),"config":config,
               "started_unix_s":time.time(),"fixture":"new empty synthetic SQLite; no live attachment",
               "adapters":[],"negative_controls":[],"missing_coverage":[
@@ -196,6 +198,25 @@ def run(repo, args):
         else:
             report["missing_coverage"].append({"id":"component-regressions","classification":"not_exercised",
                 "reason":"Pass --components to reuse existing mail/restart/tool-call suites."})
+        for enabled, name, adapter in (
+                (getattr(args,"wire",False), "wire-compatibility", run_wire),
+                (getattr(args,"migration",False), "synthetic-migration-preparation", run_migration)):
+            if not enabled:
+                report["missing_coverage"].append({"id":name,"classification":"not_exercised",
+                    "reason":f"Optional {name} adapter was not requested."})
+                continue
+            try:
+                if name == "wire-compatibility":
+                    rows, controls, errors = adapter(repo,root,interpreter.path,child_env(root),args.timeout,component_results)
+                else:
+                    rows, controls, errors = adapter(repo,interpreter.path,child_env(root),args.timeout)
+            except Exception as exc:
+                errors = [f"{name}: {type(exc).__name__}: {exc}"]
+                rows, controls = [{"id":name,"level":"component","classification":"failed",
+                    "errors":errors,"limits":["Requested adapter failed before producing a usable receipt"]}], []
+            report["adapters"].extend(rows)
+            report["negative_controls"].extend(controls)
+            report["errors"].extend(errors)
     except Exception as exc:
         report["errors"].append(f"{type(exc).__name__}: {exc}")
     finally:
@@ -226,6 +247,8 @@ def main(argv=None):
     parser.add_argument("--demand-multipliers",type=int,nargs="+",default=[1,2,4])
     parser.add_argument("--timeout",type=float,default=180)
     parser.add_argument("--components",action="store_true")
+    parser.add_argument("--wire",action="store_true",help="Reuse synthetic TCP HTTP/WS and MCP compatibility suites")
+    parser.add_argument("--migration",action="store_true",help="Run six synthetic migration preparation scenarios; no activation")
     parser.add_argument("--require-full-product",action="store_true",help="Exit 3 while full-product coverage is missing")
     parser.add_argument("--worker",choices=["exercise","reopen"],help=argparse.SUPPRESS)
     parser.add_argument("--root",help=argparse.SUPPRESS)
