@@ -570,7 +570,7 @@ export function PreferReserveRow({ checked, onChange, onUseAppDefault }: {
 }) {
   return (
     <>
-      <div className="field-label">reserve capacity — luna only</div>
+      <div className="field-label">reserve capacity — Luna 5.6 only</div>
       <label className="prefer-reserve">
         <input type="checkbox" checked={checked}
           onChange={(e) => onChange(e.target.checked)} />
@@ -579,6 +579,8 @@ export function PreferReserveRow({ checked, onChange, onUseAppDefault }: {
       {onUseAppDefault && <button type="button" onClick={onUseAppDefault}>
         use app default</button>}
       <div className="dim hub-hint">
+        GPT-6 Luna uses the direct plan pool; this setting applies only when
+        version 5.6 is selected.{' '}
         {checked
           ? 'turns use OpenAI’s reserve pool first and fall back to normal weekly Luna usage when reserve is spent or withdrawn'
           : 'turns use normal weekly Luna usage first and fall back to reserve when the weekly pool is spent'}

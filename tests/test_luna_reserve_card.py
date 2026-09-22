@@ -212,7 +212,8 @@ class ResolveIntegrationTests(unittest.TestCase):
 
     def test_reserve_with_room_is_on_reserve(self):
         r = cr.resolve("luna", login_kind="chatgpt", board=self._board(percent=20),
-                       marks={}, account=self.ACCT, now=1.0)
+                       marks={}, account=self.ACCT, now=1.0,
+                       direct_model="gpt-5.6-luna")
         self.assertEqual(r["route"], "reserve")
         self.assertIs(cr.on_reserve(r), True)
         self.assertEqual(cr.route_label(r, live=True), "reserve")
@@ -221,7 +222,8 @@ class ResolveIntegrationTests(unittest.TestCase):
         # the user turned the per-agent "Prefer reserve" box OFF: the turn
         # spends the normal weekly limit, so there is no reserve card
         r = cr.resolve("luna", login_kind="chatgpt", board=self._board(percent=20),
-                       marks={}, account=self.ACCT, now=1.0, prefer_reserve=False)
+                       marks={}, account=self.ACCT, now=1.0, prefer_reserve=False,
+                       direct_model="gpt-5.6-luna")
         self.assertEqual(r["route"], "direct")
         self.assertIs(cr.on_reserve(r), False)
         self.assertIsNone(cr.route_label(r, live=True))
@@ -230,7 +232,8 @@ class ResolveIntegrationTests(unittest.TestCase):
         # a COMPLETE board that carries no reserve bucket at all = no grant
         r = cr.resolve("luna", login_kind="chatgpt",
                        board=self._board(percent=0, absent=True, complete=True),
-                       marks={}, account=self.ACCT, now=1.0)
+                       marks={}, account=self.ACCT, now=1.0,
+                       direct_model="gpt-5.6-luna")
         self.assertEqual(r["route"], "direct")
         self.assertEqual(r["reason"], "no-grant")
         self.assertIs(cr.on_reserve(r), False)
@@ -238,14 +241,16 @@ class ResolveIntegrationTests(unittest.TestCase):
 
     def test_reserve_exhausted_shows_no_card(self):
         r = cr.resolve("luna", login_kind="chatgpt", board=self._board(percent=100),
-                       marks={}, account=self.ACCT, now=1.0)
+                       marks={}, account=self.ACCT, now=1.0,
+                       direct_model="gpt-5.6-luna")
         self.assertEqual(r["route"], "direct")
         self.assertIs(cr.on_reserve(r), False)
         self.assertIsNone(cr.route_label(r, live=True))
 
     def test_an_api_key_login_has_no_reserve_and_no_card(self):
         r = cr.resolve("luna", login_kind="api-key", board=self._board(percent=20),
-                       marks={}, account=self.ACCT, now=1.0)
+                       marks={}, account=self.ACCT, now=1.0,
+                       direct_model="gpt-5.6-luna")
         self.assertEqual(r["route"], "direct")
         self.assertIs(cr.on_reserve(r), False)
         self.assertIsNone(cr.route_label(r, live=True))
@@ -257,7 +262,8 @@ class ResolveIntegrationTests(unittest.TestCase):
         blank = {"available": False, "stale": True, "complete": False,
                  "account": None, "age": None, "limits": []}
         r = cr.resolve("luna", login_kind="chatgpt", board=blank, marks={},
-                       account=self.ACCT, now=1.0)
+                       account=self.ACCT, now=1.0,
+                       direct_model="gpt-5.6-luna")
         self.assertEqual(r["route"], "reserve")
         self.assertIs(cr.on_reserve(r), True)
         self.assertEqual(cr.route_label(r, live=True), "reserve")

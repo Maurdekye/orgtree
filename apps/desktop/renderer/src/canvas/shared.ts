@@ -42,7 +42,6 @@ const sanitizeMarkdown = (html: string): string => {
 export const TIER_LETTER: Record<string, string> = {
   haiku: 'H', sonnet: 'S', opus: 'O', fable: 'F',
   'gpt-reserve': 'R', luna: 'L', terra: 'T', sol: 'S', astra: 'A',
-  'gpt-6-sol': 'S', 'gpt-6-luna': 'L',
   // flash shares F with fable by the same accepted collision as sol/sonnet's
   // S — the chip class carries the family
   flash: 'F', pro: 'P',
@@ -61,7 +60,8 @@ export const TIER_SEAT: Record<string, number> =
  *  the head, or the menu reads as though the node is pinned to the older
  *  version it is merely listing. */
 export const MODEL_VERSIONS: Record<string, string[]> =
-  { opus: ['5.5', '5', '4.8'], fable: ['5.1', '5'], flash: ['3.8', '3.7', '3.6'] }
+  { opus: ['5.5', '5', '4.8'], fable: ['5.1', '5'], flash: ['3.8', '3.7', '3.6'],
+    sol: ['6', '5.6'], luna: ['6', '5.6'] }
 /** The codex family (FR-15 preview) — ChatGPT/OpenAI tiers. A
  *  SEPARATE list, never merged into TIERS: every existing surface iterates
  *  TIERS, and a family that cannot be hired yet must not grow chips there by
@@ -76,8 +76,8 @@ export const CODEX_ALWAYS_TIERS = ['luna', 'terra', 'sol']
  *  axis so a node that already wears one keeps its letter, colour, seat and
  *  provider class — but NEVER offered by any hire or switch surface
  *  (`codexTierOffer` answers 'hide' for them unconditionally). `gpt-reserve`
- *  stopped being a tier: a `luna` hire spends OpenAI's reserve pool first
- *  and falls back to the direct lane by itself; the backend's route receipt
+ *  stopped being a tier: a Luna 5.6 agent may spend OpenAI's reserve pool
+ *  first and fall back to the direct lane; GPT-6 Luna runs direct. The backend's route receipt
  *  (`TreeNode.codex_route`) says which one a turn actually ran on. Mirrors
  *  providers.LEGACY_CODEX_TIERS. */
 export const LEGACY_CODEX_TIERS = ['gpt-reserve']
@@ -87,13 +87,11 @@ export const LEGACY_CODEX_TIERS = ['gpt-reserve']
  *  because it is in this list; `codexTierOffer` requires it in the backend's
  *  live account-scoped tier rows. */
 export const CODEX_TIERS = [...LEGACY_CODEX_TIERS, ...CODEX_ALWAYS_TIERS,
-  'astra', 'gpt-6-sol', 'gpt-6-luna']
+  'astra']
 export const CODEX_TIER_LETTER: Record<string, string> = {
-  'gpt-reserve': 'R', luna: 'L', terra: 'T', sol: 'S', astra: 'A',
-  'gpt-6-sol': 'S', 'gpt-6-luna': 'L' }
+  'gpt-reserve': 'R', luna: 'L', terra: 'T', sol: 'S', astra: 'A' }
 export const CODEX_TIER_SEAT: Record<string, number> = {
-  'gpt-reserve': 0.2, luna: 0.1, terra: 2, sol: 2, astra: 10,
-  'gpt-6-sol': 2, 'gpt-6-luna': 0.1 }
+  'gpt-reserve': 0.2, luna: 0.1, terra: 2, sol: 2, astra: 10 }
 /** The antigravity family (D-189, re-walked for the Antigravity CLI
  *  2026-09-02) — Google tiers served by `agy`: flash (3.8-flash, with 3.7 and
  *  3.6 in the version menu) and pro (3.1-pro). Same separate-list rule as the

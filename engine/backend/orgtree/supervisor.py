@@ -309,6 +309,9 @@ def tier_context(tier: str,
     cw = TIER_CONTEXT.get(tier)
     if cw:
         return cw
+    if tier in {"sol", "luna"} and models is not None and str(
+            models.get(tier) or "").startswith("gpt-5.6-"):
+        return providers.CODEX_CONTEXT
     if openrouter.is_tier(tier):
         return openrouter.context_for(tier, models)
     return None
@@ -11341,8 +11344,7 @@ def _cache_snapshot(org: Org, nid: str, *, now: float | None = None,
                 board=codex_limits.snapshot(now),
                 marks=cast("dict[str, Any] | None", n.get("codex_routes")),
                 account=account,
-                direct_model=providers.CODEX_MODELS.get(tier)
-                or org.model_for(nid), now=now,
+                direct_model=org.model_for(nid), now=now,
                 prefer_reserve=org.prefer_reserve_for(nid))
             route_model = _rt["model"]
             route_pool = _rt["pool"]
@@ -15402,7 +15404,7 @@ def _codex_resolve_route(org: Org, nid: str, tier: str, *,
         # idle preview has no launch capture and uses current local evidence.
         account=(account if account is not None
                  else _codex_account_namespace()),
-        direct_model=providers.CODEX_MODELS.get(tier) or org.model_for(nid),
+        direct_model=org.model_for(nid),
         selection=selection,
         # the per-agent "Prefer reserve" checkbox (absent = on)
         prefer_reserve=org.prefer_reserve_for(nid))
@@ -17187,6 +17189,8 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
             blob=blob, reset_ts=_reset, schedule_kind=_schedule_kind,
             provider="openai", account=str(route.get("account") or ""),
             resource_pool=("reserve+plan" if tier == codex_route.ROUTED_TIER
+                           and route["model"] in (codex_route.RESERVE_MODEL,
+                                                   codex_route.RESERVE_LUNA_MODEL)
                            else str(_served or route.get("pool") or "")),
             reset_from=("board" if _reset_src == codex_route.SRC_BOARD
                         else "message"))
@@ -17226,7 +17230,7 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
         _visible_live_row(fallback_live)
     res: dict[str, Any] = {
         "status": status,
-        "total_cost_usd": providers.codex_cost(tier, tu),
+        "total_cost_usd": providers.codex_cost(tier, tu, route["model"]),
         "usage": {"output_tokens": int(((tu or {}).get("total") or {})
                                        .get("outputTokens") or 0)},
         "duration_ms": int((time.time() - t0) * 1000),
@@ -23434,7 +23438,8 @@ def _after_turn(slug: str, nid: str, org: Org, res: dict[str, Any],
                        and mcp_fingerprint_raw else None)
     # the pinned per-tier window wins; the CLI's modelUsage.contextWindow is
     # only a fallback for unknown tiers (it under-reported 1M models as 200k)
-    cw = tier_context(str(org.node(nid)["model"]), org.d.get("models"))
+    _tier = str(org.node(nid)["model"])
+    cw = tier_context(_tier, {_tier: org.model_for(nid)})
     if not cw:
         for mu in (res.get("modelUsage") or {}).values():
             cw = mu.get("contextWindow") or cw
@@ -24664,7 +24669,7 @@ def _compact_split_codex_body(slug: str, nid: str, org: Org,
         new_sid = str(compacted.get("thread_id") or "")
         token_usage = compacted.get("token_usage")
         usage = token_usage if isinstance(token_usage, dict) else None
-        fork_cost = providers.codex_cost(tier, usage)
+        fork_cost = providers.codex_cost(tier, usage, model)
         occ_new = providers.codex_occupancy(usage) or None
 
         # The provider owns thread memory; Orgtree owns the journal rendered

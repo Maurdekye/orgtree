@@ -85,34 +85,37 @@ const options = (el: HTMLElement) =>
 const option = (el: HTMLElement, tier: string) =>
   options(el).find((o) => o.value === tier)!
 
-for (const [tier, seat] of [['gpt-6-sol', 2], ['gpt-6-luna', 0.1]] as const) {
-  configTest(`${tier} is selectable only when the account lists it`, async (mount) => {
-    const absent = await mount({ node: node('sol') })
-    assert.equal(option(absent.el, tier), undefined)
-    const { el, ops } = await mount({ node: node('sol'),
-      tree: tree({ tiers: { haiku: 1, sonnet: 2, opus: 4, fable: 10,
-        sol: 2, luna: 0.1, [tier]: seat } }),
+for (const [tier, seat] of [['sol', 2], ['luna', 0.1]] as const) {
+  configTest(`${tier} offers 6 by default and 5.6 inside one tier`, async (mount) => {
+    const { el, ops } = await mount({ node: { ...node(tier), seat },
       provider: provider({ tiers: [{ tier, provider: 'openai', seat,
-        model: tier, letter: tier === 'gpt-6-sol' ? 'S' : 'L' }] }),
+        model: `gpt-6-${tier}`, letter: tier === 'sol' ? 'S' : 'L' }] }),
     })
-    assert.equal(option(el, tier).disabled, false)
-    assert.match(option(el, tier).textContent ?? '', new RegExp(`${tier}.*seat ${seat}`))
-    assert.match(option(el, 'sol').textContent ?? '', /seat 2/)
-    assert.match(option(el, 'luna').textContent ?? '', /seat 0.1/)
+    assert.equal(option(el, `gpt-6-${tier}`), undefined)
+    assert.match(option(el, tier).textContent ?? '', new RegExp(`seat ${seat}`))
     assert.equal(CODEX_TIER_SEAT[tier], seat)
-    assert.equal(CODEX_TIER_SEAT.sol, 2)
-    assert.equal(CODEX_TIER_SEAT.luna, 0.1)
+    const versions = [...el.querySelectorAll<HTMLSelectElement>('select')]
+      .find((s) => [...s.options].some((o) => o.textContent === `${tier} 5.6`))!
+    assert.deepEqual([...versions.options].map((o) => [o.value, o.textContent]),
+      [['', 'latest (6)'], ['6', `${tier} 6`], ['5.6', `${tier} 5.6`]])
     const { act } = await import('react')
-    const select = el.querySelector<HTMLSelectElement>('.model-switch')!
     await act(async () => {
-      select.value = tier
-      select.dispatchEvent(new Event('change', { bubbles: true }))
+      versions.value = '5.6'
+      versions.dispatchEvent(new Event('change', { bubbles: true }))
     })
     const save = [...el.querySelectorAll<HTMLButtonElement>('button')]
       .find((b) => b.textContent?.trim() === 'save')!
-    await act(async () => { save.click() })
-    assert.deepEqual(ops.find((o) => o.op === 'switch_model'),
-      { op: 'switch_model', node: 'agent', tier })
+    const originalFetch = globalThis.fetch
+    const saved: Record<string, unknown>[] = []
+    globalThis.fetch = (input, init) => {
+      if (String(input).endsWith('/nodes/agent/scope'))
+        saved.push(JSON.parse(String(init?.body)))
+      return originalFetch(input, init)
+    }
+    try { await act(async () => { save.click() }) }
+    finally { globalThis.fetch = originalFetch }
+    assert.equal(saved[0]?.model_version, '5.6')
+    assert.equal(ops.some((o) => o.op === 'switch_model'), false)
   })
 }
 

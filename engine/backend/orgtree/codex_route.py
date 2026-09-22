@@ -90,7 +90,8 @@ ROUTED_TIER: Final = "luna"
 LEGACY_RESERVE_TIER: Final = "gpt-reserve"
 
 RESERVE_MODEL: Final[str] = _MODELS[LEGACY_RESERVE_TIER]      # "gpt-reserve"
-DIRECT_LUNA_MODEL: Final[str] = _MODELS[ROUTED_TIER]          # "gpt-5.6-luna"
+DIRECT_LUNA_MODEL: Final[str] = _MODELS[ROUTED_TIER]          # "gpt-6-luna"
+RESERVE_LUNA_MODEL: Final[str] = "gpt-5.6-luna"
 
 #: HOW LONG A FACT ABOUT ONE WINDOW IS GOOD FOR. `codex_limits` binds its
 #: `MAX_EVIDENCE_AGE` to this, and the resolver applies it PER WINDOW (parent
@@ -376,7 +377,8 @@ def failure_deadline(route: Route, board: dict[str, Any], snapshots: Any,
     limits = ([cast("dict[str, Any]", value)
                for value in cast("list[Any]", board.get("limits") or [])
                if isinstance(value, dict)] if board_ok else [])
-    if route.get("requested") == ROUTED_TIER:
+    if (route.get("requested") == ROUTED_TIER
+            and route.get("model") in (RESERVE_MODEL, RESERVE_LUNA_MODEL)):
         if not pool:
             return None, "probe", ""
         # both pools out: PER POOL the notification answers first and the
@@ -645,6 +647,11 @@ def resolve(tier: str, *, login_kind: str | None, board: dict[str, Any],
         return direct_route(tier, direct_model, account, reason="tier",
                             evidence="tier", selection=selection,
                             prefer=PLAN_POOL)
+    if direct_model != RESERVE_LUNA_MODEL:
+        # The reserve grant is for 5.6 Luna, not every future Luna version.
+        return direct_route(tier, direct_model, account,
+                            reason="model-version-direct", evidence="tier",
+                            selection=selection, prefer=PLAN_POOL)
     age = board.get("age")
     board_age = float(age) if isinstance(age, (int, float)) else None
     order = ((RESERVE_POOL, PLAN_POOL) if prefer_reserve
@@ -667,7 +674,7 @@ def resolve(tier: str, *, login_kind: str | None, board: dict[str, Any],
         return _route_for(tier, first, account, reason=reason,
                           evidence=v1["evidence"], board_age=board_age,
                           selection=selection, prefer=prefer,
-                          direct_model=DIRECT_LUNA_MODEL)
+                          direct_model=direct_model)
     if not v2["excluded"]:
         # the preferred pool is out; the other one is not known to be
         why = v1["reason"]
@@ -677,7 +684,7 @@ def resolve(tier: str, *, login_kind: str | None, board: dict[str, Any],
         return _route_for(tier, second, account, reason=reason,
                           evidence=v1["evidence"], board_age=board_age,
                           reset_ts=v1["reset_ts"], selection=selection,
-                          prefer=prefer, direct_model=DIRECT_LUNA_MODEL)
+                          prefer=prefer, direct_model=direct_model)
     # both excluded: the provider answers, on the preferred pool, unless the
     # preferred pool cannot be asked at all (api-key login has no reserve)
     target = second if v1["reason"] == "login-kind" else first
@@ -688,7 +695,7 @@ def resolve(tier: str, *, login_kind: str | None, board: dict[str, Any],
                       evidence=v1["evidence"], board_age=board_age,
                       reset_ts=(min(known) if known else None),
                       selection=selection, prefer=prefer,
-                      direct_model=DIRECT_LUNA_MODEL)
+                      direct_model=direct_model)
 
 
 def other_route(route: Route) -> Route | None:
@@ -696,11 +703,12 @@ def other_route(route: Route) -> Route | None:
     routed tier has one; a legacy reserve node and every other tier have
     nowhere else to go."""
     tier = route["requested"]
-    if tier != ROUTED_TIER:
+    if tier != ROUTED_TIER or route.get("model") not in (
+            RESERVE_MODEL, RESERVE_LUNA_MODEL):
         return None
     prefer = route.get("prefer") or RESERVE_POOL
     if route["route"] == "reserve":
-        return direct_route(tier, DIRECT_LUNA_MODEL, route["account"],
+        return direct_route(tier, RESERVE_LUNA_MODEL, route["account"],
                             reason="reserve-rejected", evidence="rejection",
                             selection="retry", prefer=prefer)
     return reserve_route(tier, route["account"], reason="direct-rejected",

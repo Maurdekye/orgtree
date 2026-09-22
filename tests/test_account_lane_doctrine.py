@@ -190,6 +190,7 @@ class AccountLaneDoctrine(unittest.TestCase):
             return codex_route.resolve('luna', login_kind='subscription',
                                        board=board, marks={}, account='acct',
                                        now=1_800_000_000.0,
+                                       direct_model='gpt-5.6-luna',
                                        prefer_reserve=prefer)
         # reserve-first is the DEFAULT — the prose's main clause
         self.assertEqual(route(True)['pool'], codex_route.RESERVE_POOL)
