@@ -784,7 +784,12 @@ class ReclaimTransactionTests(unittest.TestCase):
         self.make_legacy()
         self.sandboxed()
         for state in (None,                          # docker cannot say
-                      (True, self.MINE - 60)):       # running since before us
+                      (True, self.MINE - 60),        # running since before us
+                      # clock skew: the daemon (VM) clock says the running
+                      # container started after us; a running container is
+                      # still never proof (review N2)
+                      (True, self.MINE + 3600),
+                      (True, None)):
             with self.subTest(state=state):
                 with self.restart_proof(), \
                         patch.object(sup, '_sandbox_container_state', return_value=state):
@@ -797,7 +802,7 @@ class ReclaimTransactionTests(unittest.TestCase):
 
     def test_sandboxed_org_folds_once_container_evidence_is_positive(self):
         for name, state in (('stopped', (False, self.MINE - 60)),
-                            ('restarted_after_us', (True, self.MINE + 5))):
+                            ('stopped_unreadable_start', (False, None))):
             with self.subTest(name=name):
                 org = self.load(self.slug)
                 org.d['delivering']['worker'] = [copy.deepcopy(self.original)]

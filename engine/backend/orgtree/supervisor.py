@@ -30720,7 +30720,10 @@ def _restart_owners_gone() -> Callable[[Mapping[str, Any]], bool] | None:
 
 def _sandbox_container_state(slug: str) -> tuple[bool, float | None] | None:
     """(running, started_at epoch) of the org's sandbox container, or None
-    when docker cannot say (missing container, docker error, timeout)."""
+    when docker cannot say (missing container, docker error, timeout).
+
+    `started_at` is on the Docker daemon's clock (a VM on Windows), not this
+    host's, so it is reported for diagnostics only and is NEVER owner proof."""
     try:
         r = sbx._docker("container", "inspect", "-f",
                         "{{.State.Running}} {{.State.StartedAt}}",
@@ -30749,19 +30752,20 @@ def _sandbox_owner_proof(org: Org, owners_gone: Callable[[Mapping[str, Any]], bo
     the host table sees only the docker client, and killing that client leaves
     the in-container process alive (sandbox.py). So the host proof is
     necessary but not sufficient: also require positive container evidence
-    that no process from before this engine survives. Either the container
-    is not running, or it was (re)started after this engine began. Anything
-    else (running since earlier, missing, docker error, unreadable time)
-    answers 'not proven'."""
+    that no process from before this engine survives. The ONLY accepted
+    evidence is docker reporting the container exists and is not running.
+    A running container is never proof, whatever its StartedAt says: that
+    stamp is on the daemon's (VM's) clock, and without a proven bound on the
+    skew against this host's clock a pre-existing container could look
+    restarted (decision35 review N2). Missing, docker error or timeout
+    answer 'not proven'."""
     cache: dict[str, bool] = {}
     mine = getattr(owners_gone, "mine", None)
 
     def stopped() -> bool:
         if "v" not in cache:
             state = _sandbox_container_state(org.d["slug"])
-            cache["v"] = bool(state is not None and (
-                not state[0] or (isinstance(mine, float) and state[1] is not None
-                                 and state[1] > mine)))
+            cache["v"] = bool(state is not None and state[0] is False)
         return cache["v"]
 
     def gone(row: Mapping[str, Any]) -> bool:
