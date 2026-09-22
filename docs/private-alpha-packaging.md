@@ -3,9 +3,27 @@
 `3.0.0-alpha.0` is reserved for direct private delivery. It must never be a
 public tag, GitHub release, or updater-feed entry. The ordinary
 `release:windows` and release preflight refuse this version; other stable and
-beta versions retain their existing behavior. The repository version remains
-on the stable development line. Only the explicit private build overrides the
-embedded package version and build-info version to exactly `3.0.0-alpha.0`.
+beta versions retain their existing behavior.
+
+On the private `v3/3.0.0-alpha.0` branch, `package.json` and both
+`package-lock.json` version fields are exactly `3.0.0-alpha.0`. Stable main
+keeps its own 2.x version. Setting the branch version closes the public paths
+on this branch, not just for one command:
+
+- `release:windows` refuses `3.0.0-alpha.0` itself, and refuses any stable 2.x
+  target because the target must equal the package version. So v3 source
+  cannot be released as a stable update from this branch.
+- An ordinary `npm run build` records `3.0.0-alpha.0` on the release channel,
+  so the `package:win` / `package:dir` preflight refuses to package it. Those
+  paths would otherwise produce the stable identity (`com.maurdekye.orgtree`,
+  `Orgtree v2` data, updater on).
+- `package:dev` refuses, because a development version needs a plain `x.y.z`
+  base. This branch has no dev-channel installer. The private packager is the
+  only installer path.
+
+The private build also stamps exactly `3.0.0-alpha.0` into the packed
+`package.json` and `build-info.json`. `tests/private-alpha-identity.test.mjs`
+drives every guard above with the real repository version.
 
 ## Inspect the plan without building
 
@@ -86,6 +104,29 @@ FileVersion cannot carry a semver prerelease. It extracts the installer's
 build-info against the built output, checks the complete Python runtime tree,
 and performs the existing runtime import probes. Extraction remains in the
 private output directory for inspection.
+
+## Installation, user data and rollback
+
+What the packaging configuration decides is tested at the config level: it
+is checked through electron-builder's own GUID rule and the compiled
+build-channel source, and no installer is run. The rest is stated as expected
+behavior and remains open until the integrated candidate is qualified on a
+real machine.
+
+| Aspect | Private alpha behavior | Evidence |
+| --- | --- | --- |
+| Installed program | Per-user NSIS install named `Orgtree Private Alpha`, with its own Start-menu shortcuts. | Tested: product and shortcut names, `perMachine: false`. |
+| Uninstall entry | Separate. The appId `com.maurdekye.orgtree.private-alpha` gives a different NSIS GUID, and so a different uninstall and install registry key from stable Orgtree. | Tested: GUIDs derived by electron-builder's rule differ. |
+| Stable installation | Not replaced, upgraded, relaunched or uninstalled by the private installer. Both can be installed together. | Follows from the separate GUID and product name. Not exercised: the installer is never executed here. |
+| Default install folder | electron-builder's per-user default, a folder named after the product (normally `%LOCALAPPDATA%\Programs\Orgtree Private Alpha`). | Not exercised. |
+| Electron user data | `%APPDATA%\Orgtree v3 Alpha`, compiled into the private bundle, so missing build-info cannot fall back to stable. | Tested: compiled identity. |
+| Backend data | `%APPDATA%\Orgtree v3 Alpha\data`. Stable data in `%APPDATA%\Orgtree v2` is not read or written by default. Nothing is imported from stable, so the private alpha starts with empty data. | Path derivation read from source. Not exercised. |
+| Stable boot-task engine | Not adopted. The attach descriptor (`engine-attach.json`) is read from the app's own data root, so the private alpha attaches only to an engine serving `Orgtree v3 Alpha\data`. The private installer also leaves out the machine-wide boot-task changes (see above). | Read from source. Not exercised. |
+| `ORGTREE_V2_DATA` override | **Open risk.** When this environment variable is set, every build, private included, uses that folder as its backend data root. That includes attaching to whatever engine that folder's descriptor names. If it names the stable data folder, the private alpha would share stable data and stable's engine. Packaging cannot guard this. Keep it unset while testing the private alpha. | Not guarded. |
+| Updates | None. The updater is compiled off, no feed metadata is produced, and a stable 2.x installation accepts stable releases only. | Tested: identity, no-YAML scan, stable prerelease rule. |
+| Later private alpha | A newer private installer with the same appId installs over the previous private alpha. Moving v3 data between alpha builds is not qualified. | Not exercised. |
+| Running both at once | Separate names and single-instance locks. Running stable and private alpha at the same time is not qualified. | Not exercised. |
+| Rollback | Uninstall `Orgtree Private Alpha` from Windows Apps. Stable Orgtree is untouched throughout. Uninstall keeps `%APPDATA%\Orgtree v3 Alpha` (`deleteAppDataOnUninstall: false`, as for stable); delete that folder by hand to discard alpha data. | Setting tested; uninstall not exercised. |
 
 ## Delivery evidence
 
