@@ -154,3 +154,114 @@ test('a stable 2.x installation is never offered this prerelease, and the privat
     appUserModelId: PRIVATE_ALPHA_APP_ID, displayName: PRIVATE_ALPHA_PRODUCT, updatesSupported: false })
   assert.notEqual(identity.name, stable.desktopIdentity(true, 'release').name)
 })
+
+// ⚠ THE PRIVATE ALPHA'S BACKEND DATA ROOT. Its Electron userData is compiled
+// in, but the backend root used to be `ORGTREE_V2_DATA ?? <userData>\data`, so
+// the override could point the private build at stable's data folder and at
+// stable's engine through that folder's attach descriptor. resolveDataRoot
+// refuses that for the private identity only.
+async function compileMain(dir, name, enabled) {
+  const outfile = path.join(dir, `${name}-${enabled}.cjs`)
+  await build({ entryPoints: [`apps/desktop/main/${name}.ts`], outfile,
+    bundle: true, platform: 'node', format: 'cjs',
+    define: { __ORGTREE_PRIVATE_ALPHA__: JSON.stringify(`ORGTREE-PRIVATE-ALPHA-BUILD:${enabled ? 'enabled' : 'disabled'}`) } })
+  return require(outfile)
+}
+
+async function dataRootFixture(t) {
+  const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-alpha-dataroot-')))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const { resolveDataRoot } = await compileMain(dir, 'policy', false)
+  const channel = await compileMain(dir, 'build-channel', true)
+  const stableChannel = await compileMain(dir, 'build-channel', false)
+  // The real identities: a packaged private build, a packaged stable release
+  // and a packaged dev-channel build.
+  const priv = channel.desktopIdentity(true, channel.readBuildChannel(path.join(dir, 'absent.json')))
+  const release = stableChannel.desktopIdentity(true, 'release')
+  const dev = stableChannel.desktopIdentity(true, 'dev')
+  assert.equal(priv.appId, PRIVATE_ALPHA_APP_ID)
+  const appData = path.join(dir, 'AppData', 'Roaming')
+  const privateUserData = path.join(appData, priv.name)
+  const stableData = path.join(appData, release.name, 'data')
+  fs.mkdirSync(path.join(privateUserData, 'data'), { recursive: true })
+  fs.mkdirSync(stableData, { recursive: true })
+  return { dir, resolveDataRoot, priv, release, dev, privateUserData, stableData, own: path.join(privateUserData, 'data') }
+}
+
+const refusedByPrivate = /private alpha uses only its own data folder/
+
+test('the private alpha uses only its own backend data root, whatever ORGTREE_V2_DATA says', async t => {
+  const f = await dataRootFixture(t)
+  const resolve = requested => f.resolveDataRoot(requested, f.privateUserData, f.priv)
+  // Allowed: unset, or the same folder however it is spelled.
+  assert.equal(resolve(undefined), f.own)
+  for (const same of [f.own, f.own + path.sep, path.join(f.own, 'x', '..'),
+    ...(process.platform === 'win32' ? [f.own.toUpperCase()] : [])]) assert.equal(resolve(same), f.own, same)
+  if (process.platform === 'win32') {
+    const junction = path.join(f.dir, 'junction-to-own')
+    fs.symlinkSync(f.own, junction, 'junction')
+    assert.equal(resolve(junction), f.own, 'a junction to the private root is the same root')
+  }
+  // Refused: stable's data folder and anything else, before any start/attach.
+  const elsewhere = [f.stableData, path.join(f.stableData, '..'), f.privateUserData, path.join(f.own, 'nested'),
+    path.join(f.dir, 'somewhere-else'), '', 'data', path.join('..', 'data')]
+  if (process.platform === 'win32') {
+    const toStable = path.join(f.dir, 'junction-to-stable')
+    fs.symlinkSync(f.stableData, toStable, 'junction')
+    elsewhere.push(toStable)
+  }
+  for (const other of elsewhere) assert.throws(() => resolve(other), refusedByPrivate, JSON.stringify(other))
+  // The refusal names both folders so the dialog is actionable.
+  assert.throws(() => resolve(f.stableData), error => error.message.includes(f.own) && error.message.includes(JSON.stringify(f.stableData)))
+})
+
+test('negative control: stable and dev identities keep the ORGTREE_V2_DATA override unchanged', async t => {
+  const f = await dataRootFixture(t)
+  for (const identity of [f.release, f.dev]) {
+    const userData = path.join(f.dir, 'AppData', 'Roaming', identity.name)
+    for (const requested of [undefined, f.stableData, f.own, path.join(f.dir, 'somewhere-else'), '', 'data']) {
+      // Exactly the previous expression's value.
+      assert.equal(f.resolveDataRoot(requested, userData, identity), requested ?? path.join(userData, 'data'), `${identity.name} ${requested}`)
+    }
+  }
+})
+
+test('startup path: the engine options take their data root from resolveDataRoot with this process\'s identity', async t => {
+  const source = fs.readFileSync('apps/desktop/main/index.ts', 'utf8')
+  // The module-level identity is the one app.setName (and so userData) uses.
+  assert.match(source, /^const identity = desktopIdentity\(/m)
+  assert.match(source, /^app\.setName\(identity\.name\)\r?$/m)
+  // The one data-root expression; no other main-process code reads the variable.
+  const lines = source.split(/\r?\n/).filter(line => /^\s*dataRoot:/.test(line))
+  assert.equal(lines.length, 1)
+  const expression = /^\s*dataRoot: (.+),$/.exec(lines[0])[1]
+  assert.equal(expression, "resolveDataRoot(process.env.ORGTREE_V2_DATA, app.getPath('userData'), identity)")
+  for (const file of fs.readdirSync('apps/desktop/main').filter(name => name.endsWith('.ts'))) {
+    const code = fs.readFileSync(path.join('apps/desktop/main', file), 'utf8')
+    assert.equal((code.match(/env(\.ORGTREE_V2_DATA|\[['"`]ORGTREE_V2_DATA)/g) ?? []).length, file === 'index.ts' ? 1 : 0, file)
+  }
+  // It is evaluated inside the startup try, before any attach or start, and
+  // that try's catch shows the error and quits.
+  const at = source.indexOf(lines[0])
+  const optionsAt = source.lastIndexOf('const engineOptions = {', at)
+  assert.ok(optionsAt > 0 && at - optionsAt < 400)
+  assert.ok(at < source.indexOf('engine.attach(engineOptions)') && at < source.indexOf('engine.start(engineOptions)'))
+  assert.match(source.slice(at), /\} catch \(error\) \{\s*await dialog\.showMessageBox\(\{ type: 'error', message: 'Orgtree could not start its engine\.'[^\n]*\n\s*app\.quit\(\)/)
+
+  // Drive the REAL expression text with the real policy and identities.
+  const f = await dataRootFixture(t)
+  const evaluate = (text, identity, requested, userData) =>
+    new Function('resolveDataRoot', 'process', 'app', 'identity', 'path', `return ${text}`)(
+      f.resolveDataRoot, { env: requested === undefined ? {} : { ORGTREE_V2_DATA: requested } },
+      { getPath: name => { assert.equal(name, 'userData'); return userData } }, identity, path)
+  assert.equal(evaluate(expression, f.priv, undefined, f.privateUserData), f.own)
+  assert.throws(() => evaluate(expression, f.priv, f.stableData, f.privateUserData), refusedByPrivate)
+  const stableUserData = path.dirname(f.stableData)
+  assert.equal(evaluate(expression, f.release, f.stableData, stableUserData), f.stableData)
+  assert.equal(evaluate(expression, f.release, undefined, stableUserData), f.stableData)
+
+  // Negative control: the previous expression is exactly what this test
+  // exists to catch — it hands the private build stable's data folder.
+  const previous = "process.env.ORGTREE_V2_DATA ?? path.join(app.getPath('userData'), 'data')"
+  assert.equal(evaluate(previous, f.priv, f.stableData, f.privateUserData), f.stableData)
+})

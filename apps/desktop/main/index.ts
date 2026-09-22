@@ -10,7 +10,7 @@ import { Preferences } from './preferences'
 import { WindowPlacement } from './window-placement'
 import { configureTaskbar } from './taskbar'
 import { allowPrereleaseUpdates, desktopIdentity, readBuildChannel } from './build-channel'
-import { closeAction, HARNESS_LINKS, validateDataRoot } from './policy'
+import { closeAction, HARNESS_LINKS, resolveDataRoot, validateDataRoot } from './policy'
 import { configureArtifactSession, configureEngineSession, configureWindow, popoutRegistry, revealPopout } from './windows'
 import { registerHeldEventChannels } from './held-events'
 import { openOrg, orgWindowRegistry, planRestore, resolveNativeSender } from './org-windows'
@@ -1709,7 +1709,7 @@ else {
     try {
       const engineOptions = { directory,
         python: app.isPackaged ? path.join(directory, 'runtime', 'python.exe') : process.env.ORGTREE_V2_PYTHON ?? '',
-        dataRoot: process.env.ORGTREE_V2_DATA ?? path.join(app.getPath('userData'), 'data'),
+        dataRoot: resolveDataRoot(process.env.ORGTREE_V2_DATA, app.getPath('userData'), identity),
         forbiddenRoot: process.env.ORGTREE_DATA || path.join(os.homedir(), 'orgtree'),
         uiDirectory: app.isPackaged ? path.join(process.resourcesPath, 'ui') : path.join(app.getAppPath(), 'dist', 'renderer') }
       // The tray's restart entry restarts THIS engine, with the runtime,

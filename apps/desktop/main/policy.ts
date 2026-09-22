@@ -7,6 +7,7 @@ import { isStartupMode } from '../../../packages/contracts/desktop-window'
 import path from 'node:path'
 import fs from 'node:fs'
 import type { DesktopPreferences, EngineReady } from '../../../packages/contracts/index'
+import { PRIVATE_ALPHA_APP_ID, type DesktopIdentity } from './build-channel'
 
 export const DEFAULT_PREFERENCES: DesktopPreferences = { ...DEFAULT_NOTIFICATIONS, visualTheme: 'orgtree', contrastTheme: DEFAULT_CONTRAST, agentColorSource: 'provider', visualThemeExplicit: false, exitOnClose: false, startAtLogin: true, automaticUpdates: true, routineNotifications: false, onboarded: false, startupMode: 'restore' }
 export const TOKEN_HEADER = 'X-Orgtree-Desktop-Token'
@@ -43,22 +44,45 @@ export function preferencesPatch(value: unknown): Partial<DesktopPreferences> {
   return result
 }
 
+/** A path with its longest existing prefix resolved through links, so two
+ *  spellings of the same folder (case, `..`, a junction) compare equal. */
+function resolveExisting(p: string): string {
+  if (fs.existsSync(p)) return fs.realpathSync.native(p)
+  const parent = path.dirname(p)
+  if (parent === p) throw new Error('Invalid data root')
+  return path.join(resolveExisting(parent), path.basename(p))
+}
+const canonicalRoot = (p: string) => process.platform === 'win32' ? p.toLowerCase() : p
+
 /** Never allow the current v1 root, a nested directory within it, or its parent. */
 export function validateDataRoot(candidate: string, forbidden: string): string {
   if (!path.isAbsolute(candidate)) throw new Error('V2 data root must be absolute')
-  const resolveExisting = (p: string): string => {
-    if (fs.existsSync(p)) return fs.realpathSync.native(p)
-    const parent = path.dirname(p)
-    if (parent === p) throw new Error('Invalid data root')
-    return path.join(resolveExisting(parent), path.basename(p))
-  }
   const root = resolveExisting(path.resolve(candidate))
   const old = resolveExisting(path.resolve(forbidden))
-  const canonical = (p: string) => process.platform === 'win32' ? p.toLowerCase() : p
-  const a = canonical(root), b = canonical(old)
+  const a = canonicalRoot(root), b = canonicalRoot(old)
   const overlaps = (parent: string, child: string) => { const r = path.relative(parent, child); return !r || (!r.startsWith('..' + path.sep) && r !== '..' && !path.isAbsolute(r)) }
   if (overlaps(a, b) || overlaps(b, a)) throw new Error('V2 data root overlaps the v1 data root')
   return root
+}
+
+/** The backend data root this process starts or attaches to.
+ *
+ *  ⚠ A PRIVATE ALPHA HAS EXACTLY ONE DATA ROOT: `<userData>\data`, where
+ *  userData is its own compiled `Orgtree v3 Alpha` folder. ORGTREE_V2_DATA is
+ *  a development override, and obeying it here would let the private build
+ *  read and write stable's `Orgtree v2\data` and adopt stable's engine
+ *  through that folder's attach descriptor. So for the private identity the
+ *  variable is allowed only when unset or when it resolves to that same
+ *  folder; any other value, including an empty or relative one, is refused
+ *  before anything is started or attached, and the refusal names both paths.
+ *
+ *  Every other identity keeps the override exactly as before. */
+export function resolveDataRoot(requested: string | undefined, userData: string, identity: Pick<DesktopIdentity, 'appId'>): string {
+  const own = path.join(userData, 'data')
+  if (identity.appId !== PRIVATE_ALPHA_APP_ID) return requested ?? own
+  if (requested === undefined) return own
+  if (path.isAbsolute(requested) && canonicalRoot(resolveExisting(path.resolve(requested))) === canonicalRoot(resolveExisting(path.resolve(own)))) return own
+  throw new Error(`The private alpha uses only its own data folder, ${own}. ORGTREE_V2_DATA is set to ${JSON.stringify(requested)}, which is a different folder. Unset ORGTREE_V2_DATA and start it again.`)
 }
 
 /** A checkpoint is evidence only for this child/root and only once. Arbitrary
