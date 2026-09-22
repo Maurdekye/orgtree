@@ -225,19 +225,15 @@ def recover(slug: str, nid: str) -> bool:
 
         with store.DOC_LOCK:
             org = store.load_org(slug)
-            # `queue_consumer=True`: popping a queued carrier and driving a
-            # turn for it is this function's own next action, so a queued
-            # carrier here really does have a consumer. Without that the
-            # resolver would call it stranded and fold the batch out from under
-            # a carrier still due for delivery — and `_envelope` skips the
-            # mailbox for a carrier that claims to own a batch, so the mail
-            # would then be delivered by nobody at all.
+            # A queued carrier always holds its batch in the resolver: it is
+            # due for delivery, and `_envelope` skips the mailbox for a
+            # carrier that owns a batch, so folding it would leave the mail
+            # delivered by nobody. This function services that carrier below.
             # `now` comes from THIS module's clock so the drain hysteresis can
             # be exercised by the suite the same way the rest of the gate is.
             try:
                 sup.reclaim_orphans(slug, nid, org=org, pump_toks=(),
-                                    now=time.time(), queue_consumer=True,
-                                    mutate=_settle)
+                                    now=time.time(), mutate=_settle)
             except Exception as exc:                         # noqa: BLE001
                 # The transaction did not commit. The in-memory mutation is
                 # discarded with the document and NOTHING is concluded from the
@@ -258,18 +254,19 @@ def recover(slug: str, nid: str) -> bool:
         # still inside the drain grace — owns the delivery, and starting a
         # second turn for the same mail would duplicate it. This is the old
         # `keep` rule, decided from evidence rather than from carrier shape.
+        # The holder check, the free-node check, the pop and `busy` are ONE
+        # take: a turn admitted between two takes would otherwise be joined
+        # by a second one started here.
         with sup._state_lock:
             queued_toks = {t for c in st['queue'] if isinstance(c, dict)
                            for t in c.get('toks') or []}
-        if [t for t in outcome.get('journaled') or [] if t not in queued_toks]:
-            return False
-        with sup._state_lock:
+            if [t for t in outcome.get('journaled') or [] if t not in queued_toks]:
+                return False
             # ADMISSION is still gated on the node being free. Reclaim is safe
             # while a turn runs; STARTING one is not.
             if (st.get('busy') or st.get('proc_control') or st.get('responding')
                     or halt._workers.get((slug, nid))):
                 return False
-        with sup._state_lock:
             # Protected journaled carriers still own their exact payload.
             # Only empty obsolete pointers can be removed from this queue.
             st['queue'] = [c for c in st['queue']
@@ -283,9 +280,13 @@ def recover(slug: str, nid: str) -> bool:
             st['queue'] = [survivor for survivor in
                            (sup._publishable(st, c) for c in st['queue'])
                            if survivor is not None]
-            carrier = (st['queue'].pop(0) if st['queue'] else sup._mark_ping(
-                '(orgtree) You have new mail above — handle it as appropriate.',
-                mail_ids=remaining))
+            # The pop registers a visible handoff in this same take, so the
+            # carrier is never held only by this frame on its way to the turn.
+            carrier = sup._take_queued_carrier(st)
+            if carrier is None:
+                carrier = sup._mark_ping(
+                    '(orgtree) You have new mail above — handle it as appropriate.',
+                    mail_ids=remaining)
             st['busy'] = True
         try:
             sup._start_turn_worker(slug, nid, carrier)

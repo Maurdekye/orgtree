@@ -676,12 +676,15 @@ class TheFrozenSourceWitness(Case):
         self.assertEqual(len(FROZEN_WITNESS), 9)
 
 
-class NothingInTheProductCallsThisYet(Case):
-    """The slice's own boundary: a pure prerequisite with no live reader. If
-    this fails, an activation landed inside what was reviewed as a
-    refactor."""
+class OnlyTheRuntimeAdapterCallsThis(Case):
+    """The runtime batch's boundary. M0b shipped the classifier with no live
+    reader; the runtime ownership batch activates exactly one production
+    consumer, the `mailruntime` adapter, and every other module reaches the
+    classifier only through it. A second direct importer would be a second
+    place deciding custody, which is what the shared resolver exists to
+    prevent."""
 
-    def test_no_production_module_imports_the_classifier(self):
+    def test_the_runtime_adapter_is_the_only_production_importer(self):
         roots = [CHECKOUT / 'engine', CHECKOUT / 'tools']
         callers = []
         for root in roots:
@@ -693,17 +696,15 @@ class NothingInTheProductCallsThisYet(Case):
                 text = path.read_text(encoding='utf-8', errors='replace')
                 if 'mailownership' in text:
                     callers.append(str(path.relative_to(CHECKOUT)).replace('\\', '/'))
-        self.assertEqual(sorted(callers), [],
-                         'M0b authorises no runtime consumer of the classifier')
+        self.assertEqual(sorted(callers), ['engine/backend/orgtree/mailruntime.py'],
+                         'only the runtime adapter may consume the classifier')
 
-    def test_the_only_reader_is_this_test_module(self):
+    def test_test_readers_are_the_classifier_and_adapter_suites(self):
         tests = CHECKOUT / 'tests'
         readers = sorted(p.name for p in tests.rglob('*.py')
                          if 'mailownership' in p.read_text(encoding='utf-8', errors='replace'))
         self.assertEqual(readers, ['test_mail_ownership.py',
-                                   'test_mail_reclaim_fold.py'],
-                         'the fold module names it only to assert the supervisor '
-                         'does NOT import it')
+                                   'test_mail_runtime_ownership.py'])
 
 
 class UnreadableCustodyStillHolds(Case):

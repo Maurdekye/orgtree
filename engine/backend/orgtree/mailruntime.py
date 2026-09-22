@@ -353,8 +353,7 @@ def _live_attempt(facts: Mapping[str, Any]) -> Any:
     return None
 
 
-def _carrier_holds(facts: Mapping[str, Any], *,
-                   queue_consumer: bool) -> list[own.CarrierHold]:
+def _carrier_holds(facts: Mapping[str, Any]) -> list[own.CarrierHold]:
     # A concrete carrier may still be popped or restored. Node activity is not
     # evidence that it was discarded. Release requires the actual movement.
     result = []
@@ -402,8 +401,7 @@ def _memberships(facts: Mapping[str, Any]
 
 
 def snapshot(org: Any, nid: str, facts: Mapping[str, Any], *,
-             now: float, pump_toks: Any,
-             queue_consumer: bool = False) -> own.OwnershipSnapshot:
+             now: float, pump_toks: Any) -> own.OwnershipSnapshot:
     """Pure ownership evidence. Unknown data is represented, never discarded."""
     missing = set(STATE_SOURCES) - set(facts.get("sources") or ())
     if missing:
@@ -448,7 +446,7 @@ def snapshot(org: Any, nid: str, facts: Mapping[str, Any], *,
             members.append(own.Membership(kind=own.MembershipKind.TURN,
                                           owner=None, tokens=(tok,)))
 
-    carriers = _carrier_holds(facts, queue_consumer=queue_consumer)
+    carriers = _carrier_holds(facts)
     members.append(own.Membership(kind=own.MembershipKind.TURN, owner=None,
                                   tokens=facts["legacy_attempt"]))
     for carrier in (facts["pending_worker"] + facts["pump_carriers"]
@@ -501,24 +499,21 @@ def snapshot(org: Any, nid: str, facts: Mapping[str, Any], *,
 
 
 def classify(org: Any, nid: str, facts: Mapping[str, Any], *,
-             now: float, pump_toks: Any, queue_consumer: bool = False,
+             now: float, pump_toks: Any,
              ) -> tuple[own.Classification, own.OwnershipSnapshot]:
-    snap = snapshot(org, nid, facts, now=now, pump_toks=pump_toks,
-                    queue_consumer=queue_consumer)
+    snap = snapshot(org, nid, facts, now=now, pump_toks=pump_toks)
     return own.classify(snap), snap
 
 
 def eligible_tokens(org: Any, nid: str, facts: Mapping[str, Any], *,
-                    now: float, pump_toks: Any,
-                    queue_consumer: bool = False) -> frozenset[str]:
+                    now: float, pump_toks: Any) -> frozenset[str]:
     """The tokens this node may reclaim, and nothing else.
 
     A token under the reclaim fence is excluded even when the classifier calls
     it eligible: another transaction is already moving it, and two folds of one
     batch is the duplicate the whole protocol exists to avoid.
     """
-    result, _ = classify(org, nid, facts, now=now, pump_toks=pump_toks,
-                         queue_consumer=queue_consumer)
+    result, _ = classify(org, nid, facts, now=now, pump_toks=pump_toks)
     return result.reclaimable_tokens  # fences are represented in the same snapshot
 
 
@@ -676,15 +671,98 @@ def confirmed_tokens(org: Any, nid: str) -> frozenset[str]:
     return settled_tokens(org, nid, outcomes={"confirmed"})
 
 
+def journal_tokens(org: Any, nid: str) -> frozenset[str]:
+    rows = (org.d.get("delivering") or {}).get(nid) or []
+    return frozenset(r["tok"] for r in rows if isinstance(r, Mapping)
+                     and isinstance(r.get("tok"), str))
+
+
 def confirmation_receipt(org: Any, nid: str, toks: Iterable[str], *,
                          operation: str) -> dict[str, Any] | None:
-    """Prepare only unconfirmed tokens; a missing journal is never success."""
-    wanted = frozenset(toks) - confirmed_tokens(org, nid)
+    """Prepare only unconfirmed JOURNALED tokens; a missing journal is never success.
+
+    A token with no journal row gets no receipt at all: there is nothing to
+    confirm and nothing to remove, and writing one would turn absence into
+    evidence. `release_rowless` handles its runtime side.
+    """
+    wanted = (frozenset(toks) - confirmed_tokens(org, nid)) & journal_tokens(org, nid)
     if not wanted:
         return None
     receipt = reclaim_receipt(org, nid, wanted, operation=operation)
     receipt["outcome"] = "confirmed"
     return receipt
+
+
+def release_rowless(org: Any, st: dict[str, Any], nid: str,
+                    toks: Iterable[str]) -> frozenset[str]:
+    """Stop protecting journal rows that do not exist. UNDER `_state_lock`.
+
+    `mail_confirmed` exists to keep a consumed batch from being folded back
+    while its receipt is being saved. A token whose row is absent from this
+    fresh document has no batch left to protect, so holding it would only
+    block recovery (`maildrain.recover` waits for the set to drain) without
+    guarding anything. Nothing is concluded about delivery: no receipt is
+    written, and a row that reappears is protected again by the next caller.
+    """
+    gone = frozenset(toks) - journal_tokens(org, nid)
+    pending = st.get("mail_confirmed")
+    if isinstance(pending, set):
+        pending.difference_update(gone)
+    return gone
+
+
+def compact_receipts(org: Any, st: dict[str, Any], nid: str, *,
+                     keep: Iterable[str] = ()) -> int:
+    """Drop settled receipts nothing can still ask about. UNDER both locks.
+
+    The caller owns the fresh document and saves it. Without this every
+    confirmed batch adds a permanent receipt to the org document. A receipt
+    stays while its operation is an unresolved runtime intent or in `keep`
+    (the transaction writing it), while any of its tokens still has a journal
+    row, and while any durable record of this node still names one of its
+    tokens: the node record (halt and native retention, the inflight replay
+    marker) or its steer attempts. The token scan is textual and therefore
+    conservative; a false match only keeps a receipt. Before a receipt goes,
+    its tokens become runtime tombstones, so a carrier paused in this process
+    is still filtered exactly as the receipt would have filtered it; after a
+    restart only the durable records above can name a token at all.
+    """
+    import json
+    records = (org.d.get("mail_transitions") or {}).get(nid)
+    if not isinstance(records, dict) or not records:
+        return 0
+    pending = set(st.get("mail_reclaim_intents") or {}) | set(keep)
+    live = journal_tokens(org, nid)
+    try:
+        durable = json.dumps([org.nodes.get(nid),
+                              (org.d.get("steer_attempts") or {}).get(nid)],
+                             sort_keys=True, default=str)
+    except (TypeError, ValueError):
+        return 0
+    drop = []
+    for operation, receipt in records.items():
+        if operation in pending or not isinstance(receipt, Mapping):
+            continue
+        before = receipt.get("before")
+        if (receipt.get("node") != nid or not isinstance(before, Mapping)
+                or receipt.get("outcome") not in ("confirmed", "reclaimed")):
+            continue
+        toks = [t for t in before if isinstance(t, str) and t]
+        if not toks or len(toks) != len(before):
+            continue
+        if any(t in live or t in durable for t in toks):
+            continue
+        drop.append(operation)
+    for operation in drop:
+        receipt = records.pop(operation)
+        note_reclaimed(st, receipt["before"])
+        if receipt["outcome"] == "confirmed":
+            release = st.get("mail_confirmed")
+            if isinstance(release, set):
+                release.difference_update(receipt["before"])
+    if not records:
+        org.d["mail_transitions"].pop(nid, None)
+    return len(drop)
 
 
 def settle_confirmation(org: Any, st: dict[str, Any], nid: str) -> frozenset[str]:
@@ -702,6 +780,22 @@ def hold_handoff(st: dict[str, Any], carrier: Any) -> Any:
             entries.append(carrier)
             st.setdefault("mail_handoff_owners", {})[id(carrier)] = st.get("lifecycle_operation_id")
     return carrier
+
+
+def drop_handoff(st: dict[str, Any], carrier: Any) -> None:
+    """The consumer took THIS carrier object: release its local hold. UNDER `_state_lock`.
+
+    Called at admission whatever `_publishable` decided. A ready carrier is
+    then held by the attempt's registration, a retained one by its
+    publication-wait copy; the original must not linger beside either, or a
+    projection that dropped a reclaimed chunk would leave the unprojected
+    original holding stale text that a halt capture could later replay.
+    """
+    entries = st.get("mail_handoffs") or []
+    keep = [c for c in entries if c is not carrier]
+    if len(keep) != len(entries):
+        st["mail_handoffs"] = keep
+        st.get("mail_handoff_owners", {}).pop(id(carrier), None)
 
 
 def adopt_handoffs(st: dict[str, Any], toks: Iterable[str]) -> None:

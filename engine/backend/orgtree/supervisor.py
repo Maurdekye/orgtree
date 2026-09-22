@@ -9654,6 +9654,7 @@ def _confirm_delivered(slug: str, nid: str, toks: Iterable[str]) -> None:
             org = store.load_org(slug)
             with _state_lock:
                 mailruntime.settle_confirmation(org, st, nid)
+                mailruntime.release_rowless(org, st, nid, drop)
             receipt = mailruntime.confirmation_receipt(
                 org, nid, drop, operation=lifecycle.new_operation("mail-confirm"))
             if receipt is None:
@@ -9674,6 +9675,8 @@ def _confirm_delivered(slug: str, nid: str, toks: Iterable[str]) -> None:
             halt.confirmed(org, nid, selected)
             mailruntime.write_reclaim_receipt(org, receipt)
             mailruntime.settle_replay(org, nid)
+            with _state_lock:
+                mailruntime.compact_receipts(org, st, nid, keep=(receipt["operation"],))
             try:
                 store.save_org(org)
             except Exception:
@@ -9800,7 +9803,6 @@ def _reclaim_blocked(org: Org, nid: str) -> bool:
 
 def reclaim_orphans(slug: str, nid: str, *, org: Org | None = None,
                     pump_toks: Any = (), now: float | None = None,
-                    queue_consumer: bool = False,
                     only_toks: Iterable[str] | None = None,
                     mutate: Callable[[Org], None] | None = None,
                     ) -> dict[str, Any]:
@@ -9827,7 +9829,7 @@ def reclaim_orphans(slug: str, nid: str, *, org: Org | None = None,
             facts = mailruntime.runtime_facts(st)
             eligible = mailruntime.eligible_tokens(
                 org, nid, facts, now=time.time() if now is None else now,
-                pump_toks=pump_toks, queue_consumer=queue_consumer)
+                pump_toks=pump_toks)
             if only_toks is not None:
                 eligible = eligible.intersection(only_toks)
             out["eligible"] = eligible
@@ -9842,6 +9844,8 @@ def reclaim_orphans(slug: str, nid: str, *, org: Org | None = None,
                     if folded != safe:
                         raise RuntimeError("ownership changed before the reclaim fold")
                     mailruntime.write_reclaim_receipt(org, receipt)
+                    mailruntime.compact_receipts(org, st, nid,
+                                                 keep=(receipt["operation"],))
                     out["folded"] = folded
                 except BaseException:
                     # Nothing was saved. Discard the caller's document and let
@@ -18422,11 +18426,22 @@ def _run_one_turn_recorded(slug: str, nid: str,
     _trec = trec
     st = state(slug, nid)
     turn_operation_id = operation_id or lifecycle.new_operation("turn")
+    # CUSTODY ADMISSION. DOC_LOCK so a reclaim mid-save is never settled from
+    # a half-written read. Like the limit gate's read below, an unreadable
+    # document does not stop the attempt reaching its slot: nothing durable is
+    # settled, and the registration records an unproven identity, which the
+    # classifier treats as protection and never as permission.
     with store.DOC_LOCK:
-        admission_org = store.load_org(slug)
+        try:
+            admission_org = store.load_org(slug)
+        except Exception:                                    # noqa: BLE001
+            admission_org = None
         with _state_lock:
-            mailruntime.resolve_reclaims(admission_org, st, nid=nid)
+            if admission_org is not None:
+                mailruntime.resolve_reclaims(admission_org, st, nid=nid)
+            admitted = text
             text = _publishable(st, text)
+            mailruntime.drop_handoff(st, admitted)
             if text is None:
                 return None
             st["lifecycle_operation_id"] = turn_operation_id
@@ -18523,19 +18538,15 @@ def _run_one_turn_recorded(slug: str, nid: str,
         turn_view = carrier_view or ""
         retry_payload = str(text.get("retry_payload") or "")
         toks, text = list(text.get("toks") or []), text["text"]
-    # CUSTODY REGISTRATION. `mail_attempt_tokens` is kept because
-    # `_bump_hard_fail` reads it to discard the right drain demands, but it is
-    # no longer the ownership fact: a bare list carries no generation, no
-    # session and no attempt, so pairing it with the node's present identity
-    # would fabricate custody for whatever turn happens to ask later. The
-    # registration records all four parts TOGETHER, under the lock, with the
-    # attempt id the lifecycle already minted at the top of this function.
+    # `mail_attempt_tokens` is kept because `_bump_hard_fail` reads it to
+    # discard the right drain demands, but it is no longer the ownership fact:
+    # a bare list carries no generation, no session and no attempt, so pairing
+    # it with the node's present identity would fabricate custody for whatever
+    # turn happens to ask later. Custody is the registration made at admission
+    # above (all four identity parts together, DOC_LOCK then `_state_lock`),
+    # extended by `adopt` when the drain below adds tokens.
     # ⚠ under `_state_lock` — the list assignment was not, and a reader taking
-    # the lock could see a half-updated state. The custody registration itself
-    # happens at the drain below, where the document is already in hand:
-    # registering needs the node's mailbox/generation/session, and reaching for
-    # a document HERE would mean taking `DOC_LOCK` while holding `_state_lock`,
-    # which is the one lock order this file must never invert.
+    # the lock could see a half-updated state.
     with _state_lock:
         st['mail_attempt_tokens'] = toks
         st['mail_attempt_id'] = turn_operation_id
@@ -18898,13 +18909,11 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                                             else view_segments)))
                     store.save_org(org)
                 # CUSTODY. THIS attempt now holds every token it is carrying —
-                # the one just drained AND any it inherited from a steer
-                # carrier the boundary folded into the queue. Registered here,
-                # inside the DOC_LOCK that already has the document open, so
-                # the mailbox, generation and session are read in the same take
-                # that drained the mail; `_state_lock` nests inside DOC_LOCK,
-                # never the reverse. Until this runs the batch is journaled and
-                # unowned, which is exactly what `STRANDED_GRACE_S` covers.
+                # the one just drained (already adopted inside `_journal_drain`)
+                # AND any it inherited from a steer carrier the boundary folded
+                # into the queue. Adopted into the admission registration inside
+                # this DOC_LOCK; `_state_lock` nests inside DOC_LOCK, never the
+                # reverse. `adopt` is idempotent for tokens already held.
                 if toks:
                     with _state_lock:
                         mailruntime.adopt(st, attempt=turn_operation_id, toks=toks)
@@ -29468,6 +29477,7 @@ def commit_steer(slug: str, nid: str, msgs: list[Any], *,
                 return
             with _state_lock:
                 mailruntime.settle_confirmation(org, st, nid)
+                mailruntime.release_rowless(org, st, nid, toks)
             receipt = mailruntime.confirmation_receipt(org, nid, toks,
                 operation=lifecycle.new_operation("steer-confirm")) if toks else None
             if toks and receipt is None:
@@ -29507,6 +29517,9 @@ def commit_steer(slug: str, nid: str, msgs: list[Any], *,
             if receipt is not None:
                 mailruntime.write_reclaim_receipt(org, receipt)
                 mailruntime.settle_replay(org, nid)
+                with _state_lock:
+                    mailruntime.compact_receipts(org, st, nid,
+                                                 keep=(receipt["operation"],))
             try:
                 store.save_org(org)
             except Exception:
@@ -32537,6 +32550,7 @@ def _reconcile_mail_journal(org: Org) -> frozenset[str]:
             if folded != safe:
                 raise RuntimeError("restart journal selection changed")
             mailruntime.write_reclaim_receipt(org, receipt)
+            mailruntime.compact_receipts(org, st, nid, keep=(receipt["operation"],))
             all_folded.update(folded)
     return frozenset(all_folded)
 

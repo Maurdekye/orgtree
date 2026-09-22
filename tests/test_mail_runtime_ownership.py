@@ -35,6 +35,15 @@ class RuntimeOwnershipTests(unittest.TestCase):
         self.assertFalse(self.verdict().reclaimable)
         self.assertEqual(self.verdict().owner, own.OwnerEvidence.PROVEN)
 
+    def test_registration_without_a_readable_document_still_protects(self):
+        # Admission tolerates an unreadable document; the identity it records
+        # is then unproven, which must protect and never permit.
+        self.st.update(busy=True, lifecycle_operation_id='real-attempt')
+        record = runtime.register(self.st, None, 'worker', attempt='real-attempt',
+                                  toks=['orphan'])
+        self.assertIsInstance(record['mailbox'], own.Gap)
+        self.assertFalse(self.verdict().reclaimable)
+
     def test_session_handover_does_not_relabel_the_live_registration(self):
         self.st.update(busy=True, lifecycle_operation_id='real-attempt')
         runtime.register(self.st, self.org, 'worker', attempt='real-attempt', toks=['orphan'])

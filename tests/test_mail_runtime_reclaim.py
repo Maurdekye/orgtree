@@ -1,5 +1,6 @@
 """Synthetic real-store controls for atomic reclaim and ambiguous save outcomes."""
 import copy
+import json
 import os
 from pathlib import Path
 import sys
@@ -50,6 +51,9 @@ class ReclaimTransactionTests(unittest.TestCase):
         sup._state.pop((self.slug, 'worker'), None)
         store._POOL.close_all(self.slug)
 
+    def canonical(self):
+        return json.dumps(self.load(self.slug).d, sort_keys=True, ensure_ascii=False)
+
     def recover(self, **kw):
         return sup.reclaim_orphans(self.slug, 'worker', now=time.time(), **kw)
 
@@ -69,10 +73,12 @@ class ReclaimTransactionTests(unittest.TestCase):
 
 
     def test_internal_inspection_is_pure_and_agrees_with_reclaim(self):
-        before = copy.deepcopy(self.load(self.slug).d)
+        # LazyDoc equality materialises only its left operand, so two plain
+        # loads can compare unequal; compare the complete canonical documents.
+        before = self.canonical()
         result = sup.inspect_mail_ownership(self.slug, 'worker')
         self.assertEqual(result.reclaimable_tokens, {self.tok})
-        self.assertEqual(self.load(self.slug).d, before)
+        self.assertEqual(self.canonical(), before)
         self.st['queue'] = [self.carrier()]
         self.assertFalse(sup.inspect_mail_ownership(self.slug, 'worker').reclaimable_tokens)
         self.assertFalse(self.recover()['folded'])
@@ -179,14 +185,98 @@ class ReclaimTransactionTests(unittest.TestCase):
         org.d['delivering'].pop('worker')
         self.save(org)
         self.confirm()
-        self.assertEqual(self.st['mail_confirmed'], {self.tok})
+        # No row: nothing is confirmed durably, and nothing is left to protect.
         self.assertFalse(mailruntime.confirmed_tokens(self.load(self.slug), 'worker'))
+        self.assertFalse(self.load(self.slug).d.get('mail_transitions'))
+        self.assertFalse(self.st.get('mail_confirmed'))
 
     def test_reclaim_receipt_is_not_a_confirmation_receipt(self):
         self.recover()
         self.confirm()
-        self.assertEqual(self.st['mail_confirmed'], {self.tok})
         self.assertFalse(mailruntime.confirmed_tokens(self.load(self.slug), 'worker'))
+        self.assertFalse(self.st.get('mail_confirmed'))
+
+    def test_late_confirmation_after_reclaim_does_not_stall_recovery(self):
+        self.recover()
+        self.confirm()                      # late positive evidence; the row is gone
+        started = []
+        with patch.object(sup, '_start_turn_worker',
+                          side_effect=lambda *a: started.append(a)):
+            self.assertTrue(maildrain.recover(self.slug, 'worker'))
+        self.assertEqual(len(started), 1)
+        self.assertEqual([m['id'] for m in self.load(self.slug).d['mail']['worker']],
+                         [self.message['id']])
+
+    def fresh_batch(self, body):
+        org = self.load(self.slug)
+        org.post_mail(ledger.USER, 'worker', body)
+        mails = list(org.d['mail']['worker'])
+        org.d['mail']['worker'] = []
+        tok = sup._journal_drain(org, 'worker', mails, [], via='steer')
+        self.save(org)
+        return tok
+
+    def test_settled_receipts_do_not_accumulate(self):
+        self.confirm()
+        for i in range(4):
+            tok = self.fresh_batch(f'next {i}')
+            sup._confirm_delivered(self.slug, 'worker', [tok])
+        records = self.load(self.slug).d['mail_transitions']['worker']
+        self.assertEqual([set(r['before']) for r in records.values()], [{tok}])
+        # A carrier paused in this process still cannot deliver pruned mail.
+        self.assertEqual(mailruntime.reclaimed(self.st, [self.tok]), {self.tok})
+        with sup._state_lock:
+            projected = sup._publishable(self.st, self.carrier())
+        self.assertEqual(projected['text'], 'authored [MAIL] quotation')
+        self.assertEqual(projected['toks'], [])
+        self.assertFalse(self.st.get('mail_confirmed'))
+
+    def test_receipt_named_by_a_durable_record_is_kept(self):
+        self.confirm()
+        org = self.load(self.slug)
+        org.node('worker')['inflight'] = {
+            'at': '2000-01-01T00:00:00Z', 'text': 'x', 'view': 'x',
+            'mail_input': {'attempt': 'a', 'tokens': [self.tok],
+                           'base': {'text': 'x', 'view': 'x'}}}
+        self.save(org)
+        sup._confirm_delivered(self.slug, 'worker', [self.fresh_batch('next')])
+        fresh = self.load(self.slug)
+        self.assertIn(self.tok, mailruntime.confirmed_tokens(fresh, 'worker'))
+        self.assertIsNotNone(mailruntime.replay_ready(fresh, 'worker',
+                                                      fresh.node('worker')['inflight']))
+        org = self.load(self.slug)
+        org.node('worker').pop('inflight')
+        self.save(org)
+        sup._confirm_delivered(self.slug, 'worker', [self.fresh_batch('last')])
+        self.assertNotIn(self.tok, mailruntime.confirmed_tokens(self.load(self.slug), 'worker'))
+
+    def test_admission_hold_leaves_one_complete_copy_and_no_stale_handoff(self):
+        carrier = self.carrier()
+        with sup._state_lock:
+            self.st['busy'] = True
+            mailruntime.fence(self.st, [self.tok])     # a reclaim is mid-flight
+            mailruntime.hold_handoff(self.st, carrier)  # as _start_turn_worker does
+        with patch.object(sup, '_cancel_working_cache'),              patch.object(sup, '_note_working_activity'),              patch.object(sup, '_hold_for_deploy', return_value=True):
+            sup._run_turn(self.slug, 'worker', carrier)
+        self.assertFalse(self.st['busy'])
+        self.assertEqual(self.st.get('mail_handoffs'), [])
+        self.assertEqual(self.st['mail_publication_wait'], [carrier])
+        with sup._state_lock:
+            mailruntime.unfence(self.st, [self.tok])  # that reclaim never committed
+        # The retained copy returns to the queue WHOLE and keeps its batch.
+        self.assertFalse(self.recover()['folded'])
+        self.assertEqual(self.st['queue'], [carrier])
+        self.assertFalse(self.st.get('mail_publication_wait'))
+        self.assertEqual(self.st.get('mail_handoffs'), [])
+        self.assertEqual(self.load(self.slug).d['delivering']['worker'], [self.original])
+
+    def test_unresolved_reclaim_intent_keeps_its_receipt(self):
+        self.recover()
+        operation, receipt = next(iter(
+            self.load(self.slug).d['mail_transitions']['worker'].items()))
+        self.st.setdefault('mail_reclaim_intents', {})[operation] = receipt
+        sup._confirm_delivered(self.slug, 'worker', [self.fresh_batch('next')])
+        self.assertIn(operation, self.load(self.slug).d['mail_transitions']['worker'])
 
     def test_confirmation_receipt_survives_empty_runtime_state(self):
         self.confirm()

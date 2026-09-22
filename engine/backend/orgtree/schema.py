@@ -289,8 +289,8 @@ class OracleExchange(TypedDict):
 
 
 class InflightInfo(TypedDict):
-    mail_input: NotRequired[dict[str, Any]]  # private input/replay evidence
     """The turn currently running (supervisor): prompt tail + start stamp."""
+    mail_input: NotRequired[dict[str, Any]]  # private input/replay evidence
     at: str
     text: str
     # Structured human projection of ``text``.  Machine-added context is

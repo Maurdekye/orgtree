@@ -369,8 +369,9 @@ class TheDoorIsTheOnlyDoor(unittest.TestCase):
         # the movement helper
         self.assertEqual(found['ledger.py'], (6, 1))
         # supervisor: checkup, docket reminder, invariant announcement — and
-        # the two fold-back paths, which MOVE and therefore never deposit
-        self.assertEqual(found['supervisor.py'], (3, 2))
+        # the one fold-back primitive `_fold_back_locked`, which MOVES and
+        # therefore never deposits; restart recovery now folds through it too
+        self.assertEqual(found['supervisor.py'], (3, 1))
         # restart_wake: the passive startup notice
         self.assertEqual(found['restart_wake.py'], (1, 0))
         self.assertEqual(
