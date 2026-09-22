@@ -121,6 +121,28 @@ test('Tab stays in the temporary Desk, respects nested dialogs, and releases on 
   assert.equal(await tab(), false, 'unmount removes the focus trap')
 })
 
+test('dismissal restores an adopted opener and preserves focus claimed by another action', async (t) => {
+  setup()
+  const frame = document.createElement('iframe')
+  document.body.appendChild(frame)
+  const opener = frame.contentDocument!.createElement('button')
+  document.body.appendChild(document.adoptNode(opener))
+  assert.equal(opener instanceof HTMLElement, false, 'the opener retains its other document realm')
+  const elsewhere = document.createElement('button')
+  document.body.appendChild(elsewhere)
+  const n = agent('foreign-opener')
+  const view = await mountView(scene(n, false), (el) => el)
+  t.after(async () => { await view.unmount(); opener.remove(); elsewhere.remove(); frame.remove() })
+  opener.focus()
+  await view.render(scene(n, true)); await flush()
+  await view.render(scene(n, false)); await flush()
+  assert.equal(document.activeElement, opener, 'closing returns focus regardless of the opener constructor realm')
+  await view.render(scene(n, true)); await flush()
+  elsewhere.focus()
+  await view.render(scene(n, false)); await flush()
+  assert.equal(document.activeElement, elsewhere, 'an explicit action owns focus when it moved outside the closing modal')
+})
+
 test('§1 it is a real modal dialog, named for the agent it is showing',
   async (t: TestContext) => {
     setup()
