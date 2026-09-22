@@ -14,31 +14,40 @@ export function attachWindowEventLifecycle<E extends { type: string }>(
   send: (event: E) => void,
 ) {
   let pendingFrom = record.documentToken
-  let pending = false
+  let phase: 'idle' | 'provisional' | 'committed' = 'idle'
   contents.on('did-start-navigation', details => {
     if (!details.isMainFrame || details.isSameDocument) return
-    pending = true
+    phase = 'provisional'
     pendingFrom = record.documentToken
     record.outbox.suspend()
   })
   contents.on('did-navigate', () => {
-    pending = false
+    // The response has committed, but its body can still fail before finish.
+    // Keep this load current even after the replacement preload mints a token.
+    phase = 'committed'
     record.documentToken = ''
     record.outbox.rearm()
     record.outbox.resume() // no listener for the new document yet
+  })
+  contents.on('did-finish-load', () => {
+    // An error/old-document finish while another navigation is provisional
+    // does not complete that newer load. Only its own commit enables finish.
+    if (phase === 'committed') phase = 'idle'
   })
   contents.on('did-stop-loading', () => {
     // A stop belonging to a superseded navigation cannot release a newer
     // provisional load. Electron exposes the current main-frame load state.
     if (contents.isLoadingMainFrame()) return
-    pending = false
+    phase = 'idle'
     for (const event of record.outbox.resume()) send(event)
   })
   return {
     documentLost() {
-      // A delayed failure cannot invalidate a newly announced document,
-      // even when both attempts have the same URL.
-      if (!pending || record.documentToken !== pendingFrom) return false
+      // A finished document is protected against delayed failures, including
+      // retries at the same URL. During a provisional load, the old token
+      // identifies the document being left; after commit the current response
+      // itself is unfinished and can fail even though its preload has run.
+      if (phase === 'idle' || (phase === 'provisional' && record.documentToken !== pendingFrom)) return false
       record.documentToken = ''
       record.outbox.rearm()
       return true
