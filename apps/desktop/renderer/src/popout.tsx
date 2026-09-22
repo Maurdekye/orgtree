@@ -363,9 +363,20 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
    *  a fresh place. Keeping the rect IN USE without claiming the window is
    *  open would need a new row state in windowlayout.ts, outside this item.
    *
-   *  So the error says what happened to the arrangement — but only when there
-   *  was one to lose: a first pop-out that fails, or one in a browser with no
-   *  saved layout, changed nothing and must not claim it did. */
+   *  So the error says what happened to the window — and the rule for WHEN is
+   *  exactly the one the code follows: the row was open at the moment of
+   *  failure and is closed after the redock. That includes a row THIS pop-out
+   *  recorded: routes (1)-(3) can only fire after the commit point's
+   *  `captureWindow(..., true)` (and the 250 ms poll) has marked the window
+   *  open, so even a first-ever pop-out that fails there gets the sentence.
+   *  That is deliberate, not a leak: the user may have moved and used that
+   *  window for a long time before a later style sync broke, and it is true
+   *  that it will not reopen and its position will not be reused. Gating on
+   *  the row's state BEFORE this `open()` instead would silence exactly that
+   *  case. Only a failure before the window was recorded — a blocked window,
+   *  a throw before the commit point, over a row that was closed or absent —
+   *  or a browser with no saved layout, or an app exit (where
+   *  `closeSavedWindow` does nothing) omits it, because nothing changed. */
   const recover = (message: string) => {
     const savedOpen = () => savedWindows().some(r => r.key === layoutKey && r.open)
     const had = savedOpen()

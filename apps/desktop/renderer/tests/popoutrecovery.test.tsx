@@ -15,7 +15,10 @@
 // ends `open: false` with its rect STILL THERE (it is marked closed, not
 // erased), and the error says the window will not reopen by itself and will
 // not use its old position. §5 is the other half of "the truth": a failure
-// that had no saved window to lose must not claim it lost one.
+// that had no saved window to lose must not claim it lost one. §6 pins the
+// boundary between the two (review finding f1): a FIRST pop-out that fails
+// after it was recorded as open does get the sentence, because by then this
+// very pop-out is the saved window that will not come back.
 //
 // A route switched to `returnHome(true)` fails its own test here: the row
 // stays open and the sentence about the saved window is missing.
@@ -161,5 +164,40 @@ test('§5 a failure with NO saved window to lose does not claim it lost one', as
     assert.match(r.alert(), /^The browser blocked this window\./, 'the failure is still reported')
     assert.doesNotMatch(r.alert(), NOT_RESTORED, 'but nothing about a saved window, because there was none')
     assert.equal(row(), undefined, 'and no row was invented')
+  } finally { await r.unmount() }
+})
+
+/** Pop the surface out by hand from a layout with no row at all. */
+async function firstPopOut(r: Rig) {
+  assert.equal(row(), undefined, 'no saved window before this pop-out')
+  const button = r.el.querySelector<HTMLButtonElement>('button[aria-label="Open in new window"]')!
+  await inAct(async () => { button.click(); await flush(5) })
+  assert.equal(r.cw.document.querySelector('input'), r.input, 'the first pop-out landed')
+  assert.equal(row()?.open, true, 'and the commit point recorded it as open — which is what §6 is about')
+}
+
+test('§6 a FIRST pop-out that fails after it was recorded gets the sentence — route (1)', async () => {
+  const r = await rig({ saved: false })
+  try {
+    await firstPopOut(r)
+    breakStyling(r.cw)
+    const style = document.createElement('style')
+    await inAct(async () => { document.head.appendChild(style); await flush(5) })
+    style.remove()
+    assertRecovered(r, STYLING)
+  } finally { await r.unmount() }
+})
+
+test('§6b …and the same for route (3)', async () => {
+  const r = await rig({ saved: false })
+  try {
+    await firstPopOut(r)
+    const link = r.cw.document.createElement('link'); link.rel = 'stylesheet'
+    r.cw.document.head.appendChild(link)
+    await inAct(async () => {
+      link.dispatchEvent(new (r.cw as unknown as { Event: typeof Event }).Event('error'))
+      await flush(5)
+    })
+    assertRecovered(r, STYLING)
   } finally { await r.unmount() }
 })
