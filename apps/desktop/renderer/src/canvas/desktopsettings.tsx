@@ -16,18 +16,27 @@ export function DesktopSettings() {
   const [capability, setCapability] = useState<UpdateCapability | null>(null)
   useEffect(() => {
     if (!bridge) return
-    let alive = true, changed = false
-    bridge.getPreferences().then(p => { if (alive && !changed) setPrefs(p) })
-      .catch((e: Error) => { if (alive) setError(e.message) })
-    if (bridge.getUpdateStatus) void bridge.getUpdateStatus().then(s => { if (alive) setUpdateStatus(s) }).catch(() => {})
-    // Where this copy is installed cannot change while it runs, so this is
-    // fetched once rather than pushed.
-    if (bridge.getUpdateCapability) void bridge.getUpdateCapability().then(c => { if (alive) setCapability(c) }).catch(() => {})
+    let alive = true, changed = false, updateChanged = false
+    // ⚠ SUBSCRIBE BEFORE READING. The app-wide broadcasts are not held, so an
+    // event that fires while an initial read is in flight is the NEWER truth;
+    // attaching first is what lets the flags below notice it at all.
     const unsubscribe = bridge.onEvent(e => {
       if (!alive) return
       if (e.type === 'preferences') { changed = true; setPrefs(e.data as NativePreferences) }
-      else if (e.type === 'update') setUpdateStatus(e.data as UpdateStatus)
+      else if (e.type === 'update') { updateChanged = true; setUpdateStatus(e.data as UpdateStatus) }
     })
+    bridge.getPreferences().then(p => { if (alive && !changed) setPrefs(p) })
+      // ⚠ THE ERROR COMPLETION IS GUARDED TOO. A read that failed after an
+      // event already delivered good state would otherwise replace a working
+      // panel with an error about a request whose answer is no longer wanted.
+      .catch((e: Error) => { if (alive && !changed) setError(e.message) })
+    // the update status has the same race and had no guard at all: a download
+    // that finished mid-read would revert to its earlier state
+    if (bridge.getUpdateStatus) void bridge.getUpdateStatus()
+      .then(s => { if (alive && !updateChanged) setUpdateStatus(s) }).catch(() => {})
+    // Where this copy is installed cannot change while it runs, so this is
+    // fetched once rather than pushed.
+    if (bridge.getUpdateCapability) void bridge.getUpdateCapability().then(c => { if (alive) setCapability(c) }).catch(() => {})
     return () => { alive = false; unsubscribe() }
   }, [bridge])
   if (!bridge) return null

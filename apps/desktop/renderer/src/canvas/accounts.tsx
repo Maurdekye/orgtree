@@ -36,6 +36,8 @@ import {
 import { fmtWhen } from '../timefmt'
 import type { StartView } from './shared'
 import { AutorenewIcon } from '../icons'
+import { AboutSection, StartupWindowsSetting, useAppVersion } from '../shell/general'
+import { DefaultsForm } from '../shell/defaults'
 
 // small local copies of the usage-modal label helpers (App.tsx owns the
 // originals beside UsageModal; importing them here would cycle App ↔ panel)
@@ -207,8 +209,15 @@ export function UsageBars({ u }: { u: AccountUsage }) {
   )
 }
 
-type AppSettingsTab = 'providers' | 'runtime' | 'mailhub' | 'display' | 'import'
+type AppSettingsTab = 'general' | 'providers' | 'runtime' | 'mailhub'
+  | 'display' | 'import' | 'defaults'
 const APP_TABS: SettingsTab<AppSettingsTab>[] = [
+  // General is FIRST and is where the panel opens (the settled v3 layout):
+  // the startup choice and what is actually running. The v3 shell removes the
+  // sidebar that used to carry the version badge and the repository link, so
+  // the About group here is their new home; the compact menu's About entry
+  // shows the version inline beside it.
+  { id: 'general', label: 'General' },
   { id: 'providers', label: 'Providers' },
   { id: 'runtime', label: 'Runtime' },
   // one installation hosts at most one mail hub, so hosting it and granting
@@ -217,6 +226,12 @@ const APP_TABS: SettingsTab<AppSettingsTab>[] = [
   { id: 'mailhub', label: 'Mail hub' },
   { id: 'display', label: 'Display' },
   { id: 'import', label: 'Import' },
+  // Default org settings USED TO BE ITS OWN WINDOW, opened from the sidebar
+  // that v3 removes. It is app-wide — every new organization is born with
+  // these values — so it belongs here rather than in one organization's
+  // settings. The standalone window still exists and still opens; this is the
+  // same fields (shell/defaults.tsx), not a copy.
+  { id: 'defaults', label: 'Default org settings' },
 ]
 
 function DeskTextSize() {
@@ -451,7 +466,8 @@ export function ProviderSignIn({ provider, connected, toast, onRefresh,
 }
 
 export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => void }) {
-  const [tab, setTab] = useState<AppSettingsTab>('providers')
+  const [tab, setTab] = useState<AppSettingsTab>('general')
+  const appVersion = useAppVersion()
   const registry = useAccountRegistry()
   const [addAccount, setAddAccount] = useState<AccountProvider | null>(null)
   const [providers, setProviders] = useState<ProviderInfo[] | null>(() => peekProviders()?.providers ?? null)
@@ -532,6 +548,10 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
     <h3>App settings</h3>
     <SettingsTabs tabs={APP_TABS} tab={tab} setTab={setTab} idBase="app-settings" label="Application settings sections" />
     {error && <div className="ask-warn" role="alert">{error}</div>}
+    <SettingsTabPanel id="general" idBase="app-settings" active={tab === 'general'}>
+      <StartupWindowsSetting />
+      <AboutSection appVersion={appVersion} />
+    </SettingsTabPanel>
     <SettingsTabPanel id="providers" idBase="app-settings" active={tab === 'providers'}>
       {registry.error && <p className="ask-warn" role="alert">Could not load the account list: {registry.error} <button onClick={() => { void registry.reload() }}>retry</button></p>}
       {!providers && !error && <p className="dim">Detecting harnesses…</p>}
@@ -641,5 +661,9 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
       <SetGroup title="Startup"><StartupView /></SetGroup>
     </SettingsTabPanel>
     <SettingsTabPanel id="import" idBase="app-settings" active={tab === 'import'}><ImportSettings active={tab === 'import'} /></SettingsTabPanel>
+    <SettingsTabPanel id="defaults" idBase="app-settings" active={tab === 'defaults'}>
+      <div className="dim modalpin-subtitle">applied to every NEW organization</div>
+      <DefaultsForm toast={toast} onDone={close} />
+    </SettingsTabPanel>
   </PinFrame>{addAccount && <AddAccountDialog key={addAccount} provider={addAccount} onAdded={registry.reload} close={() => setAddAccount(null)} />}</>
 }
