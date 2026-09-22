@@ -51,7 +51,7 @@ import { providerOf, TIER_LETTER } from './shared'
 import type { CanvasNode, MailLinkFn, OpFn, WorkLinkFn } from './shared'
 import type { ToastFn } from '../types'
 import { createPortal } from 'react-dom'
-import { pinLayerFor, usePinSurfaces, usePinSurface, raisePinSurface, pinSurfaceKey, pinSnapId, readPinSurfaces, useDeskOverlap } from './pinspace'
+import { pinLayerFor, usePinSurfaces, usePinSurface, raisePinSurface, pinSurfaceKey, pinSnapId, readPinSurfaces, useDeskOverlap, onViewportGeometry } from './pinspace'
 import { useModalOverlap } from './pinoverlap'
 import { findPinSnap, validPinSnap } from './pinSnap'
 import type { PinSnap } from './pinSnap'
@@ -379,10 +379,10 @@ export function PinLayer(props: PinLayerProps) {
   const [, setVpTick] = useState(0)
   useEffect(() => {
     const bump = () => setVpTick((n) => n + 1)
-    window.addEventListener('resize', bump)
+    const unwatch = onViewportGeometry(window, bump)
     const observer = new ResizeObserver(bump)
     if (viewportRef.current) observer.observe(viewportRef.current)
-    return () => { window.removeEventListener('resize', bump); observer.disconnect() }
+    return () => { unwatch(); observer.disconnect() }
   }, [viewportRef])
 
   const unpin = useCallback((id: string, from: PinRect) => {

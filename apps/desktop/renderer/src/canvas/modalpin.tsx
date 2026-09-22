@@ -1,4 +1,4 @@
-import { pinLayerFor, useCanvasBox, usePinSurface, raisePinSurface, readPinSurfaces, pinSnapId, pinSurfaceKey, useDeskOverlap } from './pinspace'
+import { pinLayerFor, useCanvasBox, usePinSurface, raisePinSurface, readPinSurfaces, pinSnapId, pinSurfaceKey, useDeskOverlap, onViewportGeometry } from './pinspace'
 import { findPinSnap } from './pinSnap'
 import { MovableSurface, PopoutButton, PopoutWindowControls, useOverlayRoot, useCurrentOrg, useSurface, useSurfaceDocument } from '../popout'
 import { detachedKind } from '../windowlife'
@@ -599,13 +599,10 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
   const gesture = useRef<Gesture | null>(null)
   // a window resize can strand a pinned window with no gesture to follow it,
   // so clamping happens at render time against the CURRENT window — and this
-  // tick is what makes a resize a render
+  // tick is what makes a resize (or a display change) a render
   const [, setTick] = useState(0)
-  useEffect(() => {
-    const bump = () => setTick((n) => n + 1)
-    ownerWindow.addEventListener('resize', bump)
-    return () => ownerWindow.removeEventListener('resize', bump)
-  }, [ownerWindow])
+  useEffect(() => onViewportGeometry(ownerWindow, () => setTick((n) => n + 1)),
+    [ownerWindow])
 
   const cancel = () => {
     const g = gesture.current

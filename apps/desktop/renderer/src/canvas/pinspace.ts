@@ -45,6 +45,34 @@ export function usePinSurface(org: string | null, kind: string, rect: PinRect | 
   return {key, z: rank < 0 ? peers.length : rank, peers}
 }
 
+/** Every window-level signal that the geometry pinned surfaces are clamped
+ *  against may have changed. `resize` is the ordinary one; a display
+ *  resolution or scale change can also arrive as `screen`'s `change` or as a
+ *  devicePixelRatio flip, and neither is guaranteed to come with a `resize`.
+ *  The resolution query matches ONE ratio, so it is re-armed at the new ratio
+ *  each time it fires. Element-level changes stay with each caller's own
+ *  ResizeObserver. Returns the unsubscribe. */
+export function onViewportGeometry(win: Window, fn: () => void): () => void {
+  win.addEventListener('resize', fn)
+  const screen = win.screen as (Screen & Partial<EventTarget>) | undefined
+  if (typeof screen?.addEventListener === 'function') screen.addEventListener('change', fn)
+  let ratio: MediaQueryList | null = null
+  const onRatio = () => { arm(); fn() }
+  const arm = () => {
+    ratio?.removeEventListener('change', onRatio)
+    ratio = typeof win.matchMedia === 'function'
+      ? win.matchMedia(`(resolution: ${win.devicePixelRatio || 1}dppx)`) : null
+    ratio?.addEventListener('change', onRatio)
+  }
+  arm()
+  return () => {
+    win.removeEventListener('resize', fn)
+    if (typeof screen?.removeEventListener === 'function') screen.removeEventListener('change', fn)
+    ratio?.removeEventListener('change', onRatio)
+    ratio = null
+  }
+}
+
 export interface CanvasBox { x: number; y: number; w: number; h: number }
 export function canvasBox(doc: Document, org: string | null): CanvasBox | null {
   if (!org) return null
@@ -75,9 +103,9 @@ export function useCanvasBox(doc: Document, org: string | null) {
     resize.observe(doc.documentElement)
     const mutation = new doc.defaultView!.MutationObserver(measure)
     mutation.observe(doc.body, {childList:true, subtree:true})
-    doc.defaultView?.addEventListener('resize', measure)
+    const unwatch = doc.defaultView ? onViewportGeometry(doc.defaultView, measure) : () => {}
     measure()
-    return () => {resize.disconnect(); mutation.disconnect(); doc.defaultView?.removeEventListener('resize', measure)}
+    return () => {resize.disconnect(); mutation.disconnect(); unwatch()}
   }, [doc, org])
   return box
 }

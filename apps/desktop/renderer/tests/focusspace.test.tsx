@@ -34,7 +34,7 @@
 // §1 one pin — the card lands at the free region's centre, clear of the pin
 // §2 several pins — still one region, still centred in it
 // §3 overlapping pins are one union, not two obstacles
-// §4 a fully offscreen pin changes nothing
+// §4 a pin stored beyond the canvas counts where it is DRAWN (clamped)
 // §5 the SWITCHBOARD's rendered width is constrained to the region
 // §6 a fully covered canvas leaves the camera where it is
 //
@@ -331,15 +331,27 @@ uiTest('§3 overlapping pins are ONE union, not two obstacles',
     near(c.x + b.cx * c.z, x0 + (VP_W - x0) / 2, 'union counted once')
   })
 
-uiTest('§4 a fully offscreen pin changes nothing — and this is also the '
-  + 'control proving that pinning an agent does not move the layout',
+// ⚠ THIS SECTION USED TO SAY "a fully offscreen pin changes nothing". That
+// premise cannot happen on screen: PinWindow draws `clampRect(pin.rect, vp)`,
+// so a rect STORED beyond the canvas is DRAWN in its corner, and a camera
+// that ignored it aimed behind a visible window — the stale-bounds bug of
+// docket recalculate-pinned-area-canvas-bounds-after-disp (pinnedbounds.test).
+uiTest('§4 a pin STORED beyond the canvas is drawn clamped into its corner and '
+  + 'the camera avoids it there — also the control proving that pinning an '
+  + 'agent does not move the layout',
 async ({ host }) => {
   const b = await baseline(host, 'cto')
   await pin([{ id: 'qa', x: 4000, y: 4000, w: 320, h: 240 }])
   await recentre(host)
   const c = cam(host)
-  near(c.x + b.cx * c.z, VP_W / 2, 'offscreen pin must not shift the camera')
-  near(c.y + b.cy * c.z, VP_H / 2, 'offscreen pin must not shift the camera')
+  // clamped: 680..1000 x 560..800, grown by GAP to 668.. x 548... The largest
+  // free rectangle by area is then the full-width band above it (1000 x 548
+  // beats the full-height 668 x 800). The expected centre is arithmetic on
+  // the card's UNPINNED world position, so a layout that moved when qa was
+  // pinned would miss it as surely as a camera that ignored the window.
+  const bandH = VP_H - 240 - GAP
+  near(c.x + b.cx * c.z, VP_W / 2, 'x centred in the band above the window')
+  near(c.y + b.cy * c.z, bandH / 2, 'y centred in the band above the window')
 })
 
 uiTest('§5 the switchboard is LAID OUT into the region, not merely centred',

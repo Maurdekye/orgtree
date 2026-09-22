@@ -1,4 +1,4 @@
-import { adoptPinLayer, usePinSurfaces, pinSnapId } from './pinspace'
+import { adoptPinLayer, usePinSurfaces, pinSnapId, onViewportGeometry } from './pinspace'
 import { closeSavedWindow, restoredAgent, restoredWindows, savedDeskIdentities } from '../windowlayout'
 import { revealDetachedDocument } from '../windowlife'
 import { intersectsViewport, ViewportPath, worldViewport } from './viewport'
@@ -953,7 +953,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     measure()
     const observer = new ResizeObserver(measure)
     observer.observe(el)
-    return () => observer.disconnect()
+    // a display resolution or scale change is not guaranteed to resize the
+    // element's observed box, so the window-level geometry signals re-measure
+    // too; `measure` bails out when nothing actually changed
+    const unwatch = onViewportGeometry(el.ownerDocument.defaultView ?? window, measure)
+    return () => { observer.disconnect(); unwatch() }
   }, [])
   const visibleRect = worldViewport(view, viewportSize.w, viewportSize.h)
   const viewRef = useRef(view); viewRef.current = view
@@ -1568,8 +1572,21 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   // callbacks every time a pin moved and re-fire that effect, snapping the
   // camera back to the focused agent mid-drag. Reading the latest pins through
   // a ref keeps the identities stable while still using current geometry.
-  const pinRectsRef = useRef<PinRect[]>([])
-  pinRectsRef.current = isMobile ? [] : [...pins.map((p) => p.rect), ...modalSurfaces.filter(p => p.org === slug && p.modal).map(p => p.rect)]
+  //
+  // ⚠ A STORED PIN RECT IS NOT WHERE THE WINDOW IS. PinWindow draws
+  // `clampRect(pin.rect, vp)` against the CURRENT viewport and keeps the
+  // stored rect, so the placement comes back when the window grows again. The
+  // region must therefore clamp the stored rects the same way: after a window
+  // or display shrink the unclamped rects describe where the windows USED to
+  // be, and the camera aimed at canvas a window now covers. Modal surfaces
+  // register the rect they draw, so they are already current.
+  const pinRectsRef = useRef<{ stored: PinRect[]; modal: PinRect[] }>({ stored: [], modal: [] })
+  pinRectsRef.current = isMobile ? { stored: [], modal: [] } : {
+    stored: pins.map((p) => p.rect),
+    modal: modalSurfaces.filter(p => p.org === slug && p.modal).map(p => p.rect),
+  }
+  const pinRectsKey = () => [pinRectsRef.current.stored, pinRectsRef.current.modal]
+    .map((l) => l.map((p) => `${p.x},${p.y},${p.w},${p.h}`).join(';')).join('|')
   // same reason as the rects above: `centerOn` is built with a stable identity
   // and must not be rebuilt every time a pin moves
   const pinnedIdsRef = useRef<Set<string>>(new Set())
@@ -1584,8 +1601,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   const regionCache = useRef<{ key: string; val: Region } | null>(null)
   const regionOf = useCallback((vp: { width: number; height: number }): Region => {
     const box = { x: 0, y: 0, w: vp.width, h: vp.height }
-    const key = `${vp.width}x${vp.height}|` + pinRectsRef.current
-      .map((p) => `${p.x},${p.y},${p.w},${p.h}`).join(';')
+    const key = `${vp.width}x${vp.height}|` + pinRectsKey()
     const hit = regionCache.current
     if (hit && hit.key === key) return hit.val
     // ⚠ AN UNMEASURED VIEWPORT IS NOT AN OBSTRUCTED ONE (regression caught by
@@ -1597,7 +1613,13 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     // move the camera. It reports the full box instead, which is exactly the
     // pre-w14aace89 behaviour for that case.
     if (box.w <= 0 || box.h <= 0) return { rect: box, status: 'full' }
-    const val = clearRegion(box, pinRectsRef.current)
+    // clamped into THIS box, the frame the region is computed in. PinLayer
+    // clamps into the padding box, 1px inside per side in the product CSS, so
+    // the two differ by at most the border — well inside PIN_GAP, which every
+    // obstacle is grown by anyway.
+    const size = { w: vp.width, h: vp.height }
+    const { stored, modal } = pinRectsRef.current
+    const val = clearRegion(box, [...stored.map((r) => clampRect(r, size)), ...modal])
     regionCache.current = { key, val }
     return val
   }, [])
@@ -1635,9 +1657,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     if (isMobile) return []
     const live = modalSurfaces.filter(p => p.org === slug)
     const registered = new Set(live.filter(p => !p.modal).map(p => pinSnapId(p)))
+    // the persisted fallback is clamped like the window PinLayer draws
+    const size = viewportSize.w > 0 && viewportSize.h > 0 ? viewportSize : null
     return [...live.map(p => p.rect),
-      ...pins.filter(p => !registered.has(p.id)).map(p => p.rect)]
-  }, [pins, modalSurfaces, slug])
+      ...pins.filter(p => !registered.has(p.id)).map(p => clampRect(p.rect, size))]
+  }, [pins, modalSurfaces, slug, viewportSize])
   const freeAnchor = useMemo(() => {
     if (!anchorPref.enabled || isMobile) return null
     if (!(viewportSize.w > 0 && viewportSize.h > 0)) return null
@@ -2047,8 +2071,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     // ELEMENT, so app layout changes count, not just window.resize) plus the
     // pinned windows and modals that eat into it. These are exactly
     // `regionOf`'s inputs, so this changes when the free region can have.
-    const canvas = `${viewportSize.w}:${viewportSize.h}|pins:` + pinRectsRef.current
-      .map(p => `${p.x}:${p.y}:${p.w}:${p.h}`).join('|')
+    // (the stored rects, unclamped: with the size in the key they still change
+    // whenever the clamped ones can)
+    const canvas = `${viewportSize.w}:${viewportSize.h}|pins:` + pinRectsKey()
     // ...plus the org's own extent, the other half of a whole-org fit
     const whole = canvas + '|nodes:' + [...target]
       .map(([id, p]) => `${id}:${p.x}:${p.y}`).join('|')
