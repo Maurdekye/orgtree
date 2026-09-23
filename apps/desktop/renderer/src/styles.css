@@ -547,6 +547,10 @@ main {
 .canvas-world-hidden, .canvas-world-hidden * { visibility: hidden !important; }
 .canvas-world-hidden { pointer-events: none; }
 .edges { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+/* WebGL2 wires and sparks (canvas/glwires.ts). Screen-space and UNDER
+   `.space` - the stacking the SVG layer had inside it - and never a hit
+   target: every press belongs to the card or the pan beneath. */
+.glwires { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; display: block; }
 .edge {
   fill: none; stroke: var(--line); stroke-width: 1.6px; opacity: .8;
   /* no transition on d — the springs already animate endpoint positions per

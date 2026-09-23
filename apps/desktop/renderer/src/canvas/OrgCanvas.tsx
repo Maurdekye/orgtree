@@ -52,6 +52,8 @@ import { isCompact, isMobile, MaybePortal, sheetGate } from '../mobile'
 import { dropConvo, renameConvo } from '../convo'
 import { isModalPinned, ModalOverPins, PinFrame, pinnedModalBehind, raisePinnedModal, readModalOpen, usePersistedModalOpen } from './modalpin'
 import { freeInsets, useCanvasAnchor } from './canvasanchor'
+import { glWiresAllowed, readWireStyles, sparkPoint, useGlWires } from './glwires'
+import type { WireStyles, Wire } from './glwires'
 import { charterLine } from '../archived'
 import { NodeDetailGate } from './nodedetailgate'
 import { contextMenuBelongsTo, ObjectMenuBoundary, useContextMenu } from './contextmenu'
@@ -904,6 +906,22 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     return { x: Math.max(24, (1400 - maxX * z) / 2), y: 24, z }
   })
   const [, setFrame] = useState(0)
+  // WebGL2 wires and sparks (canvas/glwires.ts). `glWires.active` is the only
+  // switch between the GL layer and the SVG layer below; every failure mode
+  // leaves it false, and the SVG layer then draws exactly what it always did.
+  // Compact keeps SVG: its sparks are off anyway, and the phone GPU budget is
+  // the one this stage has not measured.
+  const [glAllowed] = useState(glWiresAllowed)
+  const glWires = useGlWires(glAllowed && !compact)
+  const glActiveRef = useRef(false); glActiveRef.current = glWires.active
+  const glDrawRef = useRef<(() => void) | null>(null)
+  const wiresRef = useRef<Wire[]>([])
+  // the camera the DOM last COMMITTED. The GL layer draws with this and never
+  // with `viewRef`, which a wheel or pinch writes ahead of the render: the
+  // wires must sit exactly under the cards the browser is about to paint.
+  const committedViewRef = useRef<View>(view)
+  const edgesSvgRef = useRef<SVGSVGElement | null>(null)
+  const glStylesRef = useRef<{ sig: string; styles: WireStyles } | null>(null)
   const [dropId, setDropId] = useState<string | null>(null)
   // FR-3: desks pinned to screenspace (pins.tsx). Desktop only — the mobile
   // sheet is the phone's window, and startNodeDrag bails on isMobile for
@@ -1147,7 +1165,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
           { x: x2 + (left ? bulge : -bulge), y: y2 }, { x: x2, y: y2 }],
           rev: !isBox(from) }],
         start: performance.now(), segDur: 420 })
-      setFrame((f) => f + 1)
+      if (!glActiveRef.current) setFrame((f) => f + 1)   // GL: the frame loop draws it
       return
     }
     const a = norm(from), b = norm(to)
@@ -1183,7 +1201,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         { x: dp.x + DOG_W / 2, y: dp.y + 4 },
         { x: op.x + NODE_W / 2, y: op.y + NODE_H - 8 },
       ], rev: !aDog }], start: performance.now(), segDur: 420 })
-      setFrame((f) => f + 1)
+      if (!glActiveRef.current) setFrame((f) => f + 1)   // GL: the frame loop draws it
       return
     }
     if (!m.has(a) || !m.has(b)) return
@@ -1225,7 +1243,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     if (!segs.length) return
     sparksRef.current.push({ id: ++sparkId.current, segs,
       start: performance.now(), segDur: 420 })
-    setFrame((f) => f + 1)
+    if (!glActiveRef.current) setFrame((f) => f + 1)   // GL: the frame loop draws it
   }, [])   // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { if (mailEvt) launchSpark(mailEvt.from, mailEvt.to) },
@@ -1484,13 +1502,19 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
           }
         }
       }
-      if (sparksRef.current.length) {
+      // sparks: under WebGL they are drawn straight from `sparksRef` by
+      // `glDrawRef` below, WITHOUT a React commit — moving a 3px dot used to
+      // re-render the whole canvas every frame (G0: ~3.4 of 4.7 ms/frame).
+      // Under SVG they are React elements, so they still need the commit.
+      const hadSparks = sparksRef.current.length > 0
+      if (hadSparks) {
         const now = performance.now()
         sparksRef.current = sparksRef.current.filter(
           (sp) => now < sp.start + sp.segs.length * sp.segDur + 60)
-        active = true
+        if (!glActiveRef.current) active = true
       }
-      if (active || nodeDrag.current?.moved) setFrame((f) => f + 1)
+      if (active || nodeDrag.current?.moved) setFrame((f) => f + 1)   // the commit redraws GL too
+      else if (hadSparks && glActiveRef.current) glDrawRef.current?.()   // incl. the frame that clears the last one
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
@@ -3012,6 +3036,145 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     },
   }), [onOpenAgentGallery, toggleNodeSurface, showNodeSurface])
 
+  // ------------------------------------------------------ wires, one list
+  // Every wire the org view draws, in paint order, built from exactly the
+  // inputs the SVG layer always read. BOTH renderers draw this same list: the
+  // SVG layer (fallback) turns each entry back into the path it used to write
+  // inline, and the WebGL2 layer (canvas/glwires.ts) uploads it. Keys, classes
+  // and the audience draw-in/out bookkeeping are unchanged from the inline form.
+  const wires: Wire[] = []
+  for (const n of map.values()) {
+    if (!n.parent || n.isBearerOf || hidden.has(n.id)) continue
+    if (!posOf(n.parent) || !posOf(n.id)) continue
+    wires.push({ key: n.id, seg: treeSeg(n.parent, n.id),
+      cls: 'edge' + (n.state === 'archived' ? ' faded' : '')
+        // dashed on BOTH sides of a draft: its own parent edge, and — for an
+        // insert-superior draft, which wraps its anchor — the edge down to the
+        // anchor it would adopt
+        + (n.state === 'draft' || n.parent === DRAFT ? ' draftedge' : '') })
+  }
+  for (const [l, r] of peerLinks) {
+    if (posOf(l) && posOf(r)) wires.push({ key: 'p' + l + r, seg: peerSeg(l, r), cls: 'edge peer' })
+  }
+  {
+    const nowT = performance.now()
+    const anim = audAnimRef.current
+    const vpair = (g: string, e: string) =>
+      (hidden.get(g) ?? g) + '→' + (hidden.get(e) ?? e)
+    const drawn = new Set<string>()   // raw keys rendered this frame
+    const drawnV = new Set<string>()  // visual pairs occupied by them
+    for (const a of audLines) {
+      if (!posOf(a.grantor) || !posOf(a.grantee)) continue
+      const k = a.grantor + '→' + a.grantee
+      drawn.add(k)
+      drawnV.add(vpair(a.grantor, a.grantee))
+      const st = anim.get(k)
+      let frac: number | undefined
+      if (st?.phase === 'in') {
+        const t = (nowT - st.t0) / AUD_DUR
+        if (t >= 1) anim.delete(k)
+        else frac = smooth(Math.max(0, t))   // draw toward the grantee
+      }
+      wires.push({ key: 'a' + k, seg: audSeg(a.grantor, a.grantee), frac,
+        cls: 'edge aud-line' + (a.grantor === USER ? ' from-user' : '') })
+    }
+    for (const [k, st] of anim) {
+      if (st.phase !== 'out') {
+        // an 'in' whose line was collapsed into a pile's single stroke (or
+        // filtered out) never renders, so the loop above never reaches its
+        // delete — and one live entry keeps the rAF loop repainting the
+        // whole canvas forever
+        if (!drawn.has(k)) anim.delete(k)
+        continue
+      }
+      const t = (nowT - st.t0) / AUD_DUR
+      if (t >= 1 || !posOf(st.grantor) || !posOf(st.grantee)
+        // a revoked grant whose visual pair a surviving pile-mate still
+        // draws: retracting a stroke over the persistent line is exactly the
+        // double-draw this collapse exists to prevent
+        || drawnV.has(vpair(st.grantor, st.grantee))) {
+        anim.delete(k)
+        continue
+      }
+      wires.push({ key: 'a' + k, seg: audSeg(st.grantor, st.grantee), frac: 1 - smooth(t),
+        cls: 'edge aud-line' + (st.grantor === USER ? ' from-user' : '') })
+    }
+  }
+  for (const n of map.values()) {
+    if (!n.isBearerOf) continue
+    const a = posOf(n.isBearerOf), b = posOf(n.id)
+    if (!a || !b) continue
+    wires.push({ key: 't' + n.id, cls: 'edge tether', seg: { kind: 'l', pts: [
+      { x: a.x + NODE_W - 10, y: a.y + 8 }, { x: b.x + 10, y: b.y + NODE_H - 8 }] } })
+  }
+  // FR-18: the watchdog wire — the user's spec verbatim ("connected to their
+  // owner with a wire"); the spark rides it on each fire. Hidden at compact
+  // with the chips (D-125 ②). A SPENT wire fades on a CSS keyframe clock of
+  // its own, which a style probe cannot reproduce, so it stays in SVG.
+  if (!compact) for (const w of tree.watchdogs ?? []) {
+    const a = posOf('dog:' + w.id), b = posOf(w.owner)
+    if (!a || !b) continue
+    wires.push({ key: 'w' + w.id, svgOnly: !!w.spent, seg: { kind: 'l', pts: [
+      { x: a.x + DOG_W / 2, y: a.y + 4 }, { x: b.x + NODE_W / 2, y: b.y + NODE_H - 8 }] },
+      cls: 'edge tether wd'
+        + (w.state !== 'armed' && !w.spent ? ' off' : '')
+        + (w.once ? ' oneshot' : '')
+        + (w.spent ? ' spent' : '') })
+  }
+  if (tree.org_inbox?.visible && posOf(INBOX)) {
+    // no box↔eye tether (user revision) — the panel stands alone; only
+    // audience lines to its holders. Those connect FACING sides: an agent
+    // left of the box joins from its RIGHT side (user spec), an agent right
+    // of it from its left.
+    for (const h of tree.org_inbox.holders ?? []) {
+      if (!map.has(h) || !posOf(h)) continue
+      const a = posOf(INBOX)!, b = posOf(h)!
+      const ga = sizeOf(INBOX), gb = sizeOf(h)
+      const left = (b.x + gb.w / 2) < (a.x + ga.w / 2)
+      const x1 = left ? a.x : a.x + ga.w
+      const x2 = left ? b.x + gb.w : b.x
+      const y1 = a.y + ga.h / 2, y2 = b.y + gb.h / 2
+      const bulge = 64 + Math.abs(y2 - y1) * 0.12
+      wires.push({ key: 'oi' + h, cls: 'edge aud-line', seg: { kind: 'c', pts: [
+        { x: x1, y: y1 }, { x: x1 + (left ? -bulge : bulge), y: y1 },
+        { x: x2 + (left ? bulge : -bulge), y: y2 }, { x: x2, y: y2 }] } })
+    }
+  }
+  wiresRef.current = wires
+  // the classes the GL layer needs a style probe for (hidden `data-glprobe`
+  // elements inside the real svg.edges, so the real cascade answers)
+  const glProbeClasses = glWires.active
+    ? [...new Set(wires.filter(w => !w.svgOnly).map(w => w.cls))].sort() : []
+
+  // Draw the GL layer after EVERY commit, with the view this commit painted.
+  // Frames where only sparks move draw through `glDrawRef` from the tick loop
+  // instead, with no commit at all.
+  useLayoutEffect(() => {
+    committedViewRef.current = view
+    const layer = glWires.layerRef.current
+    if (!glWires.active || !layer) { glDrawRef.current = null; return }
+    const svg = edgesSvgRef.current
+    const root = document.documentElement
+    const sig = [glProbeClasses.join(','), root.className, root.getAttribute('style') ?? '',
+      document.body?.className ?? '', svg?.closest('.viewport')?.className ?? '', glWires.themeRev].join('|')
+    if (glStylesRef.current?.sig !== sig) {
+      const styles = readWireStyles(svg)
+      if (!styles) { glDrawRef.current = null; glWires.fail(); return }
+      glStylesRef.current = { sig, styles }
+    }
+    const styles = glStylesRef.current.styles
+    const size = glWires.size
+    const draw = () => {
+      const l = glWires.layerRef.current
+      if (!l) return
+      l.resize(size.w, size.h, window.devicePixelRatio || 1)
+      if (!l.setWires(wiresRef.current, styles)) { glDrawRef.current = null; glWires.fail(); return }
+      l.draw(committedViewRef.current, sparksRef.current, performance.now())
+    }
+    glDrawRef.current = draw
+    draw()
+  })
+
   return (
     <AgentNavProvider>
     <OrgKillswitchContext.Provider value={!!tree.killswitch}>
@@ -3085,6 +3248,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         backgroundSize: `${28 * view.z}px ${28 * view.z}px`,
         '--dot-r': `${Math.max(1, 1.1 * view.z).toFixed(2)}px`,
       }} />
+      {/* WebGL2 wires and sparks (canvas/glwires.ts): screen-space, under
+          `.space` exactly where the SVG layer painted, and never a hit target */}
+      {glWires.mount && <canvas ref={glWires.canvasRef} className="glwires" aria-hidden="true" />}
       <div className="space" style={{
         width: bounds.w, height: bounds.h,
         transform: `translate(${view.x}px, ${view.y}px) scale(${view.z})`,
@@ -3097,125 +3263,29 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         // badge on a distant card is noise, a screen-constant CONTROL is not.
         '--invzf': Math.max(1 / Z_MAX, 1 / view.z).toFixed(3),
       }}>
-        <svg className="edges" width={bounds.w} height={bounds.h}>
-          {[...map.values()].filter((n) => n.parent && !n.isBearerOf
-            && !hidden.has(n.id)).map((n) => {
-            if (!posOf(n.parent!) || !posOf(n.id)) return null
-            return <ViewportPath viewport={visibleRect} key={n.id} d={segD(treeSeg(n.parent!, n.id))}
-              className={'edge' + (n.state === 'archived' ? ' faded' : '')
-                // dashed on BOTH sides of a draft: its own parent edge, and —
-                // for an insert-superior draft, which wraps its anchor — the
-                // edge down to the anchor it would adopt
-                + (n.state === 'draft' || n.parent === DRAFT
-                  ? ' draftedge' : '')} />
-          })}
-          {peerLinks.map(([l, r]) => (
-            posOf(l) && posOf(r) &&
-            <ViewportPath viewport={visibleRect} key={'p' + l + r} d={segD(peerSeg(l, r))} className="edge peer" />
-          ))}
-          {(() => {
-            const nowT = performance.now()
-            const anim = audAnimRef.current
-            const out: ReactNode[] = []
-            const vpair = (g: string, e: string) =>
-              (hidden.get(g) ?? g) + '→' + (hidden.get(e) ?? e)
-            const drawn = new Set<string>()   // raw keys rendered this frame
-            const drawnV = new Set<string>()  // visual pairs occupied by them
-            for (const a of audLines) {
-              if (!posOf(a.grantor) || !posOf(a.grantee)) continue
-              const k = a.grantor + '→' + a.grantee
-              drawn.add(k)
-              drawnV.add(vpair(a.grantor, a.grantee))
-              const st = anim.get(k)
-              let dash: number | null = null
-              if (st?.phase === 'in') {
-                const t = (nowT - st.t0) / AUD_DUR
-                if (t >= 1) anim.delete(k)
-                else dash = 1 - smooth(Math.max(0, t))   // draw toward the grantee
-              }
-              out.push(<ViewportPath viewport={visibleRect} key={'a' + k} d={segD(audSeg(a.grantor, a.grantee))}
-                pathLength={dash != null ? 1 : undefined}
-                style={dash != null
-                  ? { strokeDasharray: 1, strokeDashoffset: dash } : undefined}
-                className={'edge aud-line' + (a.grantor === USER ? ' from-user' : '')} />)
-            }
-            for (const [k, st] of anim) {
-              if (st.phase !== 'out') {
-                // an 'in' whose line was collapsed into a pile's single
-                // stroke (or filtered out) never renders, so the loop above
-                // never reaches its delete — and one live entry keeps the
-                // rAF loop repainting the whole canvas forever
-                if (!drawn.has(k)) anim.delete(k)
-                continue
-              }
-              const t = (nowT - st.t0) / AUD_DUR
-              if (t >= 1 || !posOf(st.grantor) || !posOf(st.grantee)
-                // a revoked grant whose visual pair a surviving pile-mate
-                // still draws: retracting a stroke over the persistent line
-                // is exactly the double-draw this collapse exists to prevent
-                || drawnV.has(vpair(st.grantor, st.grantee))) {
-                anim.delete(k)
-                continue
-              }
-              out.push(<ViewportPath viewport={visibleRect} key={'a' + k} d={segD(audSeg(st.grantor, st.grantee))}
-                pathLength={1}
-                style={{ strokeDasharray: 1, strokeDashoffset: smooth(t) }}
-                className={'edge aud-line'
-                  + (st.grantor === USER ? ' from-user' : '')} />)
-            }
-            return out
-          })()}
-          {[...map.values()].filter((n) => n.isBearerOf).map((n) => {
-            const a = posOf(n.isBearerOf!), b = posOf(n.id)
-            if (!a || !b) return null
-            return <ViewportPath viewport={visibleRect} key={'t' + n.id}
-              d={`M ${a.x + NODE_W - 10} ${a.y + 8} L ${b.x + 10} ${b.y + NODE_H - 8}`}
-              className="edge tether" />
-          })}
-          {/* FR-18: the watchdog wire — the user's spec verbatim ("connected
-              to their owner with a wire"); the spark rides it on each fire.
-              Hidden at compact with the chips (D-125 ②). */}
-          {!compact && (tree.watchdogs ?? []).map((w) => {
-            const a = posOf('dog:' + w.id), b = posOf(w.owner)
-            if (!a || !b) return null
-            return <ViewportPath viewport={visibleRect} key={'w' + w.id}
-              d={`M ${a.x + DOG_W / 2} ${a.y + 4} L ${b.x + NODE_W / 2} ${b.y + NODE_H - 8}`}
-              className={'edge tether wd'
-                + (w.state !== 'armed' && !w.spent ? ' off' : '')
-                + (w.once ? ' oneshot' : '')
-                + (w.spent ? ' spent' : '')} />
-          })}
-          {tree.org_inbox?.visible && posOf(INBOX) && (() => {
-            // no box↔eye tether (user revision) — the panel stands alone;
-            // only audience lines to its holders. Those connect FACING sides:
-            // an agent left of the box joins from its RIGHT side (user spec),
-            // an agent right of it from its left.
-            const out: ReactNode[] = []
-            for (const h of tree.org_inbox.holders ?? []) {
-              if (!map.has(h) || !posOf(h)) continue
-              const a = posOf(INBOX)!, b = posOf(h)!
-              const ga = sizeOf(INBOX), gb = sizeOf(h)
-              const left = (b.x + gb.w / 2) < (a.x + ga.w / 2)
-              const x1 = left ? a.x : a.x + ga.w
-              const x2 = left ? b.x + gb.w : b.x
-              const y1 = a.y + ga.h / 2, y2 = b.y + gb.h / 2
-              const bulge = 64 + Math.abs(y2 - y1) * 0.12
-              out.push(<ViewportPath viewport={visibleRect} key={'oi' + h} d={segD({ kind: 'c', pts: [
-                { x: x1, y: y1 }, { x: x1 + (left ? -bulge : bulge), y: y1 },
-                { x: x2 + (left ? bulge : -bulge), y: y2 }, { x: x2, y: y2 }] })}
-                className="edge aud-line" />)
-            }
-            return out
-          })()}
-          {sparksRef.current.map((sp) => {
-            const el = (performance.now() - sp.start) / sp.segDur
-            const i = Math.max(0, Math.min(sp.segs.length - 1, Math.floor(el)))
-            const t = smooth(Math.max(0, Math.min(1, el - i)))
-            const seg = sp.segs[i]! // nUIA: i clamped to 0..len-1 and segs is never empty (guarded at push)
-            const p = segPoint(seg, seg.rev ? 1 - t : t)
-            if (!intersectsViewport({ x: p.x - 4, y: p.y - 4, w: 8, h: 8 }, visibleRect)) return null
-            return <circle key={sp.id} className="spark" cx={p.x} cy={p.y} r="3.4" />
-          })}
+        <svg className="edges" ref={edgesSvgRef} width={bounds.w} height={bounds.h}>
+          {/* the wire list (built above). Under WebGL2 only `svgOnly` wires
+              stay here; otherwise this is the whole layer, as it always was */}
+          {wires.map((w) => (glWires.active && !w.svgOnly) ? null
+            : <ViewportPath viewport={visibleRect} key={w.key} d={segD(w.seg)}
+              pathLength={w.frac !== undefined ? 1 : undefined}
+              style={w.frac !== undefined
+                ? { strokeDasharray: 1, strokeDashoffset: 1 - w.frac } : undefined}
+              className={w.cls} />)}
+          {glWires.active
+            // style probes: hidden, geometry-free elements with the REAL
+            // classes, read by canvas/glwires.ts so the cascade stays the
+            // single source of every wire's colour, width, dash and glow
+            ? <>
+              {glProbeClasses.map((cls) => <path key={'gp:' + cls} data-glprobe={cls}
+                className={cls} d="M 0 0" visibility="hidden" />)}
+              <circle data-glprobe="@spark" className="spark" r="0" visibility="hidden" />
+            </>
+            : sparksRef.current.map((sp) => {
+              const p = sparkPoint(sp, performance.now())
+              if (!intersectsViewport({ x: p.x - 4, y: p.y - 4, w: 8, h: 8 }, visibleRect)) return null
+              return <circle key={sp.id} className="spark" cx={p.x} cy={p.y} r="3.4" />
+            })}
         </svg>
         {[...map.values()].map((n) => {
           const p = posOf(n.id)
