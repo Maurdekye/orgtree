@@ -1599,8 +1599,8 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   // not change the answer), a backdrop-backed copy is laid exactly over it
   // and runs on past the card edge. It stays where the name is: no lift and
   // no motion, unlike the far-zoom `.sq-far-name` reveal, which is untouched.
-  // `nameHover` also flips on pointermove because a card that zooms from mini
-  // into norm under a still pointer gets no fresh pointerenter.
+  // `nameHover` is kept at every lod, so a card hovered at mini and zoomed into
+  // norm under a still pointer is measured on arrival without a fresh enter.
   const nameRef = useRef<HTMLSpanElement>(null)
   const [nameHover, setNameHover] = useState(false)
   const [fullNameAt, setFullNameAt] = useState<{ left: number; top: number } | null>(null)
@@ -1672,7 +1672,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
         if (!focused) onDragStart(e, node.id)
       }}
       onPointerEnter={() => setNameHover(true)}
-      onPointerMove={(e) => { setNameHover(true); trackEdge(e); onDragMove(e, node.id) }}
+      onPointerMove={(e) => { trackEdge(e); onDragMove(e, node.id) }}
       onPointerUp={(e) => onDragEnd(e, node.id, node, focused)}
       onPointerLeave={() => { setExpandedHireEdge(null); setHireReveal(false); setNameHover(false) }}
       /* the card's context menu — NOT at desk zoom: the open desk is its own
