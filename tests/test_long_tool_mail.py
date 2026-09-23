@@ -148,7 +148,7 @@ class LongToolTests(unittest.TestCase):
 
     def test_authenticated_http_route_uses_safe_wait(self):
         from orgtree import api
-        request = SimpleNamespace(state=SimpleNamespace(agent_identity=(self.slug, 'worker', 0)))
+        request = SimpleNamespace(state=SimpleNamespace(agent_identity=(self.slug, 'worker', 0, self.caller['seat_id'])))
         body = api.AgentCall(org=self.slug, node='worker', tool='orgtree_staff', args={})
         invoke = toolwait.invoke
         with patch.object(api, 'agent_call', side_effect=lambda *a: self.long_staff()), \
@@ -161,7 +161,9 @@ class LongToolTests(unittest.TestCase):
         from orgtree import api
         from fastapi import HTTPException
         body = api.AgentCall(org=self.slug, node='worker', tool='orgtree_staff', args={})
-        for identity in [(self.slug, 'worker', 99), ('another-org', 'worker', 0)]:
+        seat = self.caller['seat_id']
+        for identity in [(self.slug, 'worker', 99, seat), ('another-org', 'worker', 0, seat),
+                         (self.slug, 'worker', 0, 'another-seat'), (self.slug, 'worker', 0)]:
             request = SimpleNamespace(state=SimpleNamespace(agent_identity=identity))
             with patch.object(api, 'agent_call') as call, self.assertRaises(HTTPException):
                 asyncio.run(api._agent_call_route(body, request))

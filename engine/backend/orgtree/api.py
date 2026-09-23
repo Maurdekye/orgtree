@@ -5518,11 +5518,12 @@ def _validate_steer_actor(request: Request | None, slug: str, nid: str) -> None:
     if identity is None:
         return  # Desktop-authenticated request, or the standalone V1 gateway.
     valid = False
-    if identity[:2] == (slug, nid):
+    if isinstance(identity, (tuple, list)) and len(identity) == 4 and tuple(identity[:2]) == (slug, nid):
         try:
             with store.DOC_LOCK:
                 node = store.load_org(slug).node(nid)
-                valid = node.get("state") == "live" and int(node.get("generation", 0)) == identity[2]
+                valid = (node.get("state") == "live" and int(node.get("generation", 0)) == identity[2]
+                         and str(node.get("seat_id") or "") == identity[3])
         except (KeyError, ValueError, OSError):
             pass
     if not valid:
@@ -10945,7 +10946,7 @@ def _agent_identity(body: AgentCall, request: Request, *, durable: bool = False)
     # sandbox cannot act as another org's agents
     identity = getattr(request.state, "agent_identity", None)
     if identity is not None:
-        if not isinstance(identity, (tuple, list)) or len(identity) != 3:
+        if not isinstance(identity, (tuple, list)) or len(identity) != 4:
             raise HTTPException(403, "unsupported authenticated agent context; reconnect this session")
         if (body.org, body.node) != tuple(identity[:2]):
             raise HTTPException(403, "agent credential identity mismatch")
@@ -10973,6 +10974,12 @@ def _agent_identity(body: AgentCall, request: Request, *, durable: bool = False)
         raise HTTPException(403, "authenticated seat is archived or replaced; reconnect through its live successor")
     if identity is not None and int(caller.get("generation", 0)) != identity[2]:
         raise HTTPException(403, "agent credential is stale: session generation changed; reconnect this session")
+    # P04a-2: the credential names the SEAT, not only the reusable key. A
+    # deleted seat's token (or one minted before a rename moved the seat away)
+    # names a seat a same-name successor does not hold, and is refused here
+    # even when key and generation match.
+    if identity is not None and str(caller.get("seat_id") or "") != identity[3]:
+        raise HTTPException(403, "agent credential names another seat: that agent was deleted or replaced; reconnect through a live seat")
     if durable and not caller.get("seat_id"):
         # Legacy hires predate seat_id. Authenticate and validate the live
         # record FIRST, then mint once and persist before a managed worker

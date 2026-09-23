@@ -173,15 +173,24 @@ fn credential_payload_round_trips_and_refuses_noncanonical_text() {
         let org = format!("org-{}", g.next() % 1000);
         let node = if i % 3 == 0 { format!("é\u{212a}-{i}") } else { format!("agent-{i}") };
         let gen = (g.next() % 1_000_000) as i64;
-        let p = encode_payload(&org, &node, gen).unwrap();
+        let seat = format!("{:08x}-seat-\u{e9}-{i}", g.next());
+        let p = encode_payload(&org, &node, gen, &seat).unwrap();
         let c = decode_payload_canonical(&p).unwrap();
-        assert_eq!((c.org.as_str(), c.node.as_str(), c.generation), (org.as_str(), node.as_str(), gen));
+        assert_eq!(
+            (c.org.as_str(), c.node.as_str(), c.generation, c.seat.as_str()),
+            (org.as_str(), node.as_str(), gen, seat.as_str())
+        );
         assert_eq!(decode_payload_legacy(&p), LegacyVerify::Accepted(c));
     }
-    assert_eq!(encode_payload("o", "n", -1), Err(CredentialError::NegativeGeneration));
-    assert_eq!(decode_payload_canonical("WyJvIiwibiIsMV0="), Err(CredentialError::Alphabet));
-    assert_eq!(decode_payload_canonical("WyJvIiwibiIsMV1"), Err(CredentialError::NonCanonicalBits));
-    assert!(matches!(decode_payload_legacy("WyJvIiwibiIsMV1"), LegacyVerify::Accepted(_)));
+    assert_eq!(encode_payload("o", "n", -1, "s"), Err(CredentialError::NegativeGeneration));
+    assert_eq!(encode_payload("o", "n", 1, ""), Err(CredentialError::EmptySeat));
+    // ["o","n",1,"st"]: padded, then with a nonzero unused bit
+    assert_eq!(decode_payload_canonical("WyJvIiwibiIsMSwic3QiXQ=="), Err(CredentialError::Alphabet));
+    assert_eq!(decode_payload_canonical("WyJvIiwibiIsMSwic3QiXR"), Err(CredentialError::NonCanonicalBits));
+    assert!(matches!(decode_payload_legacy("WyJvIiwibiIsMSwic3QiXR"), LegacyVerify::Accepted(_)));
+    // a three-field (pre-seat) payload ["o","n",1] is no longer a claim
+    assert_eq!(decode_payload_canonical("WyJvIiwibiIsMV0"), Err(CredentialError::Shape));
+    assert_eq!(decode_payload_legacy("WyJvIiwibiIsMV0"), LegacyVerify::Rejected);
 }
 
 #[test]

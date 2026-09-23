@@ -717,27 +717,29 @@ def app_prefer_reserve_default() -> bool:
 #:   shape    `by_node`     a dict keyed by node id (`rename` moves the entry)
 #:            `row_field`   rows name a node in a field (moved by its own code)
 #:            `none`        no node address
-#:   on_delete what `delete` does TODAY. `left` rows stay under the freed key,
-#:            protected by their stamps, until the P04a-2 credential fence and
-#:            purge land together; `orphans()` reports them.
+#:   on_delete what `delete` does TODAY. Since P04a-2 (seat-bound credential)
+#:            every per-node section is `purged` (`DELETE_PURGE_SECTIONS`),
+#:            `marked` or `kept`. Rows EARLIER deletes left under a freed key
+#:            stay where they are (or under `#orphan` keys) and `orphans()`
+#:            reports them; nothing here ever purges those.
 NODE_KEYED_SECTIONS: Final[dict[str, tuple[str, str, str]]] = {
     "nodes": ("rekey", "by_node", "purged"),
     "mail": ("rekey", "by_node", "purged"),
     "mail_log": ("rekey", "by_node", "purged"),
     "notices": ("rekey", "by_node", "purged"),
     "steered_log": ("rekey", "by_node", "purged"),
-    "delivering": ("rekey", "by_node", "left"),
-    "turn_error_log": ("rekey", "by_node", "left"),
-    "mail_transitions": ("rekey", "by_node", "left"),
-    "steer_attempts": ("rekey", "by_node", "left"),
-    "manual_attempts": ("rekey", "by_node", "left"),
-    "op_receipts": ("rekey", "row_field", "left"),
-    "documents": ("rekey", "row_field", "left"),
+    "delivering": ("rekey", "by_node", "purged"),
+    "turn_error_log": ("rekey", "by_node", "purged"),
+    "mail_transitions": ("rekey", "by_node", "purged"),
+    "steer_attempts": ("rekey", "by_node", "purged"),
+    "manual_attempts": ("rekey", "by_node", "purged"),
+    "op_receipts": ("rekey", "row_field", "purged"),
+    "documents": ("rekey", "row_field", "purged"),
     "asks": ("rekey", "row_field", "purged"),
     "credit_requests": ("rekey", "row_field", "purged"),
     "scope_requests": ("rekey", "row_field", "purged"),
     "watchdogs": ("rekey", "row_field", "purged"),
-    "watchdog_tombs": ("rekey", "row_field", "left"),
+    "watchdog_tombs": ("rekey", "row_field", "purged"),
     "audiences": ("rekey", "row_field", "purged"),
     "audience_requests": ("rekey", "row_field", "purged"),
     "work_items": ("rekey", "row_field", "marked"),
@@ -5691,6 +5693,7 @@ class Org:
             (self.d.get("mail_log") or {}).pop(k, None)
             (self.d.get("notices") or {}).pop(k, None)
             (self.d.get("steered_log") or {}).pop(k, None)
+        purged = self._purge_deleted_seat_records(doomed_set)
         self.d["audiences"] = [
             a for a in self.d["audiences"]
             if a["grantee"] not in doomed_set and a["grantor"] not in doomed_set
@@ -5739,8 +5742,59 @@ class Org:
         self._notify_ev([parent], _deleted("report"))
         self._notify_ev(peers, _deleted("peer"))
         self._log("delete", actor, {"node": nid, "removed": sorted(doomed_set),
-                                    **({"cost_usd": lost} if lost else {})}, [])
+                                    **({"cost_usd": lost} if lost else {}),
+                                    **({"purged": purged} if purged else {})}, [])
         return {"deleted": sorted(doomed_set), "warnings": []}
+
+    #: the per-node records a user delete purges beyond mail/mail_log/notices/
+    #: steered_log (P04a-2, scope-p04 r2 §4.2): every `on_delete: purged`
+    #: section of NODE_KEYED_SECTIONS that `delete` did not already clear.
+    #: A row section names its owner in the given field.
+    DELETE_PURGE_SECTIONS: Final[dict[str, str | None]] = {
+        "delivering": None, "turn_error_log": None, "mail_transitions": None,
+        "steer_attempts": None, "manual_attempts": None,
+        "op_receipts": "node", "documents": "node", "watchdog_tombs": "owner"}
+
+    def _purge_deleted_seat_records(self, doomed: set[str]) -> dict[str, int]:
+        """Remove the deleted seats' own private records (P04a-2): inbound
+        batches in flight to the closed mailbox, its diagnostic log, its
+        transition/steer/manual journals, its operation receipts, its
+        presented cards and its spent-watchdog tombs. `{section: count}`.
+
+        ⚠ RECEIPTS GO ONLY BECAUSE THE CREDENTIAL IS SEAT-BOUND in the same
+        change (v6 I05, TRANSACTIONS:68): a missing receipt is fresh execution
+        authority only inside a valid namespace, and a delayed call from the
+        deleted seat now fails `api._agent_identity` (no node, or a
+        namesake's different `seat_id`) before any receipt is looked up.
+
+        Only keys in `doomed` — the exact nodes and lineage keys this delete
+        removes — are touched. Records filed under `#orphan` keys and rows
+        earlier deletes left under freed keys are NOT (they are the protected
+        corpus P04a-1 reports; D-U2). Events, lifecycle, the docket, costs and
+        the user's inbox/outbox are history and stay. A section the document
+        does not carry is never created or materialised."""
+        purged: dict[str, int] = {}
+        for key, field in self.DELETE_PURGE_SECTIONS.items():
+            if key not in self.d:
+                continue
+            sec = self.d.get(key)
+            n = 0
+            if field is None and isinstance(sec, dict):
+                for k in doomed:
+                    if k in sec:
+                        sec.pop(k, None)
+                        n += 1
+            elif field is not None and isinstance(sec, list):
+                rows = cast("list[Any]", sec)
+                for i in range(len(rows) - 1, -1, -1):
+                    r = rows[i]
+                    if (isinstance(r, Mapping) and isinstance(r.get(field), str)
+                            and r[field] in doomed):
+                        del rows[i]
+                        n += 1
+            if n:
+                purged[key] = n
+        return purged
 
     # ------------------------------------------------------------- reallocate
     def switch_model(self, actor: str, nid: str, tier: str, *,

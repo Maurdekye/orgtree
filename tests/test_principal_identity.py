@@ -5,7 +5,8 @@ tranche makes storage ownership follow the seat on rename, gives every
 legacy seat its `seat_id` at load, binds the inbox cursor and new manual
 records/attempts to that seat, and REPORTS (never mutates) rows no current
 seat can claim. It changes no credential, purges nothing and opens no door
-(scope-p04 r2 §5). Synthetic stores and a fake runtime only; every assertion
+(scope-p04 r2 §5). P04a-2 made `delete` purge the seat's records, so the
+quarantine tests make their leftovers with `legacy_delete` (a pre-P04a-2 delete). Synthetic stores and a fake runtime only; every assertion
 that matters reads the document back from disk. The negative-control harness
 in the author's scratch removes one guarantee at a time and shows the test
 that names it fails.
@@ -20,6 +21,7 @@ import sys
 import tempfile
 import typing
 import unittest
+from unittest.mock import patch
 
 _root = tempfile.TemporaryDirectory(prefix='principal-identity-')
 os.environ['ORGTREE_DATA'] = _root.name
@@ -164,14 +166,15 @@ class PrincipalIdentityTests(unittest.TestCase):
             self.assertIn(cls, CLASSES, key)
             self.assertIn(shape, {'by_node', 'row_field', 'none'}, key)
             self.assertEqual(cls == 'org', shape == 'none', key)
-            self.assertIn(on_delete, {'purged', 'left', 'marked', 'kept'}, key)
+            # P04a-2: a delete leaves no per-node section behind any more
+            self.assertIn(on_delete, {'purged', 'marked', 'kept'}, key)
         # the census is a real gate: an unseen section is reported
         self.assertEqual(unclassified(keys | {'new_per_node_section'}), ['new_per_node_section'])
         # delete's own behaviour matches the recorded on_delete column
         org.delete(ledger.USER, W)
         for key in BY_NODE:
             left = W in (org.d.get(key) or {})
-            self.assertEqual(left, ledger.NODE_KEYED_SECTIONS[key][2] == 'left', key)
+            self.assertFalse(left, key)
 
     # -------------------------------------------------------------- rename
     def test_rename_moves_every_rekey_section(self):
@@ -224,6 +227,14 @@ class PrincipalIdentityTests(unittest.TestCase):
         self.assertEqual(org.orphans(), [])
 
     LEFT = ('delivering', 'turn_error_log', 'mail_transitions', 'steer_attempts', 'manual_attempts')
+
+    @staticmethod
+    def legacy_delete(org, nid):
+        """A delete made by a build BEFORE P04a-2: it left the seat's private
+        records under the freed key. Those rows are the protected corpus this
+        tranche quarantines and reports; a delete today purges them."""
+        with patch.object(ledger.Org, '_purge_deleted_seat_records', lambda self, doomed: {}):
+            return org.delete(ledger.USER, nid)
 
     def own_rows(self, nid):
         """Rows for `nid` in every section delete leaves behind, plus a
@@ -284,7 +295,7 @@ class PrincipalIdentityTests(unittest.TestCase):
         theirs = self.own_rows('other')
         org = self.load()
         seat = org.node('other')['seat_id']
-        org.delete(ledger.USER, W)
+        self.legacy_delete(org, W)
         store.save_org(org)
         org = self.load()
         out = org.rename(ledger.USER, 'other', W)
@@ -309,7 +320,7 @@ class PrincipalIdentityTests(unittest.TestCase):
         store.save_org(org)
         org = self.load()
         seat = org.node('blank')['seat_id']
-        org.delete(ledger.USER, W)
+        self.legacy_delete(org, W)
         org.rename(ledger.USER, 'blank', W)
         store.save_org(org)
         self.assert_quarantined(mine, 'rename_onto_freed_key', seat)
@@ -321,7 +332,7 @@ class PrincipalIdentityTests(unittest.TestCase):
     def test_hire_onto_freed_name_quarantines_leftovers(self):
         mine = self.own_rows(W)
         org = self.load()
-        org.delete(ledger.USER, W)
+        self.legacy_delete(org, W)
         org.d.setdefault('turn_error_log', {})[W + '@0'] = [{'at': OLD, 'text': 'lineage'}]
         store.save_org(org)
         org = self.load()
@@ -339,7 +350,7 @@ class PrincipalIdentityTests(unittest.TestCase):
         self.own_rows(W)
         org = self.load()
         org.hire(ledger.USER, None, 'haiku', 0, 'other')
-        org.delete(ledger.USER, W)
+        self.legacy_delete(org, W)
         org.node('other')['halt'] = {'phase': 'halting'}
         store.save_org(org)
         before = self.canonical()
@@ -531,13 +542,13 @@ class PrincipalIdentityTests(unittest.TestCase):
     # ------------------------------------------------------------- orphans
     def test_orphan_detector_reports_without_mutation(self):
         org = self.populate()
-        org.delete(ledger.USER, W)
+        self.legacy_delete(org, W)
         store.save_org(org)
         before = self.canonical()
         org = self.load()
         found = org.orphans()
         missing = {f['section'] for f in found if f['reason'] == 'missing_node'}
-        self.assertEqual(missing, {k for k in BY_NODE if ledger.NODE_KEYED_SECTIONS[k][2] == 'left'}
+        self.assertEqual(missing, {k for k in BY_NODE if k in ledger.Org.DELETE_PURGE_SECTIONS}
                          | {'op_receipts', 'documents'})
         self.assertEqual(org.orphans(), found)
         store.save_org(org)

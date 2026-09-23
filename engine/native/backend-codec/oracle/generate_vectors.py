@@ -307,7 +307,7 @@ def section_generation(agentauth):
         else:
             g = caller["generation"]
             try:
-                agentauth.child_env("o", "n", generation=g)
+                agentauth.child_env("o", "n", generation=g, seat_id="s")
                 row["strict"] = ({"value": g} if g <= 2**63 - 1 else {"error": "out_of_range"})
             except ValueError:
                 row["strict"] = {"error": "negative" if type(g) is int else "not_integer"}
@@ -388,12 +388,15 @@ def section_credentials(agentauth):
     agentauth.enable()
     key = agentauth._key
     enc = []
-    for org, node, g in [("wire-actions", "caller", 0), ("o", "n", 1), ("org", "agent-2", 12345),
-                         ("é", "K", 7), ("q\"uote", "back\\slash", 0), ("", "", 0),
-                         ("o", "n", -1), ("o", "n", 2**62), ("😀", "tab\t", 3)]:
-        row = {"org": org, "node": node, "generation": g}
+    seat = "3f2b8c1e-7d4a-4f6b-9a0c-5e1d2c3b4a59"
+    for org, node, g, s in [("wire-actions", "caller", 0, seat), ("o", "n", 1, seat),
+                            ("org", "agent-2", 12345, seat), ("é", "K", 7, "sKat"),
+                            ("q\"uote", "back\\slash", 0, "q\"s\\"), ("", "", 0, "s"),
+                            ("o", "n", -1, seat), ("o", "n", 2**62, seat), ("😀", "tab\t", 3, "😀"),
+                            ("o", "n", 1, ""), ("o", "n", -1, "")]:
+        row = {"org": org, "node": node, "generation": g, "seat": s}
         try:
-            row["python_payload"] = agentauth.child_env(org, node, generation=g)["ORGTREE_AGENT_TOKEN"].split(".")[0]
+            row["python_payload"] = agentauth.child_env(org, node, generation=g, seat_id=s)["ORGTREE_AGENT_TOKEN"].split(".")[0]
         except ValueError as e:
             row["python_raises"] = exc_name(e)
         enc.append(row)
@@ -408,14 +411,19 @@ def section_credentials(agentauth):
         assert len(p) % 4 in (2, 3)
         return p[:-1] + alphabet[alphabet.index(p[-1]) | 1]
 
-    payloads = [b64('["o","n",1]'), b64('["o","n",-1]'), b64('["o","n",-0]'), b64('["o","n",1.0]'),
-                b64('["o","n",true]'), b64('["o","n",1e2]'), b64('[ "o" , "n" , 1 ]'),
-                b64('["o","n"]'), b64('["o","n",1,2]'), b64('"abc"'), b64('{"a":1,"b":2,"c":3}'),
-                b64('["o","n","1"]'), b64('["o",null,1]'), b64('3'), b64('not json'), b64(''),
-                b64('["\\u00e9","n",1]'), b64('["é","n",1]'), b64('["o","n",NaN]'),
-                b64('["o","n",99999999999999999999]'), b64('["o","n",' + '1' * 4301 + ']'),
-                set_unused_bits(b64('["o","n",1]')), set_unused_bits(b64('["o","n",123]')),
-                b64('["o","n",1]')[:-1], b64('["o","n",1]') + "A", "YQ", "YR", "YWI", "YWJ",
+    # P04a-2: the claim is [slug, nid, generation, seat_id]; the three-field
+    # payloads that used to be claims are kept as rejections.
+    payloads = [b64('["o","n",1,"s"]'), b64('["o","n",-1,"s"]'), b64('["o","n",-0,"s"]'),
+                b64('["o","n",1.0,"s"]'), b64('["o","n",true,"s"]'), b64('["o","n",1e2,"s"]'),
+                b64('[ "o" , "n" , 1 , "s" ]'), b64('["o","n",1,""]'), b64('["o","n",1,null]'),
+                b64('["o","n",1,7]'), b64('["o","n",1,"s",2]'), b64('{"a":1,"b":2,"c":3,"d":4}'),
+                b64('"abcd"'), b64('["o","n",1]'), b64('["o","n",-1]'), b64('["o","n"]'),
+                b64('["o","n",1,2]'), b64('"abc"'), b64('{"a":1,"b":2,"c":3}'),
+                b64('["o","n","1","s"]'), b64('["o",null,1,"s"]'), b64('3'), b64('not json'), b64(''),
+                b64('["\\u00e9","n",1,"\\u00e9"]'), b64('["é","n",1,"é"]'), b64('["o","n",NaN,"s"]'),
+                b64('["o","n",99999999999999999999,"s"]'), b64('["o","n",' + '1' * 4301 + ',"s"]'),
+                set_unused_bits(b64('["o","n",1,"st"]')), set_unused_bits(b64('["o","n",123,"s"]')),
+                b64('["o","n",1,"s"]')[:-1], b64('["o","n",1,"s"]') + "A", "YQ", "YR", "YWI", "YWJ",
                 "Y", "YW*Jj", "YW+J", "YW=J"]
     dec = []
     for p in payloads:
@@ -430,7 +438,7 @@ def section_credentials(agentauth):
         canonical = False
         # The canonical decoder is bounded to i64, like every Rust integer here.
         if got is not None and 0 <= got[2] <= 2**63 - 1:
-            canonical = agentauth.child_env(got[0], got[1], generation=got[2])[
+            canonical = agentauth.child_env(got[0], got[1], generation=got[2], seat_id=got[3])[
                 "ORGTREE_AGENT_TOKEN"].split(".")[0] == p
         row["canonical_ok"] = canonical
         dec.append(row)

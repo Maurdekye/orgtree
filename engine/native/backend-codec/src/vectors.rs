@@ -34,7 +34,7 @@ pub struct Implementation {
     pub retired_shape: fn(&str) -> bool,
     pub actor_parse: fn(&str) -> Result<Actor, IdentityError>,
     pub new_work_name: fn(Option<&str>, &[u8; 16]) -> Result<String, orgtree_work_name_codec::NameError>,
-    pub encode_payload: fn(&str, &str, i64) -> Result<String, CredentialError>,
+    pub encode_payload: fn(&str, &str, i64, &str) -> Result<String, CredentialError>,
     pub decode_payload_legacy: fn(&str) -> LegacyVerify,
     pub decode_payload_canonical: fn(&str) -> Result<CredentialClaim, CredentialError>,
 }
@@ -480,10 +480,12 @@ pub fn run(doc_text: &str, imp: &Implementation) -> Report {
             text(o, "org").expect("org"),
             text(o, "node").expect("node"),
             int(o, "generation").expect("generation"),
+            text(o, "seat").expect("seat"),
         );
         let ok = match (&got, text(o, "python_payload"), text(o, "python_raises")) {
             (Ok(p), Some(w), None) => p == w,
-            (Err(CredentialError::NegativeGeneration), None, Some("ValueError")) => true,
+            (Err(CredentialError::NegativeGeneration), None, Some("ValueError")) => int(o, "generation").expect("generation") < 0,
+            (Err(CredentialError::EmptySeat), None, Some("ValueError")) => text(o, "seat") == Some(""),
             _ => false,
         };
         if !ok {
@@ -501,9 +503,9 @@ pub fn run(doc_text: &str, imp: &Implementation) -> Report {
         let python_claim = match field(o, "python") {
             Some(Value::Object(c)) => match field(c, "claim") {
                 Some(Value::Array(a)) => match a.as_slice() {
-                    [Value::String(org), Value::String(node), Value::Number(g)] => {
-                        g.to_i64().map(|g| CredentialClaim { org: org.clone(), node: node.clone(), generation: g })
-                    }
+                    [Value::String(org), Value::String(node), Value::Number(g), Value::String(seat)] => g
+                        .to_i64()
+                        .map(|g| CredentialClaim { org: org.clone(), node: node.clone(), generation: g, seat: seat.clone() }),
                     _ => panic!("claim shape"),
                 },
                 _ => panic!("claim"),

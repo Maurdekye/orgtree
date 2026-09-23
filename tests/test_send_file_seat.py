@@ -25,13 +25,23 @@ class SendFileSeatTests(unittest.TestCase):
 
     P04a-1 gives every legacy seat its `seat_id` at load
     (`Org._backfill_seat_ids`), which makes that mint unreachable from an
-    ordinary load. It is kept as a defence, so these tests switch the load-time
-    backfill off and pin the defence exactly as before; the eager path is
-    `test_eager_backfill_supplies_the_legacy_seat` below."""
+    ordinary load. It is kept as a defence. Since P04a-2 an agent credential
+    names its seat (`agentauth.child_env` signs `seat_id`), so a seatless node
+    can never present a valid agent token: the mint is reachable only from an
+    identity-less (desktop) request. The LAZY tests switch the load-time
+    backfill off and pin the defence through that door; every other test runs
+    with the backfill, as production does, and signs the stored seat."""
+
+    LAZY = {'test_exact_legacy_failure_and_authenticated_positive_control',
+            'test_missing_invalid_cross_org_archived_and_stale_refused',
+            'test_identity_must_persist_before_any_copy',
+            'test_other_managed_operations_backfill_the_same_legacy_seat',
+            'test_missing_seat_and_bad_context_are_actionable'}
+    DESKTOP = {'x-orgtree-desktop-token': 'test-operator'}
 
     def setUp(self):
         self.backfill = patch.object(ledger.Org, '_backfill_seat_ids', lambda org: None)
-        if self._testMethodName != 'test_eager_backfill_supplies_the_legacy_seat':
+        if self._testMethodName in self.LAZY:
             self.backfill.start()
         self.slug = self._testMethodName.replace('_', '-')
         org = store.create_org(self.slug)
@@ -46,7 +56,7 @@ class SendFileSeatTests(unittest.TestCase):
         self.wake = patch.object(supervisor, 'send_message', return_value={'accepted': True})
         self.wake.start()
         self.client = TestClient(TokenGate(api.app, 'test-operator'))
-        self.headers = self.token()
+        self.headers = dict(self.DESKTOP) if self._testMethodName in self.LAZY else self.token()
 
     def tearDown(self):
         self.client.close()
@@ -55,9 +65,12 @@ class SendFileSeatTests(unittest.TestCase):
         patch.stopall()
         store._POOL.close_all(self.slug)
 
-    def token(self, generation=None):
+    def token(self, generation=None, seat=None):
+        # a seatless (LAZY) node has no seat to sign: a fixture seat stands in,
+        # and the refusals these tests pin fire before the seat is compared
+        seat = seat or store.load_org(self.slug).node('sender').get('seat_id') or 'unminted-fixture-seat'
         return {'x-orgtree-agent-token': agentauth.child_env(
-            self.slug, 'sender', generation=generation)['ORGTREE_AGENT_TOKEN']}
+            self.slug, 'sender', generation=generation, seat_id=seat)['ORGTREE_AGENT_TOKEN']}
 
     def call(self, tool='orgtree_send_file', args=None, **extra):
         return self.client.post('/api/agent', headers=self.headers,

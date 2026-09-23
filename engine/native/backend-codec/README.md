@@ -47,7 +47,7 @@ All anchors refer to `engine/backend/orgtree/` at private v3 `a107f7d`.
 | USER pool is unlimited (`free(USER)` is `math.inf`) | ledger.py `free` | `credits::Capacity::Unlimited` |
 | Absent generation is 0; `null` raises `TypeError` | api.py `_agent_identity`: `int(caller.get("generation", 0))` | `presence::legacy_api_generation`, strict `node_generation` |
 | Generation must be `type(g) is int` and `>= 0` to be written | agentauth.py `child_env` | `presence::node_generation`, `credential::encode_payload` |
-| Credential payload `json.dumps([slug, nid, generation], separators=(',', ':'))`, URL-safe base64, no padding | agentauth.py `child_env`, `verify` | `credential::encode_payload`, `decode_payload_canonical`, `decode_payload_legacy` |
+| Credential payload `json.dumps([slug, nid, generation, seat_id], separators=(',', ':'))`, URL-safe base64, no padding; an empty `seat_id` is refused (P04a-2: the seat binds the credential to the immutable principal) | agentauth.py `child_env`, `verify` | `credential::encode_payload`, `decode_payload_canonical`, `decode_payload_legacy` |
 | Actor kinds `@user`, `@system`, `@extern`; agent names are unrestricted slugs | ledger.py `USER`, `SYSTEM`, `EXTERN` | `identity::Actor` |
 | Node ids and org slugs come from `slugify` (hire adds `-2`, `-3`…) | ledger.py `slugify`, `_new_node`, `Org.create` | `identity::py_slugify`, `AgentKey`, `OrgKey` |
 | Work title prefix: lowercase, collapse, cut to 48, fall back to `item` | ledger.py `Org._work_slugify` | `identity::py_work_slugify` |
@@ -97,7 +97,7 @@ cargo run --offline --manifest-path engine/native/backend-codec/Cargo.toml --bin
 ```
 
 - `tests/vectors.rs` runs all 15 vector sections against the reference code.
-- `tests/controls.rs` holds 14 negative controls. Each swaps one real
+- `tests/controls.rs` holds 16 negative controls. Each swaps one real
   decision for a known-faulty one and requires the unchanged vectors to fail,
   and to fail only in the sections that exercise that decision:
 
@@ -117,6 +117,8 @@ cargo run --offline --manifest-path engine/native/backend-codec/Cargo.toml --bin
   | C12 | Credential JSON written as raw UTF-8 |
   | C13 | Work-name prefix not cut to 48 |
   | C14 | Boolean grants refused |
+  | C15 | Credential payload without the seat (three fields) |
+  | C16 | Canonical credential accepts a seatless or empty-seat payload |
 
   These show sensitivity to these particular defects only.
 - `tests/properties.rs` covers every grid value in ±3,000.00 plus 200,000

@@ -179,11 +179,11 @@ fn c11_noncanonical_credential_bits_are_detected() {
 }
 
 // C12: payload JSON written as raw UTF-8 instead of Python's ASCII escapes.
-fn utf8_payload(org: &str, node: &str, g: i64) -> Result<String, CredentialError> {
+fn utf8_payload(org: &str, node: &str, g: i64, seat: &str) -> Result<String, CredentialError> {
     if g < 0 {
         return Err(CredentialError::NegativeGeneration);
     }
-    let raw = format!("[\"{org}\",\"{node}\",{g}]");
+    let raw = format!("[\"{org}\",\"{node}\",{g},\"{seat}\"]");
     const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
     let mut out = String::new();
     for chunk in raw.as_bytes().chunks(3) {
@@ -222,4 +222,42 @@ fn bool_refusing_grant(v: &Value) -> PyOutcome<LegacyGrant> {
 #[test]
 fn c14_grant_characterization_drift_is_detected() {
     detected_only_in(Implementation { legacy_hire_grant: bool_refusing_grant, ..Implementation::REFERENCE }, &["hire_grant"]);
+}
+
+// C15: a payload that drops the seat (the pre-P04a-2 three-field credential).
+fn seatless_payload(org: &str, node: &str, g: i64, _seat: &str) -> Result<String, CredentialError> {
+    credential::encode_payload(org, node, g, "x").map(|_| {
+        let raw = format!("[{},{},{g}]", json::python_ascii_string(org), json::python_ascii_string(node));
+        const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        let mut out = String::new();
+        for chunk in raw.as_bytes().chunks(3) {
+            let n = (u32::from(chunk[0]) << 16) | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8) | u32::from(*chunk.get(2).unwrap_or(&0));
+            for i in 0..=chunk.len() {
+                out.push(A[((n >> (18 - 6 * i)) & 63) as usize] as char);
+            }
+        }
+        out
+    })
+}
+
+#[test]
+fn c15_seatless_credential_payload_is_detected() {
+    detected_only_in(Implementation { encode_payload: seatless_payload, ..Implementation::REFERENCE }, &["credential_encode"]);
+}
+
+// C16: canonical decoding that accepts shape-invalid payloads, among them a
+// three-field (seatless) payload and one with an empty seat id.
+fn empty_seat_canonical(p: &str) -> Result<CredentialClaim, CredentialError> {
+    match credential::decode_payload_canonical(p) {
+        Err(CredentialError::Shape) => match credential::decode_payload_legacy(p) {
+            LegacyVerify::Rejected => Ok(CredentialClaim { org: String::new(), node: String::new(), generation: 0, seat: String::new() }),
+            _ => Err(CredentialError::Shape),
+        },
+        other => other,
+    }
+}
+
+#[test]
+fn c16_empty_or_missing_seat_acceptance_is_detected() {
+    detected_only_in(Implementation { decode_payload_canonical: empty_seat_canonical, ..Implementation::REFERENCE }, &["credential_decode"]);
 }

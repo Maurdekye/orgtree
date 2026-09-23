@@ -1,11 +1,13 @@
 //! The payload half of the engine-local agent credential.
 //!
 //! Source (engine/backend/orgtree/agentauth.py): `child_env` writes
-//! `json.dumps([slug, nid, generation], separators=(',', ':'))`, encodes it
-//! with URL-safe base64, strips `=` padding, then appends `.` and a hex
-//! HMAC-SHA256 signature. `verify` checks the signature, restores padding,
+//! `json.dumps([slug, nid, generation, seat_id], separators=(',', ':'))`,
+//! encodes it with URL-safe base64, strips `=` padding, then appends `.` and a
+//! hex HMAC-SHA256 signature. `verify` checks the signature, restores padding,
 //! decodes with Python's non-strict base64 decoder, parses the JSON and
-//! requires `str, str, int` (`type(generation) is int`).
+//! requires `str, str, int, non-empty str` (`type(generation) is int`).
+//! The seat (P04a-2) binds the credential to the immutable principal: a
+//! same-name successor on a reused node key has another `seat_id`.
 //!
 //! This module handles only the payload text before the `.`. It does not
 //! sign, verify signatures, hold a key or grant authority; a decoded payload
@@ -14,18 +16,22 @@
 use crate::json::{self, python_ascii_string, Limits, Profile, Value};
 use std::fmt;
 
-/// The (organization slug, node id, generation) tuple the payload carries.
+/// The (organization slug, node id, generation, seat id) tuple the payload
+/// carries.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CredentialClaim {
     pub org: String,
     pub node: String,
     pub generation: i64,
+    pub seat: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CredentialError {
     /// `child_env` refuses a negative generation.
     NegativeGeneration,
+    /// `child_env` refuses an empty seat id.
+    EmptySeat,
     /// A byte outside the URL-safe base64 alphabet, including `=`.
     Alphabet,
     /// A length that is 1 more than a multiple of 4.
@@ -36,7 +42,8 @@ pub enum CredentialError {
     Utf8,
     /// The decoded text is not strict JSON.
     Json,
-    /// Not a three-element array of string, string, non-negative integer.
+    /// Not a four-element array of string, string, non-negative integer,
+    /// non-empty string.
     Shape,
     /// Decodes to a claim, but encoding that claim does not give back the
     /// same payload text (for example extra JSON whitespace).
@@ -47,6 +54,7 @@ impl CredentialError {
     pub fn as_str(self) -> &'static str {
         match self {
             CredentialError::NegativeGeneration => "negative_generation",
+            CredentialError::EmptySeat => "empty_seat",
             CredentialError::Alphabet => "alphabet",
             CredentialError::Length => "length",
             CredentialError::NonCanonicalBits => "noncanonical_bits",
@@ -123,26 +131,37 @@ fn b64url_decode_unpadded(s: &str, strict: bool) -> Result<Vec<u8>, CredentialEr
 }
 
 /// Encode the payload exactly as `agentauth.child_env` does. A negative
-/// generation is refused like `child_env` refuses it.
-pub fn encode_payload(org: &str, node: &str, generation: i64) -> Result<String, CredentialError> {
+/// generation or an empty seat is refused like `child_env` refuses it.
+pub fn encode_payload(org: &str, node: &str, generation: i64, seat: &str) -> Result<String, CredentialError> {
     if generation < 0 {
         return Err(CredentialError::NegativeGeneration);
     }
-    let text = format!("[{},{},{}]", python_ascii_string(org), python_ascii_string(node), generation);
+    if seat.is_empty() {
+        return Err(CredentialError::EmptySeat);
+    }
+    let text = format!(
+        "[{},{},{},{}]",
+        python_ascii_string(org),
+        python_ascii_string(node),
+        generation,
+        python_ascii_string(seat)
+    );
     Ok(b64url_encode_unpadded(text.as_bytes()))
 }
 
 fn claim_from(v: &Value) -> Option<CredentialClaim> {
     let Value::Array(items) = v else { return None };
-    let [Value::String(org), Value::String(node), Value::Number(g)] = items.as_slice() else { return None };
-    if !g.is_integer_lexeme() {
+    let [Value::String(org), Value::String(node), Value::Number(g), Value::String(seat)] = items.as_slice() else {
+        return None;
+    };
+    if !g.is_integer_lexeme() || seat.is_empty() {
         return None;
     }
-    Some(CredentialClaim { org: org.clone(), node: node.clone(), generation: g.to_i64()? })
+    Some(CredentialClaim { org: org.clone(), node: node.clone(), generation: g.to_i64()?, seat: seat.clone() })
 }
 
 /// Canonical decoding: only unpadded URL-safe base64 with zero unused bits,
-/// strict JSON, the exact `[str,str,int]` shape, a generation that
+/// strict JSON, the exact `[str,str,int,str]` shape, a generation and seat that
 /// `child_env` could have produced, and byte-identical re-encoding.
 pub fn decode_payload_canonical(encoded: &str) -> Result<CredentialClaim, CredentialError> {
     let raw = b64url_decode_unpadded(encoded, true)?;
@@ -152,7 +171,7 @@ pub fn decode_payload_canonical(encoded: &str) -> Result<CredentialClaim, Creden
     if claim.generation < 0 {
         return Err(CredentialError::Shape);
     }
-    if encode_payload(&claim.org, &claim.node, claim.generation)? != encoded {
+    if encode_payload(&claim.org, &claim.node, claim.generation, &claim.seat)? != encoded {
         return Err(CredentialError::NotReencoded);
     }
     Ok(claim)
@@ -200,11 +219,11 @@ pub fn decode_payload_legacy(encoded: &str) -> LegacyVerify {
         }
         Err(_) => return LegacyVerify::Rejected, // JSONDecodeError is a ValueError
     };
-    // `slug, nid, generation = value`: only a three-element array can pass
-    // the later type checks (a string or an object of three members unpacks,
-    // but its third element is then a string).
+    // `slug, nid, generation, seat_id = value`: only a four-element array can
+    // pass the later type checks (a string or an object of four members
+    // unpacks, but its third element is then a string).
     if let Value::Array(items) = &v {
-        if let [Value::String(_), Value::String(_), Value::Number(g)] = items.as_slice() {
+        if let [Value::String(_), Value::String(_), Value::Number(g), Value::String(_)] = items.as_slice() {
             if g.is_integer_lexeme() && g.to_i64().is_none() {
                 return LegacyVerify::OutsideParityDomain("integer generation outside i64");
             }
