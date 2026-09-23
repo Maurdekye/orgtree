@@ -733,6 +733,82 @@ class Schema4Tests(unittest.TestCase):
                 reporter.build_report(source)
 
 
+class Schema3RefusesSchema4FieldsTests(unittest.TestCase):
+    """A schema-3 snapshot must refuse each schema-4 contact field on its own.
+
+    Each injected value is COPIED FROM THE VALID SCHEMA-4 FIXTURE, so it is
+    non-empty and well-formed. The refusal therefore cannot come from an
+    emptiness or shape check on the value itself. Each negative pins its own
+    refusal message, so the three paths cannot stand in for one another. Each
+    control shows the identical content is accepted once the snapshot really
+    is schema 4."""
+
+    @staticmethod
+    def as_schema4(source):
+        """Upgrade a schema-3 snapshot to a valid schema-4 one, keeping any
+        schema-4 content it already carries."""
+        four = fixture4()
+        upgraded = copy.deepcopy(source)
+        upgraded["schema_version"] = 4
+        for row in upgraded["records"]:
+            row["v"] = 4
+        upgraded["vocabulary"] = copy.deepcopy(four["vocabulary"])
+        upgraded["provenance"]["measures_storage_contacts"] = four["provenance"]["measures_storage_contacts"]
+        upgraded["contact_coverage"].setdefault("secondary_stores", copy.deepcopy(four["contact_coverage"]["secondary_stores"]))
+        return upgraded
+
+    def check(self, mutate, message):
+        source = fixture3()
+        reporter.build_report(source)   # the untouched schema-3 baseline is accepted
+        mutate(source)
+        with self.assertRaisesRegex(reporter.ReportError, message):
+            reporter.build_report(source)
+        # Discriminating control: the very same content passes as schema 4.
+        report = reporter.build_report(self.as_schema4(source))
+        self.assertEqual(report["report_schema"], "orgtree.operation-census-report/v2")
+        return report
+
+    def test_a_schema3_row_refuses_a_non_empty_db_secondary(self):
+        secondary = copy.deepcopy(fixture4()["records"][5]["db"]["secondary"])
+        self.assertEqual(sorted(secondary), ["file_deliveries", "reply_events"], "the injected block is non-empty")
+        report = self.check(lambda s: s["records"][5]["db"].update(secondary=secondary),
+                            r"^record\.db: unsupported fields$")
+        self.assertEqual(sorted(report["contacts"]["secondary_totals"]), ["file_deliveries", "reply_events"])
+
+    def test_schema3_coverage_refuses_secondary_stores(self):
+        stores = copy.deepcopy(fixture4()["contact_coverage"]["secondary_stores"])
+        self.assertEqual(len(stores), 6, "the injected list is the full, valid schema-4 list")
+        report = self.check(lambda s: s["contact_coverage"].update(secondary_stores=stores),
+                            r"^contact_coverage: unsupported fields$")
+        self.assertEqual(report["snapshot"]["contact_coverage"]["secondary_stores"], stores)
+
+    def test_a_schema3_vocabulary_refuses_db_secondary_store(self):
+        labels = list(reporter.DB_SECONDARY_STORES)
+        self.assertEqual(fixture4()["vocabulary"]["db_secondary_store"], labels)
+        self.check(lambda s: s["vocabulary"].update(db_secondary_store=labels),
+                   r"^incompatible schema3 vocabulary$")
+
+    def test_the_three_refusals_are_distinct_paths(self):
+        """Each injection alone trips only its own check: the messages differ,
+        and each one appears for exactly one of the three injections."""
+        four = fixture4()
+        injections = {
+            "row": lambda s: s["records"][5]["db"].update(secondary=copy.deepcopy(four["records"][5]["db"]["secondary"])),
+            "coverage": lambda s: s["contact_coverage"].update(secondary_stores=copy.deepcopy(four["contact_coverage"]["secondary_stores"])),
+            "vocabulary": lambda s: s["vocabulary"].update(db_secondary_store=list(reporter.DB_SECONDARY_STORES)),
+        }
+        messages = {}
+        for name, mutate in injections.items():
+            source = fixture3()
+            mutate(source)
+            with self.assertRaises(reporter.ReportError) as caught:
+                reporter.build_report(source)
+            messages[name] = str(caught.exception)
+        self.assertEqual(messages, {"row": "record.db: unsupported fields",
+                                    "coverage": "contact_coverage: unsupported fields",
+                                    "vocabulary": "incompatible schema3 vocabulary"})
+
+
 class CliTests(unittest.TestCase):
     def run_cli(self, *args):
         return subprocess.run([sys.executable, str(TOOL), *map(str, args)], capture_output=True, text=True, timeout=15)
