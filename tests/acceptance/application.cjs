@@ -5,6 +5,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const assert = require('node:assert/strict')
 const cp = require('node:child_process')
+const { pathToFileURL } = require('node:url')
 const { app, BrowserWindow, dialog, net } = require('electron')
 const root = fs.realpathSync.native(process.env.ORGTREE_ACCEPTANCE_ROOT)
 const target = fs.realpathSync.native(process.env.ORGTREE_ACCEPTANCE_APP)
@@ -154,6 +155,18 @@ app.on('browser-window-created', (_event, main) => {
       assert.ok(children.some(c => c.pid === h.pid))
       assert.equal(Number(new URL(origin).port), h.port)
       assert.notEqual(h.port, 7360)
+    })
+    if (rows.at(-1).status !== 'PASS') { finish(); return }
+    // HUB ISOLATION proof (tests/hub_isolation.mjs), before any test action:
+    // the hub this real engine names as its own must be the rig's disposable
+    // hub, by address and by the unique name its /healthz answered. Anything
+    // else ends the run here: in the initial phase before any organization
+    // exists to register, and in every phase before any test action.
+    await check('real-engine-attached-to-its-disposable-hub', async () => {
+      const { readRigHub, hubStatusProblems } = await import(pathToFileURL(path.join(__dirname, '..', 'hub_isolation.mjs')).href)
+      const hosted = await evaluate(`fetch('/api/desktop/hub').then(async r => ({ status: r.status, body: await r.json() }))`)
+      assert.equal(hosted.status, 200)
+      assert.deepEqual(hubStatusProblems(hosted.body.status, readRigHub(data)), [])
     })
     if (rows.at(-1).status !== 'PASS') { finish(); return }
     await check('real-renderer-mounted', async () => {

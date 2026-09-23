@@ -302,7 +302,26 @@ class EveryRealEngineRigIsIsolated(unittest.TestCase):
             r"|engine[/\\]+(?:launch|service_host)\.py|service_host\.reviewed\.py"
             r"|endsWith\(['\"]launch\.py['\"]\)|\bh\.main\(\)|service_host\.main\(\)"
             r"|MailhubRuntime\(")
-    ISOLATED = r"hub_isolation|isolatedRoot\("
+    # Only EXECUTABLE isolation counts: a comment or an import naming the
+    # helper proves nothing (review N1 on 6729eac). After comments are
+    # stripped a rig must CALL a setup helper AND remove the inherited
+    # address (enforce_isolated_root and acceptanceEnvironment do both).
+    SETUP_CALL = (r"\b(?:isolate_data_root|isolateDataRoot|enforce_isolated_root|isolatedRoot)\(")
+    SCRUB_CALL = (r"\b(?:scrub_inherited_hub|scrubInheritedHub|enforce_isolated_root"
+                  r"|acceptanceEnvironment)\(")
+    # rigs whose snapshot cannot import the helpers inline the same steps;
+    # each snippet must survive comment stripping
+    INLINE = {
+        'tests/probe-boot-paired-root-only.ps1': (
+            "os.environ.clear()",
+            "(hub_data/'mailhub-hosting.json').write_text(",
+            "(hub_data/'defaults.json').write_text(",
+            "raise SystemExit('hub isolation: probe-data is not isolated",
+        ),
+    }
+    # Electron entries that boot the REAL launcher (no stand-in) must prove the
+    # engine's hub after boot, before any test action (review N2 on 6729eac)
+    POST_BOOT_PROOF = {'tests/acceptance/application.cjs': r"\bhubStatusProblems\("}
     # stand-ins that exec another stand-in's source (which enforces) first
     DELEGATES = {
         'tests/acceptance/maintenance_engine.py': 'visual_engine.py',
@@ -333,7 +352,25 @@ class EveryRealEngineRigIsIsolated(unittest.TestCase):
         'tests/test_mailhub_runtime.py': 'starts MailhubRuntime only on its own TEST_PORT',
         'tests/test_python_verification_runner.py': 'writes a one-line fixture launch.py',
         'tests/test_startup_progress.py': 'runs service_host.main against a stub launch.py',
+        'tests/hub_isolation.py': 'the helpers themselves; boots no engine',
+        'tests/test_hub_isolation.py': 'this audit and the tests of the helpers; MailhubRuntime() '
+                                       'only reads a config, never start()s',
     }
+
+    @staticmethod
+    def code_of(name, text):
+        """``text`` without comments: whole-line ``#`` / ``//`` comments and
+        trailing ones after whitespace. Crude on purpose: a rig that hides its
+        isolation call behind anything this strips fails closed."""
+        import re
+        marker = r"#" if name.endswith(('.py', '.ps1')) else r"//"
+        text = re.sub(r"/\*.*?\*/", "", text, flags=re.S) if marker == r"//" else text
+        kept = []
+        for line in text.splitlines():
+            if line.lstrip().startswith(marker):
+                continue
+            kept.append(re.split(r"\s" + marker, line, maxsplit=1)[0])
+        return "\n".join(kept)
 
     def files(self):
         for path in sorted((ROOT / 'tests').rglob('*')):
@@ -350,7 +387,11 @@ class EveryRealEngineRigIsIsolated(unittest.TestCase):
             boots.add(name)
             if name in self.EXEMPT or name in self.DELEGATES:
                 continue
-            if not re.search(self.ISOLATED, text):
+            code = self.code_of(name, text)
+            if name in self.INLINE:
+                if not all(snippet in code for snippet in self.INLINE[name]):
+                    missing.append(name)
+            elif not (re.search(self.SETUP_CALL, code) and re.search(self.SCRUB_CALL, code)):
                 missing.append(name)
         self.assertEqual(missing, [], 'these files boot a real engine without hub isolation')
         stale = sorted(set(self.EXEMPT) - boots)
@@ -382,6 +423,38 @@ class EveryRealEngineRigIsIsolated(unittest.TestCase):
                         break
                     target = self.DELEGATES[seen[-1]]
                 self.assertIn('enforce_isolated_root(', (ROOT / seen[-1]).read_text(encoding='utf-8'))
+
+    def test_real_launcher_electron_entries_prove_the_hub_after_boot(self):
+        import re
+        for name, call in self.POST_BOOT_PROOF.items():
+            with self.subTest(name):
+                code = self.code_of(name, (ROOT / name).read_text(encoding='utf-8'))
+                proof = re.search(call, code)
+                self.assertIsNotNone(proof, 'no executable post-boot hub proof')
+                # ... and it runs before the first organization is created
+                first_action = code.find("slug: 'acceptance-runtime'")
+                self.assertGreater(first_action, -1)
+                self.assertLess(proof.start(), first_action)
+
+    def test_comments_and_imports_do_not_count_as_isolation(self):
+        import re
+        rig = ("// HUB ISOLATION (tests/hub_isolation.mjs)\n"
+               "import { isolateDataRoot, scrubInheritedHub } from './hub_isolation.mjs'\n"
+               "// isolateDataRoot(root); scrubInheritedHub(env)\n"
+               "/* isolateDataRoot(root)\n   scrubInheritedHub(env) */\n"
+               "const env = { ...process.env } // scrubInheritedHub(env)\n"
+               "spawn(PYTHON, [path.join(REPO, 'engine/service_host.py')], { env })\n")
+        code = self.code_of('tests/rogue.mjs', rig)
+        self.assertIsNone(re.search(self.SETUP_CALL, code))
+        self.assertIsNone(re.search(self.SCRUB_CALL, code))
+        real = rig + "const hub = isolateDataRoot(root)\nscrubInheritedHub(env)\n"
+        code = self.code_of('tests/rogue.mjs', real)
+        self.assertIsNotNone(re.search(self.SETUP_CALL, code))
+        self.assertIsNotNone(re.search(self.SCRUB_CALL, code))
+        py = "# hub_isolation.isolate_data_root(data)\nimport hub_isolation  # isolate_data_root(\n"
+        self.assertIsNone(re.search(self.SETUP_CALL, self.code_of('tests/rogue.py', py)))
+        self.assertIsNotNone(re.search(self.SETUP_CALL, self.code_of(
+            'tests/rogue.py', py + "hub = hub_isolation.isolate_data_root(data)\n")))
 
     def test_acceptance_runners_build_their_roots_through_the_isolation(self):
         isolation = (ROOT / 'tests' / 'acceptance' / 'isolation.mjs').read_text(encoding='utf-8')
