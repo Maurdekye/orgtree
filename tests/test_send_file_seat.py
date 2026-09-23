@@ -21,7 +21,18 @@ assert Path(api.__file__).resolve().is_relative_to(Path(__file__).resolve().pare
 
 
 class SendFileSeatTests(unittest.TestCase):
+    """The api's lazy legacy-seat mint (`_agent_identity`, durable=True).
+
+    P04a-1 gives every legacy seat its `seat_id` at load
+    (`Org._backfill_seat_ids`), which makes that mint unreachable from an
+    ordinary load. It is kept as a defence, so these tests switch the load-time
+    backfill off and pin the defence exactly as before; the eager path is
+    `test_eager_backfill_supplies_the_legacy_seat` below."""
+
     def setUp(self):
+        self.backfill = patch.object(ledger.Org, '_backfill_seat_ids', lambda org: None)
+        if self._testMethodName != 'test_eager_backfill_supplies_the_legacy_seat':
+            self.backfill.start()
         self.slug = self._testMethodName.replace('_', '-')
         org = store.create_org(self.slug)
         org.hire(ledger.USER, None, 'haiku', 0, 'sender')
@@ -41,6 +52,7 @@ class SendFileSeatTests(unittest.TestCase):
         self.client.close()
         self.wake.stop()
         self.key.stop()
+        patch.stopall()
         store._POOL.close_all(self.slug)
 
     def token(self, generation=None):
@@ -275,6 +287,19 @@ class SendFileSeatTests(unittest.TestCase):
         org.node('sender')['scope']['add_dirs'] = []
         store.save_org(org)
         self.assertEqual(self.call(args=args).status_code, 422)
+
+    def test_eager_backfill_supplies_the_legacy_seat(self):
+        # P04a-1: the legacy seat is present from the first load, derived
+        # deterministically, so every construction and the managed call agree
+        org = store.load_org(self.slug)
+        seat = org.node('sender')['seat_id']
+        self.assertEqual(seat, ledger.Org.legacy_seat_id('sender', org.node('sender')))
+        response = self.call()
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(store.load_org(self.slug).node('sender')['seat_id'], seat)
+        org = store.load_org(self.slug)
+        store.save_org(org)
+        self.assertEqual(store.load_org(self.slug).node('sender')['seat_id'], seat)
 
     def test_identity_must_persist_before_any_copy(self):
         with patch.object(store, 'save_org', side_effect=OSError('identity persistence refused')):

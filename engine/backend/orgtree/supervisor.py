@@ -10109,7 +10109,8 @@ def manual_fetch(slug: str, nid: str, generation: int, message_ids: Any, *,
                 row = next(b for b in o.d["delivering"][nid] if b.get("tok") == tok)
                 did = "mf-" + os.urandom(8).hex()
                 row["manual"] = inbox.manual_record(
-                    ident, engine=mailruntime.ENGINE_INSTANCE, delivery_id=did, mail=mail)
+                    ident, engine=mailruntime.ENGINE_INSTANCE, delivery_id=did, mail=mail,
+                    seat=o.nodes[nid].get("seat_id"))
                 _manual_attempts(o, nid)[did] = inbox.attempt_record(
                     row["manual"], tok=tok, at=now_iso(), op_key=op_key or None,
                     op_id=op_id)
@@ -10155,7 +10156,9 @@ def _chunk_answer(org: Org, nid: str, generation: int, delivery_id: str,
     Pure: the same bytes from the same journaled row and recorded offsets on
     every call, never a drain. When the row is gone the answer comes from a
     positive transition receipt or the resolved durable attempt, or is
-    `unknown`; absence alone proves nothing."""
+    `unknown`; absence alone proves nothing. A record stamped with another
+    seat (P04a-1) is `unavailable`, like one of another mailbox or
+    generation; an unstamped one keeps exactly those two checks."""
     rows = [b for b in (org.d.get("delivering") or {}).get(nid) or []
             if isinstance(b, dict) and isinstance(b.get("manual"), dict)
             and b["manual"].get("delivery_id") == delivery_id]
@@ -10170,7 +10173,8 @@ def _chunk_answer(org: Org, nid: str, generation: int, delivery_id: str,
     node = org.nodes[nid]
     if (mailruntime.manual_ref(record) is None
             or record.get("generation") != generation
-            or record.get("mailbox") != node.get("mailbox_id")):
+            or record.get("mailbox") != node.get("mailbox_id")
+            or inbox.seat_mismatch(record, node)):
         return {**gone, "content_state": "unavailable"}
     mail = next((m for m in row.get("mail") or []
                  if isinstance(m, dict) and m.get("id") == message_id), None)

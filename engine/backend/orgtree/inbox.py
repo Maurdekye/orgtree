@@ -241,8 +241,11 @@ def _key(row: Any, mine: str | None, position: int) -> tuple[int, int, str, int]
 
 def pending_rows(org: Any, nid: str, states: Mapping[str, str]) -> list[dict[str, Any]]:
     """Every waiting message of this mailbox, in keyset order: the box plus
-    every journal batch, each with its self-view state."""
-    mine = Org._mailbox_stamp((org.nodes.get(nid) or {}).get("mailbox_id"))
+    every journal batch, each with its self-view state. A manual batch
+    stamped with another seat (P04a-1) is not this seat's and is not listed;
+    it stays protected where it is."""
+    node = org.nodes.get(nid) or {}
+    mine = Org._mailbox_stamp(node.get("mailbox_id"))
     out: list[tuple[tuple[int, int, str, int], dict[str, Any]]] = []
     position = 0
     for row in org.mailbox_in_receive_order(nid):
@@ -256,6 +259,8 @@ def pending_rows(org: Any, nid: str, states: Mapping[str, str]) -> list[dict[str
         tok = batch.get("tok")
         state = states.get(tok, "unavailable") if isinstance(tok, str) else "unavailable"
         manual = batch.get("manual") if isinstance(batch.get("manual"), Mapping) else None
+        if seat_mismatch(manual, node):
+            continue
         delivery = {"mode": batch.get("mode"), "via": batch.get("via"),
                     "drained_at": batch.get("at"), "attempt": batch.get("attempt"),
                     **({"delivery_id": manual.get("delivery_id")} if manual else {})}
@@ -275,8 +280,8 @@ def pending_rows(org: Any, nid: str, states: Mapping[str, str]) -> list[dict[str
 # cursor
 # --------------------------------------------------------------------------
 
-def encode_cursor(mailbox: Any, generation: Any, key: list[Any]) -> str:
-    raw = json.dumps({"v": 1, "m": mailbox, "g": generation, "k": key},
+def encode_cursor(mailbox: Any, generation: Any, key: list[Any], seat: Any = None) -> str:
+    raw = json.dumps({"v": 1, "m": mailbox, "g": generation, "k": key, "s": seat},
                      separators=(",", ":"), sort_keys=True)
     return base64.urlsafe_b64encode(raw.encode("utf-8")).decode("ascii")
 
@@ -297,32 +302,45 @@ def decode_cursor(cursor: Any) -> dict[str, Any] | None:
     return d
 
 
+def cursor_current(c: Mapping[str, Any], mailbox: Any, generation: Any, seat: Any) -> bool:
+    """A decoded cursor still names this seat's mailbox identity and
+    generation. A cursor without a seat (issued before P04a-1), or for a seat
+    that has none, is not current."""
+    return (c["m"] == mailbox and c["g"] == generation
+            and bool(seat) and c.get("s") == seat)
+
+
 def build_list(org: Any, nid: str, states: Mapping[str, str], *,
                generation: Any, cursor: Any = None, limit: Any = None) -> dict[str, Any]:
     """The `list` result. Pure.
 
     The cursor is bound to this mailbox's identity AS FOUND (absent stays
-    absent) and to the caller's generation, never to an array index: a page
-    resumes strictly after the last key it returned, so rows consumed between
-    pages cannot shift an unseen row out of reach."""
+    absent), to the caller's generation and (P04a-1) to the seat — the
+    principal — never to an array index: a page resumes strictly after the
+    last key it returned, so rows consumed between pages cannot shift an
+    unseen row out of reach. The seat is what refuses a same-name successor's
+    cursor when neither seat has minted a mailbox yet; a cursor issued before
+    the seat binding carries none and reads as stale."""
     if limit is None:
         limit = LIST_DEFAULT
     if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= LIST_MAX:
         return refusal("limit_out_of_range", f"limit must be 1..{LIST_MAX}")
     node = org.nodes.get(nid) or {}
     mailbox = node.get("mailbox_id")
+    seat = node.get("seat_id")
     rows = pending_rows(org, nid, states)
     if cursor is not None:
         c = decode_cursor(cursor)
         if c is None:
             return refusal("cursor_invalid", "the cursor is not one this inbox issued")
-        if c["m"] != mailbox or c["g"] != generation:
-            return refusal("cursor_stale", "the cursor belongs to another mailbox "
+        if not cursor_current(c, mailbox, generation, seat):
+            return refusal("cursor_stale", "the cursor belongs to another seat, mailbox "
                            "identity or generation; list again without a cursor")
         after = tuple(c["k"])
         rows = [r for r in rows if tuple(r["_key"]) > after]
     page, rest = rows[:limit], rows[limit:]
-    next_cursor = encode_cursor(mailbox, generation, page[-1]["_key"]) if rest and page else None
+    next_cursor = (encode_cursor(mailbox, generation, page[-1]["_key"], seat)
+                   if rest and page else None)
     for r in page:
         r.pop("_key", None)
     notices = (org.d.get("notices") or {}).get(nid) or []
@@ -381,11 +399,12 @@ def fit_budget(requested: Iterable[str], box: Mapping[str, Mapping[str, Any]],
 
 
 def manual_record(ident: Mapping[str, Any], *, engine: str, delivery_id: str,
-                  mail: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
-    """The journal row's `manual` record: who fetched it, the continuation
-    handle, and every message's immutable chunk plan."""
+                  mail: Iterable[Mapping[str, Any]], seat: Any) -> dict[str, Any]:
+    """The journal row's `manual` record: who fetched it (its seat, the
+    principal, since P04a-1), the continuation handle, and every message's
+    immutable chunk plan."""
     return {**{k: ident[k] for k in ("mailbox", "generation", "session", "attempt")},
-            "engine": engine, "delivery_id": delivery_id,
+            "seat": seat, "engine": engine, "delivery_id": delivery_id,
             "plan": {m["id"]: chunk_plan(m["body"]) for m in mail}}
 
 
@@ -432,6 +451,7 @@ def attempt_record(record: Mapping[str, Any], *, tok: str, at: str,
     return {"v": 1, "at": at, "tok": tok,
             **{k: record.get(k) for k in ("mailbox", "generation", "session",
                                           "attempt", "engine", "delivery_id")},
+            **({"seat": record["seat"]} if "seat" in record else {}),
             "op_key": op_key, "op_id": op_id, "mail_ids": list(plan),
             "digests": {mid: {"chunk_total": p.get("chunk_total"),
                               "body_sha256": p.get("body_sha256")}
@@ -488,11 +508,22 @@ def attempt_open(att: Mapping[str, Any], org: Any, nid: str) -> bool:
     return any(mid in waiting for mid in att.get("mail_ids") or [])
 
 
+def seat_mismatch(record: Any, node: Mapping[str, Any]) -> bool:
+    """A record stamped with a seat that is not this node's (P04a-1). An
+    unstamped record (written before the stamp) is not a mismatch: it keeps
+    the mailbox/generation checks it always had."""
+    return (isinstance(record, Mapping) and "seat" in record
+            and record.get("seat") != node.get("seat_id"))
+
+
 def gone_state(org: Any, nid: str, delivery_id: str) -> dict[str, Any]:
     """Where a delivery whose journal row is gone went, from positive records
     only: its transition receipt, else its resolved attempt, else `unknown`.
-    Absence proves nothing."""
+    Absence proves nothing. An attempt stamped with another seat is not this
+    seat's delivery: `unavailable`, and nothing of it is reported."""
     att = ((org.d.get("manual_attempts") or {}).get(nid) or {}).get(delivery_id)
+    if seat_mismatch(att, org.nodes.get(nid) or {}):
+        return {"content_state": "unavailable", "attempt_recorded": False}
     state = transition_state(org, nid, delivery_id)
     if state is None and isinstance(att, Mapping) and att.get("resolved") in (
             "redelivered", "confirmed"):

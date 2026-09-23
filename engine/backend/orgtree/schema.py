@@ -833,12 +833,15 @@ class ManualAttemptRecord(TypedDict):
     (null when unkeyed); `provider_call_id` stays null with
     `call_id_source="unsupplied"` until trusted call evidence exists (P08).
     `resolved` is null while open, then `redelivered`/`confirmed` from a
-    positive transition receipt, else `unknown`."""
+    positive transition receipt, else `unknown`. `seat` (P04a-1) is the
+    fetching seat's principal; attempts written before it carry none and keep
+    the mailbox/generation fence."""
     v: int
     at: str
     tok: str
     mailbox: str
     generation: int
+    seat: NotRequired[str]
     session: str
     attempt: str
     engine: str
@@ -1192,6 +1195,10 @@ class OrgDoc(TypedDict):
     manual_attempts: NotRequired[dict[str, dict[str, ManualAttemptRecord]]]  # per-NODE manual-fetch attempts (P06a)
     steered_log: NotRequired[dict[str, list[dict[str, Any]]]]  # per-NODE steer history, org-keyed
     turn_error_log: NotRequired[dict[str, list[dict[str, Any]]]]  # per-NODE turn failures {at, text, ran_as?} — the durable half of last_error
+    # per-NODE steering attempt journal (store.KEYED_DICT_LOGS); declared here
+    # so the P04a-1 census (ledger.NODE_KEYED_SECTIONS) reads it from the schema
+    steer_attempts: NotRequired[dict[str, dict[str, dict[str, Any]]]]
+    watchdog_history: NotRequired[list[dict[str, Any]]]  # retained watchdog events {.., watchdog, node}
     # (`account_token_uuid` — the per-org account selection — lived here
     # until 2026-08-25. Account routing is machine-local and per model tier
     # now (accounts.py); Org.__init__ pops the stale key from old docs.)

@@ -702,6 +702,77 @@ def app_prefer_reserve_default() -> bool:
         return True
 
 
+# ------------------------------------------------------ P04a-1 identity census
+#: EVERY top-level section an org document can carry, classified by what a
+#: seat's RENAME does to it (P04a-1, scope-p04 r2 §5). `test_principal_identity`
+#: enumerates `schema.OrgDoc`, store's section lists and a synthetic
+#: hire/mail/steer/manual-fetch/receipt document, and fails on any key missing
+#: here — a new per-node record cannot appear without a rename/delete decision.
+#:
+#: value = (class, shape, on_delete)
+#:   class    `rekey`       storage ownership follows the renamed seat
+#:            `delete_only` per-node, removed by delete but never re-keyed
+#:            `keep`        authored history: keeps the name it was written with
+#:            `org`         org-level; not addressed by a node id
+#:   shape    `by_node`     a dict keyed by node id (`rename` moves the entry)
+#:            `row_field`   rows name a node in a field (moved by its own code)
+#:            `none`        no node address
+#:   on_delete what `delete` does TODAY. `left` rows stay under the freed key,
+#:            protected by their stamps, until the P04a-2 credential fence and
+#:            purge land together; `orphans()` reports them.
+NODE_KEYED_SECTIONS: Final[dict[str, tuple[str, str, str]]] = {
+    "nodes": ("rekey", "by_node", "purged"),
+    "mail": ("rekey", "by_node", "purged"),
+    "mail_log": ("rekey", "by_node", "purged"),
+    "notices": ("rekey", "by_node", "purged"),
+    "steered_log": ("rekey", "by_node", "purged"),
+    "delivering": ("rekey", "by_node", "left"),
+    "turn_error_log": ("rekey", "by_node", "left"),
+    "mail_transitions": ("rekey", "by_node", "left"),
+    "steer_attempts": ("rekey", "by_node", "left"),
+    "manual_attempts": ("rekey", "by_node", "left"),
+    "op_receipts": ("rekey", "row_field", "left"),
+    "documents": ("rekey", "row_field", "left"),
+    "asks": ("rekey", "row_field", "purged"),
+    "credit_requests": ("rekey", "row_field", "purged"),
+    "scope_requests": ("rekey", "row_field", "purged"),
+    "watchdogs": ("rekey", "row_field", "purged"),
+    "watchdog_tombs": ("rekey", "row_field", "left"),
+    "audiences": ("rekey", "row_field", "purged"),
+    "audience_requests": ("rekey", "row_field", "purged"),
+    "work_items": ("rekey", "row_field", "marked"),
+    "work_items_archive": ("rekey", "row_field", "marked"),
+    "events": ("keep", "row_field", "kept"),
+    "lifecycle": ("keep", "row_field", "kept"),
+    "notice_log": ("keep", "row_field", "kept"),
+    "watchdog_history": ("keep", "row_field", "kept"),
+    "org_inbox": ("keep", "row_field", "kept"),
+    "user_inbox": ("keep", "row_field", "kept"),
+    "user_outbox": ("keep", "row_field", "kept"),
+    "user_mail_log": ("keep", "row_field", "kept"),
+    "orphan_keys": ("keep", "row_field", "kept"),
+    **{k: ("org", "none", "kept") for k in (
+        "_actors_typed", "_migrations", "account_fallback_default", "account_token_uuid",
+        "api_cost_usd", "default_account", "desktop_import", "reply_incarnation",
+        "whole_grants_v1", "work_deleted_names",
+        "api_fallback", "api_fallback_since", "api_fallback_until", "api_key",
+        "auto_cheap_compact", "auto_resume", "auto_resume_compact", "auto_resume_last",
+        "bridge_credential_generation", "bridge_credential_rotated_at", "cascade_alloc",
+        "cascade_hire", "compact_at", "created", "cred_warned_at", "default_dirs",
+        "default_effort", "default_tools", "default_top_grant", "default_visibility",
+        "deleted_cost_usd", "deleted_cost_usd_unknown", "dirs", "disk",
+        "external_inbox_multi_holder", "fable_api_fallback", "fable_filter_model",
+        "fable_filter_policy", "fable_limit_policy", "fable_lock", "headless", "killswitch",
+        "kiosk", "mail_drain_version", "max_children", "max_depth", "max_top_grant",
+        "models", "name", "net_autoconnect", "net_hubs", "net_identity", "net_spool",
+        "net_state", "op_receipts_meta", "org_inbox_multi_holder", "org_inbox_read",
+        "permission_mode", "reservations", "sandbox", "sandbox_vols_base", "slug",
+        "spend_frozen", "storage_blocked", "storage_frozen", "storage_full",
+        "storage_warned", "tiers", "tool_result_receipts", "version", "work_identity",
+        "workspace")},
+}
+
+
 class Org:
     """One organization: a node tree, its audiences/notices, and an event log.
 
@@ -893,6 +964,7 @@ class Org:
         self._backfill_mail_log_ids()
         self._strip_settled_steer_views()
         self._migrate_extern_multi_holder()
+        self._backfill_seat_ids()
 
         # ☞ NEW TIERS REACH EXISTING ORGS. `Org.create` COPIES the module
         # tables into the doc (`"tiers": dict(TIERS)`), so every org carries
@@ -2169,6 +2241,187 @@ class Org:
                         e["id"] = uuid.uuid4().hex[:12]
                         fixed += 1
         migs[self.MAIL_LOG_ID_MIGRATION] = {"at": now(), "repaired": fixed}
+
+    SEAT_ID_MIGRATION = "principal_seat_ids"
+
+    @staticmethod
+    def legacy_seat_id(nid: str, node: Mapping[str, Any]) -> str:
+        """The seat id a legacy (pre-`seat_id`) node is given, DETERMINISTICALLY.
+
+        Deterministic because the backfill runs in the constructor and reaches
+        disk only on the next save: every construction in between (a shared
+        read snapshot, the next write cycle) must give the same seat, or a
+        cursor or record stamped from one would read as another seat's. The
+        name (`uuid5`) is taken over the node's own uuid4 `session_id` — the
+        entropy — together with its key and creation time. Nothing that
+        changes those three writes without a save first, and that save
+        persists the value derived before the change."""
+        return str(uuid.uuid5(uuid.NAMESPACE_URL, "orgtree:legacy-seat:v1\0" + "\0".join(
+            str(x) for x in (nid, node.get("session_id"), node.get("created")))))
+
+    def _backfill_seat_ids(self) -> None:
+        """Give every node a `seat_id` at load (P04a-1): the principal every
+        cursor and manual record is bound to must exist before either relies
+        on it, not only after a durable call (`api._agent_identity`'s lazy
+        mint, kept as a defence).
+
+        A lineage predecessor `nid@g` is the SAME principal as its lineage
+        head (v6 SCHEMA-CATALOG: archived copies of `seat_id` are not assumed
+        unique): it takes the head's seat, and a head without one adopts the
+        first seat found on its stack before a new one is derived. A present
+        id is never changed. Idempotent: a second construction finds nothing
+        to do and leaves the marker as it is, so a clean load is still clean.
+        The marker records how many were given, once, and adds to that count
+        if an imported or restored node ever arrives without one."""
+        missing = [k for k, n in self.nodes.items() if not n.get("seat_id")]
+        migs = self.d.setdefault("_migrations", {})
+        if not missing:
+            migs.setdefault(self.SEAT_ID_MIGRATION, {"at": now(), "minted": 0, "shared": 0})
+            return
+        minted = shared = 0
+        for k in sorted(missing, key=lambda k: ("@" in k, k)):
+            head = k.split("@", 1)[0]
+            stack = [head] + sorted(s for s in self.nodes if s.startswith(head + "@"))
+            seat = next((self.nodes[s].get("seat_id") for s in stack
+                         if s in self.nodes and self.nodes[s].get("seat_id")), None)
+            if seat:
+                shared += 1
+            else:
+                seat = self.legacy_seat_id(head, self.nodes.get(head) or self.nodes[k])
+                minted += 1
+            self.nodes[k]["seat_id"] = seat
+        prev = cast("dict[str, Any]", migs.get(self.SEAT_ID_MIGRATION) or {})
+        migs[self.SEAT_ID_MIGRATION] = {
+            "at": prev.get("at") or now(),
+            "minted": int(prev.get("minted") or 0) + minted,
+            "shared": int(prev.get("shared") or 0) + shared}
+
+    #: the row-shaped sections whose rows name their owning node, and the field
+    ORPHAN_ROW_FIELDS: Final = {"op_receipts": "node", "documents": "node",
+                                "watchdog_tombs": "owner"}
+
+    def _freed_key_holdings(self, base: str) -> dict[str, list[str]]:
+        """`{key: [section, ...]}` for every per-node record filed under `base`
+        or one of its lineage keys (`base@g`) that NO node holds — rows a
+        deleted seat (or a seat renamed away before P04a-1) left behind
+        (`on_delete: left`). Pure."""
+        def ours(k: Any) -> bool:
+            return (isinstance(k, str) and (k == base or k.startswith(base + "@"))
+                    and k not in self.nodes)
+        held: dict[str, list[str]] = {}
+        for key, (cls, shape, _) in NODE_KEYED_SECTIONS.items():
+            if cls != "rekey" or shape != "by_node" or key == "nodes" or key not in self.d:
+                continue            # never touch (materialise) any other section
+            sec = self.d.get(key)
+            if isinstance(sec, Mapping):
+                # owner ids only: a lazy dict log (mail_log, steer_attempts,
+                # ...) lists its owners without loading their rows, so a hire
+                # does not pull a multi-MB archive into memory
+                present = getattr(sec, "_present", None)
+                owners = (list(sec) if present is None else
+                          [*dict.keys(sec), *(o for o in present
+                                              if o not in getattr(sec, "_dropped", ())
+                                              and not dict.__contains__(sec, o))])
+                for k in owners:
+                    if ours(k):
+                        held.setdefault(k, []).append(key)
+        for key, field in self.ORPHAN_ROW_FIELDS.items():
+            if key in self.d:
+                for r in cast("list[Any]", self.d.get(key) or []):
+                    if isinstance(r, Mapping) and ours(r.get(field)) \
+                            and key not in held.setdefault(r[field], []):
+                        held[r[field]].append(key)
+        return {k: v for k, v in held.items() if v}
+
+    def _quarantine_freed_key(self, base: str, *, cause: str, seat: Any) -> list[str]:
+        """Move every record `_freed_key_holdings(base)` finds OUT of the way
+        before a seat takes `base` (P04a-1 review F1, decision2): a rename onto
+        a freed name, or a hire that reuses one. Without this the new seat's
+        rows overwrite them (a purge) or, where it has none, they read as its
+        own (a reattribution).
+
+        Each held key `k` moves, whole and unchanged, to `k#orphan-<12 hex>`.
+        `#` is outside the slug alphabet, so that key can never be a node's:
+        nothing delivers to it, claims it or looks a receipt up under it.
+        Receipt, document and tomb rows keep `orphaned_from` = `k` (a receipt
+        also its `fp_node`). `orphan_keys` records each move durably: where
+        from, when, why, which seat was arriving — and `owner: None`, because
+        which deleted seat wrote the rows is not known and is not guessed.
+        Nothing is purged, re-attributed or aged out; `orphans()` reports them,
+        and the P04 cutover maps them as a closed legacy corpus. Cannot raise
+        on a well-formed document; returns the quarantine keys."""
+        held = self._freed_key_holdings(base)
+        index = cast("dict[str, Any]", self.d.setdefault("orphan_keys", {})) if held else {}
+        made = []
+        for k in sorted(held):
+            q = f"{k}#orphan-{uuid.uuid4().hex[:12]}"
+            for key in held[k]:
+                field = self.ORPHAN_ROW_FIELDS.get(key)
+                if field is None:
+                    box = cast("dict[str, Any]", self.d[key])
+                    box[q] = box.pop(k)
+                    continue
+                for r in cast("list[Any]", self.d.get(key) or []):
+                    if isinstance(r, dict) and r.get(field) == k:
+                        if key == "op_receipts":
+                            r.setdefault("fp_node", k)
+                        r["orphaned_from"] = k
+                        r[field] = q
+            index[q] = {"from": k, "at": now(), "cause": cause, "arriving_seat": seat,
+                        "owner": None, "sections": sorted(held[k])}
+            made.append(q)
+        return made
+
+    def orphans(self) -> list[dict[str, Any]]:
+        """REPORT-ONLY (P04a-1): per-node records no current seat can claim.
+
+        `missing_node` — filed under a key with no node (left behind by a
+        delete, or by a rename before P04a-1). `stamp_mismatch` — a journal
+        batch's manual record or a manual attempt whose mailbox or seat stamp
+        is not the current node's (a same-name successor's key). Reads only:
+        nothing is attributed, purged, folded or delivered here. Such rows stay
+        protected by their stamps until a reviewed P04a-2 purge (future
+        deletes) or the P04 cutover map (rows that exist today) decides them."""
+        out: list[dict[str, Any]] = []
+        for key, (_cls, shape, _) in NODE_KEYED_SECTIONS.items():
+            if key == "nodes":
+                continue
+            sec = self.d.get(key)
+            if shape == "by_node" and isinstance(sec, Mapping):
+                for owner in sec:
+                    if owner not in self.nodes:
+                        v = sec[owner]
+                        out.append({"section": key, "key": owner, "reason": "missing_node",
+                                    "rows": len(v) if isinstance(v, (list, dict, Mapping)) else 1})
+        rows = self.d.get("op_receipts")
+        for row in rows if isinstance(rows, list) else ():
+            if isinstance(row, Mapping) and row.get("node") not in self.nodes:
+                out.append({"section": "op_receipts", "key": row.get("node"),
+                            "reason": "missing_node", "id": row.get("id")})
+        for doc in cast("list[Any]", self.d.get("documents") or []):
+            if isinstance(doc, Mapping) and doc.get("node") not in self.nodes:
+                out.append({"section": "documents", "key": doc.get("node"),
+                            "reason": "missing_node", "id": doc.get("id")})
+
+        def stamps(section: str, owner: str, ident: str, rec: Any) -> None:
+            node = self.nodes.get(owner)
+            if node is None or not isinstance(rec, Mapping):
+                return
+            bad = [f for f, have in (("mailbox", node.get("mailbox_id")),
+                                     ("seat", node.get("seat_id")))
+                   if f in rec and rec.get(f) != have]
+            if bad:
+                out.append({"section": section, "key": owner, "reason": "stamp_mismatch",
+                            "id": ident, "fields": bad})
+
+        for owner, batches in cast("dict[str, Any]", self.d.get("delivering") or {}).items():
+            for b in batches if isinstance(batches, list) else ():
+                if isinstance(b, Mapping) and isinstance(b.get("manual"), Mapping):
+                    stamps("delivering", owner, str(b.get("tok")), b["manual"])
+        for owner, atts in cast("dict[str, Any]", self.d.get("manual_attempts") or {}).items():
+            for did, att in atts.items() if isinstance(atts, Mapping) else ():
+                stamps("manual_attempts", owner, str(did), att)
+        return out
 
     def to_user_inbox(self, entry: UserMailEntry,
                       ev: Mapping[str, Any] | None = None) -> UserMailEntry:
@@ -4646,11 +4899,15 @@ class Org:
         while nid in self.nodes:
             nid, i = f"{base}-{i}", i + 1
         sibs = self.children(parent, live_only=False)
+        seat = str(uuid.uuid4())
+        # a reused (freed) key may still hold a deleted seat's rows: set them
+        # aside so the new seat neither overwrites nor inherits them (F1)
+        self._quarantine_freed_key(nid, cause="hire_onto_freed_key", seat=seat)
         self.nodes[nid] = {
             "session_id": str(uuid.uuid4()),
             # the agent's own mint id — see NodeDoc. Distinct from
             # `session_id`, which this agent replaces every time it compacts.
-            "seat_id": str(uuid.uuid4()),
+            "seat_id": seat,
             "model": tier,
             "parent": parent,
             "grant": grant,
@@ -8795,8 +9052,12 @@ class Org:
         changes and the whole doc re-keys — nodes (lineage generations
         included: `old@g` → `new@g`, they share the scratch dir), parent/
         predecessor/successor pointers, audiences and their requests, the
-        mailbox and every per-node dict (delivering, steered_log,
-        turn_error_log, notices), open asks and credit requests. Authority =
+        mailbox and every per-node dict the census classifies `rekey`
+        (NODE_KEYED_SECTIONS: mail, mail_log, notices, delivering, steered_log,
+        turn_error_log, mail_transitions, steer_attempts, manual_attempts),
+        open asks and credit requests. Records a deleted agent left under the
+        target name are set aside first (`_quarantine_freed_key`), never
+        overwritten or handed to the renamed seat. Authority =
         the user, the superior, or any ancestor (never self). Validate-all-
         then-mutate (§4.7). HISTORICAL records — mail bodies, sender fields
         in archives, the event log — deliberately keep the old name; the
@@ -8821,6 +9082,10 @@ class Org:
             if tgt in self.nodes:
                 raise LedgerError(f"the name {tgt!r} is already taken")
         # ---- mutate (nothing below may raise) ----
+        # a freed target may still hold a deleted seat's rows: set them aside
+        # first (F1) — never overwritten, never read as this seat's
+        quarantined = self._quarantine_freed_key(
+            new, cause="rename_onto_freed_key", seat=n.get("seat_id"))
         for old_k, new_k in renamed.items():
             self.nodes[new_k] = self.nodes.pop(old_k)
         for v in self.nodes.values():
@@ -8836,13 +9101,25 @@ class Org:
             for f in ("from", "target", "currently_at"):
                 if r.get(f) in renamed:
                     r[f] = renamed[r[f]]
-        for key in ("mail", "delivering", "steered_log", "turn_error_log",
-                    "notices"):
+        # EVERY per-node dict the census classifies `rekey` (P04a-1): storage
+        # ownership follows the seat. Left under the old key, a record would
+        # attach to the next agent hired under the freed name. The CONTENT
+        # keeps the name it was written with (mail bodies, senders) — only
+        # the owner key moves.
+        for key, (cls, shape, _) in NODE_KEYED_SECTIONS.items():
+            if cls != "rekey" or shape != "by_node" or key == "nodes":
+                continue
             box = cast("dict[str, Any] | None", self.d.get(key))
             if isinstance(box, dict):
                 for old_k, new_k in renamed.items():
                     if old_k in box:
                         box[new_k] = box.pop(old_k)
+        # a transition receipt also names its node, and the settle/compact
+        # readers require that name to equal the key it is filed under
+        for receipts in cast("dict[str, Any]", self.d.get("mail_transitions") or {}).values():
+            for receipt in receipts.values() if isinstance(receipts, dict) else ():
+                if isinstance(receipt, dict) and receipt.get("node") in renamed:
+                    receipt["node"] = renamed[receipt["node"]]
         for a in self.d.get("asks", []):
             if a.get("node") in renamed:
                 a["node"] = renamed[a["node"]]
@@ -8852,7 +9129,7 @@ class Org:
         for r in self.d.get("scope_requests", []):
             if r.get("node") in renamed:
                 r["node"] = renamed[r["node"]]
-        for w in self.d.get("watchdogs", []):
+        for w in [*self.d.get("watchdogs", []), *self.d.get("watchdog_tombs", [])]:
             if w.get("owner") in renamed:
                 w["owner"] = renamed[w["owner"]]
         # Presented documents are live identity records, not historical event
@@ -8895,7 +9172,8 @@ class Org:
                                      old=nid, new=new, by=actor))
         _ = n
         return {"node": new, "was": nid, "renamed": renamed,
-                "warnings": warnings}
+                "warnings": warnings,
+                **({"quarantined": quarantined} if quarantined else {})}
 
     #: the work-item fields that name WHO HOLDS AN ITEM NOW. Everything else
     #: on an item that carries a node id records who did something THEN, and
