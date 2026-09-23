@@ -30,7 +30,7 @@ import subprocess
 import sys
 import threading
 import time
-from typing import Any
+from typing import Any, Callable
 import urllib.error
 import urllib.request
 
@@ -49,6 +49,37 @@ except ImportError:  # script entrypoint
 READY_TIMEOUT = 120.0  # boot is contended; the desktop's 60s is too tight
 SHUTDOWN_WAIT = 10.0
 DESCRIPTOR = "engine-attach.json"
+# Exit when another engine or host already owns the data root (a lost boot
+# race, or the desktop's engine during a handover). The Windows service
+# retries this without counting it as a crash; everything else is 1.
+EXIT_ROOT_OWNED = 75
+# Under the Windows service, the handle value of an inheritable manual-reset
+# event the service sets to ask for an orderly stop. Absent under the task.
+STOP_EVENT_ENV = "ORGTREE_V2_SERVICE_STOP_EVENT"
+
+
+def service_stop_probe(env: dict[str, str]) -> "Callable[[], bool] | None":
+    """Return a non-blocking 'has the service asked us to stop?' check.
+
+    Consumes the variable so the engine and its agents never inherit a
+    handle number that means nothing in their process. A malformed value is
+    an error, never silently ignored: the host would otherwise be unstoppable
+    except by killing its job.
+    """
+    raw = env.pop(STOP_EVENT_ENV, "").strip()
+    if not raw:
+        return None
+    if os.name != "nt" or not raw.isdigit() or int(raw) == 0:
+        raise RuntimeError(f"invalid {STOP_EVENT_ENV}")
+    import ctypes
+    from ctypes import wintypes as w
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.WaitForSingleObject.argtypes = [w.HANDLE, w.DWORD]
+    kernel.WaitForSingleObject.restype = w.DWORD
+    handle = w.HANDLE(int(raw))
+    if kernel.WaitForSingleObject(handle, 0) == 0xFFFFFFFF:  # WAIT_FAILED
+        raise RuntimeError(f"{STOP_EVENT_ENV} is not a usable handle: {ctypes.WinError(ctypes.get_last_error())}")
+    return lambda: kernel.WaitForSingleObject(handle, 0) == 0  # WAIT_OBJECT_0
 
 
 def resolve_data_root() -> Path:
@@ -372,9 +403,14 @@ def main() -> int:
         clear_stale_descriptor(root)
     except RuntimeError as exc:
         print(f"service host: {exc}", file=sys.stderr, flush=True)
-        return 1
+        return EXIT_ROOT_OWNED
     token = secrets.token_hex(32)
     env = pin_profile_environment({**os.environ})
+    try:
+        stop_requested = service_stop_probe(env) or (lambda: False)
+    except RuntimeError as exc:
+        print(f"service host: {exc}", file=sys.stderr, flush=True)
+        return 1
     env.update({"ORGTREE_DATA": str(root), "ORGTREE_V2_TOKEN": token,
                 "ORGTREE_V2_UI_DIR": str(ui), "PYTHONUNBUFFERED": "1",
                 # Pin THIS host as the guardian-watched parent: if the host is
@@ -433,6 +469,13 @@ def main() -> int:
     # newer host's file can never be taken down by a dying older one.
     try:
         while not ready and not failure and child.poll() is None and time.monotonic() - checkpoints["at"] < READY_TIMEOUT:
+            if stop_requested():
+                # Stopped before readiness: no descriptor exists yet, so
+                # take the tree down and report an orderly stop.
+                if not failed_start_cleanup(child, root):
+                    print("service host: engine tree release could not be verified", file=sys.stderr, flush=True)
+                print("service host: stopped by the service before readiness", file=sys.stderr, flush=True)
+                return 0
             time.sleep(0.05)
         if not ready:
             reason = failure[0] if failure else (
@@ -442,7 +485,7 @@ def main() -> int:
             if not released:
                 reason += "; engine tree release could not be verified"
             print(f"service host: {reason}", file=sys.stderr, flush=True)
-            return 1
+            return EXIT_ROOT_OWNED if checkpoints["refused"] else 1
 
         port = int(ready["port"])
         try:
@@ -468,6 +511,8 @@ def main() -> int:
                 signal.signal(getattr(signal, name), stop)
 
         while child.poll() is None:
+            if not stopping["value"] and stop_requested():
+                stop()
             if stopping["value"]:
                 try:
                     child.wait(timeout=SHUTDOWN_WAIT)

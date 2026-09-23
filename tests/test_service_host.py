@@ -334,6 +334,23 @@ class StaleDescriptorTests(unittest.TestCase):
                 clear_stale_descriptor(root)
             self.assertTrue(path.exists(), "a live host's descriptor must never be deleted")
 
+    def test_host_exits_root_owned_when_a_live_host_serves_the_root(self):
+        # The whole host process, but it stops at the stale-descriptor check,
+        # before any engine is launched. The data root is a temp directory.
+        repo = Path(__file__).resolve().parent.parent
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "data"; root.mkdir()
+            ui = Path(temp) / "ui"; ui.mkdir()
+            (ui / "index.html").write_text("<!doctype html>", encoding="utf-8")
+            port = self._serve_identity(root)
+            path = self._descriptor(root, port, self.TOKEN)
+            env = {**os.environ, "ORGTREE_V2_DATA": str(root), "ORGTREE_V2_UI_DIR": str(ui)}
+            result = subprocess.run([sys.executable, str(repo / "engine" / "service_host.py")],
+                                    cwd=str(repo), env=env, capture_output=True, text=True, timeout=60)
+            self.assertEqual(result.returncode, service_host.EXIT_ROOT_OWNED, result.stderr[-2000:])
+            self.assertIn("already serves", result.stderr)
+            self.assertTrue(path.exists(), "the live host's descriptor must survive")
+
     def test_wrong_token_or_foreign_root_descriptor_is_stale(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -346,6 +363,55 @@ class StaleDescriptorTests(unittest.TestCase):
             path2 = self._descriptor(foreign, port2, self.TOKEN)
             clear_stale_descriptor(foreign)
             self.assertFalse(path2.exists())
+
+
+def _kernel_event(inheritable: bool = False):
+    """A real manual-reset, initially clear Win32 event: (handle, set, close)."""
+    import ctypes
+    from ctypes import wintypes as w
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.CreateEventW.argtypes = [ctypes.c_void_p, w.BOOL, w.BOOL, w.LPCWSTR]
+    kernel.CreateEventW.restype = w.HANDLE
+    kernel.SetEvent.argtypes = [w.HANDLE]
+    kernel.CloseHandle.argtypes = [w.HANDLE]
+    handle = kernel.CreateEventW(None, True, False, None)
+    if not handle:
+        raise ctypes.WinError(ctypes.get_last_error())
+    if inheritable:
+        os.set_handle_inheritable(handle, True)
+    return handle, (lambda: kernel.SetEvent(handle)), (lambda: kernel.CloseHandle(handle))
+
+
+class ServiceStopProbeTests(unittest.TestCase):
+    def test_absent_variable_means_no_service(self):
+        env = {"A": "b"}
+        self.assertIsNone(service_host.service_stop_probe(env))
+        self.assertEqual(env, {"A": "b"})
+
+    def test_malformed_values_are_refused(self):
+        for raw in ("abc", "-4", "0", "12x"):
+            with self.subTest(raw=raw), self.assertRaises(RuntimeError):
+                service_host.service_stop_probe({service_host.STOP_EVENT_ENV: raw})
+
+    def test_a_dead_handle_is_refused(self):
+        if os.name != "nt":
+            raise unittest.SkipTest("Windows-only")
+        handle, _set, close = _kernel_event()
+        close()
+        with self.assertRaisesRegex(RuntimeError, "not a usable handle"):
+            service_host.service_stop_probe({service_host.STOP_EVENT_ENV: str(handle)})
+
+    def test_probe_follows_the_event_and_consumes_the_variable(self):
+        if os.name != "nt":
+            raise unittest.SkipTest("Windows-only")
+        handle, set_event, close = _kernel_event()
+        self.addCleanup(close)
+        env = {service_host.STOP_EVENT_ENV: str(handle), "KEEP": "1"}
+        probe = service_host.service_stop_probe(env)
+        self.assertEqual(env, {"KEEP": "1"}, "the engine must never inherit the handle number")
+        self.assertFalse(probe())
+        set_event()
+        self.assertTrue(probe())
 
 
 class ScriptEntrypointImportTests(unittest.TestCase):
@@ -508,6 +574,42 @@ class ServiceHostIntegrationTests(unittest.TestCase):
                 host.wait(timeout=45)
                 self.assertEqual(host.returncode, 0, "engine's own shutdown is a clean host exit")
                 self.assertFalse(descriptor.exists(), "descriptor must be removed on stop")
+            finally:
+                if host.poll() is None:
+                    host.kill()
+                    host.wait(timeout=15)
+                if host.stderr:
+                    host.stderr.close()
+
+    def test_service_stop_event_shuts_the_engine_down_cleanly(self):
+        # The service's stop path: an inherited event, set once the engine
+        # is up, must end in an orderly exit 0 with the descriptor removed.
+        repo = Path(__file__).resolve().parent.parent
+        handle, set_event, close = _kernel_event(inheritable=True)
+        self.addCleanup(close)
+        with tempfile.TemporaryDirectory() as temp:
+            data = Path(temp) / "data"; data.mkdir()
+            ui = Path(temp) / "ui"; (ui / "assets").mkdir(parents=True)
+            (ui / "index.html").write_text("<!doctype html>", encoding="utf-8")
+            env = {**os.environ, "ORGTREE_V2_DATA": str(data), "ORGTREE_V2_UI_DIR": str(ui),
+                   service_host.STOP_EVENT_ENV: str(handle)}
+            for key in ("ORGTREE_DATA", "ORGTREE_PORT", "ORGTREE_BASE", "ORGTREE_V2_PORT", "ORGTREE_V2_TOKEN"):
+                env.pop(key, None)
+            startup = subprocess.STARTUPINFO(lpAttributeList={"handle_list": [handle]})
+            host = subprocess.Popen([sys.executable, str(repo / "engine" / "service_host.py")],
+                                    cwd=str(repo), env=env, stderr=subprocess.PIPE, startupinfo=startup)
+            try:
+                descriptor = data / DESCRIPTOR
+                deadline = time.monotonic() + 90
+                while not descriptor.exists() and host.poll() is None and time.monotonic() < deadline:
+                    time.sleep(0.2)
+                if host.poll() is not None:
+                    self.fail(f"host exited early: {host.stderr.read().decode('utf-8', 'replace')[-2000:]}")
+                self.assertTrue(descriptor.exists(), "descriptor was not written after readiness")
+                set_event()
+                host.wait(timeout=45)
+                self.assertEqual(host.returncode, 0, host.stderr.read().decode("utf-8", "replace")[-2000:])
+                self.assertFalse(descriptor.exists(), "descriptor must be removed on a service stop")
             finally:
                 if host.poll() is None:
                     host.kill()
