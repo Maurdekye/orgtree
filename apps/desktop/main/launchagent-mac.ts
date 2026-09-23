@@ -184,3 +184,24 @@ export function detectState(
 
   return 'ok'
 }
+
+/** Where a user goes to fix either state below. */
+export const LOGIN_ITEMS_SETTINGS_URL = 'x-apple.systempreferences:com.apple.LoginItems-Settings.extension'
+
+/** Content for the remediation dialog, mirroring process-failure.ts's
+ *  `crashReportDialog` pure-function shape exactly so a caller (Plan 02)
+ *  wires it through `dialog.showMessageBox(...)` the same way index.ts
+ *  already wires `showCrashReports` (index.ts:142-151). */
+export function autostartRemediationDialog(
+  state: 'not-installed' | 'disabled',
+): { message: string; detail: string; buttons: string[]; defaultId: number; cancelId: number } {
+  return {
+    message: state === 'disabled'
+      ? "macOS has turned off Orgtree's automatic startup at login."
+      : 'Orgtree could not confirm its automatic startup at login is installed.',
+    detail: 'Open System Settings → Login Items & Extensions and allow Orgtree in the background to restore automatic startup.',
+    buttons: ['Open Login Items Settings', 'Close'],
+    defaultId: 0,
+    cancelId: 1,
+  }
+}

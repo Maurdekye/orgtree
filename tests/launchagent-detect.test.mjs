@@ -16,7 +16,7 @@ const repo = path.resolve(import.meta.dirname, '..')
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-launchagent-detect-'))
 const outfile = path.join(root, 'launchagent-mac.cjs')
 await build({ entryPoints: [path.join(repo, 'apps/desktop/main/launchagent-mac.ts')], outfile, bundle: true, format: 'cjs', platform: 'node' })
-const { detectState } = createRequire(import.meta.url)(outfile)
+const { detectState, autostartRemediationDialog, LOGIN_ITEMS_SETTINGS_URL } = createRequire(import.meta.url)(outfile)
 
 const LABEL = 'com.maurdekye.orgtree.boot-engine'
 
@@ -63,6 +63,30 @@ test('a throwing sfltool call still means ok, not unknown and not a thrown excep
 test('print and print-disabled clean, no sfltool match, means ok', () => {
   const exec = mockExec({ dumpbtm: `Other Item\nDisposition: [enabled, allowed, notified]\n` })
   assert.equal(detectState(LABEL, { execFileSyncImpl: exec, uid: 501 }), 'ok')
+})
+
+test('autostartRemediationDialog("disabled") matches the crashReportDialog shape', () => {
+  const dialog = autostartRemediationDialog('disabled')
+  assert.deepEqual(dialog.buttons, ['Open Login Items Settings', 'Close'])
+  assert.equal(dialog.defaultId, 0)
+  assert.equal(dialog.cancelId, 1)
+  assert.match(dialog.message, /turned off/)
+})
+
+test('autostartRemediationDialog("not-installed") names an unconfirmed install, not an active disable', () => {
+  const dialog = autostartRemediationDialog('not-installed')
+  assert.deepEqual(dialog.buttons, ['Open Login Items Settings', 'Close'])
+  assert.equal(dialog.defaultId, 0)
+  assert.equal(dialog.cancelId, 1)
+  assert.match(dialog.message, /could not confirm/)
+})
+
+test('the two remediation states have distinct message text', () => {
+  assert.notEqual(autostartRemediationDialog('disabled').message, autostartRemediationDialog('not-installed').message)
+})
+
+test('LOGIN_ITEMS_SETTINGS_URL is the literal Login Items & Extensions deep link', () => {
+  assert.equal(LOGIN_ITEMS_SETTINGS_URL, 'x-apple.systempreferences:com.apple.LoginItems-Settings.extension')
 })
 
 test.after(() => fs.rmSync(root, { recursive: true, force: true }))
