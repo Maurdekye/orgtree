@@ -13979,6 +13979,12 @@ class Op(Body):
     # W19: validate and simulate this normal operator operation without saving.
     # The operator surface intentionally keeps its existing topology boundary.
     preview: bool = False
+    # cheap_compact only: refuse with 409 instead of replacing the session of
+    # an agent that is MID-TURN. The single action does not send it and keeps
+    # its existing behaviour; the renderer's bulk actions always do, because a
+    # bulk run must never swap a running turn's session out from under it
+    # (docket add-bulk-cheap-compact-context-menu-actions).
+    if_idle: bool = False
     actor: str = USER
     node: str | None = None       # target node (all but hire)
     parent: str | None = None     # hire target parent (None = top level)
@@ -14024,12 +14030,6 @@ class Op(Body):
     # set and an over-ceiling admin grant raises the ceiling to fit (logged,
     # named, never silent). Ignored for visitors: no legal raise path exists.
     raise_ceiling: bool = False
-    # cheap_compact only: refuse with 409 instead of replacing the session of
-    # an agent that is MID-TURN. The single action does not send it and keeps
-    # its existing behaviour; the renderer's bulk actions always do, because a
-    # bulk run must never swap a running turn's session out from under it
-    # (docket add-bulk-cheap-compact-context-menu-actions).
-    if_idle: bool = False
 
 
 def provider_hire_gate(
