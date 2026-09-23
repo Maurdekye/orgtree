@@ -4,7 +4,7 @@ import type { AccountProvider } from './accountsregistry'
 import { ThemeSetting } from '../themes'
 import { DesktopSettings } from './desktopsettings'
 import { QuickStaffSetting } from './quickstaffsetting'
-import { CharterDocumentsSetting } from './chartersettings'
+import { CharterDocumentsSetting, CharterTemplateDirsSetting } from './chartersettings'
 import { MailHubSettings } from './hosthub'
 import { useEffect, useState } from 'react'
 import type {
@@ -636,6 +636,7 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
       <DesktopSettings />
       <QuickStaffSetting />
       <CharterDocumentsSetting />
+      <CharterTemplateDirsSetting />
       <SetGroup title="Agent processes">
         <SetToggle label="keep agent processes warm" checked={runtime?.warming_enabled !== false}
           disabled={!runtime || busy} onChange={v => changeRuntime(setWarmingEnabled, v)}

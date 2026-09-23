@@ -286,7 +286,9 @@ def b():
         # 314 -> 317: add-agent-tool-and-ui-to-clear-account-limit-mar adds
         # GET /api/accounts/{id}/marks, POST /api/accounts/{id}/marks/clear
         # and the orgtree_account_mark tool card.
-        self.assertEqual(summary["registration_sites"], 317)
+        # 317 -> 319: GET/PUT /api/app-settings/charter-template-dirs (docket
+        # add-external-agent-charter-templates-folder), both pending.
+        self.assertEqual(summary["registration_sites"], 319)
         self.assertEqual(summary["registration_kinds"]["task"], 12)
         # 225 -> 226: P02-A1 adds one `body.tool == "orgtree_operation_census"`
         # branch in api.agent_call, routing the agent read door.

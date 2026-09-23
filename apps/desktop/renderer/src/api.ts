@@ -9,7 +9,7 @@ import { bumpLive } from './livebus'
 import { backendRestart } from './windowlife'
 import { desktop } from './desktop'
 import type {
-  AudiencesPayload, ChartersPayload, ChatPayload, DefaultsPayload,
+  AudiencesPayload, CharterTemplateDirsPayload, ChartersPayload, ChatPayload, DefaultsPayload,
   DiskDeleteResult, DiskDirPayload, DiskPayload, EventsPayload, FsPayload,
   HireDefaultsRequest, HistoryPayload, HostPayload,
   InboxPayload, KioskCfgRequest, KioskSaveResult, MailEntry,
@@ -341,6 +341,16 @@ export const openCharterFolder = async (): Promise<{ ok: boolean; path?: string;
     return { ok: false, error: message }
   }
 }
+/** The app-wide list of external charter template folders with each one's
+ *  read-only scan state. Saving replaces the whole ordered list. */
+export const getCharterTemplateDirs = (): Promise<CharterTemplateDirsPayload> =>
+  req('/api/app-settings/charter-template-dirs')
+export const setCharterTemplateDirs = (dirs: string[]): Promise<CharterTemplateDirsPayload> =>
+  req('/api/app-settings/charter-template-dirs', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dirs }),
+  })
 export const getFs = (path = ''): Promise<FsPayload> =>
   req(`/api/fs?path=${encodeURIComponent(path)}`)
 export const getInbox = (slug: string): Promise<InboxPayload> =>

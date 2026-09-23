@@ -1299,14 +1299,44 @@ export interface ChartersPayload {
   charters: {
     name: string; content: string; path: string
     chars?: number; truncated?: boolean
-    // where the document lives: a user file in ~/.orgtree/charters or a
+    // where the document lives: a user file in ~/.orgtree/charters, a
     // preset bundled with the installation (a user file shadows a bundled
-    // one with the same filename)
-    file?: string; source?: 'user' | 'bundled'
+    // one with the same filename), or a read-only template in one of the
+    // app-wide external template folders (`dir`). External templates never
+    // shadow and are never shadowed, so `name` can repeat — `path` is the
+    // unique identity of a choice.
+    file?: string; source?: 'user' | 'bundled' | 'external'
+    dir?: string
   }[]
   preset_max?: number
   user_dir?: string
   charter_long?: number
+  // each configured external folder's state, present when any is configured
+  template_dirs?: CharterTemplateDirState[]
+}
+
+// One configured external charter template folder, as scanned read-only.
+export interface CharterTemplateDirState {
+  path: string
+  status: 'ok' | 'missing' | 'not_directory' | 'link_refused' | 'unreadable'
+  error?: string
+  count: number
+  skipped_links?: string[]
+  oversize?: string[]
+  unreadable_files?: string[]
+  listing_truncated?: boolean
+  // only on GET/PUT /api/app-settings/charter-template-dirs: names and
+  // paths, never bodies
+  templates?: { name: string; file: string; path: string }[]
+}
+
+// GET/PUT /api/app-settings/charter-template-dirs
+export interface CharterTemplateDirsPayload {
+  dirs: string[]
+  max_dirs?: number
+  directories: CharterTemplateDirState[]
+  // names found in more than one place (all are still offered as choices)
+  duplicates: { name: string; locations: { source: string; path: string }[] }[]
 }
 
 // GET /api/mcp-servers

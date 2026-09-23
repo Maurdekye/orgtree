@@ -1019,6 +1019,23 @@ interface DraftNodeProps {
 type CharterPreset = {
   name: string; content: string; path: string
   chars?: number; truncated?: boolean
+  source?: 'user' | 'bundled' | 'external'; dir?: string
+}
+
+/** The label a preset is offered under. External template folders never
+ *  shadow (user ruling 2026-09-23), so a name can repeat across the user
+ *  folder, the bundled presets and any number of external folders; `path`
+ *  identifies a choice and a repeated name is labelled with where it lives —
+ *  its folder for an external template, its source otherwise — falling back
+ *  to the full file path if even that repeats. A unique name stays bare. */
+export function presetLabels(presets: CharterPreset[]): Map<string, string> {
+  const count = (keys: string[]) => keys.reduce((m, k) => m.set(k, (m.get(k) ?? 0) + 1), new Map<string, number>())
+  const names = count(presets.map(p => p.name))
+  const where = (p: CharterPreset) => p.source === 'external' ? (p.dir ?? p.path) : (p.source ?? p.path)
+  const first = presets.map(p => (names.get(p.name) ?? 0) > 1 ? `${p.name} — ${where(p)}` : p.name)
+  const again = count(first)
+  return new Map(presets.map((p, i) => [p.path,
+    (again.get(first[i]!) ?? 0) > 1 ? `${p.name} — ${p.path}` : first[i]!]))
 }
 
 export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop, kioskRemaining,
@@ -1055,6 +1072,7 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop, kioskRem
     })
     return () => { current = false }
   }, [presetRetry])
+  const labels = presetLabels(presets)
   const finalCharter = () =>
     [...chosen.map((c) => c.content), charter].filter((t) => t.trim())
       .join('\n\n')
@@ -1142,11 +1160,13 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop, kioskRem
                 onClick={() => setPresetRetry((n) => n + 1)}>Retry</button>
             </div>
           )}
+          {/* a preset is identified by its file PATH, not its name: external
+              template folders can offer the same name more than once */}
           {presetLoad === 'ready' && presets.length > 0 && (
             <select className="df-preset-add" value=""
               onChange={(e) => {
-                const p = presets.find((x) => x.name === e.target.value)
-                if (p && !chosen.some((c) => c.name === p.name)) {
+                const p = presets.find((x) => x.path === e.target.value)
+                if (p && !chosen.some((c) => c.path === p.path)) {
                   setChosen((cs) => [...cs, p])
                   // user spec: the FIRST chosen preset names a still-unnamed
                   // agent after itself (typing over it still works)
@@ -1154,8 +1174,9 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop, kioskRem
                 }
               }}>
               <option value="">add charter preset…</option>
-              {presets.filter((p) => !chosen.some((c) => c.name === p.name))
-                .map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
+              {presets.filter((p) => !chosen.some((c) => c.path === p.path))
+                .map((p) => <option key={p.path} value={p.path}
+                  title={p.path}>{labels.get(p.path) ?? p.name}</option>)}
             </select>
           )}
           {/* the picked cards live INSIDE the charter box (user spec) — they
@@ -1164,10 +1185,10 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop, kioskRem
             {chosen.length > 0 && (
               <div className="preset-cards">
                 {chosen.map((c) => (
-                  <button key={c.name} className="preset-card"
+                  <button key={c.path} className="preset-card"
                     title={c.path ? `${c.path}\n(click to remove)` : 'click to remove'}
-                    onClick={() => setChosen((cs) => cs.filter((x) => x.name !== c.name))}>
-                    {c.name} <CloseIcon fontSize="inherit" />
+                    onClick={() => setChosen((cs) => cs.filter((x) => x.path !== c.path))}>
+                    {labels.get(c.path) ?? c.name} <CloseIcon fontSize="inherit" />
                   </button>
                 ))}
               </div>

@@ -5,9 +5,14 @@
 // idempotent POST /api/charters/populate — existing files are never
 // overwritten — with pending, success and error states, and a failure leaves
 // the button ready to retry. It does not reopen setup or touch preferences.
-import { useState } from 'react'
-import { openCharterFolder, populateCharters } from '../api'
-import { SetGroup, SetRow } from './settingskit'
+import { useEffect, useState } from 'react'
+import {
+  getCharterTemplateDirs, openCharterFolder, populateCharters, setCharterTemplateDirs,
+} from '../api'
+import { CloseIcon, FolderIcon } from '../icons'
+import { pickFolder } from '../picker'
+import type { CharterTemplateDirState, CharterTemplateDirsPayload } from '../types'
+import { SetBlock, SetGroup, SetRow } from './settingskit'
 
 export function CharterDocumentsSetting() {
   const [busy, setBusy] = useState(false)
@@ -58,5 +63,116 @@ export function CharterDocumentsSetting() {
         {` · ${result.dir}`}
       </p>
     )}
+  </SetGroup>
+}
+
+// External charter template folders (docket
+// add-external-agent-charter-templates-folder, user ruling 2026-09-23): an
+// app-wide ordered list of folders whose *.md files join the hire form's
+// charter presets as read-only choices. Only the list is written; the folders
+// are never created or changed, and each row shows its live scan state so a
+// missing, unreadable, non-folder or linked path is visible rather than
+// silently contributing nothing.
+const DIR_STATUS: Record<CharterTemplateDirState['status'], string> = {
+  ok: 'ok',
+  missing: 'missing — the folder does not exist',
+  not_directory: 'not a folder',
+  link_refused: 'refused — the path goes through a link or junction',
+  unreadable: 'unreadable',
+}
+
+function dirNotes(d: CharterTemplateDirState): string[] {
+  const notes: string[] = []
+  if (d.skipped_links?.length) notes.push(`linked files not read: ${d.skipped_links.join(', ')}`)
+  if (d.oversize?.length) notes.push(`files too large to read: ${d.oversize.join(', ')}`)
+  if (d.unreadable_files?.length) notes.push(`files that could not be read: ${d.unreadable_files.join(', ')}`)
+  if (d.listing_truncated) notes.push('only the first templates are listed; the folder holds more')
+  return notes
+}
+
+// an older engine (or a partial reply) may omit any of the lists
+const normalized = (p: Partial<CharterTemplateDirsPayload> | null | undefined):
+  CharterTemplateDirsPayload => ({
+  ...p,
+  dirs: Array.isArray(p?.dirs) ? p.dirs : [],
+  directories: Array.isArray(p?.directories) ? p.directories : [],
+  duplicates: Array.isArray(p?.duplicates) ? p.duplicates : [],
+})
+
+export function CharterTemplateDirsSetting() {
+  const [data, setDataRaw] = useState<CharterTemplateDirsPayload | null>(null)
+  const setData = (p: Partial<CharterTemplateDirsPayload>) => setDataRaw(normalized(p))
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [newPath, setNewPath] = useState('')
+  useEffect(() => {
+    let live = true
+    getCharterTemplateDirs()
+      .then(p => { if (live) { setData(p); setError('') } })
+      .catch((e: Error) => { if (live) setError(e.message) })
+    return () => { live = false }
+  }, [])
+  const save = (dirs: string[], after?: () => void) => {
+    setBusy(true)
+    setCharterTemplateDirs(dirs)
+      .then(p => { setData(p); setError(''); after?.() })
+      .catch((e: Error) => setError(e.message))
+      .finally(() => setBusy(false))
+  }
+  const dirs = data?.dirs ?? []
+  const add = (path: string) => {
+    const p = path.trim()
+    if (p) save([...dirs, p], () => setNewPath(''))
+  }
+  const state = (path: string) => data?.directories.find(d => d.path === path)
+  return <SetGroup title="Charter template folders"
+    note="read-only folders of .md templates for the hire form">
+    <SetBlock hint={'Every .md file directly inside a listed folder is offered in the '
+      + 'hire form’s charter presets. Orgtree only reads these folders: it never '
+      + 'creates, changes or copies anything in them, and templates with the same '
+      + 'name in different places are all offered, labelled by folder.'}>
+      <div className="dirlist" aria-label="charter template folders">
+        {data === null && !error && <p className="dim">loading…</p>}
+        {data !== null && dirs.length === 0 && <p className="dim">no folders listed</p>}
+        {dirs.map(path => {
+          const d = state(path)
+          const notes = d ? dirNotes(d) : []
+          return <div key={path}>
+            <div className="dirrow">
+              <span className="chip mono grow" title={path}>{path}</span>
+              <span className={d?.status === 'ok' ? 'dim' : 'ask-warn'}>
+                {d ? (d.status === 'ok'
+                  ? `${d.count} template${d.count === 1 ? '' : 's'}`
+                  : DIR_STATUS[d.status]) : ''}
+              </span>
+              <button type="button" className="iconbtn" disabled={busy}
+                aria-label={`remove ${path}`} title="remove from the list (the folder itself is untouched)"
+                onClick={() => save(dirs.filter(x => x !== path))}><CloseIcon fontSize="inherit" /></button>
+            </div>
+            {d?.error && d.status !== 'ok' && <p className="dim mono">{d.error}</p>}
+            {notes.map(n => <p key={n} className="dim">{n}</p>)}
+          </div>
+        })}
+        <div className="dirrow">
+          <input placeholder="add an absolute folder path" aria-label="add a charter template folder"
+            value={newPath} disabled={busy || data === null}
+            onChange={e => setNewPath(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') add(newPath) }} />
+          <button type="button" className="iconbtn" title="browse for a folder"
+            aria-label="browse for a charter template folder" disabled={busy || data === null}
+            onClick={() => { void pickFolder().then(r => { if (r.path) add(r.path) }).catch(() => {}) }}>
+            <FolderIcon fontSize="inherit" /></button>
+          <button type="button" className="addrow" disabled={busy || data === null || !newPath.trim()}
+            onClick={() => add(newPath)}>add</button>
+        </div>
+      </div>
+      {data && data.duplicates.length > 0 && (
+        <p className="dim">
+          {'same name in more than one place (all are offered): '
+            + data.duplicates.map(d => `${d.name} ×${d.locations.length}`).join(', ')}
+        </p>
+      )}
+      {error && <p role="alert">Charter template folders: {error}</p>}
+    </SetBlock>
   </SetGroup>
 }

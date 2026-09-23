@@ -3980,6 +3980,11 @@ def charters_list() -> dict[str, Any]:
     without touching the installation. Per-agent charters live in each
     organization document and are unaffected by any of this.
 
+    Templates from the app-wide external charter template folders
+    (`appsettings.charter_template_dirs`) are listed too, read-only, with
+    `source: "external"` and their `dir`; they never shadow and are never
+    shadowed, and `template_dirs` reports each folder's state.
+
     Each record carries `chars` (the body's TRUE length, before any cut) and
     `truncated`, so a cut is never silent. The payload carries `charter_long`
     (ledger.CHARTER_LONG) — NOT a limit, just the length above which the hire
@@ -3997,15 +4002,206 @@ def charters_list() -> dict[str, Any]:
     shadowed = {r["file"] for r in user}
     bundled = [r for r in _charter_records(CHARTERS_DIR, "bundled")
                if r["file"] not in shadowed]
-    out = sorted(user + bundled, key=lambda r: r["name"])
+    # External template folders (user ruling 2026-09-23, docket
+    # add-external-agent-charter-templates-folder): every template in every
+    # configured folder is its OWN choice — a name repeated across folders,
+    # or matching a user/bundled preset, is never shadowed. Records carry
+    # `dir` so the hire form can tell same-named choices apart; `path` is
+    # unique per record. Ordering among equal names is user, then folders in
+    # configured order, then bundled.
+    external: list[dict[str, Any]] = []
+    template_dirs: list[dict[str, Any]] = []
+    for rank, folder in enumerate(
+            external_charter_templates(content=True, duplicates=False)["directories"]):
+        for t in folder.pop("templates"):
+            external.append({**t, "source": "external", "dir": folder["path"],
+                             "_rank": 1 + rank})
+        template_dirs.append(folder)
+    for r in user:
+        r["_rank"] = 0
+    for r in bundled:
+        r["_rank"] = 1 + len(template_dirs)
+    out = sorted(user + external + bundled, key=lambda r: (r["name"], r["_rank"]))
+    for r in out:
+        del r["_rank"]
     payload: dict[str, Any] = {"charters": out, "preset_max": PRESET_MAX,
                                "user_dir": user_charters_dir(),
                                "charter_long": ledger_mod.CHARTER_LONG}
+    if template_dirs:
+        # each configured folder's state (templates themselves are in
+        # `charters`), so a missing or refused folder is visible, not silent
+        payload["template_dirs"] = template_dirs
     if user_dir_error:
         payload["user_dir_error"] = user_dir_error
     if skipped_links:
         payload["skipped_links"] = skipped_links
     return payload
+
+
+#: Read bounds for EXTERNAL charter template folders (docket
+#: add-external-agent-charter-templates-folder). Unlike ~/.orgtree/charters
+#: these are folders the user points at, which may hold anything: a file over
+#: the byte bound is declared `oversize` and never read, and a folder with more
+#: templates than the listing bound declares `listing_truncated` rather than
+#: going quiet about the rest.
+TEMPLATE_FILE_MAX_BYTES = 1_000_000
+TEMPLATE_DIR_MAX_FILES = 500
+
+
+def _plain_entry(info: os.stat_result) -> bool:
+    return not (stat.S_ISLNK(info.st_mode)
+                or getattr(info, "st_file_attributes", 0) & 0x400
+                or not stat.S_ISREG(info.st_mode))
+
+
+def _scan_template_dir(folder: str, *, content: bool) -> dict[str, Any]:
+    """Read-only scan of one configured charter template folder.
+
+    Never creates, writes, copies or executes anything. The folder itself and
+    every existing ancestor must be plain (no link or reparse point — the same
+    rule `_checked_user_charters` applies), and each entry is lstat'ed without
+    following: linked or non-regular `.md` entries are declared in
+    `skipped_links` and never opened. Only `*.md` directly in the folder
+    counts; subfolders are not walked. A template uses the existing charter
+    preset format — an optional header ending at a '---' line, then the body.
+
+    The folder's state is always REPORTED, never raised: `status` is one of
+    ok | missing | not_directory | link_refused | unreadable, with `error`
+    carrying the reason, so one bad folder never breaks the others.
+    """
+    from pathlib import Path
+    from .desktop_import import ImportRefused, _plain
+    out: dict[str, Any] = {"path": folder, "status": "ok", "templates": [],
+                           "count": 0}
+    try:
+        _plain(Path(folder))
+    except ImportRefused as exc:
+        out.update(status="link_refused", error=str(exc))
+        return out
+    try:
+        info = os.lstat(folder)
+    except FileNotFoundError:
+        out.update(status="missing", error=f"folder does not exist: {folder}")
+        return out
+    except OSError as exc:
+        out.update(status="unreadable", error=str(exc))
+        return out
+    if not stat.S_ISDIR(info.st_mode):
+        out.update(status="not_directory", error=f"not a folder: {folder}")
+        return out
+    try:
+        names = sorted(os.listdir(folder))
+    except OSError as exc:
+        out.update(status="unreadable", error=str(exc))
+        return out
+    templates: list[dict[str, Any]] = []
+    skipped: list[str] = []
+    oversize: list[str] = []
+    unreadable: list[str] = []
+    for f in (n for n in names if n.endswith(".md")):
+        if len(templates) >= TEMPLATE_DIR_MAX_FILES:
+            out["listing_truncated"] = True
+            break
+        path = os.path.join(folder, f)
+        try:
+            entry = os.lstat(path)
+        except OSError:
+            unreadable.append(f)
+            continue
+        if not _plain_entry(entry):
+            skipped.append(f)
+            continue
+        if entry.st_size > TEMPLATE_FILE_MAX_BYTES:
+            oversize.append(f)
+            continue
+        record: dict[str, Any] = {"name": f[:-3].replace("-", " "), "file": f,
+                                  "path": os.path.abspath(path)}
+        if content:
+            try:
+                with open(path, encoding="utf-8", errors="replace") as stream:
+                    text = stream.read(TEMPLATE_FILE_MAX_BYTES + 1)
+            except OSError:
+                unreadable.append(f)
+                continue
+            body = text.split("\n---\n", 1)[-1].strip()
+            record.update(content=body[:PRESET_MAX], chars=len(body),
+                          truncated=len(body) > PRESET_MAX)
+        templates.append(record)
+    out["templates"] = templates
+    out["count"] = len(templates)
+    if skipped:
+        out["skipped_links"] = skipped
+    if oversize:
+        out["oversize"] = oversize
+    if unreadable:
+        out["unreadable_files"] = unreadable
+    return out
+
+
+def external_charter_templates(*, content: bool,
+                               duplicates: bool = True) -> dict[str, Any]:
+    """Scan every configured charter template folder, in configured order.
+
+    With `duplicates`, templates whose names repeat — within the external
+    folders, or against ~/.orgtree/charters and the bundled presets — are
+    REPORTED (each name with every location, in scan order) for the settings
+    view. Nothing is dropped or ranked: per the user ruling of 2026-09-23 the
+    hire form offers every one of them as a distinct choice.
+    """
+    folders = [_scan_template_dir(d, content=content)
+               for d in appsettings.charter_template_dirs()]
+    if not duplicates:
+        return {"directories": folders}
+    seen: dict[str, list[dict[str, str]]] = {}
+    try:
+        user = _charter_records(_checked_user_charters(), "user")
+    except (HTTPException, OSError):
+        user = []
+    for source, rows in (("user", user),
+                         ("bundled", _charter_records(CHARTERS_DIR, "bundled"))):
+        for r in rows:
+            seen.setdefault(r["name"], []).append(
+                {"source": source, "path": r["path"]})
+    for folder in folders:
+        for t in folder["templates"]:
+            seen.setdefault(t["name"], []).append(
+                {"source": "external", "path": t["path"]})
+    duplicates = [{"name": name, "locations": locs}
+                  for name, locs in sorted(seen.items())
+                  if len(locs) > 1 and any(l["source"] == "external" for l in locs)]
+    return {"directories": folders, "duplicates": duplicates}
+
+
+class CharterTemplateDirs(Body):
+    dirs: list[str]
+
+
+@app.get("/api/app-settings/charter-template-dirs")
+async def charter_template_dirs_info() -> dict[str, Any]:
+    """The app-wide list of external charter template folders, each with its
+    live read-only scan state (template names and paths, no bodies)."""
+    from fastapi.concurrency import run_in_threadpool
+
+    def build() -> dict[str, Any]:
+        return {"dirs": appsettings.charter_template_dirs(),
+                "max_dirs": appsettings.CHARTER_TEMPLATE_DIRS_MAX,
+                **external_charter_templates(content=False)}
+    return await run_in_threadpool(build)
+
+
+@app.put("/api/app-settings/charter-template-dirs")
+async def charter_template_dirs_save(body: CharterTemplateDirs) -> dict[str, Any]:
+    """Replace the ordered folder list. Only the setting is written: the
+    folders themselves are never created, touched or checked for existence
+    here — a missing folder is stored and reported by the scan."""
+    from fastapi.concurrency import run_in_threadpool
+    try:
+        await run_in_threadpool(appsettings.set_charter_template_dirs, body.dirs)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    except appsettings.AppSettingsUnreadable as e:
+        raise HTTPException(409, str(e)) from e
+    return await charter_template_dirs_info()
 
 
 #: A charter document filename (without .md): plain names only — no path
