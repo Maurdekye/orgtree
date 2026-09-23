@@ -118,6 +118,19 @@ def _environment_block(values: dict[str, str]) -> ctypes.Array:
     return ctypes.create_unicode_buffer(text)
 
 
+def no_prompt_git(env: dict[str, str]) -> None:
+    """Fail promptly if this identity cannot use a Git credential.
+
+    A genuine-session bridge can still read an existing Credential Manager
+    entry, but neither service nor bridge processes may open an unseen prompt.
+    """
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    env["GCM_INTERACTIVE"] = "never"
+    env["GIT_ASKPASS"] = ""
+    env["SSH_ASKPASS"] = ""
+    env["SSH_ASKPASS_REQUIRE"] = "never"
+
+
 class ServiceChild:
     def __init__(self, api: "WindowsProcessAPI", pid: int, process: int, job: int,
                  stop_event: int, token: int, profile: int):
@@ -242,6 +255,7 @@ class WindowsProcessAPI:
                     "ORGTREE_V2_DATA": str(Path(profile) / "AppData" / "Roaming" / "Orgtree v2" / "data"),
                     "ORGTREE_V2_SERVICE_STOP_EVENT": str(stop_event),
                     "ORGTREE_V2_BRIDGE_SECRET": bridge_secret})
+        no_prompt_git(env)
         for key in list(env):
             if key.upper().startswith("ORGTREE_") and key not in (
                     "ORGTREE_V2_DATA", "ORGTREE_V2_SERVICE_STOP_EVENT",

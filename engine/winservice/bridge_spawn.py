@@ -19,7 +19,8 @@ from .process import (CREATE_NO_WINDOW, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRON
                       EXTENDED_STARTUPINFO_PRESENT, HANDLE_LIST,
                       JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, STARTF_USESTDHANDLES,
                       WAIT_OBJECT_0, WAIT_TIMEOUT, ExtendedLimit, ProcessInfo,
-                      StartupInfoEx, WindowsProcessAPI, _environment_block)
+                      StartupInfoEx, WindowsProcessAPI, _environment_block,
+                      no_prompt_git)
 from .bridge_transport import SecurityAttributes
 
 
@@ -134,6 +135,7 @@ class BridgeSpawnAPI(WindowsProcessAPI):
         # Never pass the service's local IPC authority to the provider child.
         env = {key: value for key, value in env.items()
                if key.upper() not in {"ORGTREE_V2_BRIDGE_SECRET", "ORGTREE_V2_SERVICE_STOP_EVENT"}}
+        no_prompt_git(env)
         block = _environment_block(env)
         job = process = thread = 0
         all_pipes: list[int] = []
