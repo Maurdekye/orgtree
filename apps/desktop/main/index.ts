@@ -160,6 +160,11 @@ else {
   // effective theme for native tray/taskbar/window icons and is never persisted.
   let effectiveTheme: VisualTheme | undefined
   let placement: WindowPlacement | undefined, restoreMaximized = false
+  // Assigned once inside app.whenReady() (it closes over that scope's
+  // browserSession/initialOrigin/register/openArtifact), then called from
+  // both the startup path and show()'s recreate branch below — one
+  // construction path, never a second divergent one (UI-02).
+  let createMainWindow: (() => Promise<void>) | undefined
   const savePlacement = () => { if (main && placement && !restoreMaximized) { try { placement.capture(main) } catch (error) { console.warn("Window position could not be saved", error) } } }
   let restoreWindows = !process.argv.includes('--background')
   const windowState = () => ({
@@ -221,7 +226,15 @@ else {
   // `() => app.dock` is only ever dereferenced lazily inside the darwin-gated
   // branch in TaskbarAttention, so it is never touched on non-mac platforms.
   const taskbarAttention = new TaskbarAttention(() => main, () => app.dock)
-  const show = () => { if (main && !main.isDestroyed()) { restoreWindows = true; main.show(); if (main.isMinimized()) main.restore(); if (restoreMaximized) { restoreMaximized = false; main.maximize() }; main.focus(); broadcast({ type: 'main-window-shown', data: windowState() }) } }
+  // A destroyed/never-built main window (e.g. every window closed while the
+  // app stays alive in the Dock) must recreate through the SAME construction
+  // path used at startup — never a second, divergent one (UI-02) — before
+  // falling through to the unchanged show/restore/maximize/focus/broadcast
+  // logic below.
+  const show = async () => {
+    if ((!main || main.isDestroyed()) && createMainWindow) await createMainWindow()
+    if (main && !main.isDestroyed()) { restoreWindows = true; main.show(); if (main.isMinimized()) main.restore(); if (restoreMaximized) { restoreMaximized = false; main.maximize() }; main.focus(); broadcast({ type: 'main-window-shown', data: windowState() }) }
+  }
   const broadcast = (event: DesktopEvent) => { if (main && !main.isDestroyed()) main.webContents.send('desktop:event', event) }
   const publishWindowState = () => broadcast({ type: 'window-state', data: windowControlsState() })
   // n/m active/hired (user spec 2026-09-10) — the same two counts every org
@@ -1368,63 +1381,73 @@ else {
         void viewer.loadURL(url).catch(() => viewer.destroy())
       }
       placement = new WindowPlacement(path.join(app.getPath('userData'), 'window-state.json'))
-      const savedPlacement = placement.restore(screen.getAllDisplays().map(display => display.workArea))
-      restoreMaximized = savedPlacement?.maximized ?? false
-      main = new BrowserWindow({ width: 1400, height: 900, ...savedPlacement?.bounds, minWidth: 640, minHeight: 480, frame: false, show: false, icon: iconPath, autoHideMenuBar: true,
-        webPreferences: { session: browserSession, preload: path.join(__dirname, '../preload/index.cjs'), contextIsolation: true,
-          sandbox: true, nodeIntegration: false, webviewTag: false, additionalArguments: [`--orgtree-ui-origin=${initialOrigin}`] } })
-      main.setIcon(runtimeIcon())
-      main.on('moved', savePlacement)
-      main.on('resized', savePlacement)
-      main.on('maximize', savePlacement)
-      main.on('unmaximize', savePlacement)
-      main.on('maximize', publishWindowState)
-      main.on('unmaximize', publishWindowState)
-      main.on('minimize', publishWindowState)
-      main.on('restore', publishWindowState)
-      main.on('show', publishWindowState)
-      main.on('hide', publishWindowState)
-      // Windows cancels a taskbar flash on activation; tell the controller so
-      // a later arrival can pulse again without the poll restarting this one.
-      main.on('focus', () => taskbarAttention.focused())
-      configureWindow(main, () => engine.origin, true, register, openArtifact, undefined, popouts.track)
-      main.webContents.on('did-create-window', child => {
-        child.setIcon(runtimeIcon())
-        child.on('closed', quitAfterLastView)
-      })
-      main.on('close', event => {
-        savePlacement()
-        const otherViews = BrowserWindow.getAllWindows().filter(w => w !== main && w.isVisible()).length
-        const action = closeAction(preferences.get().exitOnClose, quitting, otherViews)
-        if (action !== 'close') { event.preventDefault(); if (action === 'hide') main?.hide(); else app.quit() }
-      })
-      // ⚠ THE WINDOW IS RECOVERED, NOT REPORTED AS UNRECOVERABLE. The old
-      // handler took no argument — discarding details.reason and
-      // details.exitCode, the only two values that say what killed it — and
-      // told the user to restart the whole application. That advice was worse
-      // than unnecessary: the dialog itself asserts the engine is still
-      // running, and it is. Only the window is gone, so reloading it restores
-      // the interface in a few seconds without touching the engine, the agents
-      // or the user's place, exactly as the recoverAttached path below already
-      // does. The reload is bounded (RecoveryBudget) and falls back to this
-      // same dialog, now carrying the diagnosis, when the bound is reached.
-      attachRendererFailureHandlers(main.webContents, {
-        record: recordProcessFailure,
-        reload: () => { if (main && !main.isDestroyed()) main.webContents.reload() },
-        // Out of band deliberately: the surface that would normally tell the
-        // user something happened is the renderer, and the renderer just died.
-        announce: (title, body) => { try { if (Notification.isSupported()) new Notification({ title, body }).show() } catch { /* a missed toast must not break the recovery */ } },
-        giveUp: detail => { void dialog.showMessageBox({ type: 'error', message: 'The Orgtree window stopped responding.',
-          detail: `Orgtree reloaded the window automatically but it keeps failing (${detail}).`
-            + '\n\nThe engine is still running. Restart Orgtree to restore the interface.'
-            + '\n\nThe full record is in update-log.json beside Orgtree\'s data.' }) },
-        suspended: () => quitting || installerUpgradeShutdown,
-      }, new RecoveryBudget())
-      await main.loadURL(engine.origin + '/')
+      // Hoisted to outer-scope `createMainWindow` (declared near `placement`)
+      // since it closes over browserSession/initialOrigin/register/openArtifact,
+      // which only exist in this app.whenReady() scope, while show()'s
+      // recreate branch lives in the outer block — this is the one shared
+      // construction path both call sites resolve to (UI-02).
+      createMainWindow = async () => {
+        const savedPlacement = placement!.restore(screen.getAllDisplays().map(display => display.workArea))
+        restoreMaximized = savedPlacement?.maximized ?? false
+        main = new BrowserWindow({ width: 1400, height: 900, ...savedPlacement?.bounds, minWidth: 640, minHeight: 480, frame: false, show: false, icon: iconPath, autoHideMenuBar: true,
+          webPreferences: { session: browserSession, preload: path.join(__dirname, '../preload/index.cjs'), contextIsolation: true,
+            sandbox: true, nodeIntegration: false, webviewTag: false, additionalArguments: [`--orgtree-ui-origin=${initialOrigin}`] } })
+        main.setIcon(runtimeIcon())
+        main.on('moved', savePlacement)
+        main.on('resized', savePlacement)
+        main.on('maximize', savePlacement)
+        main.on('unmaximize', savePlacement)
+        main.on('maximize', publishWindowState)
+        main.on('unmaximize', publishWindowState)
+        main.on('minimize', publishWindowState)
+        main.on('restore', publishWindowState)
+        main.on('show', publishWindowState)
+        main.on('hide', publishWindowState)
+        // Windows cancels a taskbar flash on activation; tell the controller so
+        // a later arrival can pulse again without the poll restarting this one.
+        main.on('focus', () => taskbarAttention.focused())
+        configureWindow(main, () => engine.origin, true, register, openArtifact, undefined, popouts.track)
+        main.webContents.on('did-create-window', child => {
+          child.setIcon(runtimeIcon())
+          child.on('closed', quitAfterLastView)
+        })
+        main.on('close', event => {
+          savePlacement()
+          const otherViews = BrowserWindow.getAllWindows().filter(w => w !== main && w.isVisible()).length
+          const action = closeAction(preferences.get().exitOnClose, quitting, otherViews)
+          if (action !== 'close') { event.preventDefault(); if (action === 'hide') main?.hide(); else app.quit() }
+        })
+        // ⚠ THE WINDOW IS RECOVERED, NOT REPORTED AS UNRECOVERABLE. The old
+        // handler took no argument — discarding details.reason and
+        // details.exitCode, the only two values that say what killed it — and
+        // told the user to restart the whole application. That advice was worse
+        // than unnecessary: the dialog itself asserts the engine is still
+        // running, and it is. Only the window is gone, so reloading it restores
+        // the interface in a few seconds without touching the engine, the agents
+        // or the user's place, exactly as the recoverAttached path below already
+        // does. The reload is bounded (RecoveryBudget) and falls back to this
+        // same dialog, now carrying the diagnosis, when the bound is reached.
+        attachRendererFailureHandlers(main.webContents, {
+          record: recordProcessFailure,
+          reload: () => { if (main && !main.isDestroyed()) main.webContents.reload() },
+          // Out of band deliberately: the surface that would normally tell the
+          // user something happened is the renderer, and the renderer just died.
+          announce: (title, body) => { try { if (Notification.isSupported()) new Notification({ title, body }).show() } catch { /* a missed toast must not break the recovery */ } },
+          giveUp: detail => { void dialog.showMessageBox({ type: 'error', message: 'The Orgtree window stopped responding.',
+            detail: `Orgtree reloaded the window automatically but it keeps failing (${detail}).`
+              + '\n\nThe engine is still running. Restart Orgtree to restore the interface.'
+              + '\n\nThe full record is in update-log.json beside Orgtree\'s data.' }) },
+          suspended: () => quitting || installerUpgradeShutdown,
+        }, new RecoveryBudget())
+        await main.loadURL(engine.origin + '/')
+      }
+      await createMainWindow()
       engineReady = true
       if (installerUpgradePending) void requestInstallerUpgradeShutdown()
       if (!process.argv.includes('--background')) show()
-      if (!process.argv.includes('--background') && !detectHarnesses().some(h => h.detected)) await dialog.showMessageBox(main, { type: 'info', message: 'No agent harness was detected.', detail: 'Install Claude Code, Codex, or Antigravity using the official setup links in the tray menu. Orgtree does not install or sign in to harnesses.' })
+      // main is always assigned by the createMainWindow() awaited above; TS
+      // cannot narrow that across the nested closure's own scope.
+      if (!process.argv.includes('--background') && !detectHarnesses().some(h => h.detected)) await dialog.showMessageBox(main!, { type: 'info', message: 'No agent harness was detected.', detail: 'Install Claude Code, Codex, or Antigravity using the official setup links in the tray menu. Orgtree does not install or sign in to harnesses.' })
       const refresh = async () => {
         if (quitting || installerUpgradeShutdown) return
         // Native timers keep running when Chromium throttles a hidden window.
