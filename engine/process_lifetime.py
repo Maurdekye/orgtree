@@ -44,6 +44,7 @@ def arm_process_lifetime(root: str | Path, parent_pid: int | None = None, *, tim
         allowed = {"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL"}
     env = {k: v for k, v in os.environ.items() if k.upper() in allowed}
     env["ORGTREE_DATA"] = str(candidate)
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
     args = [sys.executable, str(Path(__file__).resolve()), "--watch", str(candidate), str(os.getpid()), str(parent_pid or 0)]
     process = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                stderr=subprocess.DEVNULL, env=env,
