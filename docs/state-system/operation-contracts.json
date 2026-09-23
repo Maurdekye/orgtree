@@ -1,6 +1,6 @@
 {
   "schema": "orgtree.state-operation-contracts/v1",
-  "source_inventory_sha256": "3142de8ae02e51c405d2cafe4af79145910f67cfb7904bf1972e5553eb4440d2",
+  "source_inventory_sha256": "17be5f9fbef84aa961ba86b03ade175683ec1be2694997dafca387e9d50b3fc5",
   "qualification": {
     "runtime_census": false,
     "conversion_authorized": false
@@ -1983,9 +1983,9 @@
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2498,
-          "end": 2567,
-          "sha256": "8acde065b6159baa898e3b2c19ac68129c373cba008435d3dc0ee000f1f205d1"
+          "start": 2049,
+          "end": 2117,
+          "sha256": "c4c39ba98ecbbc4f2db74121def36b83c10a4078c88cfe6def9fd922b84c87bd"
         },
         {
           "path": "engine/backend/orgtree/deployment.py",
@@ -2234,9 +2234,9 @@
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2498,
-          "end": 2567,
-          "sha256": "8acde065b6159baa898e3b2c19ac68129c373cba008435d3dc0ee000f1f205d1"
+          "start": 2049,
+          "end": 2117,
+          "sha256": "c4c39ba98ecbbc4f2db74121def36b83c10a4078c88cfe6def9fd922b84c87bd"
         },
         {
           "path": "engine/backend/orgtree/deployment.py",
@@ -2546,9 +2546,9 @@
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2498,
-          "end": 2567,
-          "sha256": "8acde065b6159baa898e3b2c19ac68129c373cba008435d3dc0ee000f1f205d1"
+          "start": 2049,
+          "end": 2117,
+          "sha256": "c4c39ba98ecbbc4f2db74121def36b83c10a4078c88cfe6def9fd922b84c87bd"
         },
         {
           "path": "engine/backend/orgtree/deployment.py",
@@ -2625,9 +2625,9 @@
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2498,
-          "end": 2567,
-          "sha256": "8acde065b6159baa898e3b2c19ac68129c373cba008435d3dc0ee000f1f205d1"
+          "start": 2049,
+          "end": 2117,
+          "sha256": "c4c39ba98ecbbc4f2db74121def36b83c10a4078c88cfe6def9fd922b84c87bd"
         },
         {
           "path": "engine/backend/orgtree/deployment.py",
@@ -4308,9 +4308,9 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2317,
-          "end": 2339,
-          "sha256": "c8a46db9787d62990c1885fde83965de402fe0e2f978124cf0e0f7b194d9f68f"
+          "start": 1905,
+          "end": 1918,
+          "sha256": "171889c0c30ae59e041526883910f9e43e42cb32b1e2aa1e95017a32687bbb89"
         },
         {
           "path": "engine/backend/orgtree/api.py",
@@ -4365,9 +4365,9 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2290,
-          "end": 2316,
-          "sha256": "f242490e1966b8d28de879eaf240f421464c4664147d6c4006b1739cf48c8795"
+          "start": 1886,
+          "end": 1904,
+          "sha256": "b6a4f151e299c507e95c88010806f0d8498da1ce1a451b25b0cf2d6622dea183"
         },
         {
           "path": "engine/backend/orgtree/api.py",
@@ -4422,9 +4422,9 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2247,
-          "end": 2263,
-          "sha256": "cbb24e1a2d4ee5dca7fd009cb3b8d4863665a7b7f8d559ecccb1c26c25a46e0d"
+          "start": 1845,
+          "end": 1860,
+          "sha256": "05e772d07e1746200d2d774f3036e54f5cb6aa939443fb8f5302714cd5335e61"
         },
         {
           "path": "engine/backend/orgtree/api.py",
@@ -4479,8 +4479,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2264,
-          "end": 2271,
+          "start": 1861,
+          "end": 1868,
           "sha256": "c1ef972e5d5491d31c47db795accf4161e64b6cc20fe5509759a0098c4d83314"
         },
         {
@@ -4536,9 +4536,9 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2272,
-          "end": 2289,
-          "sha256": "a8625bf27155b5514a413cf719c5f63e0b509944ca0bbfe03d0cb8f683e0bae8"
+          "start": 1869,
+          "end": 1885,
+          "sha256": "02828b971356a2545e5380397b1614ba048ff712c1e0eb9472c37f8d11484623"
         },
         {
           "path": "engine/backend/orgtree/api.py",
@@ -6650,9 +6650,9 @@
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1155,
-          "end": 1197,
-          "sha256": "34de4f2b713d30877b5b47a8a701527adf851f7538885836d6eaa309e568e2b6"
+          "start": 1027,
+          "end": 1063,
+          "sha256": "e15696bcdf40a1a93735f599d01162bfed653b28ddfb8a644f31f00176804602"
         }
       ]
     },
@@ -6682,8 +6682,8 @@
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1198,
-          "end": 1206,
+          "start": 1064,
+          "end": 1072,
           "sha256": "583cba086d437c8b96951b983932b236e319dc9b5521c47e0f81ce3b933f4e75"
         }
       ]
@@ -6845,9 +6845,9 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2247,
-          "end": 2263,
-          "sha256": "cbb24e1a2d4ee5dca7fd009cb3b8d4863665a7b7f8d559ecccb1c26c25a46e0d"
+          "start": 1845,
+          "end": 1860,
+          "sha256": "05e772d07e1746200d2d774f3036e54f5cb6aa939443fb8f5302714cd5335e61"
         },
         {
           "path": "engine/backend/orgtree/api.py",
@@ -6867,8 +6867,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2264,
-          "end": 2271,
+          "start": 1861,
+          "end": 1868,
           "sha256": "c1ef972e5d5491d31c47db795accf4161e64b6cc20fe5509759a0098c4d83314"
         },
         {
@@ -6889,9 +6889,9 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2272,
-          "end": 2289,
-          "sha256": "a8625bf27155b5514a413cf719c5f63e0b509944ca0bbfe03d0cb8f683e0bae8"
+          "start": 1869,
+          "end": 1885,
+          "sha256": "02828b971356a2545e5380397b1614ba048ff712c1e0eb9472c37f8d11484623"
         },
         {
           "path": "engine/backend/orgtree/api.py",
@@ -6935,9 +6935,9 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2290,
-          "end": 2316,
-          "sha256": "f242490e1966b8d28de879eaf240f421464c4664147d6c4006b1739cf48c8795"
+          "start": 1886,
+          "end": 1904,
+          "sha256": "b6a4f151e299c507e95c88010806f0d8498da1ce1a451b25b0cf2d6622dea183"
         },
         {
           "path": "engine/backend/orgtree/api.py",
@@ -6957,9 +6957,9 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2317,
-          "end": 2339,
-          "sha256": "c8a46db9787d62990c1885fde83965de402fe0e2f978124cf0e0f7b194d9f68f"
+          "start": 1905,
+          "end": 1918,
+          "sha256": "171889c0c30ae59e041526883910f9e43e42cb32b1e2aa1e95017a32687bbb89"
         },
         {
           "path": "engine/backend/orgtree/api.py",
@@ -8599,35 +8599,35 @@
       "source_refs": []
     },
     {
-      "id": "9886c1bc78b859a6c025b74da877e774dac61de4e966006afb08edd6498d3151",
+      "id": "1d3a2c76fa392260850592473a54c75afbd63b6fb1fd109b719ac49f5ce98aeb",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "63bd3935428b55cb49e8ea212fe331693e5b3626858bc53b7f8212302d5b237f",
+      "id": "757092106340bfad454eab4ad23f5fb3b94c908196820e55ab08ac9c831fa30f",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "bea1e2a64cdcee12962e617d022160f99948211c54ac2a4372f33fd2803653dc",
+      "id": "75243c86895ae42bf5c4897d944219009f13539bb79765094f9ac40f4812561c",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "030a2cb3fd138f81bafbc2ba1784beb06b5edffb16c15879c05dd0c0bc090478",
+      "id": "16f84f41b926924e6af65f886bf002d5de604b191a31ca8f73ef193242279c3a",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "d92cf437a81318b3cf994a4e8c7664315ea90896bd3566c7f111bf96ec5b8832",
+      "id": "def83e409229ffcdf1ee7220ebcd816ebe7219cb6bed597260d8b29f6ddd77fd",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
