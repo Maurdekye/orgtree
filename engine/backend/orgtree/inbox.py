@@ -7,6 +7,13 @@ original-key receipt and durable attempt (P06) and trusted input-evidence
 (P08) gates are met, as a separate, reviewed P01 surface change that must
 validate its arguments with `check_args` before calling anything here.
 
+P06a (still no door) adds the original-key receipt of a keyed fetch, filed in
+the fetch's own single save, and a durable ATTEMPT record per delivery that
+outlives its journal row. ⚠ The chunk reader below stays a pure, unkeyed read
+PROVISIONALLY: the contract (C1 §E) still owes per-chunk original keys,
+lost-response recovery and trusted call evidence before any door may expose
+it, and nothing here is final-contract compliance for chunk continuation.
+
 This module is PURE. It reads a loaded document plus a self-view state map the
 supervisor computed from the shared ownership classifier, and returns plain
 data. It takes no lock, loads and saves nothing, writes no field and mints no
@@ -46,6 +53,10 @@ FETCH_BUDGET_BYTES: Final = 256 * 1024
 #: Largest single chunk; a body above this is served in chunks.
 CHUNK_BYTES: Final = 64 * 1024
 PREVIEW_CHARS: Final = 200
+#: The receipt name of the manual inbox (opreceipts coverage and result fields).
+TOOL: Final = "orgtree_inbox"
+#: Resolved attempt records kept per mailbox; an open one is never dropped.
+ATTEMPTS_KEEP: Final = 40
 
 #: Why no fetch can be confirmed yet. Returned on every fetch result.
 WILL_REDELIVER_REASON: Final = (
@@ -388,3 +399,74 @@ def fetched_item(row: Mapping[str, Any], plan: Mapping[str, Any],
 def disclosure() -> dict[str, Any]:
     return {"confirmable": False, "will_redeliver": True,
             "will_redeliver_reason": WILL_REDELIVER_REASON}
+
+
+def fetch_counts(result: Mapping[str, Any]) -> dict[str, int]:
+    """The scalar sizes of a fetch result: what its receipt can still say
+    when the response that carried the lists was lost."""
+    return {count: len(result.get(key) or []) for count, key in (
+        ("fetched_count", "fetched"), ("deferred_count", "deferred_ids"),
+        ("already_moved_count", "already_moved"), ("not_found_count", "not_found"),
+        ("unsupported_count", "unsupported_ids"))}
+
+
+# --------------------------------------------------------------------------
+# durable attempt (P06a)
+# --------------------------------------------------------------------------
+
+def attempt_record(record: Mapping[str, Any], *, tok: str, at: str,
+                   op_key: str | None, op_id: str | None) -> dict[str, Any]:
+    """What one fetch handed out, kept after its journal row is gone.
+
+    It is evidence of what was GIVEN, never of what was read: it confirms
+    nothing. The provider's call identity is not supplied on any lane yet
+    (P08); it is recorded as absent and never inferred."""
+    plan = record.get("plan") or {}
+    return {"v": 1, "at": at, "tok": tok,
+            **{k: record.get(k) for k in ("mailbox", "generation", "session",
+                                          "attempt", "engine", "delivery_id")},
+            "op_key": op_key, "op_id": op_id, "mail_ids": list(plan),
+            "digests": {mid: {"chunk_total": p.get("chunk_total"),
+                              "body_sha256": p.get("body_sha256")}
+                        for mid, p in plan.items() if isinstance(p, Mapping)},
+            "provider_call_id": None, "call_id_source": "unsupplied",
+            "resolved": None}
+
+
+def transition_state(org: Any, nid: str, delivery_id: str) -> str | None:
+    """`redelivered` or `confirmed` from a POSITIVE transition receipt that
+    names this delivery, `unknown` from one of any other outcome, None when
+    no receipt names it."""
+    found = None
+    for receipt in ((org.d.get("mail_transitions") or {}).get(nid) or {}).values():
+        if (isinstance(receipt, Mapping) and isinstance(receipt.get("deliveries"), Mapping)
+                and delivery_id in receipt["deliveries"].values()):
+            found = {"reclaimed": "redelivered",
+                     "confirmed": "confirmed"}.get(receipt.get("outcome"), "unknown")
+    return found
+
+
+def attempt_open(att: Mapping[str, Any], org: Any, nid: str) -> bool:
+    """Its batch is still journaled, or any of its mail is still waiting."""
+    batches = [b for b in (org.d.get("delivering") or {}).get(nid) or []
+               if isinstance(b, Mapping)]
+    if att.get("tok") in {b.get("tok") for b in batches}:
+        return True
+    waiting = {m.get("id") for m in (org.d.get("mail") or {}).get(nid) or []
+               if isinstance(m, Mapping)}
+    waiting |= {m.get("id") for b in batches for m in b.get("mail") or []
+                if isinstance(m, Mapping)}
+    return any(mid in waiting for mid in att.get("mail_ids") or [])
+
+
+def gone_state(org: Any, nid: str, delivery_id: str) -> dict[str, Any]:
+    """Where a delivery whose journal row is gone went, from positive records
+    only: its transition receipt, else its resolved attempt, else `unknown`.
+    Absence proves nothing."""
+    att = ((org.d.get("manual_attempts") or {}).get(nid) or {}).get(delivery_id)
+    state = transition_state(org, nid, delivery_id)
+    if state is None and isinstance(att, Mapping) and att.get("resolved") in (
+            "redelivered", "confirmed"):
+        state = att["resolved"]
+    return {"content_state": state or "unknown",
+            "attempt_recorded": isinstance(att, Mapping)}

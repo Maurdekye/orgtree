@@ -227,10 +227,17 @@ _ACTION_COVERAGE: dict[str, dict[str, str]] = {
     # arming a dog runs its target ONCE, after the commit, through the same
     # `_wd_popen` the engine uses; the other actions are document-only.
     "orgtree_watchdog": {"create": TX_POST},
+    # the manual inbox (P06a; NO door reaches it yet). `fetch` drains, journals,
+    # folds any reclaimed batch and files its receipt in ONE save
+    # (supervisor.manual_fetch), with nothing after the commit. `list` and
+    # `chunk` are pure reads. An unknown action is keyed: it is refused before
+    # any transaction, so its missing receipt truthfully reads "not applied".
+    "orgtree_inbox": {"list": NONE, "chunk": NONE, "fetch": TX},
 }
 _ACTION_DEFAULT: dict[str, str] = {
     "orgtree_work": TX,
     "orgtree_watchdog": TX,
+    "orgtree_inbox": TX,
 }
 
 
@@ -329,6 +336,12 @@ _RESULT_FIELDS: dict[str, tuple[str, ...]] = {
     "orgtree_self_relaunch": ("armed",),
     "orgtree_prime_relaunch": ("state", "armed"),
     "orgtree_restart_wake": ("armed", "cancelled", "state"),
+    # the continuation handle a lost fetch response would otherwise take with
+    # it (NC-13), and how much it moved. Never message ids or content: the
+    # batch itself is read back through `list` and `chunk`.
+    "orgtree_inbox": ("ok", "delivery_id", "fetched_count", "deferred_count",
+                      "already_moved_count", "not_found_count",
+                      "unsupported_count", "confirmable", "will_redeliver"),
 }
 # identity-shaped arguments worth keeping on the row: node ids, docket item
 # ids/slugs, delivery stages and refs. Bodies, charters, kickoffs, questions

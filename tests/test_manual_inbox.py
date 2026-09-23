@@ -122,13 +122,19 @@ class ManualInboxTests(unittest.TestCase):
     # ------------------------------------------------------------ the door
     def test_there_is_no_agent_facing_door(self):
         """Nothing outside the supervisor and this suite reaches the internals:
-        no tool card, no agent_call selector, no dispatcher, no receipt key."""
+        no tool card, no agent_call selector, no dispatcher. The one other
+        mention allowed is the receipt classification (P06a): opreceipts may
+        name `orgtree_inbox` as a key of its three tables and nowhere else."""
         root = Path(__file__).resolve().parents[1]
         backend = root / 'engine/backend/orgtree'
         for path in sorted(backend.rglob('*.py')):
             if path.name in ('supervisor.py', 'inbox.py'):
                 continue
             text = path.read_text(encoding='utf-8', errors='replace')
+            if path.name == 'opreceipts.py':
+                self.assertEqual(text.count('orgtree_inbox'), 3)
+                self.assertEqual(text.count('"orgtree_inbox":'), 3)
+                text = text.replace('"orgtree_inbox":', '')
             for needle in ('manual_list(', 'manual_fetch(', 'manual_fetch_chunk(',
                            'orgtree_inbox'):
                 self.assertNotIn(needle, text, f'{path.name} reaches {needle}')

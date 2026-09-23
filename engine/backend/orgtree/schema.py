@@ -805,6 +805,38 @@ class ManualFetchRecord(TypedDict):
     plan: dict[str, ManualChunkPlan]
 
 
+class ManualAttemptDigest(TypedDict):
+    chunk_total: int
+    body_sha256: str
+
+
+class ManualAttemptRecord(TypedDict):
+    """`manual_attempts[<node>][<delivery_id>]` (P06a, internal; the door is
+    closed): what one manual fetch handed out, written in the fetch's own
+    save and kept after its journal row is gone (inbox.attempt_record). It
+    confirms nothing. `op_key`/`op_id` name the keyed call and its receipt
+    (null when unkeyed); `provider_call_id` stays null with
+    `call_id_source="unsupplied"` until trusted call evidence exists (P08).
+    `resolved` is null while open, then `redelivered`/`confirmed` from a
+    positive transition receipt, else `unknown`."""
+    v: int
+    at: str
+    tok: str
+    mailbox: str
+    generation: int
+    session: str
+    attempt: str
+    engine: str
+    delivery_id: str
+    op_key: str | None
+    op_id: str | None
+    mail_ids: list[str]
+    digests: dict[str, ManualAttemptDigest]
+    provider_call_id: str | None
+    call_id_source: str
+    resolved: str | None
+
+
 class OrgInboxEntry(TypedDict):
     """The inter-org bridge log (capped at 200): one inbound or outbound
     message on the org's single outside face."""
@@ -1141,6 +1173,7 @@ class OrgDoc(TypedDict):
     notice_log: NotRequired[list[NoticeLogEntry]]
     delivering: NotRequired[dict[str, list[dict[str, Any]]]]  # supervisor in-flight mail batches
     mail_transitions: NotRequired[dict[str, dict[str, dict[str, Any]]]]  # positive atomic reclaim receipts
+    manual_attempts: NotRequired[dict[str, dict[str, ManualAttemptRecord]]]  # per-NODE manual-fetch attempts (P06a)
     steered_log: NotRequired[dict[str, list[dict[str, Any]]]]  # per-NODE steer history, org-keyed
     turn_error_log: NotRequired[dict[str, list[dict[str, Any]]]]  # per-NODE turn failures {at, text, ran_as?} — the durable half of last_error
     # (`account_token_uuid` — the per-org account selection — lived here

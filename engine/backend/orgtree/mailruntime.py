@@ -981,7 +981,9 @@ def compact_receipts(org: Any, st: dict[str, Any], nid: str, *,
     (the transaction writing it), while any of its tokens still has a journal
     row, and while any durable record of this node still names one of its
     tokens: the node record (halt and native retention, the inflight replay
-    marker) or its steer attempts. The token scan is textual and therefore
+    marker), its steer attempts or its manual-fetch attempts (P06a: a kept
+    attempt keeps its delivery's receipt, so a late read can still say where
+    that delivery went). The token scan is textual and therefore
     conservative; a false match only keeps a receipt. Before a receipt goes,
     its tokens become runtime tombstones, so a carrier paused in this process
     is still filtered exactly as the receipt would have filtered it; after a
@@ -995,7 +997,8 @@ def compact_receipts(org: Any, st: dict[str, Any], nid: str, *,
     live = journal_tokens(org, nid)
     try:
         durable = json.dumps([org.nodes.get(nid),
-                              (org.d.get("steer_attempts") or {}).get(nid)],
+                              (org.d.get("steer_attempts") or {}).get(nid),
+                              (org.d.get("manual_attempts") or {}).get(nid)],
                              sort_keys=True, default=str)
     except (TypeError, ValueError):
         return 0
