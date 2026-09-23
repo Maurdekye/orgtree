@@ -327,6 +327,10 @@ def load_app() -> tuple[Any, str, Path, int, dict[str, bool]]:
     os.environ.pop("ORGTREE_BASE", None)
     os.environ["ORGTREE_DATA"] = str(data)
     os.environ.pop("ORGTREE_V2_TOKEN", None)
+    bridge_secret = os.environ.pop("ORGTREE_V2_BRIDGE_SECRET", "")
+    if bridge_secret:
+        from engine import bridge_client
+        bridge_client.configure(bridge_secret)
     os.environ['ORGTREE_DESKTOP_MANAGED'] = '1'
     sys.path.insert(0, str(backend))
     from orgtree import agentauth

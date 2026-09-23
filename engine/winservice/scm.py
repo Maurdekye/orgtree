@@ -23,11 +23,16 @@ SERVICE_STOP_PENDING = 3
 SERVICE_RUNNING = 4
 
 SERVICE_ACCEPT_STOP = 0x1
+SERVICE_ACCEPT_SESSIONCHANGE = 0x80
 SERVICE_ACCEPT_PRESHUTDOWN = 0x100
 
 SERVICE_CONTROL_STOP = 0x1
 SERVICE_CONTROL_INTERROGATE = 0x4
+SERVICE_CONTROL_SESSIONCHANGE = 0xE
 SERVICE_CONTROL_PRESHUTDOWN = 0xF
+
+WTS_SESSION_LOGON = 0x5
+WTS_SESSION_LOGOFF = 0x6
 
 NO_ERROR = 0
 ERROR_CALL_NOT_IMPLEMENTED = 120
@@ -51,6 +56,10 @@ class ServiceStatus(ctypes.Structure):
                 ("dwWaitHint", ctypes.c_uint32)]
 
 
+class WtsSessionNotification(ctypes.Structure):
+    _fields_ = [("cbSize", ctypes.c_uint32), ("dwSessionId", ctypes.c_uint32)]
+
+
 class StatusReporter:
     """Tracks the checkpoint rule: a pending state must advance dwCheckPoint on
     every report or the SCM treats the service as hung; any other state
@@ -69,7 +78,8 @@ class StatusReporter:
             self._checkpoint = self._checkpoint + 1 if pending else 0
             status = ServiceStatus(
                 SERVICE_WIN32_OWN_PROCESS, state,
-                (SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_PRESHUTDOWN) if state == SERVICE_RUNNING else 0,
+                (SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SESSIONCHANGE |
+                 SERVICE_ACCEPT_PRESHUTDOWN) if state == SERVICE_RUNNING else 0,
                 win32_exit, specific_exit, self._checkpoint, wait_hint_ms if pending else 0)
             self.last = status
             self._report(status)
@@ -97,15 +107,31 @@ class ServiceContext:
     def __init__(self, status: StatusReporter):
         self.status = status
         self.controls: "queue.Queue[str]" = queue.Queue()
+        self.session_changes: "queue.Queue[tuple[int, int]]" = queue.Queue()
+        # HandlerEx calls this synchronously only for LOGOFF. Closing new-turn
+        # admission cannot wait behind a queued control or a long WTS scan.
+        self.on_session_logoff: Callable[[int], None] | None = None
 
 
-def handle_control(context: ServiceContext, control: int, restart_control: int) -> int:
+def handle_control(context: ServiceContext, control: int, restart_control: int,
+                   event: int = 0, event_data: Any = None) -> int:
     """The HandlerEx decision, separated from the callback so it is testable.
     It never blocks: the SCM calls it on the dispatcher thread."""
     if control in (SERVICE_CONTROL_STOP, SERVICE_CONTROL_PRESHUTDOWN):
         context.controls.put(STOP)
         return NO_ERROR
     if control == SERVICE_CONTROL_INTERROGATE:
+        return NO_ERROR
+    if control == SERVICE_CONTROL_SESSIONCHANGE:
+        if event not in (WTS_SESSION_LOGON, WTS_SESSION_LOGOFF) or not event_data:
+            return NO_ERROR
+        notification = ctypes.cast(event_data, ctypes.POINTER(WtsSessionNotification)).contents
+        if notification.cbSize < ctypes.sizeof(WtsSessionNotification) or notification.dwSessionId == 0:
+            return NO_ERROR
+        session_id = int(notification.dwSessionId)
+        if event == WTS_SESSION_LOGOFF and context.on_session_logoff is not None:
+            context.on_session_logoff(session_id)
+        context.session_changes.put((event, session_id))
         return NO_ERROR
     if control == restart_control:
         context.controls.put(RESTART)
@@ -167,8 +193,8 @@ def run(name: str, body: Callable[[ServiceContext], int], *, restart_control: in
         handle: list[Any] = []
         context = ServiceContext(StatusReporter(lambda status: api.set_status(handle[0], status)))
 
-        def handler(control: int, _event: int, _data: Any, _context: Any) -> int:
-            return handle_control(context, control, restart_control)
+        def handler(control: int, event: int, data: Any, _context: Any) -> int:
+            return handle_control(context, control, restart_control, event, data)
 
         handler_ref = api.HandlerEx(handler)
         kept.append(handler_ref)

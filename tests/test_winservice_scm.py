@@ -66,7 +66,8 @@ class StatusReporterTests(unittest.TestCase):
         reporter.running()
         reporter.stop_pending()
         self.assertEqual([s.dwControlsAccepted for s in seen],
-                         [0, scm.SERVICE_ACCEPT_STOP | scm.SERVICE_ACCEPT_PRESHUTDOWN, 0])
+                         [0, scm.SERVICE_ACCEPT_STOP | scm.SERVICE_ACCEPT_SESSIONCHANGE |
+                          scm.SERVICE_ACCEPT_PRESHUTDOWN, 0])
 
     def test_nonzero_exit_is_a_service_specific_error(self):
         seen = []
@@ -78,6 +79,26 @@ class StatusReporterTests(unittest.TestCase):
 
 
 class ControlTests(unittest.TestCase):
+    def test_logoff_closes_bridge_admission_synchronously(self):
+        from engine.winservice.bridge_state import BridgeState
+        bridge = BridgeState[str]()
+        closed = []
+        bridge.signed_in(7, "operator-token", closed.append)
+        self.assertEqual(bridge.begin_turn("already-running"), "operator-token")
+        context = scm.ServiceContext(scm.StatusReporter(lambda _s: None))
+        context.on_session_logoff = bridge.signed_out
+        notice = scm.WtsSessionNotification(ctypes.sizeof(scm.WtsSessionNotification), 7)
+        result = scm.handle_control(context, scm.SERVICE_CONTROL_SESSIONCHANGE,
+                                    CONTROL_RESTART_ENGINE, scm.WTS_SESSION_LOGOFF,
+                                    ctypes.byref(notice))
+        self.assertEqual(result, scm.NO_ERROR)
+        self.assertIsNone(bridge.begin_turn("after-logoff"),
+                          "new work must be refused before the queued notice is processed")
+        self.assertEqual(context.session_changes.get_nowait(), (scm.WTS_SESSION_LOGOFF, 7))
+        self.assertEqual(closed, [], "active turn retains its token")
+        bridge.finish_turn("already-running")
+        self.assertEqual(closed, ["operator-token"])
+
     def test_stop_and_preshutdown_queue_stop_restart_queues_restart(self):
         context = scm.ServiceContext(scm.StatusReporter(lambda _s: None))
         results = [scm.handle_control(context, control, CONTROL_RESTART_ENGINE)
