@@ -271,6 +271,128 @@ class CharterTemplateDirTests(unittest.TestCase):
         self.assertEqual(by_source, {'user': 'saved text', 'external': 'EXTERNAL ORIGINAL'})
         (home / '.orgtree' / 'charters' / 'shared.md').unlink()
 
+    BAD_PATHS = ('C:\\bad<name\\templates', 'C:\\a:b\\c')
+
+    def store_raw(self, dirs):
+        # what a hand edit, or a record written before save-time validation,
+        # can leave in app-settings.json: the reader keeps it as configured
+        doc = appsettings.load(strict=True)
+        doc['runtime']['charter_template_dirs'] = dirs
+        appsettings._save(doc)
+
+    def test_invalid_syntax_path_is_refused_on_save_but_missing_is_accepted(self):
+        if os.name != 'nt':
+            self.skipTest('path syntax refusal is a Windows ERROR_INVALID_NAME case')
+        keep = self.folder('keep')
+        self.put([str(keep)])
+        for bad in self.BAD_PATHS:
+            response = self.client.put(ROUTE, headers=HEADERS, json={'dirs': [str(keep), bad]})
+            self.assertEqual(response.status_code, 422, response.text)
+            self.assertIn('not a usable folder path', response.text)
+            self.assertEqual(self.get()['dirs'], [str(keep)])
+        # control: absent folders and absent drives are still accepted
+        self.put([str(keep), str(self.tmp / 'later'), 'Q:\\not\\mounted'])
+
+    def test_invalid_syntax_folder_in_the_record_never_breaks_presets(self):
+        # Review F1 (popout-recovery-opus55, 44d7ab1): such a path used to raise
+        # OSError [WinError 123] out of GET /api/charters, taking every
+        # bundled and user preset with it, and out of the settings view.
+        if os.name != 'nt':
+            self.skipTest('ERROR_INVALID_NAME is a Windows path error')
+        good = self.folder('good', {'lead.md': 'lead body'})
+        user_dir = home / '.orgtree' / 'charters'
+        user_dir.mkdir(parents=True, exist_ok=True)
+        (user_dir / 'mine-f1.md').write_text('user body', encoding='utf-8')
+        self.addCleanup(lambda: (user_dir / 'mine-f1.md').unlink())
+        self.store_raw([self.BAD_PATHS[0], str(good), self.BAD_PATHS[1]])
+        # positive control: the raw path really is refused by the OS as syntax
+        with self.assertRaises(OSError) as raised:
+            os.lstat(self.BAD_PATHS[0])
+        self.assertEqual(getattr(raised.exception, 'winerror', None), 123)
+        payload = self.charters()
+        sources = {r['source'] for r in payload['charters']}
+        self.assertEqual(sources, {'user', 'bundled', 'external'})
+        self.assertIn(('lead', str(good)), [(r['name'], r.get('dir')) for r in payload['charters']])
+        states = {d['path']: d for d in payload['template_dirs']}
+        for bad in self.BAD_PATHS:
+            self.assertEqual(states[bad]['status'], 'invalid_path')
+            self.assertEqual(states[bad]['count'], 0)
+            self.assertTrue(states[bad]['error'])
+        self.assertEqual(states[str(good)]['status'], 'ok')
+        # the settings view lists it too, so it can be seen and removed
+        listed = self.get()
+        self.assertEqual(listed['dirs'], [self.BAD_PATHS[0], str(good), self.BAD_PATHS[1]])
+        self.assertEqual([d['status'] for d in listed['directories']],
+                         ['invalid_path', 'ok', 'invalid_path'])
+        self.assertEqual(self.put([str(good)])['dirs'], [str(good)])
+
+    def test_unexpected_os_error_in_one_folder_is_contained(self):
+        bad, good = self.folder('boom'), self.folder('fine', {'t.md': 'x'})
+        real_lstat = os.lstat
+
+        def fake_lstat(p, *a, **k):
+            if os.path.normcase(str(p)) == os.path.normcase(str(bad)):
+                raise OSError(5, 'simulated device error', str(p))
+            return real_lstat(p, *a, **k)
+
+        from unittest.mock import patch
+        with patch.object(api.os, 'lstat', side_effect=fake_lstat):
+            self.put([str(bad), str(good)])
+            payload = self.charters()
+        states = {d['path']: d['status'] for d in payload['template_dirs']}
+        self.assertEqual(states, {str(bad): 'unreadable', str(good): 'ok'})
+        self.assertTrue(any(r['source'] == 'bundled' for r in payload['charters']))
+
+    def test_folder_named_md_is_not_a_file_and_uppercase_md_counts(self):
+        d = self.folder('mixed', {'UPPER.MD': 'upper body', 'lower.md': 'lower body'})
+        (d / 'sub.md').mkdir()
+        (entry,) = self.put([str(d)])['directories']
+        self.assertEqual(sorted(t['file'] for t in entry['templates']), ['UPPER.MD', 'lower.md'])
+        self.assertEqual(entry['not_files'], ['sub.md'])
+        self.assertNotIn('skipped_links', entry, 'a plain subfolder is not reported as a link')
+        names = {r['name'] for r in self.charters()['charters'] if r['source'] == 'external'}
+        self.assertEqual(names, {'UPPER', 'lower'})
+
+    def test_file_swapped_between_lstat_and_open_is_not_served(self):
+        # Review N1: an entry replaced after the lstat must not be followed.
+        # The swap is simulated by an fstat that names a different file.
+        d = self.folder('swap', {'victim.md': 'SWAPPED CONTENT', 'ok.md': 'fine'})
+        self.put([str(d)])
+        real_fstat = os.fstat
+        opened_victim = []
+
+        def fake_fstat(fd):
+            info = real_fstat(fd)
+            if opened_victim:
+                return os.stat_result((info.st_mode, info.st_ino + 1, *tuple(info)[2:]))
+            return info
+
+        real_open = open
+
+        def spy_open(p, *a, **k):
+            opened_victim[:] = [True] if os.path.basename(str(p)) == 'victim.md' else []
+            return real_open(p, *a, **k)
+
+        from unittest.mock import patch
+        with patch.object(api.os, 'fstat', side_effect=fake_fstat), \
+                patch('builtins.open', side_effect=spy_open):
+            (entry,) = api.external_charter_templates(content=True)['directories']
+        self.assertEqual([t['file'] for t in entry['templates']], ['ok.md'])
+        self.assertEqual(entry['skipped_links'], ['victim.md'])
+        # control: without the simulated swap the same file is served
+        (entry,) = api.external_charter_templates(content=True)['directories']
+        self.assertEqual(sorted(t['file'] for t in entry['templates']), ['ok.md', 'victim.md'])
+
+    def test_listing_bound_counts_skipped_entries_too(self):
+        d = self.folder('bounded', {'c.md': 'x'})
+        (d / 'a.md').mkdir(); (d / 'b.md').mkdir()
+        from unittest.mock import patch
+        with patch.object(api, 'TEMPLATE_DIR_MAX_FILES', 2):
+            (entry,) = self.put([str(d)])['directories']
+        self.assertEqual(entry['not_files'], ['a.md', 'b.md'])
+        self.assertEqual(entry['templates'], [])
+        self.assertTrue(entry['listing_truncated'])
+
     def test_routes_require_authentication(self):
         for method in ('GET', 'PUT'):
             response = self.client.request(method, ROUTE, json={'dirs': []})

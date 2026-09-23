@@ -127,6 +127,21 @@ def _canonical_template_dir(value: object) -> str:
     return os.path.normpath(text)
 
 
+def _refuse_invalid_path_syntax(path: str) -> None:
+    """Refuse a path the OS rejects as SYNTAX (Windows ERROR_INVALID_NAME,
+    e.g. a component holding `<` or a second `:`). A folder that is merely
+    missing, on an absent drive or an unreachable share is still accepted —
+    the reader reports those — and nothing is created. Only on save: the
+    reader must never touch the filesystem to list the setting."""
+    try:
+        os.lstat(path)
+    except ValueError as exc:
+        raise ValueError(f"not a usable folder path: {path} ({exc})") from None
+    except OSError as exc:
+        if getattr(exc, "winerror", None) == 123:
+            raise ValueError(f"not a usable folder path: {path}") from None
+
+
 def charter_template_dirs() -> list[str]:
     """The machine-wide, ordered list of external charter template folders.
 
@@ -155,6 +170,8 @@ def set_charter_template_dirs(values: list[str]) -> list[str]:
         raise ValueError(
             f"at most {CHARTER_TEMPLATE_DIRS_MAX} charter template directories")
     dirs = [_canonical_template_dir(v) for v in values]
+    for d in dirs:
+        _refuse_invalid_path_syntax(d)
     seen: set[str] = set()
     for d in dirs:
         key = os.path.normcase(d)

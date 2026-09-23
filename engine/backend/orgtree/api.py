@@ -4042,16 +4042,23 @@ def charters_list() -> dict[str, Any]:
 #: add-external-agent-charter-templates-folder). Unlike ~/.orgtree/charters
 #: these are folders the user points at, which may hold anything: a file over
 #: the byte bound is declared `oversize` and never read, and a folder with more
-#: templates than the listing bound declares `listing_truncated` rather than
-#: going quiet about the rest.
+#: `.md` entries than the listing bound declares `listing_truncated` rather
+#: than going quiet about the rest (every examined entry counts, including
+#: skipped ones, so the scan's own work is bounded too).
 TEMPLATE_FILE_MAX_BYTES = 1_000_000
 TEMPLATE_DIR_MAX_FILES = 500
 
 
-def _plain_entry(info: os.stat_result) -> bool:
-    return not (stat.S_ISLNK(info.st_mode)
-                or getattr(info, "st_file_attributes", 0) & 0x400
-                or not stat.S_ISREG(info.st_mode))
+def _is_link(info: os.stat_result) -> bool:
+    return bool(stat.S_ISLNK(info.st_mode)
+                or getattr(info, "st_file_attributes", 0) & 0x400)
+
+
+def _invalid_path(exc: BaseException) -> bool:
+    """A path the OS refuses as SYNTAX (ERROR_INVALID_NAME, e.g. a folder name
+    holding `<` or a second `:`), as opposed to one that is merely absent or
+    unreachable."""
+    return isinstance(exc, ValueError) or getattr(exc, "winerror", None) == 123
 
 
 def _scan_template_dir(folder: str, *, content: bool) -> dict[str, Any]:
@@ -4060,56 +4067,73 @@ def _scan_template_dir(folder: str, *, content: bool) -> dict[str, Any]:
     Never creates, writes, copies or executes anything. The folder itself and
     every existing ancestor must be plain (no link or reparse point — the same
     rule `_checked_user_charters` applies), and each entry is lstat'ed without
-    following: linked or non-regular `.md` entries are declared in
-    `skipped_links` and never opened. Only `*.md` directly in the folder
-    counts; subfolders are not walked. A template uses the existing charter
-    preset format — an optional header ending at a '---' line, then the body.
+    following: linked `.md` entries are declared in `skipped_links`, other
+    non-regular ones (a folder named x.md) in `not_files`, and neither is ever
+    opened. An opened file is re-checked with fstat against its lstat, so a
+    link swapped in between the two is refused rather than followed. Only
+    `*.md` (any case) directly in the folder counts; subfolders are not
+    walked. A template uses the existing charter preset format — an optional
+    header ending at a '---' line, then the body.
 
     The folder's state is always REPORTED, never raised: `status` is one of
-    ok | missing | not_directory | link_refused | unreadable, with `error`
-    carrying the reason, so one bad folder never breaks the others.
+    ok | missing | not_directory | link_refused | invalid_path | unreadable,
+    with `error` carrying the reason, so one bad folder never breaks the
+    others or the bundled and user presets (review F1: an invalid-syntax path
+    used to raise straight out of GET /api/charters).
     """
-    from pathlib import Path
-    from .desktop_import import ImportRefused, _plain
     out: dict[str, Any] = {"path": folder, "status": "ok", "templates": [],
                            "count": 0}
+    try:
+        _scan_template_dir_into(out, folder, content)
+    except (OSError, ValueError) as exc:
+        out.update(templates=[], count=0,
+                   status="invalid_path" if _invalid_path(exc) else "unreadable",
+                   error=str(exc))
+        for key in ("skipped_links", "not_files", "oversize",
+                    "unreadable_files", "listing_truncated"):
+            out.pop(key, None)
+    return out
+
+
+def _scan_template_dir_into(out: dict[str, Any], folder: str, content: bool) -> None:
+    from pathlib import Path
+    from .desktop_import import ImportRefused, _plain
     try:
         _plain(Path(folder))
     except ImportRefused as exc:
         out.update(status="link_refused", error=str(exc))
-        return out
+        return
     try:
         info = os.lstat(folder)
     except FileNotFoundError:
         out.update(status="missing", error=f"folder does not exist: {folder}")
-        return out
-    except OSError as exc:
-        out.update(status="unreadable", error=str(exc))
-        return out
+        return
     if not stat.S_ISDIR(info.st_mode):
         out.update(status="not_directory", error=f"not a folder: {folder}")
-        return out
-    try:
-        names = sorted(os.listdir(folder))
-    except OSError as exc:
-        out.update(status="unreadable", error=str(exc))
-        return out
+        return
+    names = sorted(os.listdir(folder))
     templates: list[dict[str, Any]] = []
     skipped: list[str] = []
+    not_files: list[str] = []
     oversize: list[str] = []
     unreadable: list[str] = []
-    for f in (n for n in names if n.endswith(".md")):
-        if len(templates) >= TEMPLATE_DIR_MAX_FILES:
+    examined = 0
+    for f in (n for n in names if n.lower().endswith(".md")):
+        if examined >= TEMPLATE_DIR_MAX_FILES:
             out["listing_truncated"] = True
             break
+        examined += 1
         path = os.path.join(folder, f)
         try:
             entry = os.lstat(path)
         except OSError:
             unreadable.append(f)
             continue
-        if not _plain_entry(entry):
+        if _is_link(entry):
             skipped.append(f)
+            continue
+        if not stat.S_ISREG(entry.st_mode):
+            not_files.append(f)
             continue
         if entry.st_size > TEMPLATE_FILE_MAX_BYTES:
             oversize.append(f)
@@ -4119,6 +4143,12 @@ def _scan_template_dir(folder: str, *, content: bool) -> dict[str, Any]:
         if content:
             try:
                 with open(path, encoding="utf-8", errors="replace") as stream:
+                    opened = os.fstat(stream.fileno())
+                    if (not stat.S_ISREG(opened.st_mode)
+                            or (opened.st_dev, opened.st_ino)
+                            != (entry.st_dev, entry.st_ino)):
+                        skipped.append(f)
+                        continue
                     text = stream.read(TEMPLATE_FILE_MAX_BYTES + 1)
             except OSError:
                 unreadable.append(f)
@@ -4129,13 +4159,10 @@ def _scan_template_dir(folder: str, *, content: bool) -> dict[str, Any]:
         templates.append(record)
     out["templates"] = templates
     out["count"] = len(templates)
-    if skipped:
-        out["skipped_links"] = skipped
-    if oversize:
-        out["oversize"] = oversize
-    if unreadable:
-        out["unreadable_files"] = unreadable
-    return out
+    for key, values in (("skipped_links", skipped), ("not_files", not_files),
+                        ("oversize", oversize), ("unreadable_files", unreadable)):
+        if values:
+            out[key] = values
 
 
 def external_charter_templates(*, content: bool,

@@ -78,15 +78,17 @@ const DIR_STATUS: Record<CharterTemplateDirState['status'], string> = {
   missing: 'missing — the folder does not exist',
   not_directory: 'not a folder',
   link_refused: 'refused — the path goes through a link or junction',
+  invalid_path: 'not a usable folder path',
   unreadable: 'unreadable',
 }
 
 function dirNotes(d: CharterTemplateDirState): string[] {
   const notes: string[] = []
   if (d.skipped_links?.length) notes.push(`linked files not read: ${d.skipped_links.join(', ')}`)
+  if (d.not_files?.length) notes.push(`not regular files, skipped: ${d.not_files.join(', ')}`)
   if (d.oversize?.length) notes.push(`files too large to read: ${d.oversize.join(', ')}`)
   if (d.unreadable_files?.length) notes.push(`files that could not be read: ${d.unreadable_files.join(', ')}`)
-  if (d.listing_truncated) notes.push('only the first templates are listed; the folder holds more')
+  if (d.listing_truncated) notes.push('only the first .md files were examined; the folder holds more')
   return notes
 }
 
@@ -130,7 +132,9 @@ export function CharterTemplateDirsSetting() {
     <SetBlock hint={'Every .md file directly inside a listed folder is offered in the '
       + 'hire form’s charter presets. Orgtree only reads these folders: it never '
       + 'creates, changes or copies anything in them, and templates with the same '
-      + 'name in different places are all offered, labelled by folder.'}>
+      + 'name in different places are all offered, labelled by folder. Links, junctions '
+      + 'and cloud-sync placeholder files (such as OneDrive files not kept on this '
+      + 'device) are treated as links and not read.'}>
       <div className="dirlist" aria-label="charter template folders">
         {data === null && !error && <p className="dim">loading…</p>}
         {data !== null && dirs.length === 0 && <p className="dim">no folders listed</p>}

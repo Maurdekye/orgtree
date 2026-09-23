@@ -1318,10 +1318,12 @@ export interface ChartersPayload {
 // One configured external charter template folder, as scanned read-only.
 export interface CharterTemplateDirState {
   path: string
-  status: 'ok' | 'missing' | 'not_directory' | 'link_refused' | 'unreadable'
+  status: 'ok' | 'missing' | 'not_directory' | 'link_refused' | 'invalid_path' | 'unreadable'
   error?: string
   count: number
   skipped_links?: string[]
+  // `.md` entries that are not regular files (e.g. a folder named x.md)
+  not_files?: string[]
   oversize?: string[]
   unreadable_files?: string[]
   listing_truncated?: boolean
