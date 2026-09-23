@@ -53,6 +53,13 @@ test('a native App Menu exists: Orgtree/Edit/Window, no File/Help', () => {
     'the appMenu role must not have a hardcoded "Orgtree" label — Electron auto-fills it from app.name')
 })
 
+test('Menu.setApplicationMenu is only installed on darwin', () => {
+  const main = read('apps/desktop/main/index.ts')
+
+  assert.match(main, /if \(process\.platform === 'darwin'\) \{\s*\n\s*Menu\.setApplicationMenu\(Menu\.buildFromTemplate\(\[/,
+    "the Menu.setApplicationMenu(...) call must be inside an `if (process.platform === 'darwin')` guard — every other platform-specific addition in this file (trayIcon, TaskbarAttention's dock branch, trayUpdateState/refreshTrayUpdateMenu) is gated the same way, and Windows/Linux must keep Electron's default menu")
+})
+
 test('appMenu submenu order: about, prefs, services, hide group, check-for-updates, quit', () => {
   const main = read('apps/desktop/main/index.ts')
   const appMenuMatch = /role: 'appMenu',\s*submenu: \[([\s\S]*?)\],?\s*\},\s*\{\s*role: 'editMenu'/.exec(main)
