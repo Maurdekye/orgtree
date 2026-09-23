@@ -10301,6 +10301,231 @@ def manual_fetch_chunk(slug: str, nid: str, generation: int, delivery_id: Any,
         return answer
 
 
+# ------------------------------ Codex original keys (P08a; door still CLOSED)
+# A Codex tool call reaches the backend through the turn's `_tool_call`
+# closure (`_run_codex_turn`), which POSTs every call UNKEYED — so the P06
+# receipt admission of the manual inbox's two receipted actions (fetch and
+# chunk, `opreceipts._ACTION_COVERAGE`) was unreachable from this runtime, and
+# a lost answer to one of them could not be told from a refusal. Those two
+# actions are now issued as `opreceipts.OP_CALL` under an ORIGINAL key derived
+# from the turn's authenticated seat and generation and the app-server's own
+# identity for the request (`codexrun.current_tool_call()` — its thread, turn
+# and callId, never the model's arguments). The same original call therefore
+# always presents the same key, and the backend's `opreceipts.admit` decides
+# it: a retry replays the receipt and drains nothing; different arguments
+# under that key are a conflict; another call has another key. Every other
+# tool call is exactly what it was.
+#
+# Door: nothing answers the inbox verb at the backend yet, so today such a
+# call is refused there before anything runs. This stage makes the admission
+# the door will use reachable from Codex with a stable key; it opens nothing.
+#
+# ⚠ WHAT THE KEY DOES NOT COVER, said plainly:
+#   · Its mint time and bound epoch live in THIS PROCESS (`_CODEX_KEYS`). A
+#     re-request of the same original call that reaches a LATER backend
+#     process mints a fresh key under the new epoch. The app-server answering
+#     the turn is this process's child, so that needs the provider to re-send
+#     a call across a restart it did not itself survive — whether it ever
+#     does is unmeasured. Custody still bounds the damage: mail a first fetch
+#     took is journaled, so a fresh-key fetch of the same ids finds it moved
+#     or, once its owner is proven gone, folds it back as a counted
+#     redelivery; it never reads as mail that was never fetched.
+#   · Past the receipt horizon the original key is refused `key_stale`
+#     (outcome unknown, nothing run). A memo entry is dropped only once it is
+#     older than the horizon plus the allowed skew — after that the same
+#     identity would present a new key, which is the horizon's own limit.
+#   · A rewind or restart rotates the epoch: the original key then refuses
+#     `stale_epoch` for good, and it is reported, never reissued under a
+#     fresh key (the rule `mcptool.call_api` keeps for the same reason).
+_CODEX_KEYED_ACTIONS: Final = ("fetch", "chunk")
+_CODEX_KEY_DOMAIN: Final = "orgtree/codex-original-call/v1"
+#: memo bound. An entry still inside the horizon is never evicted to make
+#: room: a full memo of live keys refuses the new call instead, unsent.
+_CODEX_KEYS_CAP: Final = 4096
+#: identity digest -> (op_key, op_epoch it was bound to, mint_ms)
+_CODEX_KEYS: dict[str, tuple[str, str, int]] = {}
+_CODEX_KEYS_LOCK = threading.Lock()
+#: slug -> the epoch a FRESH key is bound to; dropped on a stale refusal so
+#: the NEXT, independent call reads the new one
+_CODEX_EPOCH: dict[str, str] = {}
+
+#: `(verb, args) -> (kind, text)`, kind one of ok | refused | unsent | lost
+CodexPost = Callable[[str, dict[str, Any]], tuple[str, str]]
+
+
+def codex_keyed_call(tool: str, args: dict[str, Any]) -> bool:
+    """Does this Codex call ride an original key? Only the manual inbox's
+    receipted fetch and chunk; everything else keeps the unkeyed path."""
+    return (tool == inbox.TOOL
+            and str(args.get("action") or "") in _CODEX_KEYED_ACTIONS
+            and opreceipts.receipted(tool, args))
+
+
+def codex_call_digest(slug: str, nid: str, seat: str, generation: int,
+                      call: Mapping[str, str]) -> str:
+    """Full sha256 over the whole original-call identity, domain-separated
+    and JSON-encoded so no two field splits can spell the same material.
+    The call's ARGUMENTS are deliberately absent: they are what the receipt
+    fingerprint compares, so changed arguments under one original call are
+    caught as a conflict instead of silently becoming another key."""
+    material = json.dumps(
+        [_CODEX_KEY_DOMAIN, slug, nid, seat, int(generation),
+         str(call.get("thread_id") or ""), str(call.get("turn_id") or ""),
+         str(call.get("call_id") or "")],
+        separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
+def _codex_bind_key(digest: str, epoch: str, now_ms: int
+                    ) -> tuple[str, str] | None:
+    """The (op_key, op_epoch) of this original call: the one already bound,
+    or a new one minted now in `opreceipts.KEY_RE` shape. None = memo full
+    of keys still inside the horizon."""
+    with _CODEX_KEYS_LOCK:
+        got = _CODEX_KEYS.get(digest)
+        if got is not None:
+            return got[0], got[1]
+        if len(_CODEX_KEYS) >= _CODEX_KEYS_CAP:
+            limit = now_ms - opreceipts.HORIZON_MS - opreceipts.SKEW_MS
+            for k in [k for k, v in _CODEX_KEYS.items() if v[2] < limit]:
+                del _CODEX_KEYS[k]
+            if len(_CODEX_KEYS) >= _CODEX_KEYS_CAP:
+                return None
+        key = f"{now_ms}-{digest[:24]}"
+        _CODEX_KEYS[digest] = (key, epoch, now_ms)
+        return key, epoch
+
+
+def _codex_epoch(post: CodexPost, slug: str) -> tuple[str, str]:
+    """(epoch, problem) for a FRESH key — the `mcptool._fetch_epoch`
+    preflight: a read that mutates nothing, asked again once when lost."""
+    got = _CODEX_EPOCH.get(slug)
+    if got:
+        return got, ""
+    for attempt in (1, 2):
+        kind, text = post(opreceipts.OP_EPOCH, {})
+        if kind == "ok":
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                parsed = None
+            got = (str(cast("dict[str, Any]", parsed).get("epoch") or "")
+                   if isinstance(parsed, dict) else "")
+            if got:
+                _CODEX_EPOCH[slug] = got
+                return got, ""
+            return "", "the backend answered without an epoch"
+        if kind != "lost" or attempt == 2:
+            return "", f"{kind}: {text[:200]}"
+    return "", "unreachable"
+
+
+def _codex_answer_text(out: str) -> str:
+    """The unkeyed path's answer shaping, unchanged: an error or detail
+    becomes its text, anything else is passed through."""
+    try:
+        parsed = json.loads(out)
+    except json.JSONDecodeError:
+        return out
+    if isinstance(parsed, dict):
+        p = cast("dict[str, Any]", parsed)
+        if p.get("error") or p.get("detail"):
+            return str(p.get("error") or p.get("detail"))
+    return out
+
+
+def _codex_stale(kind: str, text: str) -> bool:
+    """The backend's refusal of a key bound to an epoch it has rotated —
+    both halves, as `mcptool._stale_epoch_refusal` requires."""
+    if kind == "refused":
+        return "op_key refused" in text and "stale_epoch" in text
+    if kind == "ok":
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            return False
+        return (isinstance(parsed, dict)
+                and cast("dict[str, Any]", parsed).get("error") == "op_key_refused"
+                and cast("dict[str, Any]", parsed).get("reason") == "stale_epoch")
+    return False
+
+
+def codex_keyed_dispatch(post: CodexPost, slug: str, nid: str, seat: str,
+                         generation: int, tool: str, args: dict[str, Any],
+                         call: Mapping[str, str] | None, *,
+                         now_ms: int | None = None) -> str:
+    """One Codex manual-inbox fetch/chunk call under its original key.
+
+    ⚠ A LOST answer is re-sent ONCE under the SAME key and epoch — never a
+    fresh key. That is safe exactly because the key is the original call's:
+    the backend either replays the receipt of the attempt that applied or
+    runs the call for the first time, never a second time. A second loss is
+    reported as unknown, and repeating this same original call later still
+    presents this key."""
+    if not call or not call.get("call_id") or not call.get("thread_id"):
+        return ("orgtree: this call was NOT made (state not_applied, reason "
+                "no_call_identity). It needs a stable operation key, and the "
+                "app-server request carried no original call identity "
+                "(callId and threadId) to derive one from. Nothing has changed.")
+    digest = codex_call_digest(slug, nid, seat, generation, call)
+    with _CODEX_KEYS_LOCK:
+        bound = _CODEX_KEYS.get(digest)
+    if bound is not None:
+        pair: tuple[str, str] | None = (bound[0], bound[1])
+    else:
+        epoch, problem = _codex_epoch(post, slug)
+        if not epoch:
+            if problem.startswith("unsent"):
+                return f"orgtree API unreachable: {problem}"
+            return (f"orgtree: this call was NOT made (state not_applied, "
+                    f"reason no_epoch). Its operation coverage could not be "
+                    f"established ({problem}), and it is not sent "
+                    f"unprotected. Nothing has changed; try again.")
+        pair = _codex_bind_key(
+            digest, epoch, int(time.time() * 1000) if now_ms is None else int(now_ms))
+        if pair is None:
+            return ("orgtree: this call was NOT made (state not_applied, "
+                    "reason key_memo_full). Too many recent keyed calls are "
+                    "still inside their receipt horizon. Nothing has changed; "
+                    "try again later.")
+    key, epoch = pair
+    wrapped: dict[str, Any] = {"tool": tool, "args": args, "op_key": key,
+                               "op_epoch": epoch}
+    kind, text = post(opreceipts.OP_CALL, wrapped)
+    if kind == "lost":
+        kind, text = post(opreceipts.OP_CALL, wrapped)
+    if _codex_stale(kind, text):
+        if _CODEX_EPOCH.get(slug) == epoch:
+            _CODEX_EPOCH.pop(slug, None)
+        return ("orgtree: this call was refused before it ran (state stale, "
+                "reason stale_epoch): its original key was bound to an "
+                "operation epoch that is no longer current — the backend "
+                "restarted, or the org document was restored. NOTHING was "
+                "done by this attempt, and whether an earlier attempt of this "
+                "same call applied is UNKNOWN: check before repeating it.")
+    if kind == "unsent":
+        return f"orgtree API unreachable: {text}"
+    if kind == "lost":
+        return (f"orgtree: no answer came back for this call, twice, under "
+                f"its original key ({text[:200]}) — whether it applied is "
+                f"UNKNOWN (state unknown). Check before repeating it: a "
+                f"re-request of this same original call replays under the "
+                f"same key, but a new call of yours is a new operation.")
+    return _codex_answer_text(text)
+
+
+def _codex_lost_kind(exc: Exception) -> str:
+    """`mcptool._lost_kind`: no bytes delivered is `unsent`, else `lost`."""
+    seen: list[object] = [exc]
+    reason = getattr(exc, "reason", None)
+    if reason is not None:
+        seen.append(reason)
+    for x in seen:
+        if isinstance(x, (ConnectionRefusedError, socket.gaierror)):
+            return "unsent"
+    return "lost"
+
+
 
 # ------------------------------------------------------- mail POINTER nudges
 # A "ping" is a drive nudge whose entire content is *there is mail in your
@@ -16278,7 +16503,33 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
     if scoped_token:
         tool_headers["X-Orgtree-Agent-Token"] = scoped_token
 
+    # P08a: the seat and generation this turn authenticated as — half of a
+    # manual-inbox call's original key (`codex_keyed_dispatch`)
+    key_seat = str(n.get("seat_id") or "")
+    key_gen = int(n.get("generation") or 0)
+
+    def _tool_post(verb: str, verb_args: dict[str, Any]) -> tuple[str, str]:
+        # the keyed path's POST: the same door and headers as `_tool_call`,
+        # with the four outcomes kept apart, because a LOST answer is exactly
+        # what the original key exists for
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/agent",
+            data=json.dumps({"org": slug, "node": nid, "tool": verb,
+                             "args": verb_args}).encode(),
+            headers=tool_headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                return "ok", r.read().decode("utf-8", "replace")
+        except urllib.error.HTTPError as e:
+            return "refused", e.read().decode("utf-8", "replace")[:800]
+        except Exception as e:                           # noqa: BLE001
+            return _codex_lost_kind(e), str(e)
+
     def _tool_call(tool: str, args: dict[str, Any]) -> str:
+        if codex_keyed_call(tool, args):
+            return codex_keyed_dispatch(_tool_post, slug, nid, key_seat,
+                                        key_gen, tool, args,
+                                        codexrun.current_tool_call())
         # the same request the MCP server makes for a claude agent — identity
         # asserted by the supervisor, authority enforced by the ledger behind
         # the endpoint. Loopback HTTP keeps the two lanes byte-identical.

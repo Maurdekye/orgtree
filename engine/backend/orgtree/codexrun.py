@@ -36,6 +36,7 @@ CLI — see backend/tests/test_codexrun.py.
 
 from __future__ import annotations
 
+import contextvars
 import json
 import os
 import re
@@ -45,6 +46,33 @@ import time
 from collections import deque
 from collections.abc import Callable
 from typing import Any, Final, cast
+
+#: P08a. The ORIGINAL identity of the `item/tool/call` a tool dispatcher is
+#: answering, read from the app-server's own request params — never from the
+#: model-supplied `arguments`. Set on the worker thread for exactly the
+#: duration of one `dispatch(tool, args)` call, so the dispatcher signature
+#: is unchanged and every dispatcher that ignores it behaves as before; one
+#: that needs a stable operation key reads `current_tool_call()`.
+_TOOL_CALL: contextvars.ContextVar[dict[str, str] | None] = \
+    contextvars.ContextVar("codex_tool_call", default=None)
+
+
+def tool_call_identity(params: dict[str, Any], rid: Any) -> dict[str, str]:
+    """`{call_id, thread_id, turn_id, rid}` of one tool request. A field the
+    request did not carry as a string is empty, never guessed."""
+    def s(k: str) -> str:
+        v = params.get(k)
+        return v if isinstance(v, str) else ""
+    return {"call_id": s("callId"), "thread_id": s("threadId"),
+            "turn_id": s("turnId"), "rid": str(rid)}
+
+
+def current_tool_call() -> dict[str, str] | None:
+    """The identity of the tool request this thread is dispatching, or None
+    outside a dispatch. A copy: a dispatcher cannot alter it for another."""
+    got = _TOOL_CALL.get()
+    return dict(got) if got is not None else None
+
 
 #: how long request() waits before declaring the server unresponsive. Turns
 #: themselves are unbounded (the caller owns the turn timeout); this bounds
@@ -759,11 +787,14 @@ class AppServerClient:
             if dispatch is None:
                 text, ok = f"orgtree: no tool dispatcher bound for {tool}", False
             else:
+                bound = _TOOL_CALL.set(tool_call_identity(params, rid))
                 try:
                     text = dispatch(tool, args if isinstance(args, dict) else {})
                     ok = True
                 except Exception as e:   # a tool error is an ANSWER, not a hang
                     text, ok = f"tool {tool} failed: {e}", False
+                finally:
+                    _TOOL_CALL.reset(bound)
             rec.update(ok=ok, text=text)
             answer = self._tool_reply(rid, ok, text)
         else:
