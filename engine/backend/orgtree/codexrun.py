@@ -39,6 +39,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import signal
 import subprocess
 import threading
 import time
@@ -508,7 +509,8 @@ class AppServerClient:
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, cwd=cwd,
             creationflags=(subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
-                           if os.name == "nt" else 0))
+                           if os.name == "nt" else 0),
+            start_new_session=(os.name != "nt"))
         self.on_event = on_event
         self.on_exit: Callable[[], None] | None = None
         self.tool_dispatch = tool_dispatch
@@ -950,6 +952,11 @@ class AppServerClient:
                     check=False, capture_output=True, timeout=10,
                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             except (OSError, subprocess.SubprocessError):
+                pass
+        else:
+            try:
+                os.killpg(self.proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
                 pass
         try:
             self.proc.kill()          # POSIX, and a belt over taskkill
