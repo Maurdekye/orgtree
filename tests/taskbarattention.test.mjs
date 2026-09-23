@@ -13,6 +13,18 @@ await build({ entryPoints: ['apps/desktop/main/taskbar-attention.ts'], outfile: 
 const { TaskbarAttention, attentionIdentities } = createRequire(import.meta.url)(file)
 test.after(() => rmSync(temp, { recursive: true, force: true }))
 
+// TaskbarAttention branches its start()/stop() on the REAL process.platform
+// (matching apps/desktop/main/index.ts's process.platform === 'win32' gating
+// convention elsewhere). This dev/CI machine's real platform is whatever it
+// is, so every pre-existing flashFrame-based assertion below is pinned to
+// 'win32' - deterministic regardless of host OS, exactly like
+// tests/resolve-packaged-python-path.test.mjs's own withPlatform helper.
+function withPlatform(value, fn) {
+  const original = Object.getOwnPropertyDescriptor(process, 'platform')
+  Object.defineProperty(process, 'platform', { value, configurable: true })
+  try { return fn() } finally { Object.defineProperty(process, 'platform', original) }
+}
+
 function window() {
   const calls = []
   return {
@@ -23,15 +35,25 @@ function window() {
   }
 }
 
-test('a new request pulses the taskbar and the same request polled again does not', () => {
+function dock() {
+  const calls = []
+  let nextId = 1
+  return {
+    calls,
+    bounce(type) { const id = nextId++; calls.push(['bounce', type, id]); return id },
+    cancelBounce(id) { calls.push(['cancelBounce', id]) },
+  }
+}
+
+test('a new request pulses the taskbar and the same request polled again does not', () => withPlatform('win32', () => {
   const w = window(), attention = new TaskbarAttention(() => w)
   assert.equal(attention.set(['a']), true, 'the first waiting request pulses')
   assert.deepEqual(w.calls, [true])
   for (let i = 0; i < 5; i++) assert.equal(attention.set(['a']), false, 'polling is not an event')
   assert.deepEqual(w.calls, [true], 'the pulse is never restarted by the poll')
-})
+}))
 
-test('resolving one of several requests neither clears nor restarts the pulse', () => {
+test('resolving one of several requests neither clears nor restarts the pulse', () => withPlatform('win32', () => {
   const w = window(), attention = new TaskbarAttention(() => w)
   attention.set(['a', 'b', 'c'])
   assert.deepEqual(w.calls, [true])
@@ -40,16 +62,16 @@ test('resolving one of several requests neither clears nor restarts the pulse', 
   assert.deepEqual(w.calls, [true], 'the taskbar is left exactly as it was while work remains')
   assert.equal(attention.set([]), false, 'the last one resolving clears it')
   assert.deepEqual(w.calls, [true, false])
-})
+}))
 
-test('a genuinely new request pulses even while older ones are still waiting', () => {
+test('a genuinely new request pulses even while older ones are still waiting', () => withPlatform('win32', () => {
   const w = window(), attention = new TaskbarAttention(() => w)
   attention.set(['a'])
   assert.equal(attention.set(['a', 'b']), true, 'b is new and claims attention of its own')
   assert.deepEqual(w.calls, [true, true])
-})
+}))
 
-test('the window the user is already looking at is never flashed, and can pulse once they leave it', () => {
+test('the window the user is already looking at is never flashed, and can pulse once they leave it', () => withPlatform('win32', () => {
   const w = window(), attention = new TaskbarAttention(() => w)
   w.focusedNow = true
   assert.equal(attention.set(['a']), false, 'no pulse while the user is in the window')
@@ -58,9 +80,9 @@ test('the window the user is already looking at is never flashed, and can pulse 
   w.focusedNow = false
   assert.equal(attention.set(['a', 'b']), true, 'a later arrival pulses normally')
   assert.deepEqual(w.calls, [true])
-})
+}))
 
-test('activation stops the pulse without discarding what is still waiting', () => {
+test('activation stops the pulse without discarding what is still waiting', () => withPlatform('win32', () => {
   const w = window(), attention = new TaskbarAttention(() => w)
   attention.set(['a'])
   assert.deepEqual(w.calls, [true])
@@ -71,9 +93,9 @@ test('activation stops the pulse without discarding what is still waiting', () =
   assert.deepEqual(w.calls, [true])
   attention.set([])
   assert.deepEqual(w.calls, [true], 'clearing a flash the platform already cancelled touches nothing')
-})
+}))
 
-test('a destroyed or missing window is survivable', () => {
+test('a destroyed or missing window is survivable', () => withPlatform('win32', () => {
   const w = window()
   const missing = new TaskbarAttention(() => undefined)
   assert.equal(missing.set(['a']), false)
@@ -81,7 +103,7 @@ test('a destroyed or missing window is survivable', () => {
   w.destroyed = true
   assert.equal(gone.set(['a']), false)
   assert.deepEqual(w.calls, [])
-})
+}))
 
 test('identities are validated at the boundary', () => {
   assert.deepEqual(attentionIdentities(['a', 'b']), ['a', 'b'])
@@ -91,3 +113,44 @@ test('identities are validated at the boundary', () => {
   assert.throws(() => attentionIdentities(Array.from({ length: 5001 }, (_, i) => String(i))),
     /Invalid attention identities/)
 })
+
+// ── macOS: dock bounce, injected via a constructor accessor (UI-01) ───────
+test('darwin: a new arrival bounces the dock, a later poll of the same id does not re-bounce', () => withPlatform('darwin', () => {
+  const d = dock(), attention = new TaskbarAttention(() => undefined, () => d)
+  assert.equal(attention.set(['a']), true, 'the first waiting request bounces')
+  assert.deepEqual(d.calls, [['bounce', 'critical', 1]])
+  for (let i = 0; i < 5; i++) assert.equal(attention.set(['a']), false, 'polling is not an event')
+  assert.deepEqual(d.calls, [['bounce', 'critical', 1]], 'the bounce is never restarted by the poll')
+}))
+
+test('darwin: the set draining to empty cancels the bounce with the stored id', () => withPlatform('darwin', () => {
+  const d = dock(), attention = new TaskbarAttention(() => undefined, () => d)
+  attention.set(['a', 'b'])
+  assert.deepEqual(d.calls, [['bounce', 'critical', 1]])
+  assert.equal(attention.set(['a']), false, 'one resolving does not cancel the bounce')
+  assert.deepEqual(d.calls, [['bounce', 'critical', 1]])
+  assert.equal(attention.set([]), false, 'the last one resolving cancels it')
+  assert.deepEqual(d.calls, [['bounce', 'critical', 1], ['cancelBounce', 1]])
+}))
+
+test('darwin: an id seen again on a later poll after a full drain-and-return bounces again with a new id', () => withPlatform('darwin', () => {
+  const d = dock(), attention = new TaskbarAttention(() => undefined, () => d)
+  attention.set(['a'])
+  attention.set([])
+  assert.deepEqual(d.calls, [['bounce', 'critical', 1], ['cancelBounce', 1]])
+  assert.equal(attention.set(['a']), true, 'a genuinely new arrival after a full drain bounces again')
+  assert.deepEqual(d.calls, [['bounce', 'critical', 1], ['cancelBounce', 1], ['bounce', 'critical', 2]])
+}))
+
+test('darwin: a genuinely new id while already bouncing does not re-bounce or orphan the id', () => withPlatform('darwin', () => {
+  const d = dock(), attention = new TaskbarAttention(() => undefined, () => d)
+  assert.equal(attention.set(['a']), true, 'the first waiting request bounces')
+  assert.deepEqual(d.calls, [['bounce', 'critical', 1]])
+  assert.equal(attention.set(['a', 'b']), false, 'a new arrival while already bouncing does not start a second bounce')
+  assert.deepEqual(d.calls, [['bounce', 'critical', 1]], 'bounceId 1 is left in place, never overwritten or orphaned')
+}))
+
+test('darwin: no dock accessor is survivable, matching the missing-window shape on win32', () => withPlatform('darwin', () => {
+  const attention = new TaskbarAttention(() => undefined)
+  assert.equal(attention.set(['a']), false)
+}))

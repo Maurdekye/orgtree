@@ -26,6 +26,7 @@ import os
 from pathlib import Path
 import secrets
 import signal
+import stat
 import subprocess
 import sys
 import threading
@@ -109,6 +110,8 @@ def parse_ready(line: str, child_pid: int, root: Path) -> dict[str, Any] | None:
 
 
 def _current_user_sid() -> str | None:
+    if os.name != "nt":
+        return str(os.getuid())
     try:
         output = subprocess.run(["whoami", "/user", "/fo", "csv"], capture_output=True,
                                 text=True, timeout=10, check=True).stdout
@@ -131,8 +134,16 @@ def restrict_descriptor_acl(descriptor: Path) -> bool:
     never published under inherited ACLs.
     """
     sid = _current_user_sid()
-    if os.name != "nt" or not sid:
+    if not sid:
         return False
+    if os.name != "nt":
+        try:
+            os.chmod(descriptor, 0o600)
+            return True
+        except OSError as exc:
+            print(f"service host: descriptor mode restriction failed ({exc})",
+                  file=sys.stderr, flush=True)
+            return False
     try:
         subprocess.run(["icacls", str(descriptor), "/inheritance:r",
                         "/grant:r", f"*{sid}:F", "/grant", "*S-1-5-18:F", "/grant", "*S-1-5-32-544:F"],
@@ -153,6 +164,8 @@ def create_protected_exclusive(path: Path, sid: str) -> int:
     (share=0), so the token is written through the only handle there is.
     CREATE_NEW refuses a preexisting path outright. Returns a CRT fd owning
     the handle; raises OSError on any failure."""
+    if os.name != "nt":
+        return os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
     import ctypes
     from ctypes import wintypes as w
     import msvcrt
@@ -197,8 +210,14 @@ def verify_restricted_acl(target: Path) -> bool:
     is a request receipt, not proof; the token is published only on this
     verified state (fail closed)."""
     sid = _current_user_sid()
-    if os.name != "nt" or not sid:
+    if not sid:
         return False
+    if os.name != "nt":
+        try:
+            info = os.stat(target)
+        except OSError:
+            return False
+        return stat.S_IMODE(info.st_mode) == 0o600 and info.st_uid == os.getuid()
     script = ("$acl=Get-Acl -LiteralPath '" + str(target).replace("'", "''") + "';"
               "$rules=$acl.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier]);"
               "Write-Output ($acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value"
@@ -228,7 +247,7 @@ def write_descriptor(root: Path, port: int, engine_pid: int, token: str) -> Path
                "hostPid": os.getpid(), "dataRootId": str(root.resolve()), "token": token,
                "startedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     sid = _current_user_sid()
-    if os.name != "nt" or not sid:
+    if not sid:
         raise OSError("descriptor protection unavailable on this platform; refusing to publish the token")
     temporary = root / f".engine-attach-{os.getpid()}-{secrets.token_hex(8)}.tmp"
     fd = create_protected_exclusive(temporary, sid)

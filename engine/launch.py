@@ -351,6 +351,12 @@ def load_app() -> tuple[Any, str, Path, int, dict[str, bool]]:
 
 def main() -> None:
     global _HUB_RUNTIME
+    if os.name != "nt":
+        # Self-detach into our own process group before anything else runs. Without this the
+        # engine keeps sharing whatever group it was spawned into (the Electron desktop shell's
+        # group today, since engine.ts does not pass `detached: true`), and the guardian's later
+        # killpg-based teardown sweep would reach into that inherited group and kill the shell too.
+        os.setpgid(0, 0)
     data = validate_data_root(_required_path("ORGTREE_DATA"))
     from engine.startup_progress import StartupProgress
     progress = StartupProgress(data)

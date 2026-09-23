@@ -11,6 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
+import stat
 import subprocess
 import sys
 import tempfile
@@ -96,6 +97,17 @@ class ServiceHostUnitTests(unittest.TestCase):
             self.assertEqual(sorted(set(sids.split(","))), sorted({me, "S-1-5-18", "S-1-5-32-544"}), output)
             self.assertEqual(inherited, "0", "inheritance must be stripped so profile-wide read grants do not apply")
 
+    def test_descriptor_acl_restriction_leaves_owner_system_admins_only_on_posix(self):
+        if os.name == "nt":
+            raise unittest.SkipTest("POSIX permissions are macOS/Linux only")
+        with tempfile.TemporaryDirectory() as root:
+            target = Path(root) / DESCRIPTOR
+            target.write_text("{}", encoding="utf-8")
+            self.assertTrue(service_host.restrict_descriptor_acl(target))
+            info = target.stat()
+            self.assertEqual(stat.S_IMODE(info.st_mode), 0o600)
+            self.assertEqual(info.st_uid, os.getuid())
+
     def test_published_descriptor_carries_the_restricted_acl(self):
         if os.name != "nt":
             raise unittest.SkipTest("NTFS ACLs are Windows-only")
@@ -110,6 +122,13 @@ class ServiceHostUnitTests(unittest.TestCase):
             self.assertEqual(sorted(set(sids.split(","))),
                              sorted({service_host._current_user_sid(), "S-1-5-18", "S-1-5-32-544"}), output)
             self.assertEqual(inherited, "0", "the token must never sit under inherited ACLs")
+
+    def test_published_descriptor_carries_the_restricted_acl_on_posix(self):
+        if os.name == "nt":
+            raise unittest.SkipTest("POSIX permissions are macOS/Linux only")
+        with tempfile.TemporaryDirectory() as root:
+            published = write_descriptor(Path(root), 23456, 77, "ab" * 32)
+            self.assertEqual(stat.S_IMODE(published.stat().st_mode), 0o600)
 
     def test_published_descriptor_is_owned_by_the_operator(self):
         # The desktop refuses any descriptor whose owner is not the current
@@ -133,6 +152,13 @@ class ServiceHostUnitTests(unittest.TestCase):
                                    capture_output=True, text=True, timeout=30, check=True).stdout.strip()
             self.assertEqual(owner, service_host._current_user_sid())
 
+    def test_published_descriptor_is_owned_by_the_operator_on_posix(self):
+        if os.name == "nt":
+            raise unittest.SkipTest("POSIX ownership is macOS/Linux only")
+        with tempfile.TemporaryDirectory() as root:
+            published = write_descriptor(Path(root), 23456, 77, "ab" * 32)
+            self.assertEqual(published.stat().st_uid, os.getuid())
+
     def test_creation_sddl_explicitly_sets_owner_independent_of_default_token(self):
         if os.name != "nt":
             raise unittest.SkipTest("Windows creation API control")
@@ -148,6 +174,19 @@ class ServiceHostUnitTests(unittest.TestCase):
         actual = advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW.call_args.args[0]
         self.assertEqual(actual, f"O:{sid}D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;{sid})")
         kernel.CreateFileW.assert_not_called()
+
+    def test_creation_sets_mode_independent_of_umask_on_posix(self):
+        if os.name == "nt":
+            raise unittest.SkipTest("POSIX creation API control")
+        with tempfile.TemporaryDirectory() as root:
+            target = Path(root) / "probe-umask.tmp"
+            previous_umask = os.umask(0)
+            try:
+                fd = service_host.create_protected_exclusive(target, service_host._current_user_sid())
+                os.close(fd)
+            finally:
+                os.umask(previous_umask)
+            self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o600)
 
     def test_verification_refuses_a_descriptor_owned_by_someone_else(self):
         # A non-elevated test cannot hand ownership to Administrators, so the
@@ -175,6 +214,17 @@ class ServiceHostUnitTests(unittest.TestCase):
             with mock.patch.object(service_host, "_current_user_sid", return_value=other):
                 self.assertFalse(service_host.verify_restricted_acl(target),
                                  f"owner {me} is not the expected operator {other}")
+
+    def test_verification_refuses_a_descriptor_owned_by_someone_else_on_posix(self):
+        if os.name == "nt":
+            raise unittest.SkipTest("POSIX ownership is macOS/Linux only")
+        with tempfile.TemporaryDirectory() as root:
+            target = Path(root) / DESCRIPTOR
+            target.write_text("{}", encoding="utf-8")
+            os.chmod(target, 0o600)
+            with mock.patch.object(os, "getuid", return_value=os.getuid() + 1):
+                self.assertFalse(service_host.verify_restricted_acl(target),
+                                 "owner uid must match the operator's uid")
 
     def test_write_descriptor_fails_closed_when_protection_unavailable(self):
         with tempfile.TemporaryDirectory() as root:
@@ -247,6 +297,22 @@ class ServiceHostUnitTests(unittest.TestCase):
             with self.assertRaises(OSError):
                 service_host.create_protected_exclusive(target, service_host._current_user_sid())
             self.assertEqual(target.read_bytes(), b"SECRET", "CREATE_NEW must never adopt or truncate")
+
+    def test_protected_birth_denies_every_second_handle_and_survives_close_on_posix(self):
+        if os.name == "nt":
+            raise unittest.SkipTest("POSIX creation API control")
+        with tempfile.TemporaryDirectory() as root:
+            target = Path(root) / "probe.tmp"
+            fd = service_host.create_protected_exclusive(target, service_host._current_user_sid())
+            try:
+                os.write(fd, b"SECRET")
+            finally:
+                os.close(fd)
+            self.assertEqual(target.read_bytes(), b"SECRET")
+            self.assertTrue(service_host.verify_restricted_acl(target))
+            with self.assertRaises(FileExistsError):
+                service_host.create_protected_exclusive(target, service_host._current_user_sid())
+            self.assertEqual(target.read_bytes(), b"SECRET", "O_EXCL must never adopt or truncate")
 
     def test_published_descriptor_is_protected_and_leaves_no_residue(self):
         if os.name != "nt":
@@ -352,8 +418,6 @@ class LaunchRefusalTests(unittest.TestCase):
     distinguishable from a broken engine (redteam-opus F4)."""
 
     def test_locked_root_produces_structured_refusal(self):
-        if os.name != "nt":
-            raise unittest.SkipTest("guardian requires Windows")
         from engine.process_lifetime import RootLock
         repo = Path(__file__).resolve().parent.parent
         with tempfile.TemporaryDirectory() as temp:
@@ -380,8 +444,6 @@ class LaunchRefusalTests(unittest.TestCase):
         # NARROW refusal (root ruling): a broken parent PID is a real fault
         # and must fail fast without the structured line that triggers the
         # desktop's attach-retry loop.
-        if os.name != "nt":
-            raise unittest.SkipTest("guardian requires Windows")
         repo = Path(__file__).resolve().parent.parent
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { execFile, spawn as spawnProcess } from 'node:child_process'
 import { autoUpdater } from 'electron-updater'
-import { Engine, ENGINE_REFUSED, INSTALLER_UPGRADE_STOP_BUDGET_MS, QUIT_STOP_BUDGET_MS, refreshTrayEngineMenu, type EngineOptions, type RuntimeStats } from './engine'
+import { Engine, ENGINE_REFUSED, INSTALLER_UPGRADE_STOP_BUDGET_MS, QUIT_STOP_BUDGET_MS, refreshTrayEngineMenu, resolvePackagedPythonPath, type EngineOptions, type RuntimeStats } from './engine'
 import { Preferences } from './preferences'
 import { WindowPlacement } from './window-placement'
 import { configureTaskbar } from './taskbar'
@@ -30,6 +30,7 @@ import { hasInstallerUpgradeRequest } from './installer-upgrade'
 import { attachChildProcessFailureHandler, attachRendererFailureHandlers, crashReportDialog, crashReportFolder, CRASH_REPORTER_OPTIONS, RecoveryBudget } from './process-failure'
 import { attachWindowLoadRecovery, type WindowLoadRecovery, type WindowLoadStage } from './window-load-recovery'
 import type { ProcessFailureStage } from './process-failure'
+import { detectState, install, resolveMacEnginePythonPath, LABEL, autostartRemediationDialog, LOGIN_ITEMS_SETTINGS_URL } from './launchagent-mac'
 
 // Who this process is — installed release, installed DEV-channel build (see
 // docs/dev-builds.md), or unpackaged development — is decided in one place
@@ -178,6 +179,11 @@ else {
   // effective theme for native tray/taskbar/window icons and is never persisted.
   let effectiveTheme: VisualTheme | undefined
   let placement: WindowPlacement | undefined, restoreMaximized = false
+  // Assigned once inside app.whenReady() (it closes over that scope's
+  // browserSession/initialOrigin/register/openArtifact), then called from
+  // both the startup path and show()'s recreate branch below — one
+  // construction path, never a second divergent one (UI-02).
+  let createMainWindow: (() => Promise<void>) | undefined
   const savePlacement = () => { if (main && placement && !restoreMaximized) { try { placement.capture(main) } catch (error) { console.warn("Window position could not be saved", error) } } }
   let restoreWindows = !process.argv.includes('--background')
   const windowState = () => ({
@@ -230,14 +236,42 @@ else {
     }
     return image.isEmpty() ? nativeImage.createFromPath(iconPath) : image
   }
+  // macOS menu-bar-only (UI-05): a Template image so the OS auto-inverts the
+  // glyph for light/dark menu bars. A Template image is alpha-channel-only -
+  // the OS discards color and renders black/white regardless of source
+  // pixels - so this deliberately zeroes runtimeIcon()'s (possibly
+  // provider-recolored) B/G/R bytes the same way the recolor loop above sets
+  // them, keeping only the eye silhouette's alpha. The Dock icon and every
+  // window icon keep their full-color runtimeIcon() untouched; only the two
+  // tray-specific call sites (rebuildTray's tray image, the initial Tray
+  // construction) use this wrapper.
+  const trayIcon = () => {
+    if (process.platform !== 'darwin') return runtimeIcon()
+    const base = runtimeIcon()
+    const bitmap = base.toBitmap(), size = base.getSize()
+    for (let i = 0; i < bitmap.length; i += 4) { bitmap[i] = 0; bitmap[i + 1] = 0; bitmap[i + 2] = 0 }
+    const image = nativeImage.createFromBitmap(bitmap, size)
+    image.setTemplateImage(true)
+    return image
+  }
   const notifications = new NativeNotifications(
     data => new Notification({ title: data.title, body: data.body }),
     data => { show(); broadcast({ type: 'notification-click', data }) },
     () => anyOrgtreeWindowFocused(BrowserWindow.getAllWindows()))
   // The taskbar's own attention behaviour, driven by the same cross-org
   // projection as the in-app dot so the two indicators cannot disagree.
-  const taskbarAttention = new TaskbarAttention(() => main)
-  const show = () => { if (main && !main.isDestroyed()) { restoreWindows = true; main.show(); if (main.isMinimized()) main.restore(); if (restoreMaximized) { restoreMaximized = false; main.maximize() }; main.focus(); broadcast({ type: 'main-window-shown', data: windowState() }) } }
+  // `() => app.dock` is only ever dereferenced lazily inside the darwin-gated
+  // branch in TaskbarAttention, so it is never touched on non-mac platforms.
+  const taskbarAttention = new TaskbarAttention(() => main, () => app.dock)
+  // A destroyed/never-built main window (e.g. every window closed while the
+  // app stays alive in the Dock) must recreate through the SAME construction
+  // path used at startup — never a second, divergent one (UI-02) — before
+  // falling through to the unchanged show/restore/maximize/focus/broadcast
+  // logic below.
+  const show = async () => {
+    if ((!main || main.isDestroyed()) && createMainWindow) await createMainWindow()
+    if (main && !main.isDestroyed()) { restoreWindows = true; main.show(); if (main.isMinimized()) main.restore(); if (restoreMaximized) { restoreMaximized = false; main.maximize() }; main.focus(); broadcast({ type: 'main-window-shown', data: windowState() }) }
+  }
   const broadcast = (event: DesktopEvent) => { if (main && !main.isDestroyed()) main.webContents.send('desktop:event', event) }
   const publishWindowState = () => broadcast({ type: 'window-state', data: windowControlsState() })
   // n/m active/hired (user spec 2026-09-10) — the same two counts every org
@@ -329,7 +363,7 @@ else {
     return dialog.showMessageBox({ type: 'error', message: 'Orgtree could not install the update.', detail })
   }
   const refreshTrayUpdates = () => {
-    if (trayMenu) refreshTrayUpdateMenu(trayMenu, updater.current(), downloaded, updateApplying || quitting, updateHold)
+    if (trayMenu) refreshTrayUpdateMenu(trayMenu, updater.current(), downloaded, updateApplying || quitting, updateHold, process.platform)
     const automatic = trayMenu?.getMenuItemById('update-automatic')
     if (automatic) {
       automatic.checked = preferences.get().automaticUpdates
@@ -368,8 +402,12 @@ else {
     finally { rebuildTray() }
   }
   const rebuildTray = () => {
+    // Two separate images, deliberately: the tray glyph goes through
+    // trayIcon() (monochrome Template on darwin, UI-05), but the Dock icon
+    // and every window icon must stay on the unwrapped, full-color
+    // runtimeIcon() - they are NOT the same call as the tray's.
+    tray?.setImage(trayIcon())
     const image = runtimeIcon()
-    tray?.setImage(image)
     for (const window of BrowserWindow.getAllWindows()) window.setIcon(image)
     if (!tray) return
     if (trayMenuOpen) { refreshTrayUpdates(); refreshTrayEngine(); return }
@@ -379,15 +417,26 @@ else {
     // the four update rows would only mislead: their ids are absent, which
     // refreshTrayUpdates already tolerates, and one honest line takes their
     // place. Not "up to date" - a build with no feed cannot claim that.
-    const updateRows: Electron.MenuItemConstructorOptions[] = updatesSupported ? [
-      { id: 'update-status', label: 'Updates have not been checked', enabled: false },
-      { id: 'update-install', label: 'Update now', visible: downloaded, enabled: !updateApplying && !quitting,
-        click: () => { void requestUpdateInstall().catch(error => { void showUpdateInstallError(error) }) } },
-      { id: 'update-automatic', label: 'Automatic updates', type: 'checkbox', checked: prefs.automaticUpdates,
-        enabled: canInstallUnattended(),
-        click: item => setPreferences({ automaticUpdates: item.checked }) },
-      { id: 'update-check', label: 'Check for updates', click: () => { void checkForUpdates().catch(() => {}) } },
-    ] : [{ label: 'Updates are disabled in this development build', enabled: false }]
+    // macOS never offers auto-install (UPD-01): update-install/update-automatic
+    // are dropped entirely and replaced by a "View release" row that opens the
+    // same MANUAL_UPGRADE_URL the mac update-notice component (Task 1) uses -
+    // one implementation, two entry points, never a forked copy.
+    const updateRows: Electron.MenuItemConstructorOptions[] = updatesSupported
+      ? process.platform === 'darwin' ? [
+        { id: 'update-status', label: 'Updates have not been checked', enabled: false },
+        { id: 'update-view-release', label: 'View release', visible: false,
+          click: () => { void shell.openExternal(MANUAL_UPGRADE_URL).catch(() => {}) } },
+        { id: 'update-check', label: 'Check for updates', click: () => { void checkForUpdates().catch(() => {}) } },
+      ] : [
+        { id: 'update-status', label: 'Updates have not been checked', enabled: false },
+        { id: 'update-install', label: 'Update now', visible: downloaded, enabled: !updateApplying && !quitting,
+          click: () => { void requestUpdateInstall().catch(error => { void showUpdateInstallError(error) }) } },
+        { id: 'update-automatic', label: 'Automatic updates', type: 'checkbox', checked: prefs.automaticUpdates,
+          enabled: canInstallUnattended(),
+          click: item => setPreferences({ automaticUpdates: item.checked }) },
+        { id: 'update-check', label: 'Check for updates', click: () => { void checkForUpdates().catch(() => {}) } },
+      ]
+      : [{ label: 'Updates are disabled in this development build', enabled: false }]
     // The mail hub's running status, on the right-click menu (user
     // requirement 2026-09-15). One honest line from the last stats poll:
     // running (with its port, and whether it is exposed beyond this
@@ -1100,6 +1149,37 @@ else {
   })
   app.on('activate', show)
   app.on('window-all-closed', () => { /* Tray/main remain alive by default. */ })
+  // Native macOS chrome (UI-03): Orgtree/Edit/Window, nothing else - no File
+  // or Help menu, nothing in scope needs either. editMenu/windowMenu are the
+  // built-in roles wholesale (Cmd+C/Cmd+V/Cmd+Z and the open-window list) -
+  // never hand-rolled. The appMenu role auto-fills its own label from
+  // app.name; never hardcode "Orgtree" there.
+  if (process.platform === 'darwin') {
+    Menu.setApplicationMenu(Menu.buildFromTemplate([
+      {
+        role: 'appMenu',
+        submenu: [
+          { role: 'about' },
+          { type: 'separator' },
+          { label: 'Preferences…', accelerator: 'Cmd+,', click: () => { broadcast({ type: 'open-settings', data: null }) } },
+          { type: 'separator' },
+          { role: 'services' },
+          { type: 'separator' },
+          { role: 'hide' },
+          { role: 'hideOthers' },
+          { role: 'unhide' },
+          { type: 'separator' },
+          // Same handler body as rebuildTray()'s update-check row - one
+          // implementation, two entry points, never a forked copy.
+          { label: 'Check for Updates…', click: () => { void checkForUpdates().catch(() => {}) } },
+          { type: 'separator' },
+          { role: 'quit' },
+        ],
+      },
+      { role: 'editMenu' },
+      { role: 'windowMenu' },
+    ]))
+  }
   // ---------------------------------------------------- console signals
   // A CONSOLE CLOSING MUST NOT KILL THIS PROCESS COLD (user report: closing a
   // console window they had not opened made Orgtree exit immediately).
@@ -1170,7 +1250,7 @@ else {
   app.whenReady().then(async () => {
     preferences = new Preferences(path.join(app.getPath('userData'), 'desktop-settings.json'))
     loginPreference()
-    tray = new Tray(runtimeIcon())
+    tray = new Tray(trayIcon())
     // primary click = the org activity list; double-click keeps opening the
     // app itself (second click of the pair dismisses the just-shown popup)
     tray.on('click', (_event, iconBounds) => { void showTrayList(iconBounds) })
@@ -1235,7 +1315,22 @@ else {
       return notifications.notify(value, preferences.get())
     })
     handle('desktop:sync-notifications', value => notifications.sync(value))
-    handle('desktop:pending-attention', value => { taskbarAttention.set(attentionIdentities(value)) })
+    handle('desktop:pending-attention', value => {
+      // The dock bounce and badge must never drift apart: both read the same
+      // ids array from the same handler invocation, not two independently
+      // maintained counts. app.setBadgeCount is a documented no-op on
+      // Windows, so no platform guard is needed around it.
+      const ids = attentionIdentities(value)
+      taskbarAttention.set(ids)
+      app.setBadgeCount(ids.length)
+    })
+    // No renderer-supplied argument, ever: this always opens the one hardcoded
+    // MANUAL_UPGRADE_URL, never a URL the renderer could forge — closing off
+    // the classic Electron arbitrary-external-URL-open vulnerability class.
+    handle('desktop:open-release-page', () =>
+      shell.openExternal(MANUAL_UPGRADE_URL)
+        .then(() => ({ ok: true }))
+        .catch((error: unknown) => ({ ok: false, error: error instanceof Error ? error.message : String(error) })))
     handle('desktop:open-harness', id => {
       if (typeof id !== 'string' || !Object.hasOwn(HARNESS_LINKS, id)) throw new Error('Unknown harness')
       return shell.openExternal(HARNESS_LINKS[id as keyof typeof HARNESS_LINKS])
@@ -1324,7 +1419,7 @@ else {
     const directory = path.join(base, 'engine')
     try {
       const engineOptions = { directory,
-        python: app.isPackaged ? path.join(directory, 'runtime', 'python.exe') : process.env.ORGTREE_V2_PYTHON ?? '',
+        python: app.isPackaged ? resolvePackagedPythonPath(directory) : process.env.ORGTREE_V2_PYTHON ?? '',
         dataRoot: process.env.ORGTREE_V2_DATA ?? path.join(app.getPath('userData'), 'data'),
         forbiddenRoot: process.env.ORGTREE_DATA || path.join(os.homedir(), 'orgtree'),
         uiDirectory: app.isPackaged ? path.join(process.resourcesPath, 'ui') : path.join(app.getAppPath(), 'dist', 'renderer') }
@@ -1350,6 +1445,27 @@ else {
           }
         }
       }
+      // Best-effort auxiliary to the already-succeeded engine start above:
+      // never blocks or delays it, and never throws into the startup path.
+      // Autostart installs itself automatically (03-RESEARCH.md Open
+      // Question 2 — no separate settings toggle in this phase, BOOT-02).
+      if (process.platform === 'darwin') {
+        try {
+          const entrypointPath = path.join(directory, 'service_host.py')
+          const pythonPath = resolveMacEnginePythonPath(directory)
+          const logDir = app.getPath('logs')
+          const stdoutLog = path.join(logDir, 'boot-engine.out.log')
+          const stderrLog = path.join(logDir, 'boot-engine.err.log')
+          const autostartState = detectState(LABEL)
+          if (autostartState === 'not-installed') {
+            install({ label: LABEL, pythonPath, entrypointPath, workingDirectory: directory, stdoutLog, stderrLog })
+          } else if (autostartState === 'disabled') {
+            dialog.showMessageBox(autostartRemediationDialog('disabled')).then(({ response }) => {
+              if (response === 0) void shell.openExternal(LOGIN_ITEMS_SETTINGS_URL)
+            }).catch(() => { /* best-effort remediation prompt; a failure here must not affect startup */ })
+          }
+        } catch (error) { console.warn('LaunchAgent install failed:', error) }
+      }
       const browserSession = session.fromPartition('persist:orgtree-v2')
       // The preload origin is fixed per window; session signing reads LIVE
       // engine values so a recovered attachment's new token keeps working.
@@ -1370,84 +1486,94 @@ else {
         void viewer.loadURL(url).catch(() => viewer.destroy())
       }
       placement = new WindowPlacement(path.join(app.getPath('userData'), 'window-state.json'))
-      const savedPlacement = placement.restore(screen.getAllDisplays().map(display => display.workArea))
-      restoreMaximized = savedPlacement?.maximized ?? false
-      main = new BrowserWindow({ width: 1400, height: 900, ...savedPlacement?.bounds, minWidth: 640, minHeight: 480, frame: false, show: false, icon: iconPath, autoHideMenuBar: true,
-        webPreferences: { session: browserSession, preload: path.join(__dirname, '../preload/index.cjs'), contextIsolation: true,
-          sandbox: true, nodeIntegration: false, webviewTag: false, additionalArguments: [`--orgtree-ui-origin=${initialOrigin}`] } })
-      main.setIcon(runtimeIcon())
-      main.on('moved', savePlacement)
-      main.on('resized', savePlacement)
-      main.on('maximize', savePlacement)
-      main.on('unmaximize', savePlacement)
-      main.on('maximize', publishWindowState)
-      main.on('unmaximize', publishWindowState)
-      main.on('minimize', publishWindowState)
-      main.on('restore', publishWindowState)
-      main.on('show', publishWindowState)
-      main.on('hide', publishWindowState)
-      // Windows cancels a taskbar flash on activation; tell the controller so
-      // a later arrival can pulse again without the poll restarting this one.
-      main.on('focus', () => taskbarAttention.focused())
-      configureWindow(main, () => engine.origin, true, register, openArtifact, undefined, popouts.track)
-      main.webContents.on('did-create-window', child => {
-        child.setIcon(runtimeIcon())
-        child.on('closed', quitAfterLastView)
-      })
-      main.on('close', event => {
-        savePlacement()
-        const otherViews = BrowserWindow.getAllWindows().filter(w => w !== main && w.isVisible()).length
-        const action = closeAction(preferences.get().exitOnClose, quitting, otherViews)
-        if (action !== 'close') { event.preventDefault(); if (action === 'hide') main?.hide(); else app.quit() }
-      })
-      // ⚠ THE WINDOW IS RECOVERED, NOT REPORTED AS UNRECOVERABLE. The old
-      // handler took no argument — discarding details.reason and
-      // details.exitCode, the only two values that say what killed it — and
-      // told the user to restart the whole application. That advice was worse
-      // than unnecessary: the dialog itself asserts the engine is still
-      // running, and it is. Only the window is gone, so reloading it restores
-      // the interface in a few seconds without touching the engine, the agents
-      // or the user's place, exactly as the recoverAttached path below already
-      // does. The reload is bounded (RecoveryBudget) and falls back to this
-      // same dialog, now carrying the diagnosis, when the bound is reached.
-      attachRendererFailureHandlers(main.webContents, {
-        record: recordProcessFailure,
-        reload: () => { if (main && !main.isDestroyed()) main.webContents.reload() },
-        // Out of band deliberately: the surface that would normally tell the
-        // user something happened is the renderer, and the renderer just died.
-        announce: (title, body) => { try { if (Notification.isSupported()) new Notification({ title, body }).show() } catch { /* a missed toast must not break the recovery */ } },
-        giveUp: detail => { void dialog.showMessageBox({ type: 'error', message: 'The Orgtree window stopped responding.',
-          detail: `Orgtree reloaded the window automatically but it keeps failing (${detail}).`
-            + '\n\nThe engine is still running. Restart Orgtree to restore the interface.'
-            + '\n\nThe full record is in update-log.json beside Orgtree\'s data.' }) },
-        suspended: () => quitting || installerUpgradeShutdown,
-      }, new RecoveryBudget())
-      // ⚠ AND THE RELOAD ABOVE CAN FAIL. Everything to this point assumes that
-      // re-navigating the window restores it, which is true only while the
-      // engine is serving — and the engine serves the document itself. On
-      // 2026-09-18 the renderer was OOM-killed, the reload above was issued
-      // 2 ms later, and the engine died 1.4 s into it; the window went white
-      // and nothing ever looked at it again. This watches the navigation the
-      // reload starts, so a failed load is a state the window leaves rather
-      // than the state it ends in.
-      windowLoadRecovery = attachWindowLoadRecovery(main.webContents, {
-        record: recordWindowLoad,
-        target: () => engine.origin,
-        builtFor: () => initialOrigin,
-        load: url => main && !main.isDestroyed() ? main.loadURL(url) : Promise.resolve(),
-        showHolding: html => main && !main.isDestroyed()
-          ? main.webContents.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
-          : Promise.resolve(),
-        suspended: () => quitting || installerUpgradeShutdown,
-        setTimer: (fn, ms) => setTimeout(fn, ms),
-        clearTimer: handle => clearTimeout(handle as ReturnType<typeof setTimeout>),
-      }, () => main && !main.isDestroyed() ? main.webContents.getURL() : '')
-      main.once('closed', () => { windowLoadRecovery?.dispose(); windowLoadRecovery = undefined })
-      await main.loadURL(engine.origin + '/')
+      // Hoisted to outer-scope `createMainWindow` (declared near `placement`)
+      // since it closes over browserSession/initialOrigin/register/openArtifact,
+      // which only exist in this app.whenReady() scope, while show()'s
+      // recreate branch lives in the outer block — this is the one shared
+      // construction path both call sites resolve to (UI-02).
+      createMainWindow = async () => {
+        const savedPlacement = placement!.restore(screen.getAllDisplays().map(display => display.workArea))
+        restoreMaximized = savedPlacement?.maximized ?? false
+        main = new BrowserWindow({ width: 1400, height: 900, ...savedPlacement?.bounds, minWidth: 640, minHeight: 480, frame: false, show: false, icon: iconPath, autoHideMenuBar: true,
+          webPreferences: { session: browserSession, preload: path.join(__dirname, '../preload/index.cjs'), contextIsolation: true,
+            sandbox: true, nodeIntegration: false, webviewTag: false, additionalArguments: [`--orgtree-ui-origin=${initialOrigin}`] } })
+        main.setIcon(runtimeIcon())
+        main.on('moved', savePlacement)
+        main.on('resized', savePlacement)
+        main.on('maximize', savePlacement)
+        main.on('unmaximize', savePlacement)
+        main.on('maximize', publishWindowState)
+        main.on('unmaximize', publishWindowState)
+        main.on('minimize', publishWindowState)
+        main.on('restore', publishWindowState)
+        main.on('show', publishWindowState)
+        main.on('hide', publishWindowState)
+        // Windows cancels a taskbar flash on activation; tell the controller so
+        // a later arrival can pulse again without the poll restarting this one.
+        main.on('focus', () => taskbarAttention.focused())
+        configureWindow(main, () => engine.origin, true, register, openArtifact, undefined, popouts.track)
+        main.webContents.on('did-create-window', child => {
+          child.setIcon(runtimeIcon())
+          child.on('closed', quitAfterLastView)
+        })
+        main.on('close', event => {
+          savePlacement()
+          const otherViews = BrowserWindow.getAllWindows().filter(w => w !== main && w.isVisible()).length
+          const action = closeAction(preferences.get().exitOnClose, quitting, otherViews)
+          if (action !== 'close') { event.preventDefault(); if (action === 'hide') main?.hide(); else app.quit() }
+        })
+        // ⚠ THE WINDOW IS RECOVERED, NOT REPORTED AS UNRECOVERABLE. The old
+        // handler took no argument — discarding details.reason and
+        // details.exitCode, the only two values that say what killed it — and
+        // told the user to restart the whole application. That advice was worse
+        // than unnecessary: the dialog itself asserts the engine is still
+        // running, and it is. Only the window is gone, so reloading it restores
+        // the interface in a few seconds without touching the engine, the agents
+        // or the user's place, exactly as the recoverAttached path below already
+        // does. The reload is bounded (RecoveryBudget) and falls back to this
+        // same dialog, now carrying the diagnosis, when the bound is reached.
+        attachRendererFailureHandlers(main.webContents, {
+          record: recordProcessFailure,
+          reload: () => { if (main && !main.isDestroyed()) main.webContents.reload() },
+          // Out of band deliberately: the surface that would normally tell the
+          // user something happened is the renderer, and the renderer just died.
+          announce: (title, body) => { try { if (Notification.isSupported()) new Notification({ title, body }).show() } catch { /* a missed toast must not break the recovery */ } },
+          giveUp: detail => { void dialog.showMessageBox({ type: 'error', message: 'The Orgtree window stopped responding.',
+            detail: `Orgtree reloaded the window automatically but it keeps failing (${detail}).`
+              + '\n\nThe engine is still running. Restart Orgtree to restore the interface.'
+              + '\n\nThe full record is in update-log.json beside Orgtree\'s data.' }) },
+          suspended: () => quitting || installerUpgradeShutdown,
+        }, new RecoveryBudget())
+        // ⚠ AND THE RELOAD ABOVE CAN FAIL. Everything to this point assumes that
+        // re-navigating the window restores it, which is true only while the
+        // engine is serving — and the engine serves the document itself. On
+        // 2026-09-18 the renderer was OOM-killed, the reload above was issued
+        // 2 ms later, and the engine died 1.4 s into it; the window went white
+        // and nothing ever looked at it again. This watches the navigation the
+        // reload starts, so a failed load is a state the window leaves rather
+        // than the state it ends in.
+        windowLoadRecovery = attachWindowLoadRecovery(main.webContents, {
+          record: recordWindowLoad,
+          target: () => engine.origin,
+          builtFor: () => initialOrigin,
+          load: url => main && !main.isDestroyed() ? main.loadURL(url) : Promise.resolve(),
+          showHolding: html => main && !main.isDestroyed()
+            ? main.webContents.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
+            : Promise.resolve(),
+          suspended: () => quitting || installerUpgradeShutdown,
+          setTimer: (fn, ms) => setTimeout(fn, ms),
+          clearTimer: handle => clearTimeout(handle as ReturnType<typeof setTimeout>),
+        }, () => main && !main.isDestroyed() ? main.webContents.getURL() : '')
+        main.once('closed', () => { windowLoadRecovery?.dispose(); windowLoadRecovery = undefined })
+        await main.loadURL(engine.origin + '/')
+      }
+      await createMainWindow()
       engineReady = true
       if (installerUpgradePending) void requestInstallerUpgradeShutdown()
       if (!process.argv.includes('--background')) show()
-      if (!process.argv.includes('--background') && !detectHarnesses().some(h => h.detected)) await dialog.showMessageBox(main, { type: 'info', message: 'No agent harness was detected.', detail: 'Install Claude Code, Codex, or Antigravity using the official setup links in the tray menu. Orgtree does not install or sign in to harnesses.' })
+      // main is always assigned by the createMainWindow() awaited above; TS
+      // cannot narrow that across the nested closure's own scope.
+      if (!process.argv.includes('--background') && !detectHarnesses().some(h => h.detected)) await dialog.showMessageBox(main!, { type: 'info', message: 'No agent harness was detected.', detail: 'Install Claude Code, Codex, or Antigravity using the official setup links in the tray menu. Orgtree does not install or sign in to harnesses.' })
       const refresh = async () => {
         if (quitting || installerUpgradeShutdown) return
         // Native timers keep running when Chromium throttles a hidden window.

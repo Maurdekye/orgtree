@@ -12,6 +12,16 @@ export function assertPackageInputsPresent(io = fs) {
   }
 }
 
+/** The macOS (python-build-standalone) counterpart of REQUIRED_PACKAGE_INPUTS,
+ *  with the two Windows-runtime-specific paths swapped for their macOS shape. */
+export const REQUIRED_PACKAGE_INPUTS_MAC = ['engine/launch.py', 'engine/backend/orgtree/api.py', 'engine/runtime/bin/python3.13', 'engine/runtime/lib/python3.13/site-packages', 'engine/runtime/runtime-manifest.json', 'dist/renderer/index.html']
+
+export function assertPackageInputsPresentMac(io = fs) {
+  for (const file of REQUIRED_PACKAGE_INPUTS_MAC) {
+    if (!io.existsSync(file)) throw new Error('Package is incomplete: ' + file + '. Provision the runtime and integrate the real engine first.')
+  }
+}
+
 /** The release channel's provenance rules: a clean committed tree matching the
  *  build, and a build-info that says it was produced FOR release. The channel
  *  check is what keeps a development build out of the publishing path — its
