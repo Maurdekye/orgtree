@@ -10377,14 +10377,14 @@ def codex_call_digest(slug: str, nid: str, seat: str, generation: int,
 
 
 def _codex_bind_key(digest: str, epoch: str, now_ms: int
-                    ) -> tuple[str, str] | None:
-    """The (op_key, op_epoch) of this original call: the one already bound,
-    or a new one minted now in `opreceipts.KEY_RE` shape. None = memo full
-    of keys still inside the horizon."""
+                    ) -> tuple[str, str, bool] | None:
+    """(op_key, op_epoch, minted_now) of this original call: the pair
+    already bound (False), or a new one minted now in `opreceipts.KEY_RE`
+    shape (True). None = memo full of keys still inside the horizon."""
     with _CODEX_KEYS_LOCK:
         got = _CODEX_KEYS.get(digest)
         if got is not None:
-            return got[0], got[1]
+            return got[0], got[1], False
         if len(_CODEX_KEYS) >= _CODEX_KEYS_CAP:
             limit = now_ms - opreceipts.HORIZON_MS - opreceipts.SKEW_MS
             for k in [k for k, v in _CODEX_KEYS.items() if v[2] < limit]:
@@ -10393,7 +10393,7 @@ def _codex_bind_key(digest: str, epoch: str, now_ms: int
                 return None
         key = f"{now_ms}-{digest[:24]}"
         _CODEX_KEYS[digest] = (key, epoch, now_ms)
-        return key, epoch
+        return key, epoch, True
 
 
 def _codex_epoch(post: CodexPost, slug: str) -> tuple[str, str]:
@@ -10459,9 +10459,12 @@ def codex_keyed_dispatch(post: CodexPost, slug: str, nid: str, seat: str,
     ⚠ A LOST answer is re-sent ONCE under the SAME key and epoch — never a
     fresh key. That is safe exactly because the key is the original call's:
     the backend either replays the receipt of the attempt that applied or
-    runs the call for the first time, never a second time. A second loss is
-    reported as unknown, and repeating this same original call later still
-    presents this key."""
+    runs the call for the first time, never a second time. Once an attempt
+    has been DELIVERED and its answer lost, anything short of an answer to
+    the re-send — a second loss, a refused connection, an error — is
+    reported as unknown (review f1: "unreachable" would say nothing can have
+    applied, which is false after a delivered attempt). Repeating this same
+    original call later still presents this key."""
     if not call or not call.get("call_id") or not call.get("thread_id"):
         return ("orgtree: this call was NOT made (state not_applied, reason "
                 "no_call_identity). It needs a stable operation key, and the "
@@ -10471,7 +10474,7 @@ def codex_keyed_dispatch(post: CodexPost, slug: str, nid: str, seat: str,
     with _CODEX_KEYS_LOCK:
         bound = _CODEX_KEYS.get(digest)
     if bound is not None:
-        pair: tuple[str, str] | None = (bound[0], bound[1])
+        pair: tuple[str, str, bool] | None = (bound[0], bound[1], False)
     else:
         epoch, problem = _codex_epoch(post, slug)
         if not epoch:
@@ -10488,30 +10491,70 @@ def codex_keyed_dispatch(post: CodexPost, slug: str, nid: str, seat: str,
                     "reason key_memo_full). Too many recent keyed calls are "
                     "still inside their receipt horizon. Nothing has changed; "
                     "try again later.")
-    key, epoch = pair
+    key, epoch, minted_now = pair
     wrapped: dict[str, Any] = {"tool": tool, "args": args, "op_key": key,
                                "op_epoch": epoch}
     kind, text = post(opreceipts.OP_CALL, wrapped)
-    if kind == "lost":
+    delivered_lost = kind == "lost"
+    if delivered_lost:
         kind, text = post(opreceipts.OP_CALL, wrapped)
     if _codex_stale(kind, text):
         if _CODEX_EPOCH.get(slug) == epoch:
             _CODEX_EPOCH.pop(slug, None)
+        if minted_now and not delivered_lost:
+            # review N1: this key was minted for THIS attempt and its one
+            # delivery was refused before admission, so nothing under it
+            # can have applied. Unbind it, so a re-request of this same
+            # call mints under the current epoch instead of being refused
+            # stale for good.
+            with _CODEX_KEYS_LOCK:
+                if _CODEX_KEYS.get(digest, ("",))[0] == key:
+                    del _CODEX_KEYS[digest]
+            return ("orgtree: this call was refused before it ran (state "
+                    "not_applied, reason stale_epoch): the backend's "
+                    "operation epoch changed — it restarted, or the org "
+                    "document was restored. This was the call's first "
+                    "attempt, so nothing about it applied; it is safe to "
+                    "issue it again.")
         return ("orgtree: this call was refused before it ran (state stale, "
                 "reason stale_epoch): its original key was bound to an "
                 "operation epoch that is no longer current — the backend "
                 "restarted, or the org document was restored. NOTHING was "
                 "done by this attempt, and whether an earlier attempt of this "
                 "same call applied is UNKNOWN: check before repeating it.")
-    if kind == "unsent":
-        return f"orgtree API unreachable: {text}"
-    if kind == "lost":
-        return (f"orgtree: no answer came back for this call, twice, under "
-                f"its original key ({text[:200]}) — whether it applied is "
+    if delivered_lost and kind != "ok":
+        return (f"orgtree: the answer to this call was lost after it was "
+                f"delivered, and re-sending it under its original key did not "
+                f"settle it ({kind}: {text[:200]}) — whether it applied is "
                 f"UNKNOWN (state unknown). Check before repeating it: a "
                 f"re-request of this same original call replays under the "
                 f"same key, but a new call of yours is a new operation.")
+    if kind == "unsent":
+        return f"orgtree API unreachable: {text}"
     return _codex_answer_text(text)
+
+
+def codex_http_post(port: str, headers: Mapping[str, str], slug: str,
+                    nid: str, verb: str, verb_args: dict[str, Any], *,
+                    timeout: float = 60) -> tuple[str, str]:
+    """The keyed path's POST: the same `/api/agent` door and headers the
+    turn's `_tool_call` uses, with the four outcomes kept apart (ok |
+    refused | unsent | lost, `mcptool._post`), because a LOST answer is
+    exactly what the original key exists for."""
+    import urllib.error                 # noqa: PLC0415
+    import urllib.request               # noqa: PLC0415
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}/api/agent",
+        data=json.dumps({"org": slug, "node": nid, "tool": verb,
+                         "args": verb_args}).encode(),
+        headers=dict(headers), method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return "ok", r.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        return "refused", e.read().decode("utf-8", "replace")[:800]
+    except Exception as e:                               # noqa: BLE001
+        return _codex_lost_kind(e), str(e)
 
 
 def _codex_lost_kind(exc: Exception) -> str:
@@ -16509,21 +16552,7 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
     key_gen = int(n.get("generation") or 0)
 
     def _tool_post(verb: str, verb_args: dict[str, Any]) -> tuple[str, str]:
-        # the keyed path's POST: the same door and headers as `_tool_call`,
-        # with the four outcomes kept apart, because a LOST answer is exactly
-        # what the original key exists for
-        req = urllib.request.Request(
-            f"http://127.0.0.1:{port}/api/agent",
-            data=json.dumps({"org": slug, "node": nid, "tool": verb,
-                             "args": verb_args}).encode(),
-            headers=tool_headers, method="POST")
-        try:
-            with urllib.request.urlopen(req, timeout=60) as r:
-                return "ok", r.read().decode("utf-8", "replace")
-        except urllib.error.HTTPError as e:
-            return "refused", e.read().decode("utf-8", "replace")[:800]
-        except Exception as e:                           # noqa: BLE001
-            return _codex_lost_kind(e), str(e)
+        return codex_http_post(port, tool_headers, slug, nid, verb, verb_args)
 
     def _tool_call(tool: str, args: dict[str, Any]) -> str:
         if codex_keyed_call(tool, args):

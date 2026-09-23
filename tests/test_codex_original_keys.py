@@ -31,7 +31,7 @@ from unittest.mock import patch
 _root = tempfile.TemporaryDirectory(prefix='codex-original-keys-')
 os.environ['ORGTREE_DATA'] = _root.name
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine/backend'))
-import import_provenance  # noqa: F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import (api, codexrun, inbox, ledger, mailruntime, opreceipts,
                      store, supervisor as sup)
 
@@ -369,6 +369,212 @@ class CodexOriginalKeyTests(unittest.TestCase):
         self.assertEqual([v for v, _ in self.sent], [opreceipts.OP_EPOCH])
         self.assertEqual(self.canonical(), before)
 
+    # ------------------------------------------------ review round 2 (f1, f2, N1)
+    def scripted(self, *answers):
+        """A post that runs the real fake door for each `None` answer and
+        returns the scripted `(kind, text)` otherwise; with `('lost', …)`
+        after a real run, meaning the call applied and its answer died."""
+        script = list(answers)
+
+        def post(verb, args):
+            step = script.pop(0) if script else None
+            if step is None or step == 'run':
+                return self.post(verb, args)
+            if step[0] == 'run-then':
+                self.post(verb, args)
+                return step[1], step[2]
+            self.sent.append((verb, copy.deepcopy(args)))
+            return step
+        return post
+
+    def dispatch_with(self, post, args, c=None):
+        out = sup.codex_keyed_dispatch(post, self.slug, W, self.seat, self.gen,
+                                       inbox.TOOL, args, call() if c is None else c)
+        try:
+            return json.loads(out)
+        except json.JSONDecodeError:
+            return out
+
+    def test_a_delivered_attempt_then_an_unsent_resend_is_unknown(self):
+        """f1: the first attempt applied and its answer was lost; the re-send
+        could not connect. That is not "unreachable" — nothing-applied — it
+        is unknown."""
+        ids = self.deposit(count=2)
+        self.begin()
+        post = self.scripted('run', ('run-then', 'lost', 'timed out'),
+                             ('unsent', '[WinError 10061] refused'))
+        out = self.dispatch_with(post, {'action': 'fetch', 'message_ids': ids})
+        self.assertIsInstance(out, str)
+        self.assertIn('state unknown', out)
+        self.assertNotIn('unreachable', out)
+        self.assertEqual(len(self.batches()), 1)          # it DID apply
+        again = self.dispatch({'action': 'fetch', 'message_ids': ids}, c=call(rid=8))
+        self.assertIsInstance(again, dict, again)
+        self.assertTrue(again.get('replayed'), again)
+
+    def test_a_delivered_attempt_then_a_refused_resend_is_unknown(self):
+        ids = self.deposit()
+        self.begin()
+        post = self.scripted('run', ('run-then', 'lost', 'reset'),
+                             ('refused', '{"detail": "Internal Server Error"}'))
+        out = self.dispatch_with(post, {'action': 'fetch', 'message_ids': ids})
+        self.assertIsInstance(out, str)
+        self.assertIn('state unknown', out)
+
+    def test_an_unsent_first_attempt_is_still_unreachable(self):
+        ids = self.deposit()
+        self.begin()
+        post = self.scripted('run', ('unsent', 'refused'))
+        out = self.dispatch_with(post, {'action': 'fetch', 'message_ids': ids})
+        self.assertEqual(out, 'orgtree API unreachable: refused')
+        self.assertEqual(len(self.op_calls()), 1)
+        self.assertEqual(self.batches(), [])
+
+    def test_the_real_apis_422_stale_refusal_is_reported_and_drops_the_epoch(self):
+        """f2: the shape api.py gives a keyed call it refuses stale — an HTTP
+        422 whose detail reads `op_key refused (stale_epoch): …` — not only
+        the JSON-answer shape the fake door returns."""
+        ids = self.deposit()
+        self.begin()
+        self.dispatch({'action': 'fetch', 'message_ids': ids})
+        self.assertIn(self.slug, sup._CODEX_EPOCH)
+        body = json.dumps({'detail': 'op_key refused (stale_epoch): this key was issued '
+                                     'under an operation epoch that is no longer current'})
+        post = self.scripted(('refused', body))
+        out = self.dispatch_with(post, {'action': 'fetch', 'message_ids': ids}, c=call(rid=8))
+        self.assertIn('stale_epoch', out)
+        self.assertIn('state stale', out)
+        self.assertNotIn(self.slug, sup._CODEX_EPOCH)
+        # both halves are required: a refusal naming only the reason is not it
+        self.dispatch({'action': 'fetch', 'message_ids': ids}, c=call(cid='call-x'))
+        post = self.scripted(('refused', json.dumps({'detail': 'stale_epoch'})))
+        out = self.dispatch_with(post, {'action': 'fetch', 'message_ids': ids}, c=call(cid='call-x'))
+        self.assertEqual(out, 'stale_epoch')
+        self.assertIn(self.slug, sup._CODEX_EPOCH)
+
+    def test_a_first_attempt_refused_stale_is_not_applied_and_unbound(self):
+        """N1: a key minted for this very attempt, refused stale on its only
+        delivery, can have applied nothing — said so, and the call is
+        unbound so its re-request mints under the current epoch."""
+        ids = self.deposit(count=2)
+        self.begin()
+        self.dispatch({'action': 'fetch', 'message_ids': ids[:1]})    # caches the epoch
+        opreceipts.forget_custody(store.DATA_ROOT, self.slug)          # it rotates
+        before = self.canonical()
+        c2 = call(cid='call-2')
+        out = self.dispatch(c=c2, args={'action': 'fetch', 'message_ids': ids[1:]})
+        self.assertIn('state not_applied, reason stale_epoch', out)
+        self.assertEqual(self.canonical(), before)
+        digest = sup.codex_call_digest(self.slug, W, self.seat, self.gen, c2)
+        self.assertNotIn(digest, sup._CODEX_KEYS)
+        again = self.dispatch(c={**c2, 'rid': '9'}, args={'action': 'fetch', 'message_ids': ids[1:]})
+        self.assertIsInstance(again, dict, again)
+        self.assertEqual(again['fetched_count'], 1, again)
+        self.assertEqual(self.op_calls()[-1]['op_epoch'], self.epoch())
+
+    def test_a_delivered_attempt_then_a_stale_resend_is_not_called_not_applied(self):
+        """N1's definite answer is for a key whose ONE delivery was refused.
+        After a delivered attempt whose answer was lost, a stale re-send says
+        nothing about that attempt: stale, not not_applied."""
+        ids = self.deposit()
+        self.begin()
+        body = json.dumps({'detail': 'op_key refused (stale_epoch): rotated'})
+        post = self.scripted('run', ('run-then', 'lost', 'timed out'), ('refused', body))
+        out = self.dispatch_with(post, {'action': 'fetch', 'message_ids': ids})
+        self.assertIn('state stale', out)
+        self.assertNotIn('not_applied', out)
+        digest = sup.codex_call_digest(self.slug, W, self.seat, self.gen, call())
+        self.assertIn(digest, sup._CODEX_KEYS)
+
+    def test_a_bound_key_refused_stale_stays_bound(self):
+        ids = self.deposit()
+        self.begin()
+        self.dispatch({'action': 'fetch', 'message_ids': ids})
+        digest = sup.codex_call_digest(self.slug, W, self.seat, self.gen, call())
+        opreceipts.forget_custody(store.DATA_ROOT, self.slug)
+        out = self.dispatch({'action': 'fetch', 'message_ids': ids}, c=call(rid=8))
+        self.assertIn('state stale', out)
+        self.assertIn(digest, sup._CODEX_KEYS)
+
+    def test_the_epoch_preflight_is_asked_again_once_when_lost(self):
+        ids = self.deposit()
+        self.begin()
+        post = self.scripted(('lost', 'timed out'), 'run', 'run')
+        out = self.dispatch_with(post, {'action': 'fetch', 'message_ids': ids})
+        self.assertIsInstance(out, dict, out)
+        self.assertEqual(out['fetched_count'], 1)
+        self.assertEqual([v for v, _ in self.sent],
+                         [opreceipts.OP_EPOCH, opreceipts.OP_EPOCH, opreceipts.OP_CALL])
+        sup._CODEX_EPOCH.clear()
+        self.sent.clear()
+        post = self.scripted(('lost', 'a'), ('lost', 'b'))
+        out = self.dispatch_with(post, {'action': 'fetch', 'message_ids': ids}, c=call(cid='call-3'))
+        self.assertIn('no_epoch', out)
+        self.assertEqual([v for v, _ in self.sent], [opreceipts.OP_EPOCH] * 2)
+
+    def test_lost_kind_separates_undelivered_from_unanswered(self):
+        import http.client
+        import socket
+        import urllib.error
+        unsent = [ConnectionRefusedError(), urllib.error.URLError(ConnectionRefusedError()),
+                  socket.gaierror(), urllib.error.URLError(socket.gaierror())]
+        lost = [TimeoutError(), socket.timeout(), ConnectionResetError(),
+                http.client.RemoteDisconnected('gone'), urllib.error.URLError(TimeoutError()),
+                OSError('half read')]
+        self.assertEqual([sup._codex_lost_kind(e) for e in unsent], ['unsent'] * len(unsent))
+        self.assertEqual([sup._codex_lost_kind(e) for e in lost], ['lost'] * len(lost))
+
+    def test_the_http_post_keeps_the_four_outcomes_apart(self):
+        """`codex_http_post` against a real loopback server: an answer, a
+        422 refusal with its body, a connection closed with no answer, and a
+        port nobody listens on."""
+        import http.server
+        import socket
+        seen = []
+
+        class Door(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_POST(self):
+                body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+                seen.append((self.path, self.headers.get('X-Orgtree-Agent-Token'), body))
+                if body['tool'] == 'drop':
+                    self.close_connection = True
+                    return
+                code = 422 if body['tool'] == 'refuse' else 200
+                out = json.dumps({'detail': 'op_key refused (stale_epoch): x'} if code == 422
+                                 else {'echo': body['args']}).encode()
+                self.send_response(code)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(out)))
+                self.end_headers()
+                self.wfile.write(out)
+
+        srv = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Door)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            port = str(srv.server_address[1])
+            hdr = {'Content-Type': 'application/json', 'X-Orgtree-Agent-Token': 'tok'}
+            kind, text = sup.codex_http_post(port, hdr, self.slug, W, 'ok', {'a': 1}, timeout=5)
+            self.assertEqual((kind, json.loads(text)), ('ok', {'echo': {'a': 1}}))
+            self.assertEqual(seen[0], ('/api/agent', 'tok',
+                                       {'org': self.slug, 'node': W, 'tool': 'ok', 'args': {'a': 1}}))
+            kind, text = sup.codex_http_post(port, hdr, self.slug, W, 'refuse', {}, timeout=5)
+            self.assertEqual(kind, 'refused')
+            self.assertTrue(sup._codex_stale(kind, text))
+            kind, _ = sup.codex_http_post(port, hdr, self.slug, W, 'drop', {}, timeout=5)
+            self.assertEqual(kind, 'lost')
+        finally:
+            srv.shutdown()
+            srv.server_close()
+        s = socket.socket()
+        s.bind(('127.0.0.1', 0))
+        dead = str(s.getsockname()[1])
+        s.close()
+        kind, _ = sup.codex_http_post(dead, {}, self.slug, W, 'ok', {}, timeout=5)
+        self.assertEqual(kind, 'unsent')
+
     # ------------------------------------------------ the memo bound
     def test_a_live_key_is_never_evicted_to_make_room(self):
         now = int(time.time() * 1000)
@@ -377,7 +583,7 @@ class CodexOriginalKeyTests(unittest.TestCase):
             self.assertIsNotNone(sup._codex_bind_key('b' * 64, 'e', now))
             self.assertIsNone(sup._codex_bind_key('c' * 64, 'e', now))
             self.assertEqual(sup._codex_bind_key('a' * 64, 'x', now + 5),
-                             (f'{now}-' + 'a' * 24, 'e'))
+                             (f'{now}-' + 'a' * 24, 'e', False))
             late = now + opreceipts.HORIZON_MS + opreceipts.SKEW_MS + 1
             self.assertIsNotNone(sup._codex_bind_key('c' * 64, 'e', late))
             self.assertEqual(set(sup._CODEX_KEYS), {'c' * 64})
