@@ -30,11 +30,16 @@ is expected and pre-documented, not a silent workaround.
 
 ## Result
 
-**Status:** Not yet run — blocked on Phase 1-4 shipping a real macOS package
-target and provider process-lifecycle fixes to verify against.
+**Status:** PASS
 
-**Date:**
+**Date:** 2026-09-23
 
-**Verified by:**
+**Verified by:** WhoReallyKnowsAnything
 
-**Notes:**
+**Notes:** Build d0bb47e (`npm run package:mac:dir`, ad-hoc signed, arm64), run on
+the build machine (Apple Silicon), not a second Mac. The downloaded state was
+simulated by setting com.apple.quarantine; the app launched (via `open`) from an
+App Translocation path with no Gatekeeper block, although `spctl -a` reported
+"rejected". A real Claude provider account was added, one agent was hired and
+completed a real task; the reply and the `orgtree_chart` tool call were visible
+in the app. Checklist step 2 (copy to a separate Mac) was not followed exactly.
