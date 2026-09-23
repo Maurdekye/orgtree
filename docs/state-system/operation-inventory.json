@@ -131,7 +131,7 @@
     },
     {
       "path": "engine/backend/orgtree/census_contacts.py",
-      "normalized_source_sha256": "557c343309e632e8c712d9b188029549b88ba4932f42710f283fcb97404c9fc6"
+      "normalized_source_sha256": "b4ca4dc3ea88c9e5018f6f2d43b2709aa9fcfad2d715c1a423d3a7673622614d"
     },
     {
       "path": "engine/backend/orgtree/chat_window.py",

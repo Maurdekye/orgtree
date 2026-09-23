@@ -626,6 +626,8 @@ class AttemptRecordTests(unittest.TestCase):
                          [{'path': 'engine/backend/orgtree/store.py',
                            'symbol': '_open_conn'}])
         self.assertTrue(cov['uninstrumented'])
+        self.assertEqual([row['path'] for row in cov['other_processes']],
+                         [p for p, _ in cc.OTHER_PROCESSES])
         for name in cc.COUNTER_NAMES:
             self.assertIn('db_' + name, body['counters'])
         self.assertIn('db_unbound', body['counters'])
@@ -642,14 +644,25 @@ class AttemptRecordTests(unittest.TestCase):
 
 # ------------------------------------------------ coverage is stated, not assumed
 
-def _connect_sites():
-    """Every `sqlite3.connect` call in the engine, by file and enclosing
+#: The bundled mail hub is a separately versioned git submodule and a
+#: separate process. It is absent from checkouts that did not initialise it, so
+#: scanning it would make this guard's answer depend on the checkout (review
+#: finding F1 on 1adce5a). It is excluded from the tree scan and declared in
+#: `census_contacts.OTHER_PROCESSES`, which has its own tests below.
+HUB = 'engine/mailhub/'
+
+
+def _connect_sites(repo=None, base='engine', exclude=(HUB,)):
+    """Every `sqlite3.connect` call under `base`, by file and enclosing
     symbol, including `import sqlite3 as x` and `from sqlite3 import connect`
-    spellings."""
+    spellings. Paths starting with an `exclude` prefix are skipped."""
+    repo = REPO if repo is None else repo
     found = set()
-    for path in sorted((REPO / 'engine').rglob('*.py')):
-        rel = path.relative_to(REPO).as_posix()
+    for path in sorted((repo / base).rglob('*.py')):
+        rel = path.relative_to(repo).as_posix()
         if '/runtime/' in '/' + rel or 'site-packages' in rel:
+            continue
+        if rel.startswith(tuple(exclude)):
             continue
         tree = ast.parse(path.read_text(encoding='utf-8-sig'))
         modules, functions = {'sqlite3'}, set()
@@ -681,19 +694,67 @@ def _connect_sites():
     return found
 
 
+def _hub_sites(repo=None):
+    """The bundled hub's PRODUCT connect sites: the submodule minus its own
+    tests, which open throwaway databases and are not the product store."""
+    return _connect_sites(repo, base=HUB.rstrip('/'), exclude=(HUB + 'tests/',))
+
+
 class CoverageDeclarationTests(unittest.TestCase):
 
     def test_every_connection_site_is_either_instrumented_or_listed(self):
         """⚠ A NEW DATABASE PATH CANNOT APPEAR SILENTLY. Both directions: an
         unlisted site fails, and a listed site that no longer exists fails, so
-        the published gap list cannot go stale in either way."""
+        the published gap list cannot go stale in either way. The answer is
+        the same whether or not the `engine/mailhub` submodule is checked out,
+        because that subtree is excluded here and pinned below."""
         sites = _connect_sites()
         self.assertIn(('engine/backend/orgtree/store.py', '_open_conn'), sites,
                       'the scanner did not find the one site it must find')
+        self.assertFalse([s for s in sites if s[0].startswith(HUB)])
         declared = set(cc.INSTRUMENTED) | set(cc.UNINSTRUMENTED)
         self.assertEqual(len(declared), len(cc.INSTRUMENTED) + len(cc.UNINSTRUMENTED))
         self.assertEqual(sorted(sites - declared), [], 'unlisted SQLite connection sites')
         self.assertEqual(sorted(declared - sites), [], 'listed sites that do not exist')
+
+    def test_the_hub_exclusion_is_a_submodule_and_exactly_that_subtree(self):
+        """The exclusion is justified only while `engine/mailhub` is a
+        submodule: vendored into this repository it would be ordinary engine
+        source and must be scanned like the rest. And the prefix must not
+        swallow a sibling such as `engine/mailhub_runtime.py`."""
+        gitmodules = (REPO / '.gitmodules').read_text(encoding='utf-8')
+        self.assertIn('path = ' + HUB.rstrip('/'), gitmodules)
+        with tempfile.TemporaryDirectory(dir=root.name) as scratch:
+            fake = Path(scratch)
+            files = (('engine/mailhub/mailhub/db.py', 'def connect():\n    sqlite3.connect("h")\n'),
+                     ('engine/mailhub/tests/test_x.py', 'def t():\n    sqlite3.connect("t")\n'),
+                     ('engine/mailhub_runtime.py', 'def m():\n    sqlite3.connect("m")\n'))
+            for rel, body in files:
+                (fake / rel).parent.mkdir(parents=True, exist_ok=True)
+                (fake / rel).write_text('import sqlite3\n' + body, encoding='utf-8')
+            self.assertEqual(_connect_sites(fake), {('engine/mailhub_runtime.py', 'm')})
+            self.assertEqual(_hub_sites(fake), {('engine/mailhub/mailhub/db.py', 'connect')})
+
+    def test_the_bundled_hub_store_is_published_as_unobserved(self):
+        """Declared whether or not the submodule is present: the payload an
+        agent reads names the hub's own SQLite store as a process this census
+        does not observe."""
+        cov = cc.coverage()
+        self.assertEqual(
+            cov['other_processes'],
+            [{'path': 'engine/mailhub/mailhub/db.py', 'symbol': 'connect', 'process': 'mailhub'},
+             {'path': 'engine/mailhub/hubtool.py', 'symbol': '_db', 'process': 'mailhub'}])
+        self.assertFalse(cov['complete'])
+        self.assertTrue(any('mail hub' in limit for limit in cc.LIMITS))
+
+    def test_the_hub_declaration_matches_the_submodule_source(self):
+        """When the pinned submodule IS checked out, the declaration must be
+        exactly its product connect sites. When it is not, this says so as a
+        visible skip rather than passing on nothing."""
+        if not (REPO / HUB / 'mailhub' / 'db.py').is_file():
+            self.skipTest('engine/mailhub submodule not checked out; hub sites '
+                          'are declared but cannot be compared to source here')
+        self.assertEqual(_hub_sites(), set(cc.OTHER_PROCESSES))
 
     def test_the_scanner_would_catch_an_aliased_connect(self):
         """The negative control on the scanner itself."""
@@ -702,12 +763,7 @@ class CoverageDeclarationTests(unittest.TestCase):
             fake = Path(scratch) / 'engine' / 'probe.py'
             fake.parent.mkdir()
             fake.write_text(ast.unparse(tree), encoding='utf-8')
-            global REPO
-            real, REPO = REPO, Path(scratch)
-            try:
-                self.assertEqual(_connect_sites(), {('engine/probe.py', 'f')})
-            finally:
-                REPO = real
+            self.assertEqual(_connect_sites(Path(scratch)), {('engine/probe.py', 'f')})
 
     def test_the_primary_factory_passes_the_observed_class(self):
         tree = ast.parse((REPO / 'engine/backend/orgtree/store.py')

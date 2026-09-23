@@ -108,12 +108,18 @@ _primary_store = "unknown"
 _capture_on: "Callable[[], bool]" = lambda: False
 
 #: ⚠ THE CONNECTION PATHS THIS MODULE DOES NOT OBSERVE, stated as data so the
-#: gap travels with the numbers. Every `sqlite3.connect` call site in the
-#: repository's engine, except `store._open_conn`, is listed here by file and
-#: enclosing symbol; `tests/test_census_sqlite_contacts.py` scans the source
-#: and refuses a site that is in neither place, so a new database path cannot
-#: appear silently. Each of these opens its own database file with the stock
-#: connection class; none of it is counted anywhere in the census.
+#: gap travels with the numbers. Every `sqlite3.connect` call site in this
+#: repository's `engine/` tree OUTSIDE the `engine/mailhub` submodule, except
+#: `store._open_conn`, is listed here by file and enclosing symbol;
+#: `tests/test_census_sqlite_contacts.py` scans that tree and refuses a site
+#: that is in neither place. Each of these opens its own database file with
+#: the stock connection class; none of it is counted anywhere in the census.
+#:
+#: ⚠ THE SCAN IS A GUARD, NOT A PROOF. It matches `sqlite3.connect(...)` and
+#: `from sqlite3 import connect` under any alias. It does not see
+#: `sqlite3.dbapi2.connect`, `getattr(sqlite3, "connect")`, a direct
+#: `sqlite3.Connection(...)` construction, or a connection opened by code that
+#: is not Python source in this tree.
 INSTRUMENTED = (("engine/backend/orgtree/store.py", "_open_conn"),)
 UNINSTRUMENTED = (
     ("engine/backend/orgtree/antigravity_provenance.py", "_Read.__init__"),
@@ -126,6 +132,18 @@ UNINSTRUMENTED = (
     ("engine/backend/orgtree/toolwait.py", "_db"),
     ("engine/backend/orgtree/transcript_records.py", "database"),
     ("engine/mailhub_runtime.py", "MailhubRuntime._migrate_store"),
+)
+
+#: ⚠ THE BUNDLED MAIL HUB'S OWN SQLITE STORE, declared separately because it is
+#: a separate PROCESS (`MailhubRuntime` runs `python -m mailhub.serve`) built
+#: from a separately versioned git SUBMODULE (`engine/mailhub`). Nothing in
+#: this process can observe it, and the submodule is absent from checkouts
+#: that did not initialise it, so the tree scan above excludes it and these
+#: entries are pinned by their own test instead — checked against the
+#: submodule source when it is present, declared regardless.
+OTHER_PROCESSES = (
+    ("engine/mailhub/mailhub/db.py", "connect"),
+    ("engine/mailhub/hubtool.py", "_db"),
 )
 
 _COUNTERS_LOCK = threading.Lock()
@@ -447,8 +465,9 @@ class ObservedConnection(sqlite3.Connection):
 #: census payload beside `LIMITS`.
 LIMITS = (
     "db contact evidence covers ONLY connections made by store._open_conn "
-    "(the primary store). Every path in contact_coverage.uninstrumented, "
-    "PostgreSQL, the Rust engine and other processes are not observed.",
+    "(the primary store). Every path in contact_coverage.uninstrumented, the "
+    "bundled mail hub's store (contact_coverage.other_processes), PostgreSQL, "
+    "the Rust engine and any other process are not observed.",
     "db is present only on attempts that began while capture was on; its "
     "absence means not observed, never zero contacts.",
     "statements counts API-level attempts; engine_steps counts statements "
@@ -471,6 +490,8 @@ def coverage() -> "dict[str, Any]":
         "primary_store": _primary_store,
         "instrumented": [{"path": p, "symbol": s} for p, s in INSTRUMENTED],
         "uninstrumented": [{"path": p, "symbol": s} for p, s in UNINSTRUMENTED],
+        "other_processes": [{"path": p, "symbol": s, "process": "mailhub"}
+                            for p, s in OTHER_PROCESSES],
         "complete": False,
         "kinds": list(KINDS),
         "fields": list(FIELDS),

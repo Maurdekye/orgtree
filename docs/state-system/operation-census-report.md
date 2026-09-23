@@ -9,6 +9,11 @@ This is the bounded P02 reporting foundation for the schema2 census landed at
 `286396ebc6db13aed7bc0ebcfc873a703828296b`. It does not complete P02 or qualify
 native/PostgreSQL behavior. No A2 fields or runtime changes are assumed.
 
+⚠ Since P02-A3 the engine's census produces **schema 3** (it adds the per-attempt
+`db` contact block). This tool reads schema 2 only, so it refuses every snapshot
+from an engine at or after P02-A3 with exit code 2. That refusal is deliberate
+and fail-closed; teaching the report schema 3 is separate, undocketed work.
+
 ## Run against a supplied file
 
 From a checkout, with the provisioned interpreter selected explicitly (substitute
