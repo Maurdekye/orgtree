@@ -9,10 +9,13 @@ validate its arguments with `check_args` before calling anything here.
 
 P06a (still no door) adds the original-key receipt of a keyed fetch, filed in
 the fetch's own single save, and a durable ATTEMPT record per delivery that
-outlives its journal row. ⚠ The chunk reader below stays a pure, unkeyed read
-PROVISIONALLY: the contract (C1 §E) still owes per-chunk original keys,
-lost-response recovery and trusted call evidence before any door may expose
-it, and nothing here is final-contract compliance for chunk continuation.
+outlives its journal row. P06b makes a KEYED chunk call a receipted
+transaction: its call is recorded on the attempt (`chunk_calls`) and its key
+replays the same bytes. Two things stay PROVISIONAL, closed compatibility
+only, and are not C1 §E compliance: the unkeyed chunk read (internal, never a
+door path) and the chunk 0 a fetch serves inline, which is no chunk's
+original call. C1 §E still owes a dedicated keyed call for EVERY chunk,
+including 0, bound to trusted provider call evidence (P08).
 
 This module is PURE. It reads a loaded document plus a self-view state map the
 supervisor computed from the shared ownership classifier, and returns plain
@@ -57,6 +60,10 @@ PREVIEW_CHARS: Final = 200
 TOOL: Final = "orgtree_inbox"
 #: Resolved attempt records kept per mailbox; an open one is never dropped.
 ATTEMPTS_KEEP: Final = 40
+#: Distinct keyed chunk calls one delivery may record, per chunk it holds. At
+#: the bound a new distinct call is refused before anything is served; no
+#: recorded call is ever evicted.
+CHUNK_CALLS_PER_CHUNK: Final = 4
 
 #: Why no fetch can be confirmed yet. Returned on every fetch result.
 WILL_REDELIVER_REASON: Final = (
@@ -430,7 +437,29 @@ def attempt_record(record: Mapping[str, Any], *, tok: str, at: str,
                               "body_sha256": p.get("body_sha256")}
                         for mid, p in plan.items() if isinstance(p, Mapping)},
             "provider_call_id": None, "call_id_source": "unsupplied",
-            "resolved": None}
+            "resolved": None, "chunk_calls": []}
+
+
+def chunk_call_record(item: Mapping[str, Any], *, op_key: str, op_id: str,
+                      at: str) -> dict[str, Any]:
+    """One keyed chunk call as served: which chunk, its digest and the call's
+    key and receipt. The provider's own call identity is not supplied yet
+    (P08); it is recorded as absent and never inferred. Confirms nothing."""
+    return {"message_id": item.get("message_id"), "chunk_index": item.get("chunk_index"),
+            "chunk_sha256": item.get("chunk_sha256"), "op_key": op_key, "op_id": op_id,
+            "at": at, "provider_call_id": None, "call_id_source": "unsupplied"}
+
+
+def chunk_call_bound(att: Mapping[str, Any]) -> int:
+    """How many distinct keyed chunk calls this delivery may record: 0 when
+    its digests are unreadable, so an unreadable record refuses."""
+    total = 0
+    for d in (att.get("digests") or {}).values() if isinstance(att.get("digests"), Mapping) else ():
+        n = d.get("chunk_total") if isinstance(d, Mapping) else None
+        if isinstance(n, bool) or not isinstance(n, int) or n < 1:
+            return 0
+        total += n
+    return CHUNK_CALLS_PER_CHUNK * total
 
 
 def transition_state(org: Any, nid: str, delivery_id: str) -> str | None:

@@ -1,4 +1,8 @@
-"""Manual inbox P06a: original-key receipt and durable attempt, door CLOSED.
+"""Manual inbox P06a/P06b: original-key receipts and durable attempts, door CLOSED.
+
+P06b: a keyed chunk call is its own receipted transaction; its call is
+recorded on the delivery's attempt and its key replays the same bytes. A
+fetch's inline chunk 0 is no chunk's original call.
 
 A keyed fetch is admitted inside its own DOC_LOCK before anything moves and
 files its receipt in the same single save as the drain; every fetch that
@@ -130,7 +134,7 @@ class ManualInboxReceiptTests(unittest.TestCase):
         cov = opreceipts.coverage
         self.assertEqual(cov(inbox.TOOL, {'action': 'fetch'}), opreceipts.TX)
         self.assertEqual(cov(inbox.TOOL, {'action': 'list'}), opreceipts.NONE)
-        self.assertEqual(cov(inbox.TOOL, {'action': 'chunk'}), opreceipts.NONE)
+        self.assertEqual(cov(inbox.TOOL, {'action': 'chunk'}), opreceipts.TX)
         self.assertEqual(cov(inbox.TOOL, {'action': 'no-such-action'}), opreceipts.TX)
         self.assertTrue(opreceipts.provable_absence(cov(inbox.TOOL, {'action': 'fetch'})))
         self.assertEqual(opreceipts.COVERAGE, 1)
@@ -408,6 +412,244 @@ class ManualInboxReceiptTests(unittest.TestCase):
         sup.manual_fetch(self.slug, W, self.gen, ids[1:])
         self.assertEqual(self.attempts().get(first['delivery_id'], {}).get('resolved'),
                          'redelivered')
+
+
+    # ------------------------------------------------------- P06b: chunks
+    BIG = '€' * 70000                                  # 4 chunks of 3-byte chars
+
+    def big_fetch(self):
+        """A keyed fetch of one oversized message; returns (ids, delivery_id)."""
+        ids = self.deposit(body=self.BIG)
+        self.begin()
+        _, _, out = self.keyed(ids)
+        return ids, out['delivery_id']
+
+    def kchunk(self, did, mid, index, key=None, epoch=None):
+        key = key or opreceipts.mint_key()
+        epoch = epoch or self.epoch()
+        out = sup.manual_fetch_chunk(self.slug, W, self.gen, did, mid, index,
+                                     op_key=key, op_epoch=epoch)
+        return key, epoch, out
+
+    def chunk_lookup(self, key, epoch, did, mid, index):
+        body = api.AgentCall(org=self.slug, node=W, tool=api.OP_LOOKUP)
+        return api._op_lookup_call(body, {
+            'op_key': key, 'op_epoch': epoch, 'for_tool': inbox.TOOL,
+            'for_args': {'action': 'chunk', 'delivery_id': did, 'message_id': mid,
+                         'chunk_index': index}})
+
+    def calls(self, did):
+        return copy.deepcopy(self.attempts().get(did, {}).get('chunk_calls'))
+
+    def test_a_keyed_chunk_leaves_a_receipt_naming_the_chunk(self):
+        ids, did = self.big_fetch()
+        key, epoch, out = self.kchunk(did, ids[0], 1)
+        self.assertEqual(out.get('chunk_index'), 1, out)
+        self.assertTrue(out['content'])
+        look = self.chunk_lookup(key, epoch, did, ids[0], 1)
+        self.assertEqual(look['state'], 'applied', look)
+        result = look['receipt']['result']
+        self.assertEqual((result.get('delivery_id'), result.get('message_id'),
+                          result.get('chunk_index'), result.get('chunk_sha256')),
+                         (did, ids[0], 1, out['chunk_sha256']))
+        self.assertEqual(result.get('content_state'), 'present')
+        self.assertNotIn('content', result)
+        [call] = self.calls(did) or [None]
+        self.assertIsNotNone(call)
+        self.assertEqual((call['message_id'], call['chunk_index'], call['op_key'],
+                          call['op_id'], call['chunk_sha256']),
+                         (ids[0], 1, key, look['receipt']['id'], out['chunk_sha256']))
+        self.assertIsNone(call['provider_call_id'])
+        self.assertEqual(call['call_id_source'], 'unsupplied')
+
+    def test_a_keyed_chunk_is_one_save(self):
+        ids, did = self.big_fetch()
+        with patch.object(store, 'save_org', wraps=store.save_org) as save:
+            _, _, out = self.kchunk(did, ids[0], 2)
+        self.assertTrue(out.get('content'))
+        self.assertEqual(save.call_count, 1)
+
+    def test_an_uncertain_chunk_save_serves_nothing_and_the_key_is_fenced(self):
+        ids, did = self.big_fetch()
+        before = self.canonical()
+        epoch = self.epoch()
+        key = opreceipts.mint_key()
+        with patch.object(store, 'save_org', side_effect=OSError('disk full')):
+            out = sup.manual_fetch_chunk(self.slug, W, self.gen, did, ids[0], 1,
+                                         op_key=key, op_epoch=epoch)
+        self.assertEqual(out.get('error'), 'chunk_outcome_unknown')
+        self.assertIsNone(out.get('content'))
+        self.assertEqual(self.canonical(), before)
+        self.assertEqual(self.chunk_lookup(key, epoch, did, ids[0], 1)['state'], 'not_applied')
+        _, _, again = self.kchunk(did, ids[0], 1, key=key, epoch=epoch)
+        self.assertEqual((again.get('error'), again.get('reason')), ('op_key_refused', 'fenced'))
+        self.assertIsNone(again.get('content'))
+
+    def test_the_same_chunk_key_replays_the_same_bytes(self):
+        """NC-27: byte-identical, from the recorded offsets, writing nothing."""
+        ids, did = self.big_fetch()
+        key, epoch, first = self.kchunk(did, ids[0], 3)
+        before = self.canonical()
+        _, _, again = self.kchunk(did, ids[0], 3, key=key, epoch=epoch)
+        self.assertTrue(again.get('replayed'), again)
+        self.assertEqual(again.get('content'), first['content'])
+        self.assertEqual(again.get('chunk_sha256'), first['chunk_sha256'])
+        self.assertEqual(self.canonical(), before)
+        self.assertEqual(len(self.calls(did)), 1)
+
+    def test_a_chunk_replay_after_redelivery_serves_no_bytes(self):
+        ids, did = self.big_fetch()
+        key, epoch, _ = self.kchunk(did, ids[0], 1)
+        self.end()
+        self.begin('op-next')
+        before = self.canonical()
+        _, _, again = self.kchunk(did, ids[0], 1, key=key, epoch=epoch)
+        self.assertTrue(again.get('replayed'))
+        self.assertIsNone(again.get('content'))
+        self.assertEqual(again.get('content_state'), 'redelivered')
+        self.assertEqual(self.canonical(), before)
+
+    def test_a_changed_row_never_replays_other_bytes(self):
+        ids, did = self.big_fetch()
+        key, epoch, _ = self.kchunk(did, ids[0], 1)
+        org = self.load()
+        row = org.d['delivering'][W][0]
+        row['mail'][0]['body'] = 'x' * len(self.BIG)             # body alone: plan refuses
+        store.save_org(org)
+        _, _, again = self.kchunk(did, ids[0], 1, key=key, epoch=epoch)
+        self.assertTrue(again.get('replayed'))
+        self.assertIsNone(again.get('content'))
+        org = self.load()                                           # body and plan both
+        row = org.d['delivering'][W][0]
+        row['manual']['plan'][ids[0]] = inbox.chunk_plan(row['mail'][0]['body'])
+        store.save_org(org)
+        _, _, again = self.kchunk(did, ids[0], 1, key=key, epoch=epoch)
+        self.assertTrue(again.get('replayed'))
+        self.assertIsNone(again.get('content'))                     # not the receipt's bytes
+        self.assertEqual(again.get('content_state'), 'unavailable')
+
+    def test_a_chunk_key_reused_for_another_chunk_conflicts(self):
+        ids, did = self.big_fetch()
+        key, epoch, _ = self.kchunk(did, ids[0], 1)
+        before = self.canonical()
+        _, _, other = self.kchunk(did, ids[0], 2, key=key, epoch=epoch)
+        self.assertEqual(other.get('error'), 'op_key_conflict')
+        self.assertIsNone(other.get('content'))
+        self.assertEqual(self.canonical(), before)
+
+    def test_a_stale_chunk_key_is_refused_before_anything_is_served(self):
+        ids, did = self.big_fetch()
+        epoch = self.epoch()
+        opreceipts.forget_custody(store.DATA_ROOT, self.slug)
+        before = self.canonical()
+        _, _, out = self.kchunk(did, ids[0], 1, epoch=epoch)
+        self.assertEqual((out.get('error'), out.get('reason')), ('op_key_refused', 'stale_epoch'))
+        self.assertIsNone(out.get('content'))
+        self.assertEqual(self.canonical(), before)
+
+    def test_a_fetch_is_no_chunks_original_call(self):
+        """decision42: the chunk 0 a fetch serves inline records no chunk call;
+        chunk 0 needs its own keyed call, recorded like any other index."""
+        ids, did = self.big_fetch()
+        self.assertEqual(self.calls(did), [])
+        key, _, out = self.kchunk(did, ids[0], 0)
+        self.assertTrue(out.get('content'))
+        self.assertEqual([(c['chunk_index'], c['op_key']) for c in self.calls(did)],
+                         [(0, key)])
+
+    def test_every_chunk_call_recorded_still_confirms_nothing(self):
+        """NC-26: records of every chunk's call are not evidence."""
+        ids, did = self.big_fetch()
+        for i in range(4):
+            self.kchunk(did, ids[0], i)
+        self.assertEqual(sorted(c['chunk_index'] for c in self.calls(did)), [0, 1, 2, 3])
+        [row] = self.journal_rows()
+        self.assertNotIn(row['tok'], mailruntime.confirmed_tokens(self.load(), W))
+        self.assertFalse(inbox.confirmation_complete(row['manual'], {}))
+        self.end()
+        self.assertEqual([(m['id'], m['redelivered']) for m in self.load().d['mail'][W]],
+                         [(ids[0], 1)])
+
+    def test_the_chunk_call_bound_refuses_before_serving_and_evicts_nothing(self):
+        ids, did = self.big_fetch()
+        bound = inbox.CHUNK_CALLS_PER_CHUNK * 4
+        first = None
+        for n in range(bound):
+            k, e, out = self.kchunk(did, ids[0], n % 4)
+            self.assertTrue(out.get('content'), out)
+            first = first or (k, e, out)
+        kept = self.calls(did)
+        before = self.canonical()
+        _, _, over = self.kchunk(did, ids[0], 1)
+        self.assertEqual(over.get('error'), 'chunk_call_limit')
+        self.assertIsNone(over.get('content'))
+        self.assertEqual(self.canonical(), before)
+        self.assertEqual(self.calls(did), kept)
+        k, e, out = first
+        again = self.kchunk(did, ids[0], 0, key=k, epoch=e)[2]
+        self.assertEqual(again.get('content'), out['content'])     # replay still works
+
+    def test_an_unkeyed_chunk_writes_nothing(self):
+        ids = self.deposit(body=self.BIG)
+        self.begin()
+        out = sup.manual_fetch(self.slug, W, self.gen, ids)
+        before = self.canonical()
+        chunk = sup.manual_fetch_chunk(self.slug, W, self.gen, out['delivery_id'], ids[0], 1)
+        self.assertTrue(chunk['content'])
+        self.assertEqual(self.canonical(), before)
+        self.assertNotIn(opreceipts.SECTION, self.load().d)
+
+    def test_a_keyed_chunk_of_a_gone_delivery_answers_but_records_no_call(self):
+        ids, did = self.big_fetch()
+        self.end()
+        self.begin('op-next')
+        key, epoch, out = self.kchunk(did, ids[0], 1)
+        self.assertIsNone(out.get('content'))
+        self.assertEqual(out.get('content_state'), 'redelivered')
+        self.assertEqual(self.calls(did), [])
+        look = self.chunk_lookup(key, epoch, did, ids[0], 1)
+        self.assertEqual(look['state'], 'applied')
+        self.assertEqual(look['receipt']['result'].get('content_state'), 'redelivered')
+
+    def test_a_delivery_without_an_attempt_gets_one_for_its_first_keyed_chunk(self):
+        ids, did = self.big_fetch()
+        org = self.load()
+        org.d['manual_attempts'][W].pop(did)
+        store.save_org(org)
+        key, _, out = self.kchunk(did, ids[0], 1)
+        self.assertTrue(out.get('content'))
+        att = self.attempts().get(did) or {}
+        self.assertEqual([c['op_key'] for c in att.get('chunk_calls') or []], [key])
+        self.assertIsNone(att.get('op_key'))
+
+    # ------------------------------------------ P06a review notes N2 / N3
+    def test_gone_state_falls_back_to_a_resolved_attempt(self):
+        """N2: with the transition receipt gone, a resolved attempt answers."""
+        ids = self.deposit()
+        self.begin()
+        out = sup.manual_fetch(self.slug, W, self.gen, ids)
+        self.end()
+        org = self.load()
+        org.d.pop('mail_transitions', None)
+        org.d['manual_attempts'][W][out['delivery_id']]['resolved'] = 'redelivered'
+        self.assertEqual(inbox.gone_state(org, W, out['delivery_id']),
+                         {'content_state': 'redelivered', 'attempt_recorded': True})
+        org.d['manual_attempts'][W][out['delivery_id']]['resolved'] = 'unknown'
+        self.assertEqual(inbox.gone_state(org, W, out['delivery_id'])['content_state'], 'unknown')
+
+    def test_transition_state_reads_only_positive_outcomes(self):
+        """N3: a receipt of any other outcome is `unknown`; none is None."""
+        org = self.load()
+        org.d['mail_transitions'] = {W: {'op-1': {'outcome': 'ambiguous',
+                                                  'deliveries': {'t1': 'mf-1'}},
+                                         'op-2': {'outcome': 'reclaimed',
+                                                  'deliveries': {'t2': 'mf-2'}},
+                                         'op-3': {'outcome': 'confirmed',
+                                                  'deliveries': {'t3': 'mf-3'}}}}
+        self.assertEqual(inbox.transition_state(org, W, 'mf-1'), 'unknown')
+        self.assertEqual(inbox.transition_state(org, W, 'mf-2'), 'redelivered')
+        self.assertEqual(inbox.transition_state(org, W, 'mf-3'), 'confirmed')
+        self.assertIsNone(inbox.transition_state(org, W, 'mf-none'))
 
 
 if __name__ == '__main__':

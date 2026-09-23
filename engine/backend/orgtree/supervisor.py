@@ -9963,17 +9963,38 @@ def _trim_manual_attempts(org: Org, nid: str) -> None:
         atts.pop(did, None)
 
 
+def _fetch_replay(org: Org, nid: str, row: dict[str, Any]) -> dict[str, Any]:
+    """A repeated fetch key: its receipt, and where that delivery is now from
+    positive records only. Nothing is drained again."""
+    result = cast("dict[str, Any]", row.get("result") or {})
+    did = result.get("delivery_id")
+    where = (inbox.gone_state(org, nid, did) if isinstance(did, str) else {})
+    if isinstance(did, str) and any(
+            isinstance(b, dict) and isinstance(b.get("manual"), dict)
+            and b["manual"].get("delivery_id") == did
+            for b in (org.d.get("delivering") or {}).get(nid) or []):
+        where = {"content_state": "present", "attempt_recorded": True}
+    return {"ok": True, "replayed": True, "op_id": row.get("id"),
+            "at": row.get("at"), "result": result, **where,
+            "status": "This fetch ALREADY APPLIED under this key; nothing "
+                      "was drained again. Read its messages with list and "
+                      "chunk using this delivery_id.",
+            **inbox.disclosure()}
+
+
 def _manual_admit(org: Org, slug: str, nid: str, generation: int, op_key: str,
-                  op_epoch: str, args: dict[str, Any]
+                  op_epoch: str, args: dict[str, Any], *,
+                  replay: Callable[[dict[str, Any]], dict[str, Any]]
                   ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    """Receipt admission for a keyed fetch, inside the fetch's own DOC_LOCK and
-    before anything moves: the same `opreceipts.admit` every keyed verb uses.
-    Returns (answer, None) when the call must not run — a replay of the
-    applied receipt, or a refusal — else (None, admission context)."""
+    """Receipt admission for a keyed fetch or chunk, inside the call's own
+    DOC_LOCK and before anything moves or is served: the same
+    `opreceipts.admit` every keyed verb uses. Returns (answer, None) when the
+    call must not run — `replay(receipt row)` for a repeated key, or a
+    refusal — else (None, admission context)."""
     if opreceipts.coverage(inbox.TOOL, args) != opreceipts.TX:
         # the client keys only what the table classifies (mcptool), so a
-        # receipt filed for an unclassified fetch is one no lookup is owed
-        return inbox.refusal("op_key_refused", "this fetch is not classified as "
+        # receipt filed for an unclassified action is one no lookup is owed
+        return inbox.refusal("op_key_refused", "this action is not classified as "
                              "a receipted transaction here; nothing was done",
                              reason="uncovered"), None
     d = cast("dict[str, Any]", org.d)
@@ -9981,21 +10002,7 @@ def _manual_admit(org: Org, slug: str, nid: str, generation: int, op_key: str,
     decision, info = opreceipts.admit(d, nid, generation, op_key, inbox.TOOL, args,
                                       epoch_ok=(op_epoch == epoch))
     if decision == opreceipts.REPLAY:
-        row = cast("dict[str, Any]", info["row"])
-        result = cast("dict[str, Any]", row.get("result") or {})
-        did = result.get("delivery_id")
-        where = (inbox.gone_state(org, nid, did) if isinstance(did, str) else {})
-        if isinstance(did, str) and any(
-                isinstance(b, dict) and isinstance(b.get("manual"), dict)
-                and b["manual"].get("delivery_id") == did
-                for b in (org.d.get("delivering") or {}).get(nid) or []):
-            where = {"content_state": "present", "attempt_recorded": True}
-        return {"ok": True, "replayed": True, "op_id": row.get("id"),
-                "at": row.get("at"), "result": result, **where,
-                "status": "This fetch ALREADY APPLIED under this key; nothing "
-                          "was drained again. Read its messages with list and "
-                          "chunk using this delivery_id.",
-                **inbox.disclosure()}, None
+        return replay(cast("dict[str, Any]", info["row"])), None
     if decision == opreceipts.CONFLICT:
         return inbox.refusal("op_key_conflict", f"{info.get('detail')}. Nothing "
                              "was done; use a fresh key."), None
@@ -10043,8 +10050,9 @@ def manual_fetch(slug: str, nid: str, generation: int, message_ids: Any, *,
             return refused
         keyed = None
         if op_key:
-            answer, keyed = _manual_admit(org, slug, nid, generation, op_key,
-                                          op_epoch, op_args)
+            answer, keyed = _manual_admit(
+                org, slug, nid, generation, op_key, op_epoch, op_args,
+                replay=lambda row: _fetch_replay(org, nid, row))
             if answer is not None:
                 return answer
         if _reclaim_blocked(org, nid):
@@ -10141,17 +10149,98 @@ def manual_fetch(slug: str, nid: str, generation: int, message_ids: Any, *,
             **inbox.disclosure()}
 
 
-def manual_fetch_chunk(slug: str, nid: str, generation: int, delivery_id: Any,
-                       message_id: Any, chunk_index: Any) -> dict[str, Any]:
-    """Chunk continuation `(delivery_id, chunk_index)`: READ ONLY.
+def _chunk_answer(org: Org, nid: str, generation: int, delivery_id: str,
+                  message_id: str, chunk_index: Any) -> dict[str, Any]:
+    """What chunk `chunk_index` of `message_id` in `delivery_id` reads as now.
+    Pure: the same bytes from the same journaled row and recorded offsets on
+    every call, never a drain. When the row is gone the answer comes from a
+    positive transition receipt or the resolved durable attempt, or is
+    `unknown`; absence alone proves nothing."""
+    rows = [b for b in (org.d.get("delivering") or {}).get(nid) or []
+            if isinstance(b, dict) and isinstance(b.get("manual"), dict)
+            and b["manual"].get("delivery_id") == delivery_id]
+    gone = {"ok": True, "delivery_id": delivery_id, "message_id": message_id,
+            "chunk_index": chunk_index, "content": None, "content_available": False}
+    if len(rows) > 1:
+        return {**gone, "content_state": "unavailable"}
+    if not rows:
+        return {**gone, **inbox.gone_state(org, nid, delivery_id)}
+    row = rows[0]
+    record = row["manual"]
+    node = org.nodes[nid]
+    if (mailruntime.manual_ref(record) is None
+            or record.get("generation") != generation
+            or record.get("mailbox") != node.get("mailbox_id")):
+        return {**gone, "content_state": "unavailable"}
+    mail = next((m for m in row.get("mail") or []
+                 if isinstance(m, dict) and m.get("id") == message_id), None)
+    plan = (record.get("plan") or {}).get(message_id)
+    if mail is None or not isinstance(plan, dict):
+        return inbox.refusal("not_in_delivery", "that message is not part of this delivery")
+    total = plan.get("chunk_total")
+    if (isinstance(chunk_index, bool) or not isinstance(chunk_index, int)
+            or not isinstance(total, int) or not 0 <= chunk_index < total):
+        return inbox.refusal("chunk_out_of_range", "no such chunk in this delivery")
+    return {"ok": True, **inbox.fetched_item(mail, plan, delivery_id, chunk_index),
+            **inbox.disclosure()}
 
-    Serves the same bytes from the same journaled row and recorded offsets on
-    every call, and never drains. When the row is gone the answer comes from
-    a positive transition receipt or the resolved durable attempt
-    (`redelivered`, `confirmed`) or is `unknown`; absence alone proves
-    nothing. ⚠ PROVISIONAL (P06a): unkeyed and pure. C1 §E still owes
-    per-chunk original keys, lost-response recovery and trusted call evidence
-    before any door exposes this."""
+
+def _chunk_replay(org: Org, nid: str, generation: int, row: dict[str, Any]
+                  ) -> dict[str, Any]:
+    """A repeated chunk key (C1 §E): the SAME bytes from the same journaled
+    row and recorded offsets, served only when they still hash to the
+    receipt's `chunk_sha256`; otherwise no bytes, and where the delivery went
+    from positive records. Nothing is written and no call is recorded again."""
+    result = cast("dict[str, Any]", row.get("result") or {})
+    base = {"replayed": True, "op_id": row.get("id"), "at": row.get("at"),
+            "result": result}
+    did, mid = result.get("delivery_id"), result.get("message_id")
+    if not isinstance(did, str) or not isinstance(mid, str):
+        return {"ok": True, **base, "content": None, "content_available": False,
+                "content_state": "unavailable", **inbox.disclosure()}
+    now = _chunk_answer(org, nid, generation, did, mid, result.get("chunk_index"))
+    if now.get("content") is not None:
+        if now.get("chunk_sha256") == result.get("chunk_sha256"):
+            return {**now, **base}
+        return {"ok": True, **base, "content": None, "content_available": False,
+                "content_state": "unavailable", **inbox.disclosure()}
+    if not now.get("ok"):
+        now = {"content_state": "unavailable"}
+    return {"ok": True, **base, "delivery_id": did, "message_id": mid,
+            "chunk_index": result.get("chunk_index"), "content": None,
+            "content_available": False, **{k: v for k, v in now.items()
+                                           if k in ("content_state", "attempt_recorded")},
+            **inbox.disclosure()}
+
+
+def _record_chunk_call(att: dict[str, Any], call: dict[str, Any]) -> bool:
+    """Record one keyed chunk call on its delivery's attempt, or refuse at the
+    bound. A recorded call is never evicted (decision42): the refusal comes
+    BEFORE the chunk is served."""
+    calls = att.setdefault("chunk_calls", [])
+    if not isinstance(calls, list) or len(calls) >= inbox.chunk_call_bound(att):
+        return False
+    calls.append(call)
+    return True
+
+
+def manual_fetch_chunk(slug: str, nid: str, generation: int, delivery_id: Any,
+                       message_id: Any, chunk_index: Any, *, op_key: str = "",
+                       op_epoch: str = "") -> dict[str, Any]:
+    """Chunk continuation `(delivery_id, message_id, chunk_index)`.
+
+    UNKEYED it is a pure read (`_chunk_answer`) and writes nothing. ⚠ That
+    path is PROVISIONAL and internal (decision42 D1): no door may reach it,
+    and it is not C1 §E compliance.
+
+    KEYED (P06b), it is a receipted transaction in ONE save: the key is
+    admitted before anything is served; a served chunk's call is recorded on
+    the delivery's durable attempt (`chunk_calls`, refused at its bound
+    before serving, never evicting); the receipt names the chunk and its
+    digests, never its bytes. A repeated key replays the same bytes
+    (`_chunk_replay`). If the save's outcome is uncertain nothing is served
+    (decision42 D2) and a lookup settles the key. Confirms nothing: binding
+    each call to trusted provider evidence is P08's."""
     with store.DOC_LOCK:
         org = store.load_org(slug)
         refused = _manual_identity_refusal(org, nid, generation)
@@ -10159,33 +10248,53 @@ def manual_fetch_chunk(slug: str, nid: str, generation: int, delivery_id: Any,
             return refused
         if not isinstance(delivery_id, str) or not isinstance(message_id, str):
             return inbox.refusal("bad_arguments", "delivery_id and message_id are required")
-        rows = [b for b in (org.d.get("delivering") or {}).get(nid) or []
-                if isinstance(b, dict) and isinstance(b.get("manual"), dict)
-                and b["manual"].get("delivery_id") == delivery_id]
-        gone = {"ok": True, "delivery_id": delivery_id, "message_id": message_id,
-                "chunk_index": chunk_index, "content": None, "content_available": False}
-        if len(rows) > 1:
-            return {**gone, "content_state": "unavailable"}
-        if not rows:
-            return {**gone, **inbox.gone_state(org, nid, delivery_id)}
-        row = rows[0]
-        record = row["manual"]
-        node = org.nodes[nid]
-        if (mailruntime.manual_ref(record) is None
-                or record.get("generation") != generation
-                or record.get("mailbox") != node.get("mailbox_id")):
-            return {**gone, "content_state": "unavailable"}
-        mail = next((m for m in row.get("mail") or []
-                     if isinstance(m, dict) and m.get("id") == message_id), None)
-        plan = (record.get("plan") or {}).get(message_id)
-        if mail is None or not isinstance(plan, dict):
-            return inbox.refusal("not_in_delivery", "that message is not part of this delivery")
-        total = plan.get("chunk_total")
-        if (isinstance(chunk_index, bool) or not isinstance(chunk_index, int)
-                or not isinstance(total, int) or not 0 <= chunk_index < total):
+        if not op_key:
+            return _chunk_answer(org, nid, generation, delivery_id, message_id, chunk_index)
+        if isinstance(chunk_index, bool) or not isinstance(chunk_index, int) or chunk_index < 0:
             return inbox.refusal("chunk_out_of_range", "no such chunk in this delivery")
-        return {"ok": True, **inbox.fetched_item(mail, plan, delivery_id, chunk_index),
-                **inbox.disclosure()}
+        args: dict[str, Any] = {"action": "chunk", "delivery_id": delivery_id,
+                                "message_id": message_id, "chunk_index": chunk_index}
+        answer, keyed = _manual_admit(
+            org, slug, nid, generation, op_key, op_epoch, args,
+            replay=lambda row: _chunk_replay(org, nid, generation, row))
+        if answer is not None:
+            return answer
+        answer = _chunk_answer(org, nid, generation, delivery_id, message_id, chunk_index)
+        if not answer.get("ok"):
+            return answer              # refused before anything applied: no receipt
+        op_id = opreceipts.new_id()
+        if answer.get("content") is not None:
+            atts = _manual_attempts(org, nid)
+            att = atts.get(delivery_id)
+            if not isinstance(att, dict):
+                # a delivery journaled before P06a has no attempt: build it
+                # from the row that is still there, so the call has a home
+                row = next(b for b in org.d["delivering"][nid]
+                           if isinstance(b, dict) and isinstance(b.get("manual"), dict)
+                           and b["manual"].get("delivery_id") == delivery_id)
+                att = atts[delivery_id] = inbox.attempt_record(
+                    row["manual"], tok=row["tok"], at=now_iso(), op_key=None, op_id=None)
+            call = inbox.chunk_call_record(answer, op_key=op_key, op_id=op_id, at=now_iso())
+            if not _record_chunk_call(att, call):
+                return inbox.refusal(
+                    "chunk_call_limit", "this delivery has recorded as many chunk "
+                    "reads as it may hold; nothing was served. Repeat an earlier "
+                    "key to read a chunk again", **inbox.disclosure())
+        opreceipts.append(cast("dict[str, Any]", org.d), opreceipts.row(
+            op_id=op_id, node=nid, generation=generation, key=op_key,
+            mint_ms=cast("dict[str, int]", keyed)["mint_ms"], tool=inbox.TOOL,
+            args=args, cls=opreceipts.TX, outcome="applied", at=now_iso(),
+            result=answer))
+        try:
+            store.save_org(org)
+        except Exception as exc:                             # noqa: BLE001
+            return inbox.refusal(
+                "chunk_outcome_unknown", "this chunk read could not be saved, so "
+                "nothing is served; repeat it with the same key, which replays "
+                f"it if it was recorded ({type(exc).__name__})", **inbox.disclosure())
+        opreceipts.witness(store.DATA_ROOT, slug,
+                           opreceipts.seq(cast("dict[str, Any]", org.d)))
+        return answer
 
 
 

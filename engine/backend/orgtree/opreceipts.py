@@ -227,12 +227,14 @@ _ACTION_COVERAGE: dict[str, dict[str, str]] = {
     # arming a dog runs its target ONCE, after the commit, through the same
     # `_wd_popen` the engine uses; the other actions are document-only.
     "orgtree_watchdog": {"create": TX_POST},
-    # the manual inbox (P06a; NO door reaches it yet). `fetch` drains, journals,
-    # folds any reclaimed batch and files its receipt in ONE save
-    # (supervisor.manual_fetch), with nothing after the commit. `list` and
-    # `chunk` are pure reads. An unknown action is keyed: it is refused before
+    # the manual inbox (P06a/P06b; NO door reaches it yet). `fetch` drains,
+    # journals, folds any reclaimed batch and files its receipt in ONE save
+    # (supervisor.manual_fetch); a keyed `chunk` records its call on the
+    # delivery's attempt and files its receipt in ONE save
+    # (supervisor.manual_fetch_chunk). Neither has anything after the commit.
+    # `list` is a pure read. An unknown action is keyed: it is refused before
     # any transaction, so its missing receipt truthfully reads "not applied".
-    "orgtree_inbox": {"list": NONE, "chunk": NONE, "fetch": TX},
+    "orgtree_inbox": {"list": NONE, "chunk": TX, "fetch": TX},
 }
 _ACTION_DEFAULT: dict[str, str] = {
     "orgtree_work": TX,
@@ -337,11 +339,14 @@ _RESULT_FIELDS: dict[str, tuple[str, ...]] = {
     "orgtree_prime_relaunch": ("state", "armed"),
     "orgtree_restart_wake": ("armed", "cancelled", "state"),
     # the continuation handle a lost fetch response would otherwise take with
-    # it (NC-13), and how much it moved. Never message ids or content: the
-    # batch itself is read back through `list` and `chunk`.
+    # it (NC-13), and how much it moved; for a chunk, exactly which chunk it
+    # served and its digests. Never content: a chunk's bytes are re-read from
+    # the journal by replaying its key, and a fetch's through `list`/`chunk`.
     "orgtree_inbox": ("ok", "delivery_id", "fetched_count", "deferred_count",
                       "already_moved_count", "not_found_count",
-                      "unsupported_count", "confirmable", "will_redeliver"),
+                      "unsupported_count", "confirmable", "will_redeliver",
+                      "message_id", "chunk_index", "chunk_total", "body_sha256",
+                      "chunk_sha256", "content_available", "content_state"),
 }
 # identity-shaped arguments worth keeping on the row: node ids, docket item
 # ids/slugs, delivery stages and refs. Bodies, charters, kickoffs, questions

@@ -810,6 +810,21 @@ class ManualAttemptDigest(TypedDict):
     body_sha256: str
 
 
+class ManualChunkCall(TypedDict):
+    """One KEYED chunk call recorded on its delivery's attempt (P06b): which
+    chunk was served, its digest, the call's key and receipt id. The
+    provider's call identity stays null with `call_id_source="unsupplied"`
+    until trusted evidence exists (P08). Never evicted; confirms nothing."""
+    message_id: str
+    chunk_index: int
+    chunk_sha256: str
+    op_key: str
+    op_id: str
+    at: str
+    provider_call_id: str | None
+    call_id_source: str
+
+
 class ManualAttemptRecord(TypedDict):
     """`manual_attempts[<node>][<delivery_id>]` (P06a, internal; the door is
     closed): what one manual fetch handed out, written in the fetch's own
@@ -835,6 +850,7 @@ class ManualAttemptRecord(TypedDict):
     provider_call_id: str | None
     call_id_source: str
     resolved: str | None
+    chunk_calls: NotRequired[list[ManualChunkCall]]
 
 
 class OrgInboxEntry(TypedDict):
