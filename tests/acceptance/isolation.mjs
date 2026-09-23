@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { isolateDataRoot, readRigHub, scrubInheritedHub, INHERITED_HUB_ENV } from '../hub_isolation.mjs'
 
 // Acceptance children inherit the parent process environment.  A disposable
 // data directory alone is not enough on Windows: Electron, Python, provider
@@ -29,6 +30,11 @@ export function isolatedRoot(base = os.tmpdir()) {
   }
   const root = fs.mkdtempSync(path.join(canonicalBase, 'orgtree-v2-acceptance-'))
   for (const name of ROOT_DIRS) fs.mkdirSync(path.join(root, name), { recursive: true })
+  // HUB ISOLATION (tests/hub_isolation.mjs). The engine this root is for must
+  // reach only a hub of its own: without this its hub asked for the live port
+  // 7370, and because TEMP points inside the root while the data does not,
+  // the engine's temp-root floor is off and its default hub is the live one.
+  isolateDataRoot(path.join(root, 'data'))
   return root
 }
 
@@ -76,6 +82,12 @@ export function acceptanceEnvironment(root, options = {}) {
     ORGTREE_V2_PROFILE: dir('profile'),
     ...options.env,
   }
+  // The inherited hub address is never test input: refuse it rather than
+  // honour it, and always remove the one inherited from process.env.
+  for (const key of INHERITED_HUB_ENV) {
+    if (key in (options.env || {})) throw new Error(`Acceptance may not set ${key}`)
+  }
+  scrubInheritedHub(env)
   for (const key of ['ELECTRON_RUN_AS_NODE', 'ORGTREE_PORT', 'ORGTREE_V1_ROOT',
     'ORGTREE_V2_TOKEN', 'ORGTREE_NET_HUB_ADDRESS', 'ORGTREE_ACCEPTANCE_IMPORT_FIXTURE']) {
     if (!(key in (options.env || {}))) delete env[key]
@@ -97,6 +109,10 @@ export function assertIsolatedEnvironment(env, root) {
   for (const key of keys) {
     if (!env[key] || !inside(resolvedRoot, env[key])) throw new Error(`Acceptance root escaped for ${key}`)
   }
+  for (const key of INHERITED_HUB_ENV) {
+    if (key in env) throw new Error(`Acceptance inherited ${key}`)
+  }
+  readRigHub(env.ORGTREE_V2_DATA)
   return true
 }
 

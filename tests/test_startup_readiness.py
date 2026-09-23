@@ -18,6 +18,7 @@ import urllib.error
 import urllib.request
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+import hub_isolation
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -32,6 +33,10 @@ class StartupReadinessTests(unittest.TestCase):
         cls.root.mkdir()
         cls.profile = cls.root.parent / "home"
         (cls.root / "synthetic-startup-root").write_text("test fixture")
+        # HUB ISOLATION (tests/hub_isolation.py): this engine hosts a hub of
+        # its own on a free port, never the live one on 7370; the probe
+        # refuses to boot a root that was not prepared this way.
+        cls.hub = hub_isolation.isolate_data_root(cls.root)
         (cls.profile / ".claude/projects").mkdir(parents=True)
         (cls.root / "ui/assets").mkdir(parents=True)
         (cls.root / "ui/index.html").write_text("<!doctype html><title>fixture</title>")
@@ -41,6 +46,7 @@ class StartupReadinessTests(unittest.TestCase):
                    "ORGTREE_V2_PARENT_PID": str(os.getpid())}
         for name in ("ORGTREE_PORT", "ORGTREE_V2_PORT", "ORGTREE_ACCOUNTS_CUTOVER", "ORGTREE_BASE", "ORGTREE_KIOSK"):
             cls.env.pop(name, None)
+        hub_isolation.scrub_inherited_hub(cls.env)
         result = subprocess.run([sys.executable, "tests/startup_engine_probe.py", "seed"], cwd=REPO,
                                 env=cls.env, capture_output=True, text=True, timeout=60)
         if result.returncode:
@@ -111,6 +117,11 @@ class StartupReadinessTests(unittest.TestCase):
         request = urllib.request.Request(base + "/api/desktop/identity", headers={"X-Orgtree-Desktop-Token": "ab" * 32})
         with urllib.request.urlopen(request, timeout=3) as response:
             self.assertEqual(json.load(response)["pid"], child.pid)
+        # HUB ISOLATION proof: the hub this engine names as its own is the
+        # rig's, by address and by the unique name its /healthz answered.
+        request = urllib.request.Request(base + "/api/desktop/hub", headers={"X-Orgtree-Desktop-Token": "ab" * 32})
+        with urllib.request.urlopen(request, timeout=10) as response:
+            self.assertEqual(hub_isolation.hub_status_problems(json.load(response)["status"], self.hub), [])
         request = urllib.request.Request(base + "/api/desktop/status", headers={"X-Orgtree-Desktop-Token": "ab" * 32})
         with urllib.request.urlopen(request, timeout=3) as response:
             self.assertFalse(json.load(response)["idle"], "pending recovery cannot authorize idle maintenance")

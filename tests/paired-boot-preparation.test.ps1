@@ -132,6 +132,11 @@ finally:
     if sys.stderr is not original_stderr: sys.stderr.close()
     sys.stderr=original_stderr
 assert 'paired-preparation-early-failure-control' in (install/'host-stderr.log').read_text()
+# The shim isolated probe-data from the live mail hub before the host ran.
+hosting=json.loads((install/'probe-data'/'mailhub-hosting.json').read_text(encoding='utf-8'))
+assert hosting['port'] not in (7370,7371) and hosting['name'].startswith('test-rig-') and hosting['bind']=='127.0.0.1' and hosting['public_listener'] is False, hosting
+assert json.loads((install/'probe-data'/'defaults.json').read_text(encoding='utf-8'))=={'net_hub_address':'http://127.0.0.1:9'}
+print('PASS paired probe data root is isolated from the live mail hub')
 print('PASS Windows executable=None regression and captured early traceback control')
 print('PASS actual audit-hook negative/positive signals; no sockets or subprocesses launched')
 '@

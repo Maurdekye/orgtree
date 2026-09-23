@@ -12,6 +12,14 @@ ROOT = Path(os.environ['ORGTREE_ACCEPTANCE_APP']).resolve()
 assert DATA.name == 'data' and DATA.parent.name.startswith('orgtree-v2-acceptance-')
 assert DATA == Path(os.environ['ORGTREE_ACCEPTANCE_ROOT']).resolve() / 'data'
 assert os.environ['ORGTREE_ACCEPTANCE_VISUAL_FIXTURE'] == '1'
+# HUB ISOLATION (tests/hub_isolation.py), before the engine is imported:
+# refuse an inherited hub address or a root its rig did not isolate,
+# and refuse every request to a live hub port before it is sent.
+import importlib.util
+_spec = importlib.util.spec_from_file_location(
+    'hub_isolation', Path(__file__).resolve().parents[1] / 'hub_isolation.py')
+hub_isolation = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(hub_isolation)
+hub_isolation.enforce_isolated_root(DATA)
 sys.path.insert(0, str(ROOT))
 if os.environ.get('ORGTREE_ACCEPTANCE_IMPORT_FIXTURE') == '1':
     import json

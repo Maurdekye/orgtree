@@ -28,16 +28,15 @@ from pathlib import Path
 # would import the main checkout's engine and quietly test the wrong tree.
 # Place the checkout under test ahead of all of it, then PROVE it won.
 _CHECKOUT = Path(os.environ['ORGTREE_TEST_CHECKOUT']).resolve()
-# HUB ISOLATION, first of all (see tests/hub_isolation.py): every request
-# this engine makes to a live hub port is refused before it is sent and
-# reported on stdout, whichever code path makes it. Loaded by path, so the
+# HUB ISOLATION, first of all (see tests/hub_isolation.py): refuse an
+# inherited hub address or a data root setUpClass did not isolate; then every
+# request this engine makes to a live hub port is refused before it is sent
+# and reported on stdout, whichever code path makes it. Loaded by path, so the
 # engine is not imported early.
 _spec = importlib.util.spec_from_file_location(
     'hub_isolation', _CHECKOUT / 'tests' / 'hub_isolation.py')
 hub_isolation = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(hub_isolation)
-if os.environ.get('ORGTREE_LOCAL_HUB_ADDRESS'):
-    raise SystemExit('hub isolation: the engine child inherited ORGTREE_LOCAL_HUB_ADDRESS')
-hub_isolation.install_transport_guard(
+hub_isolation.enforce_isolated_root(Path(os.environ['ORGTREE_DATA']),
     lambda url: print(json.dumps({'liveHubRefused': url}), flush=True))
 sys.path[:0] = [str(_CHECKOUT / 'engine' / 'backend'), str(_CHECKOUT / 'engine'), str(_CHECKOUT)]
 import launch

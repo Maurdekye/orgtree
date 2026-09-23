@@ -30,6 +30,15 @@ The repair is test-only and fails closed in three layers:
   code path makes it (register, poll/reconnect, send, receipts, unregister,
   health). Each refusal is reported, so the rig fails instead of staying quiet.
 
+EVERY rig that boots a real engine uses these, not only test_engine_http:
+the service-host and startup tests, the provider runners, the paired-boot
+probe, and — through ``tests/hub_isolation.mjs``, this file's Node twin — the
+Electron acceptance rigs and the quit probe. A stand-in engine that calls
+``launch.main()`` itself runs ``enforce_isolated_root`` first; a rig that
+boots the unmodified chain checks ``/api/desktop/hub`` against
+``read_rig_hub`` afterwards. ``test_hub_isolation`` audits every file under
+``tests/`` so a new real-engine rig cannot skip them silently.
+
 Standard library only: the engine child loads this file by path before the
 engine is imported.
 """
@@ -37,10 +46,12 @@ engine is imported.
 from __future__ import annotations
 
 import json
+import os
 import socket
+import sys
 import urllib.parse
 import uuid
-from collections.abc import Callable, MutableMapping
+from collections.abc import Callable, Mapping, MutableMapping
 from pathlib import Path
 from typing import Any
 
@@ -134,6 +145,54 @@ def isolate_data_root(data: Path) -> dict[str, Any]:
     return {"port": port, "name": name, "address": f"http://127.0.0.1:{port}"}
 
 
+def read_rig_hub(data: Path) -> dict[str, Any]:
+    """The rig hub ``isolate_data_root`` configured for ``data``.
+
+    Raises RuntimeError unless the root is PROVABLY isolated: its own hub on a
+    non-live loopback port under a rig name, no public listener, and an
+    explicit default hub address that is not a live one. A root that merely
+    looks fresh proves nothing, because a missing file is exactly what sends
+    an engine to the live hub."""
+    data = Path(data)
+    try:
+        hosting = json.loads((data / "mailhub-hosting.json").read_text(encoding="utf-8"))
+        defaults = json.loads((data / "defaults.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise RuntimeError(f"{data} is not an isolated rig root: {exc}") from exc
+    if not isinstance(hosting, dict) or not isinstance(defaults, dict):
+        raise RuntimeError(f"{data} is not an isolated rig root: malformed settings")
+    port, name = hosting.get("port"), str(hosting.get("name") or "")
+    default = str(defaults.get("net_hub_address") or "")
+    problems = []
+    if type(port) is not int or port in LIVE_HUB_PORTS:
+        problems.append(f"hub port {port!r}")
+    if not name.startswith(RIG_HUB_PREFIX):
+        problems.append(f"hub name {name!r}")
+    if hosting.get("bind") != "127.0.0.1" or hosting.get("public_listener") is not False:
+        problems.append("hub is not loopback-only")
+    if not default or is_live_hub_address(default):
+        problems.append(f"default hub {default!r}")
+    if problems:
+        raise RuntimeError(f"{data} is not an isolated rig root: {', '.join(problems)}")
+    return {"port": port, "name": name, "address": f"http://127.0.0.1:{port}"}
+
+
+def hub_status_problems(status: Mapping[str, Any], hub: Mapping[str, Any]) -> list[str]:
+    """Compare the ``status`` block of ``/api/desktop/hub`` with the rig's hub.
+
+    Empty means the hub the engine names as its own is the rig's, by address
+    AND by the unique name its ``/healthz`` answered with — the second is what
+    tells the rig's hub apart from any other hub that answers on a port."""
+    problems = []
+    if status.get("address") != hub["address"]:
+        problems.append(f"address {status.get('address')!r} != {hub['address']!r}")
+    if status.get("hub_name") != hub["name"]:
+        problems.append(f"hub_name {status.get('hub_name')!r} != {hub['name']!r}")
+    if not status.get("healthy"):
+        problems.append("hub not healthy")
+    return problems
+
+
 def _url_of(target: Any) -> str:
     for attribute in ("full_url", "url"):
         value = getattr(target, attribute, None)
@@ -185,3 +244,27 @@ def install_transport_guard(report: Callable[[str], None]) -> None:
 
         guarded_send._hub_isolation_guard = True  # type: ignore[attr-defined]
         httpx.Client.send = guarded_send  # type: ignore[method-assign]
+
+
+def _report_to_stderr(url: str) -> None:
+    print(json.dumps({"liveHubRefused": url}), file=sys.stderr, flush=True)
+
+
+def enforce_isolated_root(data: Path,
+                          report: Callable[[str], None] | None = None) -> dict[str, Any]:
+    """Fail closed INSIDE a rig's engine process, before the engine is imported.
+
+    For the stand-in engines that call ``launch.main()`` themselves (the
+    acceptance ``*_engine.py`` files, the startup probe): refuse to boot with
+    an inherited hub address or a root ``isolate_data_root`` did not prepare,
+    then install the transport guard. ``report`` defaults to one JSON line on
+    stderr, which every such rig already captures. Returns the rig's hub."""
+    inherited = [key for key in INHERITED_HUB_ENV if os.environ.get(key)]
+    if inherited:
+        raise SystemExit(f"hub isolation: the engine inherited {', '.join(inherited)}")
+    try:
+        hub = read_rig_hub(data)
+    except RuntimeError as exc:
+        raise SystemExit(f"hub isolation: {exc}") from None
+    install_transport_guard(report or _report_to_stderr)
+    return hub

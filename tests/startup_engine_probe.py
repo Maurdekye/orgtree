@@ -17,6 +17,14 @@ if sys.argv[1] == "seed":
     store._POOL.close_all("startup-budget")
     raise SystemExit(0)
 
+# HUB ISOLATION (tests/hub_isolation.py), before the engine is imported:
+# refuse an inherited hub address or a root the test did not isolate, and
+# refuse every request to a live hub port before it is sent. Loaded by path:
+# the tests package would scrub the address first and hide an inherited one.
+import importlib.util
+_spec = importlib.util.spec_from_file_location("hub_isolation", REPO / "tests" / "hub_isolation.py")
+hub_isolation = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(hub_isolation)
+hub_isolation.enforce_isolated_root(root)
 import launch
 original = launch.load_app
 

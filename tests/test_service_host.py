@@ -23,6 +23,7 @@ import urllib.error
 import urllib.request
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+import hub_isolation
 
 from engine import service_host
 from engine.service_host import (DESCRIPTOR, clear_stale_descriptor, parse_ready,
@@ -360,8 +361,12 @@ class LaunchRefusalTests(unittest.TestCase):
             root = Path(temp)
             lock = RootLock(root)
             try:
+                # HUB ISOLATION: the engine refuses before its hub starts; a
+                # regression that let it boot must still not reach the live hub
+                hub_isolation.isolate_data_root(root)
                 env = {**os.environ, "ORGTREE_DATA": str(root), "ORGTREE_V2_TOKEN": "ee" * 32,
                        "ORGTREE_V2_UI_DIR": str(root)}
+                hub_isolation.scrub_inherited_hub(env)
                 result = subprocess.run([sys.executable, str(repo / "engine" / "launch.py")],
                                         cwd=str(repo / "engine"), env=env, capture_output=True,
                                         timeout=60)
@@ -385,8 +390,10 @@ class LaunchRefusalTests(unittest.TestCase):
         repo = Path(__file__).resolve().parent.parent
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
+            hub_isolation.isolate_data_root(root)  # as above: refused before the hub starts
             env = {**os.environ, "ORGTREE_DATA": str(root), "ORGTREE_V2_TOKEN": "ee" * 32,
                    "ORGTREE_V2_UI_DIR": str(root), "ORGTREE_V2_PARENT_PID": "-5"}
+            hub_isolation.scrub_inherited_hub(env)
             result = subprocess.run([sys.executable, str(repo / "engine" / "launch.py")],
                                     cwd=str(repo / "engine"), env=env, capture_output=True,
                                     timeout=60)
@@ -422,11 +429,15 @@ class ServiceHostIntegrationTests(unittest.TestCase):
         repo = Path(__file__).resolve().parent.parent
         with tempfile.TemporaryDirectory() as temp:
             data = Path(temp) / "data"; data.mkdir()
+            # HUB ISOLATION (tests/hub_isolation.py): the real chain hosts a hub
+            # of its own on a free port, never the live one on 7370
+            hub = hub_isolation.isolate_data_root(data)
             ui = Path(temp) / "ui"; (ui / "assets").mkdir(parents=True)
             (ui / "index.html").write_text("<!doctype html>", encoding="utf-8")
             env = {**os.environ, "ORGTREE_V2_DATA": str(data), "ORGTREE_V2_UI_DIR": str(ui)}
             for key in ("ORGTREE_DATA", "ORGTREE_PORT", "ORGTREE_BASE", "ORGTREE_V2_PORT", "ORGTREE_V2_TOKEN"):
                 env.pop(key, None)
+            hub_isolation.scrub_inherited_hub(env)
             host = subprocess.Popen([sys.executable, str(repo / "engine" / "service_host.py")],
                                     cwd=str(repo), env=env, stderr=subprocess.PIPE)
             try:
@@ -454,6 +465,11 @@ class ServiceHostIntegrationTests(unittest.TestCase):
                 self.assertEqual(status, 401)
                 status, _ = _request(base + "/api/desktop/identity", "0" * 64)
                 self.assertEqual(status, 401)
+                # HUB ISOLATION proof: the engine's own hub is the rig's, by
+                # address and by the unique name its /healthz answered
+                status, hosted = _request(base + "/api/desktop/hub", token)
+                self.assertEqual(status, 200)
+                self.assertEqual(hub_isolation.hub_status_problems(hosted["status"], hub), [])
 
                 status, body = _request(base + "/api/desktop/shutdown", token, method="POST")
                 self.assertEqual(status, 200)

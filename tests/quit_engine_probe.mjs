@@ -26,6 +26,7 @@ import path from 'node:path'
 import { execFileSync, spawn } from 'node:child_process'
 import { build } from 'esbuild'
 import { createRequire } from 'node:module'
+import { isolateDataRoot, scrubInheritedHub, hubStatusProblems } from './hub_isolation.mjs'
 
 const argv = process.argv.slice(2)
 const flag = name => { const at = argv.indexOf(name); return at >= 0 ? argv[at + 1] : '' }
@@ -66,8 +67,12 @@ function guardiansOf(pid) {
  *  attach descriptor it publishes only AFTER the ready handshake. */
 async function bootRealEngine(label) {
   const root = path.join(temp, label); fs.mkdirSync(root)
+  // HUB ISOLATION (tests/hub_isolation.mjs): the real engine hosts a hub of
+  // its own on a free port, never the operator's live hub on 7370.
+  const hub = isolateDataRoot(root)
   const env = { ...process.env, ORGTREE_V2_DATA: root, ORGTREE_V2_UI_DIR: ui, PYTHONUNBUFFERED: '1' }
   for (const key of ['ORGTREE_DATA', 'ORGTREE_PORT', 'ORGTREE_BASE', 'ORGTREE_V2_TOKEN', 'ORGTREE_V2_PORT']) delete env[key]
+  scrubInheritedHub(env)
   const host = spawn(PYTHON, [path.join(REPO, 'engine/service_host.py')], { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
   let log = ''
   host.stderr.on('data', chunk => { log += chunk })
@@ -80,6 +85,17 @@ async function bootRealEngine(label) {
     await pause(200)
   }
   const record = JSON.parse(fs.readFileSync(descriptorFile, 'utf8'))
+  // and the proof: the hub the engine names as its own is the rig's, by
+  // address and by the unique name its /healthz answered
+  try {
+    const hosted = await fetch(`http://127.0.0.1:${record.port}/api/desktop/hub`, { headers: { 'X-Orgtree-Desktop-Token': record.token } })
+    assert.equal(hosted.status, 200, `${label}: hub status`)
+    assert.deepEqual(hubStatusProblems((await hosted.json()).status, hub), [], `${label}: the engine's hub must be the rig's own`)
+  } catch (error) {
+    // take the whole tree down before failing: nothing is left running
+    try { execFileSync('taskkill', ['/T', '/F', '/PID', String(host.pid)], { stdio: 'ignore' }) } catch {}
+    throw error
+  }
   const guardians = guardiansOf(record.enginePid)
   assert.ok(guardians.length >= 1, `${label}: the engine must have spawned its guardian`)
   const tree = [host.pid, record.enginePid, ...guardians]

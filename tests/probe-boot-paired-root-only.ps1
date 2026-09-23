@@ -76,6 +76,19 @@ for k,p in {'USERPROFILE':profile,'HOME':profile,'APPDATA':profile/'AppData'/'Ro
     p.mkdir(parents=True, exist_ok=True); os.environ[k] = str(p)
 system32=pathlib.Path(keep['SYSTEMROOT'])/'System32'
 os.environ.update(ORGTREE_DATA=str(install/'probe-data'), ORGTREE_V2_DATA=str(install/'probe-data'), ORGTREE_V2_UI_DIR=str(install/'resources'/'ui'), ORGTREE_WARM='0', ORGTREE_V2_PORT='0', PATH=os.pathsep.join(map(str,(system32,system32/'WindowsPowerShell'/'v1.0'))))
+# HUB ISOLATION (tests/hub_isolation.py, inlined: the snapshot carries no tests/).
+# The probe's engine hosts a hub of its own, never the operator's live hub on
+# 7370/7371, and its default hub is unroutable. No socket is opened to pick the
+# port: a taken port only stops the probe's own hub, it cannot reach a live one.
+import json, random, uuid
+hub_data = install/'probe-data'; hub_data.mkdir(parents=True, exist_ok=True)
+if not (hub_data/'mailhub-hosting.json').exists():
+    (hub_data/'defaults.json').write_text(json.dumps({'net_hub_address': 'http://127.0.0.1:9'}), encoding='utf-8')
+    (hub_data/'mailhub-hosting.json').write_text(json.dumps({'version': 2, 'port': random.randrange(20000, 60000), 'bind': '127.0.0.1', 'name': 'test-rig-' + uuid.uuid4().hex[:12], 'retention_days': 1, 'org_retention_days': 1, 'public_listener': False}), encoding='utf-8')
+hub_hosting = json.loads((hub_data/'mailhub-hosting.json').read_text(encoding='utf-8'))
+hub_default = json.loads((hub_data/'defaults.json').read_text(encoding='utf-8')).get('net_hub_address')
+if hub_hosting.get('port') in (7370, 7371) or not str(hub_hosting.get('name')).startswith('test-rig-') or hub_default != 'http://127.0.0.1:9':
+    raise SystemExit('hub isolation: probe-data is not isolated from the live mail hub')
 try:
     runpy.run_path(str(pathlib.Path(__file__).with_name('service_host.reviewed.py')), run_name='__main__')
 except SystemExit as exc:

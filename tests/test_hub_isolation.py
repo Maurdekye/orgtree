@@ -185,5 +185,217 @@ class TransportGuard(unittest.TestCase):
         self.assertEqual(self.reported, [LIVE + '/healthz', 'http://localhost:7371/healthz'])
 
 
+class ProvingARoot(unittest.TestCase):
+    """read_rig_hub / hub_status_problems: the proof a rig checks before
+    (a stand-in engine) or after (an unmodified boot chain) the engine runs."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix='hub-isolation-proof-')
+        self.root = Path(self.tmp.name)
+        self.addCleanup(self.tmp.cleanup)
+
+    def test_an_isolated_root_reads_back_as_its_own_hub(self):
+        hub = hub_isolation.isolate_data_root(self.root)
+        self.assertEqual(hub_isolation.read_rig_hub(self.root), hub)
+
+    def test_a_root_that_is_not_provably_isolated_is_refused(self):
+        def rewrite(filename, **change):
+            path = self.root / filename
+            path.write_text(json.dumps({**json.loads(path.read_text(encoding='utf-8')), **change}),
+                            encoding='utf-8')
+        cases = {
+            'no hub of its own': lambda: (self.root / 'mailhub-hosting.json').unlink(),
+            'no explicit default': lambda: (self.root / 'defaults.json').unlink(),
+            'the live port': lambda: rewrite('mailhub-hosting.json', port=7370),
+            'the public listener port': lambda: rewrite('mailhub-hosting.json', port=7371),
+            'a name that is not a rig name': lambda: rewrite('mailhub-hosting.json', name=''),
+            'a public listener': lambda: rewrite('mailhub-hosting.json', public_listener=True),
+            'a network bind': lambda: rewrite('mailhub-hosting.json', bind='0.0.0.0'),
+            'a live default': lambda: rewrite('defaults.json', net_hub_address='127.0.0.1'),
+            'an empty default': lambda: rewrite('defaults.json', net_hub_address=''),
+        }
+        for label, damage in cases.items():
+            with self.subTest(label):
+                for name in ('defaults.json', 'mailhub-hosting.json'):
+                    (self.root / name).unlink(missing_ok=True)
+                hub_isolation.isolate_data_root(self.root)
+                damage()
+                with self.assertRaises(RuntimeError):
+                    hub_isolation.read_rig_hub(self.root)
+
+    def test_the_status_must_name_the_rigs_hub(self):
+        hub = {'address': 'http://127.0.0.1:51234', 'name': 'test-rig-abc'}
+        good = {'address': hub['address'], 'hub_name': hub['name'], 'healthy': True}
+        self.assertEqual(hub_isolation.hub_status_problems(good, hub), [])
+        for label, change in {'another address': {'address': LIVE},
+                              'another hub answering': {'hub_name': 'operator-hub'},
+                              'no hub answering': {'healthy': False, 'hub_name': None}}.items():
+            with self.subTest(label):
+                self.assertNotEqual(hub_isolation.hub_status_problems({**good, **change}, hub), [])
+
+
+class EnforcedInsideTheEngineProcess(unittest.TestCase):
+    """enforce_isolated_root, run the way a stand-in engine runs it: loaded by
+    path in a fresh interpreter before anything else."""
+
+    CODE = ('import importlib.util, json, sys, urllib.request; '
+            'spec = importlib.util.spec_from_file_location("hub_isolation", sys.argv[1]); '
+            'h = importlib.util.module_from_spec(spec); spec.loader.exec_module(h); '
+            'hub = h.enforce_isolated_root(sys.argv[2]); '
+            'print(json.dumps({"hub": hub, "guarded": getattr(urllib.request.OpenerDirector.open, '
+            '"_hub_isolation_guard", False)}))')
+
+    def run_child(self, root, **extra):
+        env = {k: v for k, v in os.environ.items() if k not in ('PYTHONPATH', 'PYTHONHOME')}
+        env.update(extra)
+        return subprocess.run([sys.executable, '-I', '-c', self.CODE,
+                               str(ROOT / 'tests' / 'hub_isolation.py'), str(root)],
+                              env=env, capture_output=True, text=True, timeout=60)
+
+    def test_an_isolated_root_boots_with_the_guard_installed(self):
+        with tempfile.TemporaryDirectory(prefix='hub-isolation-enforce-') as tmp:
+            hub = hub_isolation.isolate_data_root(Path(tmp))
+            run = self.run_child(tmp)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertEqual(json.loads(run.stdout), {'hub': hub, 'guarded': True})
+
+    def test_an_inherited_address_or_an_unprepared_root_refuses_to_boot(self):
+        with tempfile.TemporaryDirectory(prefix='hub-isolation-enforce-') as tmp:
+            run = self.run_child(tmp)
+            self.assertNotEqual(run.returncode, 0)
+            self.assertIn('not an isolated rig root', run.stderr)
+            hub_isolation.isolate_data_root(Path(tmp))
+            run = self.run_child(tmp, ORGTREE_LOCAL_HUB_ADDRESS=LIVE)
+            self.assertNotEqual(run.returncode, 0)
+            self.assertIn('inherited ORGTREE_LOCAL_HUB_ADDRESS', run.stderr)
+            self.assertEqual(run.stdout, '')
+
+
+class NodeTwinMatches(unittest.TestCase):
+    """tests/hub_isolation.mjs carries the same constants (read from source:
+    this suite must not depend on a Node binary)."""
+
+    def test_the_constants_are_the_same(self):
+        import re
+        source = (ROOT / 'tests' / 'hub_isolation.mjs').read_text(encoding='utf-8')
+
+        def const(name):
+            match = re.search(rf"export const {name} = (?:Object\.freeze\()?(.+?)\)?\n", source)
+            self.assertIsNotNone(match, name)
+            return json.loads(match.group(1).replace("'", '"'))
+        self.assertEqual(sorted(const('LIVE_HUB_PORTS')), sorted(hub_isolation.LIVE_HUB_PORTS))
+        self.assertEqual(const('UNROUTABLE_HUB_ADDRESS'), hub_isolation.UNROUTABLE_HUB_ADDRESS)
+        self.assertEqual(tuple(const('INHERITED_HUB_ENV')), hub_isolation.INHERITED_HUB_ENV)
+        self.assertEqual(const('RIG_HUB_PREFIX'), hub_isolation.RIG_HUB_PREFIX)
+
+
+class EveryRealEngineRigIsIsolated(unittest.TestCase):
+    """THE AUDIT. A real hub starts only in ``launch.main()``, which is reached
+    by calling it, by spawning the real ``engine/launch.py`` or
+    ``engine/service_host.py``, or by an Electron entry that spawns the app's
+    launcher. Every file under tests/ that does one of those must use the
+    isolation helpers, delegate to a file that does, or be listed below with
+    the reason it boots no hub. A new rig that does none of these fails here
+    instead of quietly registering fixtures on the operator's hub."""
+
+    BOOT = (r"\blaunch\.main\(\)|engine['\"]?\s*/\s*['\"](?:launch|service_host)\.py"
+            r"|engine[/\\]+(?:launch|service_host)\.py|service_host\.reviewed\.py"
+            r"|endsWith\(['\"]launch\.py['\"]\)|\bh\.main\(\)|service_host\.main\(\)"
+            r"|MailhubRuntime\(")
+    ISOLATED = r"hub_isolation|isolatedRoot\("
+    # stand-ins that exec another stand-in's source (which enforces) first
+    DELEGATES = {
+        'tests/acceptance/maintenance_engine.py': 'visual_engine.py',
+        'tests/acceptance/management_engine.py': 'visual_engine.py',
+        'tests/acceptance/lifecycle_engine.py': 'maintenance_engine.py',
+        'tests/acceptance/unstick_engine.py': 'maintenance_engine.py',
+        'tests/acceptance/artifacts_engine.py': 'maintenance_engine.py',
+    }
+    ELECTRON_ENTRY = ('boots through the app its acceptance runner (tests/acceptance/run*.mjs) '
+                      'starts on an isolatedRoot() checked by assertIsolatedEnvironment()')
+    EXEMPT = {
+        'tests/acceptance/application.cjs': ELECTRON_ENTRY,
+        'tests/acceptance/artifacts.cjs': ELECTRON_ENTRY,
+        'tests/acceptance/connections.cjs': ELECTRON_ENTRY,
+        'tests/acceptance/history.cjs': ELECTRON_ENTRY,
+        'tests/acceptance/lifecycle.cjs': ELECTRON_ENTRY,
+        'tests/acceptance/maintenance.cjs': ELECTRON_ENTRY,
+        'tests/acceptance/management.cjs': ELECTRON_ENTRY,
+        'tests/acceptance/relaunch.cjs': ELECTRON_ENTRY,
+        'tests/acceptance/unstick.cjs': ELECTRON_ENTRY,
+        'tests/attach.test.mjs': 'reads service_host.py source; its engines are stub launchers',
+        'tests/dev-install.test.mjs': 'names engine/launch.py in a package manifest only',
+        'tests/release-windows.test.mjs': 'names engine/launch.py in release manifests only',
+        'tests/traylist-wiring.test.mjs': 'reads engine/launch.py source only',
+        'tests/paired-boot-preparation.test.ps1': 'reads the host source and runs the shim with '
+                                                  'run_path stubbed; it asserts the shim isolates',
+        'tests/prepare-boot-paired-snapshot.cjs': 'copies files into a snapshot; boots nothing',
+        'tests/test_mailhub_runtime.py': 'starts MailhubRuntime only on its own TEST_PORT',
+        'tests/test_python_verification_runner.py': 'writes a one-line fixture launch.py',
+        'tests/test_startup_progress.py': 'runs service_host.main against a stub launch.py',
+    }
+
+    def files(self):
+        for path in sorted((ROOT / 'tests').rglob('*')):
+            if (path.suffix in ('.py', '.mjs', '.cjs', '.js', '.ps1')
+                    and 'node_modules' not in path.parts and '__pycache__' not in path.parts):
+                yield path.relative_to(ROOT).as_posix(), path.read_text(encoding='utf-8', errors='replace')
+
+    def test_no_real_engine_rig_skips_the_isolation(self):
+        import re
+        boots, missing = set(), []
+        for name, text in self.files():
+            if not re.search(self.BOOT, text):
+                continue
+            boots.add(name)
+            if name in self.EXEMPT or name in self.DELEGATES:
+                continue
+            if not re.search(self.ISOLATED, text):
+                missing.append(name)
+        self.assertEqual(missing, [], 'these files boot a real engine without hub isolation')
+        stale = sorted(set(self.EXEMPT) - boots)
+        self.assertEqual(stale, [], 'exemptions for files that no longer boot anything')
+
+    def test_stand_in_engines_enforce_before_the_engine_is_imported(self):
+        import re
+        for name, text in self.files():
+            if ('launch.main()' not in text or name in self.DELEGATES
+                    or name in ('tests/hub_isolation.py', 'tests/test_hub_isolation.py')):
+                continue
+            with self.subTest(name):
+                enforce = text.find('enforce_isolated_root(')
+                imported = re.search(r"^\s*(?:from engine import launch|import launch)\b", text, re.M)
+                self.assertGreater(enforce, -1, 'a stand-in engine must call enforce_isolated_root')
+                self.assertIsNotNone(imported)
+                self.assertLess(enforce, imported.start())
+        for name, target in self.DELEGATES.items():
+            with self.subTest(name):
+                # follow the chain (lifecycle -> maintenance -> visual) to the
+                # stand-in that enforces
+                seen = [name]
+                while True:
+                    text = (ROOT / seen[-1]).read_text(encoding='utf-8')
+                    self.assertIn(target, text)
+                    self.assertIn('exec(', text)
+                    seen.append(str(Path(seen[-1]).with_name(target).as_posix()))
+                    if seen[-1] not in self.DELEGATES:
+                        break
+                    target = self.DELEGATES[seen[-1]]
+                self.assertIn('enforce_isolated_root(', (ROOT / seen[-1]).read_text(encoding='utf-8'))
+
+    def test_acceptance_runners_build_their_roots_through_the_isolation(self):
+        isolation = (ROOT / 'tests' / 'acceptance' / 'isolation.mjs').read_text(encoding='utf-8')
+        self.assertIn("isolateDataRoot(path.join(root, 'data'))", isolation)
+        self.assertIn('scrubInheritedHub(env)', isolation)
+        self.assertIn('readRigHub(env.ORGTREE_V2_DATA)', isolation)
+        runners = sorted((ROOT / 'tests' / 'acceptance').glob('run*.mjs'))
+        self.assertTrue(runners)
+        for runner in runners:
+            with self.subTest(runner.name):
+                text = runner.read_text(encoding='utf-8')
+                self.assertIn('isolatedRoot(', text)
+                self.assertIn('assertIsolatedEnvironment(', text)
+
+
 if __name__ == '__main__':
     unittest.main()
