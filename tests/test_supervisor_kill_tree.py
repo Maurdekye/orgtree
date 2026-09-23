@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -19,6 +20,7 @@ from pathlib import Path
 _ROOT = tempfile.TemporaryDirectory(prefix="orgtree-kill-tree-")
 os.environ["ORGTREE_DATA"] = _ROOT.name
 os.environ["ORGTREE_WARM"] = "0"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine' / 'backend'))
 from orgtree import supervisor as sup                                # noqa: E402
 
 
