@@ -31,6 +31,7 @@ import os
 import queue
 import re
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -12342,7 +12343,8 @@ def _working_cache_read(slug: str, nid: str,
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                     encoding="utf-8", errors="replace",
                     creationflags=(subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
-                                   if os.name == "nt" else 0))
+                                   if os.name == "nt" else 0),
+                    start_new_session=(os.name != "nt"))
                 if lease is not None:
                     lease["proc"] = proc
             _leash(proc)
@@ -18324,7 +18326,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                     text=True, encoding="utf-8", errors="replace",
                     creationflags=(subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
-                                   if os.name == "nt" else 0))
+                                   if os.name == "nt" else 0),
+                    start_new_session=(os.name != "nt"))
                 cold_stderr = warmpool.ColdStderr(proc, slug, nid, sid)
                 _leash(proc)              # dies with the backend (№29)
                 _spend_pass_now()         # the process exists: this IS the attempt
@@ -24014,7 +24017,8 @@ def _compact_split_body(slug: str, nid: str) -> None:
                                 stderr=subprocess.PIPE, text=True, encoding="utf-8",
                                 errors="replace",
                                 creationflags=(subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
-                                               if os.name == "nt" else 0))
+                                               if os.name == "nt" else 0),
+                                start_new_session=(os.name != "nt"))
         _leash(proc)
         state(slug, nid)["halt_compact_proc"] = proc
         halt.check(slug, nid)
@@ -24307,7 +24311,8 @@ def _remote_control_start_owned(slug: str, nid: str) -> dict[str, Any]:
                 cwd=cwd, stdin=subprocess.DEVNULL, stdout=logf, stderr=logf,
                 text=True, encoding="utf-8", errors="replace",
                 creationflags=(subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
-                               if os.name == "nt" else 0))
+                               if os.name == "nt" else 0),
+                start_new_session=(os.name != "nt"))
     except OSError as e:
         _remote_unpark(slug, nid)
         return {"error": f"could not start the remote-control server: {e}"}
@@ -29497,10 +29502,11 @@ def _wd_kill_tree(proc: "subprocess.Popen[str] | None") -> None:
                            creationflags=subprocess.CREATE_NO_WINDOW)  # type: ignore[attr-defined]
         except (OSError, subprocess.SubprocessError):
             pass
-    try:
-        proc.kill()
-    except OSError:
-        pass
+    else:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
     try:
         proc.wait(timeout=5)
     except (OSError, subprocess.TimeoutExpired):
