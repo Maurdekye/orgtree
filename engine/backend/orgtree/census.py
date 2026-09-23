@@ -38,7 +38,9 @@ and `store.DOC_LOCK` already accumulates into it. So the stage and lock
 numbers are collected today whether or not anybody reads them. The census's
 marginal cost per request is one classification slot bind, one profile freeze,
 one dict build and one `deque.append` — and, while capture is OFF, a single
-integer increment. ⚠ THAT COST IS ARGUED HERE AND HAS NOT BEEN MEASURED. The
+integer increment. Since schema 3 every primary-store SQLite statement also
+passes through `census_contacts`' observed connection class, capture on or
+off; its own docstring states that cost. ⚠ THAT COST IS ARGUED HERE AND HAS NOT BEEN MEASURED. The
 default stays off until it is; measuring it is a separate stage.
 
 ⚠ THAT INTEGER IS DELIBERATE AND IT IS NOT AN OVERSIGHT. `observed` counts
@@ -77,9 +79,17 @@ its own errors — and, unlike a bare `except: pass`, it COUNTS them in
 as a clean-looking empty sink. It never runs under the document lock.
 
 WHAT THIS MODULE DOES NOT MEASURE, stated here because the payload is read by
-agents. It observes no storage contact: there is no database, connection,
-cursor, transaction, relation or statement field, and `lock_*` is the
-in-process document lock, not a database. `scope` is a source-based candidate
+agents. ⚠ SCHEMA 3 ADDS ONE KIND OF STORAGE CONTACT AND NO OTHER: a record's
+`db` block is the ACTUAL connection, checkout and statement activity of the
+primary store's SQLite connections (`store._open_conn`), observed by
+`census_contacts` at the connection class and cross-checked by SQLite's own
+trace callback. Every other database path, PostgreSQL, the Rust engine and
+other processes are not observed, and `contact_coverage.uninstrumented` lists
+the unobserved connection sites by file and symbol. `db` holds counts from
+closed name sets and nothing else — no SQL, no parameters, no path, no
+duration — so it says which kinds of contact happened and how often, never
+rows examined, IO or lock wait. `lock_*` is still the in-process document
+lock, not a database. `scope` is a source-based candidate
 classification (`scope_src: "table"`) or a route-template shape
 (`"route_shape"`) — `"declared"` means a handler said so, which is still not an
 observation, and no handler declares today, so `provenance.declared_coverage`
@@ -97,6 +107,7 @@ from contextvars import ContextVar, Token
 from typing import Any
 
 from . import census_classes as classes
+from . import census_contacts as contacts
 from . import profiling
 
 #: Bump on ANY change to record shape or field meaning. Published in every
@@ -106,12 +117,21 @@ from . import profiling
 #: 2 — attempt-level `unit`/`terminal`, closed `method`, `null` for an
 #:     unmeasurable number, `no_response_start`, window generation, self-read
 #:     exclusion and `diagnostic`, process `instance`, `provenance`.
-SCHEMA_VERSION = 2
+#: 3 — the per-attempt `db` contact block (`census_contacts`), the `db_*`
+#:     counters, `contact_coverage`, and a provenance that no longer says no
+#:     storage contact is measured. ⚠ `tools/operation_census_report.py` reads
+#:     schema 2 only and refuses a schema-3 snapshot; that refusal is correct
+#:     and extending the report is not part of this stage.
+SCHEMA_VERSION = 3
 
 #: Off by default. The item allows on-by-default only if measured overhead is
 #: negligible, and switching it on in a running product is a live behaviour
 #: change that this seat is explicitly not authorized to make.
 _ENABLED = os.environ.get("ORGTREE_OPERATION_CENSUS") == "1"
+# The contact observer follows THIS flag and has none of its own: one switch,
+# one default, one operator door. Read at call time, so a toggle reaches
+# connections that are already open.
+contacts.install_capture_flag(lambda: _ENABLED)
 
 #: Bounded retention, in memory only: no file, no rotation to get wrong, no
 #: disk-full failure mode, and the process can never grow past it.
@@ -144,7 +164,10 @@ _COUNTER_NAMES = ("observed", "skipped_disabled", "skipped_self", "recorded",
                   "evicted", "rejected", "dropped_stale_window",
                   "dropped_capture_off", "nonterminal", "no_response_start",
                   "unclassified_tool", "unclassified_action",
-                  "unclassified_scope", "unclassified_method")
+                  "unclassified_scope", "unclassified_method",
+                  # a record appended with no contact evidence, because its
+                  # attempt began before capture was switched on
+                  "db_unbound")
 _COUNTERS: "dict[str, int]" = {name: 0 for name in _COUNTER_NAMES}
 
 #: Window origin. `_WINDOW_AT` is ONE wall clock published at snapshot level;
@@ -267,14 +290,27 @@ _CALL: "ContextVar[dict[str, Any] | None]" = ContextVar(
     "orgtree_census_call", default=None)
 
 
-def bind() -> Token:
+def bind() -> "tuple[Token, Token | None]":
     """Open a classification slot for this request. Always called, cheaply,
     so a handler can `classify`/`declare` without knowing whether capture is
-    on — the slot is one empty dict and is thrown away if nothing uses it."""
-    return _CALL.set({})
+    on — the slot is one empty dict and is thrown away if nothing uses it.
+
+    While capture is on it also opens the attempt's contact tally
+    (`census_contacts.Tally`) and binds it for the contact observer. ⚠ ONLY
+    THEN: a tally promises that every primary-store contact of this attempt
+    is counted in it, and an attempt that began with capture off cannot keep
+    that promise, so it gets no tally and its record gets no `db`."""
+    if not _ENABLED:
+        return _CALL.set({}), None
+    tally = contacts.Tally()
+    return _CALL.set({"db": tally}), contacts.bind(tally)
 
 
-def unbind(token: Token) -> None:
+def unbind(token: "tuple[Token, Token | None] | Token") -> None:
+    if isinstance(token, tuple):
+        token, tally_token = token
+        if tally_token is not None:
+            contacts.unbind(tally_token)
     _CALL.reset(token)
 
 
@@ -355,8 +391,8 @@ def declare(rw: "str | None" = None, scope: "str | None" = None) -> None:
     table because the handler that authorized the call said so, rather than a
     table guessing from the verb — but it remains a declaration. Comparing a
     declaration against observed connection and statement activity is what
-    would make it a measurement, and there is no contact instrumentation in
-    this schema at all.
+    would make it a measurement; schema 3's `db` block observes that activity
+    for the primary SQLite store only, and nothing here compares the two yet.
 
     ⚠ AND NOTHING IN THE PRODUCT CALLS THIS TODAY. That is deliberate rather
     than forgotten: wiring it means editing the handlers that compute
@@ -546,6 +582,15 @@ def _build(method: str, route: str, status: int, handler_ms: float,
         record["targets"] = targets
         record["targets_self"] = bool(slot.get("targets_self"))
 
+    tally = slot.get("db")
+    if isinstance(tally, contacts.Tally):
+        # SEALED HERE, so a contact arriving after this line — a managed
+        # tool's worker still running after its yield — is counted in
+        # `db_late` rather than added to a record already written.
+        record["db"] = _contact_block(tally.seal())
+    else:
+        bumps.append("db_unbound")
+
     wall = 0.0
     for field in _NUMERIC_FIELDS:
         value = _number(profile.get(field))
@@ -562,6 +607,29 @@ def _build(method: str, route: str, status: int, handler_ms: float,
         # subtraction from an unknown is not a number.
         record["unattributed_ms"] = round(handler - wall, 3)
     return record, bumps
+
+
+def _contact_block(sealed: "dict[str, Any]") -> "dict[str, Any]":
+    """Rebuild a sealed tally from vetted values, as `_build` rebuilds
+    everything else: the store is a `census_contacts.STORES` member, each
+    count is a finite non-negative int under a `census_contacts.FIELDS` name,
+    and each kind is a `census_contacts.KINDS` member."""
+    store = sealed.get("store")
+    block: "dict[str, Any]" = {
+        "store": store if store in contacts.STORES else "unknown"}
+    for field in contacts.FIELDS:
+        value = _count(sealed.get(field))
+        block[field] = value if value is not None and value >= 0 else 0
+    for group in ("kinds", "kind_failed"):
+        raw = sealed.get(group)
+        raw = raw if isinstance(raw, dict) else {}
+        kept: "dict[str, int]" = {}
+        for kind in contacts.KINDS:
+            value = _count(raw.get(kind))
+            if value is not None and value > 0:
+                kept[kind] = value
+        block[group] = kept
+    return block
 
 
 def _freeze(profile: "dict[str, Any] | None") -> "dict[str, Any]":
@@ -605,6 +673,7 @@ def observe(method: str, route: str, status: int, handler_ms: float,
          `observed` inside one window.
     """
     global _SEQ
+    slot = _CALL.get()
     try:
         with _LOCK:
             _COUNTERS["observed"] += 1
@@ -612,7 +681,6 @@ def observe(method: str, route: str, status: int, handler_ms: float,
                 _COUNTERS["skipped_disabled"] += 1
                 return
             generation, origin = _WINDOW_GEN, _WINDOW_T0
-        slot = _CALL.get()
         verb = classes.validated_method(method)
         if _is_self_read(verb, route, slot):
             with _LOCK:
@@ -652,6 +720,14 @@ def observe(method: str, route: str, status: int, handler_ms: float,
                 _COUNTERS["rejected"] += 1
         except Exception:                                      # noqa: BLE001
             pass
+    finally:
+        # Every way out of here closes the attempt's tally — skipped,
+        # dropped, rejected or recorded — so no later contact can be added to
+        # evidence that nobody will read; it is counted in `db_late` instead.
+        # Sealing twice is harmless.
+        tally = slot.get("db") if isinstance(slot, dict) else None
+        if isinstance(tally, contacts.Tally):
+            tally.seal()
 
 
 def enabled() -> bool:
@@ -697,6 +773,7 @@ def reset(capacity: "int | None" = None) -> None:
         _WINDOW_AT = time.time()
         _WINDOW_T0 = time.perf_counter()
         _WINDOW_GEN += 1
+    contacts.reset_counters()
 
 
 def _provenance(rows: "list[dict[str, Any]]") -> "dict[str, Any]":
@@ -716,17 +793,26 @@ def _provenance(rows: "list[dict[str, Any]]") -> "dict[str, Any]":
         if src in counts:
             counts[src] += 1
     total = len(rows)
+    with_db = sum(1 for row in rows if isinstance(row.get("db"), dict))
     return {
         "scope_src_counts": counts,
         "declared_coverage": round(counts["declared"] / total, 6) if total else 0.0,
-        "measures_storage_contacts": False,
+        # ⚠ `False` AT SCHEMA 2, AND NOT A PLAIN `True` NOW. Contacts are
+        # observed on the primary SQLite store's connections and nowhere else;
+        # `contact_coverage` lists what is not observed.
+        "measures_storage_contacts": "primary_sqlite_store_only",
+        "rows_with_contact_evidence": with_db,
+        "rows_without_contact_evidence": total - with_db,
         "unit": "attempt",
         "note": ("scope is a source-based candidate classification (table), a "
                  "route-template shape (route_shape), or a handler's own "
                  "statement (declared) - never an observed storage contact. "
-                 "No handler declares at this schema, so declared_coverage is "
-                 "0.0. This instrument proves no locality proportion and "
-                 "publishes no denominator of logical operations."),
+                 "The db block is observed contact on the primary SQLite "
+                 "store's connections only, which is incomplete coverage of "
+                 "storage. No handler declares at this schema, so "
+                 "declared_coverage is 0.0. This instrument proves no locality "
+                 "proportion and publishes no denominator of logical "
+                 "operations."),
     }
 
 
@@ -738,9 +824,9 @@ LIMITS = (
     "written; its real result, including a refusal, is not in this sink.",
     "Non-HTTP work - workers, tasks, callbacks, hooks, websockets and restart "
     "recovery - is not observed at all.",
-    "No storage contact is measured: there is no database, connection, cursor, "
-    "transaction, relation or statement field, and lock_* is the in-process "
-    "document lock, not a database.",
+    "Storage contact is measured ONLY in the db block and ONLY for the "
+    "primary store's SQLite connections (see contact_coverage and the db "
+    "limits below); lock_* is the in-process document lock, not a database.",
     "bytes is the HTTP response size, never a storage rows-or-bytes figure.",
     "Overhead is argued in census.py and has not been measured; the default "
     "is off because of that.",
@@ -775,6 +861,13 @@ def snapshot(limit: "int | None" = None) -> "dict[str, Any]":
         capacity = _RECORDS.maxlen or 0
         window_at, window_t0, seq = _WINDOW_AT, _WINDOW_T0, _SEQ
         generation, enabled_now = _WINDOW_GEN, _ENABLED
+    # ⚠ READ UNDER THE OBSERVER'S OWN LOCK, not this one: the contact observer
+    # runs on statement threads and must never wait behind the census ring.
+    # These may therefore be a few contacts apart from the ring above. They
+    # count evidence that reached NO record, and no invariant ties them to
+    # `recorded`.
+    for name, value in contacts.counters().items():
+        counters["db_" + name] = value
     # ⚠ DERIVED FROM THE UNTRIMMED RING, BEFORE `limit` is applied. Computing
     # it afterwards would count rows this response merely declined to serve as
     # rows the ring had evicted — the two are not the same thing, and
@@ -808,8 +901,11 @@ def snapshot(limit: "int | None" = None) -> "dict[str, Any]":
                        "scope_src": list(classes.SCOPE_SRC),
                        "outcome": list(classes.OUTCOME),
                        "method": list(classes.METHOD),
-                       "nonterminal_reason": list(NONTERMINAL_REASON)},
+                       "nonterminal_reason": list(NONTERMINAL_REASON),
+                       "db_store": list(contacts.STORES),
+                       "db_kind": list(contacts.KINDS)},
         "provenance": _provenance(rows),
-        "limits": list(LIMITS),
+        "contact_coverage": contacts.coverage(),
+        "limits": list(LIMITS) + list(contacts.LIMITS),
         "records": rows,
     }

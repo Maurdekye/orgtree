@@ -13,7 +13,7 @@
     "exact_effect_contracts": "pending per-entry review"
   },
   "summary": {
-    "modules": 119,
+    "modules": 120,
     "registration_sites": 317,
     "registration_kinds": {
       "callback": 5,
@@ -123,11 +123,15 @@
     },
     {
       "path": "engine/backend/orgtree/census.py",
-      "normalized_source_sha256": "e10419fc4b42b3266dc0dc8390ab662f0b40cc3b18c78af51fbe139fd114a240"
+      "normalized_source_sha256": "1ebcaaadb58130b94c618344296483e47c9025aa5fbb7d0235238501f33ea1a0"
     },
     {
       "path": "engine/backend/orgtree/census_classes.py",
       "normalized_source_sha256": "dcc6fde36e97d75a425eebd0b0d5ae79c571f2ec8a3e1f3ee5d52f48ee31d2c4"
+    },
+    {
+      "path": "engine/backend/orgtree/census_contacts.py",
+      "normalized_source_sha256": "557c343309e632e8c712d9b188029549b88ba4932f42710f283fcb97404c9fc6"
     },
     {
       "path": "engine/backend/orgtree/chat_window.py",
@@ -451,7 +455,7 @@
     },
     {
       "path": "engine/backend/orgtree/store.py",
-      "normalized_source_sha256": "b524a5a47bc8a1a3a233219d970761b9130f129a35b023f8a336c4b20de2fb10"
+      "normalized_source_sha256": "bb5d4fc1d1fe53b0f2caeda01d5a504c57d4294863d545492c3dcfb8351025d6"
     },
     {
       "path": "engine/backend/orgtree/subproxy.py",
@@ -471,7 +475,7 @@
     },
     {
       "path": "engine/backend/orgtree/toolwait.py",
-      "normalized_source_sha256": "f49f8a836a70a17ac84f79ff6e18f6b36988cf6120a92652fa94fe870234c12a"
+      "normalized_source_sha256": "08114e3c530e57c83a149fe23b192f8731d32b4ccf7451c9d7d217e41655abaf"
     },
     {
       "path": "engine/backend/orgtree/transcript_ingest.py",
@@ -6028,8 +6032,8 @@
       "source": {
         "path": "engine/backend/orgtree/toolwait.py",
         "symbol": "invoke",
-        "line": 233,
-        "end_line": 234,
+        "line": 239,
+        "end_line": 240,
         "syntax_sha256": "f8166660dfb060f2a49f4aa4db06b89fb2cc9d65b461d15d5cf68b517f27290b"
       },
       "mechanism": "threading.Thread",
@@ -6042,8 +6046,8 @@
       "source": {
         "path": "engine/backend/orgtree/toolwait.py",
         "symbol": "start",
-        "line": 321,
-        "end_line": 321,
+        "line": 327,
+        "end_line": 327,
         "syntax_sha256": "36f64d5d6b00282519170da534a4a32b4c59d7ab401ee57507fd5d8a8f22a755"
       },
       "mechanism": "threading.Thread",
@@ -9807,13 +9811,13 @@
       "source": {
         "path": "engine/backend/orgtree/store.py",
         "symbol": "_open_conn",
-        "line": 1159,
-        "end_line": 1160,
-        "syntax_sha256": "78ed4ecc59d6a412aaad817cc264b79b27d08b6f05eebde14503ddfa3bca25a7"
+        "line": 1170,
+        "end_line": 1172,
+        "syntax_sha256": "29dd872d4b2fb997a2566cf05972dcc875ac4d62760abd37ebc5cbb2b5d69d23"
       },
       "factory": "sqlite3.connect",
       "classification": "database_factory",
-      "arguments_expression": "sqlite3.connect(target, timeout=10.0, isolation_level=None, check_same_thread=False, uri=not create)"
+      "arguments_expression": "sqlite3.connect(target, timeout=10.0, isolation_level=None, check_same_thread=False, uri=not create, factory=census_contacts.ObservedConnection)"
     },
     {
       "source": {
@@ -10712,50 +10716,50 @@
     {
       "path": "engine/backend/orgtree/store.py",
       "symbol": "<module>",
-      "line": 350,
-      "end_line": 350,
+      "line": 355,
+      "end_line": 355,
       "syntax_sha256": "0ccb4977660756975501b1f9bc3791fa0401f3eb31ace6c63e335cb19093ae89"
     },
     {
       "path": "engine/backend/orgtree/store.py",
       "symbol": "migrate_pending",
-      "line": 3403,
-      "end_line": 3403,
+      "line": 3416,
+      "end_line": 3416,
       "syntax_sha256": "d08a39d563eed5543c8f6974195ff4851b7824fc3f361ebd4ffc929c23c64a04"
     },
     {
       "path": "engine/backend/orgtree/store.py",
       "symbol": "_ensure_migrated",
-      "line": 3432,
-      "end_line": 3432,
+      "line": 3445,
+      "end_line": 3445,
       "syntax_sha256": "d08a39d563eed5543c8f6974195ff4851b7824fc3f361ebd4ffc929c23c64a04"
     },
     {
       "path": "engine/backend/orgtree/store.py",
       "symbol": "_load_org",
-      "line": 4098,
-      "end_line": 4098,
+      "line": 4111,
+      "end_line": 4111,
       "syntax_sha256": "d08a39d563eed5543c8f6974195ff4851b7824fc3f361ebd4ffc929c23c64a04"
     },
     {
       "path": "engine/backend/orgtree/store.py",
       "symbol": "write_org",
-      "line": 4862,
-      "end_line": 4862,
+      "line": 4875,
+      "end_line": 4875,
       "syntax_sha256": "d08a39d563eed5543c8f6974195ff4851b7824fc3f361ebd4ffc929c23c64a04"
     },
     {
       "path": "engine/backend/orgtree/store.py",
       "symbol": "write_org",
-      "line": 4889,
-      "end_line": 4889,
+      "line": 4902,
+      "end_line": 4902,
       "syntax_sha256": "d08a39d563eed5543c8f6974195ff4851b7824fc3f361ebd4ffc929c23c64a04"
     },
     {
       "path": "engine/backend/orgtree/store.py",
       "symbol": "delete_org",
-      "line": 5082,
-      "end_line": 5082,
+      "line": 5095,
+      "end_line": 5095,
       "syntax_sha256": "d08a39d563eed5543c8f6974195ff4851b7824fc3f361ebd4ffc929c23c64a04"
     },
     {

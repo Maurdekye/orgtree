@@ -87,6 +87,7 @@ from collections.abc import Callable, Generator, Iterable, Iterator
 from typing import Any, cast
 
 from datetime import datetime, timezone
+from . import census_contacts
 from . import devguard
 from . import profiling
 from . import stateprobe
@@ -119,6 +120,10 @@ DATA_ROOT: str = os.environ.get("ORGTREE_DATA", os.path.expanduser("~/orgtree"))
 STORE_BACKEND: str = os.environ.get("ORGTREE_STORE", "sqlite").strip().lower() or "sqlite"
 if STORE_BACKEND not in ("json", "sqlite"):
     raise ValueError(f"ORGTREE_STORE must be 'json' or 'sqlite', not {STORE_BACKEND!r}")
+# The census's contact evidence says which store an attempt ran against, so
+# that zero SQLite contacts under the JSON backend cannot read as "touched
+# nothing" (`census_contacts.Tally`).
+census_contacts.set_primary_store(STORE_BACKEND)
 
 # The operator's opt-in for JSON→SQLite migration of THIS process's data root.
 # Read at call time, not import time, on purpose: the value is checked at the
@@ -1150,14 +1155,21 @@ def _open_conn(path: str, *, create: bool = False) -> sqlite3.Connection:
     off; every transaction here is an explicit `BEGIN IMMEDIATE` … `COMMIT`.
     `check_same_thread=False`: connections live in `_Pool`, which hands each
     one to exactly one thread at a time — see the pool for why that, and not
-    `threading.local()`, is the shape."""
+    `threading.local()`, is the shape.
+
+    `factory=census_contacts.ObservedConnection` makes this the census's
+    actual contact boundary for the primary store (P02-A3). It behaves as a
+    plain `sqlite3.Connection` and observes nothing while census capture is
+    off, which is the default; see `census_contacts` for what it records and
+    for every connection path it does not."""
     target = path
     if not create:
         # as_uri() percent-encodes a data root containing a space, '#' or '%';
         # hand-built "file:" + path does not, and silently opens the wrong file
         target = pathlib.Path(os.path.abspath(path)).as_uri() + "?mode=rw"
     conn = sqlite3.connect(target, timeout=10.0, isolation_level=None,
-                           check_same_thread=False, uri=not create)
+                           check_same_thread=False, uri=not create,
+                           factory=census_contacts.ObservedConnection)
     conn.execute("PRAGMA foreign_keys=OFF")
     conn.execute("PRAGMA busy_timeout=10000")
     if create:
@@ -1220,6 +1232,7 @@ class _Pool:
         try:
             if conn is None:
                 conn = _open_conn(_db_path(slug), create=create)
+            census_contacts.note_checkout()
             yield conn
             # a transaction still open on check-in is a bug in the caller;
             # never pool it — roll back and drop the connection

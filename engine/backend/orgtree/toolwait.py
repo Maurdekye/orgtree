@@ -15,7 +15,7 @@ import uuid
 from contextlib import closing
 from pathlib import Path
 
-from . import ledger, maildrain, profiling, store
+from . import census_contacts, ledger, maildrain, profiling, store
 from .mcptool import MANAGED_WAIT_TOOLS as TOOLS
 
 WAIT_S = 10.0
@@ -203,6 +203,11 @@ def invoke(body, caller, run, *, wait_s=WAIT_S):
     # record was already emitted with what had accrued by then, and `add`
     # and `snapshot` share a mutex so the emit can never catch a half-write.
     _profile = profiling.current()
+    # The census's primary-store contact tally, carried the same way and for
+    # the same reason. `None` unless census capture was on when the request
+    # began. Contacts after the request's record is built are not added to it
+    # — the tally is sealed then — and are counted as `db_late`.
+    _tally = census_contacts.current()
     try:
         with _lock:
             if len(records()) >= 64:
@@ -213,6 +218,7 @@ def invoke(body, caller, run, *, wait_s=WAIT_S):
         def worker():
             if _profile is not None:
                 profiling.bind(_profile)   # this thread's own context; no reset needed
+            census_contacts.adopt(_tally)
             try:
                 from fastapi.encoders import jsonable_encoder
                 result, state = jsonable_encoder(run()), 'completed'

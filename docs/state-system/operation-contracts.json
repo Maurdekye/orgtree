@@ -1,6 +1,6 @@
 {
   "schema": "orgtree.state-operation-contracts/v1",
-  "source_inventory_sha256": "93b61185d634c8bb8bdc10d5ad88ffd5667bf378702385e2ab143064357390e7",
+  "source_inventory_sha256": "68bcb2631147aab5e30a69a2ba7ea8b96dabf7862bd7aa3b5cd25d765da2b6bc",
   "qualification": {
     "runtime_census": false,
     "conversion_authorized": false
@@ -2055,26 +2055,26 @@
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 2384,
-          "end": 2492,
+          "start": 2397,
+          "end": 2505,
           "sha256": "fc072ebbad4d017aff0cf0330d6c8562c305d58309d645375255c6f5c2577730"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 3417,
-          "end": 3441,
+          "start": 3430,
+          "end": 3454,
           "sha256": "c1423ff474848d1560b30b7cea08dbe74c673bf9be1f17c34231e573999b938d"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 3678,
-          "end": 3705,
+          "start": 3691,
+          "end": 3718,
           "sha256": "4479a7d4394686e560f8accf0d041376562d56fb58e185b5c32617e8720dcfd2"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 4081,
-          "end": 4166,
+          "start": 4094,
+          "end": 4179,
           "sha256": "8eeb86385ab4b17f5ef57bd1c2cf69ada99eeaac8b2409ea9303c87adc24b71a"
         }
       ],
@@ -2258,26 +2258,26 @@
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 2384,
-          "end": 2492,
+          "start": 2397,
+          "end": 2505,
           "sha256": "fc072ebbad4d017aff0cf0330d6c8562c305d58309d645375255c6f5c2577730"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 3417,
-          "end": 3441,
+          "start": 3430,
+          "end": 3454,
           "sha256": "c1423ff474848d1560b30b7cea08dbe74c673bf9be1f17c34231e573999b938d"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 3678,
-          "end": 3705,
+          "start": 3691,
+          "end": 3718,
           "sha256": "4479a7d4394686e560f8accf0d041376562d56fb58e185b5c32617e8720dcfd2"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 4081,
-          "end": 4166,
+          "start": 4094,
+          "end": 4179,
           "sha256": "8eeb86385ab4b17f5ef57bd1c2cf69ada99eeaac8b2409ea9303c87adc24b71a"
         }
       ],
@@ -2331,26 +2331,26 @@
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 2384,
-          "end": 2492,
+          "start": 2397,
+          "end": 2505,
           "sha256": "fc072ebbad4d017aff0cf0330d6c8562c305d58309d645375255c6f5c2577730"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 3417,
-          "end": 3441,
+          "start": 3430,
+          "end": 3454,
           "sha256": "c1423ff474848d1560b30b7cea08dbe74c673bf9be1f17c34231e573999b938d"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 3678,
-          "end": 3705,
+          "start": 3691,
+          "end": 3718,
           "sha256": "4479a7d4394686e560f8accf0d041376562d56fb58e185b5c32617e8720dcfd2"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 4081,
-          "end": 4166,
+          "start": 4094,
+          "end": 4179,
           "sha256": "8eeb86385ab4b17f5ef57bd1c2cf69ada99eeaac8b2409ea9303c87adc24b71a"
         }
       ],
@@ -2435,26 +2435,26 @@
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 2384,
-          "end": 2492,
+          "start": 2397,
+          "end": 2505,
           "sha256": "fc072ebbad4d017aff0cf0330d6c8562c305d58309d645375255c6f5c2577730"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 3417,
-          "end": 3441,
+          "start": 3430,
+          "end": 3454,
           "sha256": "c1423ff474848d1560b30b7cea08dbe74c673bf9be1f17c34231e573999b938d"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 3678,
-          "end": 3705,
+          "start": 3691,
+          "end": 3718,
           "sha256": "4479a7d4394686e560f8accf0d041376562d56fb58e185b5c32617e8720dcfd2"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 4081,
-          "end": 4166,
+          "start": 4094,
+          "end": 4179,
           "sha256": "8eeb86385ab4b17f5ef57bd1c2cf69ada99eeaac8b2409ea9303c87adc24b71a"
         }
       ],
@@ -2649,26 +2649,26 @@
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 2384,
-          "end": 2492,
+          "start": 2397,
+          "end": 2505,
           "sha256": "fc072ebbad4d017aff0cf0330d6c8562c305d58309d645375255c6f5c2577730"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 3417,
-          "end": 3441,
+          "start": 3430,
+          "end": 3454,
           "sha256": "c1423ff474848d1560b30b7cea08dbe74c673bf9be1f17c34231e573999b938d"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 3678,
-          "end": 3705,
+          "start": 3691,
+          "end": 3718,
           "sha256": "4479a7d4394686e560f8accf0d041376562d56fb58e185b5c32617e8720dcfd2"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 4081,
-          "end": 4166,
+          "start": 4094,
+          "end": 4179,
           "sha256": "8eeb86385ab4b17f5ef57bd1c2cf69ada99eeaac8b2409ea9303c87adc24b71a"
         }
       ],
@@ -2722,26 +2722,26 @@
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 2384,
-          "end": 2492,
+          "start": 2397,
+          "end": 2505,
           "sha256": "fc072ebbad4d017aff0cf0330d6c8562c305d58309d645375255c6f5c2577730"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 3417,
-          "end": 3441,
+          "start": 3430,
+          "end": 3454,
           "sha256": "c1423ff474848d1560b30b7cea08dbe74c673bf9be1f17c34231e573999b938d"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 3678,
-          "end": 3705,
+          "start": 3691,
+          "end": 3718,
           "sha256": "4479a7d4394686e560f8accf0d041376562d56fb58e185b5c32617e8720dcfd2"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 4081,
-          "end": 4166,
+          "start": 4094,
+          "end": 4179,
           "sha256": "8eeb86385ab4b17f5ef57bd1c2cf69ada99eeaac8b2409ea9303c87adc24b71a"
         }
       ],
@@ -2989,38 +2989,38 @@
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 2064,
-          "end": 2072,
+          "start": 2077,
+          "end": 2085,
           "sha256": "232754ad56fbfd90d245115cfb5f68bca50a3a868939e7a4ea4b63b63fe90519"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 2219,
-          "end": 2235,
+          "start": 2232,
+          "end": 2248,
           "sha256": "cbe7adc655eb9f16170b6318a6689a2277900cd39dd9c332ac5172226905f02e"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 2352,
-          "end": 2492,
+          "start": 2365,
+          "end": 2505,
           "sha256": "35327778929aaa88a38d0313a12442924ce30462890e98fce7505411f7e8df34"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 3417,
-          "end": 3441,
+          "start": 3430,
+          "end": 3454,
           "sha256": "c1423ff474848d1560b30b7cea08dbe74c673bf9be1f17c34231e573999b938d"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 3678,
-          "end": 3705,
+          "start": 3691,
+          "end": 3718,
           "sha256": "4479a7d4394686e560f8accf0d041376562d56fb58e185b5c32617e8720dcfd2"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 4081,
-          "end": 4166,
+          "start": 4094,
+          "end": 4179,
           "sha256": "8eeb86385ab4b17f5ef57bd1c2cf69ada99eeaac8b2409ea9303c87adc24b71a"
         },
         {
@@ -3093,38 +3093,38 @@
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 2064,
-          "end": 2072,
+          "start": 2077,
+          "end": 2085,
           "sha256": "232754ad56fbfd90d245115cfb5f68bca50a3a868939e7a4ea4b63b63fe90519"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 2219,
-          "end": 2235,
+          "start": 2232,
+          "end": 2248,
           "sha256": "cbe7adc655eb9f16170b6318a6689a2277900cd39dd9c332ac5172226905f02e"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 2352,
-          "end": 2492,
+          "start": 2365,
+          "end": 2505,
           "sha256": "35327778929aaa88a38d0313a12442924ce30462890e98fce7505411f7e8df34"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 3417,
-          "end": 3441,
+          "start": 3430,
+          "end": 3454,
           "sha256": "c1423ff474848d1560b30b7cea08dbe74c673bf9be1f17c34231e573999b938d"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 3678,
-          "end": 3705,
+          "start": 3691,
+          "end": 3718,
           "sha256": "4479a7d4394686e560f8accf0d041376562d56fb58e185b5c32617e8720dcfd2"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 4081,
-          "end": 4166,
+          "start": 4094,
+          "end": 4179,
           "sha256": "8eeb86385ab4b17f5ef57bd1c2cf69ada99eeaac8b2409ea9303c87adc24b71a"
         },
         {
@@ -3331,38 +3331,38 @@
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 2064,
-          "end": 2072,
+          "start": 2077,
+          "end": 2085,
           "sha256": "232754ad56fbfd90d245115cfb5f68bca50a3a868939e7a4ea4b63b63fe90519"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 2219,
-          "end": 2235,
+          "start": 2232,
+          "end": 2248,
           "sha256": "cbe7adc655eb9f16170b6318a6689a2277900cd39dd9c332ac5172226905f02e"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 2352,
-          "end": 2492,
+          "start": 2365,
+          "end": 2505,
           "sha256": "35327778929aaa88a38d0313a12442924ce30462890e98fce7505411f7e8df34"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 3417,
-          "end": 3441,
+          "start": 3430,
+          "end": 3454,
           "sha256": "c1423ff474848d1560b30b7cea08dbe74c673bf9be1f17c34231e573999b938d"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 3678,
-          "end": 3705,
+          "start": 3691,
+          "end": 3718,
           "sha256": "4479a7d4394686e560f8accf0d041376562d56fb58e185b5c32617e8720dcfd2"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 4081,
-          "end": 4166,
+          "start": 4094,
+          "end": 4179,
           "sha256": "8eeb86385ab4b17f5ef57bd1c2cf69ada99eeaac8b2409ea9303c87adc24b71a"
         },
         {
@@ -3530,38 +3530,38 @@
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 2064,
-          "end": 2072,
+          "start": 2077,
+          "end": 2085,
           "sha256": "232754ad56fbfd90d245115cfb5f68bca50a3a868939e7a4ea4b63b63fe90519"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 2219,
-          "end": 2235,
+          "start": 2232,
+          "end": 2248,
           "sha256": "cbe7adc655eb9f16170b6318a6689a2277900cd39dd9c332ac5172226905f02e"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 2352,
-          "end": 2492,
+          "start": 2365,
+          "end": 2505,
           "sha256": "35327778929aaa88a38d0313a12442924ce30462890e98fce7505411f7e8df34"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 3417,
-          "end": 3441,
+          "start": 3430,
+          "end": 3454,
           "sha256": "c1423ff474848d1560b30b7cea08dbe74c673bf9be1f17c34231e573999b938d"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 3678,
-          "end": 3705,
+          "start": 3691,
+          "end": 3718,
           "sha256": "4479a7d4394686e560f8accf0d041376562d56fb58e185b5c32617e8720dcfd2"
         },
         {
           "path": "engine/backend/orgtree/store.py",
-          "start": 4081,
-          "end": 4166,
+          "start": 4094,
+          "end": 4179,
           "sha256": "8eeb86385ab4b17f5ef57bd1c2cf69ada99eeaac8b2409ea9303c87adc24b71a"
         }
       ],
@@ -9357,7 +9357,7 @@
       "source_refs": []
     },
     {
-      "id": "c2e0d40fa279fcdd0b5c91747284631c65c4799740e004bff8e15193eb240b50",
+      "id": "69c03d9bcc7feb05046e855f82c20b1e8fe1017eb4e65e3a7c77800248139eb2",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",

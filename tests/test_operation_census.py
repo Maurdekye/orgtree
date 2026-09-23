@@ -18,8 +18,8 @@ before it asserts they are absent from the census. A control that cannot show
 it did work is not allowed to return a verdict.
 
 ⚠ WHAT THIS SUITE DOES NOT ESTABLISH, stated so nobody reads it as more than
-it is. It measures no overhead. It observes no storage contact — there is no
-contact field in schema 2 to observe one in. It proves no locality proportion,
+it is. It measures no overhead. It observes no storage contact — schema 3's
+`db` block is exercised by `test_census_sqlite_contacts`, not here. It proves no locality proportion,
 and `ProvenanceDisclosureTests` exists precisely to keep the payload saying so.
 It covers HTTP attempts only: workers, tasks, callbacks, hooks, websockets and
 restart recovery are outside the middleware and outside this file.
@@ -188,7 +188,7 @@ class OperationClassCoverageTests(CensusCase):
                                       f'{missing}; saw {[r["op"] for r in rows]}')
 
     def test_every_record_is_labelled_an_attempt_and_says_what_it_is_not(self):
-        """⚠ SCHEMA 2. A row is one HTTP ATTEMPT, never one logical operation,
+        """⚠ SCHEMA 2, KEPT AT 3. A row is one HTTP ATTEMPT, never one logical operation,
         and that has to be readable off the row itself — an analysis that
         counts rows as operations is the conflation this census exists to
         remove, and a caveat living only in a document is one the analysis
@@ -198,7 +198,9 @@ class OperationClassCoverageTests(CensusCase):
         self.client.get(f'/api/orgs/{slug}', headers=OPERATOR)
         body = self.read()
         self.assertWindowDidWork(body)
-        self.assertEqual(body['schema_version'], 2)
+        # 3 since P02-A3 added the `db` contact block; the attempt unit is
+        # unchanged, which is what this test is about.
+        self.assertEqual(body['schema_version'], 3)
         for row in body['records']:
             self.assertEqual(row['unit'], 'attempt', json.dumps(row))
             self.assertIn('terminal', row)
@@ -1009,7 +1011,11 @@ class ProvenanceDisclosureTests(CensusCase):
         body = self.read()
         self.assertWindowDidWork(body, least=2)
         prov = body['provenance']
-        self.assertFalse(prov['measures_storage_contacts'])
+        # ⚠ WAS `False` AT SCHEMA 2. P02-A3 observes contacts on the primary
+        # SQLite store's connections and nowhere else, and the payload says
+        # exactly that rather than a bare boolean either way.
+        self.assertEqual(prov['measures_storage_contacts'],
+                         'primary_sqlite_store_only')
         self.assertEqual(prov['unit'], 'attempt')
         self.assertEqual(sum(prov['scope_src_counts'].values()), body['served'],
                          'the provenance split does not account for every '
@@ -1082,7 +1088,7 @@ class PermissionSplitTests(CensusCase):
             'args': {'n': 50}})
         self.assertEqual(got.status_code, 200, got.text)
         body = got.json()
-        self.assertEqual(body['schema_version'], 2)
+        self.assertEqual(body['schema_version'], 3)
         self.assertTrue(body['enabled'])
         self.assertWindowDidWork(body)
         self.assertTrue(body['records'], 'the agent door returned no records')
