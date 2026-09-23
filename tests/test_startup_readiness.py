@@ -20,7 +20,6 @@ import urllib.request
 REPO = Path(__file__).resolve().parents[1]
 
 
-@unittest.skipUnless(os.name == "nt", "INERT: real guardian/readiness budget requires Windows")
 class StartupReadinessTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

@@ -25,7 +25,7 @@ class ProgressTests(unittest.TestCase):
             self.assertEqual(parse_progress("busy", 123, root, 1), 1)
 
 
-@unittest.skipUnless(os.name == "nt", "INERT: boot host's guardian requires Windows")
+@unittest.skipUnless(os.name == "nt", "INERT: boot host's guardian requires Windows, no macOS counterpart yet — the happy-path boot (arm_process_lifetime + service_host.main()) already runs on POSIX (verified 2026-09-23), but RootLock's fcntl release after a failed-start guardian teardown is not proven immediate here the way the test assumes (no-retry re-acquire); tracked as an open POSIX-timing gap, not owned by any current Phase 1-4 requirement")
 class BootStartupTests(unittest.TestCase):
     def run_host(self, mode):
         with tempfile.TemporaryDirectory(prefix="orgtree-boot-progress-") as temp:
