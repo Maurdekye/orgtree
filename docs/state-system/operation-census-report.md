@@ -1,4 +1,4 @@
-# Offline schema2 census report
+# Offline schema2/schema3 census report
 
 `tools/operation_census_report.py` reads **one explicitly supplied local snapshot**
 and writes a deterministic JSON or Markdown report to stdout. It uses only the
@@ -6,13 +6,19 @@ Python standard library. It does not import the backend, contact an endpoint,
 enable capture, inspect live data, or read provider/native conversations.
 
 This is the bounded P02 reporting foundation for the schema2 census landed at
-`286396ebc6db13aed7bc0ebcfc873a703828296b`. It does not complete P02 or qualify
-native/PostgreSQL behavior. No A2 fields or runtime changes are assumed.
+`286396ebc6db13aed7bc0ebcfc873a703828296b`, extended in P02-A4a to read the
+**schema 3** census that P02-A3 produces (it adds the per-attempt `db` contact
+block for the primary SQLite store). It does not complete P02 or qualify
+native/PostgreSQL behavior.
 
-⚠ Since P02-A3 the engine's census produces **schema 3** (it adds the per-attempt
-`db` contact block). This tool reads schema 2 only, so it refuses every snapshot
-from an engine at or after P02-A3 with exit code 2. That refusal is deliberate
-and fail-closed; teaching the report schema 3 is separate, undocketed work.
+The tool reads exactly schema versions **2 and 3** (the JSON integers, never a
+bool, float or string) and refuses every other version with exit code 2,
+including the schema 4 planned for P02-A4b. A schema-2 snapshot is reported
+byte-for-byte as before (report schema v1); a schema-3 snapshot is reported as
+report schema v2, described under [Schema 3](#schema-3-observed-primary-store-contacts).
+Note that the comment above `SCHEMA_VERSION` in `engine/backend/orgtree/census.py`
+still says this tool refuses schema 3; it is left unedited so the P01
+source-binding artifacts stay unchanged, and this document supersedes it.
 
 ## Run against a supplied file
 
@@ -156,11 +162,110 @@ logical-operation denominators, non-HTTP work, or complete continuation history
 can be derived from this schema. The source's overhead and default-off caveats
 remain visible in both report formats.
 
+## Schema 3: observed primary-store contacts
+
+A schema-3 snapshot is checked against the producer's closed sets, which are
+restated in the tool (it never imports the backend):
+
+- top level: the schema-2 fields plus `contact_coverage`;
+- counters: the schema-2 counters plus `db_unbound`, `db_unattributed`,
+  `db_late`, `db_hidden_unattributed`, `db_self_recursion`, `db_observe_failed`;
+- vocabulary: the schema-2 vocabulary plus `db_store` and `db_kind`, exactly;
+- records: `v` must equal 3, and the only new optional field is `db`, which is
+  exactly `store`, the nine integer counts (`connects`, `connect_failed`,
+  `checkouts`, `statements`, `statement_failed`, `statement_busy`,
+  `engine_steps`, `hidden_steps`, `linked_threads`), `kinds` and `kind_failed`
+  (keys from `db_kind`, values integers of at least 1);
+- provenance: `measures_storage_contacts` must be `primary_sqlite_store_only`,
+  and `rows_with_contact_evidence` / `rows_without_contact_evidence` must equal
+  a recount of the served rows;
+- `contact_coverage`: exactly `primary_store`, `instrumented`, `uninstrumented`,
+  `other_processes`, `complete`, `kinds`, `fields`; `complete` must be `false`,
+  and every entry must name a repository-relative `.py` path and a dotted
+  symbol, never a machine path or free text.
+
+Any other key anywhere — a SQL string, a path, parameters, a slug, a duration,
+rows examined, a schema-4 `secondary` block — is refused. So is a schema-3
+field on a schema-2 snapshot and a record whose `v` differs from its snapshot.
+
+Only invariants the producer guarantees are enforced. A statement's kind and
+failure are credited in one atomic tally update, so `sum(kinds) == statements`
+and `kind_failed[k] <= kinds[k]` hold exactly. `statement_failed`,
+`statement_busy` and `connect_failed` are separate later updates that the
+attempt's seal can fall between, so they are only bounded:
+`statement_failed <= sum(kind_failed)`, `statement_busy <= statement_failed`,
+`connect_failed <= connects`. Engine steps, hidden steps, checkouts and linked
+threads come from independent sources and are not related to statements.
+`db_unbound` is bumped once per recorded attempt without a `db` block, so the
+served rows bound it like the classification counters. The other `db_*`
+counters are tied to no record and are only checked as integers.
+
+The report (schema `orgtree.operation-census-report/v2`) keeps every v1 section
+unchanged and adds `contacts`:
+
+- `totals` and `by_operation`: sums of every count and kind over served rows
+  that carry a `db` block, grouped by the same operation identity as the
+  duration ranks and ordered by statements;
+- `with_contact_evidence`, `without_contact_evidence` and the sequence numbers
+  of rows without a block. A row without a block was not observed (its attempt
+  began before capture was on). It is listed, never summed as zero;
+- `process_counters`: the six `db_*` counters, attributed to no operation;
+- the snapshot's `contact_coverage` and limits, preserved under `snapshot`.
+
+Nothing is divided: there is no locality, share, rate, rows, IO or duration
+figure, and `complete` is always `false`. The v2 limits say that contact sums
+cover only the primary store's own connections.
+
+The schema-3 fixture `mixed-schema3.json` is synthetic. Its vocabulary,
+provenance note, limits and `contact_coverage` were copied from a real
+`census.snapshot()` produced by this checkout's census against a temporary data
+root (the same child-process producer the round-trip test runs). Its records are
+the six schema-2 fixture rows with `v: 3` and hand-set `db` blocks covering an
+unobserved row, zero-contact rows, a failed and busy statement, a failed
+connect, a hidden step and a managed tool's linked thread.
+
+## Contact-observer overhead benchmark
+
+`tools/census_contact_overhead.py` is an offline single-machine microbenchmark.
+It creates a temporary data root, points `ORGTREE_DATA` at it before importing
+any backend code, refuses to run if the store bound any other root, and takes no
+path, URL or endpoint argument. Three arms run interleaved, with their order
+rotated each repetition, after discarded warmup repetitions:
+
+- `plain`: the store's connect arguments and pragmas without `factory=` and
+  without the pool's checkout note (the store before P02-A3);
+- `observed_off`: the real `store._open_conn` / `_Pool` with capture off (the
+  shipped default);
+- `observed_on`: the same with capture on and a bound per-thread tally.
+
+The workloads are `pooled_read` (checkout plus one keyed SELECT),
+`write_transaction` (BEGIN IMMEDIATE, one upsert, COMMIT) and
+`executemany_batch` (a 16-row upsert in a transaction). Each runs with 1 and 8
+threads. The JSON output gives the median and nearest-rank p90 of wall
+nanoseconds per statement call, and the deltas against `plain`, together with
+the Python and SQLite versions, CPU count and run sizes. Its `claim` field says
+what the numbers are not: end-to-end, request-level or product overhead.
+
+```powershell
+& $censusPython tools/census_contact_overhead.py --repetitions 30 --statements 200 --warmup 3
+```
+
 ## Focused verification
 
 ```powershell
-& $censusPython tests/test_operation_census_report.py
+& $censusPython tools/run-python-verification.py --repo-root . tests/test_operation_census_report.py tests/test_census_contact_overhead.py
 ```
+
+`test_operation_census_report.py` pins the schema-2 JSON and Markdown bytes to
+SHA-256 values measured before schema 3 existed. It exercises exact version
+dispatch, the cross-schema, privacy, closed-set and invariant refusals (with
+positive controls for what the producer can legitimately emit), and a
+producer-to-report round trip. The round trip runs the in-tree census in a
+child process against a temporary data root with capture on, writes its
+schema-3 snapshot, reports it through the CLI, and compares the contact sums
+with an independent recount; a field the report does not know fails it.
+`test_census_contact_overhead.py` checks only the benchmark's output shape and
+its argument refusals, never a timing.
 
 The synthetic fixture follows the landed builder/snapshot shape and deliberately
 contains a managed yield, a missing response start, diagnostics, unknown
