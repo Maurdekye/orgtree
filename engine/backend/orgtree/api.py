@@ -5142,6 +5142,47 @@ async def accounts_enabled(account_id: str,
     return {"account": row["id"], "enabled": registry.is_enabled(row)}
 
 
+@app.get("/api/accounts/{account_id}/marks")
+async def accounts_marks(account_id: str) -> dict[str, Any]:
+    """Every stored capacity mark on one account, from the registry and the
+    old roster, with provenance, reset time and age (user item
+    add-agent-tool-and-ui-to-clear-account-limit-mar). The operator sees
+    every account; `account_id` may be a row id, a canonical name, or an
+    old-roster key id."""
+    from . import markclear
+    try:
+        return markclear.inspect(account_id, org=None)
+    except markclear.UnknownMarkAccount as e:
+        raise HTTPException(404, str(e))
+
+
+class AccountMarkClear(Body):
+    source: str
+    pool: str
+    expected: dict[str, Any]
+    companion_expected: dict[str, Any] | None = None
+    reason: str = ""
+
+
+@app.post("/api/accounts/{account_id}/marks/clear")
+async def accounts_mark_clear(account_id: str,
+                              body: AccountMarkClear) -> dict[str, Any]:
+    """Clear ONE mark the user confirmed, by compare-and-set against the
+    `expected` values the dialog showed. A mark that changed, vanished or
+    expired since is answered with `result` and nothing is written, so the
+    dialog can show the new state and ask again. Resumes no agent."""
+    from . import markclear
+    try:
+        return markclear.clear(
+            account_id, body.pool, body.expected,
+            source=body.source, org=None, actor=USER, via="user_ui",
+            reason=body.reason, companion_expected=body.companion_expected)
+    except markclear.UnknownMarkAccount as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+
 class AccountAssign(Body):
     account: str
 
@@ -11341,6 +11382,69 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                     opreceipts.witness(store.DATA_ROOT, body.org,
                                       opreceipts.seq(cast("dict[str, Any]", org.d)))
             return result
+    if body.tool == "orgtree_account_mark":
+        # MANUAL CAPACITY-MARK CLEARING (user item
+        # add-agent-tool-and-ui-to-clear-account-limit-mar, rulings 2026-09-23).
+        # Out here, like continue_on, because the effect is a write to the
+        # machine's account files, not to this org's document: the clear and
+        # its audit row are one write in that store (markclear), and the org
+        # log entry plus the receipt follow in this org's own transaction.
+        #
+        # AUTHORITY IS DELIBERATELY WIDE (user ruling): any agent, any account
+        # its org can see. A hidden other-org row answers like an unknown id.
+        # Clearing resumes nobody; `frozen_here` only NAMES this org's frozen
+        # agents on that account so the caller knows who still needs a resume.
+        from . import markclear
+        _m_action = str(a.get("action") or "inspect")
+        _m_account = str(a.get("account") or "").strip()
+        try:
+            if _m_action == "inspect":
+                return markclear.inspect(_m_account, org=body.org)
+            if _m_action != "clear":
+                raise HTTPException(422, "action must be inspect or clear")
+            if not str(a.get("reason") or "").strip():
+                raise HTTPException(422, "clear needs a `reason` for the audit")
+            with _op_inflight(body):
+                with store.DOC_LOCK:
+                    org = store.load_org(body.org)
+                    rcpt = _op_admit(org, body, a)
+                    if rcpt is not None and "replay" in rcpt:
+                        return cast("dict[str, Any]", rcpt["replay"])
+                # the machine's account file, outside this org's DOC_LOCK:
+                # no org transaction can cover it (hence PRE coverage)
+                result = markclear.clear(
+                    _m_account, str(a.get("pool") or ""),
+                    a.get("expected"), source=str(a.get("source") or ""),
+                    org=body.org, actor=body.node, via="agent_tool",
+                    reason=str(a.get("reason") or ""),
+                    companion_expected=a.get("companion_expected"))
+                with store.DOC_LOCK:
+                    org = store.load_org(body.org)
+                    if result.get("result") == "cleared":
+                        org._log("account_mark_cleared", body.node, {
+                            "account": result["account"],
+                            "source": result["source"],
+                            "pool": result["pool"],
+                            "cleared": result["cleared"],
+                            "kept": result["kept"],
+                            "reason": str(a.get("reason") or "")}, [])
+                        result = {**result, "frozen_here": markclear.frozen_on_account(
+                            cast("dict[str, Any]", org.d), {result["account"]}), "note": (
+                            "Cleared. No capacity was added and no agent was "
+                            "resumed; a frozen agent needs its own resume.")}
+                    if rcpt is not None:
+                        _op_file(org, body, a, rcpt, result)
+                    if result.get("result") == "cleared" or rcpt is not None:
+                        store.save_org(org)
+                        opreceipts.witness(store.DATA_ROOT, body.org,
+                                           opreceipts.seq(cast("dict[str, Any]", org.d)))
+                return result
+        except markclear.UnknownMarkAccount as e:
+            raise HTTPException(422, str(e)) from e
+        except LedgerError as e:
+            raise HTTPException(422, str(e)) from e
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
     if body.tool == "orgtree_continue_on":
         # ⭐ SWITCH A FROZEN REPORT'S ACCOUNT AND RELEASE IT IN ONE ACT (user
         # ruling 2026-09-17 21:37). The agent-side twin of the user's

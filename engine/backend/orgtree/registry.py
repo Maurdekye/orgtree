@@ -758,6 +758,141 @@ def active_mark(account_id: str, tier: str,
     return dict(mark)
 
 
+#: how many manual-clear audit rows the document keeps (oldest dropped first).
+MARK_AUDIT_KEEP = 200
+
+
+class MarkClearRefused(ValueError):
+    """A manual clear named something that cannot be cleared as asked."""
+
+
+def mark_fingerprint(mark: dict[str, Any]) -> dict[str, Any]:
+    """The exact values a manual clear must present back: any write to the
+    mark since it was read changes at least one of them."""
+    obs = mark.get("observed_at")
+    return {"until": float(mark.get("until", 0)),
+            "observed_at": float(obs) if isinstance(obs, (int, float)) else None,
+            "provenance": str(mark.get("provenance") or ""),
+            "window": str(mark.get("window") or "")}
+
+
+def _rides_with(pooled: dict[str, Any], fable: dict[str, Any] | None) -> bool:
+    """Is this fable mark the inferred companion `record_mark` added for this
+    pooled mark? Same rule `correct_mark` carries forward: inferred, and the
+    same horizon. An observed or independently dated fable mark is not."""
+    return bool(fable and fable.get("provenance") == "inferred"
+                and float(fable.get("until", 0)) == float(pooled.get("until", 0)))
+
+
+def describe_marks(account_id: str,
+                   now: float | None = None) -> list[dict[str, Any]]:
+    """Every stored mark on this exact row, live or not yet pruned, with the
+    freshness a person needs to judge it and the fingerprint a clear needs."""
+    now = time.time() if now is None else now
+    row = get_account(account_id)
+    out: list[dict[str, Any]] = []
+    marks = row.get("marks") or {}
+    for pool in sorted(marks):
+        m = marks[pool]
+        fp = mark_fingerprint(m)
+        entry: dict[str, Any] = {
+            "source": "registry", "pool": pool,
+            "state": "active" if fp["until"] > now else "expired",
+            "until": fp["until"], "remaining_s": max(0.0, fp["until"] - now),
+            "observed_at": fp["observed_at"],
+            "age_s": (now - fp["observed_at"]
+                      if fp["observed_at"] is not None else None),
+            "provenance": fp["provenance"], "window": fp["window"],
+            "expected": fp}
+        if pool == "pooled" and FABLE in marks:
+            entry["companion"] = {
+                "pool": FABLE, "cleared_with_this": _rides_with(m, marks[FABLE]),
+                "expected": mark_fingerprint(marks[FABLE])}
+        out.append(entry)
+    return out
+
+
+def clear_mark(account_id: str, pool: str, expected: dict[str, Any], *,
+               actor: str, via: str, org: str = "", reason: str = "",
+               companion_expected: dict[str, Any] | None = None,
+               now: float | None = None) -> dict[str, Any]:
+    """Remove ONE stored mark by hand, only if it is still exactly the mark
+    the caller read (user item add-agent-tool-and-ui-to-clear-account-limit-mar).
+
+    Compare-and-set against `expected` (see `mark_fingerprint`) under the
+    registry lock over a strict load: a mark rewritten since it was read comes
+    back `changed` and nothing is written. `missing` and `expired` write
+    nothing either. `account_id` must be the exact row id — an alias could
+    name a different row between the read and the clear.
+
+    Clearing `pooled` also removes the fable mark only when it is the
+    inferred companion of THIS pooled mark (`_rides_with`); any other fable
+    mark stays and is reported as kept. Clearing fable never touches pooled.
+
+    ⚠ THE AUDIT ROW IS WRITTEN IN THE SAME `save` AS THE CLEAR — one atomic
+    file replace — so there is no clear without its record and no record
+    without its clear. Nothing else on any row changes. Clearing adds no
+    capacity: the next provider refusal re-marks through `record_mark`,
+    which sees an empty slot. It resumes no agent."""
+    now = time.time() if now is None else now
+    key = pool_key(pool)
+    if not key:
+        raise MarkClearRefused("name the pool to clear")
+    if len(reason) > 500:
+        raise MarkClearRefused("reason is limited to 500 characters")
+    with _lock:
+        doc = load(strict=True)
+        row = get_account(account_id, doc)
+        if row["id"] != account_id:
+            raise MarkClearRefused(
+                f"{account_id!r} is an alias of {row['id']!r}; a clear takes "
+                f"the exact account id that inspect returned")
+        marks = row["marks"]
+        mark = marks.get(key)
+        base = {"account": row["id"], "source": "registry", "pool": key}
+        if mark is None:
+            return {**base, "result": "missing", "current": None}
+        if mark_fingerprint(mark) != _expected(expected):
+            return {**base, "result": "changed", "current": dict(mark)}
+        if float(mark.get("until", 0)) <= now:
+            return {**base, "result": "expired", "current": dict(mark)}
+        cleared = {key: dict(mark)}
+        kept: dict[str, Any] = {}
+        fable = marks.get(FABLE) if key == "pooled" else None
+        if fable is not None:
+            if (companion_expected is not None
+                    and mark_fingerprint(fable) != _expected(companion_expected)):
+                return {**base, "result": "changed", "current": dict(mark),
+                        "companion_current": dict(fable)}
+            if _rides_with(mark, fable):
+                cleared[FABLE] = dict(fable)
+            else:
+                kept[FABLE] = dict(fable)
+        for k in cleared:
+            del marks[k]
+        entry = {"at": now, "actor": str(actor), "org": str(org),
+                 "via": str(via), "account": row["id"], "source": "registry",
+                 "pool": key, "cleared": cleared, "kept": kept,
+                 "reason": str(reason)}
+        audit = doc.get("mark_audit")
+        audit = audit if isinstance(audit, list) else []
+        doc["mark_audit"] = (audit + [entry])[-MARK_AUDIT_KEEP:]
+        save(doc)
+        return {**base, "result": "cleared", "cleared": cleared,
+                "kept": kept, "audit": entry}
+
+
+def _expected(expected: Any) -> dict[str, Any]:
+    """Normalize a caller's fingerprint; a malformed one simply never
+    matches (an absent `window` reads as empty, like `mark_fingerprint`)."""
+    if not isinstance(expected, dict):
+        return {"invalid": True}
+    try:
+        return mark_fingerprint({**expected, "until": float(expected["until"])})
+    except (KeyError, TypeError, ValueError):
+        return {"invalid": True}
+
+
 def clear_expired(now: float | None = None) -> None:
     now = time.time() if now is None else now
     with _lock:

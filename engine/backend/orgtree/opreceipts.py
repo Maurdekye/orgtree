@@ -235,11 +235,15 @@ _ACTION_COVERAGE: dict[str, dict[str, str]] = {
     # `list` is a pure read. An unknown action is keyed: it is refused before
     # any transaction, so its missing receipt truthfully reads "not applied".
     "orgtree_inbox": {"list": NONE, "chunk": TX, "fetch": TX},
+    # a manual mark clear writes the machine's account file BEFORE this org's
+    # transaction files the log row and the receipt; `inspect` is a pure read.
+    "orgtree_account_mark": {"inspect": NONE, "clear": PRE},
 }
 _ACTION_DEFAULT: dict[str, str] = {
     "orgtree_work": TX,
     "orgtree_watchdog": TX,
     "orgtree_inbox": TX,
+    "orgtree_account_mark": PRE,
 }
 
 
@@ -298,6 +302,7 @@ _RESULT_FIELDS: dict[str, tuple[str, ...]] = {
     # the caller: whether the release happened, and whether the agent is
     # running or still owed a message.
     "orgtree_continue_on": ("account", "switched", "resumed", "state", "agent"),
+    "orgtree_account_mark": ("account", "source", "pool", "result"),
     "orgtree_retire": ("archived", "node"),
     "orgtree_dissolve": ("archived", "node"),
     "orgtree_reallocate": ("node", "delta", "grant"),

@@ -283,11 +283,15 @@ def b():
         # 311 -> 314: P02-A1 adds three operator HTTP routes,
         # GET/POST /api/diagnostics/operation-census and
         # POST /api/diagnostics/operation-census/reset.
-        self.assertEqual(summary["registration_sites"], 314)
+        # 314 -> 317: add-agent-tool-and-ui-to-clear-account-limit-mar adds
+        # GET /api/accounts/{id}/marks, POST /api/accounts/{id}/marks/clear
+        # and the orgtree_account_mark tool card.
+        self.assertEqual(summary["registration_sites"], 317)
         self.assertEqual(summary["registration_kinds"]["task"], 12)
         # 225 -> 226: P02-A1 adds one `body.tool == "orgtree_operation_census"`
         # branch in api.agent_call, routing the agent read door.
-        self.assertEqual(summary["dispatch_selector_sites"], 226)
+        # 226 -> 227: the same item adds the `orgtree_account_mark` branch.
+        self.assertEqual(summary["dispatch_selector_sites"], 227)
         self.assertEqual(summary["connection_sites"], 15)
         self.assertEqual([(r["source"]["path"], r["source"]["symbol"], r["target"])
                           for r in baseline["registrations"]

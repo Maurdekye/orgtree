@@ -693,6 +693,107 @@ def record_limit(account: str, tier: str, refresh_at: float) -> bool:
         return True
 
 
+#: how many manual-clear audit rows this document keeps (oldest dropped first).
+LIMIT_AUDIT_KEEP = 200
+
+
+def _limit_groups(ref: dict[str, Any]) -> dict[str, dict[str, float]]:
+    """This account's stored refresh times grouped the way they are cleared:
+    `pooled` = whichever of haiku/sonnet/opus are present, `fable` alone."""
+    out: dict[str, dict[str, float]] = {}
+    for tier, value in ref.items():
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            continue
+        group = "pooled" if tier in POOLED else FABLE if tier == FABLE else ""
+        if group:
+            out.setdefault(group, {})[tier] = float(value)
+    return out
+
+
+def describe_limits(account: str,
+                    now: float | None = None) -> list[dict[str, Any]]:
+    """The stored routing marks of one roster account (`primary` or a key
+    row), grouped per clearable pool. This store records no provenance and no
+    observation time, and says so rather than guessing."""
+    now = time.time() if now is None else now
+    ref = load()["usage_refreshes"].get(str(account))
+    if not isinstance(ref, dict):
+        return []
+    out = []
+    for group, tiers in sorted(_limit_groups(ref).items()):
+        until = max(tiers.values())
+        out.append({"source": "legacy-roster", "pool": group,
+                    "state": "active" if until > now else "expired",
+                    "until": until, "remaining_s": max(0.0, until - now),
+                    "observed_at": None, "age_s": None,
+                    "provenance": "not recorded", "window": "",
+                    "tiers": dict(tiers), "expected": {"tiers": dict(tiers)}})
+    return out
+
+
+def clear_limit(account: str, pool: str, expected: dict[str, Any], *,
+                actor: str, via: str, org: str = "", reason: str = "",
+                now: float | None = None) -> dict[str, Any]:
+    """Remove one pool's routing marks from this roster by hand, only if they
+    are still exactly what the caller read — the old-roster twin of
+    `registry.clear_mark` (user ruling 2026-09-23: unbound default-login
+    Claude agents are held by THIS store, not the registry).
+
+    `pooled` removes every stored haiku/sonnet/opus entry together; `fable`
+    removes fable alone. Clearing pooled NEVER removes fable here: this store
+    cannot tell a ride-along fable mark from a real fable limit, so the
+    conservative reading keeps it and the caller clears it separately.
+
+    ⚠ THE AUDIT ROW RIDES THE SAME `save` AS THE CLEAR (one atomic replace of
+    this file). Nothing else in the document changes — not even the expired
+    entries `record_limit` would prune."""
+    now = time.time() if now is None else now
+    account, group = str(account or ""), str(pool or "")
+    if group not in ("pooled", FABLE):
+        raise ValueError("the roster's clearable pools are 'pooled' and 'fable'")
+    if len(reason) > 500:
+        raise ValueError("reason is limited to 500 characters")
+    want = expected.get("tiers") if isinstance(expected, dict) else None
+    with _lock:
+        doc = load(strict=True)
+        if account != PRIMARY and not any(
+                k["id"] == account for k in doc["keys"]):
+            raise KeyError(account)
+        ref = doc["usage_refreshes"].get(account)
+        ref = ref if isinstance(ref, dict) else {}
+        tiers = _limit_groups(ref).get(group)
+        base = {"account": account, "source": "legacy-roster", "pool": group}
+        if not tiers:
+            return {**base, "result": "missing", "current": None}
+        try:
+            wanted = ({str(k): float(v) for k, v in want.items()}
+                      if isinstance(want, dict) else None)
+        except (TypeError, ValueError):
+            wanted = None
+        if wanted != tiers:
+            return {**base, "result": "changed", "current": {"tiers": tiers}}
+        if max(tiers.values()) <= now:
+            return {**base, "result": "expired", "current": {"tiers": tiers}}
+        for tier in tiers:
+            del ref[tier]
+        if not ref:
+            del doc["usage_refreshes"][account]
+        kept = ({FABLE: float(ref[FABLE])}
+                if group == "pooled" and isinstance(ref.get(FABLE), (int, float))
+                else {})
+        entry = {"at": now, "actor": str(actor), "org": str(org),
+                 "via": str(via), "account": account,
+                 "source": "legacy-roster", "pool": group,
+                 "cleared": {"tiers": tiers}, "kept": kept,
+                 "reason": str(reason)}
+        audit = doc.get("mark_audit")
+        audit = audit if isinstance(audit, list) else []
+        doc["mark_audit"] = (audit + [entry])[-LIMIT_AUDIT_KEEP:]
+        save(doc)
+        return {**base, "result": "cleared", "cleared": {"tiers": tiers},
+                "kept": kept, "audit": entry}
+
+
 def _routing_order(doc: dict[str, Any], live_uuid: str) -> list[str]:
     """Priority order: the signed-in account first (skipped entirely when
     nobody is signed in — an ambient spawn with no login authenticates as

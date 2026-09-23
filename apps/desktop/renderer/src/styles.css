@@ -7726,6 +7726,16 @@ main:has(> .orgbar.native-header) > .error {
 .account-swatch{display:inline-block;width:12px;height:12px;border-radius:3px;flex-shrink:0}
 .account-note{margin-top:8px}
 .add-account-dialog{width:min(480px,calc(100vw - 32px));height:auto;max-height:88vh}
+.account-marks{margin-top:6px}
+.account-mark{margin:2px 0;overflow-wrap:anywhere}
+.clear-mark-dialog{width:min(520px,calc(100vw - 32px));height:auto;max-height:88vh}
+.clear-mark-details{display:grid;grid-template-columns:max-content 1fr;gap:4px 12px;margin:8px 0}
+.clear-mark-details dt{color:var(--dim,inherit)}
+.clear-mark-details dd{margin:0;overflow-wrap:anywhere}
+.clear-mark-warning{font-weight:600}
+.clear-mark-notice{color:var(--bad)}
+.clear-mark-dialog label{display:grid;gap:6px;margin:8px 0}
+.clear-mark-dialog .dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
 .account-add-option{padding:12px 0;border-bottom:1px solid var(--line)}
 .account-add-option h4{margin:0 0 8px}
 .account-add-option label{display:grid;gap:6px}

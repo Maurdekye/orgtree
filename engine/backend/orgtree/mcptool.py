@@ -1757,6 +1757,49 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "orgtree_account_mark",
+        "description": (
+            "Read or clear an account's capacity mark (the record that an "
+            "account's usage limit is used up until a reset time; agents on a "
+            "marked account are held or frozen). `inspect` lists every stored "
+            "mark with its pool, reset time, age and whether it was observed "
+            "or inferred. `clear` removes one mark only if it still matches "
+            "the `expected` values inspect returned; otherwise it answers "
+            "`changed`, `missing` or `expired` and writes nothing. Clearing "
+            "the `pooled` mark also removes an inferred `fable` mark with the "
+            "same reset time; other marks stay. Each clear is audited. It adds "
+            "no capacity (the next refusal marks the account again) and "
+            "resumes nobody: `frozen_here` names agents that still need "
+            "orgtree_unstick or a user resume. Any agent may use it on any "
+            "account its org can see."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["inspect", "clear"]},
+                "account": {
+                    "type": "string",
+                    "description": ("inspect: account id or name, e.g. "
+                                    "claude-4 or claude/primary. clear: the "
+                                    "exact `account` of the mark entry")},
+                "source": {"type": "string",
+                           "enum": ["registry", "legacy-roster"],
+                           "description": "clear: the mark entry's `source`"},
+                "pool": {"type": "string",
+                         "description": "clear: the mark entry's `pool`"},
+                "expected": {"type": "object",
+                             "description": "clear: the mark entry's `expected`"},
+                "companion_expected": {
+                    "type": "object",
+                    "description": ("clear, optional: the `companion.expected` "
+                                    "of a pooled entry")},
+                "reason": {"type": "string",
+                           "description": ("clear, required: why, kept in "
+                                           "the audit (500 max)")},
+            },
+            "required": ["action", "account"],
+        },
+    },
+    {
         "name": "orgtree_halt",
         "description": (
             "Halt a descendant until orgtree_unhalt: kills its provider process "

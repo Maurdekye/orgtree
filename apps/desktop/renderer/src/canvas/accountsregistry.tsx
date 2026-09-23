@@ -17,8 +17,144 @@ type AccountRow = {
   /** 'apikey' = a metered API-key account (absent = subscription) */
   mode?: string; enabled?: boolean
   identity: Record<string, string>; tint_ordinal: number; origin_org?: string
-  standing: { auth: string }
+  standing: { auth: string; state?: string }
   bound: { org: string; node: string; state: string }[]
+}
+
+/** One stored capacity mark, as GET /api/accounts/{id}/marks reports it.
+ *  `account` and `source` are what a clear must name; `expected` is the
+ *  exact mark the dialog showed, so a mark rewritten since is refused. */
+export type MarkEntry = {
+  account: string; source: 'registry' | 'legacy-roster'; pool: string
+  state: 'active' | 'expired'; until: number; remaining_s: number
+  observed_at: number | null; age_s: number | null
+  provenance: string; window: string; expected: Record<string, unknown>
+  companion?: { pool: string; cleared_with_this: boolean; expected: Record<string, unknown> }
+}
+type MarkClearResult = {
+  result: 'cleared' | 'changed' | 'missing' | 'expired'
+  kept?: Record<string, unknown>
+}
+
+const POOL_LABELS: Record<string, string> = {
+  pooled: 'Haiku/Sonnet/Opus', fable: 'Fable',
+  'openai:plan': 'Codex plan', 'openai:reserve': 'Codex reserve',
+}
+const poolLabel = (pool: string) => POOL_LABELS[pool] ?? pool
+
+/** "2h 10m" — a plain duration for "in …" and "… ago". */
+export function spanText(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds))
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60)
+  if (d) return `${d}d ${h}h`
+  if (h) return `${h}h ${m}m`
+  return m ? `${m}m` : `${s}s`
+}
+
+const provenanceText = (m: MarkEntry) =>
+  m.provenance === 'observed' ? 'measured from the provider'
+    : m.provenance === 'inferred' ? 'inferred, not measured'
+      : 'how it was recorded is not stored'
+
+/** A row may carry marks in the registry (a live `limited` standing) or,
+ *  for the default Claude login and old setup-token keys, in the older
+ *  account list the standing does not show. Only those rows are read. */
+const mayHaveMarks = (row: AccountRow) => row.standing.state === 'limited'
+  || (row.provider === 'claude' && (!!row.ambient || row.credential.kind === 'token'))
+
+function AccountMarks({ row, toast }: { row: AccountRow; toast: ToastFn }) {
+  const [marks, setMarks] = useState<MarkEntry[]>([])
+  const [confirm, setConfirm] = useState<MarkEntry | null>(null)
+  const want = mayHaveMarks(row)
+  const load = useCallback(async () => {
+    if (!want) { setMarks([]); return [] }
+    try {
+      const data = await req<{ marks?: MarkEntry[] }>(`/api/accounts/${encodeURIComponent(row.id)}/marks`)
+      const active = Array.isArray(data?.marks) ? data.marks.filter(m => m.state === 'active') : []
+      setMarks(active)
+      return active
+    } catch { setMarks([]); return [] }
+  }, [row.id, want])
+  useEffect(() => { void load() }, [load, row.standing.state])
+  if (!marks.length) return null
+  return <div className="account-marks">
+    {marks.map(m => <p key={m.source + m.pool} className="dim account-mark">
+      {poolLabel(m.pool)} limited until {new Date(m.until * 1000).toLocaleString()} (in {spanText(m.remaining_s)})
+      {' · '}{m.provenance === 'inferred' ? 'inferred' : m.provenance === 'observed' ? 'observed' : 'provenance not recorded'}
+      {m.age_s !== null ? ` · recorded ${spanText(m.age_s)} ago` : ''}
+      {' '}<button onClick={() => setConfirm(m)}>clear…</button>
+    </p>)}
+    {confirm && <ClearMarkDialog row={row} mark={confirm} toast={toast} reload={load}
+      close={() => setConfirm(null)} />}
+  </div>
+}
+
+/** THE DELIBERATE CONFIRMATION. It names the exact account, pool, reset
+ *  time and provenance, what else goes with it, and what clearing does NOT
+ *  do. The request carries the mark exactly as shown; if it changed in the
+ *  meantime nothing is cleared and the dialog shows the new state instead,
+ *  asking again. */
+export function ClearMarkDialog({ row, mark, toast, reload, close }: {
+  row: AccountRow; mark: MarkEntry; toast: ToastFn
+  reload: () => Promise<MarkEntry[]>; close: () => void
+}) {
+  const [shown, setShown] = useState<MarkEntry | null>(mark)
+  const [notice, setNotice] = useState('')
+  const [reason, setReason] = useState('')
+  const [busy, setBusy] = useState(false)
+  const who = accountIdentity(accountDisplayId(row), row.identity?.email)
+  const submit = async () => {
+    if (!shown || busy) return
+    setBusy(true); setNotice('')
+    try {
+      const out = await req<MarkClearResult>(
+        `/api/accounts/${encodeURIComponent(shown.account)}/marks/clear`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ source: shown.source, pool: shown.pool, expected: shown.expected,
+            ...(shown.companion ? { companion_expected: shown.companion.expected } : {}),
+            reason: reason.trim() }) })
+      if (out.result === 'cleared') {
+        toast([`${who}: ${poolLabel(shown.pool)} mark cleared. Frozen agents still need to be resumed.`])
+        await reload()
+        close()
+        return
+      }
+      const fresh = (await reload()).find(m => m.source === shown.source && m.pool === shown.pool) ?? null
+      setShown(fresh)
+      setNotice(fresh
+        ? 'This mark changed since you opened this dialog. Nothing was cleared. Check the new details and confirm again.'
+        : 'This mark is no longer active. Nothing was cleared.')
+    } catch (e) { setNotice(e instanceof Error ? e.message : 'Could not clear the mark') }
+    finally { setBusy(false) }
+  }
+  const companion = shown?.companion
+  return <PinFrame kind="clear-account-mark" title="Clear capacity mark" panel="settings clear-mark-dialog"
+    close={close} onEsc={close} pinnable={false} dialogLabel="Clear capacity mark">
+    <h3>Clear capacity mark</h3>
+    {notice && <p className="clear-mark-notice" role="status">{notice}</p>}
+    {shown && <>
+      <dl className="clear-mark-details">
+        <dt>Account</dt><dd>{who}</dd>
+        <dt>Pool</dt><dd>{poolLabel(shown.pool)}</dd>
+        <dt>Limited until</dt><dd>{new Date(shown.until * 1000).toLocaleString()} (in {spanText(shown.remaining_s)})</dd>
+        <dt>Recorded</dt><dd>{provenanceText(shown)}{shown.age_s !== null ? `, ${spanText(shown.age_s)} ago` : ''}</dd>
+        <dt>Stored in</dt><dd>{shown.source === 'registry' ? 'account list' : 'older account list (default Claude login)'}</dd>
+      </dl>
+      {companion && (companion.cleared_with_this
+        ? <p>This also clears the inferred Fable mark that was added with it (same reset time).</p>
+        : <p>The Fable mark on this account stays; it was recorded separately.</p>)}
+      {shown.source === 'legacy-roster' && shown.pool === 'pooled'
+        && <p>Any Fable mark on this account stays; clear it separately if needed.</p>}
+      <p className="clear-mark-warning">Clearing does not add capacity. If the provider still refuses, the account is marked again. Frozen agents stay frozen until you resume them.</p>
+      <label>Reason (optional, kept in the audit record)
+        <input value={reason} maxLength={500} onChange={e => setReason(e.target.value)} /></label>
+    </>}
+    <div className="dialog-actions">
+      <button onClick={close} disabled={busy}>{shown ? 'Cancel' : 'Close'}</button>
+      {shown && <button className="danger" disabled={busy} onClick={() => { void submit() }}>
+        Clear {poolLabel(shown.pool)} mark on {accountDisplayId(row)}</button>}
+    </div>
+  </PinFrame>
 }
 const LABELS: Record<AccountProvider, string> = { claude: 'Claude', openai: 'Codex', google: 'Antigravity' }
 const ANTIGRAVITY_ACCOUNT_PROFILE_ISSUE =
@@ -107,6 +243,7 @@ export function AccountRegistrySection({ provider, registry, toast }: {
                 : 'Remove this account'}
             onClick={() => { void remove(row) }}>remove</button>
         </div>
+        <AccountMarks row={row} toast={toast} />
         {row.origin_org && <div className="dim">Available only to {row.origin_org}</div>}
         {provider === 'google' && <div className="dim account-note">Secondary Antigravity sign-in is not supported yet.</div>}
       </div>

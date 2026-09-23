@@ -371,6 +371,8 @@ _put("orgtree_request_scope", "write", "other_agent")     # own row + superior
 #   so the target is always a DESCENDANT, and it performs a live provider
 #   read between gate and write.
 _put("orgtree_continue_on", "write", "other_agent")
+_put("orgtree_account_mark", "read", "resource", ("inspect",))
+_put("orgtree_account_mark", "write", "resource")      # clear
 #   VERIFIED in ledger.withdraw_ask: it mutates the ORG-LEVEL `asks`,
 #   `credit_requests` and `scope_requests` collections, not a per-node record,
 #   and the card it takes down is on the user's desk. Not self.
