@@ -357,6 +357,65 @@ class ManualRestartEvidenceTests(unittest.TestCase):
             self.assertEqual(json.dumps(org.d, sort_keys=True, default=str), before)
         self.assertFalse(self.st.get('mail_confirmed'))
 
+    # f1: a failure AFTER the confirmation receipt is written. `_confirm_locked`
+    # writes `mail_transitions[nid]` in `write_reclaim_receipt`, then runs
+    # `settle_replay` and `compact_receipts`; a failure there must still leave
+    # the whole document as it was, for each shape that section can have.
+    PRIOR = {'operation': 'op-prior', 'outcome': 'reclaimed', 'node': W,
+             'identity': [], 'before': {'tok-prior': '0' * 64}}
+
+    def fail_after_receipt_write(self, shape, *, at='compact_receipts'):
+        ids, _did = self.delivery()
+        self.crash()
+        org = self.load()
+        if shape == 'absent':
+            org.d.pop('mail_transitions', None)
+        elif shape == 'other_node_only':
+            org.d['mail_transitions'] = {'someone-else': {'op-x': dict(self.PRIOR, node='someone-else')}}
+        elif shape == 'node_receipt':
+            org.d['mail_transitions'] = {W: {'op-prior': dict(self.PRIOR)}}
+        store.save_org(org)
+        real_write = mailruntime.write_reclaim_receipt
+        written = []
+
+        def write(org_, receipt):
+            real_write(org_, receipt)
+            written.append(receipt['operation'])
+        with store.DOC_LOCK:
+            org = self.load()
+            self.assertEqual(('mail_transitions' in org.d,
+                              W in (org.d.get('mail_transitions') or {})),
+                             {'absent': (False, False), 'other_node_only': (True, False),
+                              'node_receipt': (True, True)}[shape], 'precondition')
+            before = json.dumps(org.d, sort_keys=True, default=str)
+            with patch.object(mailruntime, 'write_reclaim_receipt', write), \
+                    patch.object(mailruntime, at, side_effect=RuntimeError('boom')) as failed:
+                self.assertEqual(sup._reconcile_manual_records(org), 0)
+            self.assertEqual(len(written), 1, 'the receipt write was never reached')
+            self.assertTrue(failed.called, 'the failure was never injected')
+            self.assertEqual(json.dumps(org.d, sort_keys=True, default=str), before)
+            self.assertFalse(mailruntime.confirmed_tokens(org, W))
+            folded = sup._reconcile_mail_journal(org, owners_gone=lambda row: True)
+            store.save_org(org)
+        self.assertFalse(self.st.get('mail_confirmed'))
+        self.assertEqual(len(folded), 1)                       # restart stays conservative
+        self.assertEqual([m['id'] for m in self.box()], ids)
+        self.assertEqual([m.get('redelivered') for m in self.box()], [1] * len(ids))
+        self.assertEqual(self.confirmed_receipts(), [])
+        self.assertEqual(len(self.disclosures()), 1)
+
+    def test_a_failure_after_the_receipt_write_restores_an_absent_section(self):
+        self.fail_after_receipt_write('absent')
+
+    def test_a_failure_after_the_receipt_write_restores_a_section_without_the_node(self):
+        self.fail_after_receipt_write('other_node_only')
+
+    def test_a_failure_after_the_receipt_write_restores_the_nodes_prior_receipts(self):
+        self.fail_after_receipt_write('node_receipt')
+
+    def test_a_failure_in_settle_replay_after_the_receipt_write_also_rolls_back(self):
+        self.fail_after_receipt_write('node_receipt', at='settle_replay')
+
     def test_a_failed_startup_save_is_resolved_by_the_next_startup(self):
         ids, did = self.delivery()
         self.crash()
