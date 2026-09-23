@@ -80,6 +80,7 @@ import json
 import os
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -575,7 +576,8 @@ def kill_tree(proc: subprocess.Popen[bytes] | None) -> None:
             subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],
                            capture_output=True, timeout=15,
                            creationflags=subprocess.CREATE_NO_WINDOW)  # type: ignore[attr-defined]
-        proc.kill()
+        else:
+            os.killpg(proc.pid, signal.SIGKILL)
     except (OSError, subprocess.TimeoutExpired):
         pass
     try:
@@ -756,7 +758,8 @@ class AntigravityTurn:
         self.proc = subprocess.Popen(
             self.argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, env=env, cwd=self.cwd,
-            creationflags=(subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0))
+            creationflags=(subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0),
+            start_new_session=(os.name != "nt"))
         self._reader = threading.Thread(target=self._pump, daemon=True)
         self._reader.start()
         self._err_reader = threading.Thread(target=self._pump_err, daemon=True)
