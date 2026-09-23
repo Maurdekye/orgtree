@@ -395,6 +395,33 @@ def request_shutdown(port: int, token: str) -> bool:
         return False
 
 
+def register_bridge_engine(secret: str, service_pid: int, engine_pid: int,
+                           timeout: float = 10.0) -> None:
+    """Tell the service which exact child PID may use its user-token bridge.
+
+    The service starts its pipe after creating this host, so only a missing
+    listener is retried. A different pipe owner or a refused registration is
+    terminal; no bridge credential is sent to an unverified pipe instance.
+    """
+    from engine.winservice.bridge_transport import WindowsPipeAPI, read_frame, write_frame
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            with WindowsPipeAPI("").open_client(service_pid) as stream:
+                write_frame(stream, {"op": "register", "secret": secret,
+                                     "enginePid": engine_pid})
+                response = read_frame(stream)
+            if response.get("ok") is not True:
+                raise RuntimeError("service refused engine registration")
+            return
+        except PermissionError as exc:
+            raise RuntimeError("service bridge pipe identity changed") from exc
+        except (OSError, EOFError, ValueError) as exc:
+            if time.monotonic() >= deadline:
+                raise RuntimeError("service bridge registration unavailable") from exc
+            time.sleep(0.05)
+
+
 def main() -> int:
     root = resolve_data_root()
     ui = resolve_ui_dir()
@@ -405,7 +432,12 @@ def main() -> int:
         print(f"service host: {exc}", file=sys.stderr, flush=True)
         return EXIT_ROOT_OWNED
     token = secrets.token_hex(32)
+    # The service's bridge credential belongs only in the engine launch
+    # environment, never in the long-lived host's process environment.
+    bridge_secret = os.environ.pop("ORGTREE_V2_BRIDGE_SECRET", None)
     env = pin_profile_environment({**os.environ})
+    if bridge_secret is not None:
+        env["ORGTREE_V2_BRIDGE_SECRET"] = bridge_secret
     try:
         stop_requested = service_stop_probe(env) or (lambda: False)
     except RuntimeError as exc:
@@ -424,6 +456,18 @@ def main() -> int:
     child = subprocess.Popen([sys.executable, str(launcher)], cwd=str(launcher.parent),
                              env=env, stdout=subprocess.PIPE, stderr=sys.stderr,
                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    env.pop("ORGTREE_V2_BRIDGE_SECRET", None)
+    if bridge_secret is not None:
+        service_pid = os.environ.pop("ORGTREE_V2_SERVICE_PID", "")
+        if not service_pid.isdecimal() or int(service_pid) <= 0:
+            failed_start_cleanup(child, root)
+            raise RuntimeError("service process identity is unavailable")
+        try:
+            register_bridge_engine(bridge_secret, int(service_pid), child.pid)
+        except RuntimeError:
+            failed_start_cleanup(child, root)
+            raise
+    bridge_secret = None
 
     ready: dict[str, Any] = {}
     failure: list[str] = []

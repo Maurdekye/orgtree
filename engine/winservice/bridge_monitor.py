@@ -91,7 +91,7 @@ class BridgeMonitor:
             self._revoked.intersection_update(sessions)
             sessions = [session for session in sessions if session not in self._revoked]
         current = self.state.status()["sessionId"]
-        if sessions and current == sessions[0]:
+        if current in sessions:
             return
         if isinstance(current, int):
             self.state.signed_out(current)
@@ -100,8 +100,15 @@ class BridgeMonitor:
                 token = self.source.query_verified(session_id, self.sid)
             except (OSError, PermissionError):
                 continue  # foreign session or not yet ready; retry next scan
-            self.state.signed_in(session_id, token, self.source.close)
-            return
+            # LOGOFF can arrive while WTSQueryUserToken is in flight. Its
+            # HandlerEx callback takes this same lock before closing bridge
+            # admission, so recheck revocation and install atomically with it.
+            with self._lock:
+                if session_id in self._revoked:
+                    self.source.close(token)
+                    continue
+                self.state.signed_in(session_id, token, self.source.close)
+                return
 
     def _run(self) -> None:
         while not self._stop.is_set():

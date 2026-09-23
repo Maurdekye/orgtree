@@ -38,17 +38,36 @@ class MonitorTests(unittest.TestCase):
         monitor.reconcile()
         self.assertEqual(state.status()["sessionId"], 7)
         self.assertEqual(state.begin_turn("from-disconnected"), 107)
-        source.sessions = [8, 7]  # an attached logon takes priority
-        source.owners[8] = "operator"
+        source.sessions = [8, 7]  # another attached session sorts first
+        source.owners[8] = "foreign"
         monitor.reconcile()
-        self.assertEqual(state.status()["sessionId"], 8)
+        self.assertEqual(state.status()["sessionId"], 7)
         self.assertEqual(source.closed, [])  # old turn still owns its token
         state.finish_turn("from-disconnected")
-        self.assertEqual(source.closed, [107])
+        self.assertEqual(source.closed, [])  # stable session retains its token
         source.sessions = [7]
         monitor.reconcile()
         context.on_session_logoff(7)
         self.assertIsNone(state.begin_turn("after-logoff"))
+
+    def test_logoff_during_token_query_never_reopens_admission(self):
+        context = scm.ServiceContext(scm.StatusReporter(lambda _status: None))
+        state = BridgeState[int]()
+        source = FakeSource()
+        source.sessions = [7]
+        source.owners = {7: "operator"}
+        original_query = source.query_verified
+
+        def query_then_logoff(session_id, sid):
+            token = original_query(session_id, sid)
+            context.on_session_logoff(session_id)
+            return token
+
+        source.query_verified = query_then_logoff
+        monitor = BridgeMonitor("operator", context, state, source)
+        monitor.reconcile()
+        self.assertIsNone(state.begin_turn("after-race"))
+        self.assertEqual(source.closed, [107])
 
     def test_foreign_session_cannot_activate_bridge_and_logoff_is_immediate(self):
         context = scm.ServiceContext(scm.StatusReporter(lambda _status: None))

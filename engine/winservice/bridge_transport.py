@@ -21,6 +21,8 @@ MAX_FRAME = 65536
 PIPE_ACCESS_DUPLEX = 0x3
 FILE_FLAG_FIRST_PIPE_INSTANCE = 0x80000
 PIPE_REJECT_REMOTE_CLIENTS = 0x8
+SECURITY_SQOS_PRESENT = 0x00100000
+SECURITY_IDENTIFICATION = 0x00010000
 ERROR_PIPE_CONNECTED = 535
 
 
@@ -72,6 +74,8 @@ class WindowsPipeAPI:
         self.kernel.CreateFileW.restype = w.HANDLE
         self.kernel.GetNamedPipeClientProcessId.argtypes = [w.HANDLE,
                                                              ctypes.POINTER(w.ULONG)]
+        self.kernel.GetNamedPipeServerProcessId.argtypes = [w.HANDLE,
+                                                             ctypes.POINTER(w.ULONG)]
         self.kernel.CloseHandle.argtypes = [w.HANDLE]
         self.kernel.LocalFree.argtypes = [ctypes.c_void_p]
         self.advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [
@@ -109,11 +113,23 @@ class WindowsPipeAPI:
             raise ctypes.WinError(ctypes.get_last_error())
         return int(client.value)
 
-    def open_client(self) -> BinaryIO:
-        handle = self.kernel.CreateFileW(PIPE_NAME, 0x00100003, 0, None, 3, 0, None)
+    def open_client(self, expected_server_pid: int | None = None) -> BinaryIO:
+        handle = self.kernel.CreateFileW(
+            PIPE_NAME, 0x00100003, 0, None, 3,
+            SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION, None)
         if handle in (None, w.HANDLE(-1).value):
             raise ctypes.WinError(ctypes.get_last_error())
-        return self.stream(int(handle))
+        try:
+            if expected_server_pid is not None:
+                actual = w.ULONG()
+                if (not self.kernel.GetNamedPipeServerProcessId(
+                        w.HANDLE(handle), ctypes.byref(actual))
+                        or int(actual.value) != expected_server_pid):
+                    raise PermissionError("bridge pipe is not owned by the service")
+            return self.stream(int(handle))
+        except BaseException:
+            self.kernel.CloseHandle(w.HANDLE(handle))
+            raise
 
     def stream(self, handle: int) -> BinaryIO:
         fd = msvcrt.open_osfhandle(handle, os.O_BINARY | os.O_RDWR)

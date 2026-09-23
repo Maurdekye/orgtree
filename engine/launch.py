@@ -328,9 +328,12 @@ def load_app() -> tuple[Any, str, Path, int, dict[str, bool]]:
     os.environ["ORGTREE_DATA"] = str(data)
     os.environ.pop("ORGTREE_V2_TOKEN", None)
     bridge_secret = os.environ.pop("ORGTREE_V2_BRIDGE_SECRET", "")
+    service_pid = os.environ.pop("ORGTREE_V2_SERVICE_PID", "")
     if bridge_secret:
         from engine import bridge_client
-        bridge_client.configure(bridge_secret)
+        if not service_pid.isdecimal() or int(service_pid) <= 0:
+            raise RuntimeError("service bridge has no verified service process")
+        bridge_client.configure(bridge_secret, int(service_pid))
     os.environ['ORGTREE_DESKTOP_MANAGED'] = '1'
     sys.path.insert(0, str(backend))
     from orgtree import agentauth

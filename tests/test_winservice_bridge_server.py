@@ -1,5 +1,6 @@
 import unittest
 import threading
+from pathlib import Path
 from unittest.mock import patch
 
 from engine.winservice.bridge_server import BridgeServer
@@ -8,10 +9,19 @@ from engine.winservice.bridge_state import BridgeState
 
 class ServerDispatchTests(unittest.TestCase):
     def test_secret_required_even_for_state(self):
-        server = BridgeServer("S-1-5-21-1", 1, "a" * 64, BridgeState[int]())
+        server = BridgeServer("S-1-5-21-1", 1, "a" * 64, BridgeState[int](),
+                              host_pid=8, profile_path=Path("C:/operator"))
         with self.assertRaises(PermissionError):
-            server._dispatch({"op": "state", "secret": "b" * 64}, 1)
-        self.assertEqual(server._dispatch({"op": "state", "secret": "a" * 64}, 1),
+            server._dispatch({"op": "state", "secret": "b" * 64}, 1, 9)
+        with self.assertRaises(PermissionError):
+            server._dispatch({"op": "state", "secret": "a" * 64}, 1, 9)
+        server._peer = lambda _pid: 5
+        server.kernel.CloseHandle = lambda _handle: None
+        self.assertEqual(server._dispatch({"op": "register", "secret": "a" * 64,
+                                           "enginePid": 9}, 1, 8), {"ok": True})
+        with self.assertRaises(PermissionError):
+            server._dispatch({"op": "state", "secret": "a" * 64}, 1, 8)
+        self.assertEqual(server._dispatch({"op": "state", "secret": "a" * 64}, 1, 9),
                          {"ok": True, "bridge": "off", "sessionId": None,
                           "activeTurns": 0})
 
@@ -40,8 +50,9 @@ class ServerDispatchTests(unittest.TestCase):
                 state.signed_out(7)
                 return candidate
 
-        server = BridgeServer("S-1-5-21-1", 1, "a" * 64, state,
-                              spawner=Spawner())
+        server = BridgeServer("S-1-5-21-1", 1, "a" * 64, state, host_pid=8,
+                              profile_path=Path("C:/operator"), spawner=Spawner(),
+                              policy=lambda *_args: True)
         result = server._spawn({"turnId": "race", "argv": ["program"],
                                 "cwd": "C:\\", "env": {}}, 1)
         self.assertEqual(result, {"ok": False, "code": "signed-out-before-spawn"})
@@ -51,7 +62,8 @@ class ServerDispatchTests(unittest.TestCase):
 
     def test_failed_reply_terminates_orphaned_spawn(self):
         state = BridgeState[int]()
-        server = BridgeServer("S-1-5-21-1", 1, "a" * 64, state)
+        server = BridgeServer("S-1-5-21-1", 1, "a" * 64, state, host_pid=8,
+                              profile_path=Path("C:/operator"))
 
         class Child:
             terminated = False

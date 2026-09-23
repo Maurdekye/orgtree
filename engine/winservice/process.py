@@ -133,7 +133,7 @@ def no_prompt_git(env: dict[str, str]) -> None:
 
 class ServiceChild:
     def __init__(self, api: "WindowsProcessAPI", pid: int, process: int, job: int,
-                 stop_event: int, token: int, profile: int):
+                 stop_event: int, token: int, profile: int, profile_path: Path):
         self.api = api
         self.pid = pid
         self.process = process
@@ -141,6 +141,7 @@ class ServiceChild:
         self.stop_event = stop_event
         self.token = token
         self.profile = profile
+        self.profile_path = profile_path
         self._closed = False
 
     def wait(self, timeout: float) -> int | None:
@@ -238,7 +239,7 @@ class WindowsProcessAPI:
             raise ctypes.WinError(ctypes.get_last_error())
 
     def _user_environment(self, token: int, stop_event: int,
-                          bridge_secret: str) -> ctypes.Array:
+                          bridge_secret: str) -> tuple[ctypes.Array, Path]:
         source = ctypes.c_void_p()
         self._check(self.userenv.CreateEnvironmentBlock(ctypes.byref(source),
                                                         w.HANDLE(token), False))
@@ -254,14 +255,15 @@ class WindowsProcessAPI:
                     "HOME": profile,
                     "ORGTREE_V2_DATA": str(Path(profile) / "AppData" / "Roaming" / "Orgtree v2" / "data"),
                     "ORGTREE_V2_SERVICE_STOP_EVENT": str(stop_event),
-                    "ORGTREE_V2_BRIDGE_SECRET": bridge_secret})
+                    "ORGTREE_V2_BRIDGE_SECRET": bridge_secret,
+                    "ORGTREE_V2_SERVICE_PID": str(os.getpid())})
         no_prompt_git(env)
         for key in list(env):
             if key.upper().startswith("ORGTREE_") and key not in (
                     "ORGTREE_V2_DATA", "ORGTREE_V2_SERVICE_STOP_EVENT",
-                    "ORGTREE_V2_BRIDGE_SECRET"):
+                    "ORGTREE_V2_BRIDGE_SECRET", "ORGTREE_V2_SERVICE_PID"):
                 env.pop(key)
-        return _environment_block(env)
+        return _environment_block(env), Path(profile).resolve()
 
     def spawn(self, token: int, username: str, host: Path,
               bridge_secret: str) -> ServiceChild:
@@ -278,7 +280,7 @@ class WindowsProcessAPI:
             event = int(self.kernel.CreateEventW(None, True, False, None) or 0)
             self._check(event)
             self._check(self.kernel.SetHandleInformation(w.HANDLE(event), 1, 1))
-            env = self._user_environment(token, event, bridge_secret)
+            env, profile_path = self._user_environment(token, event, bridge_secret)
             job = int(self.kernel.CreateJobObjectW(None, None) or 0)
             self._check(job)
             limits = ExtendedLimit()
@@ -329,7 +331,7 @@ class WindowsProcessAPI:
             self.kernel.CloseHandle(w.HANDLE(thread_handle))
             thread_handle = 0
             child = ServiceChild(self, int(info.dwProcessId), process_handle,
-                                 job, event, token, profile_handle)
+                                 job, event, token, profile_handle, profile_path)
             process_handle = job = event = token = profile_handle = 0
             return child
         except BaseException:

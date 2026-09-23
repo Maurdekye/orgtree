@@ -127,6 +127,9 @@ class S4UIdentity:
         self.advapi.CheckTokenMembership.argtypes = [w.HANDLE, ctypes.c_void_p,
                                                      ctypes.POINTER(w.BOOL)]
         self.advapi.CheckTokenMembership.restype = w.BOOL
+        self.advapi.DuplicateToken.argtypes = [w.HANDLE, ctypes.c_int,
+                                              ctypes.POINTER(w.HANDLE)]
+        self.advapi.DuplicateToken.restype = w.BOOL
 
     def _check(self, status: int) -> None:
         if status:
@@ -148,12 +151,22 @@ class S4UIdentity:
             if not self.advapi.SetTokenInformation(w.HANDLE(token), 25,
                                                    ctypes.byref(label), size):
                 raise ctypes.WinError(ctypes.get_last_error())
-            enabled = w.BOOL()
-            if not self.advapi.CheckTokenMembership(w.HANDLE(token), admin,
-                                                     ctypes.byref(enabled)):
+            # CheckTokenMembership rejects a supplied primary token. Duplicate
+            # only for this membership check; CreateProcessAsUser retains the
+            # verified primary token. SecurityImpersonation = 2.
+            impersonation = w.HANDLE()
+            if not self.advapi.DuplicateToken(w.HANDLE(token), 2,
+                                              ctypes.byref(impersonation)):
                 raise ctypes.WinError(ctypes.get_last_error())
-            if enabled.value:
-                raise PermissionError("S4U token still has an enabled Administrators group")
+            try:
+                enabled = w.BOOL()
+                if not self.advapi.CheckTokenMembership(impersonation, admin,
+                                                         ctypes.byref(enabled)):
+                    raise ctypes.WinError(ctypes.get_last_error())
+                if enabled.value:
+                    raise PermissionError("S4U token still has an enabled Administrators group")
+            finally:
+                self.kernel.CloseHandle(impersonation)
         finally:
             self.kernel.LocalFree(medium)
             self.kernel.LocalFree(admin)

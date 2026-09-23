@@ -20,6 +20,9 @@ from .winservice.bridge_transport import WindowsPipeAPI, read_frame, write_frame
 
 
 _secret: str | None = None
+_service_pid: int | None = None
+_server_seen = False
+_server_lost = False
 _secret_lock = threading.Lock()
 WAIT_OBJECT_0 = 0
 WAIT_TIMEOUT = 258
@@ -31,14 +34,17 @@ class BridgeUnavailable(RuntimeError):
         self.code = code
 
 
-def configure(secret: str) -> None:
+def configure(secret: str, service_pid: int) -> None:
     if len(secret) != 64 or any(ch not in "0123456789abcdef" for ch in secret):
         raise ValueError("invalid service bridge authority")
-    global _secret
+    if not isinstance(service_pid, int) or service_pid <= 0:
+        raise ValueError("invalid service bridge process")
+    global _secret, _service_pid
     with _secret_lock:
-        if _secret is not None and _secret != secret:
+        if _secret is not None and (_secret != secret or _service_pid != service_pid):
             raise RuntimeError("service bridge authority changed inside a running engine")
         _secret = secret
+        _service_pid = service_pid
 
 
 def available() -> bool:
@@ -46,16 +52,30 @@ def available() -> bool:
 
 
 def _request(body: dict[str, Any]) -> dict[str, Any]:
+    global _server_seen, _server_lost
     with _secret_lock:
         secret = _secret
+        service_pid = _service_pid
+        lost = _server_lost
     if secret is None:
         raise BridgeUnavailable("not-service-mode")
+    if service_pid is None or lost:
+        raise BridgeUnavailable("bridge-unavailable")
     request = {"secret": secret, **body}
     try:
-        with WindowsPipeAPI("").open_client() as stream:
+        with WindowsPipeAPI("").open_client(service_pid) as stream:
             write_frame(stream, request)
             response = read_frame(stream)
+        with _secret_lock:
+            _server_seen = True
+    except PermissionError as exc:
+        with _secret_lock:
+            _server_lost = True
+        raise BridgeUnavailable("bridge-unavailable") from exc
     except (OSError, EOFError, ValueError) as exc:
+        with _secret_lock:
+            if _server_seen:
+                _server_lost = True
         raise BridgeUnavailable("bridge-unavailable") from exc
     if response.get("ok") is not True:
         raise BridgeUnavailable(str(response.get("code") or "bridge-refused"))

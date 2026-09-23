@@ -168,6 +168,10 @@ class BridgeSpawnAPI(WindowsProcessAPI):
             startup = StartupInfoEx()
             startup.StartupInfo.cb = ctypes.sizeof(startup)
             startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES
+            # The WTS token is from an existing genuine interactive logon.
+            # Attach this child to that session's already available desktop;
+            # the pre-login S4U host deliberately uses a noninteractive one.
+            startup.StartupInfo.lpDesktop = "winsta0\\default"
             startup.StartupInfo.hStdInput = w.HANDLE(stdin_read)
             startup.StartupInfo.hStdOutput = w.HANDLE(stdout_write)
             startup.StartupInfo.hStdError = w.HANDLE(stderr_write)

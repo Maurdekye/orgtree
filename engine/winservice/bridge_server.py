@@ -11,9 +11,11 @@ from __future__ import annotations
 import ctypes
 from ctypes import wintypes as w
 import hmac
+from pathlib import Path
 import threading
-from typing import Any
+from typing import Any, Callable
 
+from .bridge_policy import allows_google_subscription
 from .bridge_spawn import BridgeSpawnAPI, BridgedChild
 from .bridge_state import BridgeState
 from .bridge_transport import WindowsPipeAPI, read_frame, write_frame
@@ -27,12 +29,20 @@ TOKEN_QUERY = 0x8
 
 class BridgeServer:
     def __init__(self, operator_sid: str, host_job: int, secret: str,
-                 state: BridgeState[int], *, pipe: WindowsPipeAPI | None = None,
-                 spawner: BridgeSpawnAPI | None = None):
+                 state: BridgeState[int], *, host_pid: int, profile_path: Path,
+                 pipe: WindowsPipeAPI | None = None,
+                 spawner: BridgeSpawnAPI | None = None,
+                 policy: Callable[[Path, list[str], str, dict[str, str]], bool] = allows_google_subscription):
         if len(secret) != 64 or any(ch not in "0123456789abcdef" for ch in secret):
             raise ValueError("bridge requires a fresh 256-bit hex secret")
         self.operator_sid = operator_sid
         self.host_job = host_job
+        if host_pid <= 0:
+            raise ValueError("bridge requires the exact host PID")
+        self.host_pid = host_pid
+        self.engine_pid: int | None = None
+        self.profile_path = profile_path
+        self.policy = policy
         self.secret = secret
         self.state = state
         self.pipe = pipe or WindowsPipeAPI(operator_sid)
@@ -118,6 +128,11 @@ class BridgeServer:
                 or not isinstance(argv, list) or not isinstance(cwd, str)
                 or not isinstance(env, dict)):
             return {"ok": False, "code": "invalid-request"}
+        if (not all(isinstance(arg, str) for arg in argv)
+                or not all(isinstance(k, str) and isinstance(v, str)
+                           for k, v in env.items())
+                or not self.policy(self.profile_path, argv, cwd, env)):
+            return {"ok": False, "code": "provider-custody-not-allowed"}
         token = self.state.begin_turn(turn_id)
         if token is None:
             return {"ok": False, "code": "waiting-for-sign-in"}
@@ -142,13 +157,29 @@ class BridgeServer:
                     child.close()
                 self.state.finish_turn(turn_id)
 
-    def _dispatch(self, request: dict[str, Any], peer: int) -> dict[str, Any]:
+    def _dispatch(self, request: dict[str, Any], peer: int, pid: int) -> dict[str, Any]:
         supplied = request.get("secret")
         if not isinstance(supplied, str) or not hmac.compare_digest(supplied, self.secret):
             raise PermissionError("bridge authentication failed")
         if self._stop.is_set():
             return {"ok": False, "code": "service-stopping"}
         operation = request.get("op")
+        if operation == "register":
+            engine_pid = request.get("enginePid")
+            if pid != self.host_pid or not isinstance(engine_pid, int) or engine_pid <= 0:
+                raise PermissionError("only the exact host can register its engine")
+            # Verify that the claimed process belongs to this host job and
+            # operator before binding the pipe's entire lifetime to its PID.
+            verified = self._peer(engine_pid)
+            self.kernel.CloseHandle(w.HANDLE(verified))
+            with self._lock:
+                if self.engine_pid is not None and self.engine_pid != engine_pid:
+                    raise PermissionError("bridge engine identity changed")
+                self.engine_pid = engine_pid
+            return {"ok": True}
+        with self._lock:
+            if pid != self.engine_pid:
+                raise PermissionError("bridge caller is not the registered engine")
         if operation == "state":
             return {"ok": True, **self.state.status()}
         if operation == "spawn":
@@ -171,7 +202,7 @@ class BridgeServer:
             with self.pipe.stream(pipe_handle) as stream:
                 pipe_handle = 0  # stream now owns it
                 request = read_frame(stream)
-                response = self._dispatch(request, peer)
+                response = self._dispatch(request, peer, pid)
                 if request.get("op") == "spawn" and response.get("ok") is True:
                     spawned_turn = request["turnId"]
                 write_frame(stream, response)
