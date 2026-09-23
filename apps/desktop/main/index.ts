@@ -1104,6 +1104,35 @@ else {
   })
   app.on('activate', show)
   app.on('window-all-closed', () => { /* Tray/main remain alive by default. */ })
+  // Native macOS chrome (UI-03): Orgtree/Edit/Window, nothing else - no File
+  // or Help menu, nothing in scope needs either. editMenu/windowMenu are the
+  // built-in roles wholesale (Cmd+C/Cmd+V/Cmd+Z and the open-window list) -
+  // never hand-rolled. The appMenu role auto-fills its own label from
+  // app.name; never hardcode "Orgtree" there.
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    {
+      role: 'appMenu',
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { label: 'Preferences…', accelerator: 'Cmd+,', click: () => { broadcast({ type: 'open-settings', data: null }) } },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        // Same handler body as rebuildTray()'s update-check row - one
+        // implementation, two entry points, never a forked copy.
+        { label: 'Check for Updates…', click: () => { void checkForUpdates().catch(() => {}) } },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    },
+    { role: 'editMenu' },
+    { role: 'windowMenu' },
+  ]))
   // ---------------------------------------------------- console signals
   // A CONSOLE CLOSING MUST NOT KILL THIS PROCESS COLD (user report: closing a
   // console window they had not opened made Orgtree exit immediately).

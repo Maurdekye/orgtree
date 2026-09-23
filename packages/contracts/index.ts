@@ -39,7 +39,7 @@ export interface ViewTarget { kind: 'organization' | 'agent' | 'docket' | 'docum
 export interface WindowLease { key: string; epoch: number; owner: boolean }
 export interface DesktopWindowState { visible: boolean; restoreWindows: boolean }
 export interface DesktopControlsState extends DesktopWindowState { minimized: boolean; maximized: boolean }
-export interface DesktopEvent { type: 'engine-status' | 'engine-event' | 'preferences' | 'ownership' | 'update' | 'maintenance' | 'notification-click' | 'notification-poll' | 'main-window-shown' | 'window-state' | 'popout-state' | 'open-org'; data: unknown }
+export interface DesktopEvent { type: 'engine-status' | 'engine-event' | 'preferences' | 'ownership' | 'update' | 'maintenance' | 'notification-click' | 'notification-poll' | 'main-window-shown' | 'window-state' | 'popout-state' | 'open-org' | 'open-settings'; data: unknown }
 /** One popped-out desk or modal window, addressed by the frame name the
  *  renderer opened it under. A popout is frameless like the main window, so its
  *  own header draws the window controls and needs to know whether the window is

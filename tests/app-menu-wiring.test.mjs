@@ -23,7 +23,10 @@ const read = file => fs.readFileSync(path.join(root, file), 'utf8')
 
 test('DesktopEvent gains open-settings', () => {
   const contracts = read('packages/contracts/index.ts')
-  assert.match(contracts, /export interface DesktopEvent \{ type: '[^']*'(?: \| '[^']*')*'open-settings'(?: \| '[^']*')* \| 'open-org'; data: unknown \}/,
+  // Appended after 'open-org' (not inserted before it) — traylist-wiring.test.mjs
+  // pins 'popout-state' | 'open-org' as directly adjacent; this only adds a
+  // new member, it does not renumber the existing sequence.
+  assert.match(contracts, /'popout-state' \| 'open-org' \| 'open-settings'; data: unknown \}/,
     "DesktopEvent['type'] must gain 'open-settings' alongside the existing members")
 })
 
@@ -52,7 +55,7 @@ test('a native App Menu exists: Orgtree/Edit/Window, no File/Help', () => {
 
 test('appMenu submenu order: about, prefs, services, hide group, check-for-updates, quit', () => {
   const main = read('apps/desktop/main/index.ts')
-  const appMenuMatch = /role: 'appMenu',\s*submenu: \[([\s\S]*?)\]\s*\},\s*\{\s*role: 'editMenu'/.exec(main)
+  const appMenuMatch = /role: 'appMenu',\s*submenu: \[([\s\S]*?)\],?\s*\},\s*\{\s*role: 'editMenu'/.exec(main)
   assert.ok(appMenuMatch, 'could not find the appMenu submenu literal')
   const submenu = appMenuMatch[1]
 
@@ -73,12 +76,15 @@ test('Preferences… broadcasts open-settings; Check for Updates… calls the tr
 
   // "one implementation, two entry points": the App Menu's Check for
   // Updates… click handler must be byte-identical to the tray's own
-  // update-check row handler, proven the same way updater-wiring.test.mjs
+  // update-check row handler(s) — rebuildTray() already has this exact
+  // handler body on both its darwin and non-darwin branches (2 occurrences
+  // pre-existing this task) — proven the same way updater-wiring.test.mjs
   // proves single-reference-ness elsewhere in this codebase.
   const handler = "click: () => { void checkForUpdates().catch(() => {}) } }"
-  const occurrences = main.split(handler).length - 1
-  assert.equal(occurrences, 2,
-    'the exact checkForUpdates() click handler body must appear exactly twice — the tray row and the App Menu row — never a forked second implementation')
+  const trayOccurrences = (main.match(/id: 'update-check'/g) ?? []).length
+  const totalOccurrences = main.split(handler).length - 1
+  assert.equal(totalOccurrences, trayOccurrences + 1,
+    'the exact checkForUpdates() click handler body must appear once per existing tray update-check row plus exactly one App Menu row — never a forked second implementation')
   assert.match(main, new RegExp(`label: 'Check for Updates…', ${handler.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
     "the App Menu's Check for Updates… row must use the same handler body as the tray's update-check row")
 })
