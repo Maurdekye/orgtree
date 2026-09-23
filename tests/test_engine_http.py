@@ -7,11 +7,13 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 import urllib.request
 import urllib.error
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+import hub_isolation
 
 ROOT = Path(__file__).resolve().parents[1]
 CHILD = r'''
@@ -26,6 +28,17 @@ from pathlib import Path
 # would import the main checkout's engine and quietly test the wrong tree.
 # Place the checkout under test ahead of all of it, then PROVE it won.
 _CHECKOUT = Path(os.environ['ORGTREE_TEST_CHECKOUT']).resolve()
+# HUB ISOLATION, first of all (see tests/hub_isolation.py): every request
+# this engine makes to a live hub port is refused before it is sent and
+# reported on stdout, whichever code path makes it. Loaded by path, so the
+# engine is not imported early.
+_spec = importlib.util.spec_from_file_location(
+    'hub_isolation', _CHECKOUT / 'tests' / 'hub_isolation.py')
+hub_isolation = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(hub_isolation)
+if os.environ.get('ORGTREE_LOCAL_HUB_ADDRESS'):
+    raise SystemExit('hub isolation: the engine child inherited ORGTREE_LOCAL_HUB_ADDRESS')
+hub_isolation.install_transport_guard(
+    lambda url: print(json.dumps({'liveHubRefused': url}), flush=True))
 sys.path[:0] = [str(_CHECKOUT / 'engine' / 'backend'), str(_CHECKOUT / 'engine'), str(_CHECKOUT)]
 import launch
 def _origin(name, module=None):
@@ -146,24 +159,33 @@ class EngineHTTPTests(unittest.TestCase):
         root = Path(cls.tmp.name)
         data = root / 'data'; data.mkdir(); cls.data = data
         home = root / 'home'; home.mkdir()
+        # HUB ISOLATION (tests/hub_isolation.py). Without it this rig's
+        # fixtures registered on the operator's live hub. The rig gets an
+        # unroutable default hub and a disposable hub of its own on a free
+        # port; setUpClass refuses to go on unless that hub is provably the
+        # one answering.
+        cls.hub = hub_isolation.isolate_data_root(data)
+        cls.refused = []
         ui = root / 'ui'; ui.mkdir(); (ui / 'assets').mkdir()
         (ui / 'index.html').write_text('<!doctype html><title>UI positive control</title>', encoding='utf-8')
         env = dict(os.environ)
         for key in ('ORGTREE_V1_ROOT', 'ORGTREE_V1_DATA_ROOT', 'ORGTREE_PORT', 'ORGTREE_BASE', 'ORGTREE_V2_PORT',
                     'ORGTREE_AGENT_PARENT_DATA', 'ORGTREE_AGENT_LEGACY_DATA'):
             env.pop(key, None)
+        hub_isolation.scrub_inherited_hub(env)
         env.update(ORGTREE_DATA=str(data), HOME=str(home), USERPROFILE=str(home),
                    ORGTREE_V2_TOKEN='test-operator-secret', ORGTREE_V2_UI_DIR=str(ui),
                    ORGTREE_TEST_CHECKOUT=str(ROOT))
         cls.log = (root / 'stderr.log').open('w+')
         cls.process = subprocess.Popen([sys.executable, '-c', CHILD], cwd=ROOT / 'engine',
              env=env, stdout=subprocess.PIPE, stderr=cls.log, text=True)
-        lines = queue.Queue()
+        cls.lines = lines = queue.Queue()
         def reader():
             for line in cls.process.stdout:
                 lines.put(line)
             lines.put(None)
-        threading.Thread(target=reader, daemon=True).start()
+        cls.reader = threading.Thread(target=reader, daemon=True)
+        cls.reader.start()
         cls.token = None
         cls.port = None
         reconciled = False
@@ -175,6 +197,8 @@ class EngineHTTPTests(unittest.TestCase):
                     raise AssertionError('launcher exited: ' + cls.log.read())
                 try: row = json.loads(line)
                 except ValueError: continue
+                if 'liveHubRefused' in row:
+                    cls.refused.append(row['liveHubRefused'])
                 if 'fixtureToken' in row:
                     cls.token = row['fixtureToken']
                     cls.stale = row['staleToken']
@@ -187,9 +211,19 @@ class EngineHTTPTests(unittest.TestCase):
                 if row.get('type') == 'ready':
                     cls.port = row['port']
                     assert cls.port != 7360
+                    assert row['hubPort'] == cls.hub['port'], (row, cls.hub)
+                    assert row['hubPort'] not in hub_isolation.LIVE_HUB_PORTS, row
                     assert row['dataRootId'] == str(data.resolve())
                 if cls.port is not None and reconciled:
                     break
+            # FAIL CLOSED: the hub answering on the rig's port must be the
+            # rig's own, by its unique name, before any test runs.
+            status, hub = cls.request('/api/desktop/hub', operator=True)
+            assert status == 200, hub
+            assert hub['status']['healthy'], hub
+            assert hub['status']['hub_name'] == cls.hub['name'], (hub, cls.hub)
+            assert hub['status']['address'] == cls.hub['address'], (hub, cls.hub)
+            assert not cls.refused, cls.refused
         except BaseException:
             # Release the log and the fixture root here: left to the interpreter's
             # exit finalizer, the still-open stderr.log raises WinError 32 and that
@@ -209,6 +243,23 @@ class EngineHTTPTests(unittest.TestCase):
                 cls.process.terminate(); cls.process.wait(timeout=15)
             cls.log.close()
             cls.tmp.cleanup()
+        cls.reader.join(timeout=15)
+        cls.drain()
+        # Raised here, it fails the run even if every test already passed.
+        if cls.refused:
+            raise AssertionError(f'the engine tried to reach a live hub: {cls.refused}')
+
+    @classmethod
+    def drain(cls):
+        # The engine's stdout after startup: collect any refusal rows.
+        while True:
+            try: line = cls.lines.get_nowait()
+            except queue.Empty: return
+            if line is None: return
+            try: row = json.loads(line)
+            except ValueError: continue
+            if isinstance(row, dict) and 'liveHubRefused' in row:
+                cls.refused.append(row['liveHubRefused'])
 
     @classmethod
     def request(cls, path, payload=None, operator=False, token=None):
@@ -367,6 +418,35 @@ class EngineHTTPTests(unittest.TestCase):
         kind, body = json.loads(result.stdout)
         self.assertEqual(kind, 'ok', body)
         self.assertIn('chart', json.loads(body))
+
+    def test_fixture_orgs_register_only_on_the_disposable_hub(self):
+        # POSITIVE CONTROL for the isolation: the fixture organisations DO
+        # register — on the rig's own hub, which is the only place they can.
+        # A rig that silently registered nowhere would prove nothing.
+        fixtures = ('auth-fixture', 'duplicate-one', 'duplicate-two',
+                    'ordinary-missing', 'unrelated-native')
+        deadline = time.monotonic() + 45
+        registered = 0
+        while time.monotonic() < deadline:
+            with urllib.request.urlopen(self.hub['address'] + '/healthz', timeout=5) as r:
+                health = json.load(r)
+            self.assertEqual(health['name'], self.hub['name'], health)
+            registered = int(health['orgs'])
+            if registered >= len(fixtures):
+                break
+            time.sleep(0.5)
+        # exactly one client per fixture: registering again on reconnect
+        # re-claims the same row instead of adding one
+        self.assertEqual(registered, len(fixtures),
+                         'the fixture organisations did not register on the disposable hub')
+        # and every fixture's hub list names the rig's hub and nothing else
+        for slug in fixtures:
+            status, tree = self.request(f'/api/orgs/{slug}', operator=True)
+            self.assertEqual(status, 200, tree)
+            addresses = [h['address'] for h in (tree.get('net') or {}).get('hubs') or []]
+            self.assertEqual(addresses, [self.hub['address']], (slug, tree.get('net')))
+        type(self).drain()
+        self.assertEqual(self.refused, [])
 
     def test_packaged_ui_does_not_shadow_desktop_routes(self):
         request = urllib.request.Request(f'http://127.0.0.1:{self.port}/',

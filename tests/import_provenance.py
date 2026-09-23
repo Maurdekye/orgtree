@@ -32,7 +32,8 @@ import os
 import sys
 from pathlib import Path
 
-__all__ = ["ForeignImportError", "CHECKOUT_ROOT", "GUARDED", "assert_repo_import", "origin_of"]
+__all__ = ["ForeignImportError", "CHECKOUT_ROOT", "GUARDED", "INHERITED_HUB_ENV",
+           "assert_repo_import", "origin_of"]
 
 # The helper sits at <checkout>/tests/, so its own location IS the checkout —
 # in a linked worktree that is the worktree, which is the tree the agent edited
@@ -144,3 +145,14 @@ def assert_repo_import(*names: str) -> dict[str, str | None]:
 
 
 ORIGINS = assert_repo_import()
+
+# The SAME inheritance, for the mail hub. The installed engine publishes its
+# hub in ORGTREE_LOCAL_HUB_ADDRESS and every command an agent types inherits
+# it, so a rig that boots an engine from this process would send its fixture
+# organisations to the operator's REAL hub (25 of them reached it on
+# 2026-09-16; see hub_isolation.py). The value is never test input: a test
+# that wants the seam sets it itself, after this import. Removing it here
+# covers every module and everything a module spawns with os.environ.
+INHERITED_HUB_ENV = ("ORGTREE_LOCAL_HUB_ADDRESS",)
+for _key in INHERITED_HUB_ENV:
+    os.environ.pop(_key, None)

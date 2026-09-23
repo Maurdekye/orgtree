@@ -635,6 +635,10 @@ def run_modules(
             "PYTHONPATH", "PYTHONHOME", "PYTHONUSERBASE", "ORGTREE_DATA", "ORGTREE_V2_DATA",
             "ORGTREE_V2_PROFILE", "ORGTREE_AGENT_PARENT_DATA", "ORGTREE_AGENT_LEGACY_DATA",
             "ORGTREE_V1_ROOT", "ORGTREE_V1_DATA_ROOT",
+            # The installed engine's mail hub. Inherited, it outranks the
+            # temp-root floor in net._default_address and sends a module's
+            # fixture organisations to the operator's real hub.
+            "ORGTREE_LOCAL_HUB_ADDRESS",
         ):
             env.pop(key, None)
         home = private_root / "home"
