@@ -57,7 +57,9 @@ mixed comparisons; `min` keeps its first argument on ties; `math.ceil` and
    plain `+` for the rest. `pynum::py_sum` with `SumModel::CPYTHON_313_WIN64`
    is that model; it was fitted against 300,000 random lists on the runtime
    with no mismatch, and the vectors pin it (sum rows and summation-sensitive
-   `committed()` rows where the 32-bit and 64-bit models differ after `_q`).
+   `committed()` rows where the 32-bit and 64-bit models differ after `_q`,
+   and sum and `committed()` rows where a wide int ends a compensated float
+   run and the pending compensation stays visible in the result).
    A plain left-to-right sum and a 64-bit-`long` model both fail controls.
 2. **The Python read set is wide.** Every `children()` call scans the whole
    node table and reads every node's `parent`, so `committed`, `free`,
@@ -66,12 +68,18 @@ mixed comparisons; `min` keeps its first argument on ties; `math.ceil` and
    instead of a narrower set a future lock design might prefer; a control that
    narrows it fails every funding section.
 3. **A rehire can refuse after mutating.** Rehiring a node under archived
-   superiors rehires them first, each with its own chain acquisition; if the
-   node's own acquisition is then refused, Python has already made those
-   superiors live (and may have inflated grants) in memory. The crate reports
-   that as `states_changed`/`grants_changed` on the refusal. Whether a caller's
-   store persists such partial effects is outside this crate and is not
-   asserted. A control that rolls them back fails the rehire section.
+   superiors rehires them first, top-most first, each with its own chain
+   acquisition; if the node's own acquisition (or a later superior's) is then
+   refused, Python has already made the earlier superiors live and may have
+   inflated grants in memory. The crate reports that as
+   `states_changed`/`grants_changed` on the refusal. Whether a caller's store
+   persists such partial effects is outside this crate and is not asserted.
+   The vectors hold several such refusals, including ones that keep inflated
+   grants (an agent actor short on the target's acquisition; a USER cascade
+   whose second inflation crosses `max_top_grant`), and rows where the
+   top-most-first order decides which node a refusal names. A control that
+   rolls partial effects back fails the rehire section on more than one row
+   and on `grants_changed`.
 
 ## Parity domain
 
@@ -99,22 +107,47 @@ ceilings, `request_credits`, API kiosk caps, the hire's node minting and
 everything after the funding step (notification delivery, logging, harness
 and account stamping), and any transaction, locking or persistence behaviour.
 
-## Hire and rehire windows
+## Hire and rehire read sets
 
-For `hire` and `rehire` the oracle records reads and writes only inside the
-two funding calls (`_check_top_grant` and `_chain_acquire`); what those
-methods read elsewhere (scopes, tools, names, depth, lineage) belongs to other
-work. The refusals that precede the funding step and decide whether it runs
-(grant validity, top-level hire by an agent, parent liveness, subtree
-authority, rehire authority, lost generations, unrecoverable superiors) are
-reproduced with Python's messages.
+For `hire` and `rehire` the oracle records the **whole Python call**. The
+reported `reads`/`writes` therefore include every funding input and effect
+outside the two funding calls as well: the tier price (`t:<tier>`, and for a
+rehire the node's `model` and its price), `d:cascade_hire`, the rehired
+node's `successor`, `bearer_state`, `state`, `parent` and default `grant`,
+the archived-superior walk (`n:`, `state`, `parent` of each superior), the
+authority and liveness checks, the parent lookup of the rehire's tools clamp,
+and the `state`/`grant` writes that make the target and each superior live.
+
+Only these are left out, and each is listed in the oracle
+(`NON_FUNDING_CALLS`, `NON_FUNDING_FIELDS`, `NON_FUNDING_SETTINGS`):
+
+* reads inside `_check_tier_ceiling`, `depth`, `org_children`,
+  `effective_dirs`, `_clamp_dirs`, `_clamp_tools`, `_clamp_vis`,
+  `_apply_ceiling`, `clear_fable_lock`, `_new_node`, `_peers_of` and
+  `waking_mail` (tier ceiling, depth/width caps, dirs, tools, visibility,
+  Fable lock, node minting, peers, pending mail), and inside the effect
+  builders `_notify`, `_notify_ev`, `_log` and `node_ref`;
+* the node fields `scope` (dirs/tools/visibility) and `archived_at` (a
+  timestamp cleared on rehire);
+* the settings `dirs`, `default_tools`, `default_visibility`, `max_depth`,
+  `max_children`, `fable_lock`, `watchdogs`, `default_account` and `slug`;
+* every key of the node a hire creates (its grant is reported as
+  `new_grant`).
+
+Every hire and rehire row is also recorded a second time with no filter at
+all, and the oracle stops unless each key of that unfiltered recording is
+either reported or covered by one of the listed exclusions (`unaccounted`),
+so a funding key cannot drop out silently. The refusals that precede the
+funding step (grant validity, top-level hire by an agent, parent liveness,
+subtree authority, rehire authority, lost generations, unrecoverable
+superiors) are reproduced with Python's messages.
 
 ## Vectors and oracle
 
 `oracle/generate_vectors.py` builds synthetic organizations in memory under a
 temporary `ORGTREE_DATA`, calls the real ledger methods, and records outcomes,
 effects and the actual read/write keys through recording dict subclasses
-(effect builders run muted and are recorded as effects). It anchors the
+(effect builders are recorded as effects, their reads set aside). It anchors the
 SHA-256 of `ledger.py`, refuses unknown refusal texts and moved ledger
 constants, and runs only on the engine runtime (CPython 3.13):
 
@@ -135,7 +168,10 @@ add summation-sensitive fractional grants.
 
 `tests/test_funding_core_vectors.py` regenerates the vectors from the current
 source, compares byte for byte, and shows that changing `_q`, the children
-order, the cap, the stranding rule or `sum()` changes them.
+order, the cap, the stranding rule or `sum()` changes them; it also shows
+the hire/rehire accounting stops the oracle when a helper's reads vanish
+instead of being set aside, and that the committed hire/rehire rows carry
+`cascade_hire`, `successor` and `state` keys and no excluded field.
 
 ## Running
 
@@ -148,9 +184,10 @@ cargo fmt --check
 cargo run --offline --bin funding-vectors            # JSON report, exit 0 = all rows match
 ```
 
-`tests/controls.rs` holds sixteen negative controls (rounding, quantisation,
+`tests/controls.rs` holds seventeen negative controls (rounding, quantisation,
 sum compensation, sum `long` width, `%g` ties, children order, contribution
 order, USER carry, stranding snapshot, cap check, cap equality, snap-up,
-stranding bound, cascade settings, narrowed read set, rehire atomicity); each
+stranding bound, cascade settings, narrowed read set, rehire atomicity,
+hire/rehire reads recorded only inside the two funding calls); each
 must fail only its named sections. That shows sensitivity to those defects,
 not that every defect would be caught.

@@ -85,6 +85,41 @@ class FundingCoreVectors(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 oracle.build(ROOT)
 
+    def test_accounting_names_an_unreported_funding_key(self):
+        got = oracle.unaccounted({"d:cascade_hire", "t:haiku", "f:mid:scope", "d:max_depth", "n:newhire"},
+                                 {"t:haiku"}, set(), {"newhire"})
+        self.assertEqual(got, {"d:cascade_hire"})
+
+    def test_hire_rehire_keys_cannot_vanish(self):
+        # a helper whose reads are dropped instead of set aside is exactly
+        # the silent omission the accounting exists to catch
+        def dropping(fn):
+            def wrapper(*a, **k):
+                prev = oracle.REC["sink"]
+                oracle.REC["sink"] = set()
+                try:
+                    return fn(*a, **k)
+                finally:
+                    oracle.REC["sink"] = prev
+            return wrapper
+        with patch.object(oracle, "aside", dropping):
+            with self.assertRaises(SystemExit):
+                oracle.build(ROOT)
+
+    def test_hire_rehire_report_funding_inputs_outside_the_acquisition(self):
+        import json
+        doc = json.loads(COMMITTED)
+        hire_reads = set().union(*(r["reads"] for r in doc["hire"]))
+        rehire_reads = set().union(*(r["reads"] for r in doc["rehire"]))
+        rehire_writes = set().union(*(r["writes"] for r in doc["rehire"]))
+        self.assertIn("d:cascade_hire", hire_reads)
+        self.assertIn("d:cascade_hire", rehire_reads)
+        self.assertTrue(any(k.startswith("f:") and k.endswith(":successor") for k in rehire_reads))
+        self.assertTrue(any(k.endswith(":state") for k in rehire_writes))
+        for r in doc["hire"] + doc["rehire"]:
+            for k in r["reads"] + r["writes"]:
+                self.assertFalse(k.endswith((":scope", ":archived_at")), k)
+
     def test_vectors_anchor_the_ledger_source(self):
         import hashlib
         import json

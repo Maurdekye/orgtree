@@ -59,6 +59,12 @@ pub struct Rules {
     /// memory (superiors made live, grants inflated). `false` rolls it back,
     /// i.e. pretends the step is atomic; it is a control.
     pub partial_effects: bool,
+    /// hire and rehire report every funding read and write of the whole
+    /// call (the tier price, `cascade_hire`, the rehired node's model, grant
+    /// and archived-superior walk, the state/grant writes). `false` records
+    /// only inside the D-014 check and the chain acquisition, the earlier
+    /// narrower window; it is a control.
+    pub whole_step_reads: bool,
 }
 
 impl Rules {
@@ -77,6 +83,7 @@ impl Rules {
         honor_cascade: true,
         whole_scan_reads: true,
         partial_effects: true,
+        whole_step_reads: true,
     };
 }
 
@@ -245,8 +252,8 @@ pub struct Ledger<'r> {
 
 impl<'r> Ledger<'r> {
     /// A private working copy. `record` starts the recorder on (whole-call
-    /// recording) or off (hire/rehire, where only the funding window is
-    /// recorded).
+    /// recording) or off (only the `windowed` D-014 check and chain
+    /// acquisitions are recorded; the `whole_step_reads` control).
     pub fn new(snap: &Snapshot, rules: &'r Rules, record: bool) -> Ledger<'r> {
         Ledger {
             rules,
@@ -330,6 +337,14 @@ impl<'r> Ledger<'r> {
             self.trace.writes.insert(format!("w:{id}:grant"));
         }
         self.nodes[i].grant = v;
+    }
+
+    fn set_state(&mut self, i: usize, v: &str) {
+        if self.rec {
+            let id = &self.nodes[i].id;
+            self.trace.writes.insert(format!("w:{id}:state"));
+        }
+        self.nodes[i].state = v.to_owned();
     }
 
     fn tier_price(&mut self, model: &str) -> F<PyNum> {
@@ -826,8 +841,8 @@ impl<'r> Ledger<'r> {
         Ok(())
     }
 
-    /// The oracle's funding window around `_chain_acquire` for hire and
-    /// rehire: recorded, whatever the surrounding state.
+    /// `_chain_acquire` for hire and rehire: recorded even when the
+    /// surrounding call is not (the narrower `whole_step_reads` control).
     fn acquire_windowed(
         &mut self,
         actor: &str,
@@ -926,8 +941,9 @@ impl<'r> Ledger<'r> {
     /// The funding step of `hire(actor, parent, tier, grant, name, ...)`:
     /// every check that precedes it and can refuse, the D-014 check for a
     /// top-level hire and the chain acquisition. Returns the new node's
-    /// grant, `int(grant)`. Recording covers only the two funding calls, as
-    /// in the oracle.
+    /// grant, `int(grant)`. Everything read here is recorded: the checks
+    /// before the funding step read only funding inputs once the oracle's
+    /// listed non-funding helpers, fields and settings are set aside.
     pub fn hire(
         &mut self,
         actor: &str,
@@ -993,10 +1009,14 @@ impl<'r> Ledger<'r> {
     /// rehire of archived superiors it performs first. `Ok(None)` is the
     /// already-live no-op; otherwise the grant the node is rehired at.
     pub fn rehire(&mut self, actor: &str, nid: &str, grant: Option<PyNum>) -> F<Option<PyNum>> {
-        // own_bearer is `nodes[nid].successor == actor`; every successor is
-        // null in the parity domain, so it is false.
+        // own_bearer is `(nodes.get(nid) or {}).get("successor") == actor`;
+        // every successor is null in the parity domain, so it is false.
+        if let Some(i) = self.has(nid) {
+            self.field(i, "successor");
+        }
         self.require_authority(actor, nid)?;
         let i = self.node(nid)?;
+        self.field(i, "bearer_state");
         if self.nodes[i].bearer_state.as_deref() == Some("lost") {
             return refuse(
                 RefusalKind::LostGeneration,
@@ -1005,20 +1025,21 @@ impl<'r> Ledger<'r> {
                 ),
             );
         }
-        match self.nodes[i].state.as_str() {
-            "live" => return Ok(None),
-            "unrecoverable" => {
-                return Err(Outside("rehire of an unrecoverable node is a re-seed").into())
-            }
-            _ => {}
+        let state = self.state_of(i);
+        if state == "live" {
+            return Ok(None);
+        }
+        // the tier-ceiling argument: `n["model"] if n["state"] ==
+        // "unrecoverable" or tier is None else tier`
+        self.field(i, "model");
+        if state == "unrecoverable" {
+            return Err(Outside("rehire of an unrecoverable node is a re-seed").into());
         }
         let mut chain: Vec<String> = Vec::new();
-        let mut p = self.nodes[i].parent.clone();
+        let mut p = self.parent_of(i);
         while let Some(k) = p {
-            let Some(j) = self.find(&k) else {
-                return key_error(RefusalKind::DanglingReference, &k);
-            };
-            match self.nodes[j].state.as_str() {
+            let j = self.raw(&k)?;
+            match self.state_of(j).as_str() {
                 "live" => break,
                 "unrecoverable" => {
                     return refuse(
@@ -1037,16 +1058,20 @@ impl<'r> Ledger<'r> {
                 .into());
             }
             chain.push(k);
-            p = self.nodes[j].parent.clone();
+            p = self.parent_of(j);
         }
         let mut warnings: Vec<String> = Vec::new();
         for k in chain.iter().rev() {
             self.rehire(actor, k, None)?;
         }
-        let i = self.node(nid)?;
-        let parent = self.nodes[i].parent.clone();
+        // `n` is held across the superiors' rehire: no table lookup here
+        let Some(i) = self.find(nid) else {
+            return Err(Outside("rehired node vanished").into());
+        };
+        self.field(i, "model"); // the Fable-lock test
+        let parent = self.parent_of(i);
         let grant = match grant {
-            None => self.nodes[i].grant,
+            None => self.grant_of(i),
             Some(g) => {
                 if !g.to_f64().is_finite() {
                     return Err(Outside("non-finite rehire grant").into());
@@ -1054,7 +1079,7 @@ impl<'r> Ledger<'r> {
                 self.q(g)?.ceil()?
             }
         };
-        if parent.is_none() && grant.gt(self.nodes[i].grant)? {
+        if parent.is_none() && grant.gt(self.grant_of(i))? {
             self.windowed(|s| s.check_top_grant(grant, "this rehire"))?;
         }
         let seat = self.seat_cost(nid)?;
@@ -1062,10 +1087,11 @@ impl<'r> Ledger<'r> {
         if let Some(p) = &parent {
             let cascade = self.cascade_setting("cascade_hire");
             self.acquire_windowed(actor, p, need, &mut warnings, cascade)?;
+            // the tools clamp looks the parent up again: `self.node(parent)`
+            self.has(p);
         }
-        let i = self.node(nid)?;
-        self.nodes[i].state = "live".to_owned();
-        self.nodes[i].grant = grant;
+        self.set_state(i, "live");
+        self.set_grant(i, grant);
         self.trace.rehired.push((nid.to_owned(), grant));
         Ok(Some(grant))
     }

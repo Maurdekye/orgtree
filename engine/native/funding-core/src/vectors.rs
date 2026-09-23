@@ -421,6 +421,9 @@ fn check_rehire(row: &Value, rules: &Rules) -> Check {
     }
     acquire_calls(row, &out)?;
     same_strings("warnings", need(row, "warnings")?, &out.acquire_warnings)?;
+    // grants before states, so a partial refusal that inflated grants is
+    // reported as such and not only as a superior made live
+    same_grants(need(row, "grants_changed")?, &out.grants_changed)?;
     let states = items(need(row, "states_changed")?)?;
     let want: Vec<(String, String)> = states
         .iter()

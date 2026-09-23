@@ -263,10 +263,11 @@ fn planner_is_pure_deterministic_and_classifies_refusals() {
 }
 
 /// The Python atomicity gap is reported, not repaired: a rehire refused
-/// after it rehired archived superiors leaves them live in the result.
+/// after it rehired archived superiors leaves them live, and any grants their
+/// acquisitions inflated, in the result.
 #[test]
 fn partial_rehire_is_reported() {
-    let mut seen = 0;
+    let (mut seen, mut inflated) = (0, 0);
     for row in rows("rehire") {
         let Some(Value::Array(states)) = member(&row, "states_changed") else {
             continue;
@@ -286,9 +287,26 @@ fn partial_rehire_is_reported() {
             grant,
             &Rules::LEGACY,
         );
-        assert_eq!(kind_of(&out), Some(RefusalKind::ChainShort));
+        assert!(
+            matches!(
+                kind_of(&out),
+                Some(RefusalKind::ChainShort | RefusalKind::TopGrantCap)
+            ),
+            "{:?}",
+            out.result
+        );
         assert_eq!(out.states_changed.len(), states.len());
+        if !out.grants_changed.is_empty() {
+            inflated += 1;
+        }
         seen += 1;
     }
-    assert!(seen > 0, "no partial rehire scenario in the vectors");
+    assert!(
+        seen > 1,
+        "only {seen} partial rehire scenarios in the vectors"
+    );
+    assert!(
+        inflated > 0,
+        "no partial rehire that kept an inflated grant"
+    );
 }

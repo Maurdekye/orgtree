@@ -9,11 +9,14 @@ checked against what these calls returned.
 Besides the outcome (grants written, warnings, notices, refusal message),
 each row records what the Python code actually READ while deciding: the
 organization's node table, node fields, tier prices and settings are wrapped
-in recording dict subclasses for the duration of the funding step. Effect
-builders (`_notify`, `_notify_ev`, `_log`, `node_ref`) run with recording
-switched off and are recorded as effects instead. This is the honest read
-set a later port must either reproduce or deliberately change; it is not an
-idealized lock set.
+in recording dict subclasses for the duration of the call. Effect builders
+(`_notify`, `_notify_ev`, `_log`, `node_ref`) are recorded as effects, not
+as reads. For `hire` and `rehire` the WHOLE call is recorded, minus an
+explicit list of non-funding helpers, fields and settings (see
+NON_FUNDING_CALLS below); every row is checked against an unfiltered
+recording of the same call so that no other key can go missing. This is the
+honest read set a later port must either reproduce or deliberately change;
+it is not an idealized lock set.
 
 Run on the engine runtime only (CPython 3.13.15):
 
@@ -46,13 +49,18 @@ USER = "@user"
 SYSTEM = "@system"
 
 # ---------------------------------------------------------------- recording
-REC = {"on": False}
+# `sink` is where a read goes while recording is on: LOG for the funding
+# decision, ASIDE for reads made inside a named non-funding helper or an
+# effect builder (kept so the accounting check can prove nothing else was
+# dropped).
 LOG: set[str] = set()
+ASIDE: set[str] = set()
+REC: dict[str, Any] = {"on": False, "sink": LOG}
 
 
 def _note(s: str) -> None:
     if REC["on"]:
-        LOG.add(s)
+        REC["sink"].add(s)
 
 
 class RecNode(dict):
@@ -162,36 +170,39 @@ class Recorder:
     """Switch recording on for one call; restores the previous state."""
 
     def __enter__(self):
-        self.prev = REC["on"]
-        REC["on"] = True
+        self.prev = (REC["on"], REC["sink"])
+        REC["on"], REC["sink"] = True, LOG
         LOG.clear()
+        ASIDE.clear()
         return self
 
     def __exit__(self, *exc):
-        REC["on"] = self.prev
+        REC["on"], REC["sink"] = self.prev
         return False
 
 
-def windowed(fn):
+def aside(fn):
+    """Run `fn` with its reads sent to ASIDE instead of LOG."""
     def wrapper(*a, **k):
-        prev = REC["on"]
-        REC["on"] = True
+        prev = REC["sink"]
+        REC["sink"] = ASIDE
         try:
             return fn(*a, **k)
         finally:
-            REC["on"] = prev
+            REC["sink"] = prev
     return wrapper
 
 
 def muted(fn, sink):
+    """An effect builder: observed through `sink`, its reads set aside."""
     def wrapper(*a, **k):
-        prev = REC["on"]
-        REC["on"] = False
+        prev = REC["sink"]
+        REC["sink"] = ASIDE
         try:
             sink(a, k)
             return fn(*a, **k)
         finally:
-            REC["on"] = prev
+            REC["sink"] = prev
     return wrapper
 
 
@@ -391,22 +402,89 @@ def reallocate_row(b: Builder, spec, actor, nid, delta) -> dict:
     return finish(out, org, before, eff)
 
 
-def funding_window(org, eff: Effects) -> None:
-    """For hire and rehire only the funding step is recorded: the top-grant
-    cap check and the chain acquisition. Everything else those methods read
-    (scopes, tools, names, depth, lineage) is outside this crate."""
+# hire and rehire are recorded for the WHOLE call. Only what is listed here is
+# left out of their read/write sets, and every one of these is named in the
+# README ("Hire and rehire read sets"):
+# - reads made inside these helpers, which decide scopes, tools, dirs,
+#   visibility, the kiosk tier ceiling, the depth and width caps, the Fable
+#   lock, peers, pending mail and the new node's identity (set aside, not
+#   dropped: see `unaccounted`);
+NON_FUNDING_CALLS = ("_check_tier_ceiling", "depth", "org_children", "effective_dirs",
+                     "_clamp_dirs", "_clamp_tools", "_clamp_vis", "_apply_ceiling",
+                     "clear_fable_lock", "_new_node", "_peers_of", "waking_mail")
+# - these node fields, read or written in the method bodies for the same
+#   purposes (`scope` holds dirs/tools/visibility; `archived_at` is a
+#   timestamp cleared on rehire);
+NON_FUNDING_FIELDS = frozenset({"scope", "archived_at"})
+# - these org settings, read in the method bodies for the same purposes;
+NON_FUNDING_SETTINGS = frozenset({"dirs", "default_tools", "default_visibility", "max_depth",
+                                  "max_children", "fable_lock", "watchdogs", "default_account",
+                                  "slug"})
+# - every key of the node a hire creates (its id is not a funding input; its
+#   grant is reported as `new_grant`).
+
+
+def excluded(key: str, new_ids: set[str]) -> bool:
+    kind, _, rest = key.partition(":")
+    if kind == "d":
+        return rest in NON_FUNDING_SETTINGS
+    if kind == "n":
+        return rest in new_ids
+    if kind == "w" and rest.startswith("nodes:"):
+        return rest[len("nodes:"):] in new_ids
+    if kind in ("f", "w"):
+        nid, _, field = rest.rpartition(":")
+        return nid in new_ids or field in NON_FUNDING_FIELDS
+    return False
+
+
+def funding_step(org, eff: Effects) -> None:
+    """Observe the chain acquisitions and set aside the named non-funding
+    helpers for a whole-call hire/rehire recording."""
     acq = org._chain_acquire
-    cap = org._check_top_grant
 
     def acquire(actor, payer, need, warnings, cascade=True):
         n0 = len(warnings)
         eff.acquire_calls.append([actor, payer, num(need), bool(cascade)])
         try:
-            return windowed(acq)(actor, payer, need, warnings, cascade=cascade)
+            return acq(actor, payer, need, warnings, cascade=cascade)
         finally:
             eff.acquire_warnings.extend(warnings[n0:])
     org._chain_acquire = acquire
-    org._check_top_grant = windowed(cap)
+    for name in NON_FUNDING_CALLS:
+        setattr(org, name, aside(getattr(org, name)))
+
+
+def recorded_step(b: Builder, spec, call) -> tuple[Any, dict, set[str], Effects, dict, dict]:
+    """Run `call(org)` as a hire/rehire row: whole-call recording with the
+    listed exclusions. Returns the org, the result, the reported keys, the
+    effects and the grant/state maps from before the call, and checks the
+    accounting against an unfiltered recording of the same call."""
+    org = b.org(spec)
+    eff = Effects(org)
+    funding_step(org, eff)
+    before, states = grant_map(org), state_map(org)
+    ids = set(dict.keys(org.d["nodes"]))
+    with Recorder():
+        res = run(lambda: call(org))
+        log, side = set(LOG), set(ASIDE)
+    new_ids = set(dict.keys(org.d["nodes"])) - ids
+    reported = {k for k in log if not excluded(k, new_ids)}
+    raw = b.org(spec)
+    with Recorder():
+        run(lambda: call(raw))
+        everything = set(LOG)
+    missing = unaccounted(everything, reported, side, new_ids)
+    if missing or not reported <= everything:
+        raise SystemExit(f"oracle stopped: unaccounted funding keys {sorted(missing)} "
+                         f"or phantom keys {sorted(reported - everything)}")
+    return org, res, reported, eff, before, states
+
+
+def unaccounted(everything: set[str], reported: set[str], side: set[str], new_ids: set[str]) -> set[str]:
+    """Keys Python touched that are neither reported nor covered by a listed
+    exclusion. Must be empty: a funding key is never dropped silently."""
+    return {k for k in everything if k not in reported and k not in side and not excluded(k, new_ids)}
 
 
 AGENT_SCOPE = dict(add_dirs=[], tools={"bash": False, "web": False, "edit": False,
@@ -415,14 +493,10 @@ AGENT_SCOPE = dict(add_dirs=[], tools={"bash": False, "web": False, "edit": Fals
 
 
 def hire_row(b: Builder, spec, actor, parent, tier, grant) -> dict:
-    org = b.org(spec)
-    eff = Effects(org)
-    funding_window(org, eff)
-    before = grant_map(org)
     kw = {} if actor == USER else dict(AGENT_SCOPE)
-    LOG.clear()
-    res = run(lambda: org.hire(actor, parent, tier, grant, "newhire", **kw))
-    reads, writes = split_rw(LOG)
+    org, res, keys, eff, before, _ = recorded_step(
+        b, spec, lambda o: o.hire(actor, parent, tier, grant, "newhire", **copy.deepcopy(kw)))
+    reads, writes = split_rw(keys)
     out = {"op": "hire", "spec": spec, "actor": actor, "parent": parent, "tier": tier,
            "grant": num(grant)}
     if "ok" in res:
@@ -442,14 +516,8 @@ def state_map(org) -> dict[str, str]:
 
 
 def rehire_row(b: Builder, spec, actor, nid, grant) -> dict:
-    org = b.org(spec)
-    eff = Effects(org)
-    funding_window(org, eff)
-    before = grant_map(org)
-    states = state_map(org)
-    LOG.clear()
-    res = run(lambda: org.rehire(actor, nid, grant))
-    reads, writes = split_rw(LOG)
+    org, res, keys, eff, before, states = recorded_step(b, spec, lambda o: o.rehire(actor, nid, grant))
+    reads, writes = split_rw(keys)
     out = {"op": "rehire", "spec": spec, "actor": actor, "node": nid,
            "grant": None if grant is None else num(grant)}
     if "ok" in res:
@@ -688,6 +756,32 @@ def handcrafted(b: Builder) -> dict[str, list[dict]]:
     tight = arch_chain(12, 10)
     for actor, grant in (("top", None), (USER, None), ("top", 0)):
         reh.append(rehire_row(b, tight, actor, "c", grant))
+    # top-most first is observable: an archived superior acting on the chain
+    # is refused over the TOP-MOST archived node, not over itself
+    reh.append(rehire_row(b, ac, "b", "c", None))
+    deep4 = spec([("top", node(None, grant=40)),
+                  ("a", node("top", state="archived", model="haiku", grant=3)),
+                  ("b", node("a", state="archived", model="luna", grant=2)),
+                  ("c", node("b", state="archived", model="haiku", grant=1)),
+                  ("d", node("c", state="archived", model="haiku", grant=2))],
+                 tiers=[["haiku", 1], ["luna", 0.1]])
+    for actor in ("c", "b", "top", USER):
+        reh.append(rehire_row(b, deep4, actor, "d", None))
+    # a refused rehire keeps grants an earlier superior rehire inflated: an
+    # agent actor short on the target's acquisition, and a USER cascade
+    # whose second inflation crosses max_top_grant
+    part = spec([("top", node(None, grant=20)), ("m", node("top", grant=2)),
+                 ("a", node("m", state="archived", model="haiku", grant=4)),
+                 ("c", node("a", state="archived", model="haiku", grant=30))],
+                tiers=[["haiku", 1]])
+    for actor, grant in (("top", None), ("top", 17), ("top", 18)):
+        reh.append(rehire_row(b, part, actor, "c", grant))
+    capped = spec([("top", node(None, grant=2)),
+                   ("a", node("top", state="archived", model="haiku", grant=3)),
+                   ("c", node("a", state="archived", model="haiku", grant=10))],
+                  settings=[["max_top_grant", 10]], tiers=[["haiku", 1]])
+    for grant in (None, 8, 9):
+        reh.append(rehire_row(b, capped, USER, "c", grant))
 
     # summation-sensitive committed(): a seat whose total is an int beyond a
     # 32-bit C long leaves sum()'s fast path, so later floats are added
@@ -703,6 +797,17 @@ def handcrafted(b: Builder) -> dict[str, list[dict]]:
                       (2147483646, [("luna", 0.1), ("luna", 0.2), ("luna", 0.3)])]:
         kids = [("k0", node("p", model="haiku", grant=big, ui_order=0))]
         kids += [(f"k{i + 1}", node("p", model=m, grant=g, ui_order=i + 1)) for i, (m, g) in enumerate(rest)]
+        sp = spec([("p", node(None, grant=2 ** 46))] + kids, tiers=bigtiers)
+        val.append(value_row(b, sp, "committed", "p"))
+        val.append(value_row(b, sp, "free", "p"))
+    # a compensated fractional run, then a seat total outside a 32-bit C
+    # long: sum() adds the pending compensation before leaving the float
+    # path, so the 0.1 lost against 1e16 comes back
+    for wide in (2 ** 31, -2 ** 31 - 2, 2 ** 40):
+        kids = [("k0", node("p", model="luna", grant=1e16, ui_order=0)),
+                ("k1", node("p", model="luna", grant=0, ui_order=1)),
+                ("k2", node("p", model="luna", grant=-1e16, ui_order=2)),
+                ("k3", node("p", model="haiku", grant=wide, ui_order=3))]
         sp = spec([("p", node(None, grant=2 ** 46))] + kids, tiers=bigtiers)
         val.append(value_row(b, sp, "committed", "p"))
         val.append(value_row(b, sp, "free", "p"))
@@ -852,7 +957,12 @@ def section_sum(rng: random.Random) -> list[list[Any]]:
                   [-2**31 - 1, 1e16, 0.1, -1e16], [0.5, 2**31, 1e16, 0.1, -1e16], [0.5, 2**31 - 1, 1e16, 0.1, -1e16],
                   [5, 2**31 - 1, 1e16, 0.1, -1e16], [2**31 - 1, 2**31 - 1, 0.2, 1e16, 0.2, -1e16],
                   [2**40, 0.1, 0.2, 0.3], [2**53 + 1, 1.0, 0.5], [0.1, 2**62, 0.2, 1e16, -1e16, 0.3],
-                  [1e16, 0.1, -1e16, 2**33, 0.1, 1e16, -1e16]):
+                  [1e16, 0.1, -1e16, 2**33, 0.1, 1e16, -1e16],
+                  # the pending compensation is added when a wide int ends
+                  # the float phase, and stays visible in the result
+                  [1e16, 0.1, -1e16, 2**31], [1e16, 0.3, -1e16, -2**31 - 1], [0.1, 0.2, 0.3, 2**33],
+                  [1e16, 0.1, -1e16, 2**33, 0.5], [0.5, 1e16, 0.1, -1e16, 2**40, 0.25],
+                  [1e16, 0.1, -1e16, 2**64], [1e16, 1.0, -1e16, 0.25, 2**31, 0.1]):
         rows.append([[num(x) for x in items], sum(items)])
     wide = [2**31 - 1, 2**31, -2**31, -2**31 - 1, 2**33 + 7, 2**40, 2**53 + 1, 2**62, -2**63, 2**64]
     for _ in range(300):

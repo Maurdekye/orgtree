@@ -186,8 +186,10 @@ pub fn reallocate(
 }
 
 /// The funding step of `Org.hire(actor, parent, tier, grant, ...)`: the new
-/// node's grant. Reads are those of the D-014 check and the chain
-/// acquisition only.
+/// node's grant. Reads and writes are those of the whole Python call except
+/// the non-funding helpers, fields and settings the README lists under "Hire
+/// and rehire read sets" (scopes, tools, dirs, visibility, caps on depth and
+/// width, the tier ceiling, the Fable lock, and the new node itself).
 pub fn hire(
     snap: &Snapshot,
     actor: &str,
@@ -196,13 +198,16 @@ pub fn hire(
     grant: PyNum,
     rules: &Rules,
 ) -> Outcome<PyNum> {
-    let mut lg = Ledger::new(snap, rules, false);
+    let mut lg = Ledger::new(snap, rules, rules.whole_step_reads);
     let r = lg.hire(actor, parent, tier, grant);
     finish(snap, lg, r)
 }
 
 /// The funding step of `Org.rehire(actor, nid, grant)`: `None` when the node
-/// is already live (Python's no-op), else the grant it is rehired at.
+/// is already live (Python's no-op), else the grant it is rehired at. Reads
+/// and writes cover the whole call, including the rehire of archived
+/// superiors and the `state`/`grant` writes that make nodes live, with the
+/// same listed exclusions as [`hire`].
 pub fn rehire(
     snap: &Snapshot,
     actor: &str,
@@ -210,7 +215,7 @@ pub fn rehire(
     grant: Option<PyNum>,
     rules: &Rules,
 ) -> Outcome<Option<PyNum>> {
-    let mut lg = Ledger::new(snap, rules, false);
+    let mut lg = Ledger::new(snap, rules, rules.whole_step_reads);
     let r = lg.rehire(actor, nid, grant);
     if r.is_err() && !rules.partial_effects {
         lg.nodes = snap.nodes.clone();

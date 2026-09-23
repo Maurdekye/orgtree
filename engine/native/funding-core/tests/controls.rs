@@ -171,7 +171,7 @@ fn c13_stranding_upper_bound_exclusive() {
             strand_upper_inclusive: false,
             ..L
         },
-        &["acquire", "reallocate", "hire"],
+        &["acquire", "reallocate", "hire", "rehire"],
     );
 }
 
@@ -205,5 +205,37 @@ fn c16_rehire_pretended_atomic() {
             ..L
         },
         &["rehire"],
+    );
+    // more than one refused rehire pins it, and at least one of them is
+    // pinned by an inflated grant, not only by a superior made live
+    let report = run(COMMITTED, &rules_c16());
+    let rows: std::collections::BTreeSet<&str> = report
+        .failures
+        .iter()
+        .filter_map(|f| f.split(':').next())
+        .collect();
+    assert!(rows.len() >= 2, "c16 pinned by {rows:?} only");
+    assert!(
+        report.failures.iter().any(|f| f.contains("grants_changed")),
+        "c16 never failed on grants_changed: {:?}",
+        report.failures
+    );
+}
+
+fn rules_c16() -> Rules {
+    Rules {
+        partial_effects: false,
+        ..L
+    }
+}
+
+#[test]
+fn c17_hire_rehire_window_only_reads() {
+    detected_only_in(
+        Rules {
+            whole_step_reads: false,
+            ..L
+        },
+        &["hire", "rehire"],
     );
 }
