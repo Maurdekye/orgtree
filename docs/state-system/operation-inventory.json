@@ -123,7 +123,7 @@
     },
     {
       "path": "engine/backend/orgtree/census.py",
-      "normalized_source_sha256": "1ebcaaadb58130b94c618344296483e47c9025aa5fbb7d0235238501f33ea1a0"
+      "normalized_source_sha256": "34a313d90dbda9feb4a7f6f62186f8d78c94985a196e1e4a660f66dcd90e71b6"
     },
     {
       "path": "engine/backend/orgtree/census_classes.py",
@@ -131,11 +131,11 @@
     },
     {
       "path": "engine/backend/orgtree/census_contacts.py",
-      "normalized_source_sha256": "b4ca4dc3ea88c9e5018f6f2d43b2709aa9fcfad2d715c1a423d3a7673622614d"
+      "normalized_source_sha256": "905bf864056914a723723729c19036752fd496d06661e0f258271f81bb29068a"
     },
     {
       "path": "engine/backend/orgtree/chat_window.py",
-      "normalized_source_sha256": "e2ddc356c7ea1dc7bda8cc8fc06d267821025f351862c6a37468dfe252476443"
+      "normalized_source_sha256": "34191a628bbf39fc30dc411e1454b406b5efa3628399060a3d8cd4952968fe46"
     },
     {
       "path": "engine/backend/orgtree/clipin.py",
@@ -263,7 +263,7 @@
     },
     {
       "path": "engine/backend/orgtree/filedelivery.py",
-      "normalized_source_sha256": "298df047300f1139ccd258c49e04714ff1fb9d84ae3b6de40af96edac1742cab"
+      "normalized_source_sha256": "f43dc5e82c9b1fdbcf7569c1e9260423c7c1b92370290e00eb279d15ecda51d6"
     },
     {
       "path": "engine/backend/orgtree/fleet_walk.py",
@@ -407,7 +407,7 @@
     },
     {
       "path": "engine/backend/orgtree/reply_events.py",
-      "normalized_source_sha256": "3f048ef9a2c0669429411355bede503a5a9fa67afe0143574c16b3987de107b5"
+      "normalized_source_sha256": "38381636d261eab8e5c234a71b2510e4bbeef53ee1e605de7691f5893bcdcf81"
     },
     {
       "path": "engine/backend/orgtree/reservations.py",
@@ -475,7 +475,7 @@
     },
     {
       "path": "engine/backend/orgtree/toolwait.py",
-      "normalized_source_sha256": "08114e3c530e57c83a149fe23b192f8731d32b4ccf7451c9d7d217e41655abaf"
+      "normalized_source_sha256": "f278c0e15fba68291e2368b472a8a320d596d2178871088d9a604f1e0642a94c"
     },
     {
       "path": "engine/backend/orgtree/transcript_ingest.py",
@@ -483,7 +483,7 @@
     },
     {
       "path": "engine/backend/orgtree/transcript_records.py",
-      "normalized_source_sha256": "cf3c58e2557e725d6c32b55eacab5e1a1ff21f8bd40955a49575dea76f7cd1dc"
+      "normalized_source_sha256": "0db64be9b9a4e9db9b55df5eecabe169c9a6c8657598e985c8b980b5d00970f2"
     },
     {
       "path": "engine/backend/orgtree/turnlog.py",
@@ -9741,13 +9741,13 @@
       "source": {
         "path": "engine/backend/orgtree/chat_window.py",
         "symbol": "project_tail",
-        "line": 377,
-        "end_line": 377,
-        "syntax_sha256": "497d4862f87fcbf0e53578ab96fa8b34f2a09b370e8cd9d7447c6a1307e180d9"
+        "line": 379,
+        "end_line": 379,
+        "syntax_sha256": "280923a5974bda85c0465f365174fbaf1e450903eba0aad38a6c9b6a1e386592"
       },
       "factory": "sqlite3.connect",
       "classification": "database_factory",
-      "arguments_expression": "sqlite3.connect(database, timeout=10)"
+      "arguments_expression": "sqlite3.connect(database, timeout=10, factory=census_contacts.sidecar('chat_window_index'))"
     },
     {
       "source": {
@@ -9801,13 +9801,13 @@
       "source": {
         "path": "engine/backend/orgtree/filedelivery.py",
         "symbol": "snapshot",
-        "line": 44,
-        "end_line": 44,
-        "syntax_sha256": "497d4862f87fcbf0e53578ab96fa8b34f2a09b370e8cd9d7447c6a1307e180d9"
+        "line": 45,
+        "end_line": 45,
+        "syntax_sha256": "19e53be662792c0a216577c4bf18470f88e21e46a20f546aae467bf5d7d2e991"
       },
       "factory": "sqlite3.connect",
       "classification": "database_factory",
-      "arguments_expression": "sqlite3.connect(database, timeout=10)"
+      "arguments_expression": "sqlite3.connect(database, timeout=10, factory=census_contacts.sidecar('file_deliveries'))"
     },
     {
       "source": {
@@ -9825,25 +9825,25 @@
       "source": {
         "path": "engine/backend/orgtree/reply_events.py",
         "symbol": "_connect",
-        "line": 13,
-        "end_line": 13,
-        "syntax_sha256": "c40d495ca78817927c85d6fe3a03982723559116809f336c973dd4dec981e890"
+        "line": 14,
+        "end_line": 14,
+        "syntax_sha256": "1035d218a2ea27eb5128d54742fa5ae918bba179af67c68eb4e5f92047973df3"
       },
       "factory": "sqlite3.connect",
       "classification": "database_factory",
-      "arguments_expression": "sqlite3.connect(path, timeout=15)"
+      "arguments_expression": "sqlite3.connect(path, timeout=15, factory=census_contacts.sidecar('reply_events'))"
     },
     {
       "source": {
         "path": "engine/backend/orgtree/reply_events.py",
         "symbol": "count",
-        "line": 168,
-        "end_line": 168,
-        "syntax_sha256": "24765f7b7473b1dcd3a991a0b71a170bbb961fb24050c6b0613c625cc76cef76"
+        "line": 169,
+        "end_line": 169,
+        "syntax_sha256": "f7e0334713101436fc6e1c5d84cd8afaaf531120f96b94316e72ae79f9b5bae4"
       },
       "factory": "sqlite3.connect",
       "classification": "database_factory",
-      "arguments_expression": "sqlite3.connect(path.as_uri() + '?mode=ro', uri=True, timeout=15)"
+      "arguments_expression": "sqlite3.connect(path.as_uri() + '?mode=ro', uri=True, timeout=15, factory=census_contacts.sidecar('reply_events'))"
     },
     {
       "source": {
@@ -9863,23 +9863,23 @@
         "symbol": "_db",
         "line": 38,
         "end_line": 38,
-        "syntax_sha256": "1ccc74181c9eae1e362f60e535cad9d92888230b6c8b5f4c483dd3c08ca3bfcd"
+        "syntax_sha256": "2f5d3632297191a80add3f526e6a171b4b008c0daf79a611471b1a353b56917a"
       },
       "factory": "sqlite3.connect",
       "classification": "database_factory",
-      "arguments_expression": "sqlite3.connect(path, timeout=2)"
+      "arguments_expression": "sqlite3.connect(path, timeout=2, factory=census_contacts.sidecar('tool_waits'))"
     },
     {
       "source": {
         "path": "engine/backend/orgtree/transcript_records.py",
         "symbol": "database",
-        "line": 39,
-        "end_line": 39,
-        "syntax_sha256": "3e5c967a77e5fc44e1bf0c6c44d644841f04323cc0574a8165730f5a87bdf9fc"
+        "line": 41,
+        "end_line": 41,
+        "syntax_sha256": "01c319a43985b8fea53bc1d46d12f7792aca7b49ed849aa7bea1c645537a2f2a"
       },
       "factory": "sqlite3.connect",
       "classification": "database_factory",
-      "arguments_expression": "sqlite3.connect(path, timeout=30)"
+      "arguments_expression": "sqlite3.connect(path, timeout=30, factory=census_contacts.sidecar('transcript_records'))"
     }
   ],
   "doc_lock_references": [
@@ -10726,8 +10726,8 @@
     {
       "path": "engine/backend/orgtree/reply_events.py",
       "symbol": "incarnation",
-      "line": 137,
-      "end_line": 137,
+      "line": 138,
+      "end_line": 138,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
@@ -11594,8 +11594,8 @@
     {
       "path": "engine/backend/orgtree/transcript_records.py",
       "symbol": "incarnation",
-      "line": 421,
-      "end_line": 421,
+      "line": 423,
+      "end_line": 423,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {

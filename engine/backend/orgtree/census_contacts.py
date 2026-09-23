@@ -1,4 +1,14 @@
-"""Actual SQLite contacts on the PRIMARY STORE path, for the operation census.
+"""Actual SQLite contacts on the PRIMARY STORE path and the listed SIDECAR
+stores, for the operation census.
+
+⚠ SIDECARS (P02-A4b). Six further `sqlite3.connect` calls — five orgtree-owned
+databases under `DATA_ROOT` (`SIDECARS`) — pass `factory=sidecar("<label>")`.
+Their contacts are observed by the same class and methods described below and
+kept APART from the primary store's: a tally credits them under their closed
+label (`SIDECAR_STORES`), and the census publishes them as `db.secondary`, never
+mixed into the primary fields. A sidecar connection is never pooled, so its
+`checkouts` and `linked_threads` stay zero. Everything below about the primary
+store holds for a sidecar connection too.
 
 ⚠ WHAT THIS OBSERVES, AND ONLY THIS. `store._open_conn` is the one connection
 factory of the primary store: every `store._POOL` connection, the migration
@@ -12,8 +22,9 @@ passes through a method defined here:
                  failed contact, not a missing one);
   * checkout     `store._Pool.acquire` handing a connection to a caller;
   * statement    `execute` / `executemany` / `executescript`, on the connection
-                 AND on its cursors, plus `commit()` / `rollback()` — each one
-                 an attempt with its outcome;
+                 AND on its cursors, plus `commit()` / `rollback()` and the
+                 commit or rollback that `with connection:` issues on exit —
+                 each one an attempt with its outcome;
   * engine step  SQLite's own trace callback, which fires when the engine
                  actually starts running a statement. It is the cross-check:
                  a step with no observed call in progress on that connection is
@@ -46,9 +57,9 @@ API; `engine_steps` counts what SQLite began to execute; the two are not
 expected to be equal (an `executescript` is one attempt and many steps, a
 trigger re-reports its parent, a statement refused at prepare is an attempt
 and no step, a no-op `commit()` outside a transaction is an attempt and no
-step). Connections opened anywhere but `store._open_conn` — see
-`UNINSTRUMENTED` — are not observed at all, and neither are PostgreSQL, the
-Rust engine or any other process.
+step). Connections opened anywhere but `store._open_conn` and the `SIDECARS`
+— see `UNINSTRUMENTED` — are not observed at all, and neither are PostgreSQL,
+the Rust engine or any other process.
 
 ⚠ OFF MEANS OFF. Capture is the census's own flag and it is off by default.
 While it is off, an observed statement still passes through three extra
@@ -110,10 +121,13 @@ _capture_on: "Callable[[], bool]" = lambda: False
 #: ⚠ THE CONNECTION PATHS THIS MODULE DOES NOT OBSERVE, stated as data so the
 #: gap travels with the numbers. Every `sqlite3.connect` call site in this
 #: repository's `engine/` tree OUTSIDE the `engine/mailhub` submodule, except
-#: `store._open_conn`, is listed here by file and enclosing symbol;
-#: `tests/test_census_sqlite_contacts.py` scans that tree and refuses a site
-#: that is in neither place. Each of these opens its own database file with
-#: the stock connection class; none of it is counted anywhere in the census.
+#: `store._open_conn` and the `SIDECARS`, is listed here by file and enclosing
+#: symbol; `tests/test_census_sqlite_contacts.py` scans that tree and refuses a
+#: site that is in none of the three places. Each of these opens its own
+#: database file with the stock connection class; none of it is counted
+#: anywhere in the census. They are left out ON PURPOSE: an external
+#: application's database (antigravity), a one-shot operator import
+#: (desktop_import) and a startup migration of the hub's store.
 #:
 #: ⚠ THE SCAN IS A GUARD, NOT A PROOF. It matches `sqlite3.connect(...)` and
 #: `from sqlite3 import connect` under any alias. It does not see
@@ -123,15 +137,27 @@ _capture_on: "Callable[[], bool]" = lambda: False
 INSTRUMENTED = (("engine/backend/orgtree/store.py", "_open_conn"),)
 UNINSTRUMENTED = (
     ("engine/backend/orgtree/antigravity_provenance.py", "_Read.__init__"),
-    ("engine/backend/orgtree/chat_window.py", "project_tail"),
     ("engine/backend/orgtree/desktop_import.py", "_read_document"),
     ("engine/backend/orgtree/desktop_import.py", "_write_candidate"),
-    ("engine/backend/orgtree/filedelivery.py", "snapshot"),
-    ("engine/backend/orgtree/reply_events.py", "_connect"),
-    ("engine/backend/orgtree/reply_events.py", "count"),
-    ("engine/backend/orgtree/toolwait.py", "_db"),
-    ("engine/backend/orgtree/transcript_records.py", "database"),
     ("engine/mailhub_runtime.py", "MailhubRuntime._migrate_store"),
+)
+
+#: The closed set of sidecar store labels. A contact on a sidecar connection is
+#: credited under exactly one of these and nowhere else; `sidecar()` refuses
+#: any other name, so no path, file name or free text can become a label.
+SIDECAR_STORES = ("transcript_records", "reply_events", "chat_window_index",
+                  "tool_waits", "file_deliveries")
+
+#: Every observed sidecar `sqlite3.connect` call, by file, enclosing symbol and
+#: label. The guard test requires each call in these files to pass
+#: `factory=census_contacts.sidecar(<this label>)`.
+SIDECARS = (
+    ("engine/backend/orgtree/transcript_records.py", "database", "transcript_records"),
+    ("engine/backend/orgtree/reply_events.py", "_connect", "reply_events"),
+    ("engine/backend/orgtree/reply_events.py", "count", "reply_events"),
+    ("engine/backend/orgtree/chat_window.py", "project_tail", "chat_window_index"),
+    ("engine/backend/orgtree/toolwait.py", "_db", "tool_waits"),
+    ("engine/backend/orgtree/filedelivery.py", "snapshot", "file_deliveries"),
 )
 
 #: ⚠ THE BUNDLED MAIL HUB'S OWN SQLITE STORE, declared separately because it is
@@ -200,7 +226,8 @@ class Tally:
     belong to is already written — and is counted in `db_late` instead, which
     is where a managed tool's work after its ten-second yield ends up."""
 
-    __slots__ = ("_lock", "_sealed", "_n", "_kinds", "_kind_failed", "store")
+    __slots__ = ("_lock", "_sealed", "_n", "_kinds", "_kind_failed",
+                 "_secondary", "store")
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -208,32 +235,52 @@ class Tally:
         self._n = {name: 0 for name in FIELDS}
         self._kinds: "dict[str, int]" = {}
         self._kind_failed: "dict[str, int]" = {}
+        # label -> (counts, kinds, kind_failed), created on a label's first
+        # contact, so a sidecar nobody touched is absent rather than zero.
+        self._secondary: "dict[str, tuple[dict[str, int], dict[str, int], dict[str, int]]]" = {}
         self.store = _primary_store
 
     def add(self, field: str, kind: "str | None" = None,
-            failed: bool = False) -> bool:
-        """False when sealed — the caller counts it as late."""
+            failed: bool = False, label: "str | None" = None) -> bool:
+        """False when sealed — the caller counts it as late. `label` names
+        the sidecar the contact was made on; None is the primary store."""
         with self._lock:
             if self._sealed:
                 return False
-            self._n[field] += 1
+            if label is None:
+                n, kinds, kind_failed = self._n, self._kinds, self._kind_failed
+            else:
+                if label not in self._secondary:
+                    self._secondary[label] = ({name: 0 for name in FIELDS}, {}, {})
+                n, kinds, kind_failed = self._secondary[label]
+            n[field] += 1
             if kind is not None:
-                self._kinds[kind] = self._kinds.get(kind, 0) + 1
+                kinds[kind] = kinds.get(kind, 0) + 1
                 if failed:
-                    self._kind_failed[kind] = self._kind_failed.get(kind, 0) + 1
+                    kind_failed[kind] = kind_failed.get(kind, 0) + 1
             return True
 
     def seal(self) -> "dict[str, Any]":
         """Close the tally and return its evidence, assembled from closed
-        names only. Idempotent: a second seal returns the same numbers."""
+        names only. Idempotent: a second seal returns the same numbers.
+        `secondary` is present only when a sidecar was contacted."""
         with self._lock:
             self._sealed = True
             out: "dict[str, Any]" = {"store": self.store}
-            out.update(self._n)
-            out["kinds"] = {k: self._kinds[k] for k in KINDS if k in self._kinds}
-            out["kind_failed"] = {k: self._kind_failed[k] for k in KINDS
-                                  if k in self._kind_failed}
+            out.update(_evidence(self._n, self._kinds, self._kind_failed))
+            secondary = {label: _evidence(*self._secondary[label])
+                         for label in SIDECAR_STORES if label in self._secondary}
+            if secondary:
+                out["secondary"] = secondary
             return out
+
+
+def _evidence(n: "dict[str, int]", kinds: "dict[str, int]",
+              kind_failed: "dict[str, int]") -> "dict[str, Any]":
+    out: "dict[str, Any]" = dict(n)
+    out["kinds"] = {k: kinds[k] for k in KINDS if k in kinds}
+    out["kind_failed"] = {k: kind_failed[k] for k in KINDS if k in kind_failed}
+    return out
 
 
 def bind(tally: "Tally | None") -> Token:
@@ -261,14 +308,16 @@ def adopt(tally: "Tally | None") -> None:
         _bump("late")
 
 
-def _note(field: str, kind: "str | None" = None, failed: bool = False) -> None:
-    """Credit one contact to this thread's attempt, or count why it could not
-    be credited. Never raises."""
+def _note(field: str, kind: "str | None" = None, failed: bool = False,
+          label: "str | None" = None) -> None:
+    """Credit one contact to this thread's attempt — under the sidecar
+    `label` it was made on, or the primary store when None — or count why it
+    could not be credited. Never raises."""
     try:
         tally = _TALLY.get()
         if tally is None:
             _bump("unattributed")
-        elif not tally.add(field, kind, failed):
+        elif not tally.add(field, kind, failed, label):
             _bump("late")
     except Exception:                                          # noqa: BLE001
         _bump("observe_failed")
@@ -339,14 +388,14 @@ def _ensure_trace(conn: "ObservedConnection") -> None:
             if owner is None:
                 return
             if owner._census_in_call > 0:
-                _note("engine_steps")
+                _note("engine_steps", label=owner._census_label)
             elif _TALLY.get() is None:
                 _bump("hidden_unattributed")
             else:
                 # SQLite ran a statement on an observed connection while no
                 # observed method was running on it — something reached the
                 # engine around the boundary this module claims to watch.
-                _note("hidden_steps")
+                _note("hidden_steps", label=owner._census_label)
         except Exception:                                      # noqa: BLE001
             _bump("observe_failed")
 
@@ -392,11 +441,12 @@ def _run(conn: "ObservedConnection", sql: Any, call: "Callable[[], Any]") -> Any
         conn._census_in_call -= 1
         _GUARD.active = True
         try:
-            _note("statements", kind, failed)
+            label = conn._census_label
+            _note("statements", kind, failed, label)
             if failed:
-                _note("statement_failed")
+                _note("statement_failed", label=label)
             if busy:
-                _note("statement_busy")
+                _note("statement_busy", label=label)
         finally:
             _GUARD.active = False
 
@@ -420,22 +470,27 @@ class ObservedCursor(sqlite3.Cursor):
 
 class ObservedConnection(sqlite3.Connection):
     """The primary store's connection class (`store._open_conn` passes it as
-    `factory=`). Behaves exactly as `sqlite3.Connection` does; see the module
-    docstring for what it adds."""
+    `factory=`), and through `sidecar()` each sidecar's. Behaves exactly as
+    `sqlite3.Connection` does; see the module docstring for what it adds."""
+
+    #: The sidecar this connection's contacts are credited to; None is the
+    #: primary store. Set only by `sidecar()`, on a subclass, never per call.
+    _census_label: "str | None" = None
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         self._census_in_call = 0
         self._census_traced = False
         on = _capture_on()
+        label = type(self)._census_label
         try:
             super().__init__(*args, **kwargs)
         except BaseException:
             if on:
-                _note("connects")
-                _note("connect_failed")
+                _note("connects", label=label)
+                _note("connect_failed", label=label)
             raise
         if on:
-            _note("connects")
+            _note("connects", label=label)
             _ensure_trace(self)
 
     def cursor(self, factory: Any = ObservedCursor) -> Any:
@@ -460,14 +515,51 @@ class ObservedConnection(sqlite3.Connection):
         base = super().rollback
         _run(self, "rollback", base)
 
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> Any:
+        # ⚠ `with connection:` COMMITS OR ROLLS BACK INSIDE C. Measured on
+        # 3.10 and 3.13: the base `__exit__` never calls the `commit` /
+        # `rollback` overrides above, so without this its statement reached
+        # the engine unobserved and the trace counted it as a hidden step.
+        # One attempt, of the kind the context manager chose.
+        base = super().__exit__
+        return _run(self, "commit" if exc_type is None else "rollback",
+                    lambda: base(exc_type, exc, tb))
+
+
+_SIDECAR_CLASSES: "dict[str, type[ObservedConnection]]" = {}
+_SIDECAR_LOCK = threading.Lock()
+
+
+def sidecar(label: str) -> "type[ObservedConnection]":
+    """The connection class for one sidecar store, for `factory=`.
+
+    One cached subclass per label, so every connection of a sidecar shares a
+    class and a label. A name outside `SIDECAR_STORES` raises: a sidecar site
+    can only be written with a declared label, and a typo fails at its first
+    connect rather than publishing a new name."""
+    if label not in SIDECAR_STORES:
+        raise ValueError("unknown census sidecar store label")
+    with _SIDECAR_LOCK:
+        cls = _SIDECAR_CLASSES.get(label)
+        if cls is None:
+            cls = type("ObservedSidecarConnection", (ObservedConnection,),
+                       {"_census_label": label, "__module__": __name__})
+            _SIDECAR_CLASSES[label] = cls
+        return cls
+
 
 #: The limits a reader must carry away with contact numbers. Published in the
 #: census payload beside `LIMITS`.
 LIMITS = (
     "db contact evidence covers ONLY connections made by store._open_conn "
-    "(the primary store). Every path in contact_coverage.uninstrumented, the "
-    "bundled mail hub's store (contact_coverage.other_processes), PostgreSQL, "
-    "the Rust engine and any other process are not observed.",
+    "(the primary store, db fields) and the listed sidecar stores "
+    "(contact_coverage.secondary_stores, db.secondary). Every path in "
+    "contact_coverage.uninstrumented, the bundled mail hub's store "
+    "(contact_coverage.other_processes), PostgreSQL, the Rust engine and any "
+    "other process are not observed.",
+    "db.secondary carries a sidecar label only when that sidecar was contacted "
+    "during the attempt; an absent label is no contact observed, and a "
+    "sidecar's checkouts and linked_threads are always zero (it is not pooled).",
     "db is present only on attempts that began while capture was on; its "
     "absence means not observed, never zero contacts.",
     "statements counts API-level attempts; engine_steps counts statements "
@@ -492,6 +584,8 @@ def coverage() -> "dict[str, Any]":
         "uninstrumented": [{"path": p, "symbol": s} for p, s in UNINSTRUMENTED],
         "other_processes": [{"path": p, "symbol": s, "process": "mailhub"}
                             for p, s in OTHER_PROCESSES],
+        "secondary_stores": [{"path": p, "symbol": s, "label": label}
+                             for p, s, label in SIDECARS],
         "complete": False,
         "kinds": list(KINDS),
         "fields": list(FIELDS),

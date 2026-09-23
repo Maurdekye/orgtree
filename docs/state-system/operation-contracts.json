@@ -1,6 +1,6 @@
 {
   "schema": "orgtree.state-operation-contracts/v1",
-  "source_inventory_sha256": "e9363e1006d42345d0acf57115224e3402b8651086937dca99eeada2f380b32f",
+  "source_inventory_sha256": "e4530985bf01628542cd5c2727e75a8180aaecd2cfd4b9310bb33af8d460fdec",
   "qualification": {
     "runtime_census": false,
     "conversion_authorized": false
@@ -1436,38 +1436,38 @@
         },
         {
           "path": "engine/backend/orgtree/chat_window.py",
-          "start": 342,
-          "end": 490,
-          "sha256": "2dfcf1e4cec75c2e12bf75cefdd11a8ac0a37a3c552be4cb596ebdbe01995637"
+          "start": 344,
+          "end": 492,
+          "sha256": "e02f37f82e55ffe0312dd26d9d939ba9bcbc1c71790d7c38c6c407f88cf635a7"
         },
         {
           "path": "engine/backend/orgtree/transcript_records.py",
-          "start": 35,
-          "end": 94,
-          "sha256": "ccdec50dfa6ff747203ef2e440d58cdda1c1c189f97eb55d5e659a90be5503ec"
+          "start": 37,
+          "end": 96,
+          "sha256": "c8647f7be6a32efc80ee10a404dc34d147a6942dd0eb0346998f98efe484649d"
         },
         {
           "path": "engine/backend/orgtree/transcript_records.py",
-          "start": 411,
-          "end": 435,
+          "start": 413,
+          "end": 437,
           "sha256": "d09d83c6ef26e63434a8e15253aeacfe665945f5724ba46d1dcd959a0756899d"
         },
         {
           "path": "engine/backend/orgtree/reply_events.py",
-          "start": 11,
-          "end": 22,
-          "sha256": "678cadf468726c9415b9e9b519f039297691c3695d4f188704f85e7216bd348b"
+          "start": 12,
+          "end": 23,
+          "sha256": "d30cff16183786a0ebc7876e838ef0db696c544756d00818890bd6c7123020fc"
         },
         {
           "path": "engine/backend/orgtree/reply_events.py",
-          "start": 133,
-          "end": 153,
+          "start": 134,
+          "end": 154,
           "sha256": "b1db607da2c165f920b5c7861e3bbfca022f8f99f9ea4ab32fb55ce8c7f4409e"
         },
         {
           "path": "engine/backend/orgtree/reply_events.py",
-          "start": 193,
-          "end": 244,
+          "start": 194,
+          "end": 245,
           "sha256": "38c63284a3574fb026f8fb80837217d881f69e3c00a993f5db67a2a517637177"
         },
         {
@@ -1516,38 +1516,38 @@
         },
         {
           "path": "engine/backend/orgtree/chat_window.py",
-          "start": 342,
-          "end": 490,
-          "sha256": "2dfcf1e4cec75c2e12bf75cefdd11a8ac0a37a3c552be4cb596ebdbe01995637"
+          "start": 344,
+          "end": 492,
+          "sha256": "e02f37f82e55ffe0312dd26d9d939ba9bcbc1c71790d7c38c6c407f88cf635a7"
         },
         {
           "path": "engine/backend/orgtree/transcript_records.py",
-          "start": 35,
-          "end": 94,
-          "sha256": "ccdec50dfa6ff747203ef2e440d58cdda1c1c189f97eb55d5e659a90be5503ec"
+          "start": 37,
+          "end": 96,
+          "sha256": "c8647f7be6a32efc80ee10a404dc34d147a6942dd0eb0346998f98efe484649d"
         },
         {
           "path": "engine/backend/orgtree/transcript_records.py",
-          "start": 411,
-          "end": 435,
+          "start": 413,
+          "end": 437,
           "sha256": "d09d83c6ef26e63434a8e15253aeacfe665945f5724ba46d1dcd959a0756899d"
         },
         {
           "path": "engine/backend/orgtree/reply_events.py",
-          "start": 11,
-          "end": 22,
-          "sha256": "678cadf468726c9415b9e9b519f039297691c3695d4f188704f85e7216bd348b"
+          "start": 12,
+          "end": 23,
+          "sha256": "d30cff16183786a0ebc7876e838ef0db696c544756d00818890bd6c7123020fc"
         },
         {
           "path": "engine/backend/orgtree/reply_events.py",
-          "start": 133,
-          "end": 153,
+          "start": 134,
+          "end": 154,
           "sha256": "b1db607da2c165f920b5c7861e3bbfca022f8f99f9ea4ab32fb55ce8c7f4409e"
         },
         {
           "path": "engine/backend/orgtree/reply_events.py",
-          "start": 193,
-          "end": 244,
+          "start": 194,
+          "end": 245,
           "sha256": "38c63284a3574fb026f8fb80837217d881f69e3c00a993f5db67a2a517637177"
         },
         {
@@ -1596,38 +1596,38 @@
         },
         {
           "path": "engine/backend/orgtree/chat_window.py",
-          "start": 342,
-          "end": 490,
-          "sha256": "2dfcf1e4cec75c2e12bf75cefdd11a8ac0a37a3c552be4cb596ebdbe01995637"
+          "start": 344,
+          "end": 492,
+          "sha256": "e02f37f82e55ffe0312dd26d9d939ba9bcbc1c71790d7c38c6c407f88cf635a7"
         },
         {
           "path": "engine/backend/orgtree/transcript_records.py",
-          "start": 35,
-          "end": 94,
-          "sha256": "ccdec50dfa6ff747203ef2e440d58cdda1c1c189f97eb55d5e659a90be5503ec"
+          "start": 37,
+          "end": 96,
+          "sha256": "c8647f7be6a32efc80ee10a404dc34d147a6942dd0eb0346998f98efe484649d"
         },
         {
           "path": "engine/backend/orgtree/transcript_records.py",
-          "start": 411,
-          "end": 435,
+          "start": 413,
+          "end": 437,
           "sha256": "d09d83c6ef26e63434a8e15253aeacfe665945f5724ba46d1dcd959a0756899d"
         },
         {
           "path": "engine/backend/orgtree/reply_events.py",
-          "start": 11,
-          "end": 22,
-          "sha256": "678cadf468726c9415b9e9b519f039297691c3695d4f188704f85e7216bd348b"
+          "start": 12,
+          "end": 23,
+          "sha256": "d30cff16183786a0ebc7876e838ef0db696c544756d00818890bd6c7123020fc"
         },
         {
           "path": "engine/backend/orgtree/reply_events.py",
-          "start": 133,
-          "end": 153,
+          "start": 134,
+          "end": 154,
           "sha256": "b1db607da2c165f920b5c7861e3bbfca022f8f99f9ea4ab32fb55ce8c7f4409e"
         },
         {
           "path": "engine/backend/orgtree/reply_events.py",
-          "start": 193,
-          "end": 244,
+          "start": 194,
+          "end": 245,
           "sha256": "38c63284a3574fb026f8fb80837217d881f69e3c00a993f5db67a2a517637177"
         },
         {
@@ -1711,38 +1711,38 @@
         },
         {
           "path": "engine/backend/orgtree/chat_window.py",
-          "start": 342,
-          "end": 490,
-          "sha256": "2dfcf1e4cec75c2e12bf75cefdd11a8ac0a37a3c552be4cb596ebdbe01995637"
+          "start": 344,
+          "end": 492,
+          "sha256": "e02f37f82e55ffe0312dd26d9d939ba9bcbc1c71790d7c38c6c407f88cf635a7"
         },
         {
           "path": "engine/backend/orgtree/transcript_records.py",
-          "start": 35,
-          "end": 94,
-          "sha256": "ccdec50dfa6ff747203ef2e440d58cdda1c1c189f97eb55d5e659a90be5503ec"
+          "start": 37,
+          "end": 96,
+          "sha256": "c8647f7be6a32efc80ee10a404dc34d147a6942dd0eb0346998f98efe484649d"
         },
         {
           "path": "engine/backend/orgtree/transcript_records.py",
-          "start": 411,
-          "end": 435,
+          "start": 413,
+          "end": 437,
           "sha256": "d09d83c6ef26e63434a8e15253aeacfe665945f5724ba46d1dcd959a0756899d"
         },
         {
           "path": "engine/backend/orgtree/reply_events.py",
-          "start": 11,
-          "end": 22,
-          "sha256": "678cadf468726c9415b9e9b519f039297691c3695d4f188704f85e7216bd348b"
+          "start": 12,
+          "end": 23,
+          "sha256": "d30cff16183786a0ebc7876e838ef0db696c544756d00818890bd6c7123020fc"
         },
         {
           "path": "engine/backend/orgtree/reply_events.py",
-          "start": 133,
-          "end": 153,
+          "start": 134,
+          "end": 154,
           "sha256": "b1db607da2c165f920b5c7861e3bbfca022f8f99f9ea4ab32fb55ce8c7f4409e"
         },
         {
           "path": "engine/backend/orgtree/reply_events.py",
-          "start": 193,
-          "end": 244,
+          "start": 194,
+          "end": 245,
           "sha256": "38c63284a3574fb026f8fb80837217d881f69e3c00a993f5db67a2a517637177"
         },
         {
@@ -1847,38 +1847,38 @@
         },
         {
           "path": "engine/backend/orgtree/chat_window.py",
-          "start": 342,
-          "end": 490,
-          "sha256": "2dfcf1e4cec75c2e12bf75cefdd11a8ac0a37a3c552be4cb596ebdbe01995637"
+          "start": 344,
+          "end": 492,
+          "sha256": "e02f37f82e55ffe0312dd26d9d939ba9bcbc1c71790d7c38c6c407f88cf635a7"
         },
         {
           "path": "engine/backend/orgtree/transcript_records.py",
-          "start": 35,
-          "end": 94,
-          "sha256": "ccdec50dfa6ff747203ef2e440d58cdda1c1c189f97eb55d5e659a90be5503ec"
+          "start": 37,
+          "end": 96,
+          "sha256": "c8647f7be6a32efc80ee10a404dc34d147a6942dd0eb0346998f98efe484649d"
         },
         {
           "path": "engine/backend/orgtree/transcript_records.py",
-          "start": 411,
-          "end": 435,
+          "start": 413,
+          "end": 437,
           "sha256": "d09d83c6ef26e63434a8e15253aeacfe665945f5724ba46d1dcd959a0756899d"
         },
         {
           "path": "engine/backend/orgtree/reply_events.py",
-          "start": 11,
-          "end": 22,
-          "sha256": "678cadf468726c9415b9e9b519f039297691c3695d4f188704f85e7216bd348b"
+          "start": 12,
+          "end": 23,
+          "sha256": "d30cff16183786a0ebc7876e838ef0db696c544756d00818890bd6c7123020fc"
         },
         {
           "path": "engine/backend/orgtree/reply_events.py",
-          "start": 133,
-          "end": 153,
+          "start": 134,
+          "end": 154,
           "sha256": "b1db607da2c165f920b5c7861e3bbfca022f8f99f9ea4ab32fb55ce8c7f4409e"
         },
         {
           "path": "engine/backend/orgtree/reply_events.py",
-          "start": 193,
-          "end": 244,
+          "start": 194,
+          "end": 245,
           "sha256": "38c63284a3574fb026f8fb80837217d881f69e3c00a993f5db67a2a517637177"
         },
         {
@@ -9308,7 +9308,7 @@
       "source_refs": []
     },
     {
-      "id": "3a20f2d57b4a362b043cce59b8683f13b0a8ec12b78373a2f6be75181ab2b23e",
+      "id": "0b5f2a46dc468fdda20ccd8113ba04a61b39e373a7f31cee17f100e8a893381a",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
@@ -9343,7 +9343,7 @@
       "source_refs": []
     },
     {
-      "id": "928080fad2b36472562e2b67236034a486bc3fc2a259f42feacd1af32a1b55e3",
+      "id": "6e5106032f645a9b816765a88c436b0671fcfc5f9828c837b255c34ddb9de085",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
@@ -9357,14 +9357,14 @@
       "source_refs": []
     },
     {
-      "id": "40d5dfcd997face607f7cdb39fe84d3afd10985d4321fa673d9e2983c6f94ad0",
+      "id": "31237e3490917a845ead31c1f7e627531198e85ba35abceb46676dacc3270c30",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "b899d7b58bb3ffa35f74071a946052abc04b9aba43a8643704ad2e3b53c15334",
+      "id": "8058d0905f3e6077f25ac7f6f62944171d17a7e035384e5a6f87f98bdb69d312",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
@@ -9378,14 +9378,14 @@
       "source_refs": []
     },
     {
-      "id": "0b57471d2fc5cc2210666d2971afd18e2fdd7d7fe265a6047b36452986de90e7",
+      "id": "7e2342632e71afe6c4baa5118942e015b1eeb6d2d9db8a878c8c3dc513ed903b",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "cba9fcdaf399398cda204d2c62adceec5663c878b1c0d6f311d7c9b55f170f7c",
+      "id": "323bf911f0907980cf504d81b4f066c03f9db1152c81d4e8bcf529c26e7aaac9",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",

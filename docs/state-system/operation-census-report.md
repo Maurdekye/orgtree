@@ -1,4 +1,4 @@
-# Offline schema2/schema3 census report
+# Offline schema2/schema3/schema4 census report
 
 `tools/operation_census_report.py` reads **one explicitly supplied local snapshot**
 and writes a deterministic JSON or Markdown report to stdout. It uses only the
@@ -8,17 +8,18 @@ enable capture, inspect live data, or read provider/native conversations.
 This is the bounded P02 reporting foundation for the schema2 census landed at
 `286396ebc6db13aed7bc0ebcfc873a703828296b`, extended in P02-A4a to read the
 **schema 3** census that P02-A3 produces (it adds the per-attempt `db` contact
-block for the primary SQLite store). It does not complete P02 or qualify
-native/PostgreSQL behavior.
+block for the primary SQLite store), and in P02-A4b to read the **schema 4**
+census (it adds five listed sidecar stores' contacts under `db.secondary`). It
+does not complete P02 or qualify native/PostgreSQL behavior.
 
-The tool reads exactly schema versions **2 and 3** (the JSON integers, never a
-bool, float or string) and refuses every other version with exit code 2,
-including the schema 4 planned for P02-A4b. A schema-2 snapshot is reported
-byte-for-byte as before (report schema v1); a schema-3 snapshot is reported as
-report schema v2, described under [Schema 3](#schema-3-observed-primary-store-contacts).
-Note that the comment above `SCHEMA_VERSION` in `engine/backend/orgtree/census.py`
-still says this tool refuses schema 3; it is left unedited so the P01
-source-binding artifacts stay unchanged, and this document supersedes it.
+The tool reads exactly schema versions **2, 3 and 4** (the JSON integers, never
+a bool, float or string) and refuses every other version with exit code 2. A
+schema-2 snapshot is reported byte-for-byte as before (report schema v1). A
+schema-3 snapshot is reported byte-for-byte as it was when P02-A4a landed
+(report schema v2), described under
+[Schema 3](#schema-3-observed-primary-store-contacts). A schema-4 snapshot is
+also reported as report schema v2, with a sidecar section, described under
+[Schema 4](#schema-4-the-listed-sidecar-stores).
 
 ## Run against a supplied file
 
@@ -224,27 +225,103 @@ the six schema-2 fixture rows with `v: 3` and hand-set `db` blocks covering an
 unobserved row, zero-contact rows, a failed and busy statement, a failed
 connect, a hidden step and a managed tool's linked thread.
 
+## Schema 4: the listed sidecar stores
+
+Schema 4 observes six further connection calls: five orgtree-owned databases
+under the data root, each under one closed label.
+
+| Label | Site (file · symbol) |
+| --- | --- |
+| `transcript_records` | `transcript_records.py` · `database` |
+| `reply_events` | `reply_events.py` · `_connect`, `count` |
+| `chat_window_index` | `chat_window.py` · `project_tail` |
+| `tool_waits` | `toolwait.py` · `_db` |
+| `file_deliveries` | `filedelivery.py` · `snapshot` |
+
+The primary store's `db` fields keep exactly their schema-3 meaning. A
+sidecar's contacts are kept apart under `db.secondary`, keyed by label, and a
+label appears only when the attempt contacted that sidecar. An empty
+`secondary`, or a label whose counts are all zero, is refused. Each sidecar
+block has the nine counts, `kinds` and `kind_failed`, but no `store`, and obeys
+the same producer invariants as the primary block. A sidecar is never pooled,
+so its `checkouts` and `linked_threads` are zero in practice. The tool does not
+enforce that.
+
+Beyond schema 3, a schema-4 snapshot must carry:
+
+- the vocabulary `db_secondary_store`, exactly the five labels in order;
+- `contact_coverage.secondary_stores`, a nonempty list of
+  `{path, symbol, label}`, with a repository-relative `.py` path, a dotted
+  symbol and a closed label;
+- provenance `measures_storage_contacts` set to
+  `primary_and_listed_sidecar_sqlite_stores`.
+
+Still unobserved, and listed in `contact_coverage.uninstrumented` or
+`other_processes`:
+
+- the Antigravity reader's external database;
+- the desktop importer's one-shot copies;
+- the mail hub's startup migration and its separate process;
+- the Rust engine and PostgreSQL.
+
+The report's `contacts` section keeps every schema-3 field (primary store only)
+and adds:
+
+- `secondary_totals`: per-label sums over the served attempts;
+- `secondary_attempts`: how many attempts contacted each label;
+- `secondary` on each `by_operation` entry: per-label sums for that operation.
+
+Nothing is divided, and the Markdown adds a sidecar table. The schema-4 limits
+state that the sums cover the primary store and the listed sidecars only.
+
+`mixed-schema4.json` is synthetic, like the schema-3 fixture:
+
+- Its vocabulary, provenance note, limits and `contact_coverage` come from a
+  real schema-4 `census.snapshot()`.
+- Its records are the schema-3 fixture rows with `v: 4` and hand-set sidecar
+  blocks: every label, two sidecars on one attempt, a failed sidecar connect, a
+  failed and busy sidecar statement.
+- The primary blocks are unchanged, so the primary sums equal the schema-3
+  fixture's.
+
 ## Contact-observer overhead benchmark
 
 `tools/census_contact_overhead.py` is an offline single-machine microbenchmark.
 It creates a temporary data root, points `ORGTREE_DATA` at it before importing
 any backend code, refuses to run if the store bound any other root, and takes no
-path, URL or endpoint argument. Three arms run interleaved, with their order
-rotated each repetition, after discarded warmup repetitions:
+path, URL or endpoint argument.
 
-- `plain`: the store's connect arguments and pragmas without `factory=` and
-  without the pool's checkout note (the store before P02-A3);
-- `observed_off`: the real `store._open_conn` / `_Pool` with capture off (the
-  shipped default);
+There are three arms, run after discarded warmup repetitions. ⚠ The arms run
+**one after another, never simultaneously**: each repetition runs all three in
+turn, and the order rotates every repetition, so no arm is always first (cold)
+or last (warm).
+
+- `plain`: the stock code before P02-A3/A4b. The store's connect arguments and
+  pragmas without `factory=` or the pool's checkout note, and every sidecar
+  site given the stock `sqlite3.Connection`.
+- `observed_off`: the real connection paths with capture off (the shipped
+  default).
 - `observed_on`: the same with capture on and a bound per-thread tally.
 
-The workloads are `pooled_read` (checkout plus one keyed SELECT),
-`write_transaction` (BEGIN IMMEDIATE, one upsert, COMMIT) and
-`executemany_batch` (a 16-row upsert in a transaction). Each runs with 1 and 8
-threads. The JSON output gives the median and nearest-rank p90 of wall
-nanoseconds per statement call, and the deltas against `plain`, together with
-the Python and SQLite versions, CPU count and run sizes. Its `claim` field says
-what the numbers are not: end-to-end, request-level or product overhead.
+The primary-store workloads are:
+
+- `pooled_read`: checkout plus one keyed SELECT;
+- `write_transaction`: BEGIN IMMEDIATE, one upsert, COMMIT;
+- `executemany_batch`: a 16-row upsert in a transaction.
+
+The sidecar workloads call the real site functions:
+
+- `transcript_ingest`: `transcript_records.database()` plus a 16-row
+  executemany;
+- `reply_events_remember`: `reply_events.remember_ident`, the stream hot path;
+- `reply_events_lookup`: `reply_events.lookup`.
+
+A sidecar operation's statement-call count is measured once by the observer and
+divides every arm alike. Each workload runs with 1 thread, and with 8 threads of
+the same arm together. The JSON output gives the median and nearest-rank p90 of
+wall nanoseconds per statement call, and the deltas against `plain`, together
+with the Python and SQLite versions, CPU count and run sizes. Its `claim` field
+says what the numbers are not: end-to-end, request-level or product overhead.
 
 ```powershell
 & $censusPython tools/census_contact_overhead.py --repetitions 30 --statements 200 --warmup 3
@@ -253,17 +330,43 @@ what the numbers are not: end-to-end, request-level or product overhead.
 ## Focused verification
 
 ```powershell
-& $censusPython tools/run-python-verification.py --repo-root . tests/test_operation_census_report.py tests/test_census_contact_overhead.py
+& $censusPython tools/run-python-verification.py --repo-root . tests/test_operation_census_report.py tests/test_census_contact_overhead.py tests/test_census_secondary_stores.py
 ```
 
-`test_operation_census_report.py` pins the schema-2 JSON and Markdown bytes to
-SHA-256 values measured before schema 3 existed. It exercises exact version
-dispatch, the cross-schema, privacy, closed-set and invariant refusals (with
-positive controls for what the producer can legitimately emit), and a
-producer-to-report round trip. The round trip runs the in-tree census in a
-child process against a temporary data root with capture on, writes its
-schema-3 snapshot, reports it through the CLI, and compares the contact sums
-with an independent recount; a field the report does not know fails it.
+`test_operation_census_report.py` pins:
+
+- the schema-2 JSON and Markdown bytes, to SHA-256 values measured before
+  schema 3 existed;
+- the schema-3 bytes, to values measured with the tool as P02-A4a landed it.
+
+It exercises:
+
+- exact version dispatch;
+- the cross-schema refusals, including a schema-2 snapshot carrying the
+  complete schema-3 or schema-4 vocabulary;
+- the privacy, closed-set, label and invariant refusals, with positive controls
+  for what the producer can legitimately emit;
+- a producer-to-report round trip.
+
+The round trip runs the in-tree census in a child process against a temporary
+data root with capture on. It makes real requests, including a reply-event
+read. It also records five attempts through the census's own bind/observe
+around each sidecar (the real site functions where they need no agent
+transcript or delivery seat). It writes the schema-4 snapshot, reports it
+through the CLI, and compares the primary and per-sidecar sums with an
+independent recount. A field or label the report does not know fails it.
+
+`test_census_secondary_stores.py` covers the producer:
+
+- the closed labels and cached classes;
+- a scan requiring every connect in the five files to pass its declared label;
+- per-label attribution, including the commit or rollback a `with connection:`
+  block issues;
+- background (unhanded) threads counted in `db_unattributed`;
+- a managed worker's adopted tally keeping its label;
+- privacy, and capture off with pragmas intact;
+- an HTTP attempt publishing `db.secondary`.
+
 `test_census_contact_overhead.py` checks only the benchmark's output shape and
 its argument refusals, never a timing.
 

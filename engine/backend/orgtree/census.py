@@ -38,10 +38,12 @@ and `store.DOC_LOCK` already accumulates into it. So the stage and lock
 numbers are collected today whether or not anybody reads them. The census's
 marginal cost per request is one classification slot bind, one profile freeze,
 one dict build and one `deque.append` — and, while capture is OFF, a single
-integer increment. Since schema 3 every primary-store SQLite statement also
-passes through `census_contacts`' observed connection class, capture on or
-off; its own docstring states that cost. ⚠ THAT COST IS ARGUED HERE AND HAS NOT BEEN MEASURED. The
-default stays off until it is; measuring it is a separate stage.
+integer increment. Since schema 3 every primary-store SQLite statement, and
+since schema 4 every listed sidecar's, also passes through `census_contacts`'
+observed connection class, capture on or off; its own docstring states that
+cost. ⚠ IT HAS BEEN MEASURED ONLY OFFLINE, by the single-machine
+microbenchmark `tools/census_contact_overhead.py` on temporary databases; the
+product's own overhead is unmeasured, and the default stays off.
 
 ⚠ THAT INTEGER IS DELIBERATE AND IT IS NOT AN OVERSIGHT. `observed` counts
 every request the middleware saw, enabled or not. It is the only honest
@@ -79,13 +81,16 @@ its own errors — and, unlike a bare `except: pass`, it COUNTS them in
 as a clean-looking empty sink. It never runs under the document lock.
 
 WHAT THIS MODULE DOES NOT MEASURE, stated here because the payload is read by
-agents. ⚠ SCHEMA 3 ADDS ONE KIND OF STORAGE CONTACT AND NO OTHER: a record's
-`db` block is the ACTUAL connection, checkout and statement activity of the
-primary store's SQLite connections (`store._open_conn`), observed by
-`census_contacts` at the connection class and cross-checked by SQLite's own
-trace callback. Every other database path, PostgreSQL, the Rust engine and
-other processes are not observed, and `contact_coverage.uninstrumented` lists
-the unobserved connection sites by file and symbol. `db` holds counts from
+agents. ⚠ SCHEMA 3 ADDED ONE KIND OF STORAGE CONTACT: a record's `db` block
+is the ACTUAL connection, checkout and statement activity of the primary
+store's SQLite connections (`store._open_conn`), observed by `census_contacts`
+at the connection class and cross-checked by SQLite's own trace callback.
+SCHEMA 4 adds the same evidence for five listed orgtree-owned sidecar
+databases, kept apart under `db.secondary` by closed label
+(`contact_coverage.secondary_stores`). Every other database path, PostgreSQL,
+the Rust engine and other processes are not observed, and
+`contact_coverage.uninstrumented` lists the unobserved connection sites by file
+and symbol. `db` holds counts from
 closed name sets and nothing else — no SQL, no parameters, no path, no
 duration — so it says which kinds of contact happened and how often, never
 rows examined, IO or lock wait. `lock_*` is still the in-process document
@@ -119,10 +124,16 @@ from . import profiling
 #:     exclusion and `diagnostic`, process `instance`, `provenance`.
 #: 3 — the per-attempt `db` contact block (`census_contacts`), the `db_*`
 #:     counters, `contact_coverage`, and a provenance that no longer says no
-#:     storage contact is measured. ⚠ `tools/operation_census_report.py` reads
-#:     schema 2 only and refuses a schema-3 snapshot; that refusal is correct
-#:     and extending the report is not part of this stage.
-SCHEMA_VERSION = 3
+#:     storage contact is measured.
+#: 4 — `db.secondary`: the same contact evidence for the listed sidecar
+#:     stores, by closed label (`census_contacts.SIDECAR_STORES`), present
+#:     only when a sidecar was contacted; `db_secondary_store` vocabulary;
+#:     `contact_coverage.secondary_stores`; provenance
+#:     `primary_and_listed_sidecar_sqlite_stores`. The primary `db` fields keep
+#:     their schema-3 meaning. `tools/operation_census_report.py` reads
+#:     schemas 2, 3 and 4 and refuses any other, so a bump here needs the
+#:     report taught before a snapshot can be read.
+SCHEMA_VERSION = 4
 
 #: Off by default. The item allows on-by-default only if measured overhead is
 #: negligible, and switching it on in a running product is a live behaviour
@@ -617,9 +628,28 @@ def _contact_block(sealed: "dict[str, Any]") -> "dict[str, Any]":
     store = sealed.get("store")
     block: "dict[str, Any]" = {
         "store": store if store in contacts.STORES else "unknown"}
+    block.update(_contact_counts(sealed))
+    # Schema 4: a sidecar appears only under a `SIDECAR_STORES` label and only
+    # when it carries at least one contact; any other key is dropped here.
+    raw = sealed.get("secondary")
+    raw = raw if isinstance(raw, dict) else {}
+    secondary: "dict[str, Any]" = {}
+    for label in contacts.SIDECAR_STORES:
+        if isinstance(raw.get(label), dict):
+            counts = _contact_counts(raw[label])
+            if any(counts[field] for field in contacts.FIELDS):
+                secondary[label] = counts
+    if secondary:
+        block["secondary"] = secondary
+    return block
+
+
+def _contact_counts(sealed: "dict[str, Any]") -> "dict[str, Any]":
+    """The `FIELDS` counts and per-kind maps of one store's evidence."""
+    out: "dict[str, Any]" = {}
     for field in contacts.FIELDS:
         value = _count(sealed.get(field))
-        block[field] = value if value is not None and value >= 0 else 0
+        out[field] = value if value is not None and value >= 0 else 0
     for group in ("kinds", "kind_failed"):
         raw = sealed.get(group)
         raw = raw if isinstance(raw, dict) else {}
@@ -628,8 +658,8 @@ def _contact_block(sealed: "dict[str, Any]") -> "dict[str, Any]":
             value = _count(raw.get(kind))
             if value is not None and value > 0:
                 kept[kind] = value
-        block[group] = kept
-    return block
+        out[group] = kept
+    return out
 
 
 def _freeze(profile: "dict[str, Any] | None") -> "dict[str, Any]":
@@ -798,9 +828,10 @@ def _provenance(rows: "list[dict[str, Any]]") -> "dict[str, Any]":
         "scope_src_counts": counts,
         "declared_coverage": round(counts["declared"] / total, 6) if total else 0.0,
         # ⚠ `False` AT SCHEMA 2, AND NOT A PLAIN `True` NOW. Contacts are
-        # observed on the primary SQLite store's connections and nowhere else;
-        # `contact_coverage` lists what is not observed.
-        "measures_storage_contacts": "primary_sqlite_store_only",
+        # observed on the primary SQLite store's connections and the listed
+        # sidecar stores, and nowhere else; `contact_coverage` lists what is
+        # and is not observed.
+        "measures_storage_contacts": "primary_and_listed_sidecar_sqlite_stores",
         "rows_with_contact_evidence": with_db,
         "rows_without_contact_evidence": total - with_db,
         "unit": "attempt",
@@ -808,7 +839,8 @@ def _provenance(rows: "list[dict[str, Any]]") -> "dict[str, Any]":
                  "route-template shape (route_shape), or a handler's own "
                  "statement (declared) - never an observed storage contact. "
                  "The db block is observed contact on the primary SQLite "
-                 "store's connections only, which is incomplete coverage of "
+                 "store's connections, and db.secondary on the listed sidecar "
+                 "stores' connections only, which is incomplete coverage of "
                  "storage. No handler declares at this schema, so "
                  "declared_coverage is 0.0. This instrument proves no locality "
                  "proportion and publishes no denominator of logical "
@@ -825,10 +857,12 @@ LIMITS = (
     "Non-HTTP work - workers, tasks, callbacks, hooks, websockets and restart "
     "recovery - is not observed at all.",
     "Storage contact is measured ONLY in the db block and ONLY for the "
-    "primary store's SQLite connections (see contact_coverage and the db "
-    "limits below); lock_* is the in-process document lock, not a database.",
+    "primary store's and the listed sidecar stores' SQLite connections (see "
+    "contact_coverage and the db limits below); lock_* is the in-process "
+    "document lock, not a database.",
     "bytes is the HTTP response size, never a storage rows-or-bytes figure.",
-    "Overhead is argued in census.py and has not been measured; the default "
+    "Overhead is measured only by an offline single-machine microbenchmark "
+    "(tools/census_contact_overhead.py), never in the product; the default "
     "is off because of that.",
     "Census read doors are excluded from the ring (counters.skipped_self), so "
     "records do not include the act of reading them.",
@@ -903,7 +937,8 @@ def snapshot(limit: "int | None" = None) -> "dict[str, Any]":
                        "method": list(classes.METHOD),
                        "nonterminal_reason": list(NONTERMINAL_REASON),
                        "db_store": list(contacts.STORES),
-                       "db_kind": list(contacts.KINDS)},
+                       "db_kind": list(contacts.KINDS),
+                       "db_secondary_store": list(contacts.SIDECAR_STORES)},
         "provenance": _provenance(rows),
         "contact_coverage": contacts.coverage(),
         "limits": list(LIMITS) + list(contacts.LIMITS),

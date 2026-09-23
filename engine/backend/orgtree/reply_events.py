@@ -5,12 +5,13 @@ import threading
 from pathlib import Path
 import sqlite3
 import uuid
+from . import census_contacts
 from . import store
 
 
 def _connect():
     path = Path(store.DATA_ROOT) / 'reply-events.sqlite3'
-    connection = sqlite3.connect(path, timeout=15)
+    connection = sqlite3.connect(path, timeout=15, factory=census_contacts.sidecar("reply_events"))
     connection.execute('CREATE TABLE IF NOT EXISTS events (org TEXT, agent TEXT, generation INTEGER, id TEXT, text TEXT, scope TEXT, PRIMARY KEY(org,agent,generation,id))')
     # WAL so a commit is one WAL append instead of a rollback-journal
     # create/fsync/delete pair. synchronous stays FULL: a quoted
@@ -165,7 +166,7 @@ def count(slug, nid):
     path = Path(store.DATA_ROOT) / 'reply-events.sqlite3'
     if not path.exists():
         return 0
-    connection = sqlite3.connect(path.as_uri() + '?mode=ro', uri=True, timeout=15)
+    connection = sqlite3.connect(path.as_uri() + '?mode=ro', uri=True, timeout=15, factory=census_contacts.sidecar("reply_events"))
     try:
         return connection.execute('SELECT COUNT(*) FROM events WHERE org=? AND agent=?', (slug, nid)).fetchone()[0]
     finally:

@@ -1,4 +1,4 @@
-"""Offline report controls: synthetic schema2/schema3 fixtures, no live access.
+"""Offline report controls: synthetic schema2/schema3/schema4 fixtures, no live access.
 
 This process never imports the backend. The one producer-to-report round trip
 runs the in-tree census in a CHILD process against a temporary data root with
@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TOOL = ROOT / "tools" / "operation_census_report.py"
 FIXTURE = ROOT / "tests" / "fixtures" / "operation-census-report" / "mixed-schema2.json"
 FIXTURE3 = ROOT / "tests" / "fixtures" / "operation-census-report" / "mixed-schema3.json"
+FIXTURE4 = ROOT / "tests" / "fixtures" / "operation-census-report" / "mixed-schema4.json"
 spec = importlib.util.spec_from_file_location("operation_census_report", TOOL)
 reporter = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(reporter)
@@ -36,6 +37,13 @@ GOLDEN_SCHEMA2 = {
     "json": "3bef3d0c3442fdda0166d9051363c17f618b5b0e2a1059b456f5db05a577c195",
     "markdown": "535a759e31c0c7a89e53d8ebbe9b5f5d3711f181cb2fb0337ba2bf2ec6524dea",
 }
+# ⚠ SCHEMA 3 OUTPUT STAYS AS LANDED. The same measure for mixed-schema3.json,
+# taken with the tool at cfef919 (P02-A4a) — before schema4 support existed.
+GOLDEN_SCHEMA3 = {
+    "json": "a4df53f7e36c28082548e5a5dc24a0c21a7bb04275b3b5c0d01c65e8a49eb828",
+    "markdown": "7924880ef5d7a062e4fcb21c7056fb822a96b2fa5f4023e423f5e90a77ab8b59",
+}
+LABELS = ["transcript_records", "reply_events", "chat_window_index", "tool_waits", "file_deliveries"]
 
 
 def fixture():
@@ -44,6 +52,19 @@ def fixture():
 
 def fixture3():
     return json.loads(FIXTURE3.read_text(encoding="utf-8"))
+
+
+def fixture4():
+    return json.loads(FIXTURE4.read_text(encoding="utf-8"))
+
+
+def recount_sidecars(rows):
+    """Per-label sums over the rows' db.secondary blocks, recomputed here."""
+    by_label = {}
+    for row in rows:
+        for label, block in row.get("db", {}).get("secondary", {}).items():
+            by_label.setdefault(label, []).append({"db": block})
+    return {label: recount(blocks) for label, blocks in by_label.items()}
 
 
 def recount(rows):
@@ -450,8 +471,8 @@ class Schema3Tests(unittest.TestCase):
                          "but only one of them was observed, and the report says which")
 
     def test_schema_dispatch_is_exact(self):
-        for base in (fixture, fixture3):
-            for bad in (1, 4, 5, 0, -3, True, False, 2.0, 3.0, "2", "3", None, [3], {"v": 3}):
+        for base in (fixture, fixture3, fixture4):
+            for bad in (1, 5, 0, -3, True, False, 2.0, 3.0, 4.0, "2", "3", "4", None, [3], {"v": 3}):
                 source = base()
                 source["schema_version"] = bad
                 self.refuse(source, f"{base.__name__} schema_version={bad!r}")
@@ -464,6 +485,13 @@ class Schema3Tests(unittest.TestCase):
         relabelled = fixture3()
         relabelled["schema_version"] = 2
         self.refuse(relabelled, "schema3 body labelled 2")
+        for version in (3, 2):
+            relabelled = fixture4()
+            relabelled["schema_version"] = version
+            self.refuse(relabelled, f"schema4 body labelled {version}")
+        relabelled = fixture3()
+        relabelled["schema_version"] = 4
+        self.refuse(relabelled, "schema3 body labelled 4")
         self.refuse([], "not an object")
 
     def test_record_versions_must_match_their_snapshot(self):
@@ -476,6 +504,9 @@ class Schema3Tests(unittest.TestCase):
         source = fixture3()
         source["records"][4]["v"] = 4
         self.refuse(source, "v4 row in schema3")
+        source = fixture4()
+        source["records"][4]["v"] = 3
+        self.refuse(source, "v3 row in schema4")
 
     def test_cross_schema_fields_are_refused(self):
         three = fixture3()
@@ -484,6 +515,10 @@ class Schema3Tests(unittest.TestCase):
             ("contact_coverage on schema2", lambda s: s.update(contact_coverage=copy.deepcopy(three["contact_coverage"]))),
             ("db counter on schema2", lambda s: s["counters"].update(db_unbound=0)),
             ("db vocabulary on schema2", lambda s: s["vocabulary"].update(db_kind=list(reporter.DB_KINDS))),
+            # A4a review N1: the COMPLETE schema-3 (and schema-4) vocabulary on
+            # a schema-2 snapshot, not just one added key.
+            ("complete schema3 vocabulary on schema2", lambda s: s.update(vocabulary=copy.deepcopy(reporter.VOCABULARY_V3))),
+            ("complete schema4 vocabulary on schema2", lambda s: s.update(vocabulary=copy.deepcopy(reporter.VOCABULARY_V4))),
             ("contact provenance on schema2", lambda s: s["provenance"].update(rows_with_contact_evidence=0)),
         ):
             source = fixture()
@@ -599,41 +634,148 @@ class Schema3Tests(unittest.TestCase):
         self.assertNotIn("Observed storage contacts", reporter.render_markdown(reporter.build_report(fixture())))
 
 
-class Schema3CliTests(unittest.TestCase):
+class Schema4Tests(unittest.TestCase):
+    """Schema 4: the listed sidecar stores, kept apart under db.secondary."""
+
+    _keys = Schema3Tests._keys
+
+    def refuse(self, source, message=None):
+        with self.subTest(message=message):
+            with self.assertRaises(reporter.ReportError):
+                reporter.build_report(source)
+
+    def test_schema4_reports_every_sidecar_apart_with_exact_sums(self):
+        source = fixture4()
+        before = copy.deepcopy(source)
+        report = reporter.build_report(source)
+        self.assertEqual(source, before)
+        self.assertEqual(report["report_schema"], "orgtree.operation-census-report/v2")
+        self.assertEqual(report["limits"], reporter.LIMITS_V2_SIDECARS)
+        contacts = report["contacts"]
+        self.assertEqual(contacts["measures"], "primary_and_listed_sidecar_sqlite_stores")
+        self.assertIs(contacts["complete"], False)
+        # Every label is exercised by the fixture, and each is summed apart.
+        self.assertEqual(sorted(contacts["secondary_totals"]), sorted(LABELS))
+        self.assertEqual(contacts["secondary_totals"], recount_sidecars(source["records"]))
+        self.assertEqual(contacts["secondary_attempts"],
+                         {label: sum(label in r.get("db", {}).get("secondary", {}) for r in source["records"])
+                          for label in LABELS})
+        # The primary store's numbers are exactly schema 3's: sidecars never leak in.
+        three = reporter.build_report(fixture3())
+        self.assertEqual(contacts["totals"], three["contacts"]["totals"])
+        for key in ("ranks", "coverage", "special_records"):
+            self.assertEqual(report[key], three[key], key)
+        for item in contacts["by_operation"]:
+            members = [r for r in source["records"] if r["op"] == item["identity"]["op"]]
+            self.assertEqual(item["secondary"], recount_sidecars(members))
+        self.assertEqual(sum(item["secondary"].get("tool_waits", {}).get("statements", 0)
+                             for item in contacts["by_operation"]), 5)
+        words = {word for key in self._keys(contacts) for word in key.lower().split("_")}
+        for banned in ("percent", "pct", "share", "ratio", "rate", "locality", "local", "proportion", "fraction"):
+            self.assertNotIn(banned, words)
+        text = reporter.render_markdown(report)
+        self.assertIn("primary SQLite store and listed sidecars", text)
+        self.assertIn("Sidecar stores (kept apart from the primary store)", text)
+        self.assertIn("secondary_stores:tool_waits", text)
+        self.assertEqual(text, reporter.render_markdown(reporter.build_report(fixture4())))
+
+    def test_schema3_reports_carry_no_sidecar_section(self):
+        report = reporter.build_report(fixture3())
+        self.assertNotIn("secondary_totals", report["contacts"])
+        self.assertNotIn("secondary", report["contacts"]["by_operation"][0])
+        self.assertNotIn("Sidecar stores", reporter.render_markdown(report))
+
+    def test_sidecar_closed_set_privacy_and_invariant_negatives(self):
+        row = 5   # seq 6 carries reply_events and file_deliveries
+        mutations = [
+            ("empty secondary", lambda s: s["records"][row]["db"].update(secondary={})),
+            ("secondary not an object", lambda s: s["records"][row]["db"].update(secondary=[])),
+            ("unknown label", lambda s: s["records"][row]["db"]["secondary"].update(other_store=copy.deepcopy(s["records"][row]["db"]["secondary"]["file_deliveries"]))),
+            ("path as label", lambda s: s["records"][row]["db"]["secondary"].update({"C:/data/tool-waits.db": copy.deepcopy(s["records"][row]["db"]["secondary"]["file_deliveries"])})),
+            ("uppercase label", lambda s: s["records"][row]["db"]["secondary"].update(TOOL_WAITS=copy.deepcopy(s["records"][row]["db"]["secondary"]["file_deliveries"]))),
+            ("store inside a sidecar", lambda s: s["records"][row]["db"]["secondary"]["file_deliveries"].update(store="sqlite")),
+            ("sidecar without contact", lambda s: s["records"][row]["db"]["secondary"].update(tool_waits={
+                **{f: 0 for f in reporter.DB_FIELDS}, "kinds": {}, "kind_failed": {}})),
+            ("sidecar kinds do not sum", lambda s: s["records"][row]["db"]["secondary"]["file_deliveries"].update(statements=3)),
+            ("sidecar busy beyond failed", lambda s: s["records"][row]["db"]["secondary"]["file_deliveries"].update(statement_busy=2)),
+            ("sidecar failed connect beyond connects", lambda s: s["records"][row]["db"]["secondary"]["reply_events"].update(connect_failed=2)),
+            ("sidecar unknown kind", lambda s: s["records"][row]["db"]["secondary"]["file_deliveries"]["kinds"].update(vacuum=1)),
+            ("sidecar missing field", lambda s: s["records"][row]["db"]["secondary"]["file_deliveries"].pop("engine_steps")),
+            ("measures schema3", lambda s: s["provenance"].update(measures_storage_contacts="primary_sqlite_store_only")),
+            ("schema3 vocabulary", lambda s: s.update(vocabulary=copy.deepcopy(reporter.VOCABULARY_V3))),
+            ("labels reordered", lambda s: s["vocabulary"]["db_secondary_store"].reverse()),
+            ("missing secondary_stores", lambda s: s["contact_coverage"].pop("secondary_stores")),
+            ("empty secondary_stores", lambda s: s["contact_coverage"].update(secondary_stores=[])),
+            ("secondary_stores unknown label", lambda s: s["contact_coverage"]["secondary_stores"][0].update(label="other_store")),
+            ("secondary_stores without label", lambda s: s["contact_coverage"]["secondary_stores"][0].pop("label")),
+            ("secondary_stores absolute path", lambda s: s["contact_coverage"]["secondary_stores"][0].update(path="C:/Users/x/transcript_records.py")),
+            ("secondary_stores database file", lambda s: s["contact_coverage"]["secondary_stores"][0].update(path="data/transcript-records.sqlite3")),
+            ("secondary_stores extra key", lambda s: s["contact_coverage"]["secondary_stores"][0].update(database="tool-waits.db")),
+            ("coverage claims complete", lambda s: s["contact_coverage"].update(complete=True)),
+        ]
+        for key in ("sql", "path", "params", "slug", "duration_ms", "rows_examined", "file"):
+            mutations.append((f"sidecar extra {key}", lambda s, key=key: s["records"][row]["db"]["secondary"]["file_deliveries"].update({key: "x"})))
+        for bad in (True, -1, 1.5, "3", None, float("inf")):
+            mutations.append((f"sidecar count {bad!r}", lambda s, b=bad: s["records"][row]["db"]["secondary"]["reply_events"].update(connects=b)))
+        for label, mutate in mutations:
+            source = fixture4()
+            mutate(source)
+            self.refuse(source, label)
+        # Positive controls: the legitimate shapes are accepted.
+        for label, mutate in (
+            ("connect-only sidecar", lambda s: None),
+            ("seal race on a sidecar failure", lambda s: s["records"][row]["db"]["secondary"]["file_deliveries"].update(statement_failed=0, statement_busy=0)),
+            ("an attempt with no sidecar", lambda s: s["records"][row]["db"].pop("secondary")),
+        ):
+            with self.subTest(accepted=label):
+                source = fixture4()
+                mutate(source)
+                reporter.build_report(source)
+
+
+class CliTests(unittest.TestCase):
     def run_cli(self, *args):
         return subprocess.run([sys.executable, str(TOOL), *map(str, args)], capture_output=True, text=True, timeout=15)
 
-    def test_schema2_output_bytes_match_the_pre_schema3_golden(self):
-        for fmt, digest in GOLDEN_SCHEMA2.items():
-            with self.subTest(format=fmt):
-                result = self.run_cli(FIXTURE, "--format", fmt)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(hashlib.sha256(result.stdout.encode("utf-8")).hexdigest(), digest)
+    def test_schema2_and_schema3_output_bytes_match_their_goldens(self):
+        for fixture_path, goldens in ((FIXTURE, GOLDEN_SCHEMA2), (FIXTURE3, GOLDEN_SCHEMA3)):
+            for fmt, digest in goldens.items():
+                with self.subTest(fixture=fixture_path.name, format=fmt):
+                    result = self.run_cli(fixture_path, "--format", fmt)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(hashlib.sha256(result.stdout.encode("utf-8")).hexdigest(), digest)
 
-    def test_schema3_cli_json_and_markdown(self):
-        first, second = self.run_cli(FIXTURE3), self.run_cli(FIXTURE3)
-        self.assertEqual(first.returncode, 0, first.stderr)
-        self.assertEqual(first.stdout, second.stdout)
-        body = json.loads(first.stdout)
-        self.assertEqual(body["report_schema"], "orgtree.operation-census-report/v2")
-        self.assertEqual(body["source"]["sha256"], hashlib.sha256(FIXTURE3.read_bytes()).hexdigest())
-        markdown = self.run_cli(FIXTURE3, "--format", "markdown")
-        self.assertEqual(markdown.returncode, 0, markdown.stderr)
-        self.assertIn("Observed storage contacts", markdown.stdout)
+    def test_schema3_and_schema4_cli_json_and_markdown(self):
+        for fixture_path in (FIXTURE3, FIXTURE4):
+            with self.subTest(fixture=fixture_path.name):
+                first, second = self.run_cli(fixture_path), self.run_cli(fixture_path)
+                self.assertEqual(first.returncode, 0, first.stderr)
+                self.assertEqual(first.stdout, second.stdout)
+                body = json.loads(first.stdout)
+                self.assertEqual(body["report_schema"], "orgtree.operation-census-report/v2")
+                self.assertEqual(body["source"]["sha256"], hashlib.sha256(fixture_path.read_bytes()).hexdigest())
+                markdown = self.run_cli(fixture_path, "--format", "markdown")
+                self.assertEqual(markdown.returncode, 0, markdown.stderr)
+                self.assertIn("Observed storage contacts", markdown.stdout)
         self.assertNotIn("orgtree.api", sys.modules)
 
 
 # The in-tree census, driven in a child process: a temporary data root, capture
-# switched on in THAT process only, synthetic requests through the app's test
-# client (no lifespan, so no hub starts), and the snapshot written to one file.
+# switched on in THAT process only, requests through the app's test client (no
+# lifespan, so no hub starts), and the snapshot written to one file. Five more
+# attempts go through the census's own bind/observe, exactly as the access
+# middleware does, around the real sidecar sites (transcript_records.database,
+# toolwait.records) or, for the two sites that need an agent transcript or a
+# delivery seat, around the sidecar class on its own file as its site opens it.
 PRODUCER = r"""
-import json, os, sys
+import contextlib, json, os, sqlite3, sys
+from pathlib import Path
 sys.path[:0] = json.loads(os.environ["CENSUS_ROUNDTRIP_ROOTS"])
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from fastapi.testclient import TestClient
 from engine.launch import load_app
 app, *_ = load_app()
-from orgtree import census, ledger, store
+from orgtree import census, census_contacts, ledger, reply_events, store, toolwait, transcript_records
 census.reset()
 census.set_enabled(True)
 client = TestClient(app)
@@ -644,6 +786,29 @@ with store.write_org(slug) as org:
     org.hire(ledger.USER, None, "haiku", 0, "probe")
     store.save_org(org)
 store._POOL.close_all(slug)
+reply_events.lookup(slug, "probe", 0, "x", "s")
+
+
+def sidecar_file(label, name):
+    path = str(Path(store.DATA_ROOT) / name)
+    with contextlib.closing(sqlite3.connect(path, timeout=10, factory=census_contacts.sidecar(label))) as conn, conn:
+        conn.execute("SELECT 1").fetchone()
+
+
+def attempt(route, body):
+    token = census.bind()
+    try:
+        body()
+    finally:
+        census.observe("POST", route, 200, 1.0, 1.0, 0, 1)
+        census.unbind(token)
+
+
+def transcripts():
+    with transcript_records.database() as conn:
+        conn.execute("SELECT COUNT(*) FROM transcript_sources").fetchone()
+
+
 statuses = [
     client.get("/api/orgs/" + slug, headers=headers).status_code,
     client.get("/api/orgs/" + slug, headers=headers).status_code,
@@ -651,7 +816,13 @@ statuses = [
     client.post("/api/agent", headers=headers, content=b"{not json").status_code,
     client.post("/api/agent", headers=headers, json={"org": slug, "node": "probe",
         "tool": "orgtree_watchdog", "args": {"action": "list"}}).status_code,
+    client.get("/api/orgs/" + slug + "/nodes/probe/reply-events", headers=headers).status_code,
 ]
+attempt("/synthetic/transcript-records", transcripts)
+attempt("/synthetic/tool-waits", toolwait.records)
+attempt("/synthetic/chat-window-index", lambda: sidecar_file("chat_window_index", "chat-window-index.sqlite3"))
+attempt("/synthetic/file-deliveries", lambda: sidecar_file("file_deliveries", "file-deliveries.db"))
+attempt("/synthetic/two-sidecars", lambda: (transcripts(), toolwait.records()))
 snapshot = census.snapshot()
 census.set_enabled(False)
 store._POOL.close_all(slug)
@@ -696,23 +867,27 @@ class ProducerRoundTripTests(unittest.TestCase):
         return subprocess.run([sys.executable, str(TOOL), str(path), *args], capture_output=True, text=True, timeout=15)
 
     def test_the_producer_snapshot_is_reported_with_exact_contact_sums(self):
-        self.assertEqual(self.statuses, [200, 200, 404, 422, 200])
-        self.assertEqual(self.snapshot["schema_version"], 3)
+        self.assertEqual(self.statuses, [200, 200, 404, 422, 200, 200])
+        self.assertEqual(self.snapshot["schema_version"], 4)
         rows = self.snapshot["records"]
-        self.assertEqual(len(rows), 5)
-        # Exercised: some attempt really reached the store, some did not.
+        self.assertEqual(len(rows), 11)
+        # Exercised: some attempt really reached the store, some did not, and
+        # every sidecar label was really contacted.
         self.assertTrue(any(r["db"]["statements"] > 0 for r in rows), rows)
         self.assertTrue(any(r["db"]["statements"] == 0 for r in rows), rows)
+        self.assertEqual(sorted(recount_sidecars(rows)), sorted(LABELS))
         result = self.run_cli(self.path)
         self.assertEqual(result.returncode, 0, result.stderr)
         report = json.loads(result.stdout)
         self.assertEqual(report["report_schema"], "orgtree.operation-census-report/v2")
         contacts = report["contacts"]
         self.assertEqual(contacts["totals"], recount(rows))
+        self.assertEqual(contacts["secondary_totals"], recount_sidecars(rows))
         self.assertEqual(contacts["with_contact_evidence"], sum("db" in r for r in rows))
         for group in contacts["by_operation"]:
             members = [r for r in rows if r["op"] == group["identity"]["op"]]
             self.assertEqual(group["statements"], sum(r["db"]["statements"] for r in members))
+            self.assertEqual(group["secondary"], recount_sidecars(members))
         self.assertIs(contacts["complete"], False)
         self.assertEqual(report["snapshot"]["contact_coverage"], self.snapshot["contact_coverage"])
         self.assertIn("incomplete", report["coverage"]["assessment"])
@@ -720,14 +895,18 @@ class ProducerRoundTripTests(unittest.TestCase):
         self.assertEqual(markdown.returncode, 0, markdown.stderr)
 
     def test_a_field_the_report_does_not_know_is_refused(self):
-        """Producer drift fails closed: a new field anywhere is exit 2."""
+        """Producer drift fails closed: a new field or label anywhere is exit 2."""
+        sidecar_row = next(i for i, r in enumerate(self.snapshot["records"]) if "secondary" in r["db"])
         for label, mutate in (
             ("record db field", lambda s: s["records"][0]["db"].update(rows_examined=0)),
             ("record field", lambda s: s["records"][0].update(db_secondary={})),
             ("top-level section", lambda s: s.update(contact_sidecars={})),
             ("process counter", lambda s: s["counters"].update(db_new=0)),
-            ("coverage field", lambda s: s["contact_coverage"].update(secondary_stores=[])),
-            ("next schema", lambda s: s.update(schema_version=4)),
+            ("coverage field", lambda s: s["contact_coverage"].update(sidecar_paths=[])),
+            ("new sidecar label", lambda s: s["records"][sidecar_row]["db"]["secondary"].update(
+                new_store=next(iter(s["records"][sidecar_row]["db"]["secondary"].values())))),
+            ("sidecar field", lambda s: next(iter(s["records"][sidecar_row]["db"]["secondary"].values())).update(pages=0)),
+            ("next schema", lambda s: s.update(schema_version=5)),
         ):
             with self.subTest(label), tempfile.TemporaryDirectory() as directory:
                 source = copy.deepcopy(self.snapshot)

@@ -16,6 +16,8 @@ import datetime as dt
 from pathlib import Path
 from typing import Any, Iterator
 
+from . import census_contacts
+
 BLOCK = 64 * 1024
 #: chat-window-index paths already switched to WAL this process (review F6)
 _index_wal: set[str] = set()
@@ -374,7 +376,7 @@ def project_tail(org, nid: str, path: str, want: int, stats: dict[str, int], *, 
                               before=before)
     version_before = version()
     database = Path(store.DATA_ROOT) / 'chat-window-index.sqlite3'
-    with contextlib.closing(sqlite3.connect(database, timeout=10)) as conn, conn:
+    with contextlib.closing(sqlite3.connect(database, timeout=10, factory=census_contacts.sidecar("chat_window_index"))) as conn, conn:
         if str(database) not in _index_wal:
             # WAL so a projection being cached never blocks another desk's
             # cache READ of a different conversation (review F6); the pragma

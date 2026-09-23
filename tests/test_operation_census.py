@@ -200,7 +200,7 @@ class OperationClassCoverageTests(CensusCase):
         self.assertWindowDidWork(body)
         # 3 since P02-A3 added the `db` contact block; the attempt unit is
         # unchanged, which is what this test is about.
-        self.assertEqual(body['schema_version'], 3)
+        self.assertEqual(body['schema_version'], 4)
         for row in body['records']:
             self.assertEqual(row['unit'], 'attempt', json.dumps(row))
             self.assertIn('terminal', row)
@@ -1015,7 +1015,7 @@ class ProvenanceDisclosureTests(CensusCase):
         # SQLite store's connections and nowhere else, and the payload says
         # exactly that rather than a bare boolean either way.
         self.assertEqual(prov['measures_storage_contacts'],
-                         'primary_sqlite_store_only')
+                         'primary_and_listed_sidecar_sqlite_stores')
         self.assertEqual(prov['unit'], 'attempt')
         self.assertEqual(sum(prov['scope_src_counts'].values()), body['served'],
                          'the provenance split does not account for every '
@@ -1088,7 +1088,7 @@ class PermissionSplitTests(CensusCase):
             'args': {'n': 50}})
         self.assertEqual(got.status_code, 200, got.text)
         body = got.json()
-        self.assertEqual(body['schema_version'], 3)
+        self.assertEqual(body['schema_version'], 4)
         self.assertTrue(body['enabled'])
         self.assertWindowDidWork(body)
         self.assertTrue(body['records'], 'the agent door returned no records')

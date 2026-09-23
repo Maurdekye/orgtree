@@ -12,6 +12,7 @@ import shutil
 import sqlite3
 import threading
 from contextlib import closing
+from . import census_contacts
 from . import store
 from .ledger import LedgerError
 
@@ -41,7 +42,7 @@ def snapshot(org, nid, args, *, max_bytes):
     target = outdir / relative
     with _lock:
         database = Path(store.DATA_ROOT) / 'file-deliveries.db'
-        with closing(sqlite3.connect(database, timeout=10)) as db:
+        with closing(sqlite3.connect(database, timeout=10, factory=census_contacts.sidecar("file_deliveries"))) as db:
             db.execute('PRAGMA synchronous=FULL')
             db.execute('CREATE TABLE IF NOT EXISTS deliveries (id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, result TEXT)')
             row = db.execute('SELECT fingerprint,result FROM deliveries WHERE id=?', (identity,)).fetchone()

@@ -540,7 +540,7 @@ class AttemptRecordTests(unittest.TestCase):
                               headers=OPERATOR, params={'n': 500})
         self.assertEqual(got.status_code, 200, got.text)
         body = got.json()
-        self.assertEqual(body['schema_version'], 3)
+        self.assertEqual(body['schema_version'], 4)
         return body
 
     def only(self, body, route, status):
@@ -632,7 +632,7 @@ class AttemptRecordTests(unittest.TestCase):
             self.assertIn('db_' + name, body['counters'])
         self.assertIn('db_unbound', body['counters'])
         self.assertEqual(body['provenance']['measures_storage_contacts'],
-                         'primary_sqlite_store_only')
+                         'primary_and_listed_sidecar_sqlite_stores')
         self.assertTrue(any('rows examined' in limit for limit in body['limits']))
 
     def test_an_attempt_that_began_with_capture_off_has_no_db_block(self):
@@ -712,8 +712,9 @@ class CoverageDeclarationTests(unittest.TestCase):
         self.assertIn(('engine/backend/orgtree/store.py', '_open_conn'), sites,
                       'the scanner did not find the one site it must find')
         self.assertFalse([s for s in sites if s[0].startswith(HUB)])
-        declared = set(cc.INSTRUMENTED) | set(cc.UNINSTRUMENTED)
-        self.assertEqual(len(declared), len(cc.INSTRUMENTED) + len(cc.UNINSTRUMENTED))
+        sidecars = {(path, symbol) for path, symbol, _ in cc.SIDECARS}
+        declared = set(cc.INSTRUMENTED) | set(cc.UNINSTRUMENTED) | sidecars
+        self.assertEqual(len(declared), len(cc.INSTRUMENTED) + len(cc.UNINSTRUMENTED) + len(cc.SIDECARS))
         self.assertEqual(sorted(sites - declared), [], 'unlisted SQLite connection sites')
         self.assertEqual(sorted(declared - sites), [], 'listed sites that do not exist')
 

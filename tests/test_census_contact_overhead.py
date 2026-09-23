@@ -20,7 +20,12 @@ import import_provenance  # noqa: F401  asserts orgtree resolves inside this che
 ROOT = Path(__file__).resolve().parents[1]
 TOOL = ROOT / "tools" / "census_contact_overhead.py"
 ARMS = ["plain", "observed_off", "observed_on"]
-WORKLOADS = ["pooled_read", "write_transaction", "executemany_batch"]
+WORKLOADS = ["pooled_read", "write_transaction", "executemany_batch",
+             "transcript_ingest", "reply_events_remember", "reply_events_lookup"]
+# Statement calls per operation: fixed for the primary-store workloads, measured
+# by the observer for the sidecar ones (the real site functions decide them).
+CALLS_PER_OP = {"pooled_read": 1, "write_transaction": 3, "executemany_batch": 3,
+                "transcript_ingest": 3, "reply_events_remember": 5, "reply_events_lookup": 5}
 THREADS = [1, 8]
 RESULT_FIELDS = {"workload", "threads", "arm", "calls_per_repetition", "rows_per_repetition",
                  "median_ns_per_call", "p90_ns_per_call", "delta_median_ns_vs_plain",
@@ -44,7 +49,8 @@ class OverheadSmokeTests(unittest.TestCase):
         self.assertEqual(set(body), {"schema", "kind", "claim", "environment", "run", "results"})
         self.assertEqual(body["schema"], "orgtree.census-contact-overhead/v1")
         self.assertEqual(body["kind"], "offline_microbenchmark")
-        for phrase in ("single-machine", "not end-to-end", "product overhead", "not a measurement of any live"):
+        for phrase in ("single-machine", "not end-to-end", "product overhead", "not a measurement of any live",
+                       "one after another", "never simultaneously"):
             self.assertIn(phrase, body["claim"])
         self.assertEqual(set(body["environment"]), {"python", "implementation", "sqlite", "os", "cpu_count"})
         self.assertEqual(body["environment"]["python"].split(".")[:2], [str(v) for v in sys.version_info[:2]])
@@ -52,6 +58,7 @@ class OverheadSmokeTests(unittest.TestCase):
         self.assertEqual(body["run"]["workloads"], WORKLOADS)
         self.assertEqual(body["run"]["threads"], THREADS)
         self.assertEqual((body["run"]["repetitions"], body["run"]["warmup"], body["run"]["statements_per_thread"]), (2, 1, 3))
+        self.assertIn("never simultaneously", body["run"]["order"])
         results = body["results"]
         self.assertEqual(len(results), len(ARMS) * len(WORKLOADS) * len(THREADS))
         self.assertEqual({(r["workload"], r["threads"], r["arm"]) for r in results},
@@ -59,8 +66,7 @@ class OverheadSmokeTests(unittest.TestCase):
         for row in results:
             with self.subTest(row=(row["workload"], row["threads"], row["arm"])):
                 self.assertEqual(set(row), RESULT_FIELDS)
-                calls_per_op = 1 if row["workload"] == "pooled_read" else 3
-                self.assertEqual(row["calls_per_repetition"], row["threads"] * 3 * calls_per_op)
+                self.assertEqual(row["calls_per_repetition"], row["threads"] * 3 * CALLS_PER_OP[row["workload"]])
                 for field in ("median_ns_per_call", "p90_ns_per_call"):
                     self.assertIsInstance(row[field], float)
                     self.assertGreater(row[field], 0)

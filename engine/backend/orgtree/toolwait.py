@@ -35,7 +35,7 @@ _cursor = 0
 def _db():
     path = Path(store.DATA_ROOT) / 'tool-waits.db'
     path.parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(path, timeout=2)
+    db = sqlite3.connect(path, timeout=2, factory=census_contacts.sidecar("tool_waits"))
     db.execute('PRAGMA synchronous=FULL')
     db.execute('CREATE TABLE IF NOT EXISTS operations '
                '(id TEXT PRIMARY KEY, record TEXT NOT NULL)')

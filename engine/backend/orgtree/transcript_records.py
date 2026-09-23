@@ -16,6 +16,8 @@ import threading
 import uuid
 from pathlib import Path
 
+from . import census_contacts
+
 BLOCK = 65536
 #: how much of the file tail before the committed upper boundary is hashed as
 #: the resume anchor — enough to cover any plausible in-place tail rewrite
@@ -36,7 +38,7 @@ def database():
     from . import store
     path = Path(store.DATA_ROOT) / "transcript-records.sqlite3"
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path, timeout=30)
+    conn = sqlite3.connect(path, timeout=30, factory=census_contacts.sidecar("transcript_records"))
     try:
         conn.execute("PRAGMA synchronous=FULL")
         with _schema_lock:

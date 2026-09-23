@@ -1,20 +1,33 @@
-"""Offline single-machine microbenchmark of the P02-A3 SQLite contact observer.
+"""Offline single-machine microbenchmark of the P02 SQLite contact observer.
 
-WHAT IT MEASURES. The cost the primary store's connection class
-(`census_contacts.ObservedConnection`, installed by `store._open_conn`) adds to
-SQLite statement calls, in three interleaved arms on identical synthetic data:
+WHAT IT MEASURES. The cost the census's connection class
+(`census_contacts.ObservedConnection`, installed by `store._open_conn` and, for
+the sidecar stores, by each site's `factory=census_contacts.sidecar(...)`) adds
+to SQLite statement calls, in three arms on identical synthetic data:
 
   plain         the store's own connect arguments and pragmas WITHOUT
-                `factory=` and without the pool's checkout note - the store as
-                it was before P02-A3;
-  observed_off  the real `store._open_conn` / `store._Pool` with census capture
-                OFF, which is the shipped default;
+                `factory=` and without the pool's checkout note, and every
+                sidecar site given the stock `sqlite3.Connection` - the code as
+                it was before P02-A3/A4b;
+  observed_off  the real connection paths with census capture OFF, which is
+                the shipped default;
   observed_on   the same with capture ON and a bound per-thread tally, which
                 is what an operator-enabled capture window costs.
 
-Workloads: a pooled read (checkout + one keyed SELECT), a write transaction
-(BEGIN IMMEDIATE, one upsert, COMMIT) and an executemany batch upsert, each
-quiet (one thread) and concurrent (eight threads against the same database).
+⚠ THE ARMS RUN ONE AFTER ANOTHER, NEVER AT THE SAME TIME. Each repetition runs
+all three arms in turn, and the order rotates every repetition so no arm is
+always first (cold) or last (warm). Within one arm, "concurrent" means eight
+threads of THAT arm running together.
+
+Primary-store workloads: a pooled read (checkout + one keyed SELECT), a write
+transaction (BEGIN IMMEDIATE, one upsert, COMMIT) and an executemany batch
+upsert. Sidecar workloads, through the real site functions: a transcript
+ingest (`transcript_records.database()` + an executemany batch), a reply-event
+write (`reply_events.remember_ident`, the stream hot path) and a reply-event
+lookup (`reply_events.lookup`). Each runs quiet (one thread) and concurrent
+(eight threads against the same database). A sidecar operation's statement
+calls are counted once, by the observer itself, and the same count divides
+every arm.
 
 WHAT IT DOES NOT CLAIM. One machine, one process, synthetic rows, a temporary
 database: the numbers are per-call deltas of a microbenchmark and never an
@@ -43,12 +56,18 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = "orgtree.census-contact-overhead/v1"
 ARMS = ("plain", "observed_off", "observed_on")
-WORKLOADS = ("pooled_read", "write_transaction", "executemany_batch")
+WORKLOADS = ("pooled_read", "write_transaction", "executemany_batch",
+             "transcript_ingest", "reply_events_remember", "reply_events_lookup")
+SIDECAR_WORKLOADS = {"transcript_ingest": "transcript_records",
+                     "reply_events_remember": "reply_events",
+                     "reply_events_lookup": "reply_events"}
+BATCHED = ("executemany_batch", "transcript_ingest")
 THREADS = (1, 8)
 BATCH_ROWS = 16
 CLAIM = ("Offline single-machine microbenchmark on synthetic temporary SQLite databases. "
          "Per-call deltas between arms of one process; not end-to-end, request-level or "
-         "product overhead, and not a measurement of any live or installed data.")
+         "product overhead, and not a measurement of any live or installed data. "
+         "The arms run one after another in rotated order, never simultaneously.")
 RESULT_FIELDS = ("workload", "threads", "arm", "calls_per_repetition", "rows_per_repetition",
                  "median_ns_per_call", "p90_ns_per_call", "delta_median_ns_vs_plain",
                  "delta_p90_ns_vs_plain", "delta_median_pct_vs_plain")
@@ -75,10 +94,11 @@ class Bench:
         for path in (ROOT / "engine" / "backend", ROOT):
             if str(path) not in sys.path:
                 sys.path.insert(0, str(path))
-        from orgtree import census, census_contacts, store
+        from orgtree import census, census_contacts, reply_events, store, transcript_records
         if Path(store.DATA_ROOT).resolve() != data_root.resolve():
             raise SystemExit("census overhead refused: the store did not bind the temporary data root")
         self.census, self.contacts, self.store = census, census_contacts, store
+        self.reply_events, self.transcript_records = reply_events, transcript_records
         census.set_enabled(False)
         self.pools = {arm: store._Pool() for arm in ARMS}
         self.slugs = {arm: f"overhead-{arm.replace('_', '-')}" for arm in ARMS}
@@ -89,6 +109,33 @@ class Bench:
                 conn.executemany("INSERT OR REPLACE INTO meta(key, val) VALUES (?, ?)",
                                  [(f"k{i}", "v") for i in range(256)])
                 conn.execute("COMMIT")
+        # The sidecars' files and schemas, and one reply event to look up.
+        with transcript_records.database() as conn:
+            conn.execute("SELECT 1").fetchone()
+        self.eid = reply_events.remember_ident("overhead", "n", "scope", 0, "source", "kind", "seed")
+        # Statement calls per sidecar operation, counted by the observer on one
+        # real operation, so every arm is divided by the same measured number.
+        self.calls = {}
+        for workload, label in SIDECAR_WORKLOADS.items():
+            tally = census_contacts.Tally()
+            census.set_enabled(True)
+            token = census_contacts.bind(tally)
+            try:
+                self._sidecar_op(workload, 0, 0)
+            finally:
+                census_contacts.unbind(token)
+                census.set_enabled(False)
+            self.calls[workload] = tally.seal()["secondary"][label]["statements"]
+
+    def _sidecar_op(self, workload, thread_index, i):
+        if workload == "transcript_ingest":
+            with self.transcript_records.database() as conn:
+                conn.executemany("INSERT OR REPLACE INTO transcript_records(source, epoch, position, body) VALUES (?, ?, ?, ?)",
+                                 [(f"overhead-{thread_index}", 0, i * BATCH_ROWS + j, "x") for j in range(BATCH_ROWS)])
+        elif workload == "reply_events_remember":
+            self.reply_events.remember_ident("overhead", f"n{thread_index}", "scope", 0, "source", "kind", f"text-{i}")
+        else:
+            self.reply_events.lookup("overhead", "n", 0, self.eid, "scope")
 
     def _plain_open(self, path, *, create=False):
         """`store._open_conn` exactly, minus `factory=`: the pre-A3 connection."""
@@ -105,16 +152,19 @@ class Bench:
     def arm(self, name):
         """Configure the process for one arm, and undo it afterwards."""
         store, contacts = self.store, self.contacts
-        saved = (store._open_conn, contacts.note_checkout)
+        saved = (store._open_conn, contacts.note_checkout, contacts.sidecar)
         try:
             if name == "plain":
                 store._open_conn = self._plain_open
                 contacts.note_checkout = lambda: None
+                # Each sidecar site reads `census_contacts.sidecar` when it
+                # connects, so this gives every site the stock class.
+                contacts.sidecar = lambda label: sqlite3.Connection
             self.census.set_enabled(name == "observed_on")
             yield
         finally:
             self.census.set_enabled(False)
-            store._open_conn, contacts.note_checkout = saved
+            store._open_conn, contacts.note_checkout, contacts.sidecar = saved
 
     def _work(self, arm, workload, statements, thread_index):
         pool, slug = self.pools[arm], self.slugs[arm]
@@ -122,6 +172,10 @@ class Bench:
         token = self.contacts.bind(self.contacts.Tally()) if arm == "observed_on" else None
         try:
             for i in range(statements):
+                if workload in SIDECAR_WORKLOADS:
+                    self._sidecar_op(workload, thread_index, i)
+                    calls += self.calls[workload]
+                    continue
                 key = f"k{(thread_index * 31 + i) % 256}"
                 with pool.acquire(slug) as conn:
                     if workload == "pooled_read":
@@ -206,7 +260,7 @@ def run(repetitions, statements, warmup):
                 results.append({
                     "workload": workload, "threads": threads, "arm": arm,
                     "calls_per_repetition": calls,
-                    "rows_per_repetition": threads * statements * (BATCH_ROWS if workload == "executemany_batch" else 1),
+                    "rows_per_repetition": threads * statements * (BATCH_ROWS if workload in BATCHED else 1),
                     "median_ns_per_call": round(median, 1), "p90_ns_per_call": round(p90, 1),
                     "delta_median_ns_vs_plain": round(median - base_median, 1),
                     "delta_p90_ns_vs_plain": round(p90 - base_p90, 1),
@@ -222,7 +276,8 @@ def run(repetitions, statements, warmup):
                         "cpu_count": os.cpu_count()},
         "run": {"repetitions": repetitions, "warmup": warmup, "statements_per_thread": statements,
                 "batch_rows": BATCH_ROWS, "threads": list(THREADS), "arms": list(ARMS),
-                "workloads": list(WORKLOADS), "order": "arms rotated each repetition; warmup discarded",
+                "workloads": list(WORKLOADS),
+                "order": "arms run one after another, never simultaneously; their order rotates each repetition; warmup discarded",
                 "unit": "wall nanoseconds per statement call, from a barrier start to the last thread's end"},
         "results": results,
     }

@@ -1,13 +1,14 @@
-"""Bounded offline analysis of one explicitly supplied schema2 or schema3 census snapshot.
+"""Bounded offline analysis of one explicitly supplied schema2, schema3 or schema4 census snapshot.
 
 This module imports no backend code and opens no endpoint or capture control.
 
 Schema 2 is reported exactly as it always was (report_schema v1). Schema 3 adds
-the primary store's observed SQLite contacts (`db`); it is validated against
-closed field sets and the invariants its producer actually guarantees, and is
-reported as report_schema v2 with a `contacts` section. Any other schema
-version is refused: a snapshot this module has not been taught is never read
-as one it has.
+the primary store's observed SQLite contacts (`db`); schema 4 adds the listed
+sidecar stores' contacts under `db.secondary`, by closed label. Both are
+validated against closed field sets and the invariants their producer actually
+guarantees, and are reported as report_schema v2 with a `contacts` section.
+Any other schema version is refused: a snapshot this module has not been taught
+is never read as one it has.
 """
 from __future__ import annotations
 
@@ -80,7 +81,7 @@ LIMITS = [
 # and census.py at P02-A3). They are restated here, not imported: this module
 # never imports backend code. The producer-to-report round trip in
 # tests/test_operation_census_report.py fails if the two ever disagree.
-SCHEMAS = (2, 3)
+SCHEMAS = (2, 3, 4)
 DB_STORES = ["sqlite", "json", "unknown"]
 DB_KINDS = ["select", "with", "insert", "update", "delete", "replace", "begin",
             "commit", "rollback", "savepoint", "release", "pragma", "ddl",
@@ -92,6 +93,11 @@ DB_COUNTERS = ("db_unbound", "db_unattributed", "db_late", "db_hidden_unattribut
                "db_self_recursion", "db_observe_failed")
 VOCABULARY_V3 = {**VOCABULARY, "db_store": DB_STORES, "db_kind": DB_KINDS}
 MEASURES_V3 = "primary_sqlite_store_only"
+# ---- schema 4: the listed sidecar stores (P02-A4b), census_contacts.SIDECAR_STORES
+DB_SECONDARY_STORES = ["transcript_records", "reply_events", "chat_window_index",
+                       "tool_waits", "file_deliveries"]
+VOCABULARY_V4 = {**VOCABULARY_V3, "db_secondary_store": DB_SECONDARY_STORES}
+MEASURES_V4 = "primary_and_listed_sidecar_sqlite_stores"
 COVERAGE_FIELDS = {"primary_store", "instrumented", "uninstrumented", "other_processes",
                    "complete", "kinds", "fields"}
 # Coverage entries name source files and symbols in this repository, never a
@@ -112,6 +118,11 @@ LIMITS_V2 = [
     "Cumulative durations sum overlapping attempts; they are not elapsed wall time. CPU, stages and lock durations are not added to handler/total time.",
     "Optional lock fields may be absent; absence does not mean no contention. bytes describes HTTP response size.",
 ]
+LIMITS_V2_SIDECARS = [
+    ("Contact sums cover ONLY connections the primary SQLite store opened and those of the listed sidecar stores (snapshot contact_coverage.secondary_stores), kept apart by label; every uninstrumented path and other process is absent. They are not complete storage coverage, a conflict set, rows examined, physical IO, lock wait or a locality percentage, and none is derived."
+     if line.startswith("Contact sums cover ONLY") else line.replace("Offline schema3", "Offline schema4"))
+    for line in LIMITS_V2
+] + ["A sidecar label appears on an attempt only when that sidecar was contacted; an absent label is no observed contact, never a zero row. Sidecar connections are not pooled, so their checkouts and linked_threads are zero."]
 
 
 class ReportError(ValueError):
@@ -234,11 +245,11 @@ def schema_of(snapshot):
     require(type(snapshot) is dict, "snapshot: expected an object")
     version = snapshot.get("schema_version")
     require(type(version) is int and version in SCHEMAS,
-            "unsupported schema; expected schema2 or schema3")
+            "unsupported schema; expected schema2, schema3 or schema4")
     return version
 
 
-def validate_db_block(db, name="db"):
+def validate_db_block(db, name="db", *, sidecars=False):
     """One attempt's contact evidence, against the producer's closed sets.
 
     Only invariants the producer guarantees are enforced. `statements` and its
@@ -247,8 +258,23 @@ def validate_db_block(db, name="db"):
     `connect_failed` are separate later updates that a seal can fall between,
     so they are only bounded. Engine steps, hidden steps, checkouts and linked
     threads come from independent sources and have no relation to statements."""
-    shape(db, {"store", "kinds", "kind_failed", *DB_FIELDS}, set(), name)
+    shape(db, {"store", "kinds", "kind_failed", *DB_FIELDS}, {"secondary"} if sidecars else set(), name)
     require(db["store"] in DB_STORES, f"{name}.store: not in db_store vocabulary")
+    validate_contact_counts(db, name)
+    if "secondary" in db:
+        # Schema 4: present only when a sidecar was contacted, keyed only by
+        # the closed labels, each block the same counts without `store`, and
+        # each carrying at least one contact (an untouched label is absent).
+        side = db["secondary"]
+        require(type(side) is dict and side, f"{name}.secondary: expected a nonempty object")
+        for label, block in side.items():
+            require(label in DB_SECONDARY_STORES, f"{name}.secondary: label not in db_secondary_store vocabulary")
+            shape(block, {"kinds", "kind_failed", *DB_FIELDS}, set(), f"{name}.secondary")
+            validate_contact_counts(block, f"{name}.secondary")
+            require(any(block[field] for field in DB_FIELDS), f"{name}.secondary: a label without contact evidence")
+
+
+def validate_contact_counts(db, name):
     for field in DB_FIELDS:
         number(db[field], f"{name}.{field}", integer=True)
     for group in ("kinds", "kind_failed"):
@@ -264,29 +290,34 @@ def validate_db_block(db, name="db"):
     require(db["connect_failed"] <= db["connects"], f"{name}: connect_failed exceeds connects")
 
 
-def validate_contact_coverage(coverage):
-    shape(coverage, COVERAGE_FIELDS, set(), "contact_coverage")
+def validate_contact_coverage(coverage, sidecars=False):
+    shape(coverage, COVERAGE_FIELDS | ({"secondary_stores"} if sidecars else set()), set(), "contact_coverage")
     require(coverage["complete"] is False, "contact_coverage must not claim complete coverage")
     require(coverage["primary_store"] in DB_STORES, "contact_coverage.primary_store: not in db_store vocabulary")
     require(coverage["kinds"] == DB_KINDS, "contact_coverage.kinds disagrees with db_kind")
     require(coverage["fields"] == list(DB_FIELDS), "contact_coverage.fields disagrees with db fields")
-    for group in ("instrumented", "uninstrumented", "other_processes"):
+    for group in ("instrumented", "uninstrumented", "other_processes") + (("secondary_stores",) if sidecars else ()):
         entries = coverage[group]
         require(type(entries) is list, f"contact_coverage.{group}: expected a list")
-        extra = {"process"} if group == "other_processes" else set()
+        extra = {"process"} if group == "other_processes" else {"label"} if group == "secondary_stores" else set()
         for entry in entries:
             shape(entry, {"path", "symbol"} | extra, set(), f"contact_coverage.{group}")
             for field, pattern in (("path", SOURCE_PATH), ("symbol", SOURCE_SYMBOL), ("process", PROCESS_NAME)):
                 if field in entry:
                     text_value(entry[field], f"contact_coverage.{group}.{field}")
                     require(pattern.fullmatch(entry[field]), f"contact_coverage.{group}.{field}: not a repository source name")
+            if "label" in entry:
+                require(entry["label"] in DB_SECONDARY_STORES, "contact_coverage.secondary_stores: label not in db_secondary_store vocabulary")
     require(coverage["instrumented"], "contact_coverage.instrumented is empty")
+    if sidecars:
+        require(coverage["secondary_stores"], "contact_coverage.secondary_stores is empty")
 
 
 def validate_snapshot(snapshot):
     bounded_tree(snapshot)
     version = schema_of(snapshot)
-    v3 = version == 3
+    v3 = version >= 3      # the primary store's db contact block and its accounting
+    v4 = version == 4      # plus the listed sidecar stores
     shape(snapshot, TOP_FIELDS | ({"contact_coverage"} if v3 else set()), {"ignored_arguments"}, "snapshot")
     number(snapshot["schema_version"], "schema_version", integer=True)
     text_value(snapshot["instance"], "instance")
@@ -303,7 +334,7 @@ def validate_snapshot(snapshot):
     for field in ("capacity", "served", "truncated_by_limit", "evicted_derived"):
         number(snapshot[field], field, integer=True)
     require(64 <= snapshot["capacity"] <= 262144, "capacity outside schema2 bounds")
-    require(snapshot["vocabulary"] == (VOCABULARY_V3 if v3 else VOCABULARY), f"incompatible schema{version} vocabulary")
+    require(snapshot["vocabulary"] == {2: VOCABULARY, 3: VOCABULARY_V3, 4: VOCABULARY_V4}[version], f"incompatible schema{version} vocabulary")
     for field in ("limits", "ignored_arguments"):
         if field in snapshot:
             require(type(snapshot[field]) is list, f"{field}: expected a list")
@@ -333,7 +364,7 @@ def validate_snapshot(snapshot):
         number(row["v"], "record.v", integer=True)
         require(row["v"] == version and row["unit"] == "attempt", "incompatible record schema/unit")
         if "db" in row:
-            validate_db_block(row["db"], "record.db")
+            validate_db_block(row["db"], "record.db", sidecars=v4)
         number(row["seq"], "seq", integer=True, minimum=1)
         require(row["seq"] == expected_first + index, "records must be the contiguous served sequence tail in order")
         number(row["t_ms"], "t_ms")
@@ -395,13 +426,13 @@ def validate_snapshot(snapshot):
         # the observer's own lock and are tied to no record: no bound exists.
         require(unobserved <= counters["db_unbound"] <= unobserved + recorded - len(rows),
                 "db_unbound incompatible with served rows")
-        validate_contact_coverage(snapshot["contact_coverage"])
+        validate_contact_coverage(snapshot["contact_coverage"], v4)
     provenance = snapshot["provenance"]
     provenance_fields = {"scope_src_counts", "declared_coverage", "measures_storage_contacts", "unit", "note"}
     if v3:
         shape(provenance, provenance_fields | {"rows_with_contact_evidence", "rows_without_contact_evidence"}, set(), "provenance")
-        require(provenance["unit"] == "attempt" and provenance["measures_storage_contacts"] == MEASURES_V3,
-                "provenance must disclose attempt unit and primary-store-only contacts")
+        require(provenance["unit"] == "attempt" and provenance["measures_storage_contacts"] == (MEASURES_V4 if v4 else MEASURES_V3),
+                "provenance must disclose attempt unit and exactly which stores' contacts are measured")
         for field in ("rows_with_contact_evidence", "rows_without_contact_evidence"):
             number(provenance[field], field, integer=True)
         require((provenance["rows_with_contact_evidence"], provenance["rows_without_contact_evidence"])
@@ -447,7 +478,8 @@ def build_report(snapshot, source=None):
                                       json.dumps(item["identity"], sort_keys=True)))
         ranks[metric] = [{"rank": i + 1, **item} for i, item in enumerate(ranked)]
     accounted = sum(counters[key] for key in ("recorded", "skipped_disabled", "skipped_self", "rejected", "dropped_capture_off"))
-    v3 = snapshot["schema_version"] == 3
+    version = snapshot["schema_version"]
+    v3 = version >= 3
     report = {
         "report_schema": "orgtree.operation-census-report/" + ("v2" if v3 else "v1"), "unit": "attempt",
         "source": source or {"kind": "supplied_object"},
@@ -473,7 +505,7 @@ def build_report(snapshot, source=None):
                             "nonterminal": [r["seq"] for r in rows if not r["terminal"]],
                             "no_response_start": [r["seq"] for r in rows if r.get("no_response_start")]},
         "timeline": rows,
-        "limits": LIMITS_V2 if v3 else LIMITS,
+        "limits": {2: LIMITS, 3: LIMITS_V2, 4: LIMITS_V2_SIDECARS}[version],
     }
     if v3:
         report["contacts"] = contact_summary(snapshot, groups, identities)
@@ -497,17 +529,21 @@ def contact_summary(snapshot, groups, identities):
     and is counted as such, never as zero. Nothing here is divided by
     anything: no locality, share or rate is derived."""
     rows = snapshot["records"]
+    v4 = snapshot["schema_version"] == 4
     by_operation = []
     for key, group in groups.items():
         dbs = [row["db"] for row in group if "db" in row]
-        by_operation.append({"identity": identities[key], "attempts": len(group),
-                             "with_contact_evidence": len(dbs),
-                             "without_contact_evidence": len(group) - len(dbs),
-                             **_contact_totals(dbs)})
+        item = {"identity": identities[key], "attempts": len(group),
+                "with_contact_evidence": len(dbs),
+                "without_contact_evidence": len(group) - len(dbs),
+                **_contact_totals(dbs)}
+        if v4:
+            item["secondary"] = _sidecar_totals(dbs)
+        by_operation.append(item)
     by_operation.sort(key=lambda item: (-item["statements"], -item["with_contact_evidence"],
                                         json.dumps(item["identity"], sort_keys=True)))
     observed = [row["db"] for row in rows if "db" in row]
-    return {
+    summary = {
         "measures": snapshot["provenance"]["measures_storage_contacts"],
         "complete": False,
         "definition": "Sums of per-attempt primary-store SQLite contact counts over served attempts that carry a db block. statements are API-level attempts; engine_steps are statements SQLite began to execute. Rows without a db block are listed, not zero-filled. No locality, share, rate, rows, IO or duration is derived.",
@@ -520,6 +556,25 @@ def contact_summary(snapshot, groups, identities):
         "process_counters": {name: snapshot["counters"][name] for name in DB_COUNTERS},
         "process_counters_note": "Process-wide contact evidence joined to no record (db_unattributed, db_late, db_hidden_unattributed) or refused by the observer (db_self_recursion, db_observe_failed); db_unbound counts recorded attempts that began before capture. None is attributed to an operation here.",
     }
+    if v4:
+        # The sidecars, kept apart from the primary store and from each other:
+        # per label over all served attempts (and per operation above). The
+        # primary counts are unchanged by any of this.
+        summary["definition"] = "Sums of per-attempt SQLite contact counts over served attempts that carry a db block: the primary store in the top-level counts, each listed sidecar under secondary by label. statements are API-level attempts; engine_steps are statements SQLite began to execute. Rows without a db block are listed, not zero-filled; a sidecar label is absent where it was not contacted. No locality, share, rate, rows, IO or duration is derived."
+        summary["secondary_totals"] = _sidecar_totals(observed)
+        summary["secondary_attempts"] = {label: sum(label in db.get("secondary", {}) for db in observed)
+                                         for label in DB_SECONDARY_STORES}
+    return summary
+
+
+def _sidecar_totals(dbs):
+    """Per-label sums; a label no attempt contacted is absent, not zero."""
+    totals = {}
+    for label in DB_SECONDARY_STORES:
+        blocks = [db["secondary"][label] for db in dbs if label in db.get("secondary", {})]
+        if blocks:
+            totals[label] = _contact_totals(blocks)
+    return totals
 
 
 def _cell(value):
@@ -552,7 +607,8 @@ def render_markdown(report):
     table(["Source provenance", "Value"], report["snapshot"]["provenance"].items())
     if "contacts" in report:
         contacts = report["contacts"]
-        lines.extend(["## Observed storage contacts (primary SQLite store only)", "",
+        sidecars = "secondary_totals" in contacts
+        lines.extend(["## Observed storage contacts (" + ("primary SQLite store and listed sidecars" if sidecars else "primary SQLite store only") + ")", "",
                       "**Contact coverage: incomplete; " + _cell(contacts["measures"]) + ".**", "",
                       _cell(contacts["definition"]), ""])
         table(["Contacts", "Value"], [(k, contacts[k]) for k in ("served_attempts", "with_contact_evidence", "without_contact_evidence", "without_contact_evidence_seqs")] +
@@ -560,11 +616,20 @@ def render_markdown(report):
         table(["Rank", "Operation identity", "Attempts", "With db", "Without db", *DB_FIELDS, "kinds", "kind_failed"],
               [(row["rank"], row["identity"], row["attempts"], row["with_contact_evidence"], row["without_contact_evidence"],
                 *(row[k] for k in DB_FIELDS), row["kinds"], row["kind_failed"]) for row in contacts["by_operation"]])
+        if sidecars:
+            lines.extend(["### Sidecar stores (kept apart from the primary store)", ""])
+            table(["Sidecar", "Attempts contacting it", *DB_FIELDS, "kinds", "kind_failed"],
+                  [(label, contacts["secondary_attempts"][label], *(totals[k] for k in DB_FIELDS), totals["kinds"], totals["kind_failed"])
+                   for label, totals in contacts["secondary_totals"].items()])
+            table(["Rank", "Operation identity", "Sidecar", *DB_FIELDS, "kinds", "kind_failed"],
+                  [(row["rank"], row["identity"], label, *(totals[k] for k in DB_FIELDS), totals["kinds"], totals["kind_failed"])
+                   for row in contacts["by_operation"] for label, totals in row["secondary"].items()])
         lines.extend([_cell(contacts["process_counters_note"]), ""])
         table(["Process contact counter", "Value"], contacts["process_counters"].items())
         coverage = report["snapshot"]["contact_coverage"]
         table(["Contact coverage", "Path", "Symbol"],
-              [(group, entry["path"], entry["symbol"]) for group in ("instrumented", "uninstrumented", "other_processes") for entry in coverage[group]])
+              [(group, entry["path"], entry["symbol"]) for group in ("instrumented", "uninstrumented", "other_processes") for entry in coverage[group]] +
+              [("secondary_stores:" + entry["label"], entry["path"], entry["symbol"]) for entry in coverage.get("secondary_stores", [])])
     lines.extend(["## Duration ranks", "", report["percentile_definition"], "", report["ranking_definition"], ""])
     for metric, ranks in report["ranks"].items():
         lines.extend(["### " + metric + " (milliseconds)", ""])
@@ -582,7 +647,7 @@ def render_markdown(report):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Bounded offline schema2/schema3 HTTP-attempt report from one explicit local snapshot file. Schema3 adds observed primary-store SQLite contact sums. No live endpoint, capture activation, or complete database/contact qualification.")
+    parser = argparse.ArgumentParser(description="Bounded offline schema2/schema3/schema4 HTTP-attempt report from one explicit local snapshot file. Schema3 adds observed primary-store SQLite contact sums; schema4 adds the listed sidecar stores by label. No live endpoint, capture activation, or complete database/contact qualification.")
     parser.add_argument("snapshot", help="local regular UTF-8 JSON file (max 16 MiB / 16384 records); no URL, stdin, links or network paths")
     parser.add_argument("--format", choices=("json", "markdown"), default="json", help="stdout output format (default: json)")
     args = parser.parse_args(argv)
