@@ -582,6 +582,16 @@ export default function App() {
       if (typeof org === 'string' && org) setSlug(org)
     })
   }, [setSlug])
+  // the native App Menu's Preferences… (Cmd+,) - same toggle mechanism the
+  // Settings-gear button already uses, never a second settings-opening path
+  useEffect(() => {
+    const bridge = desktop()
+    if (!bridge) return
+    return bridge.onEvent(event => {
+      if ((event.type as string) !== 'open-settings') return
+      toggleSurface('org-settings', showSettings, setShowSettings)
+    })
+  }, [toggleSurface, showSettings, setShowSettings])
   useEffect(() => {
     usageOpen.setIn(null, (isModalPinned('usage') && readModalOpen(null).some(r => r.kind === 'usage')) || restoreWindowKind('usage', null))
     setShowAccounts((isModalPinned('app-settings') && readModalOpen(null).some(r => r.kind === 'app-settings')) || restoreWindowKind('app-settings', null))

@@ -22,10 +22,20 @@ interface FlashWindow {
  *  Windows cancels a flash the moment the window is activated, so `focused()`
  *  forgets that a flash is running. The known set is deliberately kept: a poll
  *  reporting the same items after the user has looked will not pulse again. */
+/** macOS's equivalent of `FlashWindow`: `app.dock.bounce('critical')` returns
+ *  an id used to cancel that specific bounce later. Injected the same way as
+ *  `target` (not `import { app } from 'electron'` directly) - requiring the
+ *  real `electron` package outside an Electron process, exactly how
+ *  tests/taskbarattention.test.mjs runs this file via esbuild+plain node:test,
+ *  resolves to a path string rather than `{ app }` and would break every
+ *  existing test here. */
+type Dock = { bounce(type: 'critical'): number; cancelBounce(id: number): void }
+
 export class TaskbarAttention {
   private known = new Set<string>()
   private flashing = false
-  constructor(private target: () => FlashWindow | undefined) {}
+  private bounceId: number | undefined
+  constructor(private target: () => FlashWindow | undefined, private dock?: () => Dock | undefined) {}
 
   /** @returns whether this call started a pulse — for tests and for callers
    *  that want to log a real attention event rather than a poll. */
@@ -45,11 +55,28 @@ export class TaskbarAttention {
   private stop(): void {
     if (!this.flashing) return
     this.flashing = false
+    if (process.platform === 'darwin') {
+      if (this.bounceId !== undefined) { this.dock?.()?.cancelBounce(this.bounceId); this.bounceId = undefined }
+      return
+    }
     const window = this.target()
     if (window && !window.isDestroyed()) window.flashFrame(false)
   }
 
   private start(): boolean {
+    if (process.platform === 'darwin') {
+      // A bounce is already running for this app - there is only ever one
+      // dock animation, so a further arrival while it is in progress has
+      // nothing to start. Re-calling bounce() here would overwrite
+      // bounceId with a second native call's id, orphaning the first one
+      // that stop()'s cancelBounce() would otherwise still need.
+      if (this.flashing) return false
+      const dock = this.dock?.()
+      if (!dock) return false
+      this.bounceId = dock.bounce('critical')
+      this.flashing = true
+      return true
+    }
     const window = this.target()
     // Flashing the window the user is already looking at says nothing.
     if (!window || window.isDestroyed() || window.isFocused()) return false

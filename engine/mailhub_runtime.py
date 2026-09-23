@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import sqlite3
 import subprocess
 import sys
@@ -315,7 +316,10 @@ class MailhubRuntime:
                                creationflags=getattr(
                                    subprocess, "CREATE_NO_WINDOW", 0))
             else:
-                os.kill(pid, 15)
+                try:
+                    os.killpg(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
         except OSError:
             pass
         try:
@@ -367,7 +371,8 @@ class MailhubRuntime:
                 [sys.executable, "-m", "mailhub.serve"],
                 cwd=str(SUBMODULE), env=env,
                 stdout=self._log_handle, stderr=subprocess.STDOUT,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                start_new_session=(os.name != "nt"))
         except OSError as exc:
             self.last_error = f"could not start the hub process: {exc}"
             return self.status()

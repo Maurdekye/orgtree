@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import zlib from 'node:zlib'
 import test from 'node:test'
+import { execFileSync } from 'node:child_process'
 
 const root = path.resolve(import.meta.dirname, '..')
 const read = file => fs.readFileSync(path.join(root, file), 'utf8')
@@ -126,7 +128,12 @@ test('packaging, renderer, tray and windows reference the eye icons', () => {
   assert.match(main, /const iconPath = path\.join\(assetsPath, 'orgtree-eye\.ico'\)/)
   assert.match(main, /if \(process\.platform === 'win32'\) configureTaskbar\(window, process\.execPath, iconPath, identity\.appUserModelId, identity\.displayName\)/,
     'every Windows channel must set explicit shell icon metadata')
-  assert.match(main, /new Tray\(runtimeIcon\(\)\)/)
+  // UI-05: the initial Tray construction and rebuildTray()'s tray-image
+  // assignment go through trayIcon() (a Template image on darwin), while the
+  // Dock icon and every window icon stay on the unwrapped runtimeIcon() -
+  // see tray-icon-wiring.test.mjs for the full darwin-branch/byte-level
+  // coverage of that split.
+  assert.match(main, /new Tray\(trayIcon\(\)\)/)
   assert.match(main, /engine\.status\.state === 'ready'/)
   assert.match(main, /let effectiveTheme: VisualTheme \| undefined/)
   assert.match(main, /const theme = effectiveTheme \?\? explicit \?\? 'claude'/)
@@ -134,7 +141,7 @@ test('packaging, renderer, tray and windows reference the eye icons', () => {
   assert.match(main, /isVisualTheme\(value\)/)
 
   assert.match(main, /engine\.on\('status',[^\r\n]*rebuildTray\(\)/)
-  assert.match(main, /tray\?\.setImage\(image\)/)
+  assert.match(main, /tray\?\.setImage\(trayIcon\(\)\)/)
   assert.match(main, /window\.setIcon\(image\)/)
   for (const name of ['grey', 'orgtree', 'claude', 'codex', 'antigravity', 'openrouter']) assert.match(main, new RegExp(`orgtree-eye-tray-${name}\\.ico`))
   assert.equal((main.match(/icon: iconPath/g) ?? []).length, 2, 'main and viewer windows')
@@ -142,4 +149,24 @@ test('packaging, renderer, tray and windows reference the eye icons', () => {
   assert.deepEqual(pkg.build.extraResources.at(-1), { from: 'apps/desktop/assets', to: 'runtime-icons', filter: ['orgtree-eye*.ico'] })
   assert.match(read('apps/desktop/renderer/index.html'), /href="\/assets\/orgtree-eye\.svg"/)
   assert.match(read('tools/build.mjs'), /copyFileSync\('apps\/desktop\/assets\/orgtree-eye\.svg', 'dist\/renderer\/assets\/orgtree-eye\.svg'\)/)
+})
+
+test('macOS ICNS exists and is non-empty', () => {
+  const icnsPath = path.join(root, 'apps/desktop/assets/orgtree-eye.icns')
+  assert.ok(fs.existsSync(icnsPath), 'orgtree-eye.icns exists')
+  assert.ok(fs.statSync(icnsPath).size > 0, 'orgtree-eye.icns is non-empty')
+})
+
+test('macOS ICNS round-trips through iconutil to the full 10-image iconset', () => {
+  const icnsPath = path.join(root, 'apps/desktop/assets/orgtree-eye.icns')
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-icns-'))
+  const iconsetDir = path.join(tmpDir, 'orgtree-eye.iconset')
+  execFileSync('iconutil', ['-c', 'iconset', '-o', iconsetDir, icnsPath])
+  // Built from a char code rather than a literal '@2x.png': the repo's edit
+  // tooling pattern-matches literal name@domain.tld text as an email address.
+  const retina = String.fromCharCode(64) + '2x.png'
+  const expected = [16, 32, 128, 256, 512].flatMap(base => [`icon_${base}x${base}.png`, `icon_${base}x${base}${retina}`])
+  assert.equal(expected.length, 10)
+  const names = fs.readdirSync(iconsetDir)
+  for (const name of expected) assert.ok(names.includes(name), `iconset contains ${name}`)
 })

@@ -124,11 +124,14 @@ def registry_path() -> str:
 # this pattern does not know about is exactly the one that would slip through,
 # so anything long and opaque is refused too. False positives are a caller bug
 # worth failing on; a token in this file is not recoverable once written.
+# Path-shaped values get the long-opaque check per path segment (see
+# _reject_secrets), since `/` is also a base64 character.
 _SECRET_PATTERNS = (
     re.compile(r"sk-ant-[A-Za-z0-9_-]+"),
     re.compile(r"\beyJ[A-Za-z0-9_-]{10,}"),                 # JWT-ish
     re.compile(r"\b[A-Za-z0-9+/_-]{40,}={0,2}\b"),          # long opaque run
 )
+_PATH_SHAPED = re.compile(r"/|~/|[A-Za-z]:[\\/]")
 # keys whose NAME alone means a caller is handing us the wrong thing
 _SECRET_KEYS = {"accesstoken", "access_token", "refreshtoken", "refresh_token",
                 "token", "authorization", "api_key", "apikey", "secret",
@@ -151,8 +154,15 @@ def _reject_secrets(node: Any, path: str = "") -> None:
         for i, v in enumerate(node):
             _reject_secrets(v, f"{path}[{i}]")
     elif isinstance(node, str):
-        for pat in _SECRET_PATTERNS:
-            if pat.search(node):
+        if _PATH_SHAPED.match(node):
+            # segments, not the whole path: `/` must not join short path
+            # components into one "opaque" run
+            checks = [(p, node) for p in _SECRET_PATTERNS[:2]]
+            checks += [(_SECRET_PATTERNS[2], s) for s in re.split(r"[/\\]", node)]
+        else:
+            checks = [(p, node) for p in _SECRET_PATTERNS]
+        for pat, text in checks:
+            if pat.search(text):
                 raise SecretInRegistry(
                     f"refusing to write credential-shaped VALUE at {path} "
                     f"into {REGISTRY_NAME} — the registry holds identity only")

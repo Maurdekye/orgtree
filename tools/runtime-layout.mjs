@@ -46,7 +46,7 @@ export const REPRESENTATIVE_RUNTIME_IMPORTS = [
  *  callers differ on whether they need `python.exe` or `pythonw.exe`.
  *  Returns null when nothing qualifies, so callers keep skipping with a reason.
  */
-export function locateEngineRuntime(startDir, { marker = 'python.exe' } = {}) {
+export function locateEngineRuntime(startDir, { marker = process.platform === 'darwin' ? 'bin/python3.13' : 'python.exe' } = {}) {
   const candidates = []
   if (process.env.ORGTREE_ENGINE_RUNTIME) candidates.push(process.env.ORGTREE_ENGINE_RUNTIME)
   let current = path.resolve(startDir)
@@ -171,6 +171,58 @@ export function assertRuntimeLayout(runtimeDir, { label = 'runtime' } = {}) {
   return { manifest, sitePackages, distInfo }
 }
 
+/**
+ * Assert the complete expected runtime package layout under `runtimeDir`, for
+ * the macOS (python-build-standalone) shape provision-runtime.py's darwin
+ * branch writes: `bin/python3.13`, `lib/python3.13/site-packages`, and an
+ * `orgtree.pth` naming the same three import targets the Windows `._pth`
+ * does. Mirrors `assertRuntimeLayout`'s checks and return shape exactly,
+ * translated to the macOS tree.
+ *
+ * Returns { manifest, sitePackages, distInfo } for callers that keep going.
+ */
+export function assertRuntimeLayoutMac(runtimeDir, { label = 'runtime' } = {}) {
+  requireDir(runtimeDir, `${label} directory`)
+  requireFile(path.join(runtimeDir, 'bin', 'python3.13'), `${label} interpreter`)
+  const sitePackages = path.join(runtimeDir, 'lib', 'python3.13', 'site-packages')
+  requireDir(sitePackages, `${label} lib/python3.13/site-packages`)
+  const manifestFile = path.join(runtimeDir, 'runtime-manifest.json')
+  requireFile(manifestFile, `${label} runtime-manifest.json`)
+
+  let manifest
+  try {
+    manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'))
+  } catch (error) {
+    fail(`${label} runtime-manifest.json is not JSON: ${error.message}`)
+  }
+  const dependencies = Array.isArray(manifest?.dependencies) ? manifest.dependencies : null
+  if (!dependencies || !dependencies.length) fail(`${label} runtime-manifest.json records no dependencies`)
+
+  const entries = new Set(fs.readdirSync(sitePackages))
+  const distInfo = {}
+  for (const dependency of dependencies) {
+    const name = dependency?.name
+    const version = dependency?.version
+    if (!name || !version) fail(`${label} runtime-manifest.json has a dependency without name/version`)
+    const expected = `${normalizeDistName(name)}-${version}.dist-info`
+    if (!entries.has(expected)) {
+      fail(`${label} lib/python3.13/site-packages is missing ${expected}; the packaged dependency set does not match runtime-manifest.json`)
+    }
+    distInfo[name] = expected
+  }
+
+  const pthFile = path.join(sitePackages, 'orgtree.pth')
+  requireFile(pthFile, `${label} orgtree.pth`)
+  const pthLines = fs.readFileSync(pthFile, 'utf8').split(/\r?\n/).map(line => line.trim())
+  for (const target of ['../../../../backend', '../../../../mailhub', '../../../../../']) {
+    if (!pthLines.includes(target)) {
+      fail(`${label} orgtree.pth does not name ${target} — without this entry the packaged interpreter cannot import the bundled backend/mailhub/root`)
+    }
+  }
+
+  return { manifest, sitePackages, distInfo }
+}
+
 function walkFiles(dir, base, out, includePycache) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
     const full = path.join(dir, entry.name)
@@ -208,7 +260,7 @@ export function runtimeTreeDigest(runtimeDir, { includePycache = false } = {}) {
 const PROBE_SOURCE = `
 import json, pathlib, sqlite3, ssl, sys
 mods = json.loads(sys.argv[1])
-root = pathlib.Path(sys.executable).resolve().parent
+root = pathlib.Path(sys.argv[2]).resolve()
 report = {"python": sys.version.split()[0], "executable": str(pathlib.Path(sys.executable).resolve()), "modules": {}, "ok": True}
 for name in mods:
     module = __import__(name)
@@ -235,11 +287,11 @@ export function assertRuntimeImports(runtimeDir, {
   spawnSyncImpl = spawnSync,
   cwd = os.tmpdir(),
 } = {}) {
-  const python = path.join(runtimeDir, 'python.exe')
+  const python = path.join(runtimeDir, ...(process.platform === 'darwin' ? ['bin', 'python3.13'] : ['python.exe']))
   requireFile(python, 'runtime interpreter')
   const env = { ...process.env }
   for (const name of ['PYTHONPATH', 'PYTHONHOME', 'PYTHONSTARTUP', 'PYTHONUSERBASE', 'PYTHONEXECUTABLE']) delete env[name]
-  const result = spawnSyncImpl(python, ['-c', PROBE_SOURCE, JSON.stringify(imports)], {
+  const result = spawnSyncImpl(python, ['-c', PROBE_SOURCE, JSON.stringify(imports), runtimeDir], {
     cwd, env, encoding: 'utf8', windowsHide: true, timeout: 120000,
   })
   if (result.error) fail(`Could not start the packaged interpreter: ${result.error.message}`)

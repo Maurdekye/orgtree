@@ -6,6 +6,7 @@ import type { DesktopBridge, DesktopEvent, LoginProvider } from '../../../packag
 const expectedOrigin = process.argv.find(arg => arg.startsWith('--orgtree-ui-origin='))?.slice('--orgtree-ui-origin='.length)
 if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin && isAppPath(location.pathname)) {
   const bridge: DesktopBridge = {
+    platform: process.platform,
     getAppVersion: () => ipcRenderer.invoke('desktop:app-version'),
     installUpdate: () => ipcRenderer.invoke('desktop:install-update'),
     getStatus: () => ipcRenderer.invoke('desktop:status'),
@@ -28,6 +29,7 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
     revealFile: (path: string) => ipcRenderer.invoke('desktop:reveal-file', path),
     getUpdateStatus: () => ipcRenderer.invoke('desktop:update-status'),
     getUpdateCapability: () => ipcRenderer.invoke('desktop:update-capability'),
+    openReleasePage: () => ipcRenderer.invoke('desktop:open-release-page'),
     getPopoutState: (name: string) => ipcRenderer.invoke('desktop:popout-state', name),
     minimizePopout: (name: string) => ipcRenderer.invoke('desktop:popout-minimize', name),
     toggleMaximizePopout: (name: string) => ipcRenderer.invoke('desktop:popout-toggle-maximize', name),

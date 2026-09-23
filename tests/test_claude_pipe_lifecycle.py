@@ -76,6 +76,17 @@ def windows_alive(pid):
         kernel.CloseHandle(handle)
 
 
+def posix_alive(pid):
+    """The macOS/Linux liveness check: signal 0 raises iff the pid is gone."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
 class ClaudePipeLifecycleTests(unittest.TestCase):
     seq = 0
 
@@ -230,6 +241,20 @@ class ClaudePipeLifecycleTests(unittest.TestCase):
         self.assertTrue(eventually(lambda: not windows_alive(int(self.marker.read_text()))),
                         "the watchdog must terminate the CLI child as well as the launcher")
 
+    def test_idle_watchdog_ends_launcher_and_child_then_returns_queued_mail_on_posix(self):
+        self.stack.enter_context(patch.object(sup, "TURN_IDLE", .2))
+        self.start("silent")
+        pending = {"text": "queued followup"}
+        self.st["queue"].append(pending)
+        self.assert_settled(timeout=7)
+        self.assertEqual(self.follow, [pending])
+        self.assertTrue(self.st["busy"], "queued successor still owns the turn slot handoff")
+        self.assertIn("idle watchdog", self.st["last_error"])
+        self.assertEqual(self.record["outcome"], "killed")
+        self.assertIsNotNone(self.procs[0].poll())
+        self.assertTrue(eventually(lambda: not posix_alive(int(self.marker.read_text()))),
+                        "the watchdog must terminate the CLI child as well as the launcher")
+
     def test_readiness_wait_also_drains_stderr_before_the_first_prompt(self):
         # Emit more than a pipeful before init. The readiness gate must be
         # able to see init without waiting for the child to finish the turn.
@@ -250,6 +275,16 @@ class ClaudePipeLifecycleTests(unittest.TestCase):
         self.stack.enter_context(patch.object(sup, "_wd_kill_tree",
                                               side_effect=lambda p: p.kill()))
         self.start("silent", wrapped=True)
+        self.assert_settled(timeout=7)
+        self.assertIn("idle watchdog", self.st["last_error"])
+        self.assertEqual(self.record["outcome"], "killed")
+        self.assertFalse(self.st["busy"])
+
+    def test_expiry_releases_reader_even_when_a_child_keeps_the_pipe_open_on_posix(self):
+        self.stack.enter_context(patch.object(sup, "TURN_IDLE", .2))
+        self.stack.enter_context(patch.object(sup, "_wd_kill_tree",
+                                              side_effect=lambda p: p.kill()))
+        self.start("silent")
         self.assert_settled(timeout=7)
         self.assertIn("idle watchdog", self.st["last_error"])
         self.assertEqual(self.record["outcome"], "killed")

@@ -19,10 +19,15 @@
     "dev": "npm run build && electron .",
     "package:dir": "npm run build && node tools/package-preflight.mjs && electron-builder --dir",
     "package:win": "npm run build && node tools/package-preflight.mjs && electron-builder --win nsis",
+    "package:mac:dir": "npm run build && node tools/package-preflight.mjs && electron-builder --mac --dir",
+    "package:mac": "npm run build && node tools/package-preflight.mjs && electron-builder --mac",
+    "package:mac:x64": "npm run build && node tools/package-preflight.mjs && electron-builder --mac --x64",
     "release:windows": "node tools/release-windows.mjs",
     "verify:release": "node tools/release-verification.mjs",
     "package:dev": "npm run build && node tools/package-dev.mjs",
     "test:electron": "node tools/test-electron.mjs",
+    "test:acceptance:agent-turn": "node tests/acceptance/run_agent_turn.mjs",
+    "test:macos-preflight": "node tools/verify-macos-preflight.mjs",
     "runtime:provision": "python tools/provision-runtime.py",
     "runtime:stage": "node tools/stage-runtime.mjs"
   },
@@ -101,6 +106,26 @@
       "menuCategory": "Orgtree",
       "include": "build/installer.nsh"
     },
+    "mac": {
+      "identity": "-",
+      "hardenedRuntime": false,
+      "icon": "apps/desktop/assets/orgtree-eye.icns",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "afterPack": "tools/sign-runtime-macos.mjs",
     "publish": [
       {
         "provider": "github",
