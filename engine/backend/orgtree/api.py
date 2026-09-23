@@ -1481,6 +1481,13 @@ async def _wire_notify() -> None:  # type: ignore[unused-function]  # registered
     startup.recovery.start(_recover_startup)
 
 
+def _start_provider_warm_pool() -> None:
+    """A service process must pass custody admission before any CLI starts."""
+    bridge_client = sys.modules.get("engine.bridge_client")
+    if bridge_client is None or not bridge_client.available():
+        warmpool.start_warm_pool()
+
+
 def _recover_startup() -> None:
     # D-201: the warm pool starts FIRST, before every turn driver below
     # (auto-resume, the usage/watchdog engines, reconcile's re-drives), and
@@ -1491,7 +1498,7 @@ def _recover_startup() -> None:
     # moment it was specified to be present, on every restart. Pinned by
     # test_warmpool's startup-order check.
     startup.progress("warm-processes")
-    warmpool.start_warm_pool()
+    _start_provider_warm_pool()
     from . import transcript_ingest
     transcript_ingest.start()
     # Prune staging before API writes are released: no current request can

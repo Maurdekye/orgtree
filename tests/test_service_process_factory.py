@@ -80,6 +80,17 @@ class ProcessFactoryTests(unittest.TestCase):
             finally:
                 turn.close()
 
+    def test_service_git_prompt_settings_override_child_environment(self):
+        env = {"GIT_TERMINAL_PROMPT": "1", "GCM_INTERACTIVE": "always",
+               "GIT_ASKPASS": "unsafe-helper", "SSH_ASKPASS": "unsafe-helper"}
+        with patch("engine.bridge_client.available", return_value=True):
+            service_process.harden_git_env(env)
+        self.assertEqual(env["GIT_TERMINAL_PROMPT"], "0")
+        self.assertEqual(env["GCM_INTERACTIVE"], "never")
+        self.assertEqual(env["GIT_ASKPASS"], "")
+        self.assertEqual(env["SSH_ASKPASS"], "")
+        self.assertEqual(env["SSH_ASKPASS_REQUIRE"], "never")
+
 
 if __name__ == "__main__":
     unittest.main()

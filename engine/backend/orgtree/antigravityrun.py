@@ -754,6 +754,8 @@ class AntigravityTurn:
         from . import devguard
         env = providers.antigravity_env(devguard.child_env(env),
                                         allow_gemini_key=bool(self._env_extra.get("GEMINI_API_KEY")))
+        from .service_process import harden_git_env
+        harden_git_env(env)
         self._steer_dir = tempfile.mkdtemp(prefix="agy-steer-")
         env["ORGTREE_AGY_STEER_DIR"] = self._steer_dir
         self.proc = (self._process_factory(self.argv, self.cwd, env)

@@ -12,6 +12,21 @@ import uuid
 from typing import Any
 
 
+def service_mode() -> bool:
+    try:
+        from engine import bridge_client
+    except ImportError:
+        return False
+    return bridge_client.available()
+
+
+def harden_git_env(env: dict[str, str]) -> None:
+    """Prevent per-node overrides from restoring interactive Git prompts."""
+    if service_mode():
+        from engine.winservice.process import no_prompt_git
+        no_prompt_git(env)
+
+
 def bridged_binary(argv: list[str], cwd: str | None,
                    env: dict[str, str]) -> Any:
     from engine import bridge_client

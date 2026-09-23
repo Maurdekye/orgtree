@@ -85,23 +85,63 @@ def _deployment_org_gate(org: Org) -> None:
             "sandbox enabled before enabling frozen mode")
 
 
-def _service_admission(org: Org, nid: str) -> service_custody.Admission | None:
+def _service_admission(org: Org, nid: str, *,
+                       selected_identity: str | None = None) -> service_custody.Admission | None:
     """One local observation; the service rechecks at actual process resume."""
-    from engine import bridge_client
-    if not bridge_client.available():
+    if not service_process.service_mode():
         return None
+    from engine import bridge_client
     n = org.node(nid)
     tier = str(n.get("model") or "")
     provider = providers.provider_of(tier)
     bound = str(n.get("account") or "")
+    if provider == "openrouter":
+        if bound or (selected_identity is not None and
+                     selected_identity != OPENROUTER_IDENTITY):
+            return service_custody.Admission(
+                "unavailable", "Spawn account differs from selected gateway")
+        return (service_custody.Admission(
+            "service", "Selected gateway key is readable by the service")
+            if openrouter.key_set() else service_custody.Admission(
+                "unavailable", "Selected gateway key is unavailable"))
     try:
-        if bound:
-            row = registry.get_account(bound)
+        bound_row = (registry.validate_binding(org.d["slug"], tier, bound)
+                     if bound else None)
+        if (bound_row is not None and selected_identity is not None
+                and selected_identity != bound_row.get("id")):
+            return service_custody.Admission(
+                "unavailable", "Spawn account differs from selected binding")
+        if selected_identity and selected_identity != accounts.PRIMARY:
+            try:
+                row = registry.get_account(selected_identity)
+            except registry.UnknownAccount:
+                row = ({"provider": "claude", "credential":
+                        {"kind": "token", "token_ref": selected_identity}}
+                       if provider == "claude" and
+                       any(k.get("id") == selected_identity
+                           for k in accounts.load().get("keys", [])) and
+                       selected_identity not in ("api-key", "key:unattributed",
+                                                 OPENROUTER_IDENTITY) and
+                       not selected_identity.startswith("account-env-mismatch:")
+                       else None)
+        elif selected_identity == accounts.PRIMARY:
+            row = {"provider": provider, "credential": {"kind": "ambient"}}
+        elif bound:
+            row = bound_row
         else:
             row = apikey_route_for(tier) if provider in ("claude", "openai", "google") else None
             if row is None:
-                row = {"provider": provider, "credential": {"kind": "ambient"}}
-    except (KeyError, ValueError):
+                if provider == "claude":
+                    selected = accounts.resolve(tier).get("account")
+                    if selected and selected != accounts.PRIMARY:
+                        row = {"provider": provider, "credential":
+                               {"kind": "token", "token_ref": selected}}
+                if row is None:
+                    row = {"provider": provider, "credential": {"kind": "ambient"}}
+    except (KeyError, ValueError, registry.UnknownAccount,
+            registry.BindingRefused, RuntimeError):
+        return service_custody.Admission("unavailable", "Selected provider account is unavailable")
+    if row is None or row.get("provider") != provider:
         return service_custody.Admission("unavailable", "Selected provider account is unavailable")
     readable = service_custody.probe_provider_file(
         row, home=Path.home(), has_token=tokens.has)
@@ -113,6 +153,19 @@ def _service_admission(org: Org, nid: str) -> service_custody.Admission | None:
     # though arbitrary future agent Git commands cannot be classified now.
     return service_custody.decide(row, provider_file_readable=readable,
                                   git_custody="unknown", bridge_on=bridge_on)
+
+
+def _service_bridge_turn(org: Org, nid: str, *,
+                         selected_identity: str | None = None) -> bool:
+    """Choose this turn's process identity; the service checks again at spawn."""
+    admission = _service_admission(org, nid,
+                                   selected_identity=selected_identity)
+    if admission is None:
+        return False
+    if admission.decision == "unavailable":
+        from engine.bridge_client import BridgeUnavailable
+        raise BridgeUnavailable(admission.reason)
+    return admission.decision == "bridge"
 
 
 def _native_context_hold(org: Org, nid: str, *, inventory: NativeInventory | None = None) -> str | None:
@@ -17262,7 +17315,11 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
     wp_turn: warmpool.CodexWarmProc | None = None
     turn_hash: str | None = None
     turn_components: dict[str, str] | None = None
+    service_bridge = _service_bridge_turn(
+        org, nid, selected_identity=str(st["ran_as"]))
     warm_on, warm_lbl = warmpool.warm_decision()
+    if service_process.service_mode():
+        warm_on = False  # every service process needs per-turn custody admission
     elig_ok, elig_why = warmpool.eligible(org, nid)
     if elig_ok and warm_on:
         try:
@@ -17343,7 +17400,8 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
         on_late_tool_result=_late_tool_result,
         env_extra=dict(process_spec["env_extra"]),
         usage_baseline=(n.get("codex_usage_total") if resume_tid else None),
-        client=wp_turn.client if wp_turn is not None else None)
+        client=wp_turn.client if wp_turn is not None else None,
+        process_factory=(service_process.bridged_binary if service_bridge else None))
     # A cold child may race the last gate while it starts and reads auth.json.
     # Recheck immediately after construction. This is still not a remote
     # account receipt, but it catches a local login replacement at the seam
@@ -18248,8 +18306,12 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
     resume_cid = spec["conversation_id"]
     metered = bool(spec["env_extra"].get("GEMINI_API_KEY"))
     st["ran_as"] = spec["env_extra"].get(registry.MARKER, accounts.PRIMARY)
+    service_bridge = _service_bridge_turn(
+        org, nid, selected_identity=str(st["ran_as"]))
     ih, components = warmpool.identity_snapshot(org, nid, provider_spec=spec)
     warm_on, _ = warmpool.warm_decision()
+    if service_process.service_mode():
+        warm_on = False
     wp = None
     if warm_on and warmpool.eligible(org, nid)[0]:
         wp, _ = warmpool.claim_snapshot(slug, nid, ih, components)
@@ -18721,6 +18783,7 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
         turn = antigravityrun.AntigravityTurn(
             spec["argv_head"], on_event=_on_event,
             persistent=bool(warm_on and warmpool.eligible(org, nid)[0]),
+            process_factory=(service_process.bridged_binary if service_bridge else None),
             **antigravity_session.client_args(spec))
     # the turn object is the process generation's owner token here: the
     # process itself does not exist until `start()`, and the accounting
@@ -19955,6 +20018,11 @@ def _run_one_turn_recorded(slug: str, nid: str,
             env.update(agentauth.child_env(slug, nid))
             env["ORGTREE_PORT"] = os.environ.get("ORGTREE_PORT", "7360")
             env["PYTHONPATH"] = BACKEND_DIR + os.pathsep + env.get("PYTHONPATH", "")
+            service_bridge = _service_bridge_turn(
+                org, nid, selected_identity=str(st["ran_as"]))
+            if service_process.service_mode():
+                from engine.winservice.process import no_prompt_git
+                no_prompt_git(env)
             # ── D-201: serve this turn from the warm pool when a parked
             # process holds the CURRENT identity hash. The pool is a cache,
             # never the source of truth: any doubt below falls through to the
@@ -19973,6 +20041,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
             # flag, arm unknown). Re-reading anywhere later in this turn
             # could label a row with an arm it was not served under.
             warm_on, warm_lbl = warmpool.warm_decision()
+            if service_process.service_mode():
+                warm_on = False
             # S1: does this turn begin as a cheap-compaction successor whose
             # prompt carries the breadcrumbs splice? Captured here so the
             # boundary below only pays the retirement write for the one turn
@@ -20008,13 +20078,16 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     time.time() - wp_turn.parked_at, 0, warm_lbl,
                     slot_wait_s=slot_wait_s)
             else:
-                proc = subprocess.Popen(
-                    spawn_argv(org, nid, _build_cmd(org, nid)),
-                    cwd=scratch_dir(slug, nid), env=env,
-                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                    text=True, encoding="utf-8", errors="replace",
-                    creationflags=(subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
-                                   if os.name == "nt" else 0))
+                argv = spawn_argv(org, nid, _build_cmd(org, nid))
+                cwd = scratch_dir(slug, nid)
+                proc = (service_process.bridged_text(argv, cwd, env)
+                        if service_bridge else subprocess.Popen(
+                            argv, cwd=cwd, env=env,
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True,
+                            encoding="utf-8", errors="replace",
+                            creationflags=(subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
+                                           if os.name == "nt" else 0)))
                 cold_stderr = warmpool.ColdStderr(proc, slug, nid, sid)
                 _leash(proc)              # dies with the backend (№29)
                 _spend_pass_now()         # the process exists: this IS the attempt
