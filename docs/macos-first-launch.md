@@ -24,11 +24,16 @@ If this flow ever requires a right-click-to-Open approval, or macOS
 reports the app is damaged and cannot be opened, that is a signing
 regression, not expected behavior. Check that:
 
-- `codesign -dv --verbose=4 release/mac-arm64/Orgtree.app` exits 0.
-- `codesign -dv --verbose=4 release/mac-arm64/Orgtree.app/Contents/Resources/engine/runtime/bin/python3.13`
-  exits 0 (confirms `tools/sign-runtime-macos.mjs` ran as an `afterPack`
-  hook and signed the bundled runtime, which electron-builder's own
-  signing pass never reaches).
+- `codesign --verify --deep --strict release/mac-arm64/Orgtree.app` exits 0
+  both before AND after launching the app once. `codesign -dv` only proves
+  a signature exists, not that it's still valid — `--verify --deep --strict`
+  is the check that actually catches a broken seal (e.g. a stray file
+  written into the bundle after signing).
+- If the post-launch check fails, look for anything the app wrote under
+  `Contents/Resources/` at runtime (e.g. `__pycache__/`) — that's a seal
+  regression, not expected behavior; the packaged engine process and its
+  guardian subprocess both set `PYTHONDONTWRITEBYTECODE=1` specifically to
+  prevent this (PKG-03).
 
 ## Flow 2: an `.app` that traveled to another Mac
 
