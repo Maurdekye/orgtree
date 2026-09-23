@@ -12,6 +12,11 @@
 //   §8  a lost context falls back to SVG; restore returns only on success
 //   §9  a style the layer cannot parse is a permanent fallback, not a guess
 //   §10 a theme change re-reads the styles without waiting for a canvas render
+//   §11 the real layer asks for hardware only: software GL / no context -> SVG
+//   §12 a wire list the layer refuses sends every wire back to SVG
+//   §13 a spent watchdog wire stays in SVG, where its CSS fade runs
+//   §14 the SVG fallback draws audience lines in AND out in the old direction
+//   §15 the GL canvas is never a hit target (styles.css)
 //
 // ⚠ WHAT jsdom CANNOT DO: run a shader. §6–§9 drive OrgCanvas against a FAKE
 // layer through `__setGlWiresFactory`; the real WebGL2 path (compile, draw,
@@ -23,9 +28,11 @@
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { Profiler } from 'react'
 import {
-  __setGlWiresFactory, buildWireGeometry, GL_WIRES_FLAG_KEY, parseCssColor, parseDash,
+  __setGlWiresFactory, buildWireGeometry, createWebGL2Layer, GL_WIRES_FLAG_KEY, parseCssColor, parseDash,
   parseDropShadows, sameWires, sparkPoint, tessellate, VERT_FLOATS,
 } from '../src/canvas/glwires'
 import type { CameraView, GlWiresHooks, GlWiresLayer, SparkLike, Wire, WireStyles } from '../src/canvas/glwires'
@@ -119,7 +126,7 @@ const agent = (id: string, children: unknown[] = [], state = 'live') => ({ id, t
   children, lineage: [], turns: [], audiences_held: [],
   scope: { tools: {}, add_dirs: [], permission_mode: 'default', org_visibility: 'team' } })
 const SLUG = 'glwires'
-const tree = (): TreePayload => ({ slug: SLUG, name: SLUG, workspace: null, dirs: [],
+const tree = (over: Partial<TreePayload> = {}): TreePayload => ({ slug: SLUG, name: SLUG, workspace: null, dirs: [],
   max_top_grant: 1000, default_top_grant: 50, compact_at: 0, default_tools: null,
   default_visibility: 'team', default_effort: '', credit_requests: [], tiers: { haiku: 1 },
   audiences: [{ grantor: 'a1', grantee: 'a3' }],
@@ -129,16 +136,16 @@ const tree = (): TreePayload => ({ slug: SLUG, name: SLUG, workspace: null, dirs
   storage_blocked: false, auto_resume: false, fable_limit_policy: 'freeze',
   fable_filter_policy: 'halt', cascade_hire: false, cascade_alloc: true, sandboxed: false,
   audience_requests: [], org_inbox: null, net: null, public: false, epoch: 1, rev: 1,
-  work_items_summary: { attention: 0, active: 0 }, asks: [], asks_open: 0, watchdogs: [] } as unknown as TreePayload)
+  work_items_summary: { attention: 0, active: 0 }, asks: [], asks_open: 0, watchdogs: [], ...over } as unknown as TreePayload)
 
 /** a fake layer that records what OrgCanvas hands it */
-function fakeLayer() {
+function fakeLayer(opts: { refuseWires?: boolean } = {}) {
   const log = { created: 0, wires: [] as Wire[], styles: null as WireStyles | null, draws: 0,
     lastView: null as CameraView | null, lastSparks: 0, hooks: null as GlWiresHooks | null, destroyed: 0 }
   __setGlWiresFactory((_canvas, hooks) => {
     log.created++; log.hooks = hooks
     const layer: GlWiresLayer = {
-      setWires(w, s) { log.wires = w; log.styles = s; return true },
+      setWires(w, s) { log.wires = w; log.styles = s; return !opts.refuseWires },
       draw(view, sparks) { log.draws++; log.lastView = view; log.lastSparks = sparks.length },
       resize() {},
       destroy() { log.destroyed++ },
@@ -165,7 +172,12 @@ function stubProbeStyles(stroke = 'rgb(58, 64, 74)') {
 }
 
 /** mount with a MEASURED viewport (same technique as canvasanchor.test.tsx) */
-async function canvas(t: { after: (fn: () => void | Promise<void>) => void }, onCommit?: () => void) {
+const canvasEl = (tr: TreePayload, onCommit?: () => void) => (
+  <Profiler id="c" onRender={() => onCommit?.()}>
+    <OrgCanvas tree={tr} op={() => Promise.resolve({} as never)} slug={SLUG}
+      toast={() => {}} mailEvt={null} />
+  </Profiler>)
+async function canvas(t: { after: (fn: () => void | Promise<void>) => void }, onCommit?: () => void, tr = tree()) {
   forgetPins(SLUG)
   const proto = HTMLElement.prototype
   const real = proto.getBoundingClientRect
@@ -175,11 +187,7 @@ async function canvas(t: { after: (fn: () => void | Promise<void>) => void }, on
     }
     return real.call(this)
   }
-  const view = await mountView(
-    <Profiler id="c" onRender={() => onCommit?.()}>
-      <OrgCanvas tree={tree()} op={() => Promise.resolve({} as never)} slug={SLUG}
-        toast={() => {}} mailEvt={null} />
-    </Profiler>, el => el)
+  const view = await mountView(canvasEl(tr, onCommit), el => el)
   t.after(async () => { proto.getBoundingClientRect = real; await view.unmount(); forgetPins(SLUG) })
   await inAct(async () => { await flush(10) })
   return view
@@ -332,4 +340,105 @@ test('§9 a style the layer cannot parse is a permanent fallback, not a guess', 
   assert.equal(log.created, 1, 'GL was tried')
   assert.ok(visiblePaths(v.el).length > 0, 'but an unreadable stroke colour sends every wire back to SVG')
   assert.equal(v.el.querySelector('canvas.glwires'), null)
+})
+
+// ------------------------------------------------------------------ §11
+test('§11 the real layer asks for hardware only: software GL / no context -> SVG', async (t) => {
+  reset(); t.after(reset)
+  // unit: the context request itself
+  const asked: { type: string; opts: WebGLContextAttributes | undefined }[] = []
+  const bare = { getContext: (type: string, opts?: WebGLContextAttributes) => { asked.push({ type, opts }); return null },
+    addEventListener() {}, removeEventListener() {} } as unknown as HTMLCanvasElement
+  assert.equal(createWebGL2Layer(bare, { onLost() {}, onRestored() {} }), null, 'no context, no layer')
+  assert.equal(asked.length, 1)
+  assert.equal(asked[0]!.type, 'webgl2')
+  assert.equal(asked[0]!.opts?.failIfMajorPerformanceCaveat, true,
+    'a software (major-performance-caveat) context is refused by the browser, never accepted')
+
+  // end to end: the REAL factory in OrgCanvas, where WebGL2 "exists" but the
+  // context request comes back empty (what Chromium does for software GL
+  // under failIfMajorPerformanceCaveat)
+  const W = window as unknown as { WebGL2RenderingContext?: unknown; HTMLCanvasElement: { prototype: { getContext: unknown } } }
+  const hadCtor = 'WebGL2RenderingContext' in W
+  W.WebGL2RenderingContext = function WebGL2RenderingContext() {}
+  const proto = W.HTMLCanvasElement.prototype
+  const realGet = proto.getContext
+  const calls: { type: string; opts: WebGLContextAttributes | undefined }[] = []
+  proto.getContext = function (type: string, opts?: WebGLContextAttributes) { calls.push({ type, opts }); return null }
+  t.after(() => { proto.getContext = realGet; if (!hadCtor) delete W.WebGL2RenderingContext })
+  const v = await canvas(t)
+  const gl = calls.filter(c => c.type === 'webgl2')
+  assert.equal(gl.length, 1, 'POSITIVE CONTROL: OrgCanvas really asked the real factory for WebGL2')
+  assert.equal(gl[0]!.opts?.failIfMajorPerformanceCaveat, true, 'with the hardware-only attribute')
+  assert.equal(v.el.querySelector('canvas.glwires'), null, 'the refused canvas is retired')
+  assert.ok(visiblePaths(v.el).some(p => p.getAttribute('class') === 'edge'), 'and the SVG layer draws the wires')
+})
+
+// ------------------------------------------------------------------ §12
+test('§12 a wire list the layer refuses sends every wire back to SVG', async (t) => {
+  reset(); t.after(reset)
+  const log = fakeLayer({ refuseWires: true })
+  const restore = stubProbeStyles(); t.after(restore)
+  const v = await canvas(t)
+  assert.equal(log.created, 1, 'GL was tried')
+  assert.ok(log.wires.length > 0, 'POSITIVE CONTROL: the layer was handed the wires and refused them')
+  assert.ok(visiblePaths(v.el).some(p => p.getAttribute('class') === 'edge'), 'so the SVG layer draws them instead')
+  assert.equal(v.el.querySelector('canvas.glwires'), null, 'and the canvas is retired for this mount')
+})
+
+// ------------------------------------------------------------------ §13
+const dog = (id: string, owner: string, spent: boolean) => ({ id, owner, name: id, kind: 'file', target: 'x.log',
+  interval_s: 5, state: spent ? 'spent' : 'armed', at: '2026-09-23T00:00:00Z', fired: spent ? 1 : 0, once: spent, spent })
+test('§13 a spent watchdog wire stays in SVG, where its CSS fade runs', async (t) => {
+  reset(); t.after(reset)
+  const log = fakeLayer()
+  const restore = stubProbeStyles(); t.after(restore)
+  const v = await canvas(t, undefined, tree({ watchdogs: [dog('d1', 'a1', true), dog('d2', 'a1', false)] } as Partial<TreePayload>))
+  const live = log.wires.find(w => w.key === 'wd2'), spent = log.wires.find(w => w.key === 'wd1')
+  assert.ok(live && !live.svgOnly, 'POSITIVE CONTROL: a live watchdog wire is drawn by GL')
+  assert.ok(spent?.svgOnly, 'the spent one is handed over marked svgOnly, so GL never uploads it')
+  const svg = visiblePaths(v.el).map(p => p.getAttribute('class'))
+  assert.deepEqual(svg, ['edge tether wd oneshot spent'], 'and SVG draws exactly it, with the classes its keyframe fade keys on')
+})
+
+// ------------------------------------------------------------------ §14
+test('§14 the SVG fallback draws audience lines in AND out in the old direction', async (t) => {
+  reset(); t.after(reset)
+  // a controlled clock for the draw-in bookkeeping (it reads performance.now)
+  let clock = 1000
+  const perf = globalThis.performance as { now: () => number }
+  const realNow = perf.now
+  perf.now = () => clock
+  t.after(() => { perf.now = realNow })
+  const frame = () => inAct(async () => { await new Promise(r => setTimeout(r, 20)); await flush(3) })
+  const offset = (el: HTMLElement) => {
+    const p = visiblePaths(el).filter(x => x.getAttribute('class') === 'edge aud-line')
+    assert.equal(p.length, 1, 'one audience line on screen')
+    const m = /stroke-dashoffset:\s*([\d.]+)/.exec(p[0]!.getAttribute('style') ?? '')
+    assert.ok(m, `the line is mid-animation (style="${p[0]!.getAttribute('style')}")`)
+    return Number(m![1])
+  }
+  const q = smooth(0.25)   // 105ms into the 420ms draw
+  const v = await canvas(t, undefined, tree({ audiences: [] }))
+  // grant: draws IN, grantor -> grantee: offset 1 - smooth(t)
+  clock = 2000
+  await v.render(canvasEl(tree()))
+  clock = 2105; await frame()
+  assert.ok(Math.abs(offset(v.el) - (1 - q)) < 1e-9, `a new grant draws in: offset ${1 - q}`)
+  clock = 3000; await frame(); await frame()   // finish the draw-in
+  const done = visiblePaths(v.el).find(x => x.getAttribute('class') === 'edge aud-line')
+  assert.ok(done && !/stroke-dash/.test(done.getAttribute('style') ?? ''), 'a finished draw-in is a plain line again')
+  // revoke: retracts the same way: frac 1 - smooth(t), offset smooth(t)
+  await v.render(canvasEl(tree({ audiences: [] })))
+  clock = 3105; await frame()
+  assert.ok(Math.abs(offset(v.el) - q) < 1e-9, `a revoked grant retracts: offset ${q}`)
+})
+
+// ------------------------------------------------------------------ §15
+declare const __SRC_DIR__: string
+test('§15 the GL canvas is never a hit target (styles.css)', () => {
+  const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
+  const m = /(?:^|\})\s*\.glwires\s*\{([^}]*)\}/m.exec(css)
+  assert.ok(m, 'no ".glwires" rule found in styles.css')
+  assert.match(m![1]!, /pointer-events:\s*none/, 'every press belongs to the card or the pan beneath')
 })
