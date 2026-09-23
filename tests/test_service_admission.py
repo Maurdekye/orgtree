@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 
 import import_provenance  # noqa: F401
-from orgtree import api, supervisor
+from orgtree import antigravity_session, api, supervisor
 from orgtree.service_custody import WAITING_FOR_SIGN_IN
 
 
@@ -41,6 +41,28 @@ class AdmissionTests(unittest.TestCase):
              patch.object(supervisor.openrouter, "key_set", return_value=False):
             self.assertEqual(supervisor._service_admission(org, "node").decision,
                              "unavailable")
+
+    def test_google_subscription_does_not_require_service_identity_login(self):
+        class ReachedEnvironment(Exception):
+            pass
+        org = Org("")
+        org.node = lambda _nid: {"model": "pro", "account": ""}
+        disconnected = {"installed": True, "path": r"C:\fake\agy.exe",
+                        "connected": False}
+        with patch.object(antigravity_session, "selected_account", return_value=None), \
+             patch.object(antigravity_session.providers, "antigravity_status",
+                          return_value=disconnected), \
+             patch.object(antigravity_session, "environment",
+                          side_effect=ReachedEnvironment), \
+             patch("orgtree.service_process.service_mode", return_value=True):
+            with self.assertRaises(ReachedEnvironment):
+                antigravity_session.specification(org, "node")
+        with patch.object(antigravity_session, "selected_account", return_value=None), \
+             patch.object(antigravity_session.providers, "antigravity_status",
+                          return_value=disconnected), \
+             patch("orgtree.service_process.service_mode", return_value=False):
+            with self.assertRaisesRegex(RuntimeError, "CLI is not signed in"):
+                antigravity_session.specification(org, "node")
 
     def test_selected_file_provider_runs_before_login_with_unknown_git(self):
         row = {"provider": "openai", "credential": {"kind": "managed"}}

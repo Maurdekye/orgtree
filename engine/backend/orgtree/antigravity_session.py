@@ -71,7 +71,8 @@ def specification(org: Any, nid: str, *, write: bool = False) -> dict[str, Any]:
     exe = str(status.get("path") or "")
     if not status.get("installed") or not exe:
         raise RuntimeError("Antigravity CLI is not installed")
-    if row is None and not status.get("connected"):
+    from .service_process import service_mode
+    if row is None and not status.get("connected") and not service_mode():
         raise RuntimeError("Antigravity CLI is not signed in; sign in or select a Gemini API-key account")
     env = environment(org, nid, row)
     model = org.model_for(nid)
