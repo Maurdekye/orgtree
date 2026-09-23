@@ -9634,14 +9634,21 @@ def _fold_steer(st: dict[str, Any]) -> list[Any]:
 
 # Positive late consumption is recorded even after admission closes.
 # This function owns DOC_LOCK; it starts no work and opens no delivery door.
-def _confirm_delivered(slug: str, nid: str, toks: Iterable[str]) -> None:
+def _confirm_delivered(slug: str, nid: str, toks: Iterable[str], *,
+                       provider_ack: bool = True,
+                       operation_kind: str = "mail-confirm") -> None:
     """Record consumption and remove its journal rows in one transaction.
 
     Callers retain their existing consumption boundary. A failed save keeps
     pending confirmation evidence; only a durable positive receipt can clear
     it. Journal absence by itself proves neither delivery nor loss.
-    """
-    halt.consumed(slug, nid)
+
+    `provider_ack=False` (P08b, a manual-inbox confirmation) skips
+    `halt.consumed`: that spends the turn's retained raw input carrier on the
+    provider's INITIAL acknowledgement, which a matched tool-result echo is
+    not."""
+    if provider_ack:
+        halt.consumed(slug, nid)
     drop = set(toks)
     if not drop:
         return
@@ -9657,7 +9664,7 @@ def _confirm_delivered(slug: str, nid: str, toks: Iterable[str]) -> None:
                 mailruntime.settle_confirmation(org, st, nid)
                 mailruntime.release_rowless(org, st, nid, drop)
             receipt = mailruntime.confirmation_receipt(
-                org, nid, drop, operation=lifecycle.new_operation("mail-confirm"))
+                org, nid, drop, operation=lifecycle.new_operation(operation_kind))
             if receipt is None:
                 return
             selected = set(receipt["before"])
@@ -10267,6 +10274,10 @@ def manual_fetch_chunk(slug: str, nid: str, generation: int, delivery_id: Any,
         if not answer.get("ok"):
             return answer              # refused before anything applied: no receipt
         op_id = opreceipts.new_id()
+        # P08b: the answer names its own receipt, exactly as a replay of it
+        # does — the one-time nonce a runtime echo must repeat to be evidence
+        # (decision44). The receipt keeps scalars only and never this field.
+        answer = {**answer, "op_id": op_id}
         if answer.get("content") is not None:
             atts = _manual_attempts(org, nid)
             att = atts.get(delivery_id)
@@ -10567,6 +10578,76 @@ def _codex_lost_kind(exc: Exception) -> str:
         if isinstance(x, (ConnectionRefusedError, socket.gaierror)):
             return "unsent"
     return "lost"
+
+
+# ------------------------- manual-inbox input evidence (P08b; door CLOSED)
+# A manual delivery is confirmed only from the runtime's own durable echo of
+# a keyed chunk call, matched per chunk by `inbox.codex_chunk_evidence`, for
+# EVERY chunk of EVERY message (`inbox.confirmation_complete`). Only the Codex
+# leg writes such an echo; every other runtime, and any delivery short of
+# complete evidence, keeps the ordinary turn-end fold and is redelivered.
+#
+# ⚠ NOT YET COVERED, said plainly: an echo that is journaled only AFTER this
+# turn-end scan (a late record after the fold) and a restart before the scan
+# are not reconciled here. Either way the delivery returns to the mailbox as a
+# counted redelivery — a disclosed possible duplicate, never a loss.
+def scan_manual_records(slug: str, nid: str) -> dict[str, int]:
+    """Confirm this node's manual deliveries whose every chunk has matched
+    runtime evidence. Positive-only: absence of evidence changes nothing, and
+    no failure here is raised to the turn that ends. Returns counts:
+    `complete` is how many deliveries were HANDED to the confirmation
+    transaction, which itself confirms only still-journaled batches and
+    resolves a failed save from positive records only."""
+    counts = {"candidates": 0, "complete": 0}
+    try:
+        with store.DOC_LOCK:
+            org = store.load_org(slug)
+            node = org.nodes.get(nid)
+            if node is None:
+                return counts
+            atts = (org.d.get("manual_attempts") or {}).get(nid) or {}
+            found = []
+            for b in (org.d.get("delivering") or {}).get(nid) or []:
+                if not isinstance(b, dict):
+                    continue
+                record = b.get("manual")
+                if (b.get("mode") != mailruntime.CUSTODY_MANUAL_FETCH
+                        or mailruntime.manual_ref(record) is None):
+                    continue
+                att = atts.get(record["delivery_id"]) if isinstance(atts, dict) else None
+                if (not isinstance(att, dict) or att.get("tok") != b.get("tok")
+                        or not att.get("chunk_calls") or "seat" not in record
+                        or record.get("seat") != node.get("seat_id")
+                        or record.get("generation") != node.get("generation")
+                        or record.get("mailbox") != node.get("mailbox_id")
+                        or not isinstance(record.get("session"), str)):
+                    continue
+                found.append((b["tok"], copy.deepcopy(record), copy.deepcopy(att)))
+            incarnation = _transcript_incarnation(org, nid)
+        counts["candidates"] = len(found)
+        if not found:
+            return counts
+        from . import transcript_records                      # noqa: PLC0415
+
+        def key_digest(seat: str, generation: int, call: Mapping[str, str]) -> str:
+            return codex_call_digest(slug, nid, seat, generation, call)
+
+        toks = []
+        for tok, record, att in found:
+            rows = transcript_records.records_containing(
+                transcript_records.journal_source(slug, record["session"], incarnation),
+                [c.get("op_id") for c in att["chunk_calls"] if isinstance(c, dict)])
+            evidence, _rejected = inbox.codex_chunk_evidence(
+                record, att, rows, key_digest=key_digest)
+            if inbox.confirmation_complete(record, evidence):
+                toks.append(tok)
+        counts["complete"] = len(toks)
+        if toks:
+            _confirm_delivered(slug, nid, toks, provider_ack=False,
+                               operation_kind="manual-confirm")
+    except Exception:                                        # noqa: BLE001
+        pass
+    return counts
 
 
 
@@ -15005,6 +15086,27 @@ def _codex_tool_result(item: dict[str, Any]) -> tuple[str, bool]:
     return str(item.get("status") or "completed"), failed
 
 
+def _codex_result_record(params: dict[str, Any], item: dict[str, Any],
+                         ts: str) -> dict[str, Any]:
+    """The journal record of a completed Codex tool item's result.
+
+    P08b: the app-server's echo of a manual-inbox dynamic call also carries
+    `inbox.ORIGIN_KEY`, built here from the `item/completed` notification
+    itself — the structural mark that this row is the runtime's own echo
+    (decision46). Nothing else writes it: a late answer (`_late_tool_result`)
+    and every other tool's row are exactly what they were."""
+    body, failed = _codex_tool_result(item)
+    rec: dict[str, Any] = {
+        "type": "user", "timestamp": ts,
+        "message": {"role": "user", "content": [{
+            "type": "tool_result", "tool_use_id": str(item.get("id") or ""),
+            "content": body, "is_error": failed}]}}
+    origin = inbox.codex_echo_origin(params, item, failed=failed)
+    if origin is not None:
+        rec[inbox.ORIGIN_KEY] = origin
+    return rec
+
+
 def _codex_image_inputs(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Translate validated inline image blocks to Codex ``UserInput``.
 
@@ -16938,13 +17040,7 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
         _tool_started(item, ts)
         if not completed:
             return
-        iid = str(item.get("id") or "")
-        body, failed = _codex_tool_result(item)
-        _journal_records([{
-            "type": "user", "timestamp": ts,
-            "message": {"role": "user", "content": [{
-                "type": "tool_result", "tool_use_id": iid,
-                "content": body, "is_error": failed}]}}])
+        _journal_records([_codex_result_record(params, item, ts)])
         # The start event already put a live tool row on screen. Nudge the
         # fetched transcript so its result body attaches without waiting for
         # the heartbeat or the end of the turn.
@@ -23018,6 +23114,10 @@ def _run_one_turn_recorded(slug: str, nid: str,
         # context is delivered, and must not ride the queue into the next
         # boundary as a duplicate. Positive-only; absence proves nothing yet.
         scan_steer_records(slug, nid)
+        # P08b, the same rule for manual-inbox deliveries: a batch whose every
+        # chunk the runtime durably echoed is confirmed BEFORE custody release
+        # and the fold below would return it as a redelivery. Positive-only.
+        scan_manual_records(slug, nid)
         with _state_lock:
             # THE BELT (D-229). The steer store only means anything while a
             # turn is responding, and this turn is over: whatever is still

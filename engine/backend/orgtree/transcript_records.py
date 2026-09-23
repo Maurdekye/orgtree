@@ -172,6 +172,28 @@ def results_for(source, tool_ids):
         return found
 
 
+def records_containing(source, needles, *, limit=64):
+    """`(ref, body)` of committed records of ONE source whose body contains
+    any of `needles`, oldest first, at most `limit` per needle. Read-only;
+    the recovery spool is replayed first, as every read does, so a record
+    that is durable anywhere is seen. `transcript_tool_results` is not used:
+    it keeps only the newest row per tool id, and a later row under the same
+    id must not hide an earlier one (manual-inbox evidence, P08b)."""
+    wanted = [n for n in dict.fromkeys(needles) if isinstance(n, str) and n]
+    if not wanted:
+        return []
+    _drain_spool()
+    found = {}
+    with database() as conn:
+        for needle in wanted:
+            for epoch, position, body in conn.execute(
+                    "SELECT epoch,position,body FROM transcript_records WHERE source=? "
+                    "AND instr(body, ?) > 0 ORDER BY epoch,position LIMIT ?",
+                    (source, needle, int(limit))):
+                found[(epoch, position)] = body
+    return [(f"{e}:{p}", found[(e, p)]) for e, p in sorted(found)]
+
+
 def _native_key(row):
     identity = row.get('native_event_id')
     if not identity:

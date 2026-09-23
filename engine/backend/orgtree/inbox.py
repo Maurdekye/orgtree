@@ -43,6 +43,7 @@ import base64
 import binascii
 import hashlib
 import json
+import re
 from collections.abc import Iterable, Mapping
 from typing import Any, Final
 
@@ -530,3 +531,162 @@ def gone_state(org: Any, nid: str, delivery_id: str) -> dict[str, Any]:
         state = att["resolved"]
     return {"content_state": state or "unknown",
             "attempt_recorded": isinstance(att, Mapping)}
+
+
+# --------------------------------------------------------------------------
+# input evidence (P08b): the Codex runtime's echo of a keyed chunk call
+# --------------------------------------------------------------------------
+#
+# Rulings: a journaled runtime echo counts only with a structural origin
+# marker, the original call bound, the exact digest, and late or unavailable
+# answers excluded; a missing journal write never confirms (decision46). The
+# call identity may be bound after the call when it matches the one-time
+# receipt id, digest, seat, session and generation (decision44). A fetch call
+# is never a chunk's evidence: each chunk, including 0, needs its own keyed
+# chunk call (decision42 D5). Only Codex has such an echo today; nothing here
+# applies to another runtime.
+
+#: The top-level key of a journal record orgtree wrote from the runtime's own
+#: echo of a tool result. Every other record lacks it (late answers too).
+ORIGIN_KEY: Final = "orgtree_origin"
+ORIGIN_PROVIDER_ECHO: Final = "provider_echo"
+RUNTIME_CODEX: Final = "codex_app_server"
+_CODEX_ECHO_ITEM: Final = "dynamicToolCall"
+#: A chunk-call op_key minted for a Codex original call: `<mint_ms>-<24 hex>`.
+_CODEX_KEY_RE: Final = re.compile(r"[0-9]{1,15}-([0-9a-f]{24})")
+
+
+def codex_echo_origin(params: Any, item: Any, *, failed: bool) -> dict[str, Any] | None:
+    """The origin marker for the app-server's `item/completed` echo of one
+    of THIS tool's dynamic calls, from that notification's own fields; None
+    for any other item. `failed` is the result's own failure flag."""
+    if not isinstance(params, Mapping) or not isinstance(item, Mapping):
+        return None
+    if item.get("type") != _CODEX_ECHO_ITEM or item.get("tool") != TOOL:
+        return None
+    return {"v": 1, "kind": ORIGIN_PROVIDER_ECHO, "runtime": RUNTIME_CODEX,
+            "item_type": _CODEX_ECHO_ITEM, "tool": TOOL,
+            "thread_id": str(params.get("threadId") or ""),
+            "turn_id": str(params.get("turnId") or ""),
+            "item_id": str(item.get("id") or ""), "failed": bool(failed)}
+
+
+def _codex_echo(rec: Any, session: str) -> tuple[dict[str, Any] | None, str]:
+    """(origin, the echoed text) of a marked Codex echo of this session's
+    thread, or (None, why not)."""
+    if not isinstance(rec, Mapping):
+        return None, "unreadable"
+    origin = rec.get(ORIGIN_KEY)
+    if not (isinstance(origin, Mapping) and origin.get("v") == 1
+            and origin.get("kind") == ORIGIN_PROVIDER_ECHO
+            and origin.get("runtime") == RUNTIME_CODEX
+            and origin.get("item_type") == _CODEX_ECHO_ITEM
+            and origin.get("tool") == TOOL):
+        return None, "not_provider_echo"
+    if origin.get("failed") is not False:
+        return None, "failed"
+    if origin.get("thread_id") != session:
+        return None, "session"
+    msg = rec.get("message")
+    blocks = msg.get("content") if isinstance(msg, Mapping) else None
+    if not isinstance(blocks, list) or len(blocks) != 1 or not isinstance(blocks[0], Mapping):
+        return None, "unreadable"
+    block = blocks[0]
+    if (block.get("type") != "tool_result" or block.get("is_error") is not False
+            or not origin.get("item_id") or block.get("tool_use_id") != origin["item_id"]
+            or not isinstance(block.get("content"), str)):
+        return None, "not_a_result"
+    return dict(origin), block["content"]
+
+
+def codex_chunk_evidence(record: Any, attempt: Any, rows: Iterable[tuple[Any, Any]], *,
+                         key_digest: Any) -> tuple[dict[tuple[str, int], dict[str, Any]],
+                                                    dict[str, int]]:
+    """Which chunks of a manual delivery the Codex runtime's durable echoes
+    prove it received. Pure.
+
+    `record` is the journal row's manual record, `attempt` its durable
+    attempt, `rows` `(ref, body)` of journal records read from THAT session's
+    own source, and `key_digest(seat, generation, call)` the P08a original-
+    call digest. Returns `({(message_id, chunk_index): evidence}, rejected
+    counts)`. A row proves chunk k of message m only when ALL hold:
+
+      origin   the marker says the Codex leg wrote it from the app-server's
+               echo of an `orgtree_inbox` dynamic call that did not fail,
+               and the tool_result is not an error;
+      session  the marker's thread is the record's session;
+      call     the digest of (seat, generation, thread, turn, item id)
+               reproduces the recorded chunk call's op_key: the echo is of
+               the very call that was served;
+      nonce    the echoed answer names that call's receipt `op_id`;
+      target   its delivery, message and chunk index are that call's;
+      digest   sha256 of the echoed content is the call's recorded digest
+               and the plan's digest for that chunk.
+
+    The attempt and record must agree on seat and generation, and the
+    record needs a session; otherwise nothing is evidence. Only keyed chunk
+    calls are candidates: a fetch's echo proves no chunk (D5)."""
+    rejected: dict[str, int] = {}
+
+    def no(why: str) -> None:
+        rejected[why] = rejected.get(why, 0) + 1
+
+    if not isinstance(record, Mapping) or not isinstance(attempt, Mapping):
+        return {}, {"unreadable_record": 1}
+    session, seat, gen = record.get("session"), record.get("seat"), record.get("generation")
+    plan = record.get("plan")
+    if (not isinstance(session, str) or not session or not isinstance(seat, str) or not seat
+            or isinstance(gen, bool) or not isinstance(gen, int) or not isinstance(plan, Mapping)
+            or attempt.get("seat") != seat or attempt.get("generation") != gen
+            or attempt.get("delivery_id") != record.get("delivery_id")
+            or not isinstance(record.get("delivery_id"), str)):
+        return {}, {"unreadable_record": 1}
+    calls: dict[str, Mapping[str, Any]] = {}
+    for call in attempt.get("chunk_calls") or []:
+        if (isinstance(call, Mapping) and isinstance(call.get("op_id"), str) and call["op_id"]
+                and isinstance(call.get("op_key"), str)):
+            calls.setdefault(call["op_id"], call)
+    evidence: dict[tuple[str, int], dict[str, Any]] = {}
+    for ref, body in rows:
+        try:
+            rec = json.loads(body) if isinstance(body, str) else None
+        except ValueError:
+            rec = None
+        origin, text = _codex_echo(rec, session)
+        if origin is None:
+            no(text)
+            continue
+        try:
+            answer = json.loads(text)
+        except ValueError:
+            answer = None
+        call = calls.get(answer.get("op_id")) if isinstance(answer, dict) else None
+        if call is None:
+            no("nonce")
+            continue
+        m = _CODEX_KEY_RE.fullmatch(call["op_key"])
+        digest = key_digest(seat, gen, {"thread_id": origin["thread_id"],
+                                        "turn_id": origin["turn_id"],
+                                        "call_id": origin["item_id"]})
+        if m is None or not isinstance(digest, str) or digest[:24] != m.group(1):
+            no("call")
+            continue
+        mid, k = call.get("message_id"), call.get("chunk_index")
+        entry = plan.get(mid) if isinstance(mid, str) else None
+        chunks = entry.get("chunks") if isinstance(entry, Mapping) else None
+        if (answer.get("delivery_id") != record["delivery_id"] or answer.get("message_id") != mid
+                or answer.get("chunk_index") != k or isinstance(k, bool) or not isinstance(k, int)
+                or not isinstance(chunks, list) or not 0 <= k < len(chunks)
+                or not isinstance(chunks[k], Mapping)):
+            no("target")
+            continue
+        content = answer.get("content")
+        want = chunks[k].get("sha256")
+        if (not isinstance(content, str) or not isinstance(want, str)
+                or _sha(content.encode("utf-8")) != want
+                or call.get("chunk_sha256") != want or answer.get("chunk_sha256") != want):
+            no("digest")
+            continue
+        evidence.setdefault((mid, k), {"ref": ref, "op_id": call["op_id"],
+                                       "item_id": origin["item_id"]})
+    return evidence, rejected
