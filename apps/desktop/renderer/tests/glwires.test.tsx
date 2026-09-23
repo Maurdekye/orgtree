@@ -11,6 +11,7 @@
 //   §7  GL mode: a spark burst does NOT re-render the whole canvas per frame
 //   §8  a lost context falls back to SVG; restore returns only on success
 //   §9  a style the layer cannot parse is a permanent fallback, not a guess
+//   §10 a theme change re-reads the styles without waiting for a canvas render
 //
 // ⚠ WHAT jsdom CANNOT DO: run a shader. §6–§9 drive OrgCanvas against a FAKE
 // layer through `__setGlWiresFactory`; the real WebGL2 path (compile, draw,
@@ -291,6 +292,36 @@ test('§8 a lost context falls back to SVG; restore returns only on success', as
   await inAct(async () => { log.hooks!.onRestored(false); await flush(3) })
   assert.ok(visiblePaths(v.el).length > 0, 'a restore that fails to re-initialise stays on SVG')
   assert.equal(v.el.querySelector('canvas.glwires'), null, 'and the canvas is retired for this mount')
+})
+
+test('§10 a theme change re-reads the styles without waiting for a canvas render', async (t) => {
+  reset(); t.after(reset)
+  // the harness exposes jsdom's window but not its MutationObserver as a
+  // global; the hook (correctly) skips observing without one, so lend it
+  const G = globalThis as unknown as { MutationObserver?: unknown; window: { MutationObserver: unknown } }
+  const hadMO = 'MutationObserver' in G, prevMO = G.MutationObserver
+  G.MutationObserver = G.window.MutationObserver
+  t.after(() => { if (hadMO) G.MutationObserver = prevMO; else delete G.MutationObserver })
+  const log = fakeLayer()
+  let stroke = 'rgb(58, 64, 74)'
+  const g = globalThis as unknown as { getComputedStyle: (el: Element) => CSSStyleDeclaration; window: { getComputedStyle: unknown } }
+  const real = g.getComputedStyle
+  const fake = (el: Element) => {
+    if (!el.hasAttribute?.('data-glprobe')) return real(el)
+    const spark = el.getAttribute('data-glprobe') === '@spark'
+    return { stroke, fill: spark ? 'rgb(255, 217, 168)' : 'none', strokeWidth: '1.6px', opacity: '0.8',
+      strokeDasharray: 'none', filter: 'none' } as unknown as CSSStyleDeclaration
+  }
+  g.getComputedStyle = fake; g.window.getComputedStyle = fake
+  t.after(() => { g.getComputedStyle = real; g.window.getComputedStyle = real; document.documentElement.removeAttribute('style') })
+  await canvas(t)
+  assert.deepEqual(log.styles!.byClass.get('edge')!.color.slice(0, 3).map(v => Math.round(v * 255)), [58, 64, 74])
+  // a theme sync rewrites CSS variables on <html>; nothing about OrgCanvas's
+  // own props or state changes
+  stroke = 'rgb(200, 10, 10)'
+  await inAct(async () => { document.documentElement.setAttribute('style', '--line: #c80a0a'); await flush(5) })
+  assert.deepEqual(log.styles!.byClass.get('edge')!.color.slice(0, 3).map(v => Math.round(v * 255)), [200, 10, 10],
+    'the new wire colour reaches the GL layer')
 })
 
 test('§9 a style the layer cannot parse is a permanent fallback, not a guess', async (t) => {
