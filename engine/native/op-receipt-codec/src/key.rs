@@ -96,20 +96,34 @@ pub fn parse_key_with(key: &str, rules: &Rules) -> Option<i64> {
 
 /// Python `int(s)` for a `str` in base 10.
 ///
-/// CPython first maps every Unicode decimal digit to its ASCII digit and
-/// every `str.isspace()` character to a space, then parses: optional
-/// surrounding spaces, an optional sign, and ASCII digits with single
-/// underscores allowed only between digits. The value is exact at any
-/// width; more than 4300 digits raise `ValueError`.
+/// CPython (`_PyUnicode_TransformDecimalAndSpaceToASCII`) first copies every
+/// code point below U+007F unchanged, and maps each other code point that is
+/// `str.isspace()` to a space and each other Unicode decimal digit to its
+/// ASCII digit; anything else makes the text invalid. It then parses:
+/// optional surrounding ASCII whitespace (space, tab, LF, VT, FF, CR), an
+/// optional sign, and ASCII digits with single underscores allowed only
+/// between digits. So the ASCII separators U+001C..U+001F, although
+/// `str.isspace()`, are rejected. The value is exact at any width; more than
+/// 4300 digits raise `ValueError`.
 pub fn py_int_from_str(s: &str) -> PyOutcome<PyInt> {
+    py_int_from_str_with(s, &Rules::LEGACY)
+}
+
+pub fn py_int_from_str_with(s: &str, rules: &Rules) -> PyOutcome<PyInt> {
     let mut t = String::with_capacity(s.len());
     for c in s.chars() {
-        if is_py_space(c) {
+        let cp = c as u32;
+        if cp < 0x7f {
+            let separator = (0x1c..=0x1f).contains(&cp);
+            t.push(if separator && rules.int_ascii_separators_as_space {
+                ' '
+            } else {
+                c
+            });
+        } else if is_py_space(c) {
             t.push(' ');
         } else if let Some(d) = py_decimal_value(c) {
             t.push(char::from(b'0' + d as u8));
-        } else if c.is_ascii() {
-            t.push(c);
         } else {
             return PyOutcome::Raises(PyException::ValueError);
         }
@@ -198,7 +212,7 @@ pub fn py_int_or_zero_with(p: Presence<&Value>, rules: &Rules) -> PyOutcome<PyIn
                 }
             }
         }
-        Value::String(s) => py_int_from_str(s),
+        Value::String(s) => py_int_from_str_with(s, rules),
         Value::Array(_) | Value::Object(_) => PyOutcome::Raises(PyException::TypeError),
         Value::Null => PyOutcome::Value(PyInt::zero()),
     };

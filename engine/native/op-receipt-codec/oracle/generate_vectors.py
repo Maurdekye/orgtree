@@ -138,6 +138,11 @@ INT_CASES = [
     "18446744073709551616", "-18446744073709551617", "9" * 4300, "-" + "9" * 4300, '"' + "9" * 4300 + '"',
     '"-' + "9" * 30 + '"', '" 1_000_000_000_000_000_000_000 "', "1e19", "-1.7976931348623157e308",
     "1.2345678901234567e29", "5e-324", "-9223372036854775809", '"' + chr(0xFF11) + "0" * 25 + '"',
+    # U+001C..U+001F are str.isspace() but ASCII: int() rejects them. U+0085
+    # and U+00A0 are non-ASCII spaces and are accepted.
+    json.dumps(chr(0x1C) + "5"), json.dumps("5" + chr(0x1F)), json.dumps(chr(0x1D) + " 7 " + chr(0x1E)),
+    json.dumps(chr(0x1E) + "9" * 30), json.dumps(chr(0x85) + "7" + chr(0xA0)), json.dumps(chr(0x0B) + "7" + chr(0x0C)),
+    json.dumps(chr(0x7F) + "7"), json.dumps(chr(0x1F)),
 ]
 
 
@@ -189,6 +194,21 @@ def float_corpus(rng: random.Random):
     for e in range(-8, 24):
         out.append(10.0 ** e)
         out.append(-(1.5 * 10.0 ** e))
+    # Values whose exact decimal expansion is one digit longer than the
+    # shortest repr, ending in 5: repr breaks those ties toward the even digit.
+    out += [1e15 + 0.25, 905964137817046.25, -185107275549240.625, 0.5, 2.5, 1e22 + 2**21]
+    for _ in range(300):
+        whole = rng.randrange(2**40, 2**56)
+        j = rng.randint(1, 4)
+        x = whole / 1 + rng.randrange(1, 2**j, 2) / 2**j
+        out.append(x if rng.random() < 0.5 else -x)
+    for _ in range(200):
+        j = rng.randint(1, 26)
+        x = (rng.randrange(0, 2**(53 - min(j, 52))) * 2**j + rng.randrange(1, 2**j, 2)) / 2**j
+        out.append(x if rng.random() < 0.5 else -x)
+    for _ in range(100):
+        e = rng.randint(1, 22)
+        out.append(float(rng.randrange(1, 2**53 // 5**e + 1) * 5**e * 2**e))
     return out
 
 
@@ -205,6 +225,7 @@ CANONICAL_CASES = [
     '{"a": 1, "a": 2}', '{"a": {"k": 1}, "a": {"k": 2, "j": 3}}', '{"x": [1.5, -0.0, 1e100, NaN]}',
     '{"to": "beta", "body": "hi", "kind": "request", "urgent": false, "n": null}',
     '["\\ud800"]', '{"\\udfff": 1}', '[[[[[]]]]]', '{"": ""}', '[1, "1", true, 1.0]',
+    '{"n": 1000000000000000.25}', '[905964137817046.25, -185107275549240.625, 2.5, 0.5]',
 ]
 
 
@@ -383,6 +404,17 @@ def admission_cases(op):
     add(doc(op), now_ms=NOW - AGE_OVERFLOW + 1)
     add(doc(op), now_ms=NOW - AGE_OVERFLOW)
     add(doc(op), now_ms=-BIG)
+    # repr breaks exact float ties toward the even digit: an exact retry of a
+    # call whose arguments hold such a float is a replay.
+    tie = {"n": 1e15 + 0.25, "m": [905964137817046.25, -185107275549240.625]}
+    add(doc(op, [mkrow(op, 58, args=tie)]), args=tie)
+    add(doc(op, [mkrow(op, 59, args={"n": 1e15 + 0.375})]), args={"n": 1e15 + 0.25})
+    # int() rejects the ASCII separators U+001C..U+001F.
+    add(doc(op, meta={"from_ms": chr(0x1C) + "5"}))
+    add(doc(op, meta={"schema": chr(0x1F) + "2"}))
+    add(doc(op, [mkrow(op, 60, edit={"gen": chr(0x1D) + "1"})]))
+    add(doc(op, [mkrow(op, 61, edit={"gen": chr(0x1D) + "1"})]), epoch_ok=False)
+    add(doc(op, meta={"from_ms": chr(0x85) + str(NOW + 1) + chr(0xA0)}))
     for meta in ({"from_ms": 10**30}, {"from_ms": "-" + "9" * 40}, {"schema": 10**30}, {"schema": -(10**30)},
                  {"coverage": "9" * 50}, {"from_ms": 1e300}, {"from_ms": BIG}, {"schema": -BIG, "from_ms": -BIG}):
         add(doc(op, meta=meta))
@@ -476,6 +508,10 @@ def section_append(op):
         ({"n": 500, "base": NOW, "step": 10, "overrides": [{"i": 0, "json": "-" + "9" * 40}]},
          None, '{"from_ms": -' + "9" * 50 + "}"),
         ({"n": 500, "base": NOW, "step": 1}, None, '{"evicted": "-' + "9" * 40 + '"}'),
+        ({"n": 3, "base": NOW, "step": 1}, None, json.dumps({"seq": chr(0x1D) + "3"})),
+        ({"n": 3, "base": NOW, "step": 1}, None, json.dumps({"from_ms": "7" + chr(0x1E)})),
+        ({"n": 500, "base": NOW, "step": 1, "overrides": [{"i": 5, "json": json.dumps(chr(0x1C) + "5")}]}, None, "{}"),
+        ({"n": 500, "base": NOW, "step": 1}, None, json.dumps({"evicted": chr(0x3000) + "4" + chr(0x2003)})),
     ]
     out = []
     for spec, section, meta_text in cases:
@@ -507,7 +543,8 @@ def section_meta(op):
                  '{"schema": 2, "coverage": "x"}', '{"schema": true}', '{"schema": [2]}',
                  '{"from_ms": 5, "schema": 0}', '{"schema": 100000000000000000000}',
                  '{"coverage": "99999999999999999999"}', '{"schema": -100000000000000000000, "coverage": 1}',
-                 '{"from_ms": -1e300}', '{"from_ms": ' + "9" * 4300 + "}", '{"from_ms": "-' + "9" * 4300 + '"}',
+                 json.dumps({"schema": chr(0x1F) + "2"}), json.dumps({"coverage": "2" + chr(0x1C)}),
+                 json.dumps({"from_ms": chr(0x2028) + "5"}), '{"from_ms": -1e300}', '{"from_ms": ' + "9" * 4300 + "}", '{"from_ms": "-' + "9" * 4300 + '"}',
                  '{"schema": "\\u0662"}'):
         d = {"slug": "oracle"} if text is None else {"slug": "oracle", op.META: json.loads(text)}
         rows.append({"meta_json": text,

@@ -24,23 +24,105 @@ pub fn py_int_lexeme(lexeme: &str) -> String {
     }
 }
 
-/// Python `float.__repr__` for a finite float: the shortest digits that
-/// round-trip, in fixed notation when the decimal point position is in
-/// `-4 < decpt <= 16`, else in exponent form with a sign and at least two
-/// exponent digits (`1e+16`, `1e-05`). Fixed notation always has a `.`.
-pub fn py_float_repr(x: f64) -> String {
-    if x == 0.0 {
-        return if x.is_sign_negative() { "-0.0" } else { "0.0" }.to_owned();
-    }
-    // Rust's `{:e}` without a precision prints the shortest round-trip digits.
-    let sci = format!("{:e}", x.abs());
+/// The significant digits and exponent of Rust's `{:e}` rendering of `a`.
+fn split_sci(sci: &str) -> (String, i32) {
     let (mantissa, exp) = sci
         .split_once('e')
         .expect("LowerExp always has an exponent");
     let exp: i32 = exp.parse().expect("LowerExp exponent is an integer");
-    let digits: String = mantissa.chars().filter(|c| *c != '.').collect();
+    (mantissa.chars().filter(|c| *c != '.').collect(), exp)
+}
+
+/// Add one unit in the last place of a digit string whose first digit sits
+/// at decimal point position `decpt`, carrying as far as needed.
+fn increment(digits: &str, decpt: i32) -> (String, i32) {
+    let mut d = digits.as_bytes().to_vec();
+    for i in (0..d.len()).rev() {
+        if d[i] == b'9' {
+            d[i] = b'0';
+        } else {
+            d[i] += 1;
+            return (String::from_utf8(d).expect("ASCII digits"), decpt);
+        }
+    }
+    let mut carried = vec![b'1'];
+    carried.extend(d);
+    (String::from_utf8(carried).expect("ASCII digits"), decpt + 1)
+}
+
+/// CPython's `repr` (David Gay's `dtoa`, mode 0) returns the shortest digits
+/// that round-trip and, among those, the ones nearest the exact value. When
+/// the exact value lies precisely halfway between two such digit strings it
+/// rounds half to even on the last digit. Rust's shortest formatter can take
+/// the odd neighbour instead (`1e15 + 0.25` is `1000000000000000.2` in
+/// Python, not `.3`). Returns the even neighbour when `a` is such a tie and
+/// Rust chose the other one.
+fn even_tie(a: f64, digits: &str, decpt: i32) -> Option<(String, i32)> {
+    // A tie needs an exact decimal expansion only one digit longer than the
+    // shortest digits, so `a = m * 2^e` with `m` odd needs `-26 <= e <= 22`:
+    // for `e < 0` the expansion `m * 5^-e` has at least `0.69 * -e`
+    // significant digits, and for `e > 0` the expansion ends in 5 only if
+    // `5^e` divides `m < 2^53`. Outside that range there is nothing to do.
+    let bits = a.to_bits();
+    let biased = ((bits >> 52) & 0x7ff) as i32;
+    let frac = bits & ((1u64 << 52) - 1);
+    let (m, e) = if biased == 0 {
+        (frac, -1074)
+    } else {
+        (frac | (1u64 << 52), biased - 1075)
+    };
+    let e = e + m.trailing_zeros() as i32;
+    if !(-26..=22).contains(&e) {
+        return None;
+    }
+    // In that range the exact expansion has at most 36 significant digits,
+    // so 80 digits after the point hold all of it exactly.
+    let (exact, exact_exp) = split_sci(&format!("{a:.80e}"));
+    let sig = exact.trim_end_matches('0');
+    let n = digits.len();
+    if sig.len() != n + 1 || !sig.ends_with('5') {
+        return None;
+    }
+    let lower = &sig[..n];
+    let lower_decpt = exact_exp + 1;
+    let (even, even_decpt) = if (lower.as_bytes()[n - 1] - b'0').is_multiple_of(2) {
+        (lower.to_owned(), lower_decpt)
+    } else {
+        increment(lower, lower_decpt)
+    };
+    let even = even.trim_end_matches('0');
+    let even = if even.is_empty() { "0" } else { even };
+    if even == digits && even_decpt == decpt {
+        return None;
+    }
+    let text = format!("0.{even}e{even_decpt}");
+    (text.parse::<f64>().ok() == Some(a)).then(|| (even.to_owned(), even_decpt))
+}
+
+/// Python `float.__repr__` for a finite float: the shortest digits that
+/// round-trip (exact ties go to the even digit), in fixed notation when the
+/// decimal point position is in `-4 < decpt <= 16`, else in exponent form
+/// with a sign and at least two exponent digits (`1e+16`, `1e-05`). Fixed
+/// notation always has a `.`.
+pub fn py_float_repr(x: f64) -> String {
+    py_float_repr_with(x, &Rules::LEGACY)
+}
+
+pub fn py_float_repr_with(x: f64, rules: &Rules) -> String {
+    if x == 0.0 {
+        return if x.is_sign_negative() { "-0.0" } else { "0.0" }.to_owned();
+    }
+    // Rust's `{:e}` without a precision prints the shortest round-trip digits.
+    let (digits, exp) = split_sci(&format!("{:e}", x.abs()));
+    let mut decpt = exp + 1;
+    let mut digits = digits;
+    if rules.float_ties_to_even {
+        if let Some((d, p)) = even_tie(x.abs(), &digits, decpt) {
+            digits = d;
+            decpt = p;
+        }
+    }
     let n = digits.len() as i32;
-    let decpt = exp + 1;
     let mut out = String::new();
     if x < 0.0 {
         out.push('-');
@@ -82,7 +164,7 @@ pub fn py_json_float(x: f64, rules: &Rules) -> String {
     } else if x == f64::NEG_INFINITY {
         "-Infinity".to_owned()
     } else if rules.python_float_repr {
-        py_float_repr(x)
+        py_float_repr_with(x, rules)
     } else {
         format!("{x}")
     }

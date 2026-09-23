@@ -28,7 +28,10 @@ Details that are easy to get wrong, and are pinned by the vectors:
   `json.dumps({"tool", "node", "generation", "args"}, sort_keys=True,
   separators=(",", ":"), ensure_ascii=False)`. Keys sort in code point order.
   Integers keep their exact digits, floats use Python `repr`, and the
-  non-finite values are `NaN`/`Infinity`/`-Infinity`.
+  non-finite values are `NaN`/`Infinity`/`-Infinity`. `repr` gives the
+  shortest digits that round-trip and breaks an exact tie between two of them
+  toward the even last digit (`1e15 + 0.25` is `1000000000000000.2`); Rust's
+  own shortest formatting can take the odd one, so ties are corrected.
 - `find` returns the newest row with the same key and node. Generation is not
   a matcher. `matches` fingerprints at the row's own `fp_node` and generation.
 - `admit` keeps Python's branch order: malformed key, stale epoch (with the
@@ -38,7 +41,10 @@ Details that are easy to get wrong, and are pinned by the vectors:
 - `append` trims a log longer than 500 rows to 400. It sets
   `from_ms = max(old, largest evicted mint + 1)`.
 - Stored values keep Python coercions: `int(x or 0)` (with Unicode digits,
-  whitespace and underscores), truthiness and `str(x or y or "")`.
+  whitespace and underscores), truthiness and `str(x or y or "")`. In
+  `int(str)` only non-ASCII characters are mapped (spaces to a space,
+  decimal digits to ASCII digits); the ASCII separators U+001C..U+001F are
+  `str.isspace()` but make `int()` raise `ValueError`.
 - Integers are exact at any width, as Python's are (`src/pyint.rs`). A
   generation, clock reading, watermark, sequence counter, eviction count or
   mint time beyond `i64` is compared, added and fingerprinted exactly, and
@@ -114,5 +120,5 @@ engine/runtime/python.exe tools/run-python-verification.py --repo-root . --pytho
 ```
 
 - **Oracle:** `oracle/generate_vectors.py` runs only on the engine CPython 3.13. It calls the real `opreceipts` functions and anchors the module's sha256 plus the exact rule text.
-- **Rust controls:** `tests/controls.rs` changes one rule at a time (25 controls) and requires the vectors to fail only in the sections that exercise it.
+- **Rust controls:** `tests/controls.rs` changes one rule at a time (27 controls) and requires the vectors to fail only in the sections that exercise it.
 - **Python drift test:** `tests/test_op_receipt_codec_vectors.py` patches horizon, skew, separators, ceiling and the key parser, and requires the regenerated vectors to change.

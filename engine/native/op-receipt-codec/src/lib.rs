@@ -130,6 +130,12 @@ pub struct Rules {
     /// detail (`OverflowError` for a key age too large for a float,
     /// `ValueError` for a generation too long to print).
     pub detail_raises: bool,
+    /// Break an exact tie between two shortest round-trip float renderings
+    /// toward the even last digit, as CPython's `repr` does.
+    pub float_ties_to_even: bool,
+    /// Treat the ASCII separators U+001C..U+001F as whitespace in `int(str)`
+    /// (they are `str.isspace()`, but CPython's `int()` rejects them).
+    pub int_ascii_separators_as_space: bool,
 }
 
 impl Rules {
@@ -159,6 +165,8 @@ impl Rules {
         i64_ints: false,
         int_str_max_digits: orgtree_backend_codec::json::PYTHON_INT_MAX_STR_DIGITS,
         detail_raises: true,
+        float_ties_to_even: true,
+        int_ascii_separators_as_space: false,
     };
 }
 

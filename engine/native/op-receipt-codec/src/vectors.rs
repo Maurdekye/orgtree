@@ -5,7 +5,7 @@
 //! section is itself a failure, so a truncated vectors file cannot pass.
 
 use crate::admission::{self, AdmitCall};
-use crate::canonical::{canonical_with, py_float_repr, py_json_float};
+use crate::canonical::{canonical_with, py_float_repr_with, py_json_float};
 use crate::eviction::plan_append_with;
 use crate::eviction::AppendPlan;
 use crate::fingerprint::fingerprint_with;
@@ -216,7 +216,7 @@ fn check_float(row: &Object, rules: &Rules) -> Result<(), String> {
         u64::from_str_radix(text(row, "bits").ok_or("no bits")?, 16).map_err(|e| e.to_string())?;
     let x = f64::from_bits(b);
     let repr = if rules.python_float_repr {
-        py_float_repr(x)
+        py_float_repr_with(x, rules)
     } else {
         format!("{x}")
     };

@@ -6,9 +6,9 @@ use orgtree_op_receipt_codec::admission::{admit, AdmitCall, Decision};
 use orgtree_op_receipt_codec::canonical::{canonical, py_float_repr};
 use orgtree_op_receipt_codec::eviction::plan_append;
 use orgtree_op_receipt_codec::fingerprint::fingerprint;
-use orgtree_op_receipt_codec::key::{parse_key, py_decimal_value};
+use orgtree_op_receipt_codec::key::{parse_key, py_decimal_value, py_int_from_str};
 use orgtree_op_receipt_codec::sha256::{hex, sha256};
-use orgtree_op_receipt_codec::{PyInt, PyOutcome, CEILING, TRIM_TO};
+use orgtree_op_receipt_codec::{PyException, PyInt, PyOutcome, CEILING, TRIM_TO};
 
 /// A small deterministic generator; the tests read no clock or entropy.
 struct Rng(u64);
@@ -51,6 +51,40 @@ fn float_repr_round_trips_and_uses_pythons_notation_rule() {
             assert!(r.contains('.'), "{r}");
         }
     }
+}
+
+/// The reviewer's reproductions of finding f2; Python's `repr` values.
+#[test]
+fn float_repr_breaks_exact_ties_toward_even() {
+    for (x, want) in [
+        (1e15 + 0.25, "1000000000000000.2"),
+        (905964137817046.0 + 0.25, "905964137817046.2"),
+        (-(185107275549240.0 + 0.625), "-185107275549240.62"),
+        (2.5, "2.5"),
+        (0.5, "0.5"),
+    ] {
+        assert_eq!(py_float_repr(x), want, "{x:e}");
+    }
+}
+
+/// Finding f3: `int()` rejects the ASCII separators U+001C..U+001F.
+#[test]
+fn int_str_rejects_ascii_separators() {
+    for cp in 0x1c..=0x1f_u32 {
+        let c = char::from_u32(cp).unwrap();
+        for s in [format!("{c}5"), format!("5{c}"), format!("{c} 7 {c}")] {
+            assert_eq!(
+                py_int_from_str(&s),
+                PyOutcome::Raises(PyException::ValueError),
+                "{cp:x}"
+            );
+        }
+    }
+    let nel = char::from_u32(0x85).unwrap();
+    assert_eq!(
+        py_int_from_str(&format!("{nel}7")),
+        PyOutcome::Value(PyInt::from(7i64))
+    );
 }
 
 #[test]

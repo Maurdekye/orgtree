@@ -301,6 +301,31 @@ fn c25_refusal_detail_exceptions_dropped() {
     );
 }
 
+/// Rust's shortest formatter breaks exact ties toward the odd digit;
+/// CPython's `repr` breaks them toward the even one.
+#[test]
+fn c26_float_ties_not_to_even() {
+    detected_only_in(
+        Rules {
+            float_ties_to_even: false,
+            ..L
+        },
+        &["float", "canonical", "fingerprint", "admission"],
+    );
+}
+
+/// `str.isspace()` is true for U+001C..U+001F, but `int()` rejects them.
+#[test]
+fn c27_ascii_separators_as_int_whitespace() {
+    detected_only_in(
+        Rules {
+            int_ascii_separators_as_space: true,
+            ..L
+        },
+        &["py_int", "meta", "admission", "append"],
+    );
+}
+
 #[test]
 fn legacy_rules_pass() {
     let report = run(COMMITTED, &L);
