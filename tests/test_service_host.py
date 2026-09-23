@@ -348,6 +348,37 @@ class StaleDescriptorTests(unittest.TestCase):
             self.assertFalse(path2.exists())
 
 
+class ScriptEntrypointImportTests(unittest.TestCase):
+    """The packaged runtime's python313._pth leaves the script's own folder
+    off sys.path, exactly like isolated mode (-I). The 2.1.12 boot task died
+    on that: `from startup_progress import ...` raised before the host did
+    anything, so every boot ended in exit 1."""
+
+    PROBE = "import runpy, sys; runpy.run_path(sys.argv[1], run_name='service_host_probe')"
+
+    def _load(self, script: Path, cwd: Path) -> subprocess.CompletedProcess:
+        return subprocess.run([sys.executable, "-I", "-c", self.PROBE, str(script)], cwd=str(cwd),
+                              capture_output=True, text=True, timeout=60)
+
+    def test_isolated_mode_drops_the_script_folder(self):
+        # Control: proves the premise, so the positive test below cannot pass
+        # merely because this interpreter happens to add the script folder.
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            (folder / "sibling_module.py").write_text("VALUE = 1\n", encoding="utf-8")
+            script = folder / "uses_sibling.py"
+            script.write_text("from sibling_module import VALUE\n", encoding="utf-8")
+            result = self._load(script, folder)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("No module named 'sibling_module'", result.stderr)
+
+    def test_host_module_loads_without_its_folder_on_sys_path(self):
+        host = Path(__file__).resolve().parent.parent / "engine" / "service_host.py"
+        with tempfile.TemporaryDirectory() as temp:
+            result = self._load(host, Path(temp))
+        self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+
+
 class LaunchRefusalTests(unittest.TestCase):
     """The engine tells its parent WHY it refused, so a lost boot race is
     distinguishable from a broken engine (redteam-opus F4)."""

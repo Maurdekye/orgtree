@@ -37,7 +37,14 @@ import urllib.request
 try:
     from .startup_progress import parse_progress
 except ImportError:  # script entrypoint
-    from startup_progress import parse_progress
+    # The packaged runtime's python313._pth never puts the script's own
+    # folder on sys.path (it lists resources\ instead), so a bare
+    # `from startup_progress` fails there and the boot host exits 1 before
+    # doing anything. Import through the package root, as launch.py does.
+    _PACKAGE_ROOT = str(Path(__file__).resolve().parent.parent)
+    if _PACKAGE_ROOT not in sys.path:
+        sys.path.insert(0, _PACKAGE_ROOT)
+    from engine.startup_progress import parse_progress
 
 READY_TIMEOUT = 120.0  # boot is contended; the desktop's 60s is too tight
 SHUTDOWN_WAIT = 10.0
