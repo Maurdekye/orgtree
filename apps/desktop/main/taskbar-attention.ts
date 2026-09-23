@@ -65,6 +65,12 @@ export class TaskbarAttention {
 
   private start(): boolean {
     if (process.platform === 'darwin') {
+      // A bounce is already running for this app - there is only ever one
+      // dock animation, so a further arrival while it is in progress has
+      // nothing to start. Re-calling bounce() here would overwrite
+      // bounceId with a second native call's id, orphaning the first one
+      // that stop()'s cancelBounce() would otherwise still need.
+      if (this.flashing) return false
       const dock = this.dock?.()
       if (!dock) return false
       this.bounceId = dock.bounce('critical')

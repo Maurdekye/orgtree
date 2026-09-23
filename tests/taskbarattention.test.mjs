@@ -142,6 +142,14 @@ test('darwin: an id seen again on a later poll after a full drain-and-return bou
   assert.deepEqual(d.calls, [['bounce', 'critical', 1], ['cancelBounce', 1], ['bounce', 'critical', 2]])
 }))
 
+test('darwin: a genuinely new id while already bouncing does not re-bounce or orphan the id', () => withPlatform('darwin', () => {
+  const d = dock(), attention = new TaskbarAttention(() => undefined, () => d)
+  assert.equal(attention.set(['a']), true, 'the first waiting request bounces')
+  assert.deepEqual(d.calls, [['bounce', 'critical', 1]])
+  assert.equal(attention.set(['a', 'b']), false, 'a new arrival while already bouncing does not start a second bounce')
+  assert.deepEqual(d.calls, [['bounce', 'critical', 1]], 'bounceId 1 is left in place, never overwritten or orphaned')
+}))
+
 test('darwin: no dock accessor is survivable, matching the missing-window shape on win32', () => withPlatform('darwin', () => {
   const attention = new TaskbarAttention(() => undefined)
   assert.equal(attention.set(['a']), false)
