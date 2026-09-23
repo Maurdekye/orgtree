@@ -217,6 +217,24 @@ else {
     }
     return image.isEmpty() ? nativeImage.createFromPath(iconPath) : image
   }
+  // macOS menu-bar-only (UI-05): a Template image so the OS auto-inverts the
+  // glyph for light/dark menu bars. A Template image is alpha-channel-only -
+  // the OS discards color and renders black/white regardless of source
+  // pixels - so this deliberately zeroes runtimeIcon()'s (possibly
+  // provider-recolored) B/G/R bytes the same way the recolor loop above sets
+  // them, keeping only the eye silhouette's alpha. The Dock icon and every
+  // window icon keep their full-color runtimeIcon() untouched; only the two
+  // tray-specific call sites (rebuildTray's tray image, the initial Tray
+  // construction) use this wrapper.
+  const trayIcon = () => {
+    if (process.platform !== 'darwin') return runtimeIcon()
+    const base = runtimeIcon()
+    const bitmap = base.toBitmap(), size = base.getSize()
+    for (let i = 0; i < bitmap.length; i += 4) { bitmap[i] = 0; bitmap[i + 1] = 0; bitmap[i + 2] = 0 }
+    const image = nativeImage.createFromBitmap(bitmap, size)
+    image.setTemplateImage(true)
+    return image
+  }
   const notifications = new NativeNotifications(
     data => new Notification({ title: data.title, body: data.body }),
     data => { show(); broadcast({ type: 'notification-click', data }) },
@@ -365,8 +383,12 @@ else {
     finally { rebuildTray() }
   }
   const rebuildTray = () => {
+    // Two separate images, deliberately: the tray glyph goes through
+    // trayIcon() (monochrome Template on darwin, UI-05), but the Dock icon
+    // and every window icon must stay on the unwrapped, full-color
+    // runtimeIcon() - they are NOT the same call as the tray's.
+    tray?.setImage(trayIcon())
     const image = runtimeIcon()
-    tray?.setImage(image)
     for (const window of BrowserWindow.getAllWindows()) window.setIcon(image)
     if (!tray) return
     if (trayMenuOpen) { refreshTrayUpdates(); refreshTrayEngine(); return }
@@ -1203,7 +1225,7 @@ else {
   app.whenReady().then(async () => {
     preferences = new Preferences(path.join(app.getPath('userData'), 'desktop-settings.json'))
     loginPreference()
-    tray = new Tray(runtimeIcon())
+    tray = new Tray(trayIcon())
     // primary click = the org activity list; double-click keeps opening the
     // app itself (second click of the pair dismisses the just-shown popup)
     tray.on('click', (_event, iconBounds) => { void showTrayList(iconBounds) })

@@ -128,7 +128,12 @@ test('packaging, renderer, tray and windows reference the eye icons', () => {
   assert.match(main, /const iconPath = path\.join\(assetsPath, 'orgtree-eye\.ico'\)/)
   assert.match(main, /if \(process\.platform === 'win32'\) configureTaskbar\(window, process\.execPath, iconPath, identity\.appUserModelId, identity\.displayName\)/,
     'every Windows channel must set explicit shell icon metadata')
-  assert.match(main, /new Tray\(runtimeIcon\(\)\)/)
+  // UI-05: the initial Tray construction and rebuildTray()'s tray-image
+  // assignment go through trayIcon() (a Template image on darwin), while the
+  // Dock icon and every window icon stay on the unwrapped runtimeIcon() -
+  // see tray-icon-wiring.test.mjs for the full darwin-branch/byte-level
+  // coverage of that split.
+  assert.match(main, /new Tray\(trayIcon\(\)\)/)
   assert.match(main, /engine\.status\.state === 'ready'/)
   assert.match(main, /let effectiveTheme: VisualTheme \| undefined/)
   assert.match(main, /const theme = effectiveTheme \?\? explicit \?\? 'claude'/)
@@ -136,7 +141,7 @@ test('packaging, renderer, tray and windows reference the eye icons', () => {
   assert.match(main, /isVisualTheme\(value\)/)
 
   assert.match(main, /engine\.on\('status',[^\r\n]*rebuildTray\(\)/)
-  assert.match(main, /tray\?\.setImage\(image\)/)
+  assert.match(main, /tray\?\.setImage\(trayIcon\(\)\)/)
   assert.match(main, /window\.setIcon\(image\)/)
   for (const name of ['grey', 'orgtree', 'claude', 'codex', 'antigravity', 'openrouter']) assert.match(main, new RegExp(`orgtree-eye-tray-${name}\\.ico`))
   assert.equal((main.match(/icon: iconPath/g) ?? []).length, 2, 'main and viewer windows')
