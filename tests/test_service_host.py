@@ -344,7 +344,9 @@ class StaleDescriptorTests(unittest.TestCase):
             (ui / "index.html").write_text("<!doctype html>", encoding="utf-8")
             port = self._serve_identity(root)
             path = self._descriptor(root, port, self.TOKEN)
+            hub_isolation.isolate_data_root(root)  # refused before launch; a regression must still miss the live hub
             env = {**os.environ, "ORGTREE_V2_DATA": str(root), "ORGTREE_V2_UI_DIR": str(ui)}
+            hub_isolation.scrub_inherited_hub(env)
             result = subprocess.run([sys.executable, str(repo / "engine" / "service_host.py")],
                                     cwd=str(repo), env=env, capture_output=True, text=True, timeout=60)
             self.assertEqual(result.returncode, service_host.EXIT_ROOT_OWNED, result.stderr[-2000:])
@@ -589,12 +591,15 @@ class ServiceHostIntegrationTests(unittest.TestCase):
         self.addCleanup(close)
         with tempfile.TemporaryDirectory() as temp:
             data = Path(temp) / "data"; data.mkdir()
+            # HUB ISOLATION (tests/hub_isolation.py): as in the integration test
+            hub = hub_isolation.isolate_data_root(data)
             ui = Path(temp) / "ui"; (ui / "assets").mkdir(parents=True)
             (ui / "index.html").write_text("<!doctype html>", encoding="utf-8")
             env = {**os.environ, "ORGTREE_V2_DATA": str(data), "ORGTREE_V2_UI_DIR": str(ui),
                    service_host.STOP_EVENT_ENV: str(handle)}
             for key in ("ORGTREE_DATA", "ORGTREE_PORT", "ORGTREE_BASE", "ORGTREE_V2_PORT", "ORGTREE_V2_TOKEN"):
                 env.pop(key, None)
+            hub_isolation.scrub_inherited_hub(env)
             startup = subprocess.STARTUPINFO(lpAttributeList={"handle_list": [handle]})
             host = subprocess.Popen([sys.executable, str(repo / "engine" / "service_host.py")],
                                     cwd=str(repo), env=env, stderr=subprocess.PIPE, startupinfo=startup)
@@ -606,6 +611,10 @@ class ServiceHostIntegrationTests(unittest.TestCase):
                 if host.poll() is not None:
                     self.fail(f"host exited early: {host.stderr.read().decode('utf-8', 'replace')[-2000:]}")
                 self.assertTrue(descriptor.exists(), "descriptor was not written after readiness")
+                value = json.loads(descriptor.read_text(encoding="utf-8"))
+                status, hosted = _request(f"http://127.0.0.1:{value['port']}/api/desktop/hub", value["token"])
+                self.assertEqual(status, 200)
+                self.assertEqual(hub_isolation.hub_status_problems(hosted["status"], hub), [])
                 set_event()
                 host.wait(timeout=45)
                 self.assertEqual(host.returncode, 0, host.stderr.read().decode("utf-8", "replace")[-2000:])
