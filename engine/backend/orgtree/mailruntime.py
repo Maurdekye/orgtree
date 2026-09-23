@@ -47,6 +47,13 @@ __all__ = [
     "classify",
     "eligible_tokens",
     "revalidate",
+    "ENGINE_INSTANCE",
+    "SELF_VIEW_STATES",
+    "manual_ref",
+    "manual_identity",
+    "hold_manual",
+    "live_attempt",
+    "self_view",
 ]
 
 CUSTODY_TURN = "turn"
@@ -143,15 +150,80 @@ def restart_uncertain(row: Mapping[str, Any]) -> bool:
     """Would this row still be protected at restart only by its own history?
 
     True for input written to a provider (`input_attempt`), a steer whose
-    outcome was unknown, and a legacy row with no custody stamp. Exactly these
-    may return to the mailbox at restart once their owners are proven gone
-    (decision33); claims, retention, manual custody, identity changes and
-    malformed stamps are never in this set.
+    outcome was unknown, a legacy row with no custody stamp, and a
+    WELL-FORMED manual-fetch row: its content went to a provider as a tool
+    result, which is the same uncertainty as written input. Exactly these may
+    return to the mailbox at restart once their owners are proven gone
+    (decision33); claims, retention, a malformed manual record, identity
+    changes and malformed stamps are never in this set.
     """
     attempt = row.get("attempt")
     return bool("input_attempt" in row
                 or (isinstance(attempt, Mapping) and attempt.get("outcome") == "unknown")
-                or "custody" not in row)
+                or "custody" not in row
+                or (row.get("mode") == CUSTODY_MANUAL_FETCH
+                    and manual_ref(row.get("manual")) is not None))
+
+
+# --------------------------------------------------------------------------
+# manual-fetch custody (M1+M2a; the public door is closed)
+# --------------------------------------------------------------------------
+
+#: This engine process, as a value no other process can share. A manual row
+#: records it so a later reader can tell "the attempt that fetched this ended
+#: in THIS process" (its turn is over, and so is that provider turn) from "a
+#: prior process fetched it" (its provider may still be running: only the
+#: restart owner proof may release that). A pid is not enough: pids are reused.
+ENGINE_INSTANCE = __import__("os").urandom(8).hex()
+
+#: the manual record's identity fields, all required together
+_MANUAL_IDENTITY = ("mailbox", "generation", "session", "attempt")
+
+
+def manual_ref(record: Any) -> own.CustodyRef | None:
+    """The complete custody tuple a manual row recorded, or None.
+
+    None for anything malformed or incomplete: such a row is protected as
+    unsupported custody and never released by the manual rules below."""
+    if not isinstance(record, Mapping):
+        return None
+    if not all(isinstance(record.get(k), str) and record.get(k)
+               for k in ("engine", "delivery_id")):
+        return None
+    ref = _ref(*(record.get(k, own.Gap.ABSENT) for k in _MANUAL_IDENTITY))
+    return None if isinstance(ref.resolved(), own.Gap) else ref
+
+
+def manual_identity(st: Mapping[str, Any], attempt: Any) -> dict[str, Any] | None:
+    """The live attempt's registered identity, copied, or None. UNDER `_state_lock`.
+
+    A manual fetch records THIS tuple, captured at the attempt's admission,
+    never the node's present identity: the classifier compares the two as one
+    unit, and a tuple assembled now would prove nothing about the attempt."""
+    for row in registrations(st):
+        if row.get("attempt") == attempt and row.get("kind") == CUSTODY_TURN:
+            ident = {k: row.get(k, own.Gap.ABSENT) for k in _MANUAL_IDENTITY}
+            if isinstance(_ref(*ident.values()).resolved(), own.Gap):
+                return None
+            return ident
+    return None
+
+
+def hold_manual(st: dict[str, Any], ident: Mapping[str, Any],
+                toks: Iterable[Any]) -> None:
+    """Register manual custody of `toks` for the attempt in `ident`. UNDER `_state_lock`.
+
+    Extends the attempt's manual registration or creates it with the SAME
+    identity the journal row records. Released with the attempt's other
+    custody at turn end."""
+    add = list(toks)
+    for row in st.get(_REGISTRY) or []:
+        if row.get("attempt") == ident["attempt"] and row.get("kind") == CUSTODY_MANUAL_FETCH:
+            row["toks"].extend(t for t in add if t not in row["toks"])
+            return
+    st.setdefault(_REGISTRY, []).append(
+        {"kind": CUSTODY_MANUAL_FETCH, **{k: ident[k] for k in _MANUAL_IDENTITY},
+         "toks": add})
 
 
 def _ref(mailbox: Any, generation: Any, session: Any,
@@ -396,6 +468,9 @@ def _live_attempt(facts: Mapping[str, Any]) -> Any:
     return None
 
 
+live_attempt = _live_attempt
+
+
 def _carrier_holds(facts: Mapping[str, Any]) -> list[own.CarrierHold]:
     # A concrete carrier may still be popped or restored. Node activity is not
     # evidence that it was discarded. Release requires the actual movement.
@@ -490,10 +565,20 @@ def snapshot(org: Any, nid: str, facts: Mapping[str, Any], *,
             # RAM disappearance is not evidence that it was never consumed.
             members.append(own.Membership(kind=own.MembershipKind.TURN,
                                           owner=None, tokens=(tok,)))
-        # Durable unconfirmed manual custody cannot disappear with RAM.
+        # Durable unconfirmed manual custody cannot disappear with RAM. The
+        # row names its fetching attempt: that attempt, while live, is its
+        # proven holder. Once it is over the membership is stale, but only an
+        # attempt that ran in THIS process is known to be over; a row from a
+        # prior process stays held until the restart owner proof releases it.
         if row.get("mode") == CUSTODY_MANUAL_FETCH:
+            record = row.get("manual")
+            ref = manual_ref(record)
             members.append(own.Membership(kind=own.MembershipKind.MANUAL_FETCH,
-                                          owner=None, tokens=(tok,)))
+                                          owner=ref, tokens=(tok,)))
+            if ref is not None and not released \
+                    and record.get("engine") != ENGINE_INSTANCE:
+                members.append(own.Membership(kind=own.MembershipKind.TURN,
+                                              owner=None, tokens=(tok,)))
         problem = _custody_problem(org, nid, row)
         if problem is not None and not (released and problem == "custody_unproven"):
             members.append(own.Membership(kind=own.MembershipKind.TURN,
@@ -570,7 +655,109 @@ def eligible_tokens(org: Any, nid: str, facts: Mapping[str, Any], *,
     """
     result, _ = classify(org, nid, facts, now=now, pump_toks=pump_toks,
                          owners_gone=owners_gone)
-    return result.reclaimable_tokens  # fences are represented in the same snapshot
+    # fences are represented in the same snapshot
+    return result.reclaimable_tokens | _manual_released(org, nid, facts, result)
+
+
+#: Reasons that are reported but hold nothing: a membership that is over, a
+#: carrier nothing consumes, an expired lease, a receipt that is not Read, a
+#: missing or unreadable drain stamp, a bare mode label, and the residual
+#: verdict itself. `OWNER_RESOLVED_ELSEWHERE` rides beside a claim or lease
+#: that holds on its own reason.
+_NOT_HOLDING = frozenset({
+    own.Reason.OWNER_MEMBERSHIP_STALE, own.Reason.QUEUE_CARRIER_NO_CONSUMER,
+    own.Reason.STEER_CARRIER_NO_CONSUMER, own.Reason.LEASE_EXPIRED,
+    own.Reason.ACKNOWLEDGED_NOT_CONFIRMED, own.Reason.GRACE_STAMP_ABSENT,
+    own.Reason.GRACE_STAMP_UNREADABLE, own.Reason.MODE_LABEL_ONLY,
+    own.Reason.OWNER_RESOLVED_ELSEWHERE, own.Reason.UNOWNED_PAST_GRACE})
+
+
+def _holding(verdict: own.TokenVerdict) -> frozenset[own.Reason]:
+    return frozenset(verdict.reasons) - _NOT_HOLDING
+
+
+def _rows_by_tok(org: Any, nid: str) -> dict[str, Mapping[str, Any]]:
+    rows = (org.d.get("delivering") or {}).get(nid) or []
+    return {r["tok"]: r for r in rows
+            if isinstance(r, Mapping) and isinstance(r.get("tok"), str)}
+
+
+def _manual_released(org: Any, nid: str, facts: Mapping[str, Any],
+                     result: own.Classification) -> frozenset[str]:
+    """Manual rows whose fetching attempt is over, held by the drain grace alone.
+
+    The grace covers the instant between a drain and its carrier taking the
+    batch. A manual row names its holder durably from the moment it exists,
+    so that instant does not exist for it. Once its attempt has ended in this
+    very process, only the grace would keep it out of the mailbox, and the
+    turn-end fold must return it at once. Nothing else is released: a live
+    attempt, a halt hold, a claim or a prior process still protects it.
+    """
+    # An attempt is over once its custody is released (turn end does that
+    # before its fold); the node's busy flags may still be set at that point.
+    registry = facts["registry"]
+    holding_attempts = ({r.get("attempt") for r in registry if isinstance(r, Mapping)}
+                        if isinstance(registry, list) else None)
+    rows = _rows_by_tok(org, nid)
+    out = set()
+    for tok, verdict in result.by_token.items():
+        row = rows.get(tok)
+        if (row is None or row.get("mode") != CUSTODY_MANUAL_FETCH
+                or verdict.disposition is not own.Disposition.PROTECTED
+                or holding_attempts is None):
+            continue
+        record = row.get("manual")
+        if (manual_ref(record) is None or record.get("engine") != ENGINE_INSTANCE
+                or record.get("attempt") in holding_attempts):
+            continue
+        if _holding(verdict) == {own.Reason.WITHIN_DRAIN_GRACE}:
+            out.add(tok)
+    return frozenset(out)
+
+
+#: Every self-view state `self_view` can report. Ordering and meaning are the
+#: manual-inbox contract's; `inflight_other` and `unavailable` are the honest
+#: remainder the classifier can also return.
+SELF_VIEW_STATES = ("queued", "inflight_turn", "inflight_steer", "inflight_queue",
+                    "held_halt", "settling", "unowned", "fetched_unconfirmed",
+                    "inflight_other", "unavailable")
+
+
+def self_view(org: Any, nid: str, facts: Mapping[str, Any], *, now: float,
+              pump_toks: Any = ()) -> tuple[dict[str, str], own.Classification]:
+    """Journal token -> self-view state, from the SAME classification reclaim uses.
+
+    Pure: no identity, no write. `unowned` is exactly the set
+    `eligible_tokens` returns for the same facts; the busy bit is never read.
+    """
+    result, _ = classify(org, nid, facts, now=now, pump_toks=pump_toks)
+    released = _manual_released(org, nid, facts, result)
+    rows = _rows_by_tok(org, nid)
+    states = {}
+    for tok, verdict in result.by_token.items():
+        hold = _holding(verdict)
+        row = rows.get(tok) or {}
+        if verdict.disposition is own.Disposition.UNAVAILABLE:
+            state = "unavailable"
+        elif verdict.reclaimable or tok in released:
+            state = "unowned"
+        elif hold == {own.Reason.WITHIN_DRAIN_GRACE}:
+            state = "settling"
+        elif row.get("mode") == CUSTODY_MANUAL_FETCH:
+            state = "fetched_unconfirmed"
+        elif hold & {own.Reason.HALT_HELD, own.Reason.NATIVE_HELD}:
+            state = "held_halt"
+        elif own.Reason.CURRENT_TURN_MEMBERSHIP in hold:
+            state = "inflight_turn"
+        elif hold & {own.Reason.STEER_CARRIER_LIVE, own.Reason.STEER_LIMBO_REQUESTED,
+                     own.Reason.CLAIM_HELD}:
+            state = "inflight_steer"
+        elif own.Reason.QUEUE_CARRIER_LIVE in hold:
+            state = "inflight_queue"
+        else:
+            state = "inflight_other"
+        states[tok] = state
+    return states, result
 
 
 # --------------------------------------------------------------------------
@@ -645,9 +832,17 @@ def reclaim_receipt(org: Any, nid: str, toks: Iterable[str], *,
         raise ValueError("reclaim needs exactly one journal row for each token")
     if {r["tok"] for r in selected} != wanted:
         raise ValueError("reclaim journal identity is ambiguous")
-    return {"operation": operation, "outcome": "reclaimed", "node": nid,
-            "identity": list(_node_identity(org, nid)),
-            "before": {r["tok"]: _journal_fingerprint(r) for r in selected}}
+    receipt = {"operation": operation, "outcome": "reclaimed", "node": nid,
+               "identity": list(_node_identity(org, nid)),
+               "before": {r["tok"]: _journal_fingerprint(r) for r in selected}}
+    # A manual batch's continuation handle, so a later chunk read can say
+    # "returned to the mailbox" from this positive receipt, not from absence.
+    manual = {r["tok"]: r["manual"]["delivery_id"] for r in selected
+              if r.get("mode") == CUSTODY_MANUAL_FETCH
+              and manual_ref(r.get("manual")) is not None}
+    if manual:
+        receipt["deliveries"] = manual
+    return receipt
 
 
 def write_reclaim_receipt(org: Any, receipt: Mapping[str, Any]) -> None:

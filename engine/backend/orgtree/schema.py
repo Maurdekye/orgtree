@@ -773,6 +773,38 @@ MailEntry = TypedDict("MailEntry", {
 })
 
 
+class ManualChunk(TypedDict):
+    """One chunk of a manually fetched body: UTF-8 byte offset and length in
+    the journaled body, and the digest of exactly those bytes."""
+    offset: int
+    length: int
+    sha256: str
+
+
+class ManualChunkPlan(TypedDict):
+    """A body's chunk plan, fixed when the manual fetch drained it and never
+    recomputed (inbox.chunk_plan). The chunks concatenate to the whole body,
+    whose digest is `body_sha256`."""
+    body_bytes: int
+    body_sha256: str
+    chunk_total: int
+    chunks: list[ManualChunk]
+
+
+class ManualFetchRecord(TypedDict):
+    """`delivering[<node>][i]["manual"]` on a `mode="manual_fetch"` journal row
+    (M1+M2a, internal; the door is closed). The fetching attempt's registered
+    identity, captured together; the engine process that ran it; the
+    server-minted continuation handle; one chunk plan per message id."""
+    mailbox: str
+    generation: int
+    session: str
+    attempt: str
+    engine: str
+    delivery_id: str
+    plan: dict[str, ManualChunkPlan]
+
+
 class OrgInboxEntry(TypedDict):
     """The inter-org bridge log (capped at 200): one inbound or outbound
     message on the org's single outside face."""

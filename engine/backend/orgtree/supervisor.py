@@ -44,7 +44,7 @@ from functools import wraps
 from pathlib import Path
 from typing import Any, Final, Protocol, cast
 
-from . import halt, maildrain
+from . import halt, inbox, maildrain
 from . import (accounts, agentauth, antigravity_limits, appsettings,
                cachecontinuity, clipin, codex_limits, codex_route, deployment,
                envelope, events, events_table, failfix, handoff, imgblock,
@@ -9898,6 +9898,191 @@ def _fold_back_undelivered(slug: str, nid: str,
         reclaim_orphans(slug, nid, pump_toks=tuple(keep_toks), only_toks=only_toks)
     except Exception:                                        # noqa: BLE001
         pass
+
+
+# ------------------------------------------------ manual inbox (door CLOSED)
+# M1+M2a: an agent's own list/fetch of its waiting mail, built and tested
+# with NO door: no tool card, agent_call selector or dispatcher reaches these
+# functions. Exposure is a later, separately reviewed P01 surface change.
+# Identity is the authenticated (org, node, generation); there is no target.
+def _manual_identity_refusal(org: Org, nid: str, generation: Any) -> dict[str, Any] | None:
+    node = org.nodes.get(nid)
+    if (node is None or isinstance(generation, bool)
+            or not isinstance(generation, int) or node.get("generation") != generation):
+        return inbox.refusal("identity_refused", "this call's agent identity is not current")
+    return None
+
+
+def manual_list(slug: str, nid: str, generation: int, *, cursor: Any = None,
+                limit: Any = None, now: float | None = None) -> dict[str, Any]:
+    """PURE self-inspection: every waiting message and where it is.
+
+    Loads and classifies; writes nothing, mints nothing, wakes nothing. The
+    states come from `mailruntime.self_view`, the same classification the
+    reclaim uses, never from the busy bit."""
+    with store.DOC_LOCK:
+        org = store.load_org(slug)
+        refused = _manual_identity_refusal(org, nid, generation)
+        if refused is not None:
+            return refused
+        st = state(slug, nid)
+        with _state_lock:
+            facts = mailruntime.runtime_facts(st)
+        states, _ = mailruntime.self_view(org, nid, facts,
+                                          now=time.time() if now is None else now)
+        return inbox.build_list(org, nid, states, generation=generation,
+                                cursor=cursor, limit=limit)
+
+
+def manual_fetch(slug: str, nid: str, generation: int, message_ids: Any, *,
+                 now: float | None = None) -> dict[str, Any]:
+    """Take exactly the named messages into a manual-fetch journal batch.
+
+    ONE transaction through `reclaim_orphans(only_toks=, mutate=)`: unowned
+    journal batches holding a requested id are folded back (whole batch,
+    `redelivered` +1), then exactly the requested ids that fit the budget are
+    drained from the mailbox and journaled `mode="manual_fetch"` under the
+    running attempt's own registered identity, then one save. An id a live
+    carrier holds is reported `already_moved` with its stage and its batch is
+    untouched. Nothing is confirmed, discarded or marked Read: the batch
+    returns to the mailbox when the attempt ends (`will_redeliver`)."""
+    ids, refused = inbox.normalize_ids(message_ids)
+    if refused is not None:
+        return refused
+    st = state(slug, nid)
+    t_now = time.time() if now is None else now
+    wanted = set(ids)
+    result: dict[str, Any] = {}
+    with store.DOC_LOCK:
+        org = store.load_org(slug)
+        refused = _manual_identity_refusal(org, nid, generation)
+        if refused is not None:
+            return refused
+        if _reclaim_blocked(org, nid):
+            return inbox.refusal("mailbox_unavailable", "this mailbox cannot be "
+                                 "read now: the agent is halted, frozen or held")
+        with _state_lock:
+            live = mailruntime.live_attempt(mailruntime.runtime_facts(st))
+            ident = mailruntime.manual_identity(st, live) if live else None
+        node = org.nodes[nid]
+        if (ident is None or ident["mailbox"] != node.get("mailbox_id")
+                or ident["generation"] != generation):
+            return inbox.refusal("custody_unproven", "a manual fetch needs this "
+                                 "agent's own running turn")
+        candidates = [b["tok"] for b in (org.d.get("delivering") or {}).get(nid) or []
+                      if isinstance(b, dict) and isinstance(b.get("tok"), str)
+                      and any(isinstance(m, dict) and m.get("id") in wanted
+                              for m in b.get("mail") or [])]
+
+        def _drain(o: Org) -> None:
+            with _state_lock:
+                facts = mailruntime.runtime_facts(st)
+            if mailruntime.live_attempt(facts) != live:
+                raise RuntimeError("the fetching attempt ended mid-transaction")
+            states, _ = mailruntime.self_view(o, nid, facts, now=t_now)
+            boxed = [m for m in (o.d.get("mail") or {}).get(nid) or []
+                     if isinstance(m, dict) and isinstance(m.get("id"), str)]
+            box = {m["id"]: m for m in boxed}
+            # an id boxed twice names no single message: take neither copy
+            twice = {i for i in box if sum(m["id"] == i for m in boxed) > 1}
+            box = {i: (m if i not in twice else {**m, "body": None})
+                   for i, m in box.items()}
+            moved: dict[str, dict[str, Any]] = {}
+            for b in (o.d.get("delivering") or {}).get(nid) or []:
+                if not isinstance(b, dict):
+                    continue
+                manual = b.get("manual") if isinstance(b.get("manual"), dict) else {}
+                for m in b.get("mail") or []:
+                    mid = m.get("id") if isinstance(m, dict) else None
+                    if mid in wanted and mid not in box and mid not in moved:
+                        moved[mid] = {"message_id": mid,
+                                      "state": states.get(b.get("tok"), "unavailable"),
+                                      **({"delivery_id": manual["delivery_id"]}
+                                         if manual.get("delivery_id") else {})}
+            take, deferred, unsupported = inbox.fit_budget(
+                [i for i in ids if i in box], box)
+            result.update(delivery_id=None, fetched=[],
+                          already_moved=[moved[i] for i in ids if i in moved],
+                          deferred_ids=deferred, unsupported_ids=unsupported,
+                          not_found=[i for i in ids if i not in box and i not in moved])
+            if not take:
+                return
+            mail = _take_delivery_mail(o, nid, take)
+            tok = _journal_drain(o, nid, mail, None, via="turn",
+                                 mode=mailruntime.CUSTODY_MANUAL_FETCH)
+            row = next(b for b in o.d["delivering"][nid] if b.get("tok") == tok)
+            did = "mf-" + os.urandom(8).hex()
+            row["manual"] = inbox.manual_record(
+                ident, engine=mailruntime.ENGINE_INSTANCE, delivery_id=did, mail=mail)
+            with _state_lock:
+                mailruntime.hold_manual(st, ident, [tok])
+            result.update(delivery_id=did, fetched=[
+                inbox.fetched_item(m, row["manual"]["plan"][m["id"]], did) for m in mail])
+
+        try:
+            out = reclaim_orphans(slug, nid, org=org, now=t_now,
+                                  only_toks=candidates, mutate=_drain)
+        except Exception as exc:                             # noqa: BLE001
+            return inbox.refusal(
+                "fetch_outcome_unknown", "the fetch could not be saved; if it was, "
+                "list shows it as fetched_unconfirmed and it returns to your "
+                f"mailbox when this turn ends ({type(exc).__name__})",
+                **inbox.disclosure())
+    if not out["saved"]:
+        return inbox.refusal("mailbox_unavailable", "this mailbox cannot be read now")
+    return {"ok": True, **result, "reclaimed_batches": len(out["folded"]),
+            **inbox.disclosure()}
+
+
+def manual_fetch_chunk(slug: str, nid: str, generation: int, delivery_id: Any,
+                       message_id: Any, chunk_index: Any) -> dict[str, Any]:
+    """Chunk continuation `(delivery_id, chunk_index)`: READ ONLY.
+
+    Serves the same bytes from the same journaled row and recorded offsets on
+    every call, and never drains. When the row is gone the answer comes from
+    a positive receipt (`redelivered`, `confirmed`) or is `unknown`; absence
+    alone proves nothing."""
+    with store.DOC_LOCK:
+        org = store.load_org(slug)
+        refused = _manual_identity_refusal(org, nid, generation)
+        if refused is not None:
+            return refused
+        if not isinstance(delivery_id, str) or not isinstance(message_id, str):
+            return inbox.refusal("bad_arguments", "delivery_id and message_id are required")
+        rows = [b for b in (org.d.get("delivering") or {}).get(nid) or []
+                if isinstance(b, dict) and isinstance(b.get("manual"), dict)
+                and b["manual"].get("delivery_id") == delivery_id]
+        gone = {"ok": True, "delivery_id": delivery_id, "message_id": message_id,
+                "chunk_index": chunk_index, "content": None, "content_available": False}
+        if len(rows) > 1:
+            return {**gone, "content_state": "unavailable"}
+        if not rows:
+            state_ = "unknown"
+            for receipt in ((org.d.get("mail_transitions") or {}).get(nid) or {}).values():
+                if (isinstance(receipt, dict) and isinstance(receipt.get("deliveries"), dict)
+                        and delivery_id in receipt["deliveries"].values()):
+                    state_ = {"reclaimed": "redelivered",
+                              "confirmed": "confirmed"}.get(receipt.get("outcome"), "unknown")
+            return {**gone, "content_state": state_}
+        row = rows[0]
+        record = row["manual"]
+        node = org.nodes[nid]
+        if (mailruntime.manual_ref(record) is None
+                or record.get("generation") != generation
+                or record.get("mailbox") != node.get("mailbox_id")):
+            return {**gone, "content_state": "unavailable"}
+        mail = next((m for m in row.get("mail") or []
+                     if isinstance(m, dict) and m.get("id") == message_id), None)
+        plan = (record.get("plan") or {}).get(message_id)
+        if mail is None or not isinstance(plan, dict):
+            return inbox.refusal("not_in_delivery", "that message is not part of this delivery")
+        total = plan.get("chunk_total")
+        if (isinstance(chunk_index, bool) or not isinstance(chunk_index, int)
+                or not isinstance(total, int) or not 0 <= chunk_index < total):
+            return inbox.refusal("chunk_out_of_range", "no such chunk in this delivery")
+        return {"ok": True, **inbox.fetched_item(mail, plan, delivery_id, chunk_index),
+                **inbox.disclosure()}
+
 
 
 # ------------------------------------------------------- mail POINTER nudges
