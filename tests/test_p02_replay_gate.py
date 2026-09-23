@@ -21,7 +21,9 @@ run here.
 """
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import shutil
@@ -29,6 +31,7 @@ import stat
 import subprocess
 import sys
 import unittest
+from unittest import mock
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 import isolation_guards as ig
@@ -303,6 +306,85 @@ class SegmentedReplay(Temp):
         (inside / "data").mkdir(parents=True)
         tool._remove_fixture(run, inside, ig)
         self.assertFalse(inside.exists())
+
+
+class UnknownLivenessIsBusy(Temp):
+    """When the process query cannot answer, a crashed segment may still be
+    in use: the round must STOP, not remove the fixture (review r2 R1). The
+    tool runs in-process so the query can be made to fail; any other process
+    start is refused, so a mutant cannot launch a real arm."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        spec = importlib.util.spec_from_file_location("p02_copy_replay_unknown", TOOL)
+        self.tool = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.tool)
+        self.run_dir = self.tmp / "replay"
+        self.master = self.run_dir / "master" / "data"
+        self.master.mkdir(parents=True)
+        (self.master / "orgtree.db").write_bytes(b"synthetic master")
+        self.expect = self.tmp / "expect"
+        self.expect.mkdir()
+        for arm in "ABC":
+            (self.expect / f"expected-refusals-{arm}.json").write_text("{}", "utf-8")
+        self.crashed = self.run_dir / "arms" / "1-A" / "data"  # round 1 starts with A
+        self.crashed.mkdir(parents=True)
+        (self.crashed / "half-written.db").write_bytes(b"partial")
+
+    def replay_with_query(self, answer) -> tuple[int, dict | None, list]:
+        queries: list = []
+        real_run = subprocess.run
+
+        def fake_run(cmd, *args, **kwargs):
+            if cmd and cmd[0] == "powershell" and "P02_SEGMENT_NEEDLE" in (kwargs.get("env") or {}):
+                queries.append(cmd)
+                return answer(cmd)
+            raise AssertionError(f"unexpected process start: {cmd!r}")
+
+        out = io.StringIO()
+        with mock.patch.object(self.tool, "_baseline_suite_running", return_value=False), \
+                mock.patch.object(self.tool.subprocess, "run", side_effect=fake_run), \
+                contextlib.redirect_stdout(out):
+            code = self.tool.main(["replay", "--master", str(self.master), "--run",
+                                   str(self.run_dir), "--tree", str(ROOT), "--tree-a", str(ROOT),
+                                   "--expect-dir", str(self.expect), "--rounds", "2",
+                                   "--round", "1", "--n", "40"])
+        self.assertIs(subprocess.run, real_run)
+        lines = [ln for ln in out.getvalue().splitlines() if ln.startswith("{")]
+        return code, (json.loads(lines[-1]) if lines else None), queries
+
+    def test_a_failing_process_query_stops_the_round_with_the_fixture_untouched(self):
+        def raises(cmd):
+            raise OSError("powershell is not available")
+
+        def times_out(cmd):
+            raise subprocess.TimeoutExpired(cmd, 120)
+
+        failures = {
+            "query raises": raises,
+            "query times out": times_out,
+            "query exits nonzero": lambda cmd: subprocess.CompletedProcess(cmd, 1, "", "boom"),
+            "query prints no number": lambda cmd: subprocess.CompletedProcess(cmd, 0, "n/a\n", ""),
+        }
+        for name, answer in failures.items():
+            with self.subTest(name):
+                code, last, queries = self.replay_with_query(answer)
+                self.assertEqual(len(queries), 1, "the query itself was reached")
+                self.assertEqual(code, 4, last)
+                self.assertIn("could not tell whether an earlier attempt is still running",
+                              last["stopped"])
+                self.assertEqual(last["segments"], [])
+                self.assertEqual((self.crashed / "half-written.db").read_bytes(), b"partial")
+                self.assertEqual(sorted(p.name for p in (self.run_dir / "arms").iterdir()), ["1-A"])
+                self.assertEqual(sorted(self.crashed.iterdir()), [self.crashed / "half-written.db"])
+                self.assertEqual(list((self.run_dir / "out").glob("arm-*.json"))
+                                 if (self.run_dir / "out").exists() else [], [])
+
+        # control: a query that answers 0 does reach the redo (the fixture is
+        # removed and an arm would start), so the stops above came from "unknown"
+        with self.assertRaisesRegex(AssertionError, "unexpected process start"):
+            self.replay_with_query(lambda cmd: subprocess.CompletedProcess(cmd, 0, "0\n", ""))
+        self.assertFalse((self.crashed / "half-written.db").exists())
 
 
 class EndToEndGate(Temp):
