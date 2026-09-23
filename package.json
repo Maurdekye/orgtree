@@ -26,6 +26,7 @@
     "verify:release": "node tools/release-verification.mjs",
     "package:dev": "npm run build && node tools/package-dev.mjs",
     "test:electron": "node tools/test-electron.mjs",
+    "test:acceptance:agent-turn": "node tests/acceptance/run_agent_turn.mjs",
     "runtime:provision": "python tools/provision-runtime.py",
     "runtime:stage": "node tools/stage-runtime.mjs"
   },
