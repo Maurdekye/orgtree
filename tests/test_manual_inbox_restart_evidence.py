@@ -340,8 +340,13 @@ class ManualRestartEvidenceTests(unittest.TestCase):
         self.assert_folded_as_before(ids)
 
     def test_a_confirmation_failing_part_way_leaves_the_document_untouched(self):
-        _ids, _did = self.delivery()
+        ids, _did = self.delivery()
         self.crash()
+        org = self.load()
+        # A drain demand naming the batch: confirmation retires it from the
+        # NODE record before the injected failure, so the node is restored too.
+        org.nodes[W]['mail_drain'] = {'ids': list(ids), 'at': OLD}
+        store.save_org(org)
         with store.DOC_LOCK:
             org = self.load()
             before = json.dumps(org.d, sort_keys=True, default=str)
