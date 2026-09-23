@@ -14,9 +14,12 @@ import unittest
 from unittest.mock import patch
 
 _tmp = tempfile.mkdtemp(prefix="bulk-cheap-compact-")
-os.environ.setdefault("ORGTREE_DATA", os.path.join(_tmp, "data"))
-os.environ.pop("ORGTREE_AGENT_PARENT_DATA", None)
-os.environ.pop("ORGTREE_AGENT_LEGACY_DATA", None)
+# ASSIGNED, never setdefault: an agent's environment carries the LIVE data
+# root in ORGTREE_DATA, and this module must never inherit it or the live hub
+os.environ["ORGTREE_DATA"] = os.path.join(_tmp, "data")
+for _key in ("ORGTREE_AGENT_PARENT_DATA", "ORGTREE_AGENT_LEGACY_DATA",
+             "ORGTREE_LOCAL_HUB_ADDRESS"):
+    os.environ.pop(_key, None)
 
 import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside this checkout
 
