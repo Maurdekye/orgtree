@@ -52,7 +52,8 @@ from . import (accounts, agentauth, antigravity_limits, appsettings,
                liveness, localtime, mailruntime, net, openrouter,
                openrouter_harness, opreceipts, providers, registry,
                sandbox as sbx, stateprobe, steer, store, workevidence,
-               tokens, turnlog, turnusage, warmpool)
+               tokens, turnlog, turnusage, warmpool, service_custody,
+               service_process)
 from .fleet_walk import fleet_walk
 from .desktop_native import NativeInventory
 from .ledger import (EXTERN, SYSTEM, USER, LedgerError, Org, expand_mcp,
@@ -84,7 +85,40 @@ def _deployment_org_gate(org: Org) -> None:
             "sandbox enabled before enabling frozen mode")
 
 
+def _service_admission(org: Org, nid: str) -> service_custody.Admission | None:
+    """One local observation; the service rechecks at actual process resume."""
+    from engine import bridge_client
+    if not bridge_client.available():
+        return None
+    n = org.node(nid)
+    tier = str(n.get("model") or "")
+    provider = providers.provider_of(tier)
+    bound = str(n.get("account") or "")
+    try:
+        if bound:
+            row = registry.get_account(bound)
+        else:
+            row = apikey_route_for(tier) if provider in ("claude", "openai", "google") else None
+            if row is None:
+                row = {"provider": provider, "credential": {"kind": "ambient"}}
+    except (KeyError, ValueError):
+        return service_custody.Admission("unavailable", "Selected provider account is unavailable")
+    readable = service_custody.probe_provider_file(
+        row, home=Path.home(), has_token=tokens.has)
+    try:
+        bridge_on = bridge_client.state().get("bridge") == "on"
+    except bridge_client.BridgeUnavailable:
+        bridge_on = False
+    # The 2026-09-23 user ruling admits exact file-backed providers even
+    # though arbitrary future agent Git commands cannot be classified now.
+    return service_custody.decide(row, provider_file_readable=readable,
+                                  git_custody="unknown", bridge_on=bridge_on)
+
+
 def _native_context_hold(org: Org, nid: str, *, inventory: NativeInventory | None = None) -> str | None:
+    service_admission = _service_admission(org, nid)
+    if service_admission is not None and service_admission.decision == "unavailable":
+        return service_admission.reason
     if not org.node(nid).get('desktop_import'):
         return None
     try:

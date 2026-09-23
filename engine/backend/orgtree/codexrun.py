@@ -519,7 +519,9 @@ class AppServerClient:
                  tool_dispatch: Callable[[str, dict[str, Any]], str] | None = None,
                  approval_decide: Callable[[str, dict[str, Any]], str] | None = None,
                  env_extra: dict[str, str] | None = None,
-                 config_overrides: list[str] | None = None) -> None:
+                 config_overrides: list[str] | None = None,
+                 process_factory: Callable[[list[str], str | None,
+                                            dict[str, str]], Any] | None = None) -> None:
         # an ARGV HEAD, not a bare exe — the same shape as supervisor's
         # _claude_argv(): production passes [codex.exe], tests pass
         # [python, fakecodex.py], and nobody ever routes through a .CMD shim
@@ -531,12 +533,13 @@ class AppServerClient:
         # against the PROCESS
         # `-c` overrides are GLOBAL options and must precede the subcommand —
         # codex parses them off the top-level command line, not off app-server.
-        self.proc = subprocess.Popen(
-            argv_head + list(config_overrides or []) + ["app-server"],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, cwd=cwd,
-            creationflags=(subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
-                           if os.name == "nt" else 0))
+        argv = argv_head + list(config_overrides or []) + ["app-server"]
+        self.proc = (process_factory(argv, cwd, env) if process_factory is not None
+                     else subprocess.Popen(
+                         argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE, env=env, cwd=cwd,
+                         creationflags=(subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
+                                        if os.name == "nt" else 0)))
         self.on_event = on_event
         self.on_exit: Callable[[], None] | None = None
         #: ⚠ THE PROCESS DYING IS AN EVENT SOMEBODY HAS TO HEAR. `on_exit`
@@ -1264,6 +1267,8 @@ class CodexTurn:
                  usage_baseline: dict[str, Any] | None = None,
                  client: AppServerClient | None = None,
                  on_late_tool_result: Callable[[dict[str, Any]], None] | None = None,
+                 process_factory: Callable[[list[str], str | None,
+                                            dict[str, str]], Any] | None = None,
                  ) -> None:
         self._caller_on_event = on_event
         self.cwd = cwd
@@ -1331,7 +1336,8 @@ class CodexTurn:
         self._owns_client = client is None
         self.client = client or AppServerClient(
             argv_head, codex_home=codex_home, cwd=cwd,
-            env_extra=env_extra, config_overrides=config_overrides)
+            env_extra=env_extra, config_overrides=config_overrides,
+            process_factory=process_factory)
         # ── audit D2/D3 bookkeeping, owned by this turn ──
         #: dispatch records that finished AFTER this turn ended (or never
         #: reached the wire): the server emits no `item/completed` for them,

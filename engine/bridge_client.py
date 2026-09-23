@@ -67,9 +67,11 @@ def state() -> dict[str, Any]:
 
 
 class BridgedPopen:
-    """The subset of subprocess.Popen used by the provider supervisor."""
+    """The stdio and process subset used by the three provider runners."""
 
-    def __init__(self, values: dict[str, Any], args: list[str]):
+    def __init__(self, values: dict[str, Any], args: list[str], *,
+                 text: bool = False, encoding: str = "utf-8",
+                 errors: str = "replace"):
         self.pid = int(values["pid"])
         self.args = args
         self._handle = int(values["process"])
@@ -83,12 +85,16 @@ class BridgedPopen:
         stdin_fd = msvcrt.open_osfhandle(int(values["stdin"]), os.O_BINARY | os.O_WRONLY)
         stdout_fd = msvcrt.open_osfhandle(int(values["stdout"]), os.O_BINARY | os.O_RDONLY)
         stderr_fd = msvcrt.open_osfhandle(int(values["stderr"]), os.O_BINARY | os.O_RDONLY)
-        self.stdin = io.TextIOWrapper(os.fdopen(stdin_fd, "wb", buffering=0),
-                                      encoding="utf-8", errors="replace", line_buffering=True)
-        self.stdout = io.TextIOWrapper(os.fdopen(stdout_fd, "rb", buffering=0),
-                                       encoding="utf-8", errors="replace")
-        self.stderr = io.TextIOWrapper(os.fdopen(stderr_fd, "rb", buffering=0),
-                                       encoding="utf-8", errors="replace")
+        self.stdin = os.fdopen(stdin_fd, "wb", buffering=0)
+        self.stdout = os.fdopen(stdout_fd, "rb", buffering=0)
+        self.stderr = os.fdopen(stderr_fd, "rb", buffering=0)
+        if text:
+            self.stdin = io.TextIOWrapper(self.stdin, encoding=encoding,
+                                          errors=errors, line_buffering=True)
+            self.stdout = io.TextIOWrapper(self.stdout, encoding=encoding,
+                                           errors=errors)
+            self.stderr = io.TextIOWrapper(self.stderr, encoding=encoding,
+                                           errors=errors)
 
     def poll(self) -> int | None:
         if self.returncode is not None:
@@ -120,9 +126,9 @@ class BridgedPopen:
 
     terminate = kill
 
-    def communicate(self, input: str | None = None,
-                    timeout: float | None = None) -> tuple[str, str]:
-        output: list[str] = ["", ""]
+    def communicate(self, input: str | bytes | None = None,
+                    timeout: float | None = None) -> tuple[str | bytes, str | bytes]:
+        output: list[str | bytes] = ["", ""]
         threads = [threading.Thread(target=lambda index, stream: output.__setitem__(index, stream.read()),
                                     args=(index, stream), daemon=True)
                    for index, stream in enumerate((self.stdout, self.stderr))]
@@ -147,13 +153,22 @@ class BridgedPopen:
             self.kernel.CloseHandle(w.HANDLE(self._handle))
             self._handle = 0
 
+    def __del__(self) -> None:
+        if getattr(self, "_handle", 0):
+            try:
+                self.close()
+            except (OSError, ValueError):
+                pass
+
 
 def spawn(turn_id: str, argv: list[str], cwd: str,
-          env: dict[str, str]) -> BridgedPopen:
+          env: dict[str, str], *, text: bool = False,
+          encoding: str = "utf-8", errors: str = "replace") -> BridgedPopen:
     response = _request({"op": "spawn", "turnId": turn_id,
                          "argv": argv, "cwd": cwd, "env": env})
     try:
-        return BridgedPopen(response, argv)
+        return BridgedPopen(response, argv, text=text,
+                            encoding=encoding, errors=errors)
     except BaseException:
         try:
             _request({"op": "terminate", "turnId": turn_id})

@@ -42,13 +42,15 @@ class CustodyTests(unittest.TestCase):
         self.assertEqual(decide(account, provider_file_readable=True,
                                 git_custody="session", bridge_on=True).decision, "bridge")
 
-    def test_unknown_custody_is_never_inferred_safe(self):
+    def test_unknown_provider_refused_but_unknown_git_allows_safe_provider(self):
         account = {"provider": "unrecognized", "credential": {"kind": "managed"}}
         self.assertEqual(decide(account, provider_file_readable=True,
                                 git_custody="file", bridge_on=True).decision, "unavailable")
         account = {"provider": "openai", "credential": {"kind": "ambient"}}
-        self.assertEqual(decide(account, provider_file_readable=True,
-                                git_custody="unknown", bridge_on=True).decision, "unavailable")
+        safe = decide(account, provider_file_readable=True,
+                      git_custody="unknown", bridge_on=False)
+        self.assertEqual(safe.decision, "service")
+        self.assertIn("Git prompts are disabled", safe.reason)
 
     def test_probe_reads_only_selected_profile_file_and_never_ambient_fallback(self):
         with tempfile.TemporaryDirectory() as temp:

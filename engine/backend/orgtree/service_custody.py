@@ -2,8 +2,10 @@
 
 This is a policy boundary, not a credential reader. A caller running under the
 service's filtered operator identity supplies whether its exact credential
-carrier is readable. Unknown provider or Git custody never becomes a boot-safe
-turn merely because a login worked on the desktop once.
+carrier is readable. Unknown provider custody never becomes a boot-safe turn
+merely because a login worked on the desktop once. Unknown Git custody is
+allowed for a service-safe provider under the user ruling of 2026-09-23,
+with prompts disabled and no automatic whole-turn replay.
 """
 
 from __future__ import annotations
@@ -100,16 +102,21 @@ def decide(account: Mapping[str, Any], *, provider_file_readable: bool,
 
     The provider probe must inspect the selected account's exact profile or
     token-store carrier under the service identity. Git custody must likewise
-    be established independently for this turn. A missing declared file is
-    unavailable, never repaired by reading a different account's credentials.
+    be established independently when known. Unknown Git custody does not
+    suppress a service-safe provider turn: Git prompts are disabled by the
+    service process environment, and a remote operation needing a protected
+    credential fails for the agent to retry after a real sign-in. A missing
+    declared provider file never falls back to another account.
     """
     provider = provider_custody(account)
     if provider == "file" and not provider_file_readable:
         return Admission("unavailable", "Selected account credential file is unavailable")
-    if provider == "unknown" or git_custody == "unknown":
+    if provider == "unknown":
         return Admission("unavailable", "Credential custody could not be verified")
     if provider == "session" or git_custody == "session":
         if bridge_on:
             return Admission("bridge", "Signed-in-user bridge is available")
         return Admission("unavailable", WAITING_FOR_SIGN_IN)
+    if git_custody == "unknown":
+        return Admission("service", "Provider is service-safe; Git prompts are disabled")
     return Admission("service", "Selected provider and Git credentials are service-safe")

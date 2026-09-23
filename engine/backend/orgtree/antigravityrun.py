@@ -599,7 +599,9 @@ class AntigravityTurn:
                  env_extra: dict[str, str] | None = None,
                  log_file: str | None = None,
                  turn_timeout: float | None = None,
-                 persistent: bool = False) -> None:
+                 persistent: bool = False,
+                 process_factory: Callable[[list[str], str,
+                                            dict[str, str]], Any] | None = None) -> None:
         argv = list(argv_head) + [
             "-p=", "--input-format", "stream-json",
             "--output-format", "stream-json",
@@ -634,6 +636,7 @@ class AntigravityTurn:
         self.conversation_id = conversation_id
         self.log_file = log_file
         self._env_extra = dict(env_extra or {})
+        self._process_factory = process_factory
         self._caller_on_event = on_event
         self.proc: subprocess.Popen[bytes] | None = None
         self.stderr_tail: list[str] = []
@@ -753,10 +756,11 @@ class AntigravityTurn:
                                         allow_gemini_key=bool(self._env_extra.get("GEMINI_API_KEY")))
         self._steer_dir = tempfile.mkdtemp(prefix="agy-steer-")
         env["ORGTREE_AGY_STEER_DIR"] = self._steer_dir
-        self.proc = subprocess.Popen(
-            self.argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, env=env, cwd=self.cwd,
-            creationflags=(subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0))
+        self.proc = (self._process_factory(self.argv, self.cwd, env)
+                     if self._process_factory is not None else subprocess.Popen(
+                         self.argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE, env=env, cwd=self.cwd,
+                         creationflags=(subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)))
         self._reader = threading.Thread(target=self._pump, daemon=True)
         self._reader.start()
         self._err_reader = threading.Thread(target=self._pump_err, daemon=True)
