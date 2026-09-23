@@ -29,6 +29,7 @@ import type { VisualTheme, PresetVisualTheme } from '../../../packages/contracts
 import { hasInstallerUpgradeRequest } from './installer-upgrade'
 import { attachChildProcessFailureHandler, attachRendererFailureHandlers, crashReportDialog, crashReportFolder, CRASH_REPORTER_OPTIONS, RecoveryBudget } from './process-failure'
 import type { ProcessFailureStage } from './process-failure'
+import { detectState, install, resolveMacEnginePythonPath, LABEL, autostartRemediationDialog, LOGIN_ITEMS_SETTINGS_URL } from './launchagent-mac'
 
 // Who this process is — installed release, installed DEV-channel build (see
 // docs/dev-builds.md), or unpackaged development — is decided in one place
@@ -1325,6 +1326,27 @@ else {
             throw error
           }
         }
+      }
+      // Best-effort auxiliary to the already-succeeded engine start above:
+      // never blocks or delays it, and never throws into the startup path.
+      // Autostart installs itself automatically (03-RESEARCH.md Open
+      // Question 2 — no separate settings toggle in this phase, BOOT-02).
+      if (process.platform === 'darwin') {
+        try {
+          const entrypointPath = path.join(directory, 'service_host.py')
+          const pythonPath = resolveMacEnginePythonPath(directory)
+          const logDir = app.getPath('logs')
+          const stdoutLog = path.join(logDir, 'boot-engine.out.log')
+          const stderrLog = path.join(logDir, 'boot-engine.err.log')
+          const autostartState = detectState(LABEL)
+          if (autostartState === 'not-installed') {
+            install({ label: LABEL, pythonPath, entrypointPath, workingDirectory: directory, stdoutLog, stderrLog })
+          } else if (autostartState === 'disabled') {
+            dialog.showMessageBox(autostartRemediationDialog('disabled')).then(({ response }) => {
+              if (response === 0) void shell.openExternal(LOGIN_ITEMS_SETTINGS_URL)
+            }).catch(() => { /* best-effort remediation prompt; a failure here must not affect startup */ })
+          }
+        } catch (error) { console.warn('LaunchAgent install failed:', error) }
       }
       const browserSession = session.fromPartition('persist:orgtree-v2')
       // The preload origin is fixed per window; session signing reads LIVE
