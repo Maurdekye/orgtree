@@ -161,7 +161,10 @@ engine/runtime/python.exe engine/native/funding-core/oracle/generate_vectors.py 
 outside its domain; Python is never run on them). Handcrafted rows cover
 cascade on/off, USER and agent actors, actors off the chain, exact and
 0.01-short funds, multi-hop and fractional needs, the USER carry, cap
-boundaries, equality and grandfathering, reallocate snap-up and negative
+boundaries, equality and grandfathering, a fractional cap truncated by
+`int()` (40.5 and 40.9 cap at 40 on every path), a need `_q`'d off the
+binary grid (a 0.57 seat plus 1), a `min()` tie that keeps its first,
+float argument, reallocate snap-up and negative
 deltas, stranding boundaries and order, unrecoverable seats, sort ties,
 archived-superior rehires and big-int summation; 1400 seeded random trees
 add summation-sensitive fractional grants.

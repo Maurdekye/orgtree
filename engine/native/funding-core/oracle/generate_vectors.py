@@ -737,6 +737,39 @@ def handcrafted(b: Builder) -> dict[str, list[dict]]:
     for g in (None, 30, 29.01, 30.01):
         reh.append(rehire_row(b, tarc, USER, "t", g))
 
+    # a fractional cap is int()-truncated: 40.5 and 40.9 both cap at 40,
+    # so a top-level grant of 41 is refused on every path
+    for cap in (40.5, 40.9):
+        st = [["max_top_grant", cap]]
+        for g in (40, 41):
+            hir.append(hire_row(b, spec([], settings=st), USER, None, "haiku", g))
+        capk = spec([("top", node(None, grant=40)), ("kid", node("top", grant=39))], settings=st)
+        rea.append(reallocate_row(b, capk, USER, "top", 1))
+        acq.append(acquire_row(b, capk, USER, "top", 1, True))
+        acq.append(acquire_row(b, capk, USER, "kid", 1, True))
+        tarc40 = spec([("t", node(None, state="archived", grant=7))], settings=st)
+        for g in (40, 41):
+            reh.append(rehire_row(b, tarc40, USER, "t", g))
+
+    # the need is _q(price + grant): 0.57 + 1 is 1.5699999999999998 in
+    # floating point and becomes 1.57
+    grid = [["haiku", 1], ["cheap", 0.57]]
+    g57 = chain3(top=20, mid=5, leaf=0, tiers=grid)
+    for actor in (USER, "top", "mid"):
+        hir.append(hire_row(b, g57, actor, "mid", "cheap", 1))
+    g57r = spec([("top", node(None, grant=20)), ("mid", node("top", grant=0)),
+                 ("old", node("mid", state="archived", model="cheap", grant=0))], tiers=grid)
+    for g in (1, None):
+        reh.append(rehire_row(b, g57r, "top", "old", g))
+
+    # min(free, remaining) keeps its FIRST argument on a tie: free 8.0
+    # against an int need of 8 inflates mid's grant to the float 8.0
+    tie = spec([("top", node(None, grant=10.5)), ("k", node("top", grant=0.5, ui_order=0)),
+                ("mid", node("top", grant=0, ui_order=1))], tiers=[["haiku", 1]])
+    hir.append(hire_row(b, tie, "top", "mid", "haiku", 7))
+    acq.append(acquire_row(b, tie, "top", "mid", 8, True))
+    acq.append(acquire_row(b, tie, "top", "mid", 8.0, True))
+
     # rehire through archived superiors: each is rehired first, top-most
     # first, with its own chain acquisition; unrecoverable and lost ones stop it
     def arch_chain(top_grant, c_grant):
