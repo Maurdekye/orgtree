@@ -21,14 +21,18 @@ run here.
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
+import shutil
+import stat
 import subprocess
 import sys
 import unittest
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
-from test_isolation_guards import ROOT, Temp, ig_exit_refused, run_tool
+import isolation_guards as ig
+from test_isolation_guards import ROOT, TOOL, Temp, ig_exit_refused, run_tool
 
 
 class RootPinning(Temp):
@@ -142,6 +146,163 @@ class InternalChildrenPinTheLiveRoot(Temp):
         self.assertEqual(code, ig_exit_refused(), out[-1500:])
         self.assertIn("ORGTREE_DATA does not name", last["reason"])
         self.assertEqual(list(target.iterdir()), [])
+
+
+class SegmentedReplay(Temp):
+    """The real-data replay must fit foreground calls: ``replay --round R``
+    runs one round, measured segments are skipped, a crashed segment is
+    redone, the master is frozen by digest, and ``replay-summary`` refuses an
+    incomplete, unequal or other-master set. Synthetic master and expected
+    refusals come from one small gate run; every arm uses this checkout."""
+
+    N, ROUNDS = 40, 2
+
+    def replay(self, *extra: str) -> tuple[int, dict | None, str]:
+        return run_tool("replay", "--master", str(self.master), "--run", str(self.run),
+                        "--tree", str(ROOT), "--tree-a", str(ROOT), "--expect-dir",
+                        str(self.expect), "--rounds", str(self.ROUNDS), "--n", str(self.N),
+                        *extra, timeout=1500)
+
+    def summary(self, rounds: int) -> tuple[int, dict | None, str]:
+        return run_tool("replay-summary", "--run", str(self.run), "--master", str(self.master),
+                        "--rounds", str(rounds), "--n", str(self.N))
+
+    def arm_doc(self, arm: str, rnd: int) -> dict:
+        return json.loads((self.run / "out" / f"arm-{arm}-{rnd}.json").read_text("utf-8"))
+
+    def test_round_skip_crash_redo_summary_and_every_refusal(self):
+        gate = self.tmp / "gate"
+        code, last, out = run_tool("gate", "--run", str(gate), "--tree", str(ROOT),
+                                   "--tree-a", str(ROOT), "--n", str(self.N), timeout=1500)
+        self.assertEqual(code, 0, json.dumps(last) + out[-1500:])
+        self.expect = gate / "out"
+        self.run = self.tmp / "replay"
+        self.master = self.run / "master" / "data"
+        shutil.copytree(gate / "copy" / "master" / "data", self.master)
+
+        # round 1 runs its three arms; the master is frozen
+        code, last, out = self.replay("--round", "1")
+        self.assertEqual(code, 0, json.dumps(last) + out[-1500:])
+        self.assertEqual([s.get("verdict") for s in last["segments"]], ["measured"] * 3)
+        digest = self.arm_doc("A", 1)["segment"]["master_digest"]
+        self.assertTrue(digest)
+        some_file = next(p for p in self.master.rglob("*") if p.is_file())
+        self.assertFalse(os.access(some_file, os.W_OK), "the master is read-only")
+        before = self.arm_doc("B", 1)
+
+        # round 1 again: skipped, nothing rewritten
+        code, last, out = self.replay("--round", "1")
+        self.assertEqual(code, 0, json.dumps(last) + out[-1500:])
+        self.assertEqual([s.get("skipped") for s in last["segments"]], ["already measured"] * 3)
+        self.assertEqual(self.arm_doc("B", 1), before)
+
+        # a summary over an incomplete set is refused, naming what is missing
+        code, last, out = self.summary(self.ROUNDS)
+        self.assertEqual(code, ig_exit_refused(), out[-1500:])
+        self.assertIn("round 2 arm A: missing", last["problems"])
+
+        # a crashed segment whose earlier attempt is still alive (its process
+        # names the fixture) STOPS the round: nothing is removed or started
+        crashed = self.run / "arms" / "2-B" / "data"
+        crashed.mkdir(parents=True)
+        (crashed / "half-written.db").write_bytes(b"partial")
+        orphan_path = os.path.join(ig.normal(str(self.run)), "arms", "2-B", "data")
+        orphan = subprocess.Popen([sys.executable, "-I", "-c", "import time; time.sleep(900)",
+                                   orphan_path])
+        try:
+            code, last, out = self.replay("--round", "2")
+        finally:
+            orphan.kill()
+            orphan.wait(timeout=60)
+        self.assertEqual(code, 4, out[-1500:])
+        self.assertIn("still use this fixture", last["stopped"])
+        self.assertEqual(last["segments"], [])
+        self.assertTrue((crashed / "half-written.db").exists(), "nothing was removed")
+        self.assertEqual(sorted(p.name for p in (self.run / "out").glob("arm-*-2.json")), [])
+
+        # once it is gone, the crashed segment is removed and redone
+        code, last, out = self.replay("--round", "2")
+        self.assertEqual(code, 0, json.dumps(last) + out[-1500:])
+        redone = {s["arm"]: s.get("redone_after_crash") for s in last["segments"]}
+        self.assertEqual(redone, {"B": True, "C": False, "A": False})
+        self.assertFalse((crashed / "half-written.db").exists())
+
+        # the complete set summarizes, with equal work
+        code, last, out = self.summary(self.ROUNDS)
+        self.assertEqual(code, 0, json.dumps(last) + out[-1500:])
+        ab = json.loads((self.run / "out" / "ab-summary.json").read_text("utf-8"))
+        self.assertTrue(ab["segmented"] and ab["summary"]["equal_work"])
+        self.assertEqual(len(ab["runs"]), 3 * self.ROUNDS)
+
+        # a result that did not measure stops the round: never retried silently
+        path = self.run / "out" / "arm-C-2.json"
+        good = path.read_text("utf-8")
+        doc = json.loads(good)
+        doc["verdict"] = "failed"
+        path.write_text(json.dumps(doc), "utf-8")
+        code, last, out = self.replay("--round", "2")
+        self.assertEqual(code, 4, out[-1500:])
+        self.assertIn("did not measure", last["stopped"])
+        path.write_text(good, "utf-8")
+
+        # a tampered master (a byte changed, a file added, a file removed) is
+        # refused before any fixture copy, and so is a summary over it
+        target = next(p for p in sorted(self.master.rglob("*"))
+                      if p.is_file() and p.stat().st_size)
+        original = target.read_bytes()
+        added = self.master / "added.bin"
+
+        def flip():
+            os.chmod(target, stat.S_IREAD | stat.S_IWRITE)
+            target.write_bytes(bytes([original[0] ^ 1]) + original[1:])
+
+        def remove():
+            os.chmod(target, stat.S_IREAD | stat.S_IWRITE)
+            target.unlink()
+
+        def restore():
+            if added.exists():
+                added.unlink()
+            if target.exists():
+                os.chmod(target, stat.S_IREAD | stat.S_IWRITE)
+            target.write_bytes(original)
+
+        arms_before = sorted(p.name for p in (self.run / "arms").iterdir())
+        for name, tamper in (("byte changed", flip), ("file added", lambda: added.write_bytes(b"x")),
+                             ("file removed", remove)):
+            with self.subTest(name):
+                tamper()
+                try:
+                    code, last, out = self.replay("--round", "1")
+                    self.assertEqual(code, 4, out[-1500:])
+                    self.assertIn("master copy changed", last["stopped"])
+                    self.assertEqual(sorted(p.name for p in (self.run / "arms").iterdir()),
+                                     arms_before)
+                    code, last, out = self.summary(self.ROUNDS)
+                    self.assertEqual(code, ig_exit_refused(), out[-1500:])
+                    self.assertIn("master copy changed", last["reason"])
+                finally:
+                    restore()
+        code, last, out = self.summary(self.ROUNDS)
+        self.assertEqual(code, 0, json.dumps(last) + out[-1500:])
+
+    def test_a_fixture_removal_outside_arms_is_refused(self):
+        spec = importlib.util.spec_from_file_location("p02_copy_replay_seg", TOOL)
+        tool = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tool)
+        run = self.tmp / "run"
+        keep = run / "not-arms"
+        (keep / "x").mkdir(parents=True)
+        (run / "arms").mkdir()
+        for target in (keep, run / "arms", run, self.tmp):
+            with self.subTest(str(target.relative_to(self.tmp.parent))):
+                with self.assertRaises(ig.RefuseToRun):
+                    tool._remove_fixture(run, target, ig)
+        self.assertTrue((keep / "x").is_dir(), "nothing outside arms/ was removed")
+        inside = run / "arms" / "1-A"
+        (inside / "data").mkdir(parents=True)
+        tool._remove_fixture(run, inside, ig)
+        self.assertFalse(inside.exists())
 
 
 class EndToEndGate(Temp):

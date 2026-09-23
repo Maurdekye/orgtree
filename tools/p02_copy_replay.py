@@ -21,6 +21,18 @@ the guarded children those spawn):
                it also writes each arm's expected-refusal file.
 ``replay``     the real A/B/C rounds (plan §8) on fresh copies of the master,
                each arm held to its expected-refusal file from the gate.
+               ``--round R`` runs one round per call, so a long replay fits
+               foreground calls: the master is frozen by digest and re-checked
+               before every fixture and compared with each fresh copy,
+               measured segments are skipped, and a crashed segment's
+               fixture is removed (inside ``arms/`` only, and only once no
+               process still names it) and redone. A run without ``--round``
+               goes through the same freeze/skip/redo. The frozen master is
+               READ-ONLY: a cleanup must clear that bit before removing it
+               (plain ``shutil.rmtree`` fails on it).
+``replay-summary`` the A/B summary over a segmented replay; it refuses
+               unless every round x arm measured on the same frozen master,
+               N, seed and commits, with equal work.
 ``privacy-check`` grep every retained output for identifiers from the copy.
 
 It reads no real data unless an operator runs ``snapshot`` against the live
@@ -43,6 +55,7 @@ import os
 import re
 import secrets
 import shutil
+import stat
 import statistics
 import subprocess
 import sys
@@ -1608,7 +1621,100 @@ def _baseline_suite_running() -> bool:
         return True  # unknown is treated as busy
 
 
+def _file_sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _master_digest(master: Path) -> dict[str, str]:
+    """sha256 of every master file by RELATIVE name (never absolute)."""
+    return {p.relative_to(master).as_posix(): _file_sha256(p)
+            for p in sorted(master.rglob("*")) if p.is_file()}
+
+
+def _freeze_master(run: Path, master: Path, ig: Any) -> str:
+    """Record the master's digest once and mark its files read-only; every
+    later call re-hashes and REFUSES if one byte, file or name differs, so
+    every fixture of every round starts from the same bytes. Returns the
+    sha256 of the recorded digest (what each arm result is tied to)."""
+    record = run / "logs" / "master-digest.json"
+    current = _master_digest(master)
+    if not current:
+        raise ig.RefuseToRun("the master copy is empty")
+    if record.exists():
+        if json.loads(record.read_text(encoding="utf-8")) != current:
+            raise ig.RefuseToRun("the master copy changed since it was frozen "
+                                 "(logs/master-digest.json)")
+    else:
+        _write_json(record, current)
+    # every call, not only the first: a crash between the record and the
+    # chmod must not leave the master writable (review N7)
+    for p in master.rglob("*"):
+        if p.is_file():
+            os.chmod(p, stat.S_IREAD)
+    return _file_sha256(record)
+
+
+def _segment_processes(fixture: Path) -> int | None:
+    """How many processes still name this fixture on their command line: the
+    ``arm`` and ``_arm-child`` of an earlier attempt keep running when their
+    orchestrator is killed (Windows does not take children down with it).
+    ``None`` means it could not be told, which callers treat as busy."""
+    if os.name != "nt":
+        return None
+    query = ("$n = $env:P02_SEGMENT_NEEDLE; @(Get-CimInstance Win32_Process | Where-Object "
+             "{ $_.CommandLine -and $_.CommandLine.ToLowerInvariant().Contains($n) }).Count")
+    env = dict(os.environ, P02_SEGMENT_NEEDLE=str(fixture).lower())
+    try:
+        proc = subprocess.run(["powershell", "-NoProfile", "-Command", query], env=env,
+                              capture_output=True, text=True, timeout=120)
+        return int(proc.stdout.strip()) if proc.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
+def _remove_fixture(run: Path, fixture: Path, ig: Any) -> None:
+    """A crashed segment's leftover fixture — and NOTHING else. The target
+    must sit strictly inside ``<run>/arms/`` or this refuses."""
+    arms = ig.normal(run / "arms")
+    target = ig.normal(fixture)
+    if target == arms or not ig.within(target, arms):
+        raise ig.RefuseToRun("a fixture to remove must be strictly inside <run>/arms")
+    shutil.rmtree(target)
+
+
+def _segment_state(doc_path: Path, expected: dict[str, Any]) -> str:
+    """``measured`` (same conditions: skip), ``absent`` (run it), or a stop
+    reason: a result that did not measure, or one taken under different
+    conditions, is never overwritten or retried silently."""
+    if not doc_path.exists():
+        return "absent"
+    doc = json.loads(doc_path.read_text(encoding="utf-8"))
+    if doc.get("verdict") != "measured":
+        return "stop: an earlier result for this segment did not measure"
+    if "segment" not in doc:
+        return ("stop: an earlier result for this segment has no segment record, so it "
+                "was not stamped by a live replay call (perhaps an orphaned attempt); "
+                "inspect it and remove it by hand")
+    seg = doc.get("segment") or {}
+    got = {"master_digest": seg.get("master_digest"), "n": (doc.get("script") or {}).get("n"),
+           "seed": (doc.get("script") or {}).get("seed"),
+           "commit": (doc.get("provenance") or {}).get("commit")}
+    if got != expected:
+        return "stop: an earlier result for this segment was taken under other conditions"
+    return "measured"
+
+
 def cmd_replay(args: argparse.Namespace) -> int:
+    """Plan §8. ``--round R`` runs ONE round (its three arms, in that round's
+    rotation) so each round fits one foreground call; rounds already measured
+    under the same master, N, seed and commits are skipped, and a crashed
+    segment's fixture is removed and redone once no earlier attempt's
+    process still names it. Without ``--round`` every round runs (through the
+    same freeze/skip/redo) and the summary is written at the end, as before."""
     ig = _load("isolation_guards")
     try:
         pinned, protected = _protected_from_env(ig, args.protect)
@@ -1616,6 +1722,8 @@ def cmd_replay(args: argparse.Namespace) -> int:
         ig.refuse_overlap("run", str(run), protected)
         if not ig.within(str(master), str(run)):
             raise ig.RefuseToRun("the master copy must be inside the run folder")
+        if args.round is not None and not 1 <= args.round <= args.rounds:
+            raise ig.RefuseToRun(f"--round must be between 1 and --rounds ({args.rounds})")
     except ig.RefuseToRun as exc:
         return _refusal("replay", str(exc))
     expect = {arm: Path(args.expect_dir) / f"expected-refusals-{arm}.json" for arm in "ABC"}
@@ -1623,13 +1731,32 @@ def cmd_replay(args: argparse.Namespace) -> int:
     if missing or not master.is_dir():
         return _refusal("replay", "the master copy or an arm's expected-refusal file "
                         "(from the passing synthetic gate) is missing", missing=missing)
+    (run / "logs").mkdir(parents=True, exist_ok=True)
     trees = {"A": args.tree_a, "B": args.tree, "C": args.tree}
+    commits = {arm: tree_commit(Path(tree)) for arm, tree in trees.items()}
     python = args.python or sys.executable
     runs: list[dict[str, Any]] = []
     stopped = None
-    for rnd in range(1, args.rounds + 1):
+    rounds = [args.round] if args.round is not None else list(range(1, args.rounds + 1))
+    for rnd in rounds:
         order = ["A", "B", "C"][(rnd - 1) % 3:] + ["A", "B", "C"][:(rnd - 1) % 3]
         for arm in order:
+            try:
+                digest_sha = _freeze_master(run, master, ig)
+            except ig.RefuseToRun as exc:
+                stopped = str(exc)
+                break
+            doc_path = run / "out" / f"arm-{arm}-{rnd}.json"
+            fixture = run / "arms" / f"{rnd}-{arm}" / "data"
+            conditions = {"master_digest": digest_sha, "n": args.n, "seed": args.seed,
+                          "commit": commits[arm]}
+            state = _segment_state(doc_path, conditions)
+            if state == "measured":
+                runs.append({"round": rnd, "arm": arm, "skipped": "already measured"})
+                continue
+            if state != "absent":
+                stopped = f"round {rnd} arm {arm}: {state[6:]}"
+                break
             waited = 0.0
             while _baseline_suite_running():
                 if waited >= args.wait_limit:
@@ -1639,8 +1766,30 @@ def cmd_replay(args: argparse.Namespace) -> int:
                 waited += 60
             if stopped:
                 break
-            fixture = run / "arms" / f"{rnd}-{arm}" / "data"
-            shutil.copytree(master, fixture)
+            # an earlier attempt's processes must be provably gone before its
+            # fixture is removed or a new child starts on it (review B1)
+            live = _segment_processes(fixture)
+            if live != 0:
+                stopped = (f"round {rnd} arm {arm}: " + (
+                    "could not tell whether an earlier attempt is still running"
+                    if live is None else f"{live} process(es) from an earlier attempt "
+                    "still use this fixture; stop them, then run the round again"))
+                break
+            redone = False
+            if fixture.parent.exists():
+                try:
+                    _remove_fixture(run, fixture.parent, ig)  # a crashed segment
+                except ig.RefuseToRun as exc:
+                    stopped = str(exc)
+                    break
+                redone = True
+            # copyfile, not copy2: the master's read-only bit must not follow
+            shutil.copytree(master, fixture, copy_function=shutil.copyfile)
+            # the direct proof that this fixture got the frozen bytes (review N1)
+            if _master_digest(fixture) != json.loads(
+                    (run / "logs" / "master-digest.json").read_text(encoding="utf-8")):
+                stopped = f"round {rnd} arm {arm}: the fixture copy differs from the frozen master"
+                break
             argv = ["arm", "--tree", trees[arm], "--arm", arm, "--round", str(rnd),
                     "--run", str(run), "--data", str(fixture), "--n", str(args.n),
                     "--seed", str(args.seed), "--expect", str(expect[arm]),
@@ -1649,15 +1798,22 @@ def cmd_replay(args: argparse.Namespace) -> int:
                 argv += ["--protect", extra]
             proc = subprocess.run([python, "-I", "-B", str(Path(__file__).resolve()), *argv],
                                   capture_output=True, text=True, timeout=args.timeout + 120)
-            doc_path = run / "out" / f"arm-{arm}-{rnd}.json"
             doc = json.loads(doc_path.read_text(encoding="utf-8")) if doc_path.exists() else {}
+            if doc:
+                doc["segment"] = {"master_digest": digest_sha, "redone_after_crash": redone}
+                _write_json(doc_path, doc)
             runs.append({"round": rnd, "arm": arm, "exit": proc.returncode,
-                         "verdict": doc.get("verdict"), "waited_s": waited})
+                         "verdict": doc.get("verdict"), "waited_s": waited,
+                         "redone_after_crash": redone})
             if proc.returncode != 0 or doc.get("verdict") != "measured":
                 stopped = f"round {rnd} arm {arm} did not measure (stop condition)"
                 break
         if stopped:
             break
+    if args.round is not None:
+        return _emit({"replay": "stopped" if stopped else "round done", "round": args.round,
+                      "stopped": stopped, "segments": runs},
+                     EXIT_FAILED if stopped else 0)
     summary = _ab_summary(run, runs) if not stopped else {}
     doc = {"tool_version": TOOL_VERSION, "runs": runs, "stopped": stopped,
            "rounds": args.rounds, "n": args.n, "summary": summary,
@@ -1667,6 +1823,60 @@ def cmd_replay(args: argparse.Namespace) -> int:
     _write_json(run / "out" / "ab-summary.json", doc)
     return _emit({"replay": "stopped" if stopped else "done", "stopped": stopped,
                   "runs": len(runs)}, EXIT_FAILED if stopped else 0)
+
+
+def cmd_replay_summary(args: argparse.Namespace) -> int:
+    """The A/B summary over a segmented replay, written only when every
+    round x arm result exists, measured, on the SAME frozen master, N and
+    seed, each arm on one commit, and the equal-work check holds."""
+    ig = _load("isolation_guards")
+    try:
+        _, protected = _protected_from_env(ig, args.protect)
+        run, master = Path(ig.normal(args.run)), Path(ig.normal(args.master))
+        ig.refuse_overlap("run", str(run), protected)
+        if not ig.within(str(master), str(run)):
+            raise ig.RefuseToRun("the master copy must be inside the run folder")
+        digest_sha = _freeze_master(run, master, ig) if (run / "logs" / "master-digest.json"
+                                                         ).exists() else None
+    except ig.RefuseToRun as exc:
+        return _refusal("replay-summary", str(exc))
+    if digest_sha is None:
+        return _refusal("replay-summary", "no frozen master digest: nothing was replayed")
+    problems: list[str] = []
+    runs: list[dict[str, Any]] = []
+    commits: dict[str, set[str]] = {}
+    for rnd in range(1, args.rounds + 1):
+        for arm in "ABC":
+            path = run / "out" / f"arm-{arm}-{rnd}.json"
+            if not path.exists():
+                problems.append(f"round {rnd} arm {arm}: missing")
+                continue
+            doc = json.loads(path.read_text(encoding="utf-8"))
+            script = doc.get("script") or {}
+            if doc.get("verdict") != "measured":
+                problems.append(f"round {rnd} arm {arm}: did not measure")
+            if (doc.get("segment") or {}).get("master_digest") != digest_sha:
+                problems.append(f"round {rnd} arm {arm}: another master")
+            if script.get("n") != args.n or script.get("seed") != args.seed:
+                problems.append(f"round {rnd} arm {arm}: another N or seed")
+            commits.setdefault(arm, set()).add(str((doc.get("provenance") or {}).get("commit")))
+            runs.append({"round": rnd, "arm": arm})
+    for arm, found in sorted(commits.items()):
+        if len(found) != 1:
+            problems.append(f"arm {arm}: results from {len(found)} different commits")
+    if problems:
+        return _refusal("replay-summary", "the replay is incomplete or unequal",
+                        problems=problems)
+    summary = _ab_summary(run, runs)
+    if not summary["equal_work"]:
+        return _refusal("replay-summary", "the arms did not do equal work")
+    doc = {"tool_version": TOOL_VERSION, "runs": runs, "stopped": None, "rounds": args.rounds,
+           "n": args.n, "summary": summary, "segmented": True,
+           "label": "representative copied-data / replayed-workload measurement, "
+                    "in-process without a server and under audit hooks; not observed "
+                    "live behaviour and not product overhead"}
+    _write_json(run / "out" / "ab-summary.json", doc)
+    return _emit({"replay-summary": "written", "runs": len(runs)}, 0)
 
 
 def _ab_summary(run: Path, runs: list[dict[str, Any]]) -> dict[str, Any]:
@@ -1758,12 +1968,21 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--tree-a", required=True)
     r.add_argument("--expect-dir", required=True)
     r.add_argument("--rounds", type=int, default=5)
+    r.add_argument("--round", type=int,
+                   help="run ONE round (its three arms); rounds already measured are skipped")
     r.add_argument("--n", type=int, default=2000)
     r.add_argument("--seed", type=int, default=20260923)
     r.add_argument("--protect", action="append", default=[])
     r.add_argument("--python")
     r.add_argument("--timeout", type=float, default=3600)
     r.add_argument("--wait-limit", type=float, default=7200)
+    rs = sub.add_parser("replay-summary")
+    rs.add_argument("--run", required=True)
+    rs.add_argument("--master", required=True)
+    rs.add_argument("--rounds", type=int, default=5)
+    rs.add_argument("--n", type=int, default=2000)
+    rs.add_argument("--seed", type=int, default=20260923)
+    rs.add_argument("--protect", action="append", default=[])
     pc = sub.add_parser("privacy-check")
     pc.add_argument("--run", required=True)
     pc.add_argument("--path", action="append")
@@ -1776,7 +1995,7 @@ def main(argv: list[str] | None = None) -> int:
     handler ={"snapshot": cmd_snapshot, "arm": cmd_arm, "_arm-child": cmd_arm_child,
                "controls": cmd_controls, "_fixture-child": cmd_fixture_child,
                "_writer": cmd_writer, "gate": cmd_gate, "privacy-check": cmd_privacy,
-               "replay": cmd_replay}[args.cmd]
+               "replay": cmd_replay, "replay-summary": cmd_replay_summary}[args.cmd]
     return handler(args)
 
 
