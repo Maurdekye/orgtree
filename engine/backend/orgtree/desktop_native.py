@@ -26,6 +26,19 @@ class NativeHeld(ValueError):
     """The copied organization is valid, but native resumption is unavailable."""
 
 
+#: an OpenRouter agent whose HARNESS is Codex CLI. Its own bucket because it
+#: is neither of the two it would otherwise fall into: it writes no
+#: `~/.claude` transcript (so it is not claude-shaped, which is what every
+#: `{"claude", "openrouter"}` set in this module actually means), and its
+#: rollout lives under the OpenRouter lane's private CODEX_HOME rather than
+#: the user's `~/.codex` (so the `"codex"` branches would search the wrong
+#: tree). NOTHING in this module knows how to resume one, and every site here
+#: already ends in an explicit `NativeHeld` for a provider it does not
+#: recognise — so naming it is what turns a wrong artefact into a stated
+#: limit. Native import of such an agent is out of scope for this ticket.
+OPENROUTER_CODEX = "openrouter-codex"
+
+
 def provider_for(node: dict) -> str:
     from . import providers
     tier = str(node.get("model") or "")
@@ -34,6 +47,15 @@ def provider_for(node: dict) -> str:
     if tier in providers.ANTIGRAVITY_TIERS:
         return "antigravity"
     if tier.startswith("or-"):
+        # ⚠ THE HARNESS DECIDES THE ARTEFACT, not the provider (reviewer
+        # finding f4). Read off the node's own stamp — the same value
+        # `Org.harness_for` reads, and absent on every node hired before the
+        # harness axis existed, which is why those all still answer
+        # "openrouter" exactly as they did.
+        from . import openrouter_harness
+        if (openrouter_harness.canonical(node.get("or_harness"))
+                == openrouter_harness.CODEX_CLI):
+            return OPENROUTER_CODEX
         return "openrouter"
     return "claude"
 

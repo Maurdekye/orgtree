@@ -531,7 +531,15 @@ TOOLS: list[dict[str, Any]] = [
             "ASSIGNMENT IS OWNERSHIP (user ruling 2026-09-05): the assigned "
             "agent holds the item's management rights, is who the docket "
             "names, and is where the user's replies on it go. `assign` TELLS "
-            "it so. YOUR OWN UPDATE CLAIMS THE ITEM — so when you update "
+            "it so. ⚠ `assign` CHANGES OWNERSHIP AND NOTHING ELSE (user ruling "
+            "2026-09-19): it never moves the status, and that includes "
+            "`backlogged` — reassigning a ticket nobody has started leaves it "
+            "unstarted. It used to open a backlogged item automatically, which "
+            "meant a routine handover silently began work the user had parked "
+            "on purpose. To hand the item over AND start it, pass `status` on "
+            "an `update` (or use orgtree_staff, which opens a backlogged item "
+            "because it also creates the seat and starts the agent). "
+            "YOUR OWN UPDATE CLAIMS THE ITEM — so when you update "
             "somebody else's item, pass `owner` naming the agent that already "
             "holds it and it stays with them. `review` is the named "
             "reviewer's verdict (decision approve|changes): approve completes "
@@ -569,6 +577,21 @@ TOOLS: list[dict[str, Any]] = [
             "than cleared. Use `reopen=true` only when work has genuinely "
             "RESUMED: that clears the acceptance because the outcome no "
             "longer stands. "
+            "⚠ AND `addendum` IS HOW YOU WITHDRAW A STALE ATTENTION FLAG ON "
+            "FINISHED WORK. A flag is most likely to have gone stale exactly "
+            "there — the work concluded and the reason that justified "
+            "interrupting the user stopped holding — and that used to be the "
+            "one state where you could not take it back: `update` is refused "
+            "on a closed item, `attention_amend` is an argument to `update`, "
+            "and `reopen=true` clears the whole acceptance record to remove "
+            "one sentence. Pass `attention: false` with the `note` saying why "
+            "it no longer holds, and the flag comes down while the status, the "
+            "acceptance record, the evidence and BOTH progress lists stay "
+            "exactly as they were; the withdrawal and its reason go into the "
+            "item's history, so the user sees it was taken back rather than "
+            "silently vanishing. `attention_amend` + `attention_reason` works "
+            "there too. Raising a NEW flag from `addendum` is refused — that is "
+            "a resumption, not a correction. "
             "An update that does not pass "
             "attention:true CLEARS a standing attention flag; a user "
             "dismissal makes the item blocked and an exact repeat of the "
@@ -576,7 +599,12 @@ TOOLS: list[dict[str, Any]] = [
             "already looking at, use `attention_amend` rather than raising "
             "again — it edits the standing reason in place, keeps its set_rev, "
             "and so does not read as a second nag or ping them a second time "
-            "(the dismissed-repeat refusal still applies to it). "
+            "(the dismissed-repeat refusal still applies to it). EVERY ROUTE "
+            "THAT TAKES A FLAG DOWN NOW KEEPS ITS TEXT on the history row that "
+            "took it down — a user reply, a user dismissal, an ordinary update "
+            "and a retraction alike — so the question and the answer stay "
+            "together on the record and `get` shows both without anyone's "
+            "transcript. "
             "`backlogged` means NOT YET "
             "APPROACHED OR APPROVED: it is kept out of the toolbar's active "
             "count and hidden behind its own toggle, so use it only for work "
@@ -661,8 +689,8 @@ TOOLS: list[dict[str, Any]] = [
                 "blocked_reason": {"type": "string", "description": "create/update: REQUIRED when you move an item to blocked — what is preventing progress, what would unblock it, and who can act when that is known. A blank string is refused rather than erasing what is recorded." + _cap("blocked_reason")},
                 "dropped_reason": {"type": "string", "description": "update: REQUIRED when you end an item as `dropped` — why this work ended without being completed. Say plainly whether it was CANCELLED or FAILED UNRECOVERABLY, who decided, and what would have to change for it to be worth resuming. A blank string is refused rather than erasing what is recorded." + _cap("dropped_reason")},
                 "attention": {"type": "boolean",
-                              "description": "update: raise the manual attention flag (needs attention_reason)"},
-                "attention_reason": {"type": "string", "description": "update: the concrete reason the user must see — what was asked against what was built, the exact decision, edge case or definition you added beyond the spec, and the confirmation you want. 'Ready for review' or 'please approve' is not enough; this is what they read to know what they are approving." + _cap("attention_reason") + " The supporting detail belongs in the description or in `evidence`, neither of which has a limit."},
+                              "description": "update: `attention: true` raises the manual attention flag (needs attention_reason); `attention: false` TAKES A STANDING FLAG DOWN. ⚠ OMITTING IT LEAVES THE FLAG EXACTLY WHERE IT IS (user ruling 2026-09-19) — a later update used to clear it, so an unrelated edit like a title fix silently dropped a question the user was still reading. Only the user replying, the user dismissing it, or an explicit `attention: false` clears it now, which also means RETRACTING YOUR OWN FLAG IS YOUR JOB once it stops mattering · addendum: `attention: false` RETRACTS a stale flag from a done or dropped item — the one state where you previously could not take one back at all, short of `reopen=true`, which destroys the acceptance record. The required `note` is the retraction reason and carries it; the status, the acceptance record, the evidence and BOTH progress lists are left exactly as they were, and the withdrawal is written into the item's history with its reason so the user can see the flag was taken back rather than silently vanishing. `attention: true` is REFUSED on addendum — raising a new demand on the user's attention from a finished record is a resumption, so reopen with `update` and raise it there"},
+                "attention_reason": {"type": "string", "description": "update (and `addendum` with attention_amend): the concrete reason the user must see — what was asked against what was built, the exact decision, edge case or definition you added beyond the spec, and the confirmation you want. 'Ready for review' or 'please approve' is not enough; this is what they read to know what they are approving." + _cap("attention_reason") + " The supporting detail belongs in the description or in `evidence`, neither of which has a limit."},
                 "reopen": {"type": "boolean", "description": "update: RESUME an archived/closed item — real work has started again and the outcome no longer stands, so the acceptance record is cleared (kept in history). ⚠ It is NOT how you fix the text of work that is still finished: if only the summary is out of date because the code landed after the item was closed, use `addendum`, which corrects the lists, keeps the item done and leaves the acceptance untouched. It may carry a TERMINAL status (done|dropped) in the same call, for work that was finished, then extended, then finished again — one call records both the reopening and its outcome, instead of passing through an in_progress state that was never true. A reopen to dropped owes a fresh dropped_reason: the one it just overturned goes with the outcome it described"},
                 "stage": {"type": "string",
                           "description": "claim/verify: implemented|committed|pushed|deployed|in_build"},
@@ -686,7 +714,7 @@ TOOLS: list[dict[str, Any]] = [
                           "description": "review_grant: the items to grant the seat on — a list of slugs, or omit it and pass `slug` for one. The whole group is validated before any seat is written. · evidence: a BATCH — [{kind, ref, note, execution}] — instead of one row. ATOMIC: every element is validated and the cap is measured against the whole batch before anything is written, and it writes ONE history row. Each element may carry its own `execution`, so a batch that records a candidate sha beside the run that proved it does not lose how each one was reached. Cannot be combined with kind/ref/note. A `receipt` is never accepted here or on the single row — use the `receipt` action, which has the backend capture it"},
                 "text": {"type": "string", "description": "decision: the ruling, trade-off or agreed constraint being recorded — what was decided, and enough of why that the next reader does not re-argue it." + _NOCAP},
                 "supersedes": {"type": "integer", "description": "decision: the `seq` of an earlier scope record this ruling replaces. The superseded row keeps its own text forever and gains only a back-pointer, so the record shows both what was ruled and that it was later replaced"},
-                "expected_rev": {"type": "integer", "description": "update/evidence/receipt and every other mutating action: COMPARE-AND-SET. The item `rev` you composed this call against. If somebody has written to the item since, the whole call is refused before any mutation and the refusal names both revisions — nothing partial is ever left behind. Optional for a whole-list update; REQUIRED with keep_done/keep_next/done_append/next_append, because a keep or an append is a statement about a list you have READ; and worth passing whenever you built something from a read — a receipt, a disposition — that must not land on a different item state"},
+                "expected_rev": {"type": "integer", "description": "update/addendum/evidence/finding/dispose/artifact/grant/revoke/check/accept — AND NO OTHER ACTION: COMPARE-AND-SET. The item `rev` you composed this call against. If somebody has written to the item since, the whole call is refused before any mutation and the refusal names both revisions — nothing partial is ever left behind. Optional everywhere it works, including on `check` and `accept`; REQUIRED with keep_done/keep_next/done_append/next_append, because a keep or an append is a statement about a list you have READ; and worth passing whenever you built something from a read — an evidence row, a disposition, an acceptance check — that must not land on a different item state. ⚠ THOSE TEN ARE THE WHOLE LIST (corrected 2026-09-17: this used to promise it on every mutating action, and on nineteen of them the argument was read by nobody — accepted, dropped, and the revision advanced anyway). `check` and `accept` were the two of those nineteen given REAL compare-and-set rather than a refusal, because they write the acceptance record that decides whether an item is complete — the one write whose mistakes stop being looked at, since a done item stops being read. Every remaining action REFUSES it rather than pretending: `receipt` and `rangediff` because they already do their own compare-and-set (they read the rev under the lock, measure the tree outside it, and return `stale` if the item moved), and the rest because they have no compare-and-set at all"},
                 "objective_append": {"type": "string", "description": "update: text ADDED to the end of the description instead of replacing it — for a scope addition that arrived after the item was written, so the original wording is not lost to re-typing it by hand. Owner-level like `objective`, and mutually exclusive with it. Either route VERSIONS the description into the item's append-only `scope` record, which keeps the complete before and after" + _NOCAP},
                 "keep_done": {"type": "boolean", "description": "update/addendum: carry the stored done_so_far forward unchanged instead of re-sending it. Needs expected_rev. What is STORED is still the complete list — this changes who assembles it, not what is written"},
                 "keep_next": {"type": "boolean", "description": "update/addendum: carry the stored working_on_next forward unchanged instead of re-sending it. Needs expected_rev"},
@@ -694,7 +722,7 @@ TOOLS: list[dict[str, Any]] = [
                                 "description": "update/addendum: entries appended to the stored done_so_far. Needs expected_rev. The backend materializes and stores the COMPLETE merged list and returns it, so there is never a partial summary on the item; the 40-entry cap is measured on the merge"},
                 "next_append": {"type": "array", "items": {"type": "string"},
                                 "description": "update/addendum: entries appended to the stored working_on_next. Needs expected_rev. Same materialize-and-store-complete rule as done_append"},
-                "attention_amend": {"type": "boolean", "description": "update: EDIT the reason of the attention flag already standing, in place, keeping its set_rev — so it is not a second raise: the history shows one question being refined rather than another nag, and the user is not pinged again for a sentence they are already reading. Needs attention_reason; refused when no flag is standing, refused together with attention:true, and a reason the user has already DISMISSED is still refused unchanged"},
+                "attention_amend": {"type": "boolean", "description": "update / addendum: EDIT the reason of the attention flag already standing, in place, keeping its set_rev — so it is not a second raise: the history shows one question being refined rather than another nag, and the user is not pinged again for a sentence they are already reading. Needs attention_reason; refused when no flag is standing, refused together with attention:true, and a reason the user has already DISMISSED is still refused unchanged. On `addendum` it is how you sharpen a flag standing on FINISHED work, where `update` is refused outright"},
                 # ── W08: verification receipts, scoped artifacts, findings ──
                 "execution": {"type": "string",
                               "enum": ["independent", "owner_report",
@@ -1327,8 +1355,8 @@ TOOLS: list[dict[str, Any]] = [
             "takes the target's own. The schema therefore lists those fields "
             "as optional; which mode you are in decides whether they are "
             "required or forbidden. Seat costs: haiku 1, sonnet 2, "
-            "opus 5, fable 10 (Claude); luna 0.2, terra 2, "
-            "sol 5 (Codex — "
+            "opus 4, fable 10 (Claude); luna 0.1, terra 2, "
+            "sol 2 (Codex — "
             "hireable only while the Codex CLI is signed in on this machine; "
             "luna runs on OpenAI's reserve capacity FIRST when the signed-in "
             "ChatGPT account holds that grant, and falls back to the direct "
@@ -1538,7 +1566,12 @@ TOOLS: list[dict[str, Any]] = [
             "how your team works is yours to direct, and re-stating it as you "
             "learn what the work needs is expected, not a liberty. Your OWN "
             "charter, scope, tools and mode are your superior's to set: ask "
-            "them with orgtree_message."),
+            "them with orgtree_message. When the target is mid-turn, a valid "
+            "account change is accepted as queued: the active turn keeps its "
+            "current account and the new binding applies at the turn boundary. "
+            "A later valid request replaces the queued account; requesting the "
+            "current account cancels it. The result includes `queued`, "
+            "`pending_account`, and `replaced` when applicable."),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -2063,6 +2096,49 @@ TOOLS: list[dict[str, Any]] = [
                         "required": ["node"]},
     },
     {
+        "name": "orgtree_continue_on",
+        "description": (
+            "Move a FROZEN descendant onto another provider account AND "
+            "release its freeze, in one act — the agent-side twin of the "
+            "user's `/continue-on`. This is the way to rescue a report that "
+            "hit a usage wall: `orgtree_retool account=` refuses a "
+            "limit-frozen target (moving the binding cannot clear a limit), "
+            "and `orgtree_unstick` alone restarts it on the SAME exhausted "
+            "account, where it is walled again within seconds. "
+            "THE TARGET'S CAPACITY IS CHECKED LIVE, against a forced provider "
+            "read rather than a cached bar: an account with no room refuses "
+            "the whole call and changes NOTHING, because a frozen agent is no "
+            "better off frozen somewhere else. "
+            "ORDER AND ATOMICITY: the account moves first and the freeze is "
+            "released only if that succeeded, so the replayed turn always "
+            "starts on the NEW account. A failed switch leaves the agent "
+            "exactly as it was. If the switch lands and the release does not, "
+            "you are told so plainly (`state: switched_not_resumed`) with the "
+            "retry that finishes it — it is never reported as a continuation. "
+            "AFTERWARDS the result's `agent` field says `running` or `idle`: "
+            "on the ordinary path it is RUNNING its replayed work and owes you "
+            "nothing, and any exit that leaves it idle says so and says a "
+            "message is still owed. "
+            "Downward only, at any depth — yourself, a peer and a superior are "
+            "refused, exactly as with orgtree_retool: an agent never chooses "
+            "the account it bills. No halt is needed, and none should be used."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "node": {"type": "string",
+                         "description": "the frozen descendant to move"},
+                "account": {
+                    "type": "string",
+                    "description": "the account id to continue it on — same "
+                                   "selectors orgtree_retool's `account` "
+                                   "takes. It must be a signed-in profile for "
+                                   "the same provider, not the one already "
+                                   "bound, and it must have room right now"},
+            },
+            "required": ["node", "account"],
+        },
+    },
+    {
         "name": "orgtree_halt",
         "description": (
             "Halt a descendant until explicit orgtree_unhalt. Abruptly kills "
@@ -2073,10 +2149,17 @@ TOOLS: list[dict[str, Any]] = [
             "watchdogs, checkups, restarts, rehire and model/account changes "
             "cannot wake it. Interrupt is different: orgtree_interrupt keeps "
             "its immediate boundary semantics and allows pending mail to run. "
-            "Cannot halt yourself, a peer, or a superior."),
+            "Cannot halt yourself, a peer, or a superior. To halt SEVERAL "
+            "descendants pass `nodes` instead: one call, every target's "
+            "process interrupted first so their turns terminate in parallel, "
+            "per-node results (a failure on one does not fail the others)."),
         "inputSchema": {"type": "object",
-                        "properties": {"node": {"type": "string"}},
-                        "required": ["node"]},
+                        "properties": {
+                            "node": {"type": "string"},
+                            "nodes": {"type": "array",
+                                      "items": {"type": "string"},
+                                      "description": "batch form: halt every "
+                                      "listed descendant in one call"}}},
     },
     {
         "name": "orgtree_unhalt",
@@ -2085,10 +2168,15 @@ TOOLS: list[dict[str, Any]] = [
             "turn has fully ended. Preserved pending work resumes through "
             "ordinary delivery once; other lifecycle/account holds still "
             "apply. An idle agent with no waking work stays idle. Repeating "
-            "unhalt does not create another turn."),
+            "unhalt does not create another turn. To release SEVERAL "
+            "descendants pass `nodes` instead: one call, per-node results."),
         "inputSchema": {"type": "object",
-                        "properties": {"node": {"type": "string"}},
-                        "required": ["node"]},
+                        "properties": {
+                            "node": {"type": "string"},
+                            "nodes": {"type": "array",
+                                      "items": {"type": "string"},
+                                      "description": "batch form: unhalt "
+                                      "every listed descendant in one call"}}},
     },
     {
         "name": "orgtree_reallocate",
@@ -2301,8 +2389,8 @@ TOOLS: list[dict[str, Any]] = [
             "the seat difference becomes "
             "the agent's own free allocation. Pricier: paid from its free first, "
             "any shortfall bubbles up the chain to YOU — refused only if the "
-            "whole chain lacks it. Tiers: haiku 1 · sonnet 2 · opus 5 · "
-            "fable 10 (Claude); luna 0.2 · terra 2 · sol 5 "
+            "whole chain lacks it. Tiers: haiku 1 · sonnet 2 · opus 4 · "
+            "fable 10 (Claude); luna 0.1 · terra 2 · sol 2 "
             "(Codex, needs the CLI signed in; luna prefers reserve capacity "
             "and falls back to the direct lane); flash 1 · pro 2 (Antigravity, needs the CLI "
             "signed in); any `or-…` tier returned by orgtree_list_tiers is an "
@@ -2441,7 +2529,12 @@ def _desktop_relaunch_catalogue(
 # copies; the filesystem work still runs off the event loop.
 MANAGED_WAIT_TOOLS = frozenset({'orgtree_staff', 'orgtree_hire', 'orgtree_rehire',
                               'orgtree_retire', 'orgtree_dissolve', 'orgtree_cheap_compact',
-                              'orgtree_watchdog'})
+                              'orgtree_watchdog',
+                              # forces a live provider read of the TARGET
+                              # account before it moves anything — for Codex
+                              # that starts an app-server, which is exactly the
+                              # wait this path exists for
+                              'orgtree_continue_on'})
 
 
 def available_tools() -> list[dict[str, Any]]:

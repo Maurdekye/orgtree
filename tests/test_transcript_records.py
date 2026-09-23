@@ -12,6 +12,9 @@ fixture = tempfile.TemporaryDirectory(prefix="orgtree-transcript-records-")
 os.environ["ORGTREE_DATA"] = str(Path(fixture.name) / "data")
 Path(os.environ["ORGTREE_DATA"]).mkdir()
 os.environ["ORGTREE_V2_TOKEN"] = "transcript-records-test-only"
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.launch import load_app
 load_app()
 from orgtree import transcript_records as records

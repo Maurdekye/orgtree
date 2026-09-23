@@ -38,6 +38,8 @@ class FakeClient:
         self.closed = True
 
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 class CodexHomeUsageTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

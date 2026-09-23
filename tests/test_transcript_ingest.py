@@ -11,6 +11,9 @@ fixture=tempfile.TemporaryDirectory(prefix='orgtree-capture-')
 os.environ['ORGTREE_DATA']=str(Path(fixture.name)/'data')
 os.environ['ORGTREE_V2_TOKEN']='capture-test-only'
 Path(os.environ['ORGTREE_DATA']).mkdir()
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.launch import load_app
 load_app()
 from orgtree import store, ledger, supervisor as sup, transcript_ingest as ingest, transcript_records as records

@@ -57,6 +57,9 @@ os.environ['ORGTREE_V2_TOKEN'] = 'w15-capability-only'
 for k in ('ORGTREE_V1_ROOT', 'ORGTREE_V1_DATA_ROOT', 'ORGTREE_V2_PORT'):
     os.environ.pop(k, None)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine' / 'backend'))
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from orgtree import (accounts, accountusage, antigravity_limits,     # noqa: E402
                      capability, codex_limits, ledger, limits, providers,
                      registry, store, supervisor, turnusage)

@@ -151,10 +151,11 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   //
   // ⚠ EVERY GATE IS THE BACKEND'S. `continue_accounts` is empty unless the
   // agent is frozen, its automatic fallback is off, and the account is a
-  // signed-in, same-provider, capacity-clear alternative to the one it is on.
-  // Re-deciding any of that here would be a second definition of eligible.
-  // The label carries the immutable account id verbatim — never an email, a
-  // mutable label, or a provider display name.
+  // signed-in, same-provider alternative to the one it is on that nothing has
+  // positively reported full (`account_fallback.offered`). Re-deciding any of
+  // that here would be a second definition of eligible. The label carries the
+  // immutable account id verbatim — never an email, a mutable label, or a
+  // provider display name.
   const continueOn = h.onContinueOn
   if (continueOn && live) {
     for (const account of node.continue_accounts ?? []) {

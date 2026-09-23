@@ -123,8 +123,10 @@ test('a pinned desk renders the account ID EXACTLY ONCE, in the token list', asy
   // provider-qualified form, never `primary`, and its detail reveal intact
   assert.equal(token!.textContent, 'default')
   assert.doesNotMatch(token!.textContent ?? '', /openai\/|primary/)
-  assert.ok(win.querySelector('.pinwin-body .serving-account-tip'),
-    'the hover/focus detail surface rides along as before')
+  // the detail rides along as before — as the plain `title` that replaced the
+  // hover/focus panel on 2026-09-17, carrying the id and the email only
+  assert.ok(token!.hasAttribute('title'),
+    'the hover detail does not ride along into the pinned window')
 })
 
 test('a Fable agent on a Claude secondary wears exactly one card, in the token list', async (t: TestContext) => {

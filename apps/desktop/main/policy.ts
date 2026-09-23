@@ -229,6 +229,13 @@ export function trustedUiUrl(value: string, origin: string): boolean {
   return u.protocol === 'http:' && isAppPath(u.pathname)
 }
 
+/** The internal holding page shown during engine reconnection is a trusted window sender. */
+export function isHoldingUrl(value: string): boolean {
+  try {
+    return typeof value === 'string' && value.startsWith('data:text/html') && decodeURIComponent(value).includes('<title>Orgtree — reconnecting</title>')
+  } catch { return false }
+}
+
 /** Only plain HTTP(S) URLs may be handed to the user's external browser. */
 export function externalHttpUrl(value: string): boolean {
   try {

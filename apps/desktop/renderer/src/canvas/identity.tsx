@@ -18,6 +18,7 @@
 
 import { createContext, useContext } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
+import { agentNavProps } from './agentnav'
 import { TIER_LETTER, tierLabel } from './shared'
 
 /** The model card: the letter chip every surface uses for a tier.
@@ -95,7 +96,14 @@ export function AgentName({
       <TierChip tier={tier} agentName={id} />
       {/* type="button": this is embedded inside forms, where the default
           submit behaviour would be wrong */}
-      <button type="button" data-copy-agent-name={id} className={'cc-name cc-name-jump' + extra}
+      {/* ⚠ THE MARKER GOES ON THE NAVIGATING BRANCH ONLY. This `if` is
+          already the one place the app decides whether an agent's name is a
+          route, so marking it here is what makes "every navigation target has
+          the agent's menu" true by construction rather than by fourteen call
+          sites remembering. The `span` branch above is deliberately bare: it
+          did not navigate, so the expanded scope does not reach it. */}
+      <button type="button" data-copy-agent-name={id} {...agentNavProps(id)}
+        className={'cc-name cc-name-jump' + extra}
         title={why ?? `focus ${id}'s desk`}
         onClick={(e) => { e.stopPropagation(); onFocus(id, e) }}>
         {label}

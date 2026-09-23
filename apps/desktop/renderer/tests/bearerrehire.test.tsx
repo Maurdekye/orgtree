@@ -144,13 +144,13 @@ panelTest('every provider\'s seats render as numbers, never "undefined"',
     // default row and its retire button both read "undefined" today
     const { el } = await mount(withBearer('sol', { state: 'archived' }))
     const dflt = options(el).find((o) => o.value === '')!
-    assert.equal(dflt.textContent?.trim(), 'as sol · seat 5')
+    assert.equal(dflt.textContent?.trim(), 'as sol · seat 2')
     assert.doesNotMatch(el.textContent ?? '', /undefined/,
       'no seat in the panel may render as undefined')
-    // gpt-reserve/luna are 0.2 since the sub-$1 repricing (2026-09-03):
+    // Reserve stays 0.2; Luna is 0.1 after the September 22 repricing:
     // the panel prints the seat verbatim, so a fraction must survive the
     // round trip rather than being floored or rendered as `undefined`
-    for (const [t, seat] of [['gpt-reserve', 0.2], ['luna', 0.2], ['terra', 2], ['flash', 1],
+    for (const [t, seat] of [['gpt-reserve', 0.2], ['luna', 0.1], ['terra', 2], ['flash', 1],
                              ['pro', 2], ['fable', 10]] as const) {
       assert.match(option(el, t).textContent ?? '',
         new RegExp(`as ${t} · seat ${seat}\\b`))
@@ -163,7 +163,7 @@ panelTest('a LIVE codex bearer\'s retire button names a real seat',
       withBearer('sol', { state: 'live', bearer_state: 'knowledge' }))
     const retire = [...el.querySelectorAll<HTMLButtonElement>('button')]
       .find((b) => b.textContent?.includes('retire'))!
-    assert.equal(retire.textContent?.trim(), 'retire · frees 5')
+    assert.equal(retire.textContent?.trim(), 'retire · frees 2')
   })
 
 // ------------------------------------------------------------- §4 it still works

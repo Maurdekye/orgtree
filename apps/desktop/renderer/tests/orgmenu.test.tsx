@@ -61,10 +61,12 @@ test('hover styling: subtle, theme-consistent treatment that rejects the broad g
   assert.doesNotMatch(orgHover![1]!, /background:\s*var\(--panel-2\);/,
     'must not use var(--panel-2) solid gray block')
 
-  // Tray popup document also uses color-mix with --accent and rejects #2c2c2c
+  // Tray popup document also uses color-mix with --accent and rejects #2c2c2c.
+  // It paints the ROW, not its cells (user bug 2026-09-17: a per-cell
+  // background rendered the highlight as two blocks) — see traylist.test.mjs.
   const trayHtml = trayListHtml([{ slug: 'orgtree', name: 'Orgtree', working: 1, live: 4 }])
-  assert.match(trayHtml, /\.row:hover>span\{background:color-mix\(in srgb,var\(--accent\) 10%,transparent\)/)
-  assert.doesNotMatch(trayHtml, /\.row:hover>span\{background:#2c2c2c\}/,
+  assert.match(trayHtml, /\.row:hover\{background:color-mix\(in srgb,var\(--accent\) 10%,transparent\)/)
+  assert.doesNotMatch(trayHtml, /\.row:hover\{background:#2c2c2c\}/,
     'tray popup must not use solid #2c2c2c gray block')
 })
 

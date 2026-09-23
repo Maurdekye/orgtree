@@ -15,7 +15,7 @@ import uuid
 from contextlib import closing
 from pathlib import Path
 
-from . import ledger, maildrain, store
+from . import ledger, maildrain, profiling, store
 from .mcptool import MANAGED_WAIT_TOOLS as TOOLS
 
 WAIT_S = 10.0
@@ -188,6 +188,21 @@ def invoke(body, caller, run, *, wait_s=WAIT_S):
            'seat': caller['seat_id'], 'tool': tool_name(body),
            'at': time.time(), 'state': 'running', 'yielded': False}
     job = {'row': row, 'ready': threading.Event()}
+    # ⚠ THE WORKER BELOW IS A PLAIN `threading.Thread`, which starts with an
+    # EMPTY context — so the request's stage-timing dict does not reach it by
+    # itself, and `orgtree_hire`/`orgtree_retire`/`orgtree_staff` (every
+    # MANAGED_WAIT_TOOL) would report only the authentication this thread did
+    # and none of the load, mutation or save that is the actual operation.
+    # Measured before this line existed: a successful retire recorded
+    # `org_load_ms` and a 0.03 ms `mutate_ms`, and no save at all.
+    #
+    # Carried explicitly rather than by copying the whole context: this thread
+    # deliberately OUTLIVES its request (that is what yielding at ten seconds
+    # means), and a long-lived thread inheriting every unrelated ContextVar is
+    # a wider promise than this needs. Late additions are harmless — the
+    # record was already emitted with what had accrued by then, and `add`
+    # and `snapshot` share a mutex so the emit can never catch a half-write.
+    _profile = profiling.current()
     try:
         with _lock:
             if len(records()) >= 64:
@@ -196,6 +211,8 @@ def invoke(body, caller, run, *, wait_s=WAIT_S):
             _live[oid] = job
 
         def worker():
+            if _profile is not None:
+                profiling.bind(_profile)   # this thread's own context; no reset needed
             try:
                 from fastapi.encoders import jsonable_encoder
                 result, state = jsonable_encoder(run()), 'completed'

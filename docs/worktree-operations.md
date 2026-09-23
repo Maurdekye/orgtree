@@ -60,21 +60,55 @@ looked at on the way up, and whether that directory is a link.
 ## Removing a worktree
 
 ```powershell
-python tools/worktree.py remove E:\path\to\worktree [--force] [--dry-run]
+python tools/worktree.py remove E:\path\to\worktree [--force] [--accept-unscanned] [--dry-run]
 ```
 
 Before removing anything, `remove` scans the worktree for symlinks and
-junctions **without following any of them** and refuses `--force` when it finds
-one whose target is outside the worktree. It also refuses a non-forced removal
-of a worktree with uncommitted or unmerged changes, and refuses to remove the
-main checkout at all.
+junctions **without following any of them** and refuses the removal when it
+finds one whose target is outside the worktree. It also refuses a non-forced
+removal of a worktree with uncommitted or unmerged changes, and refuses to
+remove the main checkout at all.
 
-If the scan hits its entry limit it says so and still refuses `--force`,
-because "no escaping links found" from a scan that stopped early is a guess
-rather than a result.
+### `--force` has nothing to do with the link check
 
-To clear a link before removal, use the two-phase cleanup below rather than
-deleting it by hand.
+This is the part that was wrong until 2026-09-17, and it was wrong in the
+dangerous direction. The link refusal used to apply **only** when `--force` was
+passed, on the assumption that a forced removal was the destructive one.
+
+It is not. `--force` overrides the dirty/untracked *check*; it does not change
+how Git deletes the tree afterwards. Measured on git 2.52.0.windows.1, in a real
+worktree under the repository root with a `node_modules` junction pointing
+outside it:
+
+| command | git exit | target behind the junction |
+| --- | --- | --- |
+| `git worktree remove <wt>` — no `--force` | 0 | **destroyed** |
+| `git worktree remove --force <wt>` | 0 | **destroyed** |
+
+Worse, the un-forced path was the one an agent actually reached. A
+`node_modules` junction is gitignored, so `git status` reports the worktree
+clean, so none of the force-only refusals applied and the removal went straight
+through. The check guarded the careful route and left the default one open.
+
+Both routes refuse now, and `--force` keeps its real meaning: discard my
+changes.
+
+### `--accept-unscanned`
+
+If the scan hits its entry limit it says so and refuses, because "no escaping
+links found" from a scan that stopped early is a guess rather than a result.
+
+A worktree with a **real** installed `node_modules` is the ordinary way to hit
+that limit — a junctioned one is a reparse point and is never descended into, so
+it scans small, while a real one was measured at 61,324 entries. The entry
+budget is sized well above that, so this should be rare; when it does happen,
+`--accept-unscanned` waives **only** that unknown. It never waives a link the
+scan actually found, and it is a separate word from `--force` on purpose:
+overloading one flag into "discard my changes" *and* "stop checking for links"
+is exactly how the original defect happened.
+
+To clear a link before removal, use the cleanup below rather than deleting it by
+hand.
 
 ## Why the junction is banned
 
@@ -140,13 +174,104 @@ registry paths contained by the old root. It returns each old/new path pair.
 Unrelated paths and similarly named siblings stay unchanged. No alias is
 created at the old path, and a stale path is not recreated.
 
-## Cleanup
+## Cleaning up junctions that already exist
+
+`cleanup-preview` validates paths you already know about. `cleanup-scan` is the
+half that finds them, which is what you want when the question is "what is out
+there": it walks a root **without following a single link**, selects the
+hazardous shape, and writes a plan that `cleanup-apply` executes.
+
+```powershell
+python tools/worktree.py cleanup-scan  "<root>" > plan.json
+python tools/worktree.py cleanup-apply plan.json --confirm
+```
+
+Read `plan.json` before applying it. Nothing is unlinked by the scan.
+
+**What it selects.** A link is marked for unlinking only when all three hold: it
+is named `node_modules` (`--name` changes this), its target is readable, and its
+target lies **outside the scanned root**. Everything else found is listed and
+preserved with the reason attached — `not selected: target … is INSIDE the
+scanned root`, or the name it actually had — so the plan documents what it
+skipped instead of quietly narrowing. `--max-depth` and `--limit` bound the walk
+and both bounds are reported:
+
+- `complete: false` means the walk ran out of entry budget or hit an unreadable
+  directory. The result is **not** a census; raise `--limit` and rerun.
+- `exhaustive: false` means only that something sits below `--max-depth`. The
+  requested depth was fully examined. On any real tree this is normal.
+
+**Depth and budget are coupled — raise them together or not at all.** Measured
+against the live scratch root at a 50,000 budget, `--max-depth` 3, 4 and 5 each
+found the same 77 links; depth 6 found *eleven*. Not because six was too deep:
+that root is 572,301 entries, and the budget ran out. Raising depth without
+raising `--limit` converts a generous bound into a truncating one and finds
+**fewer** links while still looking like it worked.
+
+A depth-4 default was tried and was wrong — it missed 5 links in the primary
+root and 49 in the second, while printing `complete: true`. The defaults are now
+sized to be exhaustive on the shapes we actually have.
+
+**Check `census`, not `complete`.** `census: true` is the single flag that means
+nothing was skipped for any reason — budget, readability, or depth. It is the
+only one to trust before treating a count as a count.
+
+**The safe order, which the plan also prints:**
+
+1. Unlink the junction — `cmd /c rmdir "<link>"`, or `cleanup-apply`. `rmdir` on
+   a junction removes the **link** and does not follow it.
+2. Then remove the worktree.
+
+Doing it in the other order is the incident. And never reach for a recursive
+delete on a junction — `rmdir /s`, `Remove-Item -Recurse`, `rm -rf` all follow
+the link and empty its target. That is the whole trap: the obvious tool destroys
+the thing you were trying to protect.
+
+**Removing the link leaves that worktree unable to resolve dependencies**,
+because the link was how it resolved them. That is expected — the worktree was
+never private to begin with — and the fix is to recreate it under the repository
+root, where `node_modules` resolves upward and no link is needed.
+
+### The current population
+
+Measured 2026-09-17 with `census: true` on both roots — unbounded depth, no
+truncation, nothing unreadable. Earlier depth-bounded figures in this ticket's
+history (77/75, and 81 in the original report) were undercounts.
+
+**Primary — `…\Orgtree v2\data\scratch\orgtree`.** 572,301 entries, 39s.
+
+- **82 links, 80 named `node_modules`**
+- **71** target `E:\Libraries\Desktop\orgtree\node_modules` exactly
+- **76** target somewhere under `E:\Libraries\Desktop\orgtree` — the other 5
+  point at `apps\desktop\renderer\node_modules`, which is still inside the real
+  checkout and still the hazard. Both numbers are correct; they answer different
+  questions, and "into the real checkout" should be read as **76**.
+- a scan selects **77** and preserves 5 (3 `node_modules` links whose target is
+  inside the scanned root, 2 links by other names), each with its reason.
+
+**Second — `C:\Users\ncola_k8bx\orgtree\scratch\orgtree`.** 280,753 entries, 18s.
+
+- **76 links, 27 named `node_modules`**, and **zero** pointing into this
+  repository. 13 point at `E:\Libraries\Desktop\claude-orgtree\frontend\node_modules`,
+  a different project entirely; the rest point within their own tree.
+
+> ⚠ **Do not clean up the second root.** It is retained V1 reference data from
+> the 2026-09-08 handover (coordinator ruling, 2026-09-17). Detecting and
+> reporting it is in scope precisely because a scanner that knows about one root
+> will be wrong the next time a root appears — but a plan produced for that path
+> must not be applied. A scan there selects 13 links; leave them.
+
+## Cleanup (validating paths you already have)
 
 Cleanup is two-phase. First produce a preview with exact paths:
 
 ```powershell
 python tools/worktree.py cleanup-preview E:\path\to\checkout node_modules
 ```
+
+⚠ `cleanup-preview` takes an `owned` list at the API level and the CLI does not
+pass one, so from the command line every candidate comes back preserved. Use
+`cleanup-scan` above, which supplies that list from what it actually found.
 
 Only a path explicitly registered as an owned link and currently identified as
 a symlink or Windows reparse point is previewed as unlinkable. Unknown reparse

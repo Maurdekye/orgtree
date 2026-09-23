@@ -1159,8 +1159,8 @@ def _r_parked(ev: _R) -> str:
             "It is not frozen on a timer and orgtree will not re-drive it, so nothing "
             "changes until someone acts. It may also be holding unfinished work from "
             "the turn that stopped.\n\n"
-            "You have NOT been woken for this, and you will not hear about it again "
-            "until it has completed a turn and got stuck afresh.")[:8000]
+            "You will not hear about it again until it has completed a turn and "
+            "got stuck afresh.")[:8000]
 
 
 @renderer("runtime.report_limited")
@@ -1180,10 +1180,10 @@ def _r_limited(ev: _R) -> str:
             "replayed when it runs again. Whether it wakes by itself when the window "
             "lifts depends on this org's auto-resume setting; ▶ resume works either "
             "way.\n\n"
-            "You have NOT been woken for this, and you will not hear about this wall "
-            "again: it is one notice per episode, and the next one comes only after "
-            "it has run a turn and been walled afresh. If the work cannot wait for "
-            "the reset, move it to another agent or another lane.")[:8000]
+            "You will not hear about this wall again: it is one notice per episode, "
+            "and the next one comes only after it has run a turn and been walled "
+            "afresh. If the work cannot wait for the reset, move it to another "
+            "agent or another lane.")[:8000]
 
 
 @renderer("runtime.subagent_died")

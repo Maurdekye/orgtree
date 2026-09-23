@@ -19,6 +19,9 @@ from pathlib import Path
 
 os.environ.setdefault(
     "ORGTREE_DATA", tempfile.mkdtemp(prefix="orgtree-rodeny-test-"))
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.backend.orgtree.supervisor import ro_deny_rules
 
 

@@ -60,6 +60,11 @@
      this line is a zero-pixel change that simply makes it themeable and stops
      the next edit from having to change the literal in fifteen places. */
   --warn: #e5c07b;
+  /* The notice flair edge (§9.3 / notice channel): a subtle dashed neutral
+     edge that marks passive context (notice mail cards in transcripts, and the
+     composer when armed in notice mode) without shouting over active turns. */
+  --notice-edge-style: dashed;
+  --notice-edge-color: color-mix(in srgb, var(--dim) 55%, var(--line));
   --work: #7cc0ff;          /* task-state "working" (sky). Deliberately NOT the
                                terracotta accent: the accent pulse means "a turn
                                is running right now"; this chip means "the task
@@ -75,13 +80,26 @@
                                purpose: it is neither in flight (--work) nor
                                finished (--dim), and desaturating it is what keeps
                                a long backlog from shouting over current work. */
-  --deploy-ready: #9b8ce0;  /* docket "Deploy Ready" — implementation complete,
-                               awaiting deployment. Periwinkle/indigo (~251°):
-                               the one hue gap left between --work (sky, 209°)
-                               and --review (violet, 311°), so it cannot be
-                               mistaken for either neighbor at a glance, and it
-                               is deliberately not --ok green — the work is not
-                               live yet, so it must not read as finished. */
+  --deploy-ready: #7484fb;  /* docket "Deploy Ready" — implementation complete,
+                               awaiting deployment. Royal blue-indigo (~233°),
+                               deliberately not --ok green: the work is not live
+                               yet and must not read as finished.
+                               ⚠ IT WAS #9b8ce0 (~251°, periwinkle) AND THAT WAS
+                               TOO CLOSE TO TWO THINGS AT ONCE (user report
+                               2026-09-19). Measured as CIE76 ΔE on this
+                               surface: 9.7 from the OpenRouter Lavender theme
+                               accent #b69afa (~258°) — the reported clash — and
+                               8.7 from its own neighbour --approved, which is
+                               worse, because those two are adjacent rows in the
+                               same docket. At 233° it is 20.3 from lavender and
+                               25.5 from --approved, while staying 42.7 from
+                               --work (sky, 209°) and 51.4 from --review (311°).
+                               The hue order of the real sequence is preserved
+                               and its spacing is more even than before:
+                               work 209° → deploy-ready 233° → approved 269° →
+                               review 311°. Keep any future value ≥20° from BOTH
+                               209° and 258°, or one of those collisions returns
+                               — deployreadycolor.test.tsx fails if it does. */
   --approved: #b58ce0;      /* docket "Approved — not landed" — a reviewer passed
                                an exact commit that is not on main yet. Orchid
                                (~283°), the midpoint of the remaining gap between
@@ -175,7 +193,11 @@
   --work: #23679e;
   --review: #815379;
   --backlog: #326b66;
-  --deploy-ready: #6350a8;
+  /* light surfaces: the same 233° hue, deepened for ink on a pale
+     background. ΔE 34.9 from lavender and 16.5 from --approved (was 29.5 and
+     7.8), and its contrast IMPROVES — 7.08:1 on --bg #f6f7f9 and 7.03:1 on
+     solarized #fdf6e3, against 6.04 and 6.00 before. */
+  --deploy-ready: #3f4ba6;
   --approved: #7a4fa8;
   --ice: #326b82;
   --tip-fill: #176377;
@@ -233,7 +255,9 @@ body {
   font-size: 15px; -webkit-app-region: no-drag;
 }
 .window-control:hover { background: var(--panel-2); color: var(--ink-strong); }
+.window-control:active { background: var(--panel); color: var(--ink-strong); }
 .window-control.close:hover { background: #c42b1c; color: #fff; }
+.window-control.close:active { background: #b02619; color: #fff; }
 
 /* ------------------------------------------------------------------ sidebar */
 aside {
@@ -600,33 +624,18 @@ button.badge.queued:hover { border-color: var(--accent); }
 .badge.unstick:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); }
 button.badge.frozen { cursor: pointer; font: inherit; font-size: inherit; }
 button.badge.frozen:hover { border-color: var(--accent); }
-/* WHICH ACCOUNT IS SERVING THIS TURN (user requirement 2026-09-13). It is a
-   button only so that hover and keyboard focus reveal the same detail — the
-   requirement names focus, and a span with a title is reachable by mouse
-   alone — so it is styled as the SIGN it is, not as an action: no hover fill,
-   no pointer cursor, just the focus ring it needs to be reachable at all.
-   Monospace because the canonical account id is an identifier and reads as
-   one beside the account ids in the Usage modal and the accounts panel. */
-.serving-account-wrap { position: relative; display: inline-flex; }
-/* ⚠ THE DETAIL SURFACE, AND THE WHOLE REASON IT IS NOT A `title`: a native
-   tooltip is shown on MOUSE HOVER ONLY — no browser renders one for a
-   keyboard-focused element — so `title` would satisfy half of "on hover or
-   keyboard focus" while looking complete. Same construction as `.cbar-tip`
-   and the edge-jump labels, with `:focus-visible` added beside `:hover`.
-   ⚠ BOTH HALVES OF THE NEXT SELECTOR ARE ASSERTED against this file in
-   servingaccount.test.tsx — jsdom computes no hover or focus styling, so the
-   stylesheet itself is the only place that proof can live. */
-.serving-account-tip {
-  position: absolute; left: 0; bottom: calc(100% + 5px); z-index: 7;
-  display: flex; flex-direction: column;
-  white-space: nowrap; font-size: 10px; line-height: 1.5; font-family: var(--mono);
-  background: var(--tip-panel); border: 1px solid var(--line); border-radius: 4px;
-  padding: 3px 8px; color: var(--ink); opacity: 0; pointer-events: none;
-  transition: opacity .12s; box-shadow: var(--shadow);
-}
-.serving-account-wrap:hover .serving-account-tip,
-.serving-account:focus-visible ~ .serving-account-tip { opacity: 1; }
-.serving-account-tip .sa-tip-head { color: var(--dim); }
+/* WHICH ACCOUNT IS SERVING THIS TURN (user requirement 2026-09-13). It stays
+   a button so keyboard focus can land on it at all, but it is styled as the
+   SIGN it is, not as an action: no hover fill, no pointer cursor, just the
+   focus ring it needs to be reachable. Monospace because the canonical
+   account id is an identifier and reads as one beside the account ids in the
+   Usage modal and the accounts panel.
+   ⚠ THE `.serving-account-tip` PANEL AND ITS `.serving-account-wrap` ARE GONE
+   (user ruling 2026-09-17). The detail used to be a custom hover/focus panel
+   listing six fields; the user asked for a plain `title` carrying the id and
+   the email and nothing else, so the panel's rules are deleted rather than
+   left behind unused. The `:focus-visible` rule below is now the button's own
+   focus ring, not a reveal. */
 /* ⚠ COMPACT, LIKE ITS NEIGHBOURS. `font: inherit` here is only the UA-button
    reset; the SIZES are restated explicitly because this selector outweighs
    `.badge`/`.sq-badges .badge`/`.desk-body .badge`, and `font-size: inherit`
@@ -747,9 +756,11 @@ button.badge.audience-fold.alert {
    the same tier colour it wears on cards and pickers. Provider identity
    belongs to the surrounding chrome; these tokens distinguish the models. */
 .chip.agents b.t-luna { color: var(--tier-luna); }
+.chip.agents b.t-gpt-6-luna { color: var(--tier-luna); }
 .chip.agents b.t-gpt-reserve { color: var(--tier-luna); }
 .chip.agents b.t-terra { color: var(--tier-terra); }
 .chip.agents b.t-sol { color: var(--tier-sol); }
+.chip.agents b.t-gpt-6-sol { color: var(--tier-sol); }
 .chip.agents b.t-astra { color: var(--tier-astra); }
 .chip.agents b.t-flash { color: var(--tier-flash); }
 .chip.agents b.t-pro { color: var(--tier-pro); }
@@ -972,16 +983,20 @@ button.badge.audience-fold.alert {
    busy ring follows. Keyed on `prov-openai` from cards.tsx, not on the tier
    classes, so a future codex tier joins the theme by joining the family. */
 .sq.tier-luna { --tier-accent: var(--tier-luna); border-top-color: color-mix(in srgb, var(--tier-luna) 55%, var(--line)); }
+.sq.tier-gpt-6-luna { --tier-accent: var(--tier-luna); border-top-color: color-mix(in srgb, var(--tier-luna) 55%, var(--line)); }
 .sq.tier-gpt-reserve { --tier-accent: var(--tier-luna); border-top-color: color-mix(in srgb, var(--tier-luna) 55%, var(--line)); }
 .sq.tier-terra { --tier-accent: var(--tier-terra); border-top-color: color-mix(in srgb, var(--tier-terra) 55%, var(--line)); }
 .sq.tier-sol { --tier-accent: var(--tier-sol); border-top-color: color-mix(in srgb, var(--tier-sol) 55%, var(--line)); }
+.sq.tier-gpt-6-sol { --tier-accent: var(--tier-sol); border-top-color: color-mix(in srgb, var(--tier-sol) 55%, var(--line)); }
 .sq.tier-astra { --tier-accent: var(--tier-astra); border-top-color: color-mix(in srgb, var(--tier-astra) 55%, var(--line)); }
 .sq.tier-flash { --tier-accent: var(--tier-flash); border-top-color: color-mix(in srgb, var(--tier-flash) 55%, var(--line)); }
 .sq.tier-pro { --tier-accent: var(--tier-pro); border-top-color: color-mix(in srgb, var(--tier-pro) 55%, var(--line)); }
 .sq.mini.tier-luna { --mini-tier: var(--tier-luna); }
+.sq.mini.tier-gpt-6-luna { --mini-tier: var(--tier-luna); }
 .sq.mini.tier-gpt-reserve { --mini-tier: var(--tier-luna); }
 .sq.mini.tier-terra { --mini-tier: var(--tier-terra); }
 .sq.mini.tier-sol { --mini-tier: var(--tier-sol); }
+.sq.mini.tier-gpt-6-sol { --mini-tier: var(--tier-sol); }
 .sq.mini.tier-astra { --mini-tier: var(--tier-astra); }
 .sq.mini.tier-flash { --mini-tier: var(--tier-flash); }
 .sq.mini.tier-pro { --mini-tier: var(--tier-pro); }
@@ -1050,9 +1065,11 @@ button.badge.audience-fold.alert {
    other three edges, but its greater specificity would also erase the tier
    stripe. Reassert the independent tier channel on the top edge. */
 .sq.prov-openai.desk.tier-luna { border-top-color: var(--tier-luna); }
+.sq.prov-openai.desk.tier-gpt-6-luna { border-top-color: var(--tier-luna); }
 .sq.prov-openai.desk.tier-gpt-reserve { border-top-color: var(--tier-luna); }
 .sq.prov-openai.desk.tier-terra { border-top-color: var(--tier-terra); }
 .sq.prov-openai.desk.tier-sol { border-top-color: var(--tier-sol); }
+.sq.prov-openai.desk.tier-gpt-6-sol { border-top-color: var(--tier-sol); }
 .sq.prov-openai.desk.tier-astra { border-top-color: var(--tier-astra); }
 /* the antigravity family's card dressing (D-189) — the same inherited-chrome
    contract as the codex block above, bluish-violet where codex is blue. */
@@ -1357,6 +1374,13 @@ button.badge.audience-fold.alert {
    one card per side hugging the screen edge at the neighbor's own screen
    elevation (clamped into view); a click glides the camera to that desk.
    Screen-space HUD chrome, same layer as the zoomhud/tray. */
+/* the floating cards' `ObjectMenuBoundary` wrapper. NOT A BOX: the cards are
+   positioned against `.viewport` (`position: relative`), and a wrapper that
+   generated a box would become their containing block and drop them to the
+   top-left. `display: contents` keeps them exactly where they were while the
+   wrapper still carries the `contextmenu` handler that serves their menu —
+   the same trick `.movable-events` and `.desk-slot` already rely on. */
+.edge-jumps { display: contents; }
 .edge-jump {
   position: absolute; z-index: 7; transform: translateY(-50%);
   display: inline-flex; align-items: center; gap: 5px;
@@ -1696,21 +1720,51 @@ button.cc-name:hover {
   color: var(--bad); border-color: color-mix(in srgb, var(--bad) 68%, var(--line));
   background: color-mix(in srgb, var(--bad) 10%, transparent);
 }
+/* `align-items: flex-end` lands every CONTROL on the composer's bottom edge:
+   attach, notice toggle and send all share that baseline. The textarea opts
+   out of it — see `.cc-composer textarea` below — because a control sitting on
+   the baseline is right and TEXT sitting on it is not. */
 .cc-composer {
   display: flex; align-items: flex-end; gap: 8px; flex: none;
   border: 1px solid var(--line); border-radius: 8px; background: var(--input);
   padding: 7px 9px;
 }
 .cc-composer:focus-within { border-color: var(--accent); }
+/* Notice mode wears the notice flair's STYLE and the provider's COLOUR (user
+   2026-09-17: "make the outline on a notice enabled message box provider
+   colored still, not grey"). The dashed style stays on the shared
+   --notice-edge-style token so this edge can never drift from the notice mail
+   card's; only the colour is the composer's own, and it is `--accent`, which
+   `.desk-body.prov-*` already resolves to the desk's provider colour (and to
+   the org accent under agent-colors-organization). The transcript card keeps
+   the neutral --notice-edge-color: a passive card in the reading column must
+   not shout, an armed composer must. */
 .cc-composer.notice-armed {
-  border-style: dotted;
-  border-width: 1.5px;
+  border-style: var(--notice-edge-style);
+  border-width: 1px;
   border-color: var(--accent);
 }
 .cc-composer.notice-armed:focus-within { border-color: var(--accent); }
 .cc-composer.off { opacity: .6; }
+/* TOP-ALIGNED, NOT RIDING THE BASELINE (user 2026-09-17: top-align the text
+   entry instead of centering it vertically).
+
+   Measured cause, not assumed: the composer is `align-items: flex-end`, and
+   since the notice toggle moved ABOVE the attach button the left column is
+   52px (24 + 4 + 24) while an ungrown `rows={2}` textarea is 39.19px. The
+   shorter item was therefore pushed to the bottom of the row, leaving 12.81px
+   of blank space above the first line of text. Once a draft grows the textarea
+   past 52px it becomes the tallest item and the gap vanishes by itself — which
+   is exactly why this read as text floating low rather than as a fixed offset.
+
+   `align-self: flex-start` opts THIS ITEM out of the container's flex-end, so
+   text starts at the composer's content top and grows downward. Nothing else
+   moves: the buttons keep the container's flex-end and stay on the baseline.
+   Deliberately NOT `stretch` — `grow()` writes an explicit inline height, and
+   stretch does nothing against a definite height, so the box would be aligned
+   one way before the first grow and another way after. */
 .cc-composer textarea {
-  flex: 1; min-width: 0;
+  flex: 1; min-width: 0; align-self: flex-start;
   border: none; background: none; padding: 0; resize: none;
   font-size: 14px; line-height: 1.4; font-family: inherit; color: var(--ink-strong);
 }
@@ -1859,14 +1913,8 @@ button.cc-name:hover {
 }
 .turn-mail.passive {
   background: color-mix(in srgb, var(--panel) 72%, var(--input));
-  border-left: 3px dashed color-mix(in srgb, var(--dim) 55%, var(--line));
+  border-left: 3px var(--notice-edge-style) var(--notice-edge-color);
   padding-left: 7px;
-}
-.turn-mail.notice-bubble,
-.msg.user.notice-bubble,
-.notice-bubble {
-  border: 1.5px dotted var(--accent) !important;
-  padding-left: 9px;
 }
 .turn-mail.from-user { border-color: color-mix(in srgb, var(--accent) 26%, var(--line-soft)); }
 .turn-mail-head {
@@ -2117,9 +2165,11 @@ button.cc-name:hover {
 .tier.t-opus { color: var(--tier-opus); border-color: color-mix(in srgb, var(--tier-opus) 45%, var(--line)); }
 .tier.t-fable { color: var(--tier-fable); border-color: color-mix(in srgb, var(--tier-fable) 45%, var(--line)); }
 .tier.t-luna { color: var(--tier-luna); border-color: color-mix(in srgb, var(--tier-luna) 45%, var(--line)); }
+.tier.t-gpt-6-luna { color: var(--tier-luna); border-color: color-mix(in srgb, var(--tier-luna) 45%, var(--line)); }
 .tier.t-gpt-reserve { color: var(--tier-luna); border-color: color-mix(in srgb, var(--tier-luna) 45%, var(--line)); }
 .tier.t-terra { color: var(--tier-terra); border-color: color-mix(in srgb, var(--tier-terra) 45%, var(--line)); }
 .tier.t-sol { color: var(--tier-sol); border-color: color-mix(in srgb, var(--tier-sol) 45%, var(--line)); }
+.tier.t-gpt-6-sol { color: var(--tier-sol); border-color: color-mix(in srgb, var(--tier-sol) 45%, var(--line)); }
 .tier.t-astra { color: var(--tier-astra); border-color: color-mix(in srgb, var(--tier-astra) 45%, var(--line)); }
 .tier.t-flash { color: var(--tier-flash); border-color: color-mix(in srgb, var(--tier-flash) 45%, var(--line)); }
 .tier.t-pro { color: var(--tier-pro); border-color: color-mix(in srgb, var(--tier-pro) 45%, var(--line)); }
@@ -3336,9 +3386,11 @@ button.stackbadge:hover { border-color: var(--accent); color: var(--agent-accent
    permanently disabled, so no hover leg. A touch dimmer than the generic
    :disabled .35 would leave them: these are "coming", not "can't afford". */
 .hsof button.t-luna { color: var(--tier-luna); border-color: color-mix(in srgb, var(--tier-luna) 45%, var(--line)); }
+.hsof button.t-gpt-6-luna { color: var(--tier-luna); border-color: color-mix(in srgb, var(--tier-luna) 45%, var(--line)); }
 .hsof button.t-gpt-reserve { color: var(--tier-luna); border-color: color-mix(in srgb, var(--tier-luna) 45%, var(--line)); }
 .hsof button.t-terra { color: var(--tier-terra); border-color: color-mix(in srgb, var(--tier-terra) 45%, var(--line)); }
 .hsof button.t-sol { color: var(--tier-sol); border-color: color-mix(in srgb, var(--tier-sol) 45%, var(--line)); }
+.hsof button.t-gpt-6-sol { color: var(--tier-sol); border-color: color-mix(in srgb, var(--tier-sol) 45%, var(--line)); }
 .hsof button.t-astra { color: var(--tier-astra); border-color: color-mix(in srgb, var(--tier-astra) 45%, var(--line)); }
 .hsof button.t-flash { color: var(--tier-flash); border-color: color-mix(in srgb, var(--tier-flash) 45%, var(--line)); }
 .hsof button.t-pro { color: var(--tier-pro); border-color: color-mix(in srgb, var(--tier-pro) 45%, var(--line)); }
@@ -5276,8 +5328,26 @@ svg.MuiSvgIcon-root {
   padding: 6px 8px;
 }
 .mail-reply:focus-within { border-color: var(--accent); }
+/* armed for a passive notice — the same edge the desk composer wears, and for
+   the same reason: the notice flair's STYLE from the shared
+   --notice-edge-style token so it can never drift from the notice mail card's,
+   and the provider's COLOUR from --accent, because an armed composer must say
+   so. See `.cc-composer.notice-armed`; these two must stay in step. */
+.mail-reply.notice-armed {
+  border-style: var(--notice-edge-style);
+  border-width: 1px;
+  border-color: var(--accent);
+}
+.mail-reply.notice-armed:focus-within { border-color: var(--accent); }
+/* TOP-ALIGNED for the same measured reason as `.cc-composer textarea`: the
+   left column is now a 52px stack (24 + 4 + 24) and an ungrown `rows={2}`
+   textarea is shorter than that, so the container's `align-items: flex-end`
+   would push the text to the bottom and leave blank space above the first
+   line — the exact complaint the desk composer was fixed for. `align-self`
+   opts THIS item out; the buttons keep the baseline. */
 .mail-reply textarea {
-  flex: 1; min-width: 0; border: none; background: none; resize: none;
+  flex: 1; min-width: 0; align-self: flex-start;
+  border: none; background: none; resize: none;
   font-size: 12.5px; font-family: inherit; color: var(--ink-strong); padding: 0;
 }
 .mail-reply textarea:focus { outline: none; }
@@ -5298,6 +5368,15 @@ svg.MuiSvgIcon-root {
 .rec-actor { color: var(--dim); margin-right: 8px; }
 .rec-warn { color: var(--work); font-size: 11px; padding-left: 14px; }
 
+/* the composer's left column: the notice toggle ABOVE the attach button
+   (user 2026-09-17), not beside it. `flex: none` and `align-items: center`
+   keep both circles at their own 24px — the column never stretches them —
+   and the composer's own `align-items: flex-end` lands the stack's BOTTOM on
+   the composer baseline, so the attach button does not move. */
+.cc-btnstack {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 4px; flex: none;
+}
 /* file attach in the composer — same 24px circle family as send, so the
    row's controls read as one aligned set (user design pass) */
 .cc-attach {
@@ -6218,6 +6297,26 @@ html.mobile .md table { display: block; overflow-x: auto; max-width: 100%; }
   border-color: var(--prov-openrouter); outline: none;
   background: color-mix(in srgb, var(--prov-openrouter) 10%, transparent); }
 .orr-favs .orr-hint { font-size: 12px; color: var(--dim); }
+/* THE HARNESS ROW — which CLI drives OpenRouter agents. An account row by
+   construction (`.acct-line` › `.acct-row` › `.acct-main` + `.acct-provenance`),
+   so it lands on the same rail and the same two-line rhythm as the key row
+   above it; only the control between them is new.
+   ⚠ `.off` MUST STILL BE LEGIBLE. It is worn in the one-harness case, where
+   the row's whole job is to say WHICH harness you have — a disabled control
+   faded to the usual 40% would hide the answer it exists to give. It reads
+   at dim strength with the pointer disabled, which says "not a choice"
+   without saying "not information". */
+.orr-harness-opts { display: flex; gap: 6px; flex-wrap: wrap; }
+.orr-harness-opt { display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 8px; border: 1px solid var(--line); border-radius: 999px;
+  font-size: 12px; cursor: pointer; white-space: nowrap; }
+.orr-harness-opt:hover:not(.off) {
+  border-color: var(--prov-openrouter);
+  background: color-mix(in srgb, var(--prov-openrouter) 10%, transparent); }
+.orr-harness-opt.on { border-color: var(--prov-openrouter);
+  background: color-mix(in srgb, var(--prov-openrouter) 16%, transparent); }
+.orr-harness-opt.off { cursor: default; color: var(--dim); }
+.orr-harness-opt.off input { cursor: default; }
 .orr-card { display: inline-flex; align-items: center; justify-content: center;
   width: 26px; height: 26px; border-radius: 6px; font-weight: 700;
   font-size: 13px; flex: none; color: var(--orr-c);
@@ -7452,6 +7551,8 @@ html.mobile .popout-button { display: none; }
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: start;
   overflow: visible;
+  padding-top: 0;
+  padding-right: 0;
 }
 .orgbar.native-header > .native-header-main {
   grid-column: 1;
@@ -7462,6 +7563,7 @@ html.mobile .popout-button { display: none; }
   min-width: 0;
   gap: 8px;
   overflow: visible;
+  padding-top: 6px;
 }
 .orgbar.native-header > .update-notice {
   grid-column: 2;
@@ -7473,12 +7575,15 @@ html.mobile .popout-button { display: none; }
   max-width: min(280px, 34vw);
   white-space: normal;
   overflow-wrap: anywhere;
+  margin-top: 4px;
 }
 .orgbar.native-header > .window-controls {
   grid-column: 3;
   grid-row: 1;
   position: static;
   justify-self: end;
+  margin: 0;
+  height: 32px;
 }
 /* the HOME page (org list): the native frame replacement anchors to the
    WINDOW's top edge and right corner, never to the centered welcome card
@@ -7487,7 +7592,24 @@ html.mobile .popout-button { display: none; }
    region (via .orgbar), and the updater+controls sit flush right. */
 .orgbar.native-header.home-header {
   position: fixed; top: 0; left: 0; right: 0; z-index: 6;
-  margin: 0; padding: 6px 0 6px 14px;
+  margin: 0; padding: 0 0 6px 14px;
+}
+.orgbar.native-header.home-header > h2 {
+  margin: 6px 0;
+}
+.orgbar.fallback-orgbar.native-header > h2 {
+  margin: 6px 0;
+  padding-left: 14px;
+}
+main:has(> .orgbar.native-header) {
+  padding-top: 0;
+  padding-right: 0;
+}
+main:has(> .orgbar.native-header) > .canvas-stage {
+  padding-right: 18px;
+}
+main:has(> .orgbar.native-header) > .error {
+  margin-right: 18px;
 }
 
 /* Navigation stays reachable over every desk or org modal pin (10..16). */

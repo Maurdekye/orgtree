@@ -57,7 +57,7 @@ PACKAGE = "@openai/codex"
 #: PATCH updates only — so `^0.150.1` could never reach 0.153.x and a re-run
 #: reported "up to date" while doing nothing. That is how the pin sat still
 #: for a week while looking maintained.
-PIN = "0.153.3"
+PIN = "0.155.1"
 
 #: The oldest CLI observed to be offered the ``gpt-6-astra`` rollout model.
 #:

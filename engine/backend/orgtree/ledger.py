@@ -19,6 +19,17 @@ other archived children), reallocate(-Δ), and switch_model to a pricier tier (t
 Directory access (№30) is an inherited capability set, NOT a budget: a node may hold only
 dirs its parent holds (top-level nodes are user-granted and unconstrained). Nothing conserves;
 revoke is explicit; re-parenting intersects the moved subtree's dirs with the new chain.
+
+⚠ GREP FOR A METHOD NAME BEFORE YOU ADD ONE. `Org` is one class spanning most of this
+18,000-line file, so two methods can be given the same name thousands of lines apart.
+Python keeps the LAST definition and discards the earlier one with no error, no warning
+and no import failure, and every existing caller of the discarded one silently starts
+calling something else. That happened on 2026-09-18: a second `_work_ref` meaning a
+pointer lookup displaced the original meaning a name, and two callers in
+`repair_rename_identity` began passing an item dict into a slug parameter. Nothing
+raised; the repair failed with the plausible message "work item ... has no slug".
+`tests/test_no_duplicate_definitions.py` now fails on this, naming both line numbers —
+but it catches you after the fact, and one grep catches you before.
 """
 
 from __future__ import annotations
@@ -35,7 +46,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Final, Literal, cast
 
 from . import (clipin, deployment, events, events_render, lifecycle,
-               opreceipts, workfields)
+               opreceipts, toolmarkup, workfields)
 from .schema import (AudienceGrant, DirGrant, FrozenInfo, MailEntry, NodeDoc,
                      NoticeEntry, NoticeLogEntry, OrgDoc, OrgInboxEntry, ToolGrant,
                      UserMailEntry, WorkActor, WorkItem, WorkScopeRecord,
@@ -45,9 +56,9 @@ from .schema import (AudienceGrant, DirGrant, FrozenInfo, MailEntry, NodeDoc,
 # tokens at the STANDING price. Promos never set seats — the sonnet-intro
 # precedent, re-affirmed for sol by user ruling 2026-08-28 and for flash by
 # user ruling 2026-09-02. Sonnet was 3, then 2 (user ruling 2026-08-12: $2/M
-# locked in). The codex family (FR-15, same ruling): sol $5 standard (the
-# current $4 is a promo through ≥2026-11-21), terra $2, and gpt-reserve/luna
-# $0.20 → 0.2 each (they used to floor to 1; see the sub-$1 note below).
+# locked in). The codex family initially used sol $5 standard and
+# gpt-reserve/luna $0.20. The user repriced Sol to 2 and Luna to 0.1 on
+# 2026-09-22 across model versions; Terra stays 2 and legacy reserve 0.2.
 # The antigravity family (D-188, re-walked for the Antigravity CLI
 # 2026-09-02): pro $2 standard (the ≤200K band — the >200K long-context
 # surcharge is a cost-dollars concern, never a seat), flash $1.50 STANDING →
@@ -60,11 +71,11 @@ from .schema import (AudienceGrant, DirGrant, FrozenInfo, MailEntry, NodeDoc,
 # ☞ SEATS ARE FRACTIONAL BELOW $1/M (user ruling 2026-09-03). The rule is
 # `openrouter.seat_for`: floor(p) at or above $1, max(0.10, round(p, 2))
 # below it. At or above $1 the old floor still governs, so flash stays 1 (not
-# 1.5), pro 2, terra 2, sol 5, opus 5, fable 10, and haiku 1 (exactly $1/M
+# 1.5), pro 2, terra 2, fable 10, and haiku 1 (exactly $1/M
 # lands on the ≥$1 branch, not the fractional one). BELOW $1 the seat is now
 # the price: gpt-reserve and luna are $0.20/M and cost 0.2, which is the
-# ranking information the old floor-to-1 destroyed — four Codex tiers that
-# used to read 1·1·2·5 now read 0.2·0.2·2·5.
+# ranking information the old floor-to-1 destroyed. The later September 22
+# repricing below sets Opus 4, Sol 2 and Luna 0.1 across model versions.
 #
 # ⚠ REPRICING A TIER IS A SEPARATE ACT FROM ADDING ONE, and it is the reason
 # the second migration block below exists. The user's follow-on ruling
@@ -89,9 +100,9 @@ from .schema import (AudienceGrant, DirGrant, FrozenInfo, MailEntry, NodeDoc,
 # into the favorites file by `add_favorite`, so a BRAND NEW org was being
 # handed the stale 1 as well. That half is fixed at the source, in
 # `openrouter.favorites`; this table's migration is only the document half.
-TIERS: Final[dict[str, float]] = {"fable": 10, "opus": 5, "sonnet": 2, "haiku": 1,
-                                  "sol": 5, "terra": 2, "gpt-reserve": 0.2,
-                                  "luna": 0.2, "astra": 10,
+TIERS: Final[dict[str, float]] = {"fable": 10, "opus": 4, "sonnet": 2, "haiku": 1,
+                                  "sol": 2, "terra": 2, "gpt-reserve": 0.2,
+                                  "luna": 0.1, "astra": 10,
                                   "flash": 1, "pro": 2}
 
 # The credit grid. Every seat is quantised to 0.01 and every credit quantity
@@ -147,15 +158,17 @@ MODELS: Final[dict[str, str]] = {
     # rather than this constant going straight to argv. 5.0 stays reachable as
     # a model VERSION below.
     "fable": clipin.FABLE_5_1,
-    "opus": "claude-opus-5",
+    # Official Anthropic model overview and Claude Code 2.1.280 registry,
+    # 2026-09-22. The Opus tier now costs four credits by the user's ruling.
+    "opus": "claude-opus-5-5",
     "sonnet": "claude-sonnet-5",
     "haiku": "claude-haiku-4-5",
-    # the codex family — ids as the installed CLI's own model/list reports
-    # them (measured, codex-cli 0.150.1)
-    "sol": "gpt-5.6-sol",
+    # the codex family — exact IDs from the installed CLI's model inventory;
+    # Sol and Luna default to GPT-6, with 5.6 available below as versions.
+    "sol": "gpt-6-sol",
     "terra": "gpt-5.6-terra",
     "gpt-reserve": "gpt-reserve",
-    "luna": "gpt-5.6-luna",
+    "luna": "gpt-6-luna",
     # Official model id (OpenAI, 2026-09-04). This is DATA, not proof that
     # the signed-in account may use it: provider admission requires exact
     # live `model/list(includeHidden=true)` membership before offering or
@@ -186,11 +199,14 @@ MODELS: Final[dict[str, str]] = {
 #
 # The KEY is what a node records and the gear shows; the VALUE is the CLI id.
 # The tier's entry in MODELS above remains the default, so a node with no
-# version recorded behaves exactly as before.
+# version recorded follows the latest supported version.
 # ⚠ ids verified against the pinned CLI with a real call (2026-08-04):
 # `claude-opus-4-8` answers; `claude-opus-4.8` and `opus-4-8` are refused.
 MODEL_VERSIONS: Final[dict[str, dict[str, str]]] = {
-    "opus": {"5": "claude-opus-5", "4.8": "claude-opus-4-8"},
+    "sol": {"6": "gpt-6-sol", "5.6": "gpt-5.6-sol"},
+    "luna": {"6": "gpt-6-luna", "5.6": "gpt-5.6-luna"},
+    "opus": {"5.5": "claude-opus-5-5", "5": "claude-opus-5",
+             "4.8": "claude-opus-4-8"},
     # Fable 5.1 is the tier default; 5.0 stays selectable in the gear for the
     # same reason Opus 4.8 does — a version is a subcategory inside the band,
     # never a chip, and never a different price.
@@ -328,20 +344,36 @@ _PROMOTION_SEAT_FIELDS: Final = ("add_dirs", "tools", "org_visibility",
 #: made deliberately (text silently lost is worse than tokens knowingly
 #: spent), but the person writing a very long charter should be able to SEE
 #: that they are writing one.
+#:
+#: ⚠ AND THE NOTE IS AN ADVISORY, NOT A WARNING — user ruling 2026-09-19, the
+#: ticket `remove-the-long-charter-warning-popup-from-agent`. It used to be
+#: appended to `warnings`, and `warnings` is the list a settings panel POPS:
+#: the agent-settings save re-sends the whole charter on every save, so an
+#: agent that already had a long one raised this popup again on EVERY save,
+#: interrupting work the user was doing for a fact about text they had not
+#: touched. So it rides `advisories` instead — text the backend reports about
+#: a save that SUCCEEDED, carrying no action and no acknowledgement. Nothing
+#: pops an advisory. Genuine warnings (a ceiling clamp, a cascade, a subtree
+#: clamp, a bridge) are untouched and still interrupt.
 CHARTER_LONG: Final = 4000
 
 
 def note_charter_length(field: str, value: str,
-                        warnings: list[str]) -> str:
+                        advisories: list[str]) -> str:
     """Strip a charter field and REPORT its length when it is unusually long.
 
     Returns the text to store — always the whole thing. This function cannot
     refuse and cannot truncate; if you are adding either, re-read the ruling
     above first.
+
+    The length note goes into `advisories`, never into `warnings`: it is a
+    fact about text that was stored successfully, not a problem with the save,
+    and a surface that pops warnings must not interrupt a save over it (user
+    ruling 2026-09-19 — see CHARTER_LONG).
     """
     v = value.strip()
     if len(v) > CHARTER_LONG:
-        warnings.append(
+        advisories.append(
             f"{field} is {len(v)} chars ({len(v.encode('utf-8'))} bytes). "
             f"Stored WHOLE — charters are not capped. Worth knowing: a "
             f"charter is re-sent in this agent's system prompt on every turn "
@@ -479,6 +511,33 @@ def _prose(value: Any) -> str:
     return workfields.prose(value)
 
 
+def _description(field: str, value: Any) -> str:
+    """The item's DESCRIPTION: lossless, and refused if it carries raw
+    tool-call framing markup.
+
+    `_prose` plus `toolmarkup.assert_clean`, with the refusal re-raised as the
+    `LedgerError` every caller of this module already handles — exactly the
+    shape `_bounded` uses for an over-length field, and for the same reason.
+    This is a REFUSAL, not a repair: the docket does not quietly rewrite
+    somebody's specification, and an agent whose text was silently altered
+    learns nothing about why.
+
+    ⚠ SAME PLACEMENT RULE AS `_bounded`: call it before the first mutation. The
+    promise that a refused description leaves no item change, no history row,
+    no scope row and no mail is a promise about WHERE this runs.
+
+    It cannot prevent the defect — the text is already malformed when it
+    arrives, because the markup is emitted by the caller's own tool-call
+    framing (see `toolmarkup`). What it prevents is storing it in silence.
+    """
+    text = workfields.prose(value)
+    try:
+        toolmarkup.assert_clean(field, text)
+    except toolmarkup.MarkupLeakError as e:
+        raise LedgerError(str(e)) from None
+    return text
+
+
 def now() -> str:
     # millisecond resolution (user ruling 2026-07-31): second-resolution stamps
     # made same-second events unorderable — the extern reply cursor had to fall
@@ -487,6 +546,25 @@ def now() -> str:
     # AFTER new "…:00.123Z" ones — harmless across the format transition.)
     d = datetime.now(timezone.utc)
     return d.strftime("%Y-%m-%dT%H:%M:%S.") + f"{d.microsecond // 1000:03d}Z"
+
+
+def next_config_seq(node: dict[str, Any]) -> int:
+    """The node's durable ACCEPTANCE counter for queued configuration intents
+    (R1a, review 2026-09-20). Both queue writers — the queued model switch and
+    the queued account rebind — already accept requests in a definite order
+    under the document lock, but they used to stamp only `now()`, and two
+    acceptances inside the same millisecond (or across a wall-clock step
+    backwards) then compared as if that order were unknown, which silently
+    reversed newest-valid-wins at the boundary. This counter is allocated
+    under the same lock and persists with the document, so the boundary
+    compares intents by the order they were ACCEPTED; the `at` stamps stay on
+    the records for display only. Never reset: replacement writes a fresh
+    record with a fresh seq, cancellation pops the record, and a record from
+    a pre-seq build simply has no `seq` (the boundary's documented wall-clock
+    fallback covers exactly that pair)."""
+    seq = int(node.get("config_seq") or 0) + 1
+    node["config_seq"] = seq
+    return seq
 
 
 #: this backend process's boot stamp in `now()` format, memoised for
@@ -636,8 +714,18 @@ class Org:
         self.d: OrgDoc = doc
         # migrate older docs in place: dir grants gain modes; scopes gain tool sets
         # (pre-schema docs — the loop handles keys NodeDoc no longer declares)
-        for i, n in enumerate(cast("dict[str, dict[str, Any]]",
-                                   self.d.get("nodes", {})).values()):
+        #
+        # `_normalized_nodes` is the section-granular snapshot rebuild's seam
+        # (store._assemble_snapshot): those node dicts are the SAME objects a
+        # previous construction already normalized in this process, so
+        # re-deriving their scopes would only spend the milliseconds the
+        # rebuild exists to save. Everything below the loop still runs — the
+        # once-per-document migrations are marker-gated and the rest is cheap.
+        _normalized: set[str] = getattr(doc, "_normalized_nodes", None) or set()
+        for i, (_nid, n) in enumerate(cast("dict[str, dict[str, Any]]",
+                                           self.d.get("nodes", {})).items()):
+            if _nid in _normalized:
+                continue
             sc = n.setdefault("scope", {})
             sc["add_dirs"] = norm_dirs(sc.get("add_dirs"))
             if "tools" not in sc:
@@ -849,6 +937,18 @@ class Org:
         _t = cast("dict[str, Any]", _doc.get("tiers") or {})
         if _t.get("sonnet") == 3:
             _t["sonnet"] = 2
+        # Opus 5.5: user-authorized $4/M input -> four-credit tier (2026-09-22).
+        # Only the old shipped price migrates; custom prices remain. Grants
+        # and bindings are unchanged, while a parent's free allocation rises
+        # by one per live Opus child. Versions still share one tier/seat.
+        if _t.get("opus") == 5:
+            _t["opus"] = 4
+        # User ruling 2026-09-22: one tier price follows the latest version,
+        # including existing 5.6 selections. No version-specific seat ledger.
+        # Migrate only shipped defaults; custom prices, grants and IDs stay.
+        for _tier, _old in (("sol", 5), ("luna", 0.2)):
+            if _t.get(_tier) == _old:
+                _t[_tier] = TIERS[_tier]
         # ☞ …and the SUB-$1 REPRICING, by the same rule and for the same
         # reason (user ruling 2026-09-03: "if we are supporting fractional
         # credts we should reprice agents that are under $1/m"). gpt-reserve
@@ -917,6 +1017,27 @@ class Org:
         _m = cast("dict[str, Any]", _doc.get("models") or {})
         if _m.get("fable") == clipin.FABLE_5:
             _m["fable"] = clipin.FABLE_5_1
+        # Upgrade only the shipped Opus default; custom organization ids and
+        # explicit per-node version pins remain intact. Opus 5.5 is passed
+        # verbatim to the CLI, never silently substituted with Opus 5.
+        if _m.get("opus") == "claude-opus-5":
+            _m["opus"] = MODELS["opus"]
+        # Fold the short-lived GPT-6 tier spelling into Sol/Luna's version
+        # selector. Existing unpinned Sol/Luna nodes advance with the default;
+        # explicitly pinned choices keep their selected version. A former
+        # GPT-6-tier node keeps its exact model.
+        # Custom organization model IDs are never overwritten.
+        for _tier, _six in (("sol", "gpt-6-sol"), ("luna", "gpt-6-luna")):
+            _old = f"gpt-5.6-{_tier}"
+            for _node in self.nodes.values():
+                if _node.get("model") == _six:
+                    _node["model"] = _tier
+                    _node.setdefault("scope", {})["model_version"] = "6"
+            if _m.get(_tier) == _old:
+                _m[_tier] = MODELS[_tier]
+            # The alias is no longer a tier, including in old saved orgs.
+            _m.pop(_six, None)
+            _t.pop(_six, None)
         # ☞ the flash/pro rows moved with the provider lane (2026-09-02: the
         # Antigravity CLI replaced the previous Google lane, and the ids its
         # registry knows are not the ones the old lane pinned). Same rule:
@@ -3370,7 +3491,8 @@ class Org:
              org_visibility: str | None = None, charter: str | None = None,
              external_handles: list[str] | None = None,
              raise_ceiling: bool = False,
-             account: str | None = None) -> dict[str, Any]:
+             account: str | None = None,
+             harness: str | None = None) -> dict[str, Any]:
         """§4.2 + §4.6. `parent` None = top level (actor must be USER). If actor is a
         strict ancestor of parent, credits cascade down the path (forcible hire).
 
@@ -3540,6 +3662,47 @@ class Org:
             # An inherited primary choice is just as deliberate as an
             # explicit one; migration must not turn it into a row binding.
             self.nodes[nid]["account_primary"] = True
+        # ── THE HARNESS STAMP (user ruling 2026-09-19) ────────────────────
+        # Only an OpenRouter tier has a harness to choose; every other tier
+        # has exactly one CLI by construction, and stamping those would write
+        # a field that can only ever be wrong when a node is later switched
+        # across providers. An explicit `harness` wins; otherwise the
+        # machine-wide NEW-HIRE default is read ONCE, here, and frozen onto
+        # the node — see `harness_for` for why it is never re-read later.
+        from . import openrouter as _orr_tier           # noqa: PLC0415
+        if _orr_tier.is_tier(tier):
+            from . import appsettings, openrouter_harness  # noqa: PLC0415
+            if harness is not None:
+                if harness not in openrouter_harness.HARNESSES:
+                    raise LedgerError(
+                        f"unknown harness {harness!r}; know "
+                        f"{', '.join(openrouter_harness.HARNESSES)}")
+                chosen = harness
+            else:
+                # ⚠ WHAT THE SELECTOR SHOWS, NOT WHAT IS STORED (reviewer
+                # finding f2). The stored preference may name a CLI that has
+                # since gone away; stamping it onto a brand-new agent made one
+                # that refused on every turn, hired from a panel that had just
+                # said the other harness was the only one available.
+                # `for_new_hire` substitutes only for a hire, writes nothing
+                # back to settings, and moves no existing agent.
+                #
+                # ⚠ EVERY DOOR THAT HOLDS `store.DOC_LOCK` ANSWERS THIS
+                # BEFORE IT TAKES THE LOCK and arrives here with `harness`
+                # already set, so this branch is not reached from one
+                # (`api.new_hire_harness`, reviewer finding f5). Asking here
+                # is a PROVIDER READ — it spawns a Codex process — and under
+                # the document lock that stalls every other org operation in
+                # the process. The fallback stays because a caller that holds
+                # no lock is entitled to a straight `hire(...)` that just
+                # works; add a new door and resolve it at the door.
+                chosen = openrouter_harness.for_new_hire(
+                    appsettings.openrouter_harness())
+            self.nodes[nid]["or_harness"] = chosen
+        elif harness is not None:
+            raise LedgerError(
+                f"tier {tier!r} does not run on a choosable harness — only "
+                f"OpenRouter tiers do")
         if handles:
             self.nodes[nid]["external_handles"] = handles
             stamp_handles(self.nodes[nid], handles)      # D-166
@@ -4654,8 +4817,19 @@ class Org:
             Org(json.loads(json.dumps(self.d))).switch_model(
                 actor, nid, tier, _queued={"at": now(), "by": actor})
             replaced = pend["tier"] if pend else None
+            # R1a-upgrade (round 3): a pre-seq queued rebind was ACCEPTED
+            # before this switch — order it FIRST under the same lock, so a
+            # mixed pair never reaches the boundary and stamps never decide.
+            _ap_rec = n.get("pending_account")
+            if (isinstance(_ap_rec, dict)
+                    and not isinstance(_ap_rec.get("seq"), int)):
+                _ap_rec["seq"] = next_config_seq(n)
             n["pending_switch"] = {"tier": tier, "from": old, "by": actor,
                                    "at": now(), "crossing": crossed,
+                                   # R1a: the acceptance order, allocated
+                                   # under the caller's DOC_LOCK — what the
+                                   # boundary compares; `at` is display only
+                                   "seq": next_config_seq(n),
                                    # multi-account D2d: the account chosen
                                    # WITH a cross-provider switch (validated
                                    # at the door; the ledger is pure and
@@ -6339,6 +6513,30 @@ class Org:
                 return got
         return self.d["models"].get(tier, tier)
 
+    def harness_for(self, nid: str) -> str:
+        """Which CLI drives this node — the OpenRouter harness axis.
+
+        STORED, not derived, and that is the whole design. `model_for` and
+        `effort_for` are deliberately derived because the tier can move under
+        a node and a stale value must not follow it; the harness is the
+        opposite case. It is stamped once at hire and read forever after,
+        because the machine-wide setting it came from is a default for NEW
+        hires and changing it must move nobody (user ruling 2026-09-19). A
+        derived harness would silently re-point every existing agent the
+        moment that setting changed — the automatic migration the ticket
+        forbids, and an unannounced loss of each agent's provider-side session
+        continuity on top.
+
+        Answers for EVERY node, not only OpenRouter ones: a node on a Claude,
+        Codex or Antigravity tier has exactly one harness by construction, so
+        the question is well-formed everywhere and the stamp is simply absent.
+        An absent stamp — every agent hired before this existed — reads as the
+        lane default, which is what those agents are genuinely running.
+        """
+        from . import openrouter_harness                # noqa: PLC0415
+        return openrouter_harness.canonical(
+            (self.node(nid) or {}).get("or_harness"))
+
     def account_fallback_for(self, nid: str) -> bool:
         """An absent individual setting follows the organization live."""
         value = (self.node(nid).get("scope") or {}).get("account_fallback")
@@ -6414,6 +6612,12 @@ class Org:
         n = self.node(nid)
         sc = n["scope"]
         warnings: list[str] = []
+        # Advisories are the OTHER half of this call's report: things worth
+        # saying about a save that SUCCEEDED, carrying no action. They are
+        # deliberately not in `warnings`, because `warnings` is what a panel
+        # pops and interrupts the user with — see `note_charter_length` and
+        # CHARTER_LONG for the ruling that put the long-charter note here.
+        advisories: list[str] = []
         changed_caps = False
         bridged = False
         cascaded: list[str] = []       # D-106: agents this grant expanded
@@ -6495,16 +6699,18 @@ class Org:
         # Charter length is MEASURED here, never enforced — charters are
         # uncapped (user ruling 2026-09-04, see CHARTER_LONG). The text is
         # stored exactly as written; a long one only earns a note in
-        # `warnings`, which `modals.tsx` doSave toasts. Done with the other
-        # up-front work so the length is reported even when a LATER field in
-        # this call refuses and nothing is written at all.
+        # `advisories`, which NO surface pops (user ruling 2026-09-19 — it
+        # used to go into `warnings`, and `modals.tsx` doSave toasts those, so
+        # every save of an already-long charter raised the popup again). Done
+        # with the other up-front work so the length is reported even when a
+        # LATER field in this call refuses and nothing is written at all.
         new_charter: str | None = None
         new_team_charter: str | None = None
         if charter is not None:
-            new_charter = note_charter_length("charter", charter, warnings)
+            new_charter = note_charter_length("charter", charter, advisories)
         if team_charter is not None:
             new_team_charter = note_charter_length(
-                "team_charter", team_charter, warnings)
+                "team_charter", team_charter, advisories)
 
         if want_dirs is not None:
             _t, kept, _v, _p, b = self._apply_ceiling(
@@ -6728,6 +6934,10 @@ class Org:
                                          changed=changed_fields))
         self._log("set_scope", actor, {"node": nid, "scope": sc}, warnings)
         res: dict[str, Any] = {"scope": sc, "warnings": warnings}
+        # Emitted only when there is something to say, so the common response
+        # keeps exactly the shape every existing caller and test expects.
+        if advisories:
+            res["advisories"] = advisories
         if cascaded:
             res["cascaded"] = cascaded      # D-106: structured, for the UI
         if bridged:
@@ -10294,6 +10504,9 @@ class Org:
                 # D-234: a switch queued behind the running turn — the card
                 # wears it until the boundary applies (or a cancel clears) it
                 "pending_switch": n.get("pending_switch"),
+                # account rebind queued behind the running turn; applied by
+                # the same boundary finalizer as pending_switch
+                "pending_account": n.get("pending_account"),
                 "last_denials": n.get("last_denials") or [],
                 # codex lane (2026-09-05): approvals the seam answered
                 # "accept". Absent when the lane cannot report it — a `[]`
@@ -10865,6 +11078,116 @@ class Org:
 
     def _work_archive(self) -> list[WorkItem]:
         return cast("list[WorkItem]", self.d.get("work_items_archive") or [])
+
+    #: THE FIELDS THE DOCKET'S CLASSIFIERS READ, and nothing else. Every name
+    #: here is one some predicate below actually looks at:
+    #:   slug              `_work_attention` (the ask store is keyed by it)
+    #:   status            `_work_status` -> `_work_eligible`, `_work_backlogged`,
+    #:                     `_work_counts_active`
+    #:   docket_at         `_work_age_s`, and the list's sort key
+    #:   updated_at        `_work_age_s`'s fallback, and the sort key's
+    #:   owner created_by  `_work_can_manage`
+    #:   participants
+    #:   reviewer          `_work_can_read`
+    #:   manual_attention  `_work_attention`
+    #:   title             the DEPENDENCY view in `_work_view` — the one field
+    #:                     here that no predicate needs
+    #: ⚠ ADD A FIELD HERE THE MOMENT A PREDICATE STARTS READING ONE. The whole
+    #: safety argument for `_work_archive_proj` is that the SAME predicate runs
+    #: on the projected mapping, which holds only while the projection covers
+    #: what it reads; `tests/test_work_archive_projection.py` asserts the two
+    #: paths agree item by item and fails if this list falls behind.
+    _WORK_PROJ: Final = ("slug", "title", "status", "owner", "created_by",
+                         "participants", "reviewer", "manual_attention",
+                         "docket_at", "updated_at")
+
+    def _work_archive_proj(self) -> list[WorkItem]:
+        """The archived docket AS THE CLASSIFIERS NEED IT — `_WORK_PROJ` of
+        every archived row — without materialising the section.
+
+        THE PROBLEM. `work_items_archive` is a lazy section holding 508 rows and
+        10.17 MB on the operator's org, larger than the whole eager document.
+        Two counting loops (`work_list`, `work_counts`) walked all of it to
+        produce four integers, so a cold `orgtree_work list` — and every cold
+        `Ledger.tree()` behind the UI poll — paid a 10.4 MB parse for a count.
+        MEASURED, pooled connection: 51.4 ms and 10,445,177 B of Python objects
+        the old way, 22.8 ms and 196,892 B this way.
+
+        ⚠ IT RETURNS MAPPINGS THE EXISTING PREDICATES CAN EAT, WHICH IS THE
+        POINT. `_work_can_read`, `_work_attention`, `_work_archived`,
+        `_work_backlogged` and `_work_counts_active` all reach the item through
+        `.get`, and a key absent from the projection reads as `None` exactly as
+        an absent key does on the whole item. So nothing here reimplements a
+        classification — the same function is called on a smaller mapping, and
+        there is no second copy of the rule to fall out of step with the first.
+
+        ⚠ IT IS NOT A WORK ITEM, and must not be served as one or written to.
+        Callers that need the whole record — anything building a `_work_view`,
+        anything mutating — take `_work_archive()` and pay for it."""
+        proj = getattr(self.d, "project", None)
+        if proj is None:
+            # a plain-dict document (Org.create, a test fixture, a migration):
+            # no rows to project from, so narrow the real list instead. Same
+            # keys, same values, same answers — only the saving is absent.
+            return [cast("WorkItem", {f: it.get(f) for f in self._WORK_PROJ})
+                    for it in self._work_archive()]
+        return cast("list[WorkItem]",
+                    proj("work_items_archive", self._WORK_PROJ))
+
+    def _work_archive_rows(self) -> list[WorkItem]:
+        """The archived rows to CLASSIFY from — whichever of the two the caller
+        is already paying for.
+
+        The projection is the point of this change when the section is cold. It
+        is pure waste when the section is ALREADY materialised, because then it
+        builds a second, smaller copy of rows the process is holding anyway:
+        MEASURED at 17 ms on top of the 48 ms materialisation, which is why
+        `work_list(include_archived=True)` briefly got SLOWER after the first
+        draft of this fix (116.9 ms -> 177.7 ms for an agent) while every other
+        arm got much faster. Found by profiling that arm rather than by reading
+        the diff."""
+        resident = getattr(self.d, "resident", None)
+        if resident is None or resident("work_items_archive"):
+            return self._work_archive()
+        return self._work_archive_proj()
+
+    def _work_pointer_target(self, wid: str) -> WorkItem | None:
+        """Resolve a POINTER to an item — a dependency, a history `by`/`from`/
+        `to` — to something that can be titled and permission-checked, without
+        materialising the archive. `None` when no item has that name.
+
+        Active rows come back whole; archived rows come back PROJECTED, which
+        carries every field the two pointer sites use (`slug`, `title`,
+        `status`) and everything `_work_can_read` asks for. Use `_work_find`
+        when you need the record itself.
+
+        ⚠ THIS IS WHY THE COUNTING FIX IS NOT ENOUGH ON ITS OWN. `_work_view`
+        resolves every `dependencies` entry, and `_work_find` falls through to
+        `self._work_archive()` whenever the active list misses. Two live items
+        depend on archived items right now, so with the counting loops fixed and
+        this one left alone the section still materialised on the same call —
+        measured, not predicted (archive/out/attribute.json)."""
+        ref = str(wid or "")
+        for it in self._work_active():
+            if it.get("slug") == ref:
+                return it
+        for row in self._work_archive_rows():
+            if row.get("slug") == ref:
+                return row
+        return None
+
+    def _work_archived_item(self, slug: str) -> WorkItem:
+        """The WHOLE archived record named `slug`, materialising the section.
+
+        Reached only when a physically-archived row turns out to hold attention
+        and therefore has to be SERVED on the main list rather than counted (see
+        `_work_archived`). That is the documented-but-rare case; paying for the
+        section then is correct, and the projection cannot stand in for it
+        because the caller is about to render every field."""
+        for it in self._work_archive():
+            if it.get("slug") == slug:
+                return it
+        raise LedgerError(f"no archived work item {slug!r}")
 
     def _work_actor(self, actor: str) -> WorkActor | str:
         """A node AT ITS GENERATION, or the literal user."""
@@ -12010,9 +12333,12 @@ class Org:
         next_actor, next_role = self._work_next_recipient(it)
         deps: list[dict[str, Any]] = []
         for did in it.get("dependencies") or []:
-            try:
-                d, _ = self._work_find(did)
-            except LedgerError:
+            # ⚠ `_work_pointer_target`, NOT `_work_find`: this needs a title, a
+            # status and a permission check, and `_work_find` reaches those by
+            # materialising the whole archived docket whenever the dependency is
+            # archived — which, on the operator's org, two live items do now.
+            d = self._work_pointer_target(did)
+            if d is None:
                 deps.append({"visible": False})
                 continue
             if self._work_can_read(viewer, d):
@@ -12476,9 +12802,11 @@ class Org:
         derived from a title, so an unreadable pointer is served anonymously."""
         if not wid:
             return None
-        try:
-            t, _ = self._work_find(str(wid))
-        except LedgerError:
+        # `_work_pointer_target` for the same reason as the dependency loop
+        # above: a history pointer needs only a permission check, and resolving
+        # it through `_work_find` materialises the archived docket to get one.
+        t = self._work_pointer_target(str(wid))
+        if t is None:
             return False
         return self._work_can_read(viewer, t)
 
@@ -12496,8 +12824,13 @@ class Org:
         rule; see `work_list`."""
         now_ts = _time.time() if now_ts is None else now_ts
         attention = active = archived = backlogged = 0
+        # ⚠ PROJECTED, NOT MATERIALISED. Four integers do not need 10.17 MB of
+        # archived records; `_work_archive_proj` carries exactly the fields the
+        # four predicates below read. This function is also called from
+        # `Ledger.tree()`, which the UI polls, so the parse it used to force was
+        # paid on a timer and not only when somebody opened the docket.
         for it, phys in ([(i, False) for i in self._work_active()]
-                         + [(i, True) for i in self._work_archive()]):
+                         + [(i, True) for i in self._work_archive_rows()]):
             if self._work_attention(it):
                 attention += 1
             if self._work_archived(it, phys, now_ts):
@@ -12771,8 +13104,25 @@ class Org:
         items: list[dict[str, Any]] = []
         arch: list[dict[str, Any]] = []
         back: list[dict[str, Any]] = []
-        for it, phys in ([(i, False) for i in self._work_active()]
-                         + [(i, True) for i in self._work_archive()]):
+        # ⚠ THE PHYSICAL ARCHIVE IS WALKED PROJECTED UNLESS ITS CONTENTS ARE
+        # ASKED FOR. When `include_archived` is false nothing in the answer
+        # depends on an archived record except HOW MANY there are, and
+        # `_work_archive_proj` answers that from the fields the classifiers
+        # read — 196,892 B instead of 10,445,177 B, MEASURED on the operator's
+        # org. `arch_n` counts the logically-archived readable rows of BOTH
+        # lists, because `arch` itself is only filled when it is served.
+        arch_n = 0
+        if include_archived:
+            # ⚠ MATERIALISED UP FRONT, BEFORE THE ACTIVE LOOP, when the rows are
+            # going to be served anyway. The loop below resolves dependencies
+            # through `_work_pointer_target`, which reaches for the cheapest
+            # available view of the archive — and if nothing has loaded the
+            # section yet, that is a projection, i.e. a second copy of rows this
+            # very call is about to materialise a few lines later. Touching it
+            # here costs nothing that was not already owed, and makes
+            # `_work_pointer_target` take the resident path.
+            self._work_archive()
+        for it in self._work_active():
             if not self._work_can_read(viewer, it):
                 continue
             # the rolled-over rows are summarised here and served whole by
@@ -12785,13 +13135,54 @@ class Org:
             # Which group a row belongs to and where it sorts are answers the
             # projection may have narrowed away; deciding them first is what
             # keeps `fields=["slug"]` from changing which items come back.
-            v = self._work_view(it, phys, viewer, now_ts, scope_archive=False)
+            v = self._work_view(it, False, viewer, now_ts, scope_archive=False)
             if v["archived"]:
                 arch.append(v)
+                arch_n += 1
             elif self._work_backlogged(it):
                 back.append(v)
             else:
                 items.append(v)
+        if include_archived:
+            # ⚠ THE ORIGINAL LOOP, UNCHANGED, when the rows are being SERVED.
+            # Every row is about to be rendered whole, so there is nothing to
+            # save by classifying first: `_work_view` already answers `archived`,
+            # and asking `_work_archived` separately would just call
+            # `_work_attention` twice per row. Keeping this branch identical is
+            # also what makes the payload comparison between the two builds a
+            # comparison of one changed path rather than two.
+            for it in self._work_archive():
+                if not self._work_can_read(viewer, it):
+                    continue
+                v = self._work_view(it, True, viewer, now_ts,
+                                    scope_archive=False)
+                if v["archived"]:
+                    arch.append(v)
+                    arch_n += 1
+                elif self._work_backlogged(it):
+                    back.append(v)
+                else:
+                    items.append(v)
+        else:
+            for row in self._work_archive_rows():
+                if not self._work_can_read(viewer, row):
+                    continue
+                if self._work_archived(row, True, now_ts):
+                    arch_n += 1
+                    continue
+                # ⚠ IN THE ARCHIVE AND STILL NOT ARCHIVED: it holds attention,
+                # which outranks the list the row is physically in (see
+                # `_work_archived`), so it is SERVED on the main list and every
+                # field of it is about to be rendered. That is the one branch a
+                # projection cannot answer, and it pays for the section —
+                # correctly, and only when such a row actually exists.
+                it = self._work_archived_item(str(row.get("slug") or ""))
+                v = self._work_view(it, True, viewer, now_ts,
+                                    scope_archive=False)
+                if self._work_backlogged(it):
+                    back.append(v)
+                else:
+                    items.append(v)
 
         def key(v: dict[str, Any]) -> tuple[str, str]:
             # `reverse=True` applies to the WHOLE tuple, so a docket_at tie
@@ -12810,17 +13201,25 @@ class Org:
         arch.sort(key=key, reverse=True)
         back.sort(key=key, reverse=True)
         counts = (self.work_counts(now_ts) if viewer == USER else {
+            # ⚠ `arch` CONTRIBUTES NOTHING TO THIS SUM AND CANNOT, which is what
+            # makes it safe to leave the list empty when the archive is not
+            # served. A row lands in `arch` only when `_work_archived` said yes,
+            # and that returns False for anything holding attention — so every
+            # row here has `effective_attention` False by construction. It is
+            # summed anyway, over whatever is present, so the expression stays
+            # the same statement it was. Asserted in
+            # test_archived_rows_contribute_nothing_to_the_attention_count.
             "attention": sum(1 for v in items + arch + back
                              if v["effective_attention"]),
             "active": sum(1 for v in items
                           if v["status"] not in self.WORK_UNCOUNTED),   # v: served (mapped) status
-            "archived": len(arch),
+            "archived": arch_n,
             "backlogged": len(back)})
         groups = {
             "items": {"count": len(items), "included": True,
                       "how": "served in `items`"},
             "archived": {
-                "count": len(arch), "included": bool(include_archived),
+                "count": arch_n, "included": bool(include_archived),
                 "how": ("served in `archived`" if include_archived else
                         "NOT in this payload — pass include_archived=true to "
                         "`orgtree_work list` and they are served in `archived`")},
@@ -13323,6 +13722,46 @@ class Org:
         return self._work_list_room(stored, name, " already stored")
 
     @staticmethod
+    def _work_attention_archive(flag: Mapping[str, Any]) -> dict[str, Any]:
+        """The fields a CLEARING record keeps of the flag it is taking down.
+
+        ⚠ THE DEFECT THIS ENDS (W-flag-question, reported 2026-09-18). A manual
+        attention flag is one of only two channels to the user, and it is the
+        one used specifically when an agent went beyond the stated spec, chose
+        an edge case, or filled a definition gap — exactly the decisions a later
+        reader most needs the context for. Every route that took a flag down
+        set `manual_attention = None` and recorded a bare `set_rev`, so the
+        ANSWER survived on the item and the QUESTION did not. An agent
+        compacted between the raise and the answer woke to the two words "yea do
+        that" attached to nothing, and recovered the wording only by
+        hand-parsing 1.9 MB of its own transcript. A reader without that
+        transcript had a ruling and no way to know what it ruled on.
+
+        There are FOUR routes that clear a flag — a user reply, a user
+        dismissal, an agent's ordinary status update, and an agent's retraction
+        on finished work — and this returns the same block for all of them, so
+        no route can be fixed while another keeps losing the text. It is
+        deliberately a dict to splat into a history row rather than a value: a
+        row that carries the reason under a different name on each route is the
+        same defect wearing a different shape.
+
+        THE FINAL TEXT, not the whole drafting history. `attention_amend`
+        already writes its own row carrying `from` and `to`, so superseded
+        wordings are durable where they happened; what was missing, and what
+        this keeps, is the sentence the user was actually looking at."""
+        reason = str(flag.get("reason") or "")
+        out: dict[str, Any] = {"reason": reason,
+                               "raised_at": flag.get("at"),
+                               "raised_by": flag.get("by")}
+        if flag.get("amended_at"):
+            # the flag the user read was not the one first raised, and a reader
+            # comparing this text against the raise would otherwise find a
+            # mismatch it could not explain
+            out["amended_at"] = flag.get("amended_at")
+            out["amended_by"] = flag.get("amended_by")
+        return out
+
+    @staticmethod
     def _work_attention_repeat_guard(it: WorkItem, reason: str) -> None:
         """A reason the user has already DISMISSED may not come back unchanged
         — whether it arrives as a fresh raise or as an amendment of the flag
@@ -13464,7 +13903,7 @@ class Org:
         # blob, the wire copies the field verbatim and the renderer folds long
         # prose rather than cutting it, so nothing downstream needs a bound.
         # Only whitespace at the ends is touched.
-        obj = _prose(objective)
+        obj = _description("objective", objective)
         if not obj:
             raise LedgerError(
                 "a work item needs a description in `objective` — state the "
@@ -13706,9 +14145,16 @@ class Org:
                     staffed_to: str | None = None) -> dict[str, Any]:
         """THE docket status update. Always carries both lists (either may be
         empty, not both — Astra ruling 2026-09-05, no status-only bypass),
-        moves `docket_at` and `last_updater`, and restates the manual flag:
-        an update that does not pass attention=true CLEARS a standing flag,
-        because the latest update is the complete current statement.
+        and moves `docket_at` and `last_updater`.
+
+        ⚠ AN UPDATE NO LONGER CLEARS A STANDING ATTENTION FLAG (user ruling
+        2026-09-19). It used to: the rule was "the latest update is the
+        complete current statement", so any later update took the flag down —
+        and fixing a ticket's title silently dropped the question the user was
+        still looking at. Only four things take it down now: the user replying,
+        the user dismissing it, an explicit `attention: false` from an agent,
+        and the item being superseded. An update that does not mention the flag
+        leaves it exactly where it is.
 
         AN UPDATE CLAIMS THE ASSIGNMENT (user ruling 2026-09-05 21:02, via
         Astra 21:15). Assignment is ownership, and the agent writing the status
@@ -13969,7 +14415,7 @@ class Org:
                 # addition that arrived as mail). Re-typing the whole
                 # description by hand to add a paragraph is how the original
                 # wording gets quietly lost.
-                addition = _prose(objective_append)
+                addition = _description("objective_append", objective_append)
                 if not addition:
                     raise LedgerError(
                         "`objective_append` adds text to the end of the "
@@ -13991,7 +14437,7 @@ class Org:
                 # `work_create` — an edit that silently dropped the tail would
                 # turn "I completed the spec" into a shorter spec that still
                 # looks whole.
-                newobj = _prose(objective)
+                newobj = _description("objective", objective)
                 if not newobj:
                     raise LedgerError(
                         "the description (`objective`) may be rewritten but not "
@@ -14330,13 +14776,31 @@ class Org:
                                       "by": self._work_actor(actor),
                                       "set_rev": it["manual_attention_rev"]}
             changes["manual_attention"] = {"set_rev": it["manual_attention_rev"]}
-        elif prev:
+        elif attention is False and prev:
+            # ⚠ ONLY AN EXPLICIT `attention: false` TAKES THE FLAG DOWN HERE
+            # (user ruling 2026-09-19). Until then ANY later update cleared a
+            # standing flag — the rule was "the latest update is the complete
+            # current statement" — which meant fixing a ticket's title silently
+            # dropped the question the user was still looking at. The user's
+            # words: only their own reply, their own dismissal, or an explicit
+            # clearing by an agent should clear it.
+            #
+            # So an update that simply does not mention the flag now LEAVES IT
+            # STANDING, and `attention: false` is the explicit clearing. That
+            # spelling is not invented here: `work_addendum` has always read
+            # `attention: false` as the retraction, and this makes the two paths
+            # agree instead of one clearing on silence and the other on intent.
+            #
             # ⚠ AN AMENDMENT COUNTS AS RESTATING THE FLAG, and reaches this
             # branch only when there was none to amend — which is refused far
             # above. So an amending update never falls through to the clear.
             it["manual_attention"] = None
             changes["manual_attention"] = {"cleared_set_rev": prev.get("set_rev"),
-                                           "by": "status update"}
+                                           "by": "explicit retraction",
+                                           # the text that came down, kept on
+                                           # the row that took it down
+                                           # (W-flag-question)
+                                           **self._work_attention_archive(prev)}
         self._work_hist(it, actor, "update",
                         {"changes": changes, "done": len(done), "next": len(nxt)})
         self._work_stamp_docket(it, actor)
@@ -14379,7 +14843,19 @@ class Org:
             # the real handovers in noise.
             assigned = self._work_assign_core(
                 actor, it, tgt, True,
-                "update" if tgt == actor else "update+assign")
+                "update" if tgt == actor else "update+assign",
+                # a STAFFING is an assignment that also starts the agent, so it
+                # takes the one opt-in exception — unless this call named a
+                # status itself, in which case the caller has already said what
+                # it wants and nothing should second-guess it
+                starts_agent=bool(staffed_to) and status is None)
+        elif staffed_to and status is None:
+            # A STAFFING THAT DID NOT CHANGE HANDS still starts the agent — a
+            # rehire of the seat that already owns the item reaches here, and
+            # the block above is skipped precisely because the owner is
+            # unchanged. The transition belongs to the staffing, not to the
+            # change of owner, so it must not depend on one.
+            self._work_start_if_backlogged(it, actor, "staffing")
         return {"updated": wid, "rev": it["rev"], "status": it["status"],
                 # ⚠ WHAT WAS ACTUALLY STORED, always — the complete lists, not
                 # the fragment a keep/append call sent. A caller that patched
@@ -14478,15 +14954,60 @@ class Org:
                       done_so_far: Any = None, working_on_next: Any = None, *,
                       keep_done: bool = False, keep_next: bool = False,
                       done_append: Any = None, next_append: Any = None,
-                      expected_rev: int | None = None) -> dict[str, Any]:
-        """Correct or extend a CLOSED item's progress lists, in place.
+                      expected_rev: int | None = None,
+                      attention: bool | None = None,
+                      attention_amend: bool = False,
+                      attention_reason: str | None = None) -> dict[str, Any]:
+        """Correct or extend a CLOSED item's progress lists, in place — and
+        RETRACT OR AMEND the manual attention flag standing on it.
 
-        THE ONE THING IT CHANGES is the pair of summary lists, plus the
-        `post_completion` stamp that says they were changed after the outcome.
-        The item keeps its status, its acceptance record, its checks, its
-        evidence, its verdicts and its owner. It does not archive, un-archive,
-        or move in the list: an addendum is a correction to a finished record,
-        not activity on live work.
+        THE TWO THINGS IT CHANGES are the pair of summary lists, plus the
+        `post_completion` stamp that says they were changed after the outcome,
+        and the manual attention flag. The item keeps its status, its acceptance
+        record, its checks, its evidence, its verdicts and its owner. It does
+        not archive, un-archive, or move in the list: an addendum is a
+        correction to a finished record, not activity on live work.
+
+        ---- THE FLAG (W-flag-clear). The charter tells every agent that a stale
+        attention flag is theirs to withdraw, and on a finished item that
+        instruction used to be impossible to obey: `update` is refused on a
+        closed item, `attention_amend` is an argument to `update` and so
+        unreachable for the same reason, and the one route that did clear the
+        flag — `reopen=true` carrying `done` — CLEARS THE ACCEPTANCE RECORD to
+        remove one stale sentence. An agent hit exactly that on
+        2026-09-18, judged the trade not worth making, and correctly left a
+        sentence the team had already disproved standing on the user's screen.
+
+        A flag is MOST likely to have gone stale precisely on finished work: the
+        work concluded, the picture changed, and the reason that justified
+        interrupting the user stopped holding. `orgtree_ask` has
+        `orgtree_withdraw_ask` for the same situation; the manual flag now has
+        this.
+
+        · `attention=False` RETRACTS the standing flag. The required `note` IS
+          the retraction reason — there is no second reason field, because two
+          reasons on one act is how the durable one ends up blank.
+        · `attention_amend=True` with `attention_reason` edits the standing
+          flag's text in place, keeping its `set_rev`, exactly as `work_update`
+          does — so it is not a second raise and mints no new notification edge.
+        · `attention=True` is REFUSED. This path exists to take a flag DOWN on
+          finished work; raising a new demand on the user's attention from a
+          record that says the work is over is a different act, and the narrow
+          surface that keeps a completed item completed is worth more than the
+          convenience.
+
+        Either operation is REFUSED when no flag is standing, and refused when
+        it would be the only way around a dismissal: the amend runs the same
+        `_work_attention_repeat_guard` an update does.
+
+        ⚠ WHAT A USER DISMISSAL ALREADY DID (recorded here because the answer is
+        not obvious and the question comes back). `work_dismiss_attention` takes
+        the flag DOWN itself and moves the item to `blocked`, un-archiving it if
+        it was archived. So after a dismissal there is no flag to retract and
+        the item is no longer closed: this path refuses on both counts, and that
+        is correct rather than a gap. A retraction is an agent withdrawing its
+        OWN standing question; a dismissal is the user rejecting it, and the
+        `dismissals` record of that is sealed below like any other outcome.
 
         ⚠ IT TOUCHES ONLY THE LISTS YOU NAME, and that is the deliberate
         difference from `work_update`. An update states the COMPLETE current
@@ -14499,9 +15020,13 @@ class Org:
         clearing one is said outright (`working_on_next: []`).
 
         A call must therefore CHANGE something: an addendum whose materialized
-        lists equal the stored ones is refused rather than written, because a
-        stamp saying a finished item was amended, on an item that was not, is
-        exactly the kind of false record this whole path is about.
+        lists equal the stored ones, AND which does nothing to the flag, is
+        refused rather than written, because a stamp saying a finished item was
+        amended, on an item that was not, is exactly the kind of false record
+        this whole path is about. An attention operation is a change, so a
+        retraction on its own needs no list argument at all — and it stamps no
+        `post_completion`, because that stamp says the SUMMARY was corrected and
+        a retraction corrects no summary.
 
         `note` is required and is the durable reason — the history row and the
         stamp both carry it entire. Anyone who may read the item may write
@@ -14534,6 +15059,62 @@ class Org:
                 f"It is the durable reason the finished summary changed, and "
                 f"it is what a later reader has instead of guessing why a "
                 f"{status} item's text is not the text that was accepted")
+        # ---- THE FLAG OPERATION, decided here and written nowhere yet. Every
+        # refusal in this block lands before the first mutation, for the same
+        # reason `work_update` moved its own attention checks to the top: a
+        # refused flag argument that has already rewritten the summary lists
+        # leaves the caller with half of a call it was told did not happen.
+        att_op: str | None = None
+        standing = cast("dict[str, Any] | None", it.get("manual_attention"))
+        if attention is True:
+            raise LedgerError(
+                "an addendum can take an attention flag DOWN on finished work "
+                "(attention: false) or edit the one standing (attention_amend) "
+                "— it cannot RAISE one. A finished item asking for the user's "
+                "attention for the first time is a resumption of the work, not "
+                "a correction to its record: reopen it with `update` and raise "
+                "the flag there. NOTHING WAS WRITTEN")
+        if attention is False and attention_amend:
+            raise LedgerError(
+                "`attention: false` RETRACTS the flag and `attention_amend` "
+                "rewrites the text of the one still standing — they are "
+                "opposite acts. Pass one or the other. NOTHING WAS WRITTEN")
+        if attention_amend:
+            att_op = "amend"
+        elif attention is False:
+            att_op = "retract"
+        if att_op and not standing:
+            raise LedgerError(
+                f"{wid} has no manual attention flag standing, so there is "
+                f"nothing to {att_op}. ⚠ A flag the USER DISMISSED is already "
+                f"down — the dismissal clears it and moves the item to "
+                f"`blocked` — so there is never anything for this path to "
+                f"retract afterwards, and the dismissal record stays. If you "
+                f"mean to correct the summary instead, pass done_so_far / "
+                f"working_on_next. NOTHING WAS WRITTEN")
+        att_reason: str | None = None
+        if att_op == "retract":
+            if attention_reason is not None:
+                raise LedgerError(
+                    "a retraction carries ONE reason and it is the `note` this "
+                    "call already requires — say there why the flag no longer "
+                    "holds. `attention_reason` is the text OF a flag, so "
+                    "sending it alongside `attention: false` would be writing "
+                    "the reason for a flag you are taking down. NOTHING WAS "
+                    "WRITTEN")
+        elif att_op == "amend":
+            if not str(attention_reason or "").strip():
+                raise LedgerError(
+                    "attention_amend needs a nonblank attention_reason — it "
+                    "REPLACES the text the user is currently reading, so an "
+                    "empty one would blank the question rather than sharpen "
+                    "it. To take the flag down instead, pass attention: false "
+                    "with the reason in `note`. NOTHING WAS WRITTEN")
+            att_reason = _bounded("attention_reason", attention_reason)
+            # the same guard `work_update` runs, for the same reason: amending
+            # must not become the way to put a dismissed sentence back in front
+            # of somebody who already rejected it
+            self._work_attention_repeat_guard(it, att_reason)
         # ---- THE LISTS. Named ones are materialized through the same helper
         # `work_update` uses (whole / keep / append, with the same expected_rev
         # requirement on the patch forms); unnamed ones are carried forward
@@ -14551,23 +15132,30 @@ class Org:
             touched.append(name)
             lists[name] = self._work_patch_list(it, name, supplied, keep,
                                                 append, expected_rev)
-        if not touched:
+        if not touched and not att_op:
             raise LedgerError(
                 "an addendum needs a list to correct: pass done_so_far or "
                 "working_on_next (or done_append / next_append / keep_done / "
                 "keep_next). ⚠ UNLIKE `update`, a list you do not name is kept "
                 "as it stands — on finished work the half you did not mention "
                 "is a record somebody accepted, so clearing one is said "
-                "outright with an empty list. NOTHING WAS WRITTEN")
+                "outright with an empty list. To take an attention flag down "
+                "instead and leave the summary alone, pass attention: false. "
+                "NOTHING WAS WRITTEN")
         done, nxt = lists["done_so_far"], lists["working_on_next"]
-        if not done and not nxt:
+        was_done = [str(x) for x in (it.get("done_so_far") or [])]
+        was_next = [str(x) for x in (it.get("working_on_next") or [])]
+        # ⚠ WHETHER THE SUMMARY REALLY MOVED, not whether a list was NAMED. The
+        # stamp and the history row below both claim the summary was corrected,
+        # so both key on this rather than on `touched`: a call that names a list
+        # with the text already stored and retracts a flag corrected nothing.
+        lists_changed = (done != was_done or nxt != was_next)
+        if touched and not done and not nxt:
             raise LedgerError(
                 "an addendum may not empty both lists — a finished item with "
                 "no summary at all is worse than the frozen one this corrects. "
                 "NOTHING WAS WRITTEN")
-        was_done = [str(x) for x in (it.get("done_so_far") or [])]
-        was_next = [str(x) for x in (it.get("working_on_next") or [])]
-        if done == was_done and nxt == was_next:
+        if not lists_changed and not att_op:
             raise LedgerError(
                 "this addendum changes neither list, so there is nothing to "
                 "record — and stamping a finished item as amended when it was "
@@ -14577,36 +15165,92 @@ class Org:
         # the first write. The body below has no expression for changing any of
         # it; this is the guard that keeps that true as the method is edited,
         # rather than a claim in a docstring nobody re-checks.
+        #
+        # ⚠ `manual_attention` LEAVES THE SEAL ONLY WHEN THIS CALL ASKED FOR A
+        # FLAG OPERATION, and it is the ONLY field that ever does. That is the
+        # whole of what W-flag-clear widened: a call carrying no attention
+        # argument is sealed exactly as tightly as it was before, and a call
+        # that does carry one is still sealed against status, acceptance,
+        # evidence, the summaries' owner, both clocks — and against the
+        # `dismissals` record, so retracting a flag can never be a way to erase
+        # the fact that the user rejected an earlier one.
         sealed = ("status", "accepted", "acceptance", "evidence",
                   "candidate_verdict", "candidate_verdicts", "review_packet",
                   "review_packets", "superseded_by", "dropped_reason",
                   "docket_at", "status_at", "last_updater", "owner",
-                  "archived_at", "manual_attention")
+                  "archived_at", "manual_attention",
+                  "dismissals", "manual_attention_rev", "blocked_reason")
+        if att_op:
+            sealed = tuple(k for k in sealed if k != "manual_attention")
         before = {k: json.dumps(it.get(k), sort_keys=True, default=str)
                   for k in sealed}
         it["done_so_far"] = done
         it["working_on_next"] = nxt
-        prior = cast("dict[str, Any]", it.get("post_completion") or {})
         accepted = cast("dict[str, Any]", it.get("accepted") or {})
-        stamp = {"count": int(prior.get("count") or 0) + 1,
-                 "at": now(), "by": self._work_actor(actor),
-                 "status": status, "note": reason,
-                 # the completion this addendum came AFTER, so the ordering is
-                 # readable without walking history
-                 "accepted_at": accepted.get("at") or None,
-                 "first_at": prior.get("first_at") or now()}
-        it["post_completion"] = stamp
-        # ⚠ THE HISTORY ROW CARRIES THE LISTS AS THEY WERE. This is the only
-        # place the summary that was accepted survives once it is corrected,
-        # and losing it would make the correction unauditable — which is the
-        # failure mode of the route this replaces, arriving one step later.
-        self._work_hist(it, actor, "addendum",
-                        {"status": status, "note": reason,
-                         "touched": list(touched),
-                         "after_completion": True,
-                         "accepted_at": accepted.get("at") or None,
-                         "done_was": was_done, "next_was": was_next,
-                         "done": len(done), "next": len(nxt)})
+        stamp = cast("dict[str, Any] | None", it.get("post_completion"))
+        if lists_changed:
+            prior = cast("dict[str, Any]", it.get("post_completion") or {})
+            stamp = {"count": int(prior.get("count") or 0) + 1,
+                     "at": now(), "by": self._work_actor(actor),
+                     "status": status, "note": reason,
+                     # the completion this addendum came AFTER, so the ordering
+                     # is readable without walking history
+                     "accepted_at": accepted.get("at") or None,
+                     "first_at": prior.get("first_at") or now()}
+            it["post_completion"] = stamp
+            # ⚠ THE HISTORY ROW CARRIES THE LISTS AS THEY WERE. This is the only
+            # place the summary that was accepted survives once it is corrected,
+            # and losing it would make the correction unauditable — which is the
+            # failure mode of the route this replaces, arriving one step later.
+            self._work_hist(it, actor, "addendum",
+                            {"status": status, "note": reason,
+                             "touched": list(touched),
+                             "after_completion": True,
+                             "accepted_at": accepted.get("at") or None,
+                             "done_was": was_done, "next_was": was_next,
+                             "done": len(done), "next": len(nxt)})
+        # ---- THE FLAG, AND ITS OWN HISTORY ROW. A flag that silently vanished
+        # would leave the user unable to tell a withdrawal from a bug, so the
+        # retraction is recorded as an event in its own right, carrying BOTH the
+        # sentence that came down and the reason it came down. That pairing is
+        # the whole point: the reason alone reads as an unexplained edit, and
+        # the retracted text alone reads as a deletion.
+        att_change: dict[str, Any] | None = None
+        if att_op and standing:
+            was_reason = str(standing.get("reason") or "")
+            set_rev = int(standing.get("set_rev") or 0)
+            if att_op == "retract":
+                it["manual_attention"] = None
+                att_change = {"op": "retract", "set_rev": set_rev,
+                              "reason": was_reason, "why": reason}
+                self._work_hist(it, actor, "attention_retract",
+                                # the QUESTION that stood, kept entire under the
+                                # same key every other clearing route uses — the
+                                # only surviving copy once the flag is down
+                                {"set_rev": set_rev,
+                                 **self._work_attention_archive(standing),
+                                 # and WHY it was withdrawn, which is the half
+                                 # no other clearing route has: a dismissal is
+                                 # the user rejecting a question, a reply is the
+                                 # user answering it, and this is the agent
+                                 # saying its own question stopped holding
+                                 "why": reason,
+                                 "after_completion": True,
+                                 "status": status})
+            else:
+                # amended IN PLACE, keeping `set_rev` — see `work_update`: the
+                # dismissal compare-and-set stamp keeps pointing at the flag the
+                # user is looking at, and no new notification edge is minted
+                standing["reason"] = cast(str, att_reason)
+                standing["amended_at"] = now()
+                standing["amended_by"] = self._work_actor(actor)
+                att_change = {"op": "amend", "set_rev": set_rev,
+                              "from": was_reason, "to": att_reason}
+                self._work_hist(it, actor, "attention_amend",
+                                {"set_rev": set_rev, "from": was_reason,
+                                 "to": att_reason, "why": reason,
+                                 "after_completion": True,
+                                 "status": status})
         drift = [k for k in sealed
                  if json.dumps(it.get(k), sort_keys=True,
                                 default=str) != before[k]]
@@ -14616,24 +15260,34 @@ class Org:
             # the only honest response
             raise LedgerError(
                 f"INTERNAL: an addendum altered {', '.join(drift)} — this path "
-                f"may only touch the two progress lists. Refused")
+                f"may only touch the two progress lists and the attention "
+                f"flag. Refused")
         self._log("work_addendum", actor,
                   {"item": wid, "status": status,
-                   "touched": list(touched)}, [])
+                   "touched": list(touched),
+                   **({"attention": att_op} if att_op else {})}, [])
         return {"addendum": wid, "rev": it["rev"], "status": it["status"],
                 # what was actually STORED, both lists, whether or not this
                 # call named them — the caller sees the whole corrected
                 # summary without a second read
                 "done_so_far": list(done), "working_on_next": list(nxt),
                 "touched": list(touched),
-                "post_completion": dict(stamp),
+                "post_completion": (dict(stamp) if stamp else None),
                 # PROOF, RETURNED: the acceptance record as it stands after the
                 # call is the same one that stood before it
                 "accepted": it.get("accepted"),
+                # and the flag as it stands NOW, beside what this call did to
+                # it — so a caller confirms the retraction rather than reading
+                # the item back to find out
+                "manual_attention": it.get("manual_attention"),
+                "attention": att_change,
                 "archived": self._work_archived(it, phys, _time.time()),
                 "note": (f"recorded after completion — {wid} is still "
                          f"{status}, its acceptance record is untouched, and "
-                         f"neither the row's age nor the archive clock moved")}
+                         f"neither the row's age nor the archive clock moved"
+                         + (f". The attention flag was {att_op}ed and the "
+                            f"withdrawal is in the item's history with its "
+                            f"reason" if att_op else ""))}
 
     # ---- ASSIGNMENT. User ruling 2026-09-05 21:02: ASSIGNMENT IS OWNERSHIP —
     # the `owner` field is the ONE meaning behind the docket's Assignment line,
@@ -14642,8 +15296,44 @@ class Org:
     # places to look and two to keep true, and the one that lost would still
     # render somewhere. `last_updater` survives untouched as HISTORY (who wrote
     # the latest status), which is what it always actually was.
+    def _work_start_if_backlogged(self, it: WorkItem, actor: str,
+                                  why: str) -> bool:
+        """THE STAFFING TRANSITION, in the ONE place that states it.
+
+        A plain `assign` never moves the status (user ruling 2026-09-19) —
+        reassigning a ticket nobody has started leaves it unstarted. But an
+        assignment that ALSO STARTS AN AGENT on the item is different in kind:
+        leaving it `backlogged` would have the docket report the work as
+        unstarted while an agent is actively running it, and a backlogged item
+        is hidden from the active count AND never nudged by the idle reminder,
+        so the work would be both invisible and unreminded.
+
+        ⚠ IT LIVES HERE BECAUSE IT HAS TWO CALLERS AND THEY MUST NOT DRIFT.
+        `orgtree_staff` reaches it through `work_update`'s `staffed_to`, and
+        `orgtree_hire`/`orgtree_rehire` carrying `work_item` reach it through
+        `work_assign`'s `starts_agent`. Those are DISJOINT paths — `_staff_call`
+        pops `work_item` before creating the seat, precisely so the assignment
+        is filed once — so a fix applied to either one alone leaves the other
+        wrong. That is exactly what happened: the first cut of this ticket put
+        the transition in `api._staff_call`, and the hire/rehire route silently
+        kept starting agents on items the docket still called backlogged
+        (found in review by textmenu, finding f1).
+
+        It is opt-in at every call site and never implicit, which is the whole
+        point of the ruling: a caller that has not said it is starting an agent
+        does not get a status change.
+        """
+        if str(it.get("status") or "") != self.WORK_BACKLOG:
+            return False
+        it["status"] = "open"
+        self._work_stamp_status(it)
+        self._work_hist(it, actor, "status",
+                        {"from": self.WORK_BACKLOG, "to": "open", "why": why})
+        return True
+
     def _work_assign_core(self, actor: str, it: WorkItem, owner: str,
-                          notify: bool, why: str) -> dict[str, Any]:
+                          notify: bool, why: str,
+                          starts_agent: bool = False) -> dict[str, Any]:
         """Move the assignment, and TELL the agent that just acquired it.
 
         ⚠ THE AUTHORITY CHECK IS THE CALLER'S JOB and is made BEFORE this runs
@@ -14672,13 +15362,28 @@ class Org:
         # stands, and "as it stands" has to still mean the OUTGOING holder.
         self._work_holders_append(it, own, actor)
         it["owner"] = cast(WorkActor, self._work_holder(own))
-        # Assignment starts work that was explicitly left in the backlog.
-        # Keep every other status untouched: assignment is ownership, not a
-        # general-purpose status update.
-        previous_status = str(it.get("status") or "")
-        if previous_status == self.WORK_BACKLOG:
-            it["status"] = "open"
-            self._work_stamp_status(it)
+        # ⚠ ASSIGNMENT NEVER TOUCHES THE STATUS ON ITS OWN — not even
+        # `backlogged` (user ruling 2026-09-19). Until then this path opened a
+        # backlogged item automatically, which is how a coordinator's plain
+        # `assign` silently started work the user had deliberately left
+        # unstarted: the caller asked for one field and got two. Ownership and
+        # status are independent metadata, so the status a reassignment finds
+        # is the status it leaves behind, backlog included.
+        #
+        # The ONE exception is opt-in and named: an assignment that also STARTS
+        # an agent on the item passes `starts_agent`. See
+        # `_work_start_if_backlogged` for why that case is different and why
+        # the rule lives there rather than at either call site.
+        if starts_agent:
+            # ⚠ NOT the bare `why`. For `work_assign` that is the literal
+            # "assign", so the status row would have read
+            # {from: backlogged, to: open, why: "assign"} — an auditor reading
+            # the history would see precisely the defect this ticket removed,
+            # recorded as having happened, with nothing pointing at the real
+            # cause (review finding f2). The reason names the opt-in flag, so
+            # the row says which branch produced it and greps straight to the
+            # code that did.
+            self._work_start_if_backlogged(it, actor, f"{why}+starts_agent")
         parts = [p for p in (it.get("participants") or []) if p != own]
         it["participants"] = parts
         if self._work_actor_node(it.get("reviewer")) == own:
@@ -14690,11 +15395,12 @@ class Org:
             self._work_hist(it, actor, "reviewer",
                             {"from": own, "to": None, "why": "became owner"})
             it["reviewer"] = None
+        # No `status_from`/`status_to` here any more: this path cannot move the
+        # status, so a status pair on an `assign` row would describe a change
+        # that did not happen. A status change made in the SAME work_update
+        # call is recorded by that call's own status row.
         self._work_hist(it, actor, "assign",
-                        {"from": frm, "to": it["owner"], "why": why,
-                         **({"status_from": previous_status,
-                            "status_to": str(it["status"])}
-                           if previous_status != str(it["status"]) else {})})
+                        {"from": frm, "to": it["owner"], "why": why})
         self._log("work_assign", actor,
                   {"item": it["slug"], "to": own, "why": why}, [])
         out: dict[str, Any] = {"assigned": it["slug"], "owner": it["owner"],
@@ -15056,7 +15762,8 @@ class Org:
         return moved
 
     def work_assign(self, actor: str, wid: str, owner: str,
-                    notify: bool = True) -> dict[str, Any]:
+                    notify: bool = True,
+                    starts_agent: bool = False) -> dict[str, Any]:
         """Explicit reassignment, and it NOTIFIES (user request 2026-09-05):
         the assignee learns it holds the item at its next turn, before it has
         ever written a status update. Still not a docket update — `docket_at`
@@ -15067,7 +15774,8 @@ class Org:
         if not self._work_can_manage(actor, it):
             raise LedgerError("only the owner, the creator, their superiors or "
                               "the user may reassign an item")
-        return self._work_assign_core(actor, it, owner, notify, "assign")
+        return self._work_assign_core(actor, it, owner, notify, "assign",
+                                      starts_agent=starts_agent)
 
     def work_request_handoff(self, actor: str, wid: str,
                              target: str | None = None,
@@ -16079,7 +16787,8 @@ class Org:
                    artifact: Any = None, runner: Any = None,
                    execution: Any = None, result: Any = None,
                    gate: Any = None, blocked_count: Any = None,
-                   composition: Any = None) -> dict[str, Any]:
+                   composition: Any = None,
+                   expected_rev: Any = None) -> dict[str, Any]:
         """Mark acceptance conditions checked — acceptance evidence, distinct
         from delivery stages and never inferred from them. One condition, or a
         BATCH through `checks`.
@@ -16093,6 +16802,15 @@ class Org:
         A repeated index inside one batch is refused rather than silently
         letting the last one win: two different evidence refs for the same
         condition means the caller believes something this call cannot honour.
+
+        ⚠ `expected_rev` IS COMPARE-AND-SET, AND IT IS REAL HERE. The card
+        used to promise it on every mutating action; 91454c5 established that
+        only eight honoured it and made the argument an honest refusal on the
+        rest. This is one of the two that earned the real thing instead: a
+        check writes the record that answers "is this item done, and on what
+        evidence", and two agents interleaving there can complete an item on
+        evidence gathered against a state that no longer stands. Optional, as
+        it is on `update` — requiring it would refuse every existing caller.
         """
         self._work_require_live_agent_or_user(actor)
         self._work_sweep()
@@ -16100,6 +16818,12 @@ class Org:
         if not self._work_can_manage(actor, it):
             raise LedgerError("checking an acceptance condition is an owner-level "
                               "act - a participant records `evidence` instead")
+        # COMPARE-AND-SET, FIRST OF ALL — `work_update`'s placement, and for
+        # its reason: a caller that names the revision it read is saying the
+        # whole call was composed against that state, so if the state moved
+        # there is nothing here worth validating, let alone writing. One
+        # implementation (`_work_expect_rev`), one wording.
+        self._work_expect_rev(it, expected_rev)
         acc = cast("list[Any]", it.get("acceptance") or [])
         done: list[tuple[int, dict[str, Any]]] = []
         if checks is not None:
@@ -16164,7 +16888,8 @@ class Org:
                 "indexes": idxs, "rev": it["rev"]}
 
     def work_accept(self, actor: str, wid: str,
-                    note: str | None = None) -> dict[str, Any]:
+                    note: str | None = None,
+                    expected_rev: Any = None) -> dict[str, Any]:
         """→ done. Anyone with standing on the item — owner and participants
         included since the user's 2026-09-10 13:47 ruling (any participant may
         change every state, completion included, without superior review).
@@ -16175,7 +16900,16 @@ class Org:
         BY AGENTS (user ruling 2026-09-05); an item that was only ever waiting
         on the user — blocked on a question, or holding an attention flag — is
         accepted from where it stands rather than being walked through an agent
-        check it never needed."""
+        check it never needed.
+
+        ⚠ `expected_rev` IS COMPARE-AND-SET, AND IT IS REAL HERE — the other
+        of the two actions that earned it (see `work_check`). Completion is
+        the one write whose mistakes stop being looked at, because a done item
+        stops being read; an accept composed against a revision that has since
+        moved is exactly the interleaving this refuses. Optional, as on
+        `update`. It guards THIS route only: a reviewer's `approve` reaches
+        `_work_accept_core` by its own path and takes no compare-and-set,
+        which is deliberate — widening CAS further is separate work."""
         self._work_require_live_agent_or_user(actor)
         self._work_sweep()
         it, _ = self._work_get_for(actor, wid)
@@ -16184,6 +16918,10 @@ class Org:
                 "acceptance belongs to the item's own people — its owner, "
                 "creator, their superiors, a listed participant, its named "
                 "reviewer, or the user")
+        # COMPARE-AND-SET before the completion guard and before any write, so
+        # a stale caller is told its read is stale rather than being answered
+        # about a state it was not looking at.
+        self._work_expect_rev(it, expected_rev)
         return self._work_accept_core(actor, it, note, "accept")
 
     def _work_accept_core(self, actor: str, it: WorkItem, note: str | None,
@@ -16214,6 +16952,48 @@ class Org:
                 "cannot accept this item: every acceptance condition needs an "
                 "explicit `met` or `known_negative` check; qualified or "
                 "unexercised evidence cannot complete it")
+        # ---- W11: THE UNCLASSIFIED SHAPE IS RECORDED, NOT REFUSED.
+        #
+        # Read the guard above again: it fires only when something is already
+        # classified, because an empty `explicit` makes its own precondition
+        # false. So an item whose conditions were NEVER classified skipped it
+        # entirely and completed with no statement of any kind about what had
+        # been checked -- the weakest items were the ones that closed most
+        # freely. Measured against this docket the day this landed: 410 of 473
+        # archived completions (86%) had passed no gate at all, and 8 of the 14
+        # active items were in that shape.
+        #
+        # Since 274fdb2 the shape is also reachable deliberately: amending a
+        # condition clears its check, so rewriting the ONLY condition -- or all
+        # of them -- empties `explicit` and turns the guard off. That converts
+        # an item this guard actively refuses into one it completes.
+        #
+        # The user ruled on 2026-09-17 that this WARNS rather than blocks. The
+        # item completes and the acceptance record states plainly how much of
+        # it closed without classified evidence. Blocking was on the table and
+        # was declined: the cheapest way past a block is to type `met` without
+        # checking anything, which would write a FALSE record where an honest
+        # gap is written now. A silent hole becomes a stated one.
+        #
+        # ⚠ THIS DOES NOT RELAX THE PARTIAL SHAPE. Some-classified still
+        # refuses on the length mismatch above, which
+        # tests/test_docket_update_acceptance.py pins on purpose. The gap is
+        # recorded only when NOTHING is classified -- exactly the question that
+        # was asked and answered, and nothing wider.
+        #
+        # ⚠ AND IT IS SCOPED TO THIS CORE, which is `accept` and a reviewer's
+        # approval. The user ruled in the same breath that `update(status=
+        # "done")` stays ungated as it is today, so a completion by that route
+        # records no gap. That is deliberate, not an oversight.
+        gap: dict[str, Any] | None = None
+        if not explicit:
+            n = len(acceptance)
+            gap = {"unclassified": n, "total": n,
+                   "summary": (
+                       f"completed with {n} of {n} acceptance condition(s) "
+                       f"closed without classified evidence"
+                       if n else
+                       "completed with no acceptance conditions to check")}
         frm = it.get("status")
         it["status"] = "done"
         self._work_stamp_status(it)
@@ -16226,12 +17006,28 @@ class Org:
         it["accepted"] = {"at": now(), "by": self._work_actor(actor),
                           "note": (_prose(note) if note else None),
                           "via": op}
-        self._work_hist(it, actor, op, {"from": frm})
+        if gap is not None:
+            # On the item itself, beside the completion it qualifies -- so a
+            # reader of the acceptance record cannot miss it, and `work_get`
+            # serves it without anyone having to ask a second question.
+            it["accepted"]["evidence_gap"] = gap
+        self._work_hist(it, actor, op, {"from": frm}
+                        if gap is None else
+                        {"from": frm, "evidence_gap": gap["summary"]})
         it["docket_at"] = now()
-        self._log("work_accept", actor, {"item": wid, "via": op}, [])
-        return {"accepted": wid, "rev": it["rev"],
-                "status": "done — archives automatically once its last docket "
-                          "update is over an hour old (records are kept)"}
+        self._log("work_accept", actor,
+                  {"item": wid, "via": op}
+                  if gap is None else
+                  {"item": wid, "via": op, "evidence_gap": gap["summary"]}, [])
+        out = {"accepted": wid, "rev": it["rev"],
+               "status": "done — archives automatically once its last docket "
+                         "update is over an hour old (records are kept)"}
+        if gap is not None:
+            # The WARN half of warn-and-record: the caller is told at the
+            # moment it completes, not left to discover it by reading back.
+            out["warning"] = gap["summary"]
+            out["evidence_gap"] = gap
+        return out
 
     # ---- REVIEW. User rulings 2026-09-05 21:22/21:26, relayed by Astra.
     #
@@ -17323,7 +18119,14 @@ class Org:
             it["archived_at"] = None
             self.d.setdefault("work_items", []).append(it)
         self._work_hist(it, USER, "dismiss_attention",
-                        {"set_rev": int(cur["set_rev"]), "from": frm})
+                        {"set_rev": int(cur["set_rev"]), "from": frm,
+                         # the same archive the reply path writes
+                         # (W-flag-question). The `dismissals` list already kept
+                         # this text — it is what the identical-re-raise guard
+                         # compares against — but a reader walking the HISTORY
+                         # for what happened to a flag found a row that named
+                         # only a revision number. One read now answers it.
+                         **self._work_attention_archive(cur)})
         self._log("work_dismiss", USER, {"item": wid,
                                          "set_rev": int(cur["set_rev"])}, [])
         # The explicit no-comment notice belongs to the assigned agent, not
@@ -17334,13 +18137,27 @@ class Org:
                 "notify": notify if notify in self.nodes else None,
                 "reason": cur.get("reason")}
 
-    def work_clear_attention_on_user_reply(self, wid: str) -> dict[str, Any]:
+    def work_clear_attention_on_user_reply(self, wid: str,
+                                           reply: str | None = None
+                                           ) -> dict[str, Any]:
         """Clear only manual attention after a successful user reply.
 
         Pending attached questions remain the effective attention source, and
         the item's work status is deliberately unchanged. This is separate
         from work_dismiss_attention: a reply acknowledges the request but is
         not a user dismissal that should block the item.
+
+        ⚠ `reply` IS THE USER'S OWN TEXT, AND IT GOES ON THE SAME ROW AS THE
+        QUESTION IT ANSWERED (W-flag-question). The answer already survived —
+        it is mail, and mail is durable — but it survived SOMEWHERE ELSE, and
+        the question did not survive at all. Putting the pair on one history row
+        is what lets `orgtree_work get` show a later reader both halves without
+        anyone's transcript, which is the whole of what was being lost: two
+        words of ruling with nothing to anchor them to.
+
+        It is stored ENTIRE and never sliced, on the same principle as the
+        dismissal's composed `blocked_reason`: the only thing a truncation here
+        could ever cut is the end of the sentence that settles the question.
         """
         it, _ = self._work_find(wid)
         cur = it.get("manual_attention")
@@ -17349,9 +18166,29 @@ class Org:
             return {"cleared": False, "pending_questions": len(pending)}
         it["manual_attention"] = None
         self._work_hist(it, USER, "reply_clear_attention",
-                        {"set_rev": int(cur.get("set_rev") or 0)})
+                        {"set_rev": int(cur.get("set_rev") or 0),
+                         # ⚠ THE QUESTION, ARCHIVED ONTO THE ROW THAT KILLS IT
+                         # (W-flag-question). This row used to carry `set_rev`
+                         # and nothing else, so answering a flag DESTROYED the
+                         # text it answered: the reply survived on the item and
+                         # the question it replied to did not. An agent that was
+                         # compacted between the raise and the answer woke to
+                         # the two words "yea do that" with no way to know what
+                         # they ruled on, and recovered the wording only by
+                         # hand-parsing 1.9 MB of its own transcript.
+                         #
+                         # Keeping it here is what makes the pair readable from
+                         # `orgtree_work get` alone. It is the FINAL text — the
+                         # wording the user was actually looking at when they
+                         # answered — and any superseded wording is already on
+                         # this item's own `attention_amend` rows, which carry
+                         # `from` and `to`.
+                         **self._work_attention_archive(cur),
+                         **({"answer": str(reply)}
+                            if str(reply or "").strip() else {})})
         self._work_stamp_docket(it, USER)
-        return {"cleared": True, "pending_questions": 0}
+        return {"cleared": True, "pending_questions": 0,
+                "reason": cur.get("reason")}
 
     # ---- STEP 4 (design §8): the server side of a qualified reply `target`
     def resolve_reply_target(self, target: Mapping[str, str],

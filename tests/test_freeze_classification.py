@@ -33,6 +33,9 @@ _ROOT = tempfile.TemporaryDirectory(prefix="orgtree-freeze-classify-")
 os.environ["ORGTREE_DATA"] = _ROOT.name
 os.environ["ORGTREE_WARM"] = "0"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine" / "backend"))
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from orgtree import (accounts, antigravity_limits, ledger,  # noqa: E402
                      store, supervisor as sup, warmpool)
 
@@ -221,6 +224,66 @@ class ProviderFreezeSeamTests(unittest.TestCase):
         self.assertLessEqual(
             fz["until_ts"], now + WALL_SECONDS + 60 + sup.PROBE_FLOOR + 2,
             "a stale countdown may not park the node for another three hours")
+
+    def test_the_release_does_not_erase_the_memory_of_the_wall(self):
+        """THE REGRESSION THAT SHIPPED (measured live on `notice-toggle`,
+        2026-09-17 13:43Z). The two tests above restate a wall WITHOUT ever
+        releasing the node, so they never touched the record that production
+        deletes. `resume_frozen` pops `frozen` at the release, so the very
+        next wall found an EMPTY record, read no prior countdown, and took
+        the `fresh` branch — re-anchoring 2h53m47s into the future again.
+
+        That made `stale` UNREACHABLE IN PRODUCTION: it needs a prior
+        deadline already in the past, which can only happen after a release,
+        and the release was destroying the evidence it reads. This drives the
+        REAL release rather than simulating it, so the sequence cannot drift
+        away from what the resume path actually does."""
+        now = time.time()
+        self.freeze(reset_ts=now + WALL_SECONDS)
+        self.assertTrue(store.load_org(self.slug).node(self.nid).get("frozen"))
+        after = now + WALL_SECONDS + 60
+        with patch.object(sup.time, "time", return_value=after):
+            # the REAL release — this is the call that pops the record
+            sup.resume_frozen(self.slug, only=[self.nid])
+            self.assertIsNone(
+                store.load_org(self.slug).node(self.nid).get("frozen"),
+                "precondition: the release really does delete the record")
+            # the node wakes, re-hits the SAME wall, and restates it
+            self.freeze(reset_ts=after + WALL_SECONDS)
+            fz = self.frozen()
+        self.assertTrue(fz["limit"], "a failed turn on a recognised wall still freezes")
+        self.assertEqual(
+            fz["schedule_kind"], "probe",
+            "a countdown that outlived its own deadline may not set a horizon "
+            "just because the release erased the record that proves it stale")
+        self.assertLessEqual(
+            fz["until_ts"], after + sup.PROBE_FLOOR + 2,
+            "this is the exact live failure: re-anchoring ~10427s instead of "
+            "dropping to the probe floor leaves the node stuck forever")
+
+    def test_a_turn_that_actually_runs_forgets_the_wall(self):
+        """The stash may not outlive its usefulness. One turn that COMPLETES
+        means the lane let the agent through, so a later wall quoting the same
+        countdown is a NEW episode and must be honoured in full, not written
+        off as a restatement of an episode that already ended."""
+        now = time.time()
+        self.freeze(reset_ts=now + WALL_SECONDS)
+        after = now + WALL_SECONDS + 60
+        with patch.object(sup.time, "time", return_value=after):
+            sup.resume_frozen(self.slug, only=[self.nid])
+        # the agent then has a turn that actually works
+        with store.DOC_LOCK:
+            o2 = store.load_org(self.slug)
+            sup._forget_wall(o2.node(self.nid))
+            store.save_org(o2)
+        later = after + 86400
+        with patch.object(sup.time, "time", return_value=later):
+            self.freeze(reset_ts=later + WALL_SECONDS)
+            fz = self.frozen()
+        self.assertEqual(fz["schedule_kind"], "observed-deadline")
+        self.assertAlmostEqual(
+            fz["until_ts"], later + WALL_SECONDS, delta=2,
+            msg="a genuine new wall after a working turn keeps its full deadline")
 
     def test_recognition_itself_is_untouched(self):
         """The guard rail on this whole change: the broad predicate that

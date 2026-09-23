@@ -81,6 +81,8 @@ for k in ('ORGTREE_V1_ROOT', 'ORGTREE_V1_DATA_ROOT', 'ORGTREE_V2_PORT'):
     os.environ.pop(k, None)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine' / 'backend'))
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from orgtree import (halt, ledger, store,            # noqa: E402
                      supervisor as sup, turnread, warmpool)
 

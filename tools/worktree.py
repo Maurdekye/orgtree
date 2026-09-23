@@ -21,8 +21,41 @@ that junction is the cause of every worktree incident this project has had:
 
 So ``add`` places the worktree under the repository root and verifies that the
 dependencies actually resolve from there before it reports success, ``remove``
-refuses to force a removal through a link it can see, and the junction route
-is reachable only by asking for it in as many words.
+refuses ANY removal through a link it can see, and the junction route is
+reachable only by asking for it in as many words.
+
+⚠ ``remove`` refuses whether or not ``--force`` was asked for, and that is the
+correction that matters. ``--force`` only overrides the dirty/untracked check;
+it does not change how Git deletes the tree. A ``node_modules`` junction is
+gitignored, so the worktree reads as clean and the *un-forced* removal is the
+one an agent actually reaches - and it destroys the junction's target just as
+completely. Measured, not assumed: see ``plan_remove``.
+
+``cleanup-scan`` enumerates the links that already exist under a root without
+following any of them, and hands back a plan that ``cleanup-apply`` can execute
+against a re-validated filesystem. Removal always unlinks the link itself; the
+target is never opened, walked or deleted.
+
+⚠ TWO KNOWN LIMITS, both recorded so the next reader gets five minutes rather
+than an afternoon, and neither fixed here:
+
+* **An UNREADABLE reparse point deadlocks.** ``removal_scan`` counts a link
+  whose target cannot be read as escaping - the safe direction - so ``remove``
+  refuses it; ``accept_unscanned`` waives truncation only; ``cleanup_scan``
+  declines to select it because its target is unknown; and ``cleanup_preview``
+  preserves it as "target could not be validated". So that worktree cannot be
+  removed by this tool at all, and the cleanup its refusal points at will not
+  clear it. The obstacle is policy, not mechanism: ``os.rmdir`` removes a
+  reparse point without following it. Analysis by worktree-setup, from the code
+  rather than from a constructed case.
+* **This repository is npm, and that is load-bearing.** Its 61,324-entry
+  ``node_modules`` contains zero links, so the unconditional escaping-link
+  refusal never fires on an ordinary installed tree. Under **pnpm** it would:
+  ``node_modules/.pnpm`` is symlinks into a global store outside the repository,
+  every one of which reads as escaping, and every worktree would become
+  unremovable with no applicable waiver - ``accept_unscanned`` does not cover a
+  found link, and ``cleanup-scan`` only selects links NAMED ``node_modules``.
+  Changing package manager means revisiting this file.
 """
 from __future__ import annotations
 
@@ -33,6 +66,7 @@ import os
 from pathlib import Path
 import stat
 import subprocess
+import sys
 from typing import Any, Iterable, Mapping
 
 
@@ -50,7 +84,63 @@ DEPENDENCY_DIR = "node_modules"
 #: number is a safety valve, not a judgement: an honest ``truncated`` flag is
 #: reported when it is hit, because a scan that quietly stopped early would
 #: make "no links found" mean nothing.
-SCAN_LIMIT = 50000
+#:
+#: ⚠ SIZED SO THE ORDINARY CASE FITS. It was 50000, which a correctly-shaped
+#: worktree (measured: 1,248 entries) never approached - but a worktree with a
+#: REAL installed ``node_modules`` (measured: 61,324 entries) sails past it. A
+#: junctioned ``node_modules`` is a reparse point and is never descended into,
+#: so it scans small; only the real one is expensive. Once the truncation
+#: refusal stopped being conditional on ``--force``, a limit below that figure
+#: would have made every worktree anybody had run ``npm install`` in
+#: permanently unremovable by this tool - and those are exactly the checkouts
+#: that need cleaning up. Raising the ceiling does not remove the cliff, which
+#: is why ``accept_unscanned`` exists as well; it moves the cliff past the case
+#: that actually occurs, so the opt-out stays rare rather than routine.
+SCAN_LIMIT = 400000
+
+#: How deep ``find_reparse_points`` descends below its root before it stops and
+#: SAYS it stopped.
+#:
+#: ⚠ DEPTH AND BUDGET ARE COUPLED, and getting that backwards produces a scan
+#: that undercounts while reporting success. Raising the depth raises the entry
+#: count; if the budget does not rise with it the walk truncates early and finds
+#: FEWER links than a shallower one would. Measured on the live scratch root at
+#: a 50000 budget: depths 3, 4 and 5 each found 77 links, while depth 6 found
+#: ELEVEN - not because six was too deep, but because that root is 572,294
+#: entries and the budget ran out. Raise the two together or not at all.
+#:
+#: The default is deliberately deep enough to be exhaustive on the shapes we
+#: actually have. An earlier value of 4 was chosen from the observation that
+#: junctions sit at ``<scratch>/<agent>/<worktree>/node_modules``; that was
+#: wrong. worktree-setup's unbounded walk found links at depth 5 in the primary
+#: scratch root and at depth 9 in the second one - 5 and 49 links respectively
+#: below a depth-4 bound, none of which a depth-4 scan would have reported while
+#: still printing ``complete: true``. A default that silently undercounts a
+#: cleanup is worse than a slow one.
+#:
+#: 12 was still not enough to make the live roots a census - it left 743
+#: directories undescended and ``census: false``, which is honest but is not the
+#: answer an operator running a cleanup needs. The walk never follows a reparse
+#: point, so it cannot cycle and depth is only a cost control; the entry BUDGET
+#: is the real bound and it reports itself. So this is set high enough that a
+#: real tree comes back exhaustive (measured: the full primary root is 572,301
+#: entries and 46 seconds at unbounded depth) and left as a backstop rather than
+#: a policy.
+DEFAULT_SCAN_DEPTH = 64
+
+#: Never descended into. Recorded instead, so the output still says they were
+#: there. A real ``node_modules`` would exhaust the entry budget on its own and
+#: truncate the part of the scan that matters; ``.git`` and ``.venv`` are the
+#: same problem in smaller form. A link BY these names is still recorded - the
+#: link check runs before the descent decision.
+SCAN_SKIP_DIRS = {".git", DEPENDENCY_DIR, ".venv"}
+
+#: The entry budget for a WHOLE-ROOT scan, which is a different scale of job
+#: from scanning one worktree and needs its own number. The primary scratch root
+#: measures 572,294 entries unbounded, so ``SCAN_LIMIT`` would truncate it - and
+#: a truncated cleanup scan is the failure mode that leaves junctions behind
+#: while the operator reads a count and believes it.
+SCAN_ROOT_LIMIT = 2000000
 
 
 def strip_extended_prefix(path: str) -> str:
@@ -361,13 +451,27 @@ def removal_scan(worktree: str | os.PathLike[str], *, limit: int = SCAN_LIMIT) -
         "escaping": escaping,
         "entries_scanned": min(seen, limit),
         "truncated": truncated,
+        # ``removal_safe`` is the accurate name: an escaping link makes ANY
+        # removal unsafe, not only a forced one. ``force_safe`` is kept as an
+        # alias because callers and tests already read it, and it has never
+        # meant anything different - only the name was narrower than the fact.
+        "removal_safe": not escaping and not truncated,
         "force_safe": not escaping and not truncated,
     }
 
 
 def plan_remove(repository: str | os.PathLike[str], worktree: str | os.PathLike[str], *,
-                force: bool = False) -> dict[str, Any]:
-    """Decide whether this removal is safe, and say exactly why when it is not."""
+                force: bool = False, accept_unscanned: bool = False) -> dict[str, Any]:
+    """Decide whether this removal is safe, and say exactly why when it is not.
+
+    ``accept_unscanned`` waives ONLY the truncated-scan refusal, and nothing
+    else. It exists because "I could not finish looking" and "I looked and found
+    a link" are different facts that deserve different answers: the second is a
+    measured hazard and is never waivable, while the first is an unknown the
+    caller may be entitled to accept. It is a separate word from ``force`` on
+    purpose - ``force`` means "discard my changes", and overloading it into
+    "and also stop checking for links" is how the original defect happened.
+    """
     root = repository_root(repository)
     target = canonical(worktree)
     if canonical(target) == root:
@@ -375,19 +479,42 @@ def plan_remove(repository: str | os.PathLike[str], worktree: str | os.PathLike[
     scan = removal_scan(target)
     dirty, unmerged, readable = _status(target)
     refusals: list[str] = []
-    if force and scan["escaping"]:
+    # ⚠ DELIBERATELY NOT `if force`. ``--force`` is not the dangerous ingredient
+    # and never was: it overrides the dirty/untracked CHECK, it does not change
+    # how Git deletes the tree afterwards. Measured on git 2.52.0.windows.1, in
+    # a real worktree under the repository root with a ``node_modules`` junction
+    # pointing outside it: ``git worktree remove`` with NO flags exited 0 and
+    # emptied the junction's target, exactly as ``--force`` did.
+    #
+    # The un-forced path was the one actually reached, too. A ``node_modules``
+    # junction is gitignored, so ``status`` reports the worktree clean, so none
+    # of the force-only refusals below applied and the removal went straight
+    # through. Gating the link check on ``force`` therefore guarded the careful
+    # route and left the default one open. Both refuse now.
+    if scan["escaping"]:
         refusals.append(
-            "refusing --force: this worktree contains {count} link(s) pointing outside it "
-            "({paths}). A forced remove deletes through them and takes the target with it - "
-            "this is the failure that emptied a 783 MB checkout. Remove or unlink them "
-            "first (`python tools/worktree.py cleanup-preview`), then remove the worktree."
+            "refusing to remove: this worktree contains {count} link(s) pointing outside it "
+            "({paths}). Removing the worktree deletes through them and takes the target with "
+            "it - this is the failure that emptied a 783 MB checkout, and it happens WITHOUT "
+            "--force just the same. Unlink them first (`python tools/worktree.py cleanup-scan "
+            "{worktree}`), then remove the worktree."
             .format(count=len(scan["escaping"]),
-                    paths=", ".join(link["path"] for link in scan["escaping"][:4]))
+                    paths=", ".join(link["path"] for link in scan["escaping"][:4]),
+                    worktree=target)
         )
-    if force and scan["truncated"]:
+    # The truncation refusal IS waivable, unlike the one above. A truncated scan
+    # reports an unknown; an escaping link reports a measured hazard. Waiving
+    # the first is a decision a caller can be entitled to make, and refusing it
+    # outright would make every worktree containing a real installed
+    # node_modules permanently unremovable by this tool - which is the
+    # population most in need of cleaning up.
+    if scan["truncated"] and not accept_unscanned:
         refusals.append(
-            f"refusing --force: the link scan stopped after {SCAN_LIMIT} entries, so "
-            f"'no escaping links' would be a guess rather than a result"
+            f"refusing to remove: the link scan stopped after {SCAN_LIMIT} entries, so "
+            f"'no escaping links' would be a guess rather than a result. If this worktree "
+            f"simply has a large real {DEPENDENCY_DIR} installed in it, that is expected - "
+            f"pass accept_unscanned (--accept-unscanned) to remove it anyway, which waives "
+            f"ONLY this unknown and never a link the scan actually found."
         )
     if (dirty or unmerged) and not force:
         refusals.append("worktree has uncommitted or unmerged changes; commit them or pass force")
@@ -400,6 +527,7 @@ def plan_remove(repository: str | os.PathLike[str], worktree: str | os.PathLike[
         "repository": root,
         "worktree": target,
         "force": force,
+        "accept_unscanned": accept_unscanned,
         "dirty": dirty,
         "unmerged": unmerged,
         "links": scan["links"],
@@ -412,9 +540,10 @@ def plan_remove(repository: str | os.PathLike[str], worktree: str | os.PathLike[
 
 
 def remove(repository: str | os.PathLike[str], worktree: str | os.PathLike[str], *,
-           force: bool = False, apply: bool = True) -> dict[str, Any]:
-    """Remove a worktree, but never force one through a link that leaves it."""
-    plan = plan_remove(repository, worktree, force=force)
+           force: bool = False, accept_unscanned: bool = False,
+           apply: bool = True) -> dict[str, Any]:
+    """Remove a worktree, but never remove one through a link that leaves it."""
+    plan = plan_remove(repository, worktree, force=force, accept_unscanned=accept_unscanned)
     if not plan["safe"]:
         raise ValueError("; ".join(plan["refusals"]))
     if not apply:
@@ -552,10 +681,15 @@ def dependency_setup(worktree: str, *, package_manager: str | None = None,
         if apply:
             if os.name != "nt":
                 raise ValueError("junction setup is supported on Windows only")
+            # encoding/errors as the three sibling call sites above: without
+            # them `text=True` decodes with the ambient code page, and one byte
+            # it has no character for kills the reader thread, leaves stderr
+            # None, and turns a reportable git failure into an AttributeError.
             result = subprocess.run(link["command"], check=False,
-                                    capture_output=True, text=True)
+                                    capture_output=True, text=True,
+                                    encoding="utf-8", errors="replace")
             if result.returncode:
-                raise RuntimeError(result.stderr.strip() or "dependency junction creation failed")
+                raise RuntimeError((result.stderr or "").strip() or "dependency junction creation failed")
             if not is_reparse(destination):
                 raise RuntimeError("dependency junction was not created; refusing to continue")
             link["applied"] = True
@@ -686,6 +820,199 @@ def cleanup_preview(root: str, candidates: Iterable[str], *, owned: Iterable[str
     }
 
 
+def find_reparse_points(root: str | os.PathLike[str], *, max_depth: int = DEFAULT_SCAN_DEPTH,
+                        limit: int = SCAN_ROOT_LIMIT) -> dict[str, Any]:
+    """Enumerate every link under a root WITHOUT following a single one.
+
+    This is the half that was missing. ``cleanup_preview`` could always validate
+    a candidate, but nothing produced the candidate list, so a cleanup could
+    only ever be run against paths somebody had already typed out by hand.
+
+    Both bounds are REPORTED rather than applied quietly. A scan that stopped
+    early and said nothing would turn "no links found" into a claim it has not
+    earned, and this is a tool whose whole job is to be trusted about what is
+    and is not there. ``truncated`` means the entry budget ran out;
+    ``depth_limited`` lists directories that were not descended into.
+
+    Directories named in ``SCAN_SKIP_DIRS`` are recorded and not descended.
+    A real ``node_modules`` holds tens of thousands of entries and cannot
+    contain what this scan is looking for, so walking it would exhaust the
+    budget and truncate the part that matters. A ``node_modules`` that IS a
+    link is still recorded - the link check happens first.
+    """
+    start = canonical(root)
+    if _entry_kind(start) != "directory":
+        raise ValueError("scan root must be a real directory")
+    if max_depth < 1:
+        raise ValueError("max_depth must be positive")
+    links: list[dict[str, Any]] = []
+    unreadable: list[str] = []
+    depth_limited: list[str] = []
+    skipped: list[str] = []
+    seen = 0
+    truncated = False
+    pending: list[tuple[str, int]] = [(start, 0)]
+    while pending:
+        current, depth = pending.pop()
+        try:
+            entries = list(os.scandir(current))
+        except OSError:
+            unreadable.append(current)
+            continue
+        for entry in entries:
+            seen += 1
+            if seen > limit:
+                truncated = True
+                pending = []
+                break
+            kind = _entry_kind(entry.path)
+            if kind in {"symlink", "reparse"}:
+                try:
+                    target = os.readlink(entry.path)
+                except OSError:
+                    target = None
+                links.append({
+                    "path": canonical(entry.path),
+                    "name": os.path.basename(entry.path),
+                    "kind": kind,
+                    "target": strip_extended_prefix(target) if target is not None else None,
+                    # Unreadable counts as escaping, which is the safe
+                    # direction: it costs a preserved link, never a followed one.
+                    "escapes_root": not (target is not None and contained(target, start)),
+                })
+                continue
+            if kind != "directory":
+                continue
+            if os.path.basename(entry.path) in SCAN_SKIP_DIRS:
+                skipped.append(entry.path)
+                continue
+            if depth + 1 >= max_depth:
+                depth_limited.append(entry.path)
+                continue
+            pending.append((entry.path, depth + 1))
+    return {
+        "root": start,
+        "links": links,
+        "escaping": [link for link in links if link["escapes_root"]],
+        "entries_scanned": min(seen, limit),
+        "truncated": truncated,
+        "depth_limited": depth_limited,
+        "skipped_directories": skipped,
+        "unreadable": unreadable,
+        "max_depth": max_depth,
+        # Two different honesties, because they are two different facts and
+        # collapsing them makes the useful one useless. ``complete`` means
+        # everything WITHIN the requested depth was examined - the scan did what
+        # it was asked to. ``exhaustive`` additionally means nothing anywhere
+        # was skipped. On any real tree some directory is always deeper than the
+        # bound, so a single flag folding them together would read False forever
+        # and stop carrying information.
+        "complete": not truncated and not unreadable,
+        "exhaustive": not truncated and not unreadable and not depth_limited,
+    }
+
+
+def cleanup_scan(root: str | os.PathLike[str], *, name: str | None = DEPENDENCY_DIR,
+                 max_depth: int = DEFAULT_SCAN_DEPTH, limit: int = SCAN_ROOT_LIMIT) -> dict[str, Any]:
+    """Enumerate the hazard shape and return a plan ``apply_cleanup`` can run.
+
+    Selection is deliberately narrow. A link is marked for unlinking only when
+    it is named ``name`` (``node_modules`` by default), its target is readable,
+    and that target lies OUTSIDE the scanned root - which is the exact shape
+    that turns a worktree removal into somebody else's data loss. Every other
+    link found is listed and preserved, with the reason attached, so the output
+    documents what was seen and skipped instead of quietly narrowing.
+
+    ⚠ Unlinking one of these leaves that worktree unable to resolve its
+    dependencies, because the link was how it resolved them. That is correct
+    and intended - the worktree was never private to begin with - but it is a
+    consequence to know about rather than discover, so it is stated in ``note``.
+    """
+    survey = find_reparse_points(root, max_depth=max_depth, limit=limit)
+    selected = [
+        link["path"] for link in survey["links"]
+        if (name is None or link["name"].casefold() == name.casefold())
+        and link["escapes_root"] and link["target"] is not None
+    ]
+    preview = cleanup_preview(survey["root"], [link["path"] for link in survey["links"]],
+                              owned=selected)
+    # ``cleanup_preview`` can only say "not registered as an owned link", which
+    # is true and useless to the person reading the plan: it describes the
+    # mechanism rather than the decision. Say which of this function's own
+    # criteria the link failed, so a preserved entry can be argued with instead
+    # of just wondered about.
+    by_path = {link["path"]: link for link in survey["links"]}
+    for entry in preview["targets"]:
+        link = by_path.get(entry["path"])
+        if entry["action"] == "unlink" or link is None:
+            continue
+        if name is not None and link["name"].casefold() != name.casefold():
+            entry["reason"] = f"not selected: named {link['name']!r}, not {name!r}"
+        elif link["target"] is None:
+            entry["reason"] = "not selected: link target could not be read"
+        elif not link["escapes_root"]:
+            entry["reason"] = (f"not selected: target {link['target']} is INSIDE the scanned "
+                               f"root, so removing this tree does not reach outside it")
+    preview["survey"] = survey
+    preview["selection"] = {
+        "name": name,
+        "escaping_only": True,
+        "selected": len(selected),
+        "links_found": len(survey["links"]),
+    }
+    preview["complete"] = survey["complete"]
+    preview["exhaustive"] = survey["exhaustive"]
+    # The order matters and is the whole safe sequence: unlink the junction
+    # FIRST, then remove the worktree. Doing it the other way round is the
+    # incident. ``rmdir`` on a junction removes the link and does not follow it;
+    # a recursive delete follows it and empties the target.
+    preview["remediation"] = [
+        {"step": 1, "what": "unlink the junction (never follows it)",
+         "command": ["cmd", "/c", "rmdir", "<link>"],
+         "equivalently": "python tools/worktree.py cleanup-apply <plan.json> --confirm",
+         "never": ["rmdir /s", "Remove-Item -Recurse", "rm -rf"]},
+        {"step": 2, "what": "remove the worktree, now that nothing leaves it",
+         "command": ["python", "tools/worktree.py", "remove", "<worktree>"]},
+    ]
+    # ⚠ THE WARNING GOES FIRST WHEN IT CHANGES THE NUMBER. Whoever acts on this
+    # plan is reading it for a count, and a caveat printed after the remediation
+    # steps arrives too late to stop them treating a partial scan as a census.
+    # A bounded scan that nonetheless SELECTED something is the dangerous
+    # combination: it looks like a completed cleanup and silently leaves
+    # junctions behind.
+    warnings: list[str] = []
+    if not survey["complete"]:
+        warnings.append(
+            "⚠ THIS SCAN IS INCOMPLETE (see survey.truncated / survey.unreadable). It is not a "
+            "census of what exists under this root - raise --limit and rerun before treating "
+            "any count here as complete."
+        )
+    elif not survey["exhaustive"]:
+        deeper = len(survey["depth_limited"])
+        warnings.append(
+            f"⚠ THIS SCAN IS BOUNDED AT --max-depth {max_depth}; {deeper} director"
+            f"{'y' if deeper == 1 else 'ies'} below that depth {'was' if deeper == 1 else 'were'}"
+            f" not descended into, so links below that "
+            f"depth are NOT in this plan and NOT in its counts. Everything within the depth was "
+            f"examined ('complete'), which is not the same as everything ('exhaustive'). Raise "
+            f"--max-depth AND --limit together - raising depth alone exhausts the budget and "
+            f"finds fewer links, not more."
+            + (" Links WERE selected at this depth, so applying this plan will clean up some "
+               "and leave the deeper ones in place." if selected else "")
+        )
+    preview["note"] = " ".join(warnings + [
+        "Unlinking removes the link itself and never its target. A worktree whose "
+        f"{DEPENDENCY_DIR} link is removed can no longer resolve dependencies from it; "
+        "the supported fix is to recreate that worktree under the repository root, where "
+        f"{DEPENDENCY_DIR} resolves upward and no link is needed."
+    ])
+    # One word for the only question an operator running a cleanup actually has:
+    # "is this everything?" It is true only when nothing was skipped for any
+    # reason - not budget, not readability, not depth.
+    preview["census"] = survey["exhaustive"]
+    return preview
+
+
 def apply_cleanup(preview: Mapping[str, Any], *, confirm: bool = False) -> dict[str, Any]:
     """Unlink only a previously previewed, validated link itself."""
     if not confirm:
@@ -734,7 +1061,13 @@ def apply_cleanup(preview: Mapping[str, Any], *, confirm: bool = False) -> dict[
     return result
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """Build the CLI, separately from running it.
+
+    Separate so the defaults are testable. A CLI default that disagrees with the
+    API default it shadows is invisible from either side on its own - you have
+    to compare them, and you cannot compare what you cannot construct.
+    """
     parser = argparse.ArgumentParser(
         description="create, verify and remove private worktrees safely")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -751,7 +1084,14 @@ def main(argv: list[str] | None = None) -> int:
     rm.add_argument("worktree")
     rm.add_argument("--repository", default=".")
     rm.add_argument("--force", action="store_true",
-                    help="discard changes; still refused when a link leaves the worktree")
+                    help="discard uncommitted changes. It does NOT affect the link check: a "
+                         "removal is refused when a link leaves the worktree whether or not "
+                         "this is passed, because an un-forced removal deletes through a link "
+                         "exactly as a forced one does")
+    rm.add_argument("--accept-unscanned", action="store_true",
+                    help="proceed when the link scan could not finish (a large real "
+                         f"{DEPENDENCY_DIR} does this). Waives only that unknown, never a "
+                         "link the scan actually found")
     rm.add_argument("--dry-run", action="store_true")
     verify = sub.add_parser("verify", help="report where an existing worktree gets dependencies")
     verify.add_argument("worktree")
@@ -770,14 +1110,61 @@ def main(argv: list[str] | None = None) -> int:
     preview = sub.add_parser("cleanup-preview")
     preview.add_argument("root")
     preview.add_argument("candidates", nargs="+")
-    args = parser.parse_args(argv)
+    scan = sub.add_parser(
+        "cleanup-scan",
+        help="enumerate escaping dependency links under a root and emit a cleanup plan")
+    scan.add_argument("root", help="directory to scan; links are never followed")
+    scan.add_argument("--name", default=DEPENDENCY_DIR,
+                      help=f"only select links with this name (default {DEPENDENCY_DIR}); "
+                           f"pass --name '' to consider every name")
+    # ⚠ SCAN_ROOT_LIMIT, not SCAN_LIMIT. These defaults must match the ones on
+    # ``cleanup_scan`` itself: this is the path an operator actually runs, and a
+    # CLI default below the API default makes the command truncate on a real
+    # root and emit a short plan while the library call on the same root returns
+    # a full one. That shipped once - the whole-root budget is 5x the
+    # per-worktree one, and borrowing the smaller number here cut a 572,301-entry
+    # scan off at 400,000 and reported 64 links where there are 82.
+    scan.add_argument("--max-depth", type=int, default=DEFAULT_SCAN_DEPTH)
+    scan.add_argument("--limit", type=int, default=SCAN_ROOT_LIMIT)
+    apply_ = sub.add_parser(
+        "cleanup-apply",
+        help="unlink the links a cleanup-scan plan selected, after re-validating each one")
+    apply_.add_argument("plan", help="path to a plan written by cleanup-scan, or - for stdin")
+    apply_.add_argument("--confirm", action="store_true",
+                        help="required; without it nothing is unlinked")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        return _dispatch(args)
+    except ValueError as error:
+        # A refusal is an ANSWER, not a crash. Printing a traceback buries the
+        # one sentence that says what to do next under a stack the reader did
+        # not ask for, and the refusals in this file are written to be read -
+        # they name the hazard and the command that resolves it.
+        print(f"refused: {error}", file=sys.stderr)
+        return 2
+    except RuntimeError as error:
+        # ⚠ A DIFFERENT WORD ON PURPOSE. RuntimeError is raised when git itself
+        # failed, which is a breakage; ValueError is this tool declining, which
+        # is a decision. Printing "refused" over a git failure would tell the
+        # reader their request was judged and rejected when in fact nothing
+        # judged it, and they would go looking for a policy to satisfy instead
+        # of at the error git actually returned.
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+
+
+def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "add":
         value = add(args.repository, args.name, base=args.base, branch=args.branch,
                     path=args.path, allow_outside_root=args.allow_outside_root,
                     apply=not args.dry_run)
     elif args.command == "remove":
         value = remove(args.repository, args.worktree, force=args.force,
-                       apply=not args.dry_run)
+                       accept_unscanned=args.accept_unscanned, apply=not args.dry_run)
     elif args.command == "verify":
         value = dependency_resolution(args.worktree)
     elif args.command == "inventory":
@@ -786,6 +1173,12 @@ def main(argv: list[str] | None = None) -> int:
         value = dependency_setup(args.worktree, package_manager=args.package_manager,
                                  dependency_source=args.dependency_source, apply=args.apply,
                                  accept_shared_dependencies=args.accept_shared_dependencies)
+    elif args.command == "cleanup-scan":
+        value = cleanup_scan(args.root, name=args.name or None,
+                             max_depth=args.max_depth, limit=args.limit)
+    elif args.command == "cleanup-apply":
+        raw = sys.stdin.read() if args.plan == "-" else Path(args.plan).read_text(encoding="utf-8")
+        value = apply_cleanup(json.loads(raw), confirm=args.confirm)
     else:
         value = cleanup_preview(args.root, args.candidates)
     print(json.dumps(value, indent=2, sort_keys=True))

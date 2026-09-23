@@ -21,7 +21,7 @@ import {
   LockIcon, MailIcon, PinIcon, RetireIcon, SettingsIcon, StopIcon, WarnIcon, DocIcon,
 } from '../icons'
 import {
-  ago, anyTierSeat, codexTierOffer, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DESK_SCALE, deskDpi, DRAFT, familyOffer, fmtCredits, formatCount, freezeKind, FREEZE_LABEL_SHORT, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, isOpenRouterTier, NODE_H, NODE_W, openrouterTierIds, providerOf, queuedSwitchTitle, stateLabel, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, unicodeLength, USER,
+  ago, anyTierSeat, codexTierOffer, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DESK_SCALE, deskDpi, DRAFT, familyOffer, fmtCredits, formatCount, freezeKind, FREEZE_LABEL_SHORT, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, isOpenRouterTier, NODE_H, NODE_W, openrouterTierIds, providerOf, queuedAccountTitle, queuedSwitchTitle, stateLabel, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, unicodeLength, USER,
   USER_H, USER_W, useAgentShortcuts, Z_MAX,
 } from './shared'
 import type {
@@ -33,6 +33,7 @@ import {
   AgentWorkstate, ContextWheel, deriveAgentVisualState, deriveTurnState, isUsageFrozen, DeskChat, DestinationBusy, LastTurnAge,
   MapModeIndicator, MapTurnAge, RouteBadge, ServingAccountBadge,
 } from './desk'
+import { agentNavProps } from './agentnav'
 import { DocChips } from './docs'
 import { useContextMenu } from './contextmenu'
 import type { MenuEntry } from './contextmenu'
@@ -463,7 +464,7 @@ export function EyeDesk({ map, op, slug, toast,
                 {!isPinned(a.id) &&
                   <FullscreenIcon className="eye-tab-panel-glyph" fontSize="inherit" />}
               </button>
-              {onJump && <button className="eye-tab-jump" type="button"
+              {onJump && <button className="eye-tab-jump" type="button" {...agentNavProps(a.id)}
                 title={`jump to ${a.id}`} aria-label={`jump to ${a.id}`}
                 onClick={() => onJump(a.id)}>
                 <FocusIcon fontSize="inherit" />
@@ -1813,6 +1814,9 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           {node.pending_switch &&
             <span className="badge queued" title={queuedSwitchTitle(node)}>
               → {node.pending_switch.tier} next turn</span>}
+          {node.pending_account &&
+            <span className="badge queued" title={queuedAccountTitle(node)}>
+              account → next turn</span>}
           {node.limit_locked && <span className="badge dim"><LockIcon fontSize="inherit" /> limit</span>}
           {/* item 12 (user spec 2026-09-04): the pool a luna is ACTUALLY on,
               on the card's second row as on the desk's — same component,

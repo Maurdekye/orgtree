@@ -28,6 +28,9 @@ except Exception:
     pass
 _ROOT = tempfile.mkdtemp(prefix="orgtree-switch-repro-")
 os.environ["ORGTREE_DATA"] = _ROOT
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.backend.orgtree import ledger, registry, store, supervisor  # noqa: E402
 if not str(store.DATA_ROOT).lower().startswith(_ROOT.lower()):
     raise AssertionError(f"store bound outside fixture: {store.DATA_ROOT}")
@@ -71,8 +74,10 @@ class NoStrandedHalfMove(unittest.TestCase):
         before = copy.deepcopy(org.node("worker"))
 
         with self.assertRaises(RuntimeError) as ctx:
-            supervisor.assign_account(slug, "worker", target["id"], actor="USER")
-        # the refusal is actionable — it names the supported recovery path
+            supervisor.assign_account(slug, "worker", target["id"],
+                                      actor=supervisor.USER)
+        # the refusal is actionable — it names the supported recovery path for
+        # whoever asked (an AGENT is named `orgtree_continue_on` instead)
         self.assertIn("/continue-on", str(ctx.exception))
 
         # NO half-move: the entire node is exactly as it was — same binding,

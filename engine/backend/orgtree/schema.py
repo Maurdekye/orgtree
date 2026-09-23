@@ -313,6 +313,50 @@ class InflightInfo(TypedDict):
     cache_attempt: NotRequired[dict[str, Any]]
 
 
+class TurnEnded(TypedDict):
+    """The last turn that ENDED on this seat, stamped by the turn's own
+    `finally` beside the pop that ends it (`supervisor._mark_turn_ended`).
+
+    It exists for exactly one reader: the startup reconcile, which has to tell
+    "a newer turn ran here and finished" apart from "the marker is simply
+    gone". Those two look IDENTICAL on disk — both are an absent `inflight` —
+    and the first must drop the interrupted turn's stale replay (user ruling
+    2026-09-19) while the second must still replay it, because a seat the
+    dispatch loop never reached is exactly what the restart-stranding fix
+    exists to protect. Without this stamp the absence is unreadable and
+    reconcile has to guess; guessing in the dropping direction destroys drive
+    text that exists nowhere else.
+
+    `at` is the ENDED TURN'S OWN START STAMP, copied off the marker being
+    popped — NOT the time it ended. That is what makes it comparable with the
+    `at` on the interrupted marker reconcile is holding: both name when a turn
+    STARTED, so `ended.at > interrupted.at` reads as "a turn that started
+    later than the interrupted one has already finished".
+
+    ⚠ THE REASON IS THAT LIKE-FOR-LIKE COMPARISON, AND NOT THE OBVIOUS ONE.
+    An earlier draft of this docstring argued that a wall-clock end time
+    "would call every completed turn newer, including the interrupted turn's
+    own predecessor". THAT IS FALSE, and it was measured false in review
+    (restart-mail, 2026-09-19): `turn_ended` is only ever written when a
+    marker is popped, so for a marker reconcile actually COLLECTED, nothing
+    popped it between its turn's start and the crash — otherwise it would not
+    still be there — and the previous pop, with it the stored end time,
+    therefore precedes that marker's own `at`. A predecessor's END time
+    always precedes the next turn's START time. Mutant N3 (read `ended`
+    instead of `at`) confirms it: the interrupted turn's own predecessor goes
+    on replaying correctly.
+    The conclusion stands on the comparison being apples-to-apples instead:
+    both sides must mean "when a turn STARTED", and that stays true even if
+    turns ever overlap on a seat — which is exactly the case the false reason
+    would not survive.
+    """
+    at: str
+    #: when that turn ended, wall clock. Diagnostic only — nothing decides on
+    #: it, and it is here so a human reading the doc can see how stale the
+    #: stamp is without having to correlate it against the turn log.
+    ended: str
+
+
 class AdmitOnce(TypedDict):
     """One spent-on-sight pass through the pre-slot account gate, and the
     identity it was earned for. `at` is when `resume_frozen` issued it;
@@ -444,6 +488,12 @@ class NodeDoc(TypedDict):
     last_turn_mcp_tools: NotRequired[list[str]]
     last_turn_mcp_fingerprint: NotRequired[str]
     inflight: NotRequired[InflightInfo | None]
+    #: the last turn that ENDED here — see TurnEnded. Written by the turn's own
+    #: `finally`, read only by the startup reconcile, and never cleared: it is
+    #: one small dict per node, overwritten by each turn end rather than
+    #: accumulating, and a stale one is harmless because every reader compares
+    #: it against a specific interrupted turn's start stamp.
+    turn_ended: NotRequired[TurnEnded]
     mail_drain: NotRequired[dict[str, Any]]  # waking mail ids awaiting delivery
     pending_switch: NotRequired[dict[str, Any] | None]   # D-234 {tier, from, by, at, crossing}
     last_denials: NotRequired[list[Denial]]
@@ -499,6 +549,19 @@ class NodeDoc(TypedDict):
     # net_fail_run — the count is CONSECUTIVE, and it is what stops a node
     # that keeps answering "usage limit reached" from waking itself forever.
     untrusted_limit_run: NotRequired[int]
+    # ⚠ THE WALL THE NODE LAST HIT, KEPT ACROSS ITS OWN RELEASE (measured
+    # regression, `notice-toggle` 2026-09-17 13:43Z). `resume_frozen` POPS
+    # `frozen` when a freeze expires, so by the time the woken node re-hits
+    # the same wall the record that would prove the countdown restated is
+    # already gone — every post-release wall read as brand new and
+    # re-anchored itself another 2h53m47s into the future. That made
+    # `classify_countdown`'s `stale` branch, which is the entire recovery
+    # path for a wrongly-frozen node, UNREACHABLE IN PRODUCTION while its
+    # unit tests passed on a hand-built prior record. This survives the pop
+    # so the evidence outlives the freeze. Cleared by any COMPLETED turn
+    # (`_forget_wall`): a turn that ran means the lane let the agent
+    # through, so the next wall is a NEW episode and gets its full deadline.
+    last_wall: NotRequired[dict[str, Any]]
     # cheap-compact marker (user feature 2026-08-17; narrowed by D-201/S1,
     # coordinator-ruled 2026-08-30): the CURRENT session was minted by
     # cheap_compact — it started EMPTY (no CLI summary), so the supervisor

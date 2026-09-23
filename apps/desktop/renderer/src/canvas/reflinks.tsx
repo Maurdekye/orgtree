@@ -23,6 +23,7 @@
 
 import { useCallback, useMemo } from 'react'
 import type { ReactNode } from 'react'
+import { agentNavProps } from './agentnav'
 import { WorkRefText, parseRef, scanRefs } from './workrefs'
 import { TIER_LETTER } from './shared'
 import type { MentionIndex, RefKind, TypedRef } from './workrefs'
@@ -355,7 +356,9 @@ export function RefChip({ r, onOpen }: {
   // nowhere to go, so it keeps its icon and loses its control.
   if (r.outcome === 'ready' && onOpen && !r.atDestination) {
     return (
-      <button type="button" {...copy} className={cls} title={r.why}
+      <button type="button" {...copy}
+        {...agentNavProps(r.ref.kind === 'agent' ? r.ref.id : undefined)}
+        className={cls} title={r.why}
         onClick={(e) => { e.stopPropagation(); onOpen(r) }}>
         {icon}{r.label}
       </button>

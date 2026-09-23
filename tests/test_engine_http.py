@@ -11,9 +11,35 @@ import unittest
 import urllib.request
 import urllib.error
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 ROOT = Path(__file__).resolve().parents[1]
 CHILD = r'''
-import json, launch
+import importlib.util, json, os, sys
+from pathlib import Path
+# The bundled runtime carries a ``python313._pth``, which forces safe_path and
+# isolated mode: the child's cwd is NOT placed on sys.path (so ``cwd=engine``
+# no longer makes ``launch`` importable) and PYTHONPATH is ignored.  What the
+# ``._pth`` does list is ``../backend`` and ``../../`` relative to the runtime
+# — and ``engine/runtime/`` is gitignored, so a worktree has none and the
+# runner selects the MAIN checkout's interpreter.  Left alone, this child
+# would import the main checkout's engine and quietly test the wrong tree.
+# Place the checkout under test ahead of all of it, then PROVE it won.
+_CHECKOUT = Path(os.environ['ORGTREE_TEST_CHECKOUT']).resolve()
+sys.path[:0] = [str(_CHECKOUT / 'engine' / 'backend'), str(_CHECKOUT / 'engine'), str(_CHECKOUT)]
+import launch
+def _origin(name, module=None):
+    if module is not None:
+        return Path(module.__file__).resolve()
+    # find_spec, not import: ``launch`` captures and strips the V2 credential
+    # before the legacy modules load, so the child must not import orgtree here.
+    spec = importlib.util.find_spec(name)
+    return Path(spec.origin).resolve() if spec and spec.origin else None
+for _name, _module in (('launch', launch), ('orgtree', None)):
+    _path = _origin(_name, _module)
+    if _path is None or _CHECKOUT not in _path.parents:
+        raise SystemExit(f'engine child resolved {_name} OUTSIDE the checkout under '
+                         f'test: {_path} (checkout under test: {_CHECKOUT})')
 original = launch.load_app
 def seeded():
     result = original()
@@ -33,6 +59,12 @@ def seeded():
     org = store.create_org("auth-fixture")
     org.hire(USER, None, "haiku", 0, "caller")
     org.hire(USER, None, "haiku", 0, "old")
+    # A LIVE seat at the SAME generation as the caller. 'forged'/'foreign' below
+    # do not exist, so their 403s are produced by the missing-seat branch and say
+    # nothing about credential scope; this one can only be refused by the scope
+    # check itself. (Mutation M2, 2026-09-18: deleting that check left the suite
+    # green until this seat existed.)
+    org.hire(USER, None, "haiku", 0, "peer")
     store.save_org(org)
     stale = agentauth.child_env('auth-fixture', 'old')['ORGTREE_AGENT_TOKEN']
     org.node('old')['generation'] = 1
@@ -121,7 +153,8 @@ class EngineHTTPTests(unittest.TestCase):
                     'ORGTREE_AGENT_PARENT_DATA', 'ORGTREE_AGENT_LEGACY_DATA'):
             env.pop(key, None)
         env.update(ORGTREE_DATA=str(data), HOME=str(home), USERPROFILE=str(home),
-                   ORGTREE_V2_TOKEN='test-operator-secret', ORGTREE_V2_UI_DIR=str(ui))
+                   ORGTREE_V2_TOKEN='test-operator-secret', ORGTREE_V2_UI_DIR=str(ui),
+                   ORGTREE_TEST_CHECKOUT=str(ROOT))
         cls.log = (root / 'stderr.log').open('w+')
         cls.process = subprocess.Popen([sys.executable, '-c', CHILD], cwd=ROOT / 'engine',
              env=env, stdout=subprocess.PIPE, stderr=cls.log, text=True)
@@ -158,7 +191,13 @@ class EngineHTTPTests(unittest.TestCase):
                 if cls.port is not None and reconciled:
                     break
         except BaseException:
+            # Release the log and the fixture root here: left to the interpreter's
+            # exit finalizer, the still-open stderr.log raises WinError 32 and that
+            # cleanup noise is what the reader sees instead of the real cause.
             cls.process.terminate(); cls.process.wait(timeout=15)
+            cls.log.close()
+            try: cls.tmp.cleanup()
+            except OSError: pass
             raise
 
     @classmethod
@@ -195,6 +234,13 @@ class EngineHTTPTests(unittest.TestCase):
         self.assertEqual(self.request('/api/agent', call, token=self.token+'x')[0], 401)
         self.assertEqual(self.request('/api/agent', {**call,'node':'forged'}, token=self.token)[0], 403)
         self.assertEqual(self.request('/api/agent', {**call,'org':'foreign'}, token=self.token)[0], 403)
+        # Both of the above name a seat and an org that DO NOT EXIST, so the
+        # gateway refuses them for being missing. These two name a live seat at
+        # the caller's own generation and a live seat in another real org, so
+        # the only thing that can refuse them is the credential's scope.
+        self.assertEqual(self.request('/api/agent', {**call,'node':'peer'}, token=self.token)[0], 403)
+        self.assertEqual(self.request('/api/agent', {**call,'org':'duplicate-one','node':'worker'},
+                                      token=self.token)[0], 403)
         self.assertEqual(self.request('/api/agent', {**call,'node':'old'}, token=self.stale)[0], 403)
         self.assertEqual(self.request('/api/desktop/status', token=self.token)[0], 401)
         status, body = self.request('/api/desktop/status', operator=True)

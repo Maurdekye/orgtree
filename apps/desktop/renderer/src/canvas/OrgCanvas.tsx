@@ -50,9 +50,10 @@ import { isModalPinned, ModalOverPins, PinFrame, pinnedModalBehind, raisePinnedM
 import { freeInsets, useCanvasAnchor } from './canvasanchor'
 import { charterLine } from '../archived'
 import { NodeDetailGate } from './nodedetailgate'
-import { contextMenuBelongsTo, useContextMenu } from './contextmenu'
+import { contextMenuBelongsTo, ObjectMenuBoundary, useContextMenu } from './contextmenu'
 import type { ContextMenuHandle, MenuEntry } from './contextmenu'
 import { AgentRetireConfirm, agentMenuEntries, continueFrozenOnAccount } from './agentmenu'
+import { AgentNavProvider, agentNavProps, useProvideAgentNav } from './agentnav'
 import type { RetireKind } from './agentmenu'
 import { useSurfaceDocument } from '../popout'
 
@@ -262,6 +263,63 @@ function AgentListMenuHost({ render, map, op, slug, toast }: {
       <AgentRetireConfirm kind={asking.kind} node={node} op={op} toast={toast}
         close={() => setAsking(null)} />, body)}
   </>
+}
+
+/** THE ONE PLACE THE CANONICAL AGENT MENU IS BUILT FOR SOMEBODY ELSE'S
+ *  SURFACE (user scope expansion 2026-09-19). Every navigation target marked
+ *  with `data-agent-nav` — an agent name that jumps, a desk edge chip, a pile
+ *  row, a pinned placeholder, a ref chip in prose, the mail sender chip in
+ *  App.tsx, which is not even a descendant of this canvas — reaches this
+ *  builder through `agentnav.tsx`'s registry. None of them carries its own
+ *  entry list, its own labels, its own gating or its own confirm.
+ *
+ *  ⚠ IT IS `trayRowMenu`, NOT A SECOND BUILDER. The Agents List row already
+ *  had a menu for an ARBITRARY node built from the canvas's own handlers, so
+ *  the expansion needed a way to REACH it, not another copy of it.
+ *
+ *  ⚠ INSIDE `<DeskHosts>` FOR THE SAME REASON THE TRAY'S MENU HOST IS: the
+ *  desk registry's provider is DeskHosts, and `useDeskActionsNow` called in
+ *  OrgCanvas's own body would read the context from outside it and get null,
+ *  silently dropping the popout and show-window entries.
+ *
+ *  An unknown id yields NO entries rather than a stub menu — the same rule
+ *  agentmenu.tsx applies to a handler a surface cannot offer. The target then
+ *  keeps the copy-only menu it has today, which is the honest answer for a
+ *  name this tree does not hold.
+ *
+ *  ⚠ THAT LAST SENTENCE WAS FALSE FOR ONE SHAPE until 2026-09-20, and it is
+ *  a comment worth not trusting on its word. A marked target with NO copy
+ *  object above it offered nothing at all — not even `Copy agent name` —
+ *  because `open` built the copy entry only when the builder had answered.
+ *  `contextmenu.tsx` now hoists that entry out of the guard, so both arms are
+ *  structurally parallel and this paragraph is true for every shape;
+ *  agentnavmenu.test.tsx §12/§12.1 hold the two arms to the same answer. */
+function AgentNavHost({ map, op, slug, toast, goTo, build }: {
+  map: Map<string, CanvasNode>
+  op: OpFn
+  slug: string
+  toast: ToastFn
+  goTo: (id: string) => void
+  build: (n: CanvasNode, go: () => void,
+    ask: (a: { id: string; kind: RetireKind }) => void,
+    deskNow: ReturnType<typeof useDeskActionsNow>) => MenuEntry[]
+}) {
+  const deskNow = useDeskActionsNow(slug)
+  const [asking, setAsking] = useState<{ id: string; kind: RetireKind } | null>(null)
+  const body = useSurfaceDocument().body
+  const node = asking ? map.get(asking.id) : null
+  // registered during render, and read only when a menu opens: a memo'd row
+  // that never re-renders must still raise today's menu (agentnav.tsx)
+  useProvideAgentNav((id: string) => {
+    const n = map.get(id)
+    return n ? build(n, () => goTo(id), setAsking, deskNow) : []
+  })
+  // the CARD's confirm — same wording, same op, same undo toast — portaled
+  // into this document, exactly as the tray's menu host does it
+  return node && asking
+    ? createPortal(<AgentRetireConfirm kind={asking.kind} node={node} op={op}
+        toast={toast} close={() => setAsking(null)} />, body)
+    : null
 }
 
 export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettings, onWorkItem,
@@ -1947,6 +2005,24 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   // slug, and the second run "restored" it — an org that never glided. The
   // last 250ms before a deliberate leave is not worth a write that can race
   // the intro; pagehide covers the case that matters.
+  // ⚠ THE CAMERA BELONGS TO `tree.slug`, NEVER TO THE `slug` PROP (user bug:
+  // "switching between organizations does not preserve each org's canvas
+  // state"). They disagree for as long as an org switch takes to load: App
+  // commits the new slug at once and swaps `tree` only when its fetch
+  // resolves — MEASURED at 11-38 s on a loaded org — and this component is
+  // not keyed by slug, so it stays mounted showing the OLD org's canvas
+  // under the NEW org's slug. Keyed on the prop, the 250 ms debounce fired
+  // inside that window and wrote the org the user had just LEFT over
+  // `orgtree-view-<the org being opened>`; the intro effect (keyed on
+  // `tree.slug`) then "restored" that, so the opened org arrived at the
+  // previous org's camera and its own saved position was gone for good —
+  // three orgs in a row collapsed onto one camera. `view`, `viewRef` and the
+  // intro effect are all in step with `tree.slug`, so that is the only slug
+  // this camera was ever taken in. Same guard the draft/eyemin/pile/pin
+  // sweeps above already carry, spelled as a key rather than a bail-out
+  // because a pan DURING the mismatched window is still real state the org
+  // on screen must keep.
+  const savedSlug = tree.slug
   const saveRef = useRef<{ slug: string; view: View; t: ReturnType<typeof setTimeout> } | null>(null)
   const flushSave = useCallback(() => {
     const p = saveRef.current
@@ -1957,14 +2033,14 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   }, [])
   useEffect(() => {
     const p = saveRef.current
-    if (p && p.slug !== slug) flushSave()
+    if (p && p.slug !== savedSlug) flushSave()
     else if (p) clearTimeout(p.t)
     const v = viewRef.current
     saveRef.current = {
-      slug, view: v,
-      t: setTimeout(() => { saveRef.current = null; saveView(slug, v) }, 250),
+      slug: savedSlug, view: v,
+      t: setTimeout(() => { saveRef.current = null; saveView(savedSlug, v) }, 250),
     }
-  }, [view, slug, flushSave])
+  }, [view, savedSlug, flushSave])
   useEffect(() => {
     window.addEventListener('pagehide', flushSave)
     return () => window.removeEventListener('pagehide', flushSave)
@@ -2496,6 +2572,23 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   // `go` is the row's navigation (it brings a piled-away agent to the front of
   // its pile first, and at compact it opens the sheet) — the row's answer to
   // the card's "re-centre on me".
+  // GOING TO AN AGENT, once. This was written inline in the tray row; the
+  // registry below needs exactly the same answer for an arbitrary id, and two
+  // copies of "bring it to the front of its pile, then glide or open the
+  // sheet" is the drift the ticket exists to stop. The row now calls this too.
+  const goToAgent = useCallback((id: string) => {
+    const n = map.get(id)
+    if (!n) return
+    if (hiddenRef.current.has(id)) {
+      const par = map.get(id)?.parent
+      setFront(par! + (n.state === 'archived' ? '|a' : '|c'), id)
+    }
+    // mobile sheet gate: the tray is primary navigation at compact (§5.3) —
+    // centerOn would glide past the compact zoom clamp
+    if (sheetGate()) { setSheetId(id); setTrayOpen(false) }
+    else centerOn(id)
+  }, [map, setFront, centerOn])
+
   const trayRowMenu = (n: CanvasNode, go: () => void,
     ask: (a: { id: string; kind: RetireKind }) => void,
     deskNow: ReturnType<typeof useDeskActionsNow>): MenuEntry[] => {
@@ -2798,9 +2891,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   }), [onOpenAgentGallery, toggleNodeSurface, showNodeSurface])
 
   return (
+    <AgentNavProvider>
     <OrgKillswitchContext.Provider value={!!tree.killswitch}>
     <AgentSurfaceRoutesProvider value={agentSurfaceRoutes}>
-    <DeskHosts map={map} slug={slug} treeSlug={tree.slug}><div style={freeAnchor ?? undefined} className={'viewport' + (tree.sandboxed ? ' sandboxed' : '')
+    <DeskHosts map={map} slug={slug} treeSlug={tree.slug}><AgentNavHost
+      map={map} op={op} slug={slug} toast={toast} goTo={goToAgent} build={trayRowMenu} /><div style={freeAnchor ?? undefined} className={'viewport' + (tree.sandboxed ? ' sandboxed' : '')
       + (tree.headless ? ' headless' : '')
       + (tree.killswitch ? ' killswitched' : '') + (redAlert ? ' redalert' : '')} data-culling={visibleRect ? 'active' : 'unmeasured'} data-pin-org={slug} ref={viewportRef}
       onPointerDown={onPointerDown} onPointerMove={onPointerMove}
@@ -3271,8 +3366,52 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       {/* edge jump cards: the focused desk's off-screen coworkers, one per
           side at the neighbor's own elevation (pointerdown stopped — the
           pan pointer-capture would swallow the click, see above) */}
+      {/* ⭐ THE CARDS LIVE UNDER THEIR OWN `ObjectMenuBoundary` (docket item
+          `open-agent-context-menu-from-floating-neighbor-j`). A marked target
+          is only half of it: `contextmenu.tsx` serves the canonical agent menu
+          from a BOUNDARY's `onContextMenu`, and these cards are siblings of
+          the desk surface rather than descendants of it — they are positioned
+          against `.viewport`, while the desk's own targets sit inside
+          `movable-events`, which is a boundary (popout.tsx). So marking the
+          card without a boundary above it changed nothing: the press still
+          reached no handler at all. This is the same component, not a second
+          menu — it calls `menu.open`, which does the copy/nav lookup and
+          builds the entries from the registry.
+
+          `.edge-jumps` is `display: contents` (styles.css), so the wrapper is
+          not a box: the cards stay absolutely positioned against `.viewport`
+          exactly as before, and this is the same trick `movable-events` and
+          `desk-slot` already use. ⚠ The boundary is what makes the PRIMARY
+          CLICK untouched — it listens on `contextmenu` only, and the click
+          stays on the card. */}
+      <ObjectMenuBoundary className="edge-jumps">
       {edgeJumps.map((e) => (
         <button key={e.n.id}
+          /* ⭐ THE CARD NAMES AN AGENT, SO IT CARRIES THAT AGENT'S MENU (docket
+             item `open-agent-context-menu-from-floating-neighbor-j`). Both
+             attributes, exactly as the desk's own `NavChip` — the other jump
+             card — carries them: `data-copy-agent-name` is the copy object,
+             and `data-agent-nav` routes the press to the canonical agent menu
+             through `agentnav.tsx`'s registry, which OrgCanvas publishes just
+             above this tree. Neither was here, so a right-click on a floating
+             card raised NOTHING: no copy object for the boundary to draw for
+             and no marker for the registry to answer.
+
+             ⚠ AND THIS IS HALF THE FIX, NOT THE WHOLE OF IT — the press also
+             needs the `ObjectMenuBoundary` wrapped round these cards above.
+             The marker says WHICH AGENT; the boundary is what catches the
+             `contextmenu` event. Measured: with this marker and no boundary,
+             the card was still inert.
+
+             ⚠ THE MARKER IS WHAT MAKES THIS THE SAME MENU AS EVERYWHERE ELSE,
+             not a second one. The card holds no entry list, no labels and no
+             gating of its own — `useContextMenu().open` builds it from the
+             marker's agent at open time, so this surface cannot drift when a
+             source rule changes. The value is `e.n.id`, the agent the PRIMARY
+             CLICK jumps to, which is what keeps each card bound to its own
+             neighbor rather than to the focused desk. */
+          data-copy-agent-name={e.n.id}
+          {...agentNavProps(e.n.id)}
           /* the card's whole accent surface — highlight, hover/focus wash,
              the shed-form mail dot and the unread count — wears the JUMP
              TARGET's provider theme, never the focused desk's (user spec
@@ -3301,6 +3440,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
           {e.side === 'r' && <ChevronRightIcon fontSize="inherit" />}
         </button>
       ))}
+      </ObjectMenuBoundary>
       {/* the agent TRAY (user spec): every agent — tier token, name, context
           wheel, working state — in the nodes' own visual language; a row
           click glides to that agent. FR-16 (2026-08-11): listed by HIERARCHY
@@ -3373,17 +3513,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
                 // a piled-away agent comes to the FRONT of its pile when
                 // picked from the tray, then the glide lands on it — the key
                 // names the pile KIND (retired |a vs live crowd |c)
-                const go = () => {
-                  if (hidden.has(n.id)) {
-                    const par = map.get(n.id)?.parent
-                    setFront(par! + (n.state === 'archived' ? '|a' : '|c'), n.id)
-                  }
-                  // mobile sheet gate: the tray is primary navigation at
-                  // compact (§5.3) — a row opens the desk sheet directly
-                  // (centerOn would glide past the compact zoom clamp)
-                  if (sheetGate()) { setSheetId(n.id); setTrayOpen(false) }
-                  else centerOn(n.id)
-                }
+                // the canvas's one navigation, shared with the registry
+                // that serves every other surface's menu
+                const go = () => goToAgent(n.id)
                 // №13: the status summary is TEXT here, not a tooltip — and a
                 // finished status survives the next turn as prev_status (dim)
                 const stat: (NodeStatus & { _stale?: boolean }) | null = n.last_status
@@ -3674,6 +3806,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     </div></DeskHosts>
     </AgentSurfaceRoutesProvider>
     </OrgKillswitchContext.Provider>
+    </AgentNavProvider>
   )
 }
 

@@ -85,6 +85,78 @@ const timeoutSignal = (ms: number): AbortSignal | undefined => {
   return typeof f === 'function' ? f(ms) : undefined
 }
 
+/** How much of a non-JSON body is worth putting in front of a person. Long
+ *  enough for a real sentence, short enough that an HTML error page does not
+ *  become the error message. */
+const BODY_EXCERPT = 300
+
+/** Turn ANY failed response into a readable Error — JSON body or not.
+ *
+ *  ⚠ THIS EXISTS BECAUSE THE OLD CODE ASSUMED JSON. `if (!r.ok) r.json()`
+ *  was every error path in this file, and a backend 500 from an unhandled
+ *  exception answers `Internal Server Error` as `text/plain`. Feeding that
+ *  to `r.json()` rejects with the parser's own complaint, so the user
+ *  pressing stop on a stuck agent was shown
+ *  `Unexpected token 'I', "Internal S"... is not valid JSON` — a message
+ *  about our parser, with nothing in it about the agent or the failure
+ *  (user report 2026-09-20).
+ *
+ *  The body is read ONCE as text and parsed defensively, in this order:
+ *  the backend's `detail` (every `HTTPException` on the server uses it, and
+ *  so does the server's new catch-all 500 handler), then a `message`/`error`
+ *  string, then the raw text, then `statusText`, then the bare status. The
+ *  status code is always prefixed, so "500" is visible even when the body
+ *  is empty — an empty body used to produce `new Error('')`, which renders
+ *  as no message at all. */
+/** The server's own words out of a parsed error body, or '' if it has none. */
+const stated = (parsed: unknown): string => {
+  if (typeof parsed === 'string') return parsed.trim()
+  if (!parsed || typeof parsed !== 'object') return ''
+  const b = parsed as { detail?: unknown; message?: unknown; error?: unknown }
+  for (const v of [b.detail, b.message, b.error]) {
+    if (typeof v === 'string' && v.trim()) return v.trim()
+    // a FastAPI validation error puts an array of objects on `detail`
+    if (v && typeof v === 'object') return JSON.stringify(v).slice(0, BODY_EXCERPT)
+  }
+  return ''
+}
+
+const failure = async (r: Response): Promise<Error> => {
+  let text: string | null = null
+  let parsed: unknown
+  // ⚠ `typeof r.text === 'function'` IS FOR THE TEST DOUBLES, not for real
+  // responses. Every browser/Node `Response` has `text()`; a dozen suites in
+  // apps/desktop/renderer/tests hand-roll a minimal stub with `json()` and
+  // nothing else, and reading a body through an accessor they do not have
+  // would turn every one of their error assertions into a different message.
+  // Nothing is hidden by the fallback: the real non-JSON path is measured
+  // against a real `Response` in tests/stopnonjson.test.tsx.
+  if (typeof r.text === 'function') {
+    try { text = await r.text() } catch { text = null }
+    if (text && text.trim()) {
+      try { parsed = JSON.parse(text) } catch { parsed = undefined }
+    }
+  } else if (typeof r.json === 'function') {
+    try { parsed = await r.json() } catch { parsed = undefined }
+  }
+  // ⚠ WHEN THE SERVER STATED A REASON, THAT REASON IS THE WHOLE MESSAGE —
+  // byte for byte what `b.detail || r.statusText` produced before. Every
+  // error string this app shows comes through here, so decorating the normal
+  // case would change hundreds of user-visible messages to fix one broken
+  // one. The status is prefixed ONLY where the alternative is a body that
+  // cannot say what it is, such as a bare `Internal Server Error`.
+  const detail = stated(parsed)
+  const body = (text ?? '').trim()
+  const message = detail
+    || (body ? `${r.status}: ${body.slice(0, BODY_EXCERPT)}` : '')
+    || r.statusText
+    || `HTTP ${r.status}`
+  const e = new Error(message)
+  // kept for callers that want to branch on the status rather than the prose
+  Object.assign(e, { status: r.status, body: body.slice(0, BODY_EXCERPT) })
+  return e
+}
+
 // the one wire-boundary cast in the app: runtime JSON is untyped, and each
 // endpoint's declared Promise<T> return type is the contract that types it.
 // T infers from that declared return at every call site - no `any` escapes.
@@ -97,9 +169,7 @@ export const req = <T,>(path: string, init?: RequestInit,
     // call it rode in on failed
     noteInstance(r)
     if (!r.ok) {
-      return r.json().then((b: { detail?: string }) => {
-        throw new Error(b.detail || r.statusText)
-      })
+      return failure(r).then((e) => { throw e })
     }
     // the client's G2 (see livebus.ts): every successful mutation THIS tab
     // makes wakes every mounted polled surface — centrally, so no call site
@@ -115,7 +185,17 @@ export const req = <T,>(path: string, init?: RequestInit,
       forgetNodeDetail()
       bumpLive()
     }
-    return r.json() as Promise<T>
+    // A 2xx whose body is not JSON is still our bug to report readably, not
+    // the JSON parser's to announce. The body is already being consumed by
+    // json(), so this cannot quote it — it names the status and the content
+    // type instead, which is what tells an operator "the backend answered,
+    // and it answered with something that is not our protocol".
+    return (r.json() as Promise<T>).catch((e: unknown) => {
+      throw new Error(
+        `${r.status}: the backend's reply was not JSON `
+        + `(content-type ${r.headers.get('Content-Type') || 'unset'}): `
+        + (e instanceof Error ? e.message : String(e)))
+    })
   })
 
 export const listOrgs = (): Promise<OrgListEntry[]> => req('/api/orgs')
@@ -165,54 +245,46 @@ export const invalidateTreeCache = (slug: string): void => {
   treeCache.delete(slug)
   treeCacheGen.set(slug, (treeCacheGen.get(slug) ?? 0) + 1)
 }
-/** Resolves the fresh tree — or NULL when every bounded attempt raced a
- *  ws-patch invalidation (perf-review round 4). Null means the refresh was
- *  SUPERSEDED: the rendered tree, patched in place by those same ws frames,
- *  is newer than any body this call fetched, so the caller must keep what
- *  it is showing. The invalidation already deleted the cache entry, so the
- *  next heartbeat or `changed` frame does a real fetch and picks up
- *  whatever else the dropped bodies carried. */
+/** Resolves the tree body — ALWAYS (2026-09-19 base+patch protocol). The
+ *  old contract resolved NULL when bounded attempts raced ws-patch
+ *  invalidations; under a working swarm's continuous patch traffic every
+ *  attempt raced one, refreshes starved, and lifecycle state sat visibly
+ *  stale for over a minute (beta.1 wave 2). The payload now carries
+ *  `sync_rev` and the CALLER reconciles: buffered patch frames newer than
+ *  the body replay on top of it (App.tsx + treesync.ts), so a body that
+ *  raced a patch converges instead of being discarded.
+ *
+ *  The invalidation stamp still guards the CACHE: a body that raced an
+ *  invalidation is returned but not cached, so a later 304 can never
+ *  revalidate a pre-patch entry. Null survives in the signature for
+ *  callers' defensive checks but is no longer produced. */
 export const getTree = (slug: string): Promise<TreePayload | null> => {
-  const attempt = (left: number): Promise<TreePayload | null> => {
-    const gen = treeCacheGen.get(slug) ?? 0
-    // an invalidation deletes the entry, so a raced retry sends no
-    // validator and always lands on the fresh-200 arm
-    const hit = treeCache.get(slug)
-    return fetch(u(`/api/orgs/${slug}`), {
-      signal: timeoutSignal(DEFAULT_TIMEOUT_MS),
-      ...(hit ? { headers: { 'If-None-Match': hit.etag } } : {}),
-    }).then((r) => {
-      noteInstance(r)
-      if (r.status === 304 && hit) {
-        // raced: the captured hit predates the patch — retry, never
-        // return it; exhaustion resolves null (superseded refresh)
-        if ((treeCacheGen.get(slug) ?? 0) !== gen) {
-          return left > 0 ? attempt(left - 1) : null
-        }
-        return hit.tree
+  const gen = treeCacheGen.get(slug) ?? 0
+  const hit = treeCache.get(slug)
+  return fetch(u(`/api/orgs/${slug}`), {
+    signal: timeoutSignal(DEFAULT_TIMEOUT_MS),
+    ...(hit ? { headers: { 'If-None-Match': hit.etag } } : {}),
+  }).then((r) => {
+    noteInstance(r)
+    if (r.status === 304 && hit) {
+      // the cached body is unchanged server-side; newer patches replay on
+      // top of it in the caller, so returning it is always safe now
+      return hit.tree
+    }
+    if (!r.ok) {
+      return failure(r).then((e) => { throw e })
+    }
+    const etag = r.headers.get('ETag')
+    return r.json().then((raw: TreePayload) => {
+      const tree = hydrateTree(raw)
+      if ((treeCacheGen.get(slug) ?? 0) === gen && etag) {
+        treeCache.set(slug, { etag, tree })
+      } else if (!etag) {
+        treeCache.delete(slug)
       }
-      if (!r.ok) {
-        return r.json().then((b: { detail?: string }) => {
-          throw new Error(b.detail || r.statusText)
-        })
-      }
-      const etag = r.headers.get('ETag')
-      return r.json().then((raw: TreePayload) => {
-        const tree = hydrateTree(raw)
-        if ((treeCacheGen.get(slug) ?? 0) !== gen) {
-          // raced an invalidation: this body may predate the ws patch.
-          // Refetch — and on exhaustion resolve null rather than hand
-          // out a body known to be stale: the caller would install it
-          // over the newer patched render (perf-review round 4).
-          return left > 0 ? attempt(left - 1) : null
-        }
-        if (etag) treeCache.set(slug, { etag, tree })
-        else treeCache.delete(slug)
-        return tree
-      })
+      return tree
     })
-  }
-  return attempt(2)
+  })
 }
 /** §4.8: the fields a summarised (archived) seat does not carry — full
  *  charter, scope, lineage, turn history. Fetched when a seat is opened. */
@@ -306,8 +378,17 @@ export const interruptNode = (
   slug: string, nid: string,
 ): Promise<{ interrupted: boolean; reason?: string }> =>
   req(`/api/orgs/${slug}/nodes/${nid}/interrupt`, { method: 'POST' })
+/** A halt that does not finish inside the request now hands off to a named
+ *  background operation instead of answering an unowned "still halting":
+ *  `operation` identifies it, `blocking` says in plain sentences what is
+ *  keeping it open, and `surviving_processes` names the pids. All three are
+ *  optional — an older engine sends none of them and the `halted`/`settled`
+ *  pair reads exactly as it always did. */
 export const haltNode = (slug: string, nid: string): Promise<{
   halted: boolean; settled: boolean; halting?: boolean; status: string
+  operation?: { operation_id: string; state: string; requested_at: string }
+  blocking?: string[]
+  surviving_processes?: { kind: string; pid: number | null }[]
 }> => req(`/api/orgs/${slug}/nodes/${nid}/halt`, { method: 'POST' })
 export const unhaltNode = (slug: string, nid: string): Promise<{
   unhalted: boolean; status?: string
@@ -453,12 +534,15 @@ export const getWorkItems = (slug: string, archived = false,
 export const getWorkItem = (slug: string, id: string): Promise<WorkItemPayload> =>
   req(`/api/orgs/${slug}/work-items/${id}`)
 export const replyWorkItem = (slug: string, id: string, body: string, to?: string,
-  attachments?: string[]): Promise<WorkItemReplyResult> =>
+  attachments?: string[], notice?: boolean): Promise<WorkItemReplyResult> =>
   req(`/api/orgs/${slug}/work-items/${id}/reply`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ body, ...(to !== undefined ? { to } : {}),
-      ...(attachments?.length ? { attachments } : {}) }),
+      ...(attachments?.length ? { attachments } : {}),
+      // notice-toggle parity (user 2026-09-17): the same flag Message.notice
+      // carries on the ordinary send path, wired into the ticket reply box
+      ...(notice ? { notice: true } : {}) }),
   })
 // ---- ticket attachments (user feature 2026-09-10): files/images ON the
 // item itself, not mail to the assignee. Raw-body upload like uploadFile.
@@ -596,6 +680,14 @@ export const setOpenRouterKey = (key: string): Promise<OpenRouterDoc> =>
   })
 export const clearOpenRouterKey = (): Promise<OpenRouterDoc> =>
   req('/api/openrouter/key', { method: 'DELETE' })
+/** choose the CLI that NEWLY HIRED OpenRouter agents get. Moves nobody who is
+ *  already running — each agent keeps the harness it was hired on. */
+export const setOpenRouterHarness = (harness: string): Promise<OpenRouterDoc> =>
+  req('/api/openrouter/harness', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ harness }),
+  })
 export const searchOpenRouterModels = (
   q: string, offset = 0, limit = 8,
   sort: OpenRouterSort = 'relevance', order = '', groupByVendor = false,

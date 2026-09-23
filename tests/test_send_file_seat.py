@@ -10,6 +10,9 @@ _root = tempfile.TemporaryDirectory(prefix='send-file-seat-')
 os.environ['ORGTREE_DATA'] = _root.name
 os.environ['ORGTREE_V2_TOKEN'] = 'test-operator'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.launch import load_app, TokenGate
 load_app()
 from fastapi.testclient import TestClient

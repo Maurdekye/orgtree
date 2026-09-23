@@ -43,6 +43,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from '
 import type { CSSProperties, PointerEvent as ReactPointerEvent, RefObject } from 'react'
 import PushPinIcon from '@mui/icons-material/PushPin'
 import { CloseIcon } from '../icons'
+import { agentNavProps } from './agentnav'
 import { contextMenuBelongsTo, useContextMenu } from './contextmenu'
 import { DeskChat } from './desk'
 import { AgentName } from './identity'
@@ -687,7 +688,8 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast, pub,
  *  as "show me this" would throw away a hand-arranged position with no undo. */
 export function PinnedPlaceholder({ id, onShow }: { id: string; onShow: () => void }) {
   return (
-    <div className="pin-placeholder" data-copy-agent-name={id} role="button" tabIndex={0}
+    <div className="pin-placeholder" data-copy-agent-name={id} {...agentNavProps(id)}
+      role="button" tabIndex={0}
       title={`${id}'s desk is open as a pinned window — click to show it`}
       onPointerDown={(e) => e.stopPropagation()}
       onClick={(e) => { e.stopPropagation(); onShow() }}

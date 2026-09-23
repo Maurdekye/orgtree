@@ -13,6 +13,8 @@ _root = tempfile.TemporaryDirectory(prefix="v2-antigravity-usage-")
 os.environ["ORGTREE_DATA"] = _root.name
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine" / "backend"))
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from orgtree import (antigravity_limits, providers, supervisor,  # noqa: E402
                      turnusage)
 

@@ -7,7 +7,8 @@ import { DeskChat } from '../src/canvas/desk'
 import { ReplyPreview } from '../src/canvas/replypreview'
 import type { CanvasNode } from '../src/canvas/shared'
 import { ingestStream, refreshConvo, resetConvos } from '../src/convo'
-import { discardAllRecoverableDrafts, discardRecoverableDraft, draftKey, preserveRemovedDrafts, recoverableDrafts, renameDrafts, storeAttachments } from '../src/draftstore'
+import { draftKey, preserveRemovedDrafts, renameDrafts, storeAttachments } from '../src/draftstore'
+import { absorbStrandedDrafts, readHistory } from '../src/composerhistory'
 import { MAX_REPLY_QUOTE, readReply, replyFromRow, replyWire, storeReply } from '../src/eventReply'
 import type { ReplyContext } from '../src/eventReply'
 
@@ -50,7 +51,13 @@ test('polled sealed thinking is an indicator and durable handover preserves repe
   } finally { await view.unmount(); resetConvos() }
 })
 
-test('reply draft follows rename/removal recovery without rewriting its source identity', () => {
+test('a rename carries the reply draft, and removal strands the text into history', () => {
+  // REPOINTED, not deleted (2026-09-19). The second half of this test used to
+  // assert that a removed node's draft turned up in `recoverableDrafts` with
+  // its reply context intact. That panel is retired: the text now goes into
+  // the agent's sent-message history and recall is text-only, so the reply
+  // context is deliberately NOT carried. The rename half is unchanged and is
+  // still the thing this file is about.
   localStorage.clear()
   const key = draftKey('org', 'writer', 2)
   storeReply(key, source)
@@ -60,13 +67,19 @@ test('reply draft follows rename/removal recovery without rewriting its source i
   assert.deepEqual(readReply(renamed), source)
   assert.equal(readReply(key), null)
   preserveRemovedDrafts('org', new Map())
-  const recovery = recoverableDrafts('org', 'renamed', 3)
-  assert.equal(recovery.length, 1)
-  assert.deepEqual(recovery[0]!.reply, source)
-  assert.equal(recovery[0]!.text, 'My reply')
+  assert.deepEqual(readHistory('org', 'renamed'), [{ text: 'My reply', delivered: false }])
+  assert.equal(readReply(renamed), null, 'the reply context goes with the draft rather than lingering')
 })
 
-test('discarding recovered drafts persists and leaves the current composer untouched', () => {
+test('the retired recovery panel leaves nothing behind that a discard could act on', () => {
+  // REPLACES two tests deleted on 2026-09-19 — `discarding recovered drafts
+  // persists and leaves the current composer untouched` and `dismiss all
+  // records every visible recovered generation`. Both drove
+  // discardRecoverableDraft / discardAllRecoverableDrafts, which no longer
+  // exist: with no panel there is nothing to dismiss. What still matters is
+  // the half those tests also guarded — that folding an old generation's
+  // draft away never touches the draft sitting in the composer right now.
+  // The full replacement coverage lives in composerhistory.test.tsx.
   localStorage.clear()
   const current = draftKey('org', 'writer', 3)
   const old = draftKey('org', 'writer', 2)
@@ -74,25 +87,13 @@ test('discarding recovered drafts persists and leaves the current composer untou
   localStorage.setItem(old, 'Older draft')
   storeAttachments(old, [{ name: 'note.txt', path: 'note.txt', bytes: 4 }])
   storeReply(old, source)
-  assert.equal(recoverableDrafts('org', 'writer', 3).length, 1)
-  discardRecoverableDraft('org', 'writer', 2)
-  assert.equal(recoverableDrafts('org', 'writer', 3).length, 0)
-  assert.equal(localStorage.getItem(current), 'Current draft')
+
+  assert.equal(absorbStrandedDrafts('org', 'writer', 3), 1)
+  assert.deepEqual(readHistory('org', 'writer'), [{ text: 'Older draft', delivered: false }])
+  assert.equal(localStorage.getItem(current), 'Current draft', 'the live composer is untouched')
+  assert.equal(localStorage.getItem(old), null)
   assert.equal(localStorage.getItem(`${old}-attachments`), null)
   assert.equal(localStorage.getItem(`${old}-reply`), null)
-  assert.equal(localStorage.getItem('orgtree-draft-recovery-dismissed-["org","writer"]'), '[2]')
-  // A later recovery scan cannot resurrect the dismissed generation.
-  localStorage.setItem('orgtree-draft-recovery-["org","writer",2]', 'Older draft')
-  assert.equal(recoverableDrafts('org', 'writer', 3).length, 0)
-})
-
-test('dismiss all records every visible recovered generation', () => {
-  localStorage.clear()
-  for (const generation of [1, 2]) localStorage.setItem(draftKey('org', 'writer', generation), `draft ${generation}`)
-  preserveRemovedDrafts('org', new Map())
-  assert.equal(recoverableDrafts('org', 'writer', 3).length, 2)
-  discardAllRecoverableDrafts('org', 'writer', [1, 2])
-  assert.equal(recoverableDrafts('org', 'writer', 3).length, 0)
 })
 
 test('identity never falls back to ordinal/text and quotes are bounded', () => {

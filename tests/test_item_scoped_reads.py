@@ -24,6 +24,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine/backend"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fastapi import HTTPException                       # noqa: E402
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from orgtree import api, ledger, store, supervisor      # noqa: E402
 
 assert Path(store.DATA_ROOT).resolve() == Path(_root.name).resolve()

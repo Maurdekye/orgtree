@@ -28,6 +28,8 @@ import unittest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "engine" / "backend"))
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from orgtree import workevidence as we          # noqa: E402
 
 GIT = ["git", "-c", "user.name=T", "-c", "user.email=t@example.invalid",

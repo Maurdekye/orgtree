@@ -15,7 +15,7 @@ import {
 import { AttachThumb, fmtBytes, isImg } from './img'
 import {
   AttachIcon, CloseIcon, DownloadIcon, EditIcon, FileIcon, HearingIcon,
-  MailIcon, PublicIcon,
+  MailIcon, NotificationsActiveIcon, NotificationsIcon, PublicIcon,
 } from '../icons'
 import {
   EXTERN, fmtCredits, isSystemNotice, jumpKey, md, pileNotices, providerOf, SYSTEM, USER,
@@ -63,7 +63,9 @@ export interface MailListProps {
   rowSender?: (id: string, m: MailRow) => ReactNode
   outgoing?: boolean
   onRead?: (m: MailRow) => void
-  onReply?: (m: MailRow, text: string, attachments?: string[]) => void
+  /** `notice` is set only when the reply box's notice toggle was armed at
+   *  send; the host forwards it to its own send call. */
+  onReply?: (m: MailRow, text: string, attachments?: string[], notice?: boolean) => void
   onRetract?: (m: MailRow) => void
   jumpTo?: string | null
   /** Only human per-message unread mail opts in; agent delivery is not read state. */
@@ -690,8 +692,19 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
               </div>
             )}
             {replyable && (
-              <MailReplyBox target={party(cur)} slug={org} toast={toast}
-                onSend={(text, attachments) => onReply!(cur, text, attachments)} />
+              /* ⚠ `org ?? refs?.world.org` — THE SAME RESOLUTION THE HEAD USES
+                 (line above, and the body's `imgBase`). `org` is an OPTIONAL
+                 prop, and the user's own inbox — the one MailList in the app
+                 that supplies `onReply`, so the only one that ever renders
+                 this box — omits it and passes `refs` instead. Read as bare
+                 `org` this handed the composer `undefined`, which is exactly
+                 what `attachable` gates on, so the user's paperclip was
+                 permanently grey (reported 2026-09-17; the dead gate itself
+                 predates the paperclip and shipped as a text button).
+                 NOT `?? ''` like the head: an absent org must stay ABSENT so
+                 the composer degrades the way its `slug?:` contract says. */
+              <MailReplyBox target={party(cur)} slug={org ?? refs?.world.org} toast={toast}
+                onSend={(text, attachments, notice) => onReply!(cur, text, attachments, notice)} />
             )}
           </>
         )}
@@ -745,20 +758,35 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
  *  the reply prose already says "reply to X…" about), so no new node-id
  *  prop is needed beyond `slug`, which callers did not previously have to
  *  pass because nothing here touched the API layer directly. */
-export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled = false, toast }: {
+export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled = false,
+  toast, notice = true }: {
   target?: string
   /** required to actually upload anything — omit it and the attach button
    *  stays disabled, the same graceful-degradation shape as `sendDisabled`. */
   slug?: string
-  onSend: (text: string, attachments?: string[]) => void | Promise<unknown>
+  /** `notice` is true only for a send the user ARMED as a passive notice; the
+   *  host decides what that means on its own wire and the server decides
+   *  whether it is possible at all (see the toggle's comment below). */
+  onSend: (text: string, attachments?: string[], notice?: boolean) => void | Promise<unknown>
   placeholder?: string
   /** Keep the draft editable while its selected recipient is unavailable. */
   sendDisabled?: boolean
   toast?: ToastFn
+  /** Render the notice-send toggle. Default ON: every composer this box
+   *  serves reaches an in-org agent, which is who a notice can be sent to.
+   *  A host whose recipient is an OUTSIDE address passes false — the backend
+   *  refuses a notice to `@…` addressing anyway, and a control that can never
+   *  do anything is worse than no control. */
+  notice?: boolean
 }) {
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [attached, setAttached] = useState<{ name: string; path: string; bytes: number }[]>([])
+  // PER-COMPOSER, never shared and never persisted (user 2026-09-17): opening
+  // a ticket reply must not inherit whatever the mail composer was last set
+  // to. Deliberately local state rather than the desk's `noticestore`
+  // singleton, which is global by design because the desk has one composer.
+  const [noticeArmed, setNoticeArmed] = useState(false)
   const fileRef = useRef<HTMLInputElement | null>(null)
   const attachable = Boolean(slug && target) && !busy && !sendDisabled
   const attach = (file: File) => {
@@ -771,7 +799,13 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
     const t = draft.trim()
     if ((!t && !attached.length) || busy || sendDisabled) return
     const paths = attached.map((a) => a.path)
-    const res = onSend(t || '(file attached)', paths.length ? paths : undefined)
+    // DISARMS ON SEND ONLY — not on Escape, not on clearing the text, not on
+    // switching recipient. Same rule as the desk composer (b38d9d9 §3), and
+    // disarmed at submission rather than on success, so a refused send does
+    // not leave a live notice armed behind a toast the user already read.
+    const armed = noticeArmed && notice
+    if (noticeArmed) setNoticeArmed(false)
+    const res = onSend(t || '(file attached)', paths.length ? paths : undefined, armed)
     if (res && typeof (res as Promise<unknown>).then === 'function') {
       setBusy(true)
       Promise.resolve(res)
@@ -800,15 +834,35 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
           ))}
         </div>
       )}
-      <div className="mail-reply">
-        {/* reuses .cc-attach (the desk composer's own attach button) rather
-            than inventing a new class — same 24px circle family, no scoping
-            hazard the way `aside`/`.event-row-kind` had, since `.cc-attach`
-            was never a bare-tag rule to begin with */}
-        <button type="button" className="cc-attach" disabled={!attachable}
-          title={slug && target ? 'attach a file' : 'attachments need a recipient first'}
-          onClick={() => fileRef.current?.click()}>
-          <AttachIcon fontSize="inherit" /></button>
+      <div className={'mail-reply' + (noticeArmed && notice ? ' notice-armed' : '')}>
+        {/* the composer's left column, exactly as the desk composer builds it
+            (b38d9d9): the notice toggle ABOVE the attach button, both in the
+            same `.cc-btnstack`, the stack's bottom on the composer baseline.
+            Reuses .cc-attach / .cc-notice-toggle / .cc-btnstack rather than
+            inventing new classes — same 24px circle family, no scoping hazard
+            the way `aside`/`.event-row-kind` had, since none of them was ever
+            a bare-tag rule to begin with. */}
+        <div className="cc-btnstack">
+          {notice && (
+            /* NO DISABLED STATE FOR AN UNSUPPORTED RECIPIENT, on purpose
+               (b38d9d9 §4): the server decides whether a notice is possible
+               and silently sends ordinary mail when it is not, so greying the
+               button would be this renderer guessing at a rule it does not
+               own. It follows `sendDisabled`/`busy` only, like the draft. */
+            <button className={'cc-notice-toggle' + (noticeArmed ? ' armed' : '')}
+              type="button"
+              disabled={busy || sendDisabled}
+              aria-label={noticeArmed ? 'Notice-send armed: this reply arrives as a passive notice' : 'Notice-send: send this reply as a passive notice'}
+              title={noticeArmed ? 'Notice-send armed: this reply will arrive as a passive notice without waking the recipient (Alt+N)' : 'Send this reply as a passive notice without waking the recipient (Alt+N)'}
+              onClick={() => setNoticeArmed((v) => !v)}>
+              {noticeArmed ? <NotificationsActiveIcon fontSize="inherit" /> : <NotificationsIcon fontSize="inherit" />}
+            </button>
+          )}
+          <button type="button" className="cc-attach" disabled={!attachable}
+            title={slug && target ? 'attach a file' : 'attachments need a recipient first'}
+            onClick={() => fileRef.current?.click()}>
+            <AttachIcon fontSize="inherit" /></button>
+        </div>
         <input type="file" ref={fileRef} style={{ display: 'none' }} multiple
           onChange={(e) => {
             [...(e.target.files ?? [])].forEach(attach)
@@ -819,6 +873,14 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
           onChange={(e) => setDraft(e.target.value)}
           disabled={busy}
           onKeyDown={(e) => {
+            // Alt+N, the desk composer's own shortcut. Checked BEFORE Enter so
+            // the two can never race, and it returns rather than falling
+            // through — Alt+N is not a send.
+            if (notice && e.altKey && (e.key === 'n' || e.key === 'N')) {
+              e.preventDefault()
+              if (!busy && !sendDisabled) setNoticeArmed((v) => !v)
+              return
+            }
             if (e.key === 'Enter' && !e.shiftKey && (draft.trim() || attached.length)
                 && !isMobile && !busy && !sendDisabled) {
               e.preventDefault()

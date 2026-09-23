@@ -71,26 +71,46 @@ test('cache badge has exactly the selected green/red/grey state mapping', async 
     assert.match(marks[0]?.textContent?.trim() ?? '', /^cache \d+:\d\d(:\d\d)?$/)
     assert.deepEqual(marks.slice(1).map((m) => m.textContent?.trim()),
       ['cache ×', 'cache ×', 'cache ?'])
+    // ⚠ THE TOOLTIP IS ONE SHORT LINE NOW (user ruling 2026-09-17). It was
+    // ten lines — a compatibility sentence, the readiness triple, the
+    // backend's paragraph of detail, the reason, the changed components as
+    // bullets, lane/source, the receipt stamp, the derived TTL, the expiry
+    // instant and the compaction policy. The user asked for "the absolute
+    // bare minimum needed to explain the card's current state", so the TTL
+    // wording and the receipt stamp are gone from these assertions rather
+    // than reworded: they are not in the tooltip any more, anywhere.
     const incompatible = marks[2]?.getAttribute('aria-label') ?? ''
-    for (const item of ['system prompt', 'callable tools', 'credential lane']) {
-      assert.match(incompatible, new RegExp(item), `tooltip omitted ${item}`)
-    }
-    assert.match(incompatible, /60 minutes \(subscription authentication\)/)
-    assert.match(incompatible, /last authoritative inference receipt: 2026/)
-    // D-226: the grey slot no longer says "unknown" — it names the fault that
-    // stopped a verdict being formed, and carries a machine-readable cause so
-    // a screenshot of the tooltip is enough to triage it.
+    // the changed components STAYED, and only for prefix_changed: "the prefix
+    // changed" without saying which part is the one brief reason that does
+    // not actually explain the state.
+    assert.equal(incompatible, 'cache not ready — the prefix changed '
+      + '(system prompt, callable tools, credential lane)')
+    // D-226 SURVIVES THE CUT, in the narrow form it actually requires: the
+    // grey slot still never says a bare "unknown", it still names the fault
+    // in words, and it still carries the machine-readable cause so a
+    // screenshot of the tooltip alone is enough to triage it. Red and green
+    // carry no such token — the requirement was only ever about grey.
     const grey = marks[3]?.getAttribute('aria-label') ?? ''
     assert.doesNotMatch(grey, /compatibility: unknown/)
-    assert.match(grey, /no verdict — unsupported capability/)
-    assert.match(grey, /readiness: diagnostic \(unsupported_capability\)/)
+    assert.equal(grey, 'cache unknown — this lane publishes no cache data '
+      + '(unsupported_capability)')
   } finally { await view.unmount() }
 })
 
 test('Codex subscription tooltip names the fixed estimate without promising a hit', async () => {
+  // ⚠ THE CAUSE IS WHAT CARRIES THIS NOW, NOT THE TTL LINE. The old tooltip
+  // spelled the window out from `ttl_seconds` ("30 minutes (Codex
+  // subscription estimate)") beside a sentence ending "provider hit not
+  // guaranteed". Neither line exists after the 2026-09-17 cut, so the fixture
+  // moved to the cause the backend actually sends for this lane —
+  // `receipt_valid_codex_estimate`, which `cachecontinuity.READINESS` maps to
+  // `ready` — and the phrase for it says "estimate" in one word. The claim
+  // being pinned is unchanged: this lane's window is an ESTIMATE, and the
+  // badge must not read as a promise of a hit.
   const row = {
     ...forecast('compatible_observed'),
     ttl_seconds: 1800,
+    readiness_cause: 'receipt_valid_codex_estimate',
     source: 'codex_subscription_fixed_estimate',
     lane: 'subscription',
   }
@@ -98,8 +118,9 @@ test('Codex subscription tooltip names the fixed estimate without promising a hi
   try {
     const title = view.el.querySelector<HTMLElement>('.cache-forecast')
       ?.getAttribute('aria-label') ?? ''
-    assert.match(title, /30 minutes \(Codex subscription estimate\)/)
-    assert.match(title, /provider hit not guaranteed/)
+    assert.match(title, /cache ready \(30-minute estimate\)/)
+    assert.doesNotMatch(title, /guaranteed|will hit|cache hit/,
+      'the estimate was worded as a promise')
   } finally { await view.unmount() }
 })
 
@@ -164,14 +185,23 @@ test('D-226: every grey is a NAMED diagnostic; ordinary uncertainty is red', asy
       ['cache ?', 'cache ×', 'cache ×', 'cache ?'])
     // ⚠ NO BARE "unknown" ANYWHERE. Every grey names its cause, and the two
     // reds say they are unestablished rather than claiming a proven miss.
+    // ⚠ AND THE WORDS THEMSELVES KEEP THE TWO COLOURS APART (2026-09-17).
+    // The machine-readable triple that used to do this is gone from red and
+    // green, so the OPENING WORDS carry it: a grey opens "cache unknown" and
+    // a red opens "cache not ready". Wording a red as unknown would put the
+    // two facts D-226 separated back together in the reader's head, which is
+    // the regression this loop now exists to catch.
     for (const mark of marks) {
       const title = mark.getAttribute('aria-label') ?? ''
       assert.doesNotMatch(title, /compatibility: unknown/)
-      assert.match(title, /readiness: (diagnostic|not_ready) \([a-z_]+\)/)
+      const grey = [...mark.classList].includes('uncertain')
+      assert.match(title, grey ? /^cache unknown — / : /^cache not ready — /)
     }
+    // the grey half keeps its machine-readable cause, which is the part of
+    // D-226 that makes a screenshot triage-able
     assert.match(marks[0]?.getAttribute('aria-label') ?? '',
-      /unsupported_capability/)
-    assert.match(marks[3]?.getAttribute('aria-label') ?? '', /clock_anomaly/)
+      /\(unsupported_capability\)$/)
+    assert.match(marks[3]?.getAttribute('aria-label') ?? '', /\(clock_anomaly\)$/)
   } finally { await view.unmount() }
 })
 
@@ -256,9 +286,12 @@ test('a pre-D-226 payload (no triple) re-derives its verdict from state/source �
     ['receipt that died since it was written', legacy('compatible_observed', {
       source: 'authoritative_receipt', expires_at: past }),
       'cold', 'receipt_expired'],
+    // ⚠ the extra used to be /lane 'provider_unsupported'/, read out of the
+    // re-derivation paragraph. That paragraph is gone (2026-09-17); the
+    // machine-readable cause a grey still carries is what identifies it now.
     ['real capability gap', legacy('uncertain', {
       source: 'capability_unsupported', lane: 'provider_unsupported' }),
-      'uncertain', 'unsupported_capability', /lane 'provider_unsupported'/],
+      'uncertain', 'unsupported_capability', /\(unsupported_capability\)$/],
     ['lane not observed yet', legacy('uncertain', {
       source: 'ttl_unobserved', lane: 'unobserved' }), 'cold', 'lane_unobserved'],
     ['ambiguous ttl_unobserved on a real lane', legacy('uncertain', {
@@ -267,18 +300,36 @@ test('a pre-D-226 payload (no triple) re-derives its verdict from state/source �
     ['a source this table has never heard of', legacy('uncertain', {
       source: 'something_new' }), 'cold', 'legacy_forecast_unmigrated'],
   ]
+  // ⚠ WHAT THIS TEST CAN STILL PROVE, AND WHAT MOVED (2026-09-17). It used to
+  // read the re-derived CAUSE straight out of the tooltip, because the
+  // tooltip printed the readiness triple verbatim. That line is gone with the
+  // rest of the blurb, so the cause is now asserted through the one-line
+  // PHRASE it maps to — the same table, read through its user-facing text.
+  // The old paragraph explaining that the verdict was re-derived in the UI
+  // from a pre-D-226 payload is gone too: it was five lines of provenance
+  // about the backend's version, which is exactly the kind of explanatory
+  // text the user asked to be rid of. `legacy_forecast_unmigrated`'s own
+  // phrase still tells the reader the forecast predates the check.
+  const PHRASE_OF: Record<string, string> = {
+    prefix_changed: 'cache not ready — the prefix changed',
+    no_positive_receipt: 'cache not ready — no cache receipt on this lane',
+    receipt_expired: 'cache not ready — the entry expired',
+    receipt_valid: 'cache ready',
+    unsupported_capability:
+      'cache unknown — this lane publishes no cache data (unsupported_capability)',
+    lane_unobserved: 'cache not ready — this lane has not been observed yet',
+    legacy_forecast_unmigrated:
+      'cache not ready — this forecast predates the readiness check',
+  }
   for (const [label, row, cls, cause, extra] of rows) {
     const view = await mountView(<CacheForecastMark forecast={row} />, (el) => el)
     try {
       const mark = view.el.querySelector<HTMLElement>('.cache-forecast')
       assert.equal([...(mark?.classList ?? [])][1], cls, label)
       const title = mark?.getAttribute('aria-label') ?? ''
-      assert.match(title, new RegExp(`readiness: (ready|not_ready|diagnostic) \\(${cause}\\)`), label)
+      assert.ok(title.startsWith(PHRASE_OF[cause]!),
+        `${label}: re-derived as something other than ${cause} — tooltip read "${title}"`)
       assert.doesNotMatch(title, /internal_error/, `${label}: called a migration a fault`)
-      // …and the tooltip says the verdict was derived here and why, so a
-      // screenshot still tells the reader the backend is behind the UI.
-      assert.match(title, /Re-derived in the UI from a pre-D-226 forecast/, label)
-      assert.match(title, /predates D-226/, label)
       if (extra) {
         const haystack = cls === 'compatible' ? (mark?.textContent?.trim() ?? '') : title
         assert.match(haystack, extra, label)
@@ -287,34 +338,40 @@ test('a pre-D-226 payload (no triple) re-derives its verdict from state/source �
   }
 })
 
-test('internal_error is reserved for a verdict nothing can read, and it always says what it could not read', async () => {
+test('internal_error is reserved for a verdict nothing can read, and it always says so', async () => {
+  // ⚠ THE PER-INSTANCE EVIDENCE IS NO LONGER IN THE TOOLTIP (2026-09-17).
+  // Each of these used to append the exact sentence saying WHAT could not be
+  // read — the misspelled value, the missing cause, the unrecognised state.
+  // The user asked for the bare minimum on hover, so the tooltip now says the
+  // fault in one clause and carries the machine-readable cause; the evidence
+  // sentence is still composed by `readinessVerdict` and still reaches the
+  // backend's log, it is simply not read out on hover. What must NOT change,
+  // and is what this test is really for, is that none of these three ever
+  // renders green: a payload the badge did not understand must fail closed.
   const noCause = { ...forecast('compatible_observed') }
   delete (noCause as Partial<CacheForecast>).readiness_cause
   delete (noCause as Partial<CacheForecast>).readiness_detail
-  const cases: Array<[string, CacheForecast, RegExp]> = [
+  const cases: Array<[string, CacheForecast]> = [
     ['unrecognised readiness value', {
       ...forecast('compatible_observed'),
       readiness: 'probably-fine' as unknown as CacheForecast['readiness'],
-    }, /Unrecognised readiness value "probably-fine"/],
+    }],
     // A green verdict with no cause is not a green verdict: the cause is the
     // half that makes a triple auditable, and a badge must not fail open on
     // half a payload.
-    ['verdict without a cause', noCause as CacheForecast,
-      /A 'ready' verdict arrived with no readiness_cause/],
+    ['verdict without a cause', noCause as CacheForecast],
     ['neither a triple nor a recognised state', legacy(
-      'mystery' as unknown as CacheForecastState),
-      /neither a readiness verdict nor a recognised state/],
+      'mystery' as unknown as CacheForecastState)],
   ]
-  for (const [label, row, evidence] of cases) {
+  for (const [label, row] of cases) {
     const view = await mountView(<CacheForecastMark forecast={row} />, (el) => el)
     try {
       const mark = view.el.querySelector<HTMLElement>('.cache-forecast')
       assert.equal([...(mark?.classList ?? [])][1], 'uncertain', label)
       assert.equal(mark?.textContent?.trim(), 'cache ?', label)
       const title = mark?.getAttribute('aria-label') ?? ''
-      assert.match(title, /readiness: diagnostic \(internal_error\)/, label)
-      assert.match(title, /no verdict — internal error/, label)
-      assert.match(title, evidence, `${label}: grey arrived without its evidence`)
+      assert.equal(title,
+        'cache unknown — readiness could not be classified (internal_error)', label)
     } finally { await view.unmount() }
   }
 })
@@ -593,11 +650,16 @@ test('mid-turn, the badge is the yellow steer warning for a moved prefix, and ot
     assert.equal(mark.textContent?.trim(), 'cache !')
     assert.equal(coldView.el.querySelector('.cache-forecast.cold'), null,
       'mid-turn must never wear the red that promises a miss')
-    assert.match(mark.getAttribute('title') ?? '', /misses the steer window/)
-    for (const item of cold.changed_inputs ?? []) {
-      assert.match(mark.getAttribute('aria-label') ?? '', new RegExp(item),
-        `mid-turn tooltip dropped changed component ${item}`)
-    }
+    // ⚠ THE MID-TURN TOOLTIP IS ONE CLAUSE NOW (2026-09-17), and the changed
+    // components are no longer in it. The distinction that matters is kept
+    // and is asserted here in both directions: it says a steered message is
+    // UNAFFECTED and that only a message missing the window lands cold, so it
+    // stays a conditional warning and never a promise of a miss — the D-235
+    // reason this card is yellow rather than red.
+    assert.equal(mark.getAttribute('title'),
+      'a turn is running — a message that steers into it is unaffected; '
+      + 'one that misses the steer window lands cold')
+    assert.equal(mark.getAttribute('aria-label'), mark.getAttribute('title'))
   } finally { await coldView.unmount() }
 })
 
@@ -646,6 +708,59 @@ const EVERY_CAUSE: Array<[string, CacheForecast]> = [
   ['internal_error', forecast('uncertain', 'not_applicable', {
     readiness: 'diagnostic', readiness_cause: 'internal_error' })],
 ]
+
+test('every readiness cause the backend can send has its own short phrase', async () => {
+  // ⚠ THE EXHAUSTIVENESS CHECK FOR THE 2026-09-17 TOOLTIP CUT. The tooltip is
+  // now one short phrase chosen by cause, so a cause with no phrase of its own
+  // would fall back to reading its raw identifier out — honest, but not an
+  // explanation. `EVERY_CAUSE` is already the closed table from
+  // `cachecontinuity.READINESS`, so walking it proves the two tables are in
+  // step, which is the thing that will actually drift.
+  //
+  // Each phrase must (a) exist, (b) open with the words that match the colour
+  // the badge renders, and (c) be SHORT — the user's complaint was length, so
+  // a cap is the only assertion that can catch a phrase growing back into a
+  // paragraph. 120 characters is roughly one line of tooltip.
+  const seen = new Set<string>()
+  for (const [cause, f] of EVERY_CAUSE) {
+    const view = await mountView(<CacheForecastMark forecast={f} />, (v) => v)
+    try {
+      const mark = view.el.querySelector<HTMLElement>('.cache-forecast')
+      // `none` renders no card at all — that rule is not this test's business
+      if (!mark) continue
+      const title = mark.getAttribute('aria-label') ?? ''
+      assert.ok(title.length > 0, `${cause}: empty tooltip`)
+      assert.ok(title.length <= 120,
+        `${cause}: tooltip grew back to ${title.length} chars — "${title}"`)
+      assert.equal(title.includes('\n'), false, `${cause}: tooltip is multi-line`)
+      // ⚠ THE FALLTHROUGH CHECK, AND WHY IT IS WRITTEN THIS WAY. A cause with
+      // no phrase does not produce a blank or a crash — it produces
+      // `<head> — <cause with underscores as spaces>`, which is a perfectly
+      // well-formed tooltip and passes every other assertion in this loop.
+      // The FIRST version of this line compared the whole title against the
+      // bare identifier and so never fired at all: deleting a phrase from
+      // CAUSE_PHRASE left all 17 tests green. So the REASON CLAUSE is
+      // isolated — after the dash, minus the appended observation and minus
+      // the machine-readable cause a grey carries — and compared to the raw
+      // identifier directly. Verified by deleting `clock_anomaly`'s phrase
+      // and watching this assertion, and only this one, fail.
+      const reason = (title.split(' — ')[1] ?? '')
+        .replace(/, receipt observed .*$/, '')
+        .replace(/\s*\([^)]*\)\s*$/, '')
+        .trim()
+      assert.notEqual(reason, cause.replace(/_/g, ' '),
+        `${cause}: fell through to its raw identifier — no phrase of its own`)
+      const cls = [...mark.classList][1]
+      const opener = cls === 'uncertain' ? 'cache unknown — '
+        : cls === 'compatible' ? 'cache ready' : 'cache not ready — '
+      assert.ok(title.startsWith(opener),
+        `${cause}: a .${cls} badge opened its tooltip "${title}"`)
+      seen.add(cause)
+    } finally { await view.unmount() }
+  }
+  // the two `none` causes render no card, so 13 of the 15 are reachable here
+  assert.equal(seen.size, 13, `covered ${seen.size} causes, expected 13`)
+})
 
 test('INV-002 · mid-turn the card is yellow or nothing — never red, green or grey', async () => {
   // Red and green are GUARANTEES about the next message, and mid-turn the turn

@@ -10,6 +10,9 @@ from unittest.mock import patch
 root = tempfile.TemporaryDirectory(prefix='agentauth-snapshot-')
 os.environ['ORGTREE_DATA'] = root.name
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine/backend'))
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from orgtree import agentauth, store
 
 class SnapshotTokenTests(unittest.TestCase):

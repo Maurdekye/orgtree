@@ -24,6 +24,15 @@ node tools/test-baseline.mjs show
 node tools/test-baseline.mjs compare
 ```
 
+> **A whole `compare` takes ~10 minutes and will outlive a single foreground
+> command on an agent harness.** Run it a suite at a time —
+> `compare --suite node-root` (~1.5 min), `--suite renderer` (~5 min),
+> `--suite python-backend` (~10 min) — or, for the Python suite, hand its files
+> to `tools/run-python-verification.py` in chunks with
+> `--baseline <ids from docs/test-baseline.json>` and read
+> `summary.unexpected_failures`. Do not background the whole run and walk away:
+> a run that was killed partway looks exactly like a run that finished clean.
+
 `compare` prints four lists and they are the whole point:
 
 | List | Meaning |
@@ -123,17 +132,148 @@ distance is reported, but only as a note; the tree comparison is what decides.
 The baseline is called `DRIFTED` when anything that could move the result has
 changed — the code under test, the host it was measured on, a dirty tree at
 record time — and `STALE` once it is older than seven days. Each reason is
-printed on its own line. Two flags make that fatal instead of advisory:
+printed on its own line. Three flags make that fatal instead of advisory:
 
 ```text
 node tools/test-baseline.mjs compare --max-age-days 2
+node tools/test-baseline.mjs compare --require-usable
 node tools/test-baseline.mjs compare --require-fresh
 ```
+
+### Out of date is not the same as untrustworthy
+
+`--require-fresh` refuses on **any** drift, and that makes it useless to an
+automated gate. A release verification runs on a commit *past* the one the
+baseline was recorded at, by construction, so "the code under test changed
+since" is its normal condition rather than a warning sign. Measured on
+2026-09-17: a baseline recorded fourteen hours and four commits earlier already
+reported `DRIFTED`, so a gate carrying `--require-fresh` would have refused
+every verification that day.
+
+`--require-usable` draws the line somewhere more useful. It tolerates the code
+having moved on and refuses only the cases where the baseline is not describing
+this machine, this checkout, or any moment it will name:
+
+| reason | `--require-usable` |
+| --- | --- |
+| the code under test changed since | tolerated, still printed |
+| measured on a different host | **refused** |
+| its commit is not in this checkout | **refused** |
+| measured with uncommitted changes under test | **refused** |
+| records no timestamp | **refused** |
+| records no tree hashes, so drift cannot be measured | **refused** |
+| older than `--max-age-days` | **refused** |
+
+Refusals are marked `✗` in the age report and mere drift `!`. A refusal exits
+**2**, distinct from the **1** that means "found new failures", and it leads with
+`BASELINE REFUSED — no suite was run, and this is NOT a failure of your change.`
+That wording is load-bearing: an automated caller records both as the same
+non-zero exit, and without it the agent whose commit happened to trip a stale
+baseline spends an afternoon hunting a regression that does not exist.
 
 **These failures are partly environmental.** The baseline records the host,
 platform, arch, node version and the test concurrency it was measured at, and
 `compare` treats a different hostname as drift. A baseline recorded on another
 machine is a hint, not an acquittal.
+
+### Acquittal does not expire — but it is never silent
+
+A failure that has been in the baseline for a month is still acquitted. Failing
+somebody's commit for a failure it did not cause is precisely the defect this
+tool exists to remove, and putting an expiry date on acquittal would reintroduce
+it on a timer, aimed at whoever happened to commit next.
+
+What replaces expiry is visibility. Every acquitted failure is printed with how
+long it has been excused and with whether anybody has ever been told about it:
+
+```text
+   PRE-EXISTING (not yours): 1
+     · tests/example.test.mjs :: the-broken-one
+         failing for 30 day(s); UNOWNED — nobody has been told
+         hand it on:  node tools/test-baseline.mjs handover --test "..." --to <agent>
+```
+
+The age comes from `failing_since` on the baseline entry, which `record` carries
+forward across re-recordings — without that, every re-record resets the clock
+and a month-old failure reads exactly like one that appeared this morning. An
+entry predating the field falls back to when its suite was last measured, which
+is a lower bound, and the report says `at least` when it is quoting one.
+`UNOWNED` means no **open** handover in `docs/test-handovers.json` names it.
+
+---
+
+## Release verification runs on this baseline
+
+`npm run verify:release` picks a profile from the changed paths. Anything
+matching neither the release nor the installer patterns escalates to `full` —
+a deliberate fail-safe, and not something to weaken. What `full` *runs* used to
+be a raw `npm test` and `npm run test:renderer`, which have no concept of a test
+that was already failing. One unowned failure anywhere in 638 tests therefore
+blocked release verification for every ordinary commit, and told the blocked
+agent nothing about why.
+
+`full` now runs this tool instead:
+
+```text
+node tools/test-baseline.mjs compare --suite node-root --max-age-days 7 --require-usable
+node tools/test-baseline.mjs compare --suite renderer  --max-age-days 7 --require-usable
+```
+
+Same two suites, same coverage; the only change is that a known failure is
+acquitted by name and a new one still blocks.
+
+**One gate per suite, and never a bare `compare`.** A bare `compare` runs all
+three registered suites, and `python-backend` alone takes about 11 minutes —
+675 seconds, measured twice on an idle machine 2026-09-18; its recorded
+`duration_ms` of 9.9 minutes is the optimistic end of the range. Split per
+suite the other two were 63s and 80s, measured 2026-09-17 on `5f3a172`. Both
+invariants are pinned in `tests/release-verification.test.mjs` so that folding
+the gates back together, or dropping `--suite`, fails a test rather than
+quietly changing what the release gate measures.
+
+> ⚠ **The 600-second foreground ceiling this section used to cite is no longer
+> the limit** (user ruling 2026-09-18). Orgtree now spawns agent processes with
+> `BASH_MAX_TIMEOUT_MS=1500000` — 25 minutes — set in
+> `supervisor.clean_env()`, because the run every agent is told to quote before
+> landing a change could not finish inside 600 s. **So
+> `node tools/test-baseline.mjs compare --suite python-backend` is now an
+> ordinary foreground command: run it and wait for it.** It does not need to be
+> backgrounded and polled, and the first-letter chunking some agents invented
+> for it is no longer necessary. Pass the timeout explicitly — the raised number
+> is the *ceiling* an agent may ask for, not the default it gets for free.
+>
+> Raising concurrency is not an alternative and has been measured rather than
+> assumed: 11m15s at `--concurrency 4` and 11m10s at 12, because the flag never
+> reaches `run-python-verification.py`, which is sequential by design — one
+> interpreter and one `ORGTREE_DATA` per module. That isolation is why the
+> suite's results are worth quoting, so the ceiling moved instead of the suite.
+>
+> Claude lane only: surveyed 2026-09-18 against the shipped binaries, neither
+> the Codex CLI nor the Gemini CLI reads any shell-timeout environment
+> variable, so there is nothing equivalent to set on those lanes.
+>
+> **Do not round 25 minutes up to 30.** The value is set by provider
+> prompt-cache windows, not by the suite's runtime. A long foreground command
+> holds the turn open for its whole duration, and a turn that outlasts the
+> prompt-cache TTL resumes into a cold cache and re-reads its whole context at
+> full price. The shortest window here is Codex at 30 minutes, so 25 leaves
+> five minutes of grace; 30 would sit exactly on the edge, and that failure is
+> invisible where it is caused. Trimming it down toward the suite's 675s is
+> wrong for the same reason — the headroom is a consequence of the cache
+> arithmetic, not the point of it.
+
+`python-backend` is not in the `full` profile and was not added by this change;
+it would cost ten minutes per verification and `full` never covered it.
+
+Two path rules follow from the gate depending on this tool:
+
+- `tools/test-baseline.mjs` and `tests/test-baseline.test.mjs` are **release
+  tooling**. Changing them classifies as `release`, and the focused `source`
+  gate runs `tests/test-baseline.test.mjs` — release tooling whose own tests are
+  not in that gate can break them and still be waved through green.
+- `docs/test-baseline.json` is deliberately **not** release tooling. It is the
+  list of failures the gate forgives, so editing it escalates to `full`. The
+  gate's own input cannot be widened behind the focused profile.
 
 ---
 
@@ -233,7 +373,7 @@ covers three suites:
 | Suite | What it is | Reports per | Roughly |
 | --- | --- | --- | --- |
 | `node-root` | `node --test tests/*.test.mjs` — the `npm test` set, 47 modules | test | ~1.5 min |
-| `python-backend` | `tools/run-python-verification.py` over `tests/test_*.py`, 176 modules | **module** | several min |
+| `python-backend` | `tools/run-python-verification.py` over `tests/test_*.py`, 192 modules | **module** | several min |
 | `renderer` | `node apps/desktop/renderer/tests/run.mjs` — 233 bundled jsdom suites | test | ~4-6 min |
 
 **`python-backend` reports per MODULE, not per test**, and `show` says so on the
@@ -244,6 +384,85 @@ those tests any other way to check a baseline claim: without the isolated data
 root the results are garbage, and the measurement is not close. One module that
 passes cleanly under the runner reports **eighteen errors** when run bare with
 `python -m unittest`.
+
+### The modules now refuse a bare run, and say why
+
+That warning used to be advice you had to remember. It is now a mechanism.
+
+Your `PYTHONPATH` is `C:\Program Files\Orgtree\resources\engine\backend` — the
+**installed** desktop app. This is not a machine setting; the Machine and User
+scopes are empty. The installed engine spawns your CLI and prepends its own
+backend so the child can import it (`supervisor.py`, `warmpool.py`,
+`antigravity_session.py` — four sites). That injection is correct and agent
+spawning depends on it; **do not remove it**. Its unintended reach is that every
+command you then type inherits it, ahead of the checkout, so `import orgtree`
+resolves to the shipped build. The loud direction wasted several agent-hours: a failure was
+reported against `main`, investigated with the change reverted in a second
+checkout, and the comparison proved nothing because *both arms imported the same
+installed package*. The quiet direction is worse and is silent — a green run
+reported as a verified fix against a module that never contained the change.
+
+Every `tests/test_*.py` now carries one line:
+
+```python
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+```
+
+`tests/import_provenance.py` checks that `orgtree` and `engine` resolve under the
+checkout the test file itself lives in — the worktree you are in, not only the
+main checkout — and raises `ForeignImportError` naming the foreign path and the
+command to use instead. If you see it, you do not need to investigate; change the
+command:
+
+```text
+python tools/run-python-verification.py tests/test_x.py
+```
+
+The guard **refuses, it does not repair**. It will not quietly put the checkout
+on `sys.path` to make a bare run work, because a bare run that looks trustworthy
+is the defect, one step further along. Under the sanctioned runner — and so under
+`compare`, which goes through it — the check always passes and costs two
+`find_spec` calls once per module process.
+
+68 of the 178 modules already did `sys.path.insert(0, str(REPO / "engine" /
+"backend"))` before importing the engine, and those were never affected. The
+guard sits *after* that insert, so they keep working bare. The other 110 did not,
+and those were the silent ones.
+
+### Why two imports of the same engine can disagree in one process
+
+This is the detail that makes the rest of it make sense, and it is worth knowing
+before you debug anything in this family.
+
+Your `PYTHONPATH` ends in a **trailing semicolon**:
+
+```text
+C:\Program Files\Orgtree\resources\engine\backend;
+```
+
+An empty entry in `PYTHONPATH` means **the current working directory**. So
+`sys.path` gets the installed backend *first* and the repo root *second*, and
+which copy you get depends on the name you import:
+
+| you write | you get | why |
+| --- | --- | --- |
+| `import orgtree` | `C:\Program Files\...\engine\backend\orgtree` | the installed backend holds `orgtree/` directly, so entry 1 wins |
+| `from engine.backend.orgtree import ...` | **your checkout** | the installed backend has no `engine/` under it, so entry 1 misses and the repo root (entry 2) answers |
+
+**Both, in the same process.** That is why some tools looked immune while others
+were not: `tools/docket-payload-probe.py` reaches the checkout by accident of
+spelling, and a module next to it does not.
+
+It is also why a bare run is worse than "you get the shipped code". Three engine
+modules — `clipin.py`, `codexpin.py`, `mcptool.py` — import `orgtree.` absolutely.
+A bare run that reaches any of them loads **two copies of the same package at
+once**, one from each tree, with separate module state. The guard refuses before
+you can get there.
+
+One more consequence, since it looks like a contradiction otherwise:
+`%LOCALAPPDATA%` and `%LOCALAPPDATA%\Temp` are not interchangeable for ACL
+fixtures. See `tests/attach.test.mjs`, which explains which roots this machine's
+ACLs actually permit and why.
 
 Everything else is listed in each suite's `excluded` array and reprinted by
 `show`, so the gap is stated rather than hidden:
@@ -256,6 +475,122 @@ Everything else is listed in each suite's `excluded` array and reprinted by
   built application.
 - **renderer probe scripts** (`*_probe.py`, `*-probe.tsx`, `*.probe.ts`) — driven
   by hand or by a native probe runner, not by `run.mjs`.
+
+### A probe that lives outside the checkout: `tools/assert_repo_import.py`
+
+Everything above protects `tests/test_*.py`. It does not reach the other half of
+the problem: a benchmark or one-off probe in an agent's scratch folder, which
+lives outside the repository and reaches into it by hand.
+
+```python
+sys.path.insert(0, os.path.join(REPO, "engine", "backend"))
+from orgtree import store
+```
+
+That pattern is correct and it wins **while `REPO` is right**. The defect is what
+happens when it is wrong -- a typo, a shell-quoting slip, a worktree that was
+removed after the script was written. The insert then points at nothing, a
+fallback answers instead, and **no `ImportError` is raised**. The probe measures
+the wrong code and prints a plausible number. Two arms of a real performance A/B
+were lost to exactly this; the only thread that caught it was an empty
+provenance field in a result file.
+
+There are three fallbacks on this machine, not one:
+
+| fallback | reaches you when | what answers `import orgtree` |
+| --- | --- | --- |
+| `PYTHONPATH` | any bare `python` | `C:\Program Files\Orgtree\resources\engine\backend` |
+| the packaged runtime's `python313._pth` | `-I`, or any launch of the installed `python.exe` | the same installed backend |
+| **the runtime's `../backend`, from a worktree** | any bare run using this checkout's `engine/runtime/python.exe` | **the MAIN checkout** -- `engine/runtime/` is gitignored, so a worktree has no interpreter of its own and the `_pth` resolves relative to the main tree |
+
+The third one is the reason an A/B between two worktrees can measure the same
+code twice. It is also invisible: both arms run, both report, neither errors.
+
+Two lines at the top of the probe close all three:
+
+```python
+sys.path.insert(0, os.path.join(REPO, "tools"))
+from assert_repo_import import assert_repo_import
+provenance = assert_repo_import(REPO)      # raises, loudly, if it is wrong
+from orgtree import store                  # now provably this checkout
+...
+provenance.write_result(out, {"ms": 8.2})  # result carries a non-empty sha
+```
+
+It proves `REPO` is really a checkout before importing anything, places the same
+two roots the sanctioned runner uses, reads back each module's own `__file__`,
+and requires that origin to be exactly where the module's dotted name says it
+should be -- containment under the repo root is not enough, because a worktree
+is *inside* the main root. On success it prints a receipt:
+
+```text
+provenance OK: repo E:\...\orgtree @ aba2439ae354
+provenance OK: orgtree <- E:\...\orgtree\engine\backend\orgtree\__init__.py
+```
+
+The receipt is the point. A guard that is silent when it passes cannot be told
+apart from a guard that was never called, which is the failure class this whole
+family exists to close. It goes to stderr so a probe's JSON stdout stays clean.
+
+It also refuses to hand back provenance it cannot tie to a commit, so
+`write_result` cannot produce the empty field that was the only warning last
+time. `--allow-missing-commit` exists for a tree with no git, and it records
+*why* the sha is absent rather than leaving a blank.
+
+From the shell, which is also how both directions are demonstrated:
+
+```text
+python tools/assert_repo_import.py --repo <path> [--result out.json] [names...]
+```
+
+Exit 0 with the receipt, or exit 2 with `IMPORT PROVENANCE FAILED` and no result
+file. `tests/test_assert_repo_import.py` drives real subprocesses for both
+directions and carries its own negative control -- it proves that *without* the
+guard the same wrong path still resolves `orgtree` somewhere else with no error,
+so if the hazard ever stops reproducing the suite says so instead of quietly
+testing nothing.
+
+**This one repairs `sys.path`; `tests/import_provenance.py` deliberately does
+not.** That is not an inconsistency. A test module has a sanctioned runner that
+places the roots for it, so quietly making a bare run work would hide the defect.
+A scratch probe has nothing else, so placing the roots is the job -- and it
+happens only after the root has been proven real. Pass `insert_path=False` for
+the refusing behaviour.
+
+#### The runner's protection stops at the process it launches
+
+A test module that spawns its **own** child -- an engine, a hook, a CLI -- gets
+none of it. The runner puts the roots on the module's `sys.path` and passes `-I`
+to the module's interpreter; neither reaches a `subprocess.Popen` the module
+makes. That child starts from the packaged runtime's own configuration, and the
+`._pth` has a second effect nobody writes down:
+
+| what the `._pth` does | consequence for a spawned child |
+| --- | --- |
+| sets `safe_path` / isolated mode | **the child's cwd is NOT on `sys.path`** -- `cwd=` does not make a sibling module importable |
+| lists `../backend`, `../mailhub`, `../../` | those are the only roots, and they are relative to whichever checkout owns the interpreter |
+
+`tests/test_engine_http.py` was broken by the first row for days. It spawned the
+engine with `cwd=engine/` and `import launch`, which had worked under a system
+`python`, and under the bundled runtime died on `No module named 'launch'` --
+`Ran 0 tests`, so the one suite covering the HTTP routes end to end asserted
+nothing in either direction while `compare` correctly reported it as
+pre-existing and stayed green.
+
+The second row is the trap in fixing it. `engine/runtime/` is gitignored, so a
+worktree has no interpreter and the runner selects the **main** checkout's; its
+`._pth` roots therefore point at the main checkout. Restoring the import by
+leaning on `../../` would have run the main checkout's engine underneath a
+worktree's tests, passing while measuring code the branch does not contain.
+
+So a module that spawns a child owes that child the same two things the runner
+owes the module: pass the checkout in explicitly, place its roots ahead of the
+`._pth` entries, and have the child read back what it actually resolved and
+refuse to start if it is outside. `tests/test_engine_http.py` does this in the
+first twenty lines of its `CHILD` script and is the pattern to copy. Check
+`orgtree` with `importlib.util.find_spec`, not `import` -- `launch` captures and
+strips the V2 credential before the legacy modules load, and importing them
+early defeats that.
 
 ### How the renderer suite is captured
 

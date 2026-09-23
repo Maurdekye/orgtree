@@ -105,14 +105,23 @@ def identity(slug, nid):
         hit = _ident_cache.get(key)
     if hit is not None and hit[0] == seq:
         return hit[1], hit[2]
-    org = store.load_org(slug)          # read-only: DOC_LOCK is for cycles
+    org = store.cached_org(slug)        # read-only: DOC_LOCK is for cycles
     if not (org.d.get('reply_incarnation')
             and org.node(nid).get('reply_incarnation')):
         incarnation(org, nid)           # mints under DOC_LOCK and saves
         seq = store.org_seq(slug)       # the mint's save bumped it…
-        org = store.load_org(slug)      # …and ONLY a fresh read is coherent
+        org = store.cached_org(slug)    # …and ONLY a fresh read is coherent
     scope = org.d['reply_incarnation'] + ':' + org.node(nid)['reply_incarnation']
     generation = int(org.node(nid).get('generation') or 0)
+    # `cached_org`, not `load_org`: a miss here is a miss for EVERY agent at
+    # once, because the guard is the org's save seq and one save invalidates
+    # all of them. Per-agent `load_org` turned a single save into one full
+    # parse per streaming agent -- 16 agents x 65 ms of CPU per save, which
+    # showed up as the writer and the reader going non-linear past 8 streams
+    # even with the lock gone. The shared snapshot makes it one parse total.
+    # Safe because everything below reads: the incarnation minters already
+    # refuse to stamp a `_shared_snapshot` and load their own copy under
+    # DOC_LOCK (store.cached_org's contract note, perf-review round 2).
     if store.org_seq(slug) == seq:
         # unchanged across our read — scope and generation describe the
         # document as of `seq`, so the entry is safe to remember under it
@@ -189,9 +198,35 @@ def annotate(org, nid, chat):
     return result
 
 
+def annotate_ident(slug, nid, scope, generation, chat):
+    """`annotate` for a caller that already resolved identity via `identity()`
+    — the prose stream hot path, which must not load the org document per
+    delta. Writes exactly the rows `annotate` writes: `remember` derives
+    nothing from `org` but the slug, the generation and the incarnation scope,
+    and `identity()` returns the last two off the same save-seq guard.
+
+    It does NOT mint. `identity()` already did, on the first delta of the
+    session; calling this without having called that would write rows under an
+    unminted scope, so the two belong together."""
+    with _connect() as connection:
+        def save(source, kind, text):
+            quote = str(text or '')[:4000]
+            eid = _eid(scope, source, kind, quote)
+            connection.execute('INSERT OR IGNORE INTO events VALUES (?,?,?,?,?,?)',
+                               (slug, nid, generation, eid, quote, scope))
+            return eid
+        result = _annotate_rows(chat, save)
+    connection.close()
+    return result
+
+
 def _annotate(org, nid, chat, connection):
     def save(source, kind, text):
         return remember(org, nid, source, kind, text, connection=connection)
+    return _annotate_rows(chat, save)
+
+
+def _annotate_rows(chat, save):
     result = dict(chat)
     for field in ('messages', 'live', 'transient'):
         rows = []

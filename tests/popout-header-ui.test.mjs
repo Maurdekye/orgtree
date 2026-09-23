@@ -151,11 +151,14 @@ function PopoutTrigger() {
   }, '↗')
 }
 
-test('a popped-out desk offers no draft copy even once its agent identity has moved on', async () => {
-  // The journey: a desk is popped out, the agent is rehired while it is out -
-  // so the draft now belongs to a generation that no longer exists - and the
-  // user brings it back. The draft-copy control must be absent out there and
-  // present again once home.
+test('a popped-out desk offers no draft-recovery controls once its agent identity has moved on', async () => {
+  // REPOINTED 2026-09-19. This used to be about the `Copy unsent draft` button
+  // being main-window-only. That button is retired: a draft stranded by an
+  // identity change is written into the agent's sent-message history and comes
+  // back with Up in the message box, so there is nothing to copy by hand and
+  // nothing that works in one window and not the other. What still has to hold
+  // is that the popped-out desk carries no recovery control and that its
+  // notice names an action that exists where it is read.
   const s = stage()
   const current = { ...NODE, generation: 4 }
   const render = map => s.render(React.createElement(DeskHosts, { map, slug: 'org' },
@@ -163,7 +166,7 @@ test('a popped-out desk offers no draft copy even once its agent identity has mo
     React.createElement(PopoutTrigger)))
   try {
     await render(new Map([[NODE.id, NODE]]))
-    assert.ok(!text(s.main).includes('Copy unsent draft'), 'nothing to recover from while the identity still matches')
+    assert.ok(!text(s.main).includes('Copy unsent draft'), 'the copy control is gone for good')
 
     await s.click(byLabel(s.main, 'Open in new window'))
     assert.ok(s.child.querySelector('.cc-head-top'), 'the desk really moved into the popped-out window')
@@ -171,21 +174,23 @@ test('a popped-out desk offers no draft copy even once its agent identity has mo
     await render(new Map([[NODE.id, current]]))
     assert.match(s.child.body.textContent, /This agent's identity changed/,
       'POSITIVE CONTROL: the popped-out desk knows its identity moved on')
-    assert.ok(!text(s.child).includes('Copy unsent draft'), 'yet offers no draft copy out there')
-    assert.ok(!text(s.main).includes('Copy unsent draft'), 'and none is left behind in the main window')
-    assert.match(s.child.body.textContent, /Return this desk to the main window to copy it/,
-      'the notice must name an action that exists where it is read')
-    assert.doesNotMatch(s.child.body.textContent, /Copy your draft before returning/)
+    assert.ok(!text(s.child).includes('Copy unsent draft'), 'and offers no draft copy out there')
+    assert.ok(!text(s.main).includes('Copy unsent draft'), 'nor is one left behind in the main window')
+    assert.equal(s.child.querySelector('.popout-draft-recovery'), null,
+      'no recovery controls at all on a popped-out desk')
+    assert.match(s.child.body.textContent, /press Up in the message box/,
+      'the notice names the route that actually exists now')
+    assert.doesNotMatch(s.child.body.textContent, /Return this desk to the main window to copy it/)
 
     assert.ok(byLabel(s.child, 'Return to main window'), 'and the way home is right there in its header')
   } finally { await s.teardown() }
 })
 
-test('the same stale desk, docked, does offer the draft copy', async () => {
-  // The other half of the rule, and the state a redocked desk is in. Driven as
-  // its own render rather than by clicking Return inside the popped-out
-  // document: a click dispatched in the second JSDOM does not reach React's
-  // listeners, which is a limit of this harness rather than of the app.
+test('the same stale desk, docked, offers the way to close it and the same notice', async () => {
+  // The other half of the rule. The notice no longer differs by where it is
+  // read, because the action it names — press Up — is available in both. What
+  // IS docked-only is `Close old desk`, which is a window control and not a
+  // draft-recovery one.
   const s = stage()
   try {
     const map = new Map([[NODE.id, { ...NODE, generation: 4 }]])
@@ -193,9 +198,11 @@ test('the same stale desk, docked, does offer the draft copy', async () => {
       React.createElement(DeskSlot, { ...deskProps, map }),
       React.createElement(PopoutTrigger)))
     assert.match(s.main.body.textContent, /This agent's identity changed/, 'POSITIVE CONTROL: it is the stale desk')
-    assert.ok(text(s.main).includes('Copy unsent draft'), 'docked, the recovery is offered')
-    assert.match(s.main.body.textContent, /Copy your draft before returning/,
-      'and the notice names the action that is available here')
+    assert.ok(!text(s.main).includes('Copy unsent draft'), 'docked or not, there is nothing to copy')
+    assert.ok(text(s.main).includes('Close old desk'), 'docked, the way to dismiss the stale desk is offered')
+    assert.match(s.main.body.textContent, /press Up in the message box/,
+      'and the notice reads the same here as it does popped out')
+    assert.doesNotMatch(s.main.body.textContent, /Copy your draft before returning/)
     for (const control of CONTROLS) assert.ok(!labels(s.main).includes(control), `${control} belongs to a popped-out window only`)
   } finally { await s.teardown() }
 })

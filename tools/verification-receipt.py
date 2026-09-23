@@ -21,7 +21,14 @@ and no backend — which is what lets it be handed to a peer as a command line.
 
     python tools/verification-receipt.py --repo-root E:/wt/mine \
         --candidate fb04313 --execution independent \
-        -- python -m unittest tests.test_work_evidence_receipts
+        -- python tools/run-python-verification.py tests/test_work_evidence_receipts.py
+
+    # ⚠ The measured command must NOT be a bare `python -m unittest`. Orgtree
+    # spawns an agent CLI with its own installed backend prepended to
+    # PYTHONPATH, so a bare `python` imports the SHIPPED orgtree rather than
+    # --repo-root's, and the receipt then attests the installed app while
+    # naming the checkout. Go through run-python-verification.py, which
+    # launches with -I and ignores PYTHONPATH.
 
     # a negative control: the check is SUPPOSED to fail, and a receipt that
     # called that a failure would be wrong

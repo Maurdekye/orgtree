@@ -1,12 +1,16 @@
 """Native rewind publication against synthetic profiles only; retain fixtures."""
 import json
 from pathlib import Path
+import unittest
 import uuid
 from unittest.mock import patch
 import os
 import copy
 
 from tests import test_desktop_import as fixtures
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.backend.orgtree import desktop_import as imp, desktop_native as native, supervisor
 
 
@@ -15,10 +19,19 @@ class NativeRewindTests(fixtures.DesktopImportTests):
         super().setUp()
         self.profile = self.root / "destination-profile"
         self.profile.mkdir()
+        # The destination profile is selected through env_overrides, NOT through a
+        # host-level CLAUDE_CONFIG_DIR: supervisor.clean_env() strips that name
+        # (multi-account design D2b) so one host value cannot capture every
+        # claude-lane spawn. The os.environ patch below only fences the host's
+        # own value out of the fixture; it selects nothing.
         self.environment = patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(self.profile)})
         self.environment.start(); self.addCleanup(self.environment.stop)
-        self.overrides = patch.object(supervisor, "env_overrides", return_value={})
+        self.overrides = self.select_profile(self.profile)
         self.overrides.start(); self.addCleanup(self.overrides.stop)
+
+    def select_profile(self, profile):
+        return patch.object(supervisor, "env_overrides",
+                            return_value={"CLAUDE_CONFIG_DIR": str(profile)})
 
     def rewind_fixture(self, same_profile=False, deleted=False):
         doc, oldpath, _ = self.native_fixture()
@@ -70,7 +83,7 @@ class NativeRewindTests(fixtures.DesktopImportTests):
         tracked = json.loads(clone.read_text().splitlines()[-1])["snapshot"]["trackedFileBackups"]
         self.assertTrue(all(Path(key).is_relative_to(self.dest) for key in tracked))
         self.assertTrue(all(Path(value["realParentDir"]).is_relative_to(self.dest) for value in tracked.values()))
-        with patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(self.root / "different-profile")}):
+        with self.select_profile(self.root / "different-profile"):
             self.assertIn("different destination profile", native.native_hold_reason(copied, "worker"))
 
     def test_destination_override_selected_without_auth_or_settings_copy(self):
@@ -219,7 +232,7 @@ class NativeRewindTests(fixtures.DesktopImportTests):
                 other.compact_split("worker", sid)
         self.assertEqual(other.d, unchanged)
         self.assertEqual(json.dumps(fixtures.store.load_org(other.d['slug']).d,sort_keys=True),persisted_before)
-        with patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(self.root / "changed-profile")}):
+        with self.select_profile(self.root / "changed-profile"):
             self.assertIn("different destination profile", native.native_hold_reason(org, "worker"))
 
     def test_successor_copy_failure_preserves_original_and_refuses_partial_retry(self):
@@ -270,3 +283,7 @@ class NativeRewindTests(fixtures.DesktopImportTests):
 for _name in list(fixtures.DesktopImportTests.__dict__):
     if _name.startswith("test_") and _name not in NativeRewindTests.__dict__:
         setattr(NativeRewindTests, _name, None)
+
+
+if __name__ == "__main__":
+    unittest.main()

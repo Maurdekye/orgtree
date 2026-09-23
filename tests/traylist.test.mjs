@@ -48,10 +48,11 @@ test('org rows validate the admin listing and refuse malformed payloads whole', 
 
 test('the popup document has one aligned grid, spinners only for active orgs, n/m always', () => {
   const html = trayListHtml(rows)
-  // one grid holds every cell; rows are display:contents so the three
-  // columns align ACROSS rows (a per-row grid would size its own columns)
+  // one grid holds every row and each row is a SUBGRID of it, so the three
+  // columns align ACROSS rows (an independent per-row grid would size its own
+  // columns) while the row stays one box the highlight can paint in one piece
   assert.match(html, /\.list\{display:grid;grid-template-columns:[^}]+\}/)
-  assert.match(html, /\.row\{display:contents/)
+  assert.match(html, /\.row\{display:grid;grid-column:1\/-1;grid-template-columns:subgrid/)
   // both rows, in listing order, each linking to its own selection URL
   const links = [...html.matchAll(/href="([^"]+)"/g)].map(m => m[1])
   assert.deepEqual(links, [TRAY_NAV_PREFIX + 'alpha', TRAY_NAV_PREFIX + 'idle-org'])
@@ -132,9 +133,24 @@ test('the active indicator reuses the spinning-arrows working icon and animation
 
 test('hover styling uses a subtle theme-consistent tint and rejects the broad gray block', () => {
   const html = trayListHtml(rows)
-  assert.match(html, /\.row:hover>span\{background:color-mix\(in srgb,var\(--accent\) 10%,transparent\)/)
-  assert.match(html, /\.row:focus-visible>span\{background:color-mix\(in srgb,var\(--accent\) 15%,transparent\)/)
-  assert.doesNotMatch(html, /\.row:hover>span\{background:#2c2c2c\}/)
+  assert.match(html, /\.row:hover\{background:color-mix\(in srgb,var\(--accent\) 10%,transparent\)/)
+  assert.match(html, /\.row:focus-visible\{background:color-mix\(in srgb,var\(--accent\) 15%,transparent\)/)
+  assert.doesNotMatch(html, /\.row:hover\{background:#2c2c2c\}/)
+})
+
+test('the row highlight is ONE rounded box, never a background painted per cell', () => {
+  // user bug 2026-09-17: with `display:contents` rows the highlight was drawn
+  // on each CELL, and the idle org's empty activity cell was only its own
+  // padding tall — a short stub block beside a tall one, the "two-section
+  // split" in the screenshot. Both states must paint the ROW.
+  const html = trayListHtml(rows)
+  assert.doesNotMatch(html, /\.row[^{]*>span\{[^}]*background/,
+    'no hover/focus rule may put a background on an individual cell')
+  assert.match(html, /\.row\{[^}]*border-radius:6px/, 'the row carries the rounded corners')
+  // and the cells keep only their horizontal inset — the row owns the vertical
+  // padding, so every row is exactly TRAY_ROW_H tall whether or not it spins
+  assert.match(html, /\.row\{[^}]*padding:5px 0/)
+  assert.match(html, /\.row>span\{padding:0 5px/)
 })
 
 test('activity indicator and menu styling use the organization theme accent', () => {

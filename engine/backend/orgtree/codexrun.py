@@ -513,6 +513,20 @@ class AppServerClient:
             start_new_session=(os.name != "nt"))
         self.on_event = on_event
         self.on_exit: Callable[[], None] | None = None
+        #: ⚠ THE PROCESS DYING IS AN EVENT SOMEBODY HAS TO HEAR. `on_exit`
+        #: above has existed since the reader was written and is read in
+        #: `_pump`'s finally — but nothing has ever assigned it, so a killed
+        #: or crashed app-server woke no waiter at all. `CodexTurn.wait()`
+        #: blocks on an Event only a `turn/completed` notification sets, and
+        #: the supervisor passes TURN_TIMEOUT (four hours) to it, so a turn
+        #: whose server died sat in that wait for four hours — which is what
+        #: kept halted agents in `halting` (docket
+        #: fix-agents-stuck-halting-and-non-json-stop-error). These listeners
+        #: are the wiring: registered late they fire immediately, so there is
+        #: no window in which a turn can attach to an already-dead process
+        #: and wait for a notice that has been and gone.
+        self._exit_listeners: list[Callable[[], None]] = []
+        self._exited = False
         self.tool_dispatch = tool_dispatch
         self.approval_decide = approval_decide
         # A pre-warmed app-server is initialized by its first claimant and
@@ -593,11 +607,44 @@ class AppServerClient:
                         except Exception:
                             pass   # observer must never kill the wire reader
         finally:
-            if self.on_exit:
-                try:
-                    self.on_exit()
-                except Exception:
-                    pass
+            self._fire_exit()
+
+    def add_exit_listener(self, fn: Callable[[], None]) -> None:
+        """Call `fn` once the server process is gone — IMMEDIATELY if it
+        already is. The late-registration arm is the load-bearing half: a
+        turn binds to a pooled client that a halt may already have killed,
+        and a listener that only fired on a future transition would be a
+        listener that never fires."""
+        with self._lock:
+            already = self._exited
+            if not already:
+                self._exit_listeners.append(fn)
+        if already:
+            try:
+                fn()
+            except Exception:
+                pass
+
+    def _fire_exit(self) -> None:
+        """Exactly once, from whichever of the reader's end or `close` gets
+        here first. Listeners must never raise into either of those."""
+        with self._lock:
+            if self._exited:
+                return
+            self._exited = True
+            listeners = list(self._exit_listeners)
+            self._exit_listeners.clear()
+            legacy = self.on_exit
+        for fn in ([legacy] if legacy else []) + listeners:
+            try:
+                fn()
+            except Exception:
+                pass
+
+    def exited(self) -> bool:
+        """True once the process is known gone — by reader EOF or by close."""
+        with self._lock:
+            return self._exited or self.proc.poll() is not None
 
     # ── server requests: admit on the reader, execute on a worker (D2) ──
 
@@ -754,7 +801,7 @@ class AppServerClient:
         try:
             self._send(obj)
             return True
-        except (OSError, ValueError, AttributeError):
+        except (OSError, ValueError, AttributeError, CodexServerGone):
             return False
 
     def inflight_tools(self) -> int:
@@ -787,11 +834,40 @@ class AppServerClient:
         return self._epoch
 
     def _send(self, obj: dict[str, Any]) -> None:
+        """Write one frame — and report a DEAD SERVER as `CodexServerGone`.
+
+        ⚠ MEASURED, not reasoned about (2026-09-20, this repo's bundled
+        `engine/runtime/python.exe`): after `taskkill /T /F` on the child,
+        `proc.stdin.write(...)` raises `OSError: [Errno 22] Invalid
+        argument` — errno 22, no filename, on every subsequent write. Windows
+        does not produce `BrokenPipeError` here, so a caller guarding the
+        pipe by catching `BrokenPipeError` catches nothing.
+
+        That bare OSError is what escaped `CodexTurn.interrupt()`, which
+        guards only `CodexServerError`, and rode out through
+        `supervisor.interrupt_turn` and `interrupt_before_archive` into
+        retire and dissolve: the user saw both verbs fail with a naked
+        `[Errno 22] Invalid argument`, and the same exception reaching a
+        FastAPI handler produced the plain-text `Internal Server Error` the
+        desktop then tried to `JSON.parse`. Raising the lane's own typed
+        "the server is gone" error here means every existing `except
+        CodexServerError` on the request path — interrupt, steer, resume —
+        already handles a dead pipe correctly."""
         stdin = self.proc.stdin
-        assert stdin is not None
-        with self._lock:
-            stdin.write((json.dumps(obj) + "\n").encode())
-            stdin.flush()
+        payload = (json.dumps(obj) + "\n").encode()
+        try:
+            if stdin is None:
+                raise CodexServerGone(
+                    f"{obj.get('method') or 'frame'}: the app-server's stdin "
+                    f"is not available")
+            with self._lock:
+                stdin.write(payload)
+                stdin.flush()
+        except (OSError, ValueError, AttributeError) as e:
+            rc = self.proc.poll()
+            raise CodexServerGone(
+                f"{obj.get('method') or 'frame'}: the app-server's input pipe "
+                f"is closed (rc={rc}); {type(e).__name__}: {e}") from e
 
     # ── protocol surface ─────────────────────────────────────────────────
 
@@ -945,27 +1021,42 @@ class AppServerClient:
             self._epoch += 1
             self._closed = True
             self._jobs_cv.notify_all()
-        if os.name == "nt":
+        # ⚠ A SECOND CLOSE ON A DEAD PROCESS IS FREE. The binding teardown
+        # above always runs — it is pure bookkeeping and repeating it is
+        # correct — but the OS work below is not: a `taskkill` spawn plus two
+        # bounded waits, up to ~15 s. `halt._cut` calls this on every settle
+        # poll, so five simultaneous halts re-paid that cost twice a second
+        # and a halt that should have answered in 20 s had not answered in 60
+        # (measured on the live org, 2026-09-20). Skipping it is safe
+        # precisely because it is conditioned on the process being GONE, not
+        # on having tried before.
+        if self.proc.poll() is None:
+            if os.name == "nt":
+                try:
+                    subprocess.run(
+                        ["taskkill", "/T", "/F", "/PID", str(self.proc.pid)],
+                        check=False, capture_output=True, timeout=10,
+                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                except (OSError, subprocess.SubprocessError):
+                    pass
+            else:
+                try:
+                    os.killpg(self.proc.pid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
             try:
-                subprocess.run(
-                    ["taskkill", "/T", "/F", "/PID", str(self.proc.pid)],
-                    check=False, capture_output=True, timeout=10,
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-            except (OSError, subprocess.SubprocessError):
+                self.proc.kill()      # POSIX, and a belt over taskkill
+            except OSError:
                 pass
-        else:
             try:
-                os.killpg(self.proc.pid, signal.SIGKILL)
-            except ProcessLookupError:
+                self.proc.wait(timeout=5)
+            except (subprocess.TimeoutExpired, OSError, ValueError):
                 pass
-        try:
-            self.proc.kill()          # POSIX, and a belt over taskkill
-        except OSError:
-            pass
-        try:
-            self.proc.wait(timeout=5)
-        except (subprocess.TimeoutExpired, OSError, ValueError):
-            pass
+        # Do not leave the wake-up to the reader thread's EOF. The reader is
+        # a daemon blocked on a pipe read; on a tree kill it normally ends at
+        # once, but "normally" is not a guarantee a lifecycle transition can
+        # be built on, and this call already knows the process is gone.
+        self._fire_exit()
 
 
 def _thread_id_of(result: dict[str, Any]) -> str | None:
@@ -1206,6 +1297,10 @@ class CodexTurn:
         #: Both None when the server said nothing; never inferred.
         self.reported_model: str | None = None
         self.rerouted: dict[str, Any] | None = None
+        #: set when this turn ended because its app-server process died
+        #: rather than because the wire reported an outcome — see
+        #: `_server_exited`. Never inferred from a status alone.
+        self.server_gone = False
         self._done = threading.Event()
         # whether THIS turn constructed the app-server, and may therefore end
         # it — see `close`. A borrowed one belongs to the warm pool.
@@ -1228,6 +1323,26 @@ class CodexTurn:
                          tool_dispatch=tool_dispatch,
                          approval_decide=approval_decide,
                          on_tool_result=self._tool_result)
+        #: ⚠ A DEAD SERVER ENDS THIS TURN'S WAIT. `wait()` blocks on `_done`,
+        #: which only `turn/completed` or `turn/failed` sets, and the
+        #: supervisor hands it TURN_TIMEOUT — four hours. So a server that is
+        #: killed (a halt) or that crashes mid-turn used to leave this turn
+        #: parked for four hours with no notification coming, holding its
+        #: halt worker registration and pinning the node in `halting`.
+        #: Registering LATE is safe and deliberate: `add_exit_listener` fires
+        #: at once if the process is already gone.
+        #:
+        #: ⚠ `getattr` BECAUSE OF TEST DOUBLES, NOT BECAUSE THE REAL CLIENT
+        #: MIGHT LACK IT. `AppServerClient` always has this method; the
+        #: several stand-in clients in tests/ implement only the handful of
+        #: calls each one needs, and an unconditional call turned three
+        #: unrelated suites into AttributeErrors. Nothing is hidden by the
+        #: fallback: the wiring itself is measured against a REAL client over
+        #: a real child process in tests/test_halt_lifecycle_settlement.py,
+        #: which fails if this registration is removed or renamed.
+        _listen = getattr(self.client, "add_exit_listener", None)
+        if callable(_listen):
+            _listen(self._server_exited)
 
     def _tool_result(self, rec: dict[str, Any]) -> None:
         """The client's per-request sink (captured at admission, so a record
@@ -1265,6 +1380,23 @@ class CodexTurn:
         from erasing an error an earlier event already recorded."""
         if isinstance(err, dict) and error_text(err):
             self.error = dict(cast("dict[str, Any]", err))
+
+    def _server_exited(self) -> None:
+        """The app-server process is gone; no further notification can come.
+
+        Ends the wait rather than inventing an outcome. A turn that had
+        already reported `turn/completed` keeps the status it reported — the
+        server exiting afterwards says nothing about a turn that is over. One
+        that had not is recorded as INTERRUPTED, which is what a killed
+        server actually means for it, and `server_gone` marks that the
+        verdict came from process death rather than from the wire so no
+        reader mistakes it for a provider-reported outcome."""
+        if self._done.is_set():
+            return
+        self.server_gone = True
+        if self.status is None:
+            self.status = STATUS_INTERRUPTED
+        self._done.set()
 
     def _observe(self, msg: dict[str, Any]) -> None:
         method = str(msg.get("method", ""))
@@ -1606,13 +1738,27 @@ class CodexTurn:
         return out
 
     def interrupt(self) -> bool:
+        """Ask the server to stop this turn. False = it could not be asked.
+
+        ⚠ NEVER RAISES. This is reached from `supervisor.interrupt_turn`,
+        which retire, dissolve and the desktop's ⏸ all call, and an exception
+        escaping here is what those three verbs failed with: `_send`'s write
+        to a killed app-server's pipe raised a bare `OSError(22)` that
+        `except CodexServerError` did not cover. `_send` now types that as
+        `CodexServerGone`, and the guard below is still widened to plain
+        `OSError`/`ValueError` because a pipe can break in more ways than one
+        and no lifecycle verb should ever learn about it as a stack trace."""
         if not (self.thread_id and self.turn_id):
+            return False
+        # same test-double tolerance as the exit listener in `__init__`
+        _exited = getattr(self.client, "exited", None)
+        if callable(_exited) and _exited():
             return False
         try:
             self.client.request("turn/interrupt", {
                 "threadId": self.thread_id, "turnId": self.turn_id}, 30)
             return True
-        except CodexServerError:
+        except (CodexServerError, OSError, ValueError):
             return False
 
     def wait(self, timeout: float | None = None, *,
@@ -1650,6 +1796,9 @@ class CodexTurn:
             # D-209: the CLI's own reason, and the whole rate-limit board that
             # dates it. Both are None/{} on every healthy turn.
             "error": self.error,
+            # the turn ended because its app-server died, not because the
+            # wire reported an outcome (`_server_exited`)
+            "server_gone": self.server_gone,
             "rate_limit_snapshots": dict(self.rate_limit_snapshots),
             # the provider-reported side of the route receipt (see __init__)
             "reported_model": self.reported_model,

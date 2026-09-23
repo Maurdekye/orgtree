@@ -7,6 +7,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine import launch
 from engine.launch import _FRESH_PORT_RANGE, _port, data_root_id, validate_data_root
 

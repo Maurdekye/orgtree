@@ -18,7 +18,16 @@
 //   * the browser menu is KEPT where it is the right one — an editable field,
 //     a live text selection, an ordinary link inside the object: see
 //     `nativeMenuPreferred`, which `open` consults first and, when it says so,
-//     returns without `preventDefault`;
+//     returns without `preventDefault`. ⚠ THAT DEFERRAL USED TO LAND ON
+//     NOTHING: Electron shows no context menu of its own unless the main
+//     process pops one, and until 2026-09-18 nothing did — so right-clicking
+//     any text field in the app produced no menu at all (user report: "i
+//     should be able to copy cut and paste using the context menu in textboxes
+//     throughout the app"). The rule was right; the menu it deferred to was
+//     missing. It now exists, in `main/editmenu.ts`, attached to every window
+//     by `configureWindow`. Keep the two ends in step: widening `EDITABLE`
+//     here hands more presses to that menu, and it offers Cut/Copy/Paste/
+//     Select All and nothing object-specific;
 //   * keyboard activation (Shift+F10, the ContextMenu key) is the browser's
 //     own `contextmenu` dispatch on the focused element — there is no key
 //     handling here. The anchor is the pointer when it lies inside the
@@ -88,6 +97,7 @@ import type { CSSProperties, HTMLAttributes, KeyboardEvent as ReactKeyboardEvent
   ReactNode, SyntheticEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useSurfaceDocument } from '../popout'
+import { AGENT_NAV_ATTR, agentNavElementAt, useAgentNavRegistry } from './agentnav'
 import { useEsc } from './shared'
 import type { ToastFn } from '../types'
 
@@ -128,6 +138,17 @@ function copyObjectAt(target: EventTarget | null, within?: Element): Element | n
   return object && (!within || within.contains(object)) ? object : null
 }
 
+/** `Copy agent name`, built from a navigation marker instead of a copy object,
+ *  for the targets that carry no copy object of their own. Kept beside
+ *  `objectCopyEntry` so the two labels and the two toasts cannot drift. */
+function agentCopyEntry(el: Element, name: string, toast?: ToastFn): MenuItem {
+  return { label: 'Copy agent name', onSelect: () => {
+    void copyToClipboard(el, name).then(ok => toast?.([
+      ok ? 'copied agent name' : 'could not copy — clipboard unavailable',
+    ]))
+  } }
+}
+
 function objectCopyEntry(object: Element, toast?: ToastFn): MenuItem {
   const agent = object.getAttribute('data-copy-agent-name')
   const label = agent !== null ? 'Copy agent name' : 'Copy ticket title'
@@ -150,8 +171,18 @@ export function ObjectMenuBoundary({ children, toast, onContextMenu, ...props }:
   const menu = useContextMenu(feedback)
   return <CopyFeedback.Provider value={feedback}>
     <div {...props} onContextMenu={e => {
+      // ANCHOR ON THE OUTER OF THE TWO. `open` bounds BOTH its lookups by the
+      // anchor, so anchoring on the inner element makes the outer one
+      // unreachable. Passing the copy object unconditionally therefore left
+      // two shapes broken: a marker ABOVE its copy object (App.tsx SenderChip,
+      // marker on the button and the copy attribute on an inner span) was
+      // inert and offered copy-only, and a marker with NO copy object above it
+      // at all (the docket question head) opened no menu whatsoever. Both
+      // found by measurement in review, textmenu 2026-09-19.
       const object = copyObjectAt(e.target)
-      if (object) menu.open(e, [], object)
+      const nav = agentNavElementAt(e.target)
+      const anchor = nav && (!object || nav.contains(object)) ? nav : object
+      if (anchor) menu.open(e, [], anchor)
       onContextMenu?.(e)
     }}>{children}</div>
     {menu.node}
@@ -167,6 +198,12 @@ const EDITABLE = 'input, textarea, select, [contenteditable=""], [contenteditabl
  *  menu for editable fields, selected text, ordinary links"). The object's
  *  handler consults this FIRST and, when it answers true, leaves the event
  *  alone entirely — no preventDefault, no menu of ours.
+ *
+ *  ⚠ "THE BROWSER'S OWN MENU" IS `main/editmenu.ts`, and nothing else. Electron
+ *  has no default context menu: not preventing the event means the event
+ *  reaches the main process, which pops a native one. Before 2026-09-18 no such
+ *  handler existed and every true answer here produced no menu at all — the two
+ *  ends of this rule are a pair, and neither half works alone.
  *
  *  `currentTarget` is the object; `target` is what was actually pressed.
  *   - an editable control anywhere under the press keeps its menu
@@ -265,6 +302,10 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
   // reached for nothing real. It is kept so a future caller that hands `open`
   // a synthetic anchor still lands in its own surface rather than at `document`
   const surfaceDocument = useSurfaceDocument()
+  // read at OPEN time through the registry ref, never subscribed — see
+  // agentnav.tsx. `useAgentNavMenu` returns null in a window that registered
+  // nothing, and then a marked target keeps exactly the menu it has today.
+  const agentNav = useAgentNavRegistry()
   const anchorRef = useRef<Element | null>(null)
   const opening = useRef(0)
   const close = useCallback(() => setState(null), [])
@@ -283,9 +324,53 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
     if (nativeMenuPreferred({ target: e.target, currentTarget: el })) return
     const entriesList = (typeof entries === 'function' ? entries() : entries)
     const object = copyObjectAt(e.target, el)
+    // THE CANONICAL AGENT MENU, for any navigation target under the press
+    // (user scope expansion 2026-09-19). Built here rather than by each
+    // surface so that every target reaches the SAME implementation —
+    // agentnav.tsx explains why it is a registry.
+    //
+    // ⚠ THE LOOKUP IS UNCONDITIONAL, and it did not used to be. It read
+    // `entriesList.length ? null : agentNavElementAt(...)`, on the stated
+    // belief that "a surface that already passes the menu in `entries` does
+    // not carry the marker, so these two paths never both fire". That is true
+    // of the SURFACE and false of its DESCENDANTS: a mail list row passes
+    // `rowMenu(m)` and draws a marked `SenderChip` inside it, so a right-click
+    // on the chip raised the ROW's menu and the agent was unreachable
+    // (measured 2026-09-20: `["Copy agent name","Open","Copy message text"]`).
+    // USER RULING 2026-09-20: the agent menu WINS for a press directly on the
+    // marked target; a press elsewhere on the row keeps the row's own menu;
+    // the two are never combined and there is no submenu.
+    const navEl = agentNavElementAt(e.target, el)
+    const navId = navEl?.getAttribute(AGENT_NAV_ATTR) || null
+    const navEntries = navId ? (agentNav?.current?.(navId) ?? []) : []
+    // `agentNavElementAt` is `closest`, so a non-null answer already MEANS
+    // "the press started at or inside the marked target" — that is the whole
+    // of the more-specific-target test, and no separate containment check is
+    // needed. The surface's own entries are dropped only when the agent menu
+    // actually has something to offer: a registry that cannot answer for this
+    // id must not silently swallow the row's menu.
+    const navWins = navEntries.length > 0
+    const surfaceEntries = navWins ? [] : entriesList
+    // A MARKED TARGET WITH NO COPY OBJECT GETS THE COPY ENTRY UNCONDITIONALLY,
+    // exactly as a copy object does. It used to sit inside the
+    // `navEntries.length` guard, so a marked target whose builder answered
+    // nothing offered NOTHING — not even `Copy agent name` — while the same
+    // agent on a target that HAD a copy object still offered it. That made
+    // `AgentNavHost`'s docstring ("an unknown id leaves the target the
+    // copy-only menu it has today") false for one shape. The entry is
+    // synthesized from the marker because `Copy agent name` comes from the
+    // copy OBJECT and never from the builder; the marker's value is the agent
+    // name at every call site carrying both attributes, so it is identical to
+    // the one the copy object would have produced.
     const list: MenuEntry[] = object
-      ? [objectCopyEntry(object, feedback), ...(entriesList.length ? ['sep' as const, ...entriesList] : [])]
-      : entriesList
+      ? [objectCopyEntry(object, feedback),
+         ...(navEntries.length ? ['sep' as const, ...navEntries] : []),
+         ...(surfaceEntries.length ? ['sep' as const, ...surfaceEntries] : [])]
+      : (navEl && navId
+          ? [agentCopyEntry(navEl, navId, feedback),
+             ...(navEntries.length ? ['sep' as const, ...navEntries] : []),
+             ...(surfaceEntries.length ? ['sep' as const, ...surfaceEntries] : [])]
+          : entriesList)
     // nothing to offer is not a menu: the browser's own stands
     if (!list.some((x) => x !== 'sep')) return
     e.preventDefault()
@@ -305,7 +390,7 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
       doc,
     })
     return opening.current
-  }, [feedback, surfaceDocument])
+  }, [agentNav, feedback, surfaceDocument])
 
   // THE ORIGIN CLOSING WHILE THE MENU IS UP. `pagehide` is what MovableSurface
   // itself listens for to redock a surface whose window went away, so it is

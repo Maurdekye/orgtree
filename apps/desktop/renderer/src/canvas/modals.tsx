@@ -23,6 +23,7 @@ import { pickFolder } from '../picker'
 import {
   CloseIcon, DeleteIcon, FolderIcon, LayersIcon, SettingsIcon,
 } from '../icons'
+import { agentNavProps } from './agentnav'
 import { ago, ALL_PRESENT, anyTierSeat, codexTierOffer, CODEX_TIERS, ANTIGRAVITY_TIERS, fmtCredits, hireOf, isOpenRouterTier, MODEL_VERSIONS, openrouterTierIds, pileOrder, PROVIDER_LABEL, providerOf, stateLabel, TIER_LETTER, tierCapabilityNotes, tierLabel, TIERS, tierShown, USER, useEsc } from './shared'
 import type { ProviderPresence } from './shared'
 import type { CanvasNode, DraftScope, DraftState, OpFn, Pile } from './shared'
@@ -569,7 +570,7 @@ export function PreferReserveRow({ checked, onChange, onUseAppDefault }: {
 }) {
   return (
     <>
-      <div className="field-label">reserve capacity — luna only</div>
+      <div className="field-label">reserve capacity — Luna 5.6 only</div>
       <label className="prefer-reserve">
         <input type="checkbox" checked={checked}
           onChange={(e) => onChange(e.target.checked)} />
@@ -578,6 +579,8 @@ export function PreferReserveRow({ checked, onChange, onUseAppDefault }: {
       {onUseAppDefault && <button type="button" onClick={onUseAppDefault}>
         use app default</button>}
       <div className="dim hub-hint">
+        GPT-6 Luna uses the direct plan pool; this setting applies only when
+        version 5.6 is selected.{' '}
         {checked
           ? 'turns use OpenAI’s reserve pool first and fall back to normal weekly Luna usage when reserve is spent or withdrawn'
           : 'turns use normal weekly Luna usage first and fall back to reserve when the weekly pool is spent'}
@@ -909,6 +912,33 @@ const TOOL_LABELS = [
   ['edit', 'file editing (Write / Edit / notebooks)'],
   ['subagents', 'ephemeral subagents (Task / Agent tool)'],
 ] as const
+/** The lines an agent-settings save is allowed to POP at the user.
+ *
+ * WARNINGS ONLY. A scope save returns two kinds of text (ledger.set_scope):
+ * `warnings` — something the save had to do that the user must see, like a
+ * grant clamped to the kiosk ceiling, a cascade down the chain, or a subtree
+ * clamp — and `advisories`, which are facts about a save that SUCCEEDED and
+ * carry no action and no acknowledgement.
+ *
+ * The one advisory today is the long-charter note (ledger.note_charter_length,
+ * threshold ledger.CHARTER_LONG): the charter was stored whole and is merely
+ * longer than the point at which its per-turn cost is worth knowing about.
+ * Popping it is the bug the ticket
+ * `remove-the-long-charter-warning-popup-from-agent` exists to kill — the
+ * panel re-sends the whole charter on EVERY save, so once an agent had a long
+ * one the popup came back on every single save, interrupting the user over
+ * text they had not touched.
+ *
+ * So this is the single choke point: every toast a settings save raises goes
+ * through here, and it reads `warnings` and nothing else. If you are about to
+ * widen it to `advisories`, re-read the paragraph above.
+ */
+export function savePopups(
+  r: { warnings?: string[] | null } | null | undefined,
+): string[] {
+  return r?.warnings ?? []
+}
+
 interface NodeConfigProps {
   node: CanvasNode
   map: Map<string, CanvasNode>
@@ -1095,9 +1125,10 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
             ? modelVersion : '',
           ...reservePayload, ...fallbackPayload }))
       .then((r) => {
+        const lines = savePopups(r)
         if (r?.bridge?.raise_ceiling) {
           // one-action bridge (ceiling spec §1): same save, flag set
-          toast(r.warnings?.length ? r.warnings
+          toast(lines.length ? lines
             : ['clamped to the kiosk permission ceiling'],
           { label: 'raise ceiling & apply',
             fn: () => saveScope(slug, node.id,
@@ -1111,10 +1142,12 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
                   ? modelVersion : '',
                 ...reservePayload, ...fallbackPayload,
                 raise_ceiling: true })
-              .then((r2) => toast(r2.warnings?.length ? r2.warnings
-                : ['ceiling raised — applied']))
+              .then((r2) => {
+                const lines2 = savePopups(r2)
+                toast(lines2.length ? lines2 : ['ceiling raised — applied'])
+              })
               .catch((e: Error) => toast([`error: ${e.message}`])) })
-        } else toast(r.warnings)
+        } else toast(lines)
         close()
       })
       .catch((e: Error) => toast([`error: ${e.message}`]))
@@ -1706,7 +1739,7 @@ export function PilePicker({ pile, map, onPick, close, op, toast }: PilePickerPr
           // than "never" — FR-23's rule, kept so the two surfaces match.
           const lastTurn = n.turns?.[n.turns.length - 1]
           return (
-            <button key={id} data-copy-agent-name={id} className={'pile-row' + (id === pile.front ? ' on' : '')}
+            <button key={id} data-copy-agent-name={id} {...agentNavProps(id)} className={'pile-row' + (id === pile.front ? ' on' : '')}
               onClick={() => onPick(id)}>
               <span className={'tier t-' + n.tier}>{TIER_LETTER[n.tier!] ?? '?'}</span>
               <span className="pile-name">{id}</span>

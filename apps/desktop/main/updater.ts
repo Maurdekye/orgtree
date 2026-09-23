@@ -2,6 +2,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { ProcessFailureStage } from './process-failure'
+import type { WindowLoadStage } from './window-load-recovery'
 
 export type UpdateState = 'idle' | 'checking' | 'downloading' | 'pending-idle' | 'up-to-date' | 'unavailable' | 'failed'
 /** `recheck` is the outcome of a check that ran WHILE an update was already
@@ -120,6 +121,13 @@ export type UpdateStage =
    *  update stages, so foreign entries interleaved between them change no
    *  update decision. */
   | ProcessFailureStage
+  /** The main window's DOCUMENT failed to load, was retried, or came back —
+   *  see window-load-recovery.ts. Kept distinct from the `renderer-*` stages
+   *  because the render process is alive for all of these: what failed is the
+   *  navigation, not the process. Reading them in one file beside those is the
+   *  point — the 2026-09-18 white window is only legible as a
+   *  'renderer-recovered' immediately followed by a failed load. */
+  | WindowLoadStage
 
 export interface UpdateLogEntry { at: string; stage: UpdateStage; detail?: string; from?: string; to?: string }
 

@@ -262,6 +262,21 @@ export interface TreeFrozen {
   at: string | null
   until: string | null
   until_ts: number | null
+  /** THE SECOND COUNTDOWN (user ruling 2026-09-17 18:00). `until_ts` is the
+   *  provider's stated reset and keeps counting down to zero exactly as it
+   *  always has; this is the instant the wake may actually fire, which is
+   *  later by the backend's clock-skew allowance. Once `until_ts` reaches
+   *  zero the badge counts down to THIS instead of sitting at "reset due"
+   *  while nothing happens.
+   *
+   *  ⚠ NEVER DERIVE IT HERE. It is not always `until_ts + 60`: a connection
+   *  backoff carries no allowance at all, because its deadline is the
+   *  backend's own timer rather than a provider's claim. `supervisor.
+   *  wake_grace_for` owns that rule and `api._stamp_wake_countdown` publishes
+   *  the result; re-expressing it in TypeScript is exactly how the shown time
+   *  and the woken time drifted apart in the first place. `null` means there
+   *  is no second phase — show one countdown, as before. */
+  wake_ts?: number | null
   error: string | null
   /** multi-account: the REGISTRY ACCOUNT this freeze describes, when the
    *  node is bound — the wait belongs to that account's lane */
@@ -312,6 +327,14 @@ export interface PendingSwitch {
   by: string
   at: string
   crossing: boolean
+}
+
+/** Account rebind requested during a live turn; applied at its boundary. */
+export interface PendingAccount {
+  account: string
+  from: string
+  by: string
+  at: string
 }
 
 export interface TreeNode {
@@ -401,6 +424,7 @@ export interface TreeNode {
   /** D-234: the switch queued behind the running turn; null/absent once it
    *  applied, was cancelled, or the node was idle when asked */
   pending_switch?: PendingSwitch | null
+  pending_account?: PendingAccount | null
   last_denials: Denial[]
   /** codex lane (2026-09-05): last turn's APPROVED escalations, same row
    *  shape as last_denials; absent when the lane cannot report it */
@@ -783,6 +807,11 @@ export interface TreePayload {
    *  from THIS rather than from a copy of the rule written in TypeScript.
    *  Absent from an older engine, which omitted nothing. */
   archived_defaults?: Partial<TreeNode>
+  /** the per-org sync revision current when this payload's snapshot was
+   *  acquired (2026-09-19 base+patch protocol — treesync.ts): ws patch
+   *  frames with rev > this replay on top of the payload; absent from an
+   *  older engine, in which case nothing replays */
+  sync_rev?: number
   slug: string
   name: string
   workspace: string | null
@@ -1371,6 +1400,38 @@ export interface OpenRouterDoc {
   favorites_max: number
   tiers: ProviderTier[]
   user_enabled: boolean
+  /** which CLI drives OpenRouter agents — see `OpenRouterHarness` */
+  harness?: OpenRouterHarness
+}
+/** one candidate CLI and why it can or cannot run an OpenRouter agent.
+ *  `state` is deliberately four-valued (`missing` · `unavailable` ·
+ *  `unauthenticated` · `unsupported` · `available`): the four failures need
+ *  four different next actions from the person reading them, and `why`
+ *  carries the sentence that says which. */
+export interface OpenRouterHarnessOption {
+  id: string
+  label: string
+  state: string
+  available: boolean
+  why: string
+  version?: string | null
+  path?: string
+}
+/** the selector, DECIDED IN THE BACKEND. The renderer draws this and derives
+ *  nothing from it: `enabled` false with `unavailable` false is the
+ *  exactly-one-harness case (show `selected`, grey the control out), and
+ *  `unavailable` true is the neither case (no choice is offered at all). */
+export interface OpenRouterHarness {
+  harnesses: OpenRouterHarnessOption[]
+  /** the stored preference — what a NEW hire gets; not necessarily `selected` */
+  stored: string
+  default: string
+  enabled: boolean
+  unavailable: boolean
+  /** the harness actually usable right now, or null when none is */
+  selected: string | null
+  /** the sentence to show when the control is not a live choice */
+  explain: string
 }
 /** one catalog row as the picker shows it (prices per MILLION tokens) */
 export interface OpenRouterModel {
@@ -1601,6 +1662,10 @@ export interface ProvidersPayload {
 /** GET/PUT /api/app-settings/runtime — machine behavior, never org state. */
 export interface RuntimeSettingsPayload {
   quick_staff_behavior?: 'request' | 'under_assignee' | 'top_level'
+  /** Default off: Request staffing offers no account choice until the user
+   *  turns on "Include account selection when requesting staffing". Absent
+   *  from an older engine, which also reads as off. */
+  quick_staff_request_accounts?: boolean
   git_periodic_fetch_enabled: boolean
   warming_enabled: boolean
   /** Default on: real 20-minute checkups replace disposable cache reads. */
@@ -2071,6 +2136,12 @@ export interface ReorderRequest {
 // {freed, nodes}, …) — only `warnings` is a cross-op convention
 export interface OpResult {
   warnings?: string[]
+  /** Facts about a save that SUCCEEDED, carrying no action — the other half of
+   *  the report from `warnings`, and NOT a thing to pop at the user. Today it
+   *  carries the long-charter note (ledger.note_charter_length). Only emitted
+   *  when non-empty. `modals.tsx savePopups` is the choke point that reads
+   *  `warnings` and deliberately not this: see the ruling on CHARTER_LONG. */
+  advisories?: string[]
   /** the one-action kiosk-ceiling bridge (ledger.py:714-715): present when
    *  something was clamped and re-sending with raise_ceiling would fit it */
   bridge?: { raise_ceiling?: boolean }
@@ -2629,6 +2700,10 @@ export interface WorkItemReplyResult extends Partial<TypedReplyReceipt> {
    *  supplied attachment path that never resolved to a real staged file,
    *  same rule as SendMessageResult.warnings. */
   warnings?: string[]
+  /** notice-toggle parity: true only when the reply ACTUALLY landed as a
+   *  passive notice, never when the request merely asked for one — the same
+   *  rule SendMessageResult.notice carries. */
+  notice?: boolean
 }
 
 export interface UploadResult {

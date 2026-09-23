@@ -10,6 +10,9 @@ data = Path(_root.name)/'data'; data.mkdir()
 home = Path(_root.name)/'home'; home.mkdir()
 os.environ.update(ORGTREE_DATA=str(data), HOME=str(home), USERPROFILE=str(home),ORGTREE_V2_TOKEN='operator')
 for key in ('ORGTREE_V1_ROOT','ORGTREE_V1_DATA_ROOT','ORGTREE_V2_PORT'): os.environ.pop(key,None)
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.launch import load_app
 app,*_ = load_app()
 from orgtree import accounts, store, ledger, supervisor, api, mcptool

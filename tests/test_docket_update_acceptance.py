@@ -50,6 +50,8 @@ os.environ["HOME"] = _data.name
 os.environ["USERPROFILE"] = _data.name
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "engine", "backend"))
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from orgtree import events  # noqa: E402,F401
 from orgtree import events_render  # noqa: E402,F401
 from orgtree import api, ledger, mcptool, workfields  # noqa: E402

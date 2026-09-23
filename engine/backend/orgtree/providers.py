@@ -78,14 +78,14 @@ _CODEX_LETTER: Final[dict[str, str]] = {
 #: which tier names belong to the codex provider — the AXIS, nothing more.
 #: Seats and model ids live in ledger.TIERS / ledger.MODELS (the
 #: budget-bearing tables, codex rows added at M4 hire enablement); these
-#: views derive from them so there is exactly one copy to drift. Seat rule
-#: (user ruling 2026-08-28, ask card): STANDING API $ per M input — sol $5
-#: standard (the $4 promo, through ≥2026-11-21, never sets a seat), terra
-#: $2, and gpt-reserve/luna $0.20 → 0.2 each since the sub-$1 repricing
-#: (user ruling 2026-09-03); they used to floor to 1, which made the four
-#: bands read 1·1·2·5 and lost luna's 10× advantage over terra.
+#: views derive from them so there is exactly one copy to drift. User ruling
+#: 2026-09-22 sets Sol to 2 and Luna to 0.1 credits across model versions;
+#: Terra stays 2 and the legacy reserve tier stays 0.2.
 _CODEX_ALWAYS_TIER_NAMES: Final = ("gpt-reserve", "luna", "terra", "sol")
 _CODEX_TIER_NAMES: Final = _CODEX_ALWAYS_TIER_NAMES + ("astra",)
+# Context limits were not supplied with the GPT-6 release/pricing ruling.
+# Keep using observed CLI context instead of inheriting GPT-5.6's ceiling.
+CODEX_UNPINNED_CONTEXT_TIERS: Final = frozenset({"sol", "luna"})
 #: LEGACY tokens: known to the AXIS (an existing node on one still loads,
 #: prices, restarts and runs its lane) but never OFFERED for a new hire or a
 #: switch. `gpt-reserve` (user ruling 2026-09-04, audit item 12): reserve is
@@ -116,19 +116,21 @@ CODEX_MODELS: Final[dict[str, str]] = {
 #: the pinned model capability wins over a CLI-side observation.
 CODEX_CONTEXT: Final[int] = 1_050_000
 
-#: CURRENT listed API prices per M tokens — (input, cached input, output) —
-#: for COST-dollars, including sol's promotional $4/$20 cut (standard $5/$30,
-#: promo through at least 2026-11-21). SEATS deliberately use the STANDING
-#: input price instead (CODEX_TIERS above): dollars ≠ seats, both by user
-#: ruling 2026-08-28. Cached reads are 10% of input on every tier. Sources
-#: (2×-checked 2026-08-29): aipricing.guru/openai-pricing,
-#: cloudzero.com/blog/gpt-5-6-pricing, layer3labs.io/guides/gpt-5-6-pricing.
+#: API prices per M tokens — (input, cached input, output) — for turn-cost
+#: accounting. The Sol/Luna tier keys carry GPT-6 default rates; explicit
+#: GPT-5.6 model keys retain their own rates. Seat costs are independent of
+#: a node's selected model version by the user's 2026-09-22 ruling.
 CODEX_PRICES: Final[dict[str, tuple[float, float, float]]] = {
     "astra": (10.00, 1.00, 50.00),
-    "sol": (4.00, 0.40, 20.00),
+    "sol": (2.00, 0.20, 10.00),
     "terra": (2.00, 0.20, 12.00),
     "gpt-reserve": (0.20, 0.02, 1.20),
-    "luna": (0.20, 0.02, 1.20),
+    "luna": (0.10, 0.01, 0.60),
+    "gpt-5.6-sol": (4.00, 0.40, 20.00),
+    "gpt-5.6-luna": (0.20, 0.02, 1.20),
+    # User-confirmed release pricing, 2026-09-22; half each 5.6 rate.
+    "gpt-6-sol": (2.00, 0.20, 10.00),
+    "gpt-6-luna": (0.10, 0.01, 0.60),
 }
 
 
@@ -345,17 +347,19 @@ def antigravity_occupancy(usage: dict[str, Any] | None) -> int:
     return max(int(usage.get("last_prompt") or 0), 0)
 
 
-def codex_cost(tier: str, token_usage: dict[str, Any] | None) -> float:
+def codex_cost(tier: str, token_usage: dict[str, Any] | None,
+               model: str | None = None) -> float:
     """Dollars for one turn from the app-server's tokenUsage document.
 
     The codex CLI reports tokens, never dollars, so orgtree prices the turn
     itself (design §3.5). Measured field semantics (probe-live.jsonl):
     `total.inputTokens` INCLUDES the cached reads (totalTokens = input +
     output), and `outputTokens` includes reasoning — so the bill is
-    (input − cached)·p_in + cached·p_cached + output·p_out."""
+    (input − cached)·p_in + cached·p_cached + output·p_out.
+    `model` selects a version-specific rate when a tier has several versions."""
     if not token_usage:
         return 0.0
-    p = CODEX_PRICES.get(tier)
+    p = CODEX_PRICES.get(model or tier) or CODEX_PRICES.get(tier)
     if not p:
         return 0.0
     tot: dict[str, Any] = token_usage.get("total") or {}

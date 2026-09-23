@@ -85,6 +85,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "engine", "back
 # ⚠ `events` BEFORE `events_render`: events.py imports the renderer module at
 # its own tail, so importing the renderer first hands it a half-built `events`
 # and its completeness check fires on an empty table.
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from orgtree import events  # noqa: E402,F401
 from orgtree import events_render  # noqa: E402,F401
 from orgtree import ledger, mcptool, store, workfields, workitems  # noqa: E402

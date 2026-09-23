@@ -44,12 +44,14 @@ const UNAVAILABLE = { state: 'unavailable', message: 'Engine did not become read
 
 // --------------------------------------------------------------- the row
 
-test('a running engine shows no restart entry at all', () => {
-  // USER RULING 2026-09-15: hidden, not greyed out and not a live restart of a
-  // healthy engine. A mis-click would end every agent under it.
-  const view = trayEngineState(READY, false, false)
-  assert.equal(view.visible, false)
-  assert.equal(view.enabled, false)
+test('a running engine shows an ENABLED restart entry', () => {
+  // USER RULING 2026-09-17, superseding 2026-09-15. The row used to be hidden
+  // here — of hidden, greyed and live the user had chosen hidden, because a
+  // mis-click ends every agent under a healthy engine. Hiding it also meant it
+  // could not be found in the normal case, which is the case they want it in,
+  // so the visibility half of that ruling was reversed: always present, and
+  // clickable whenever a restart can actually be performed.
+  assert.deepEqual(trayEngineState(READY, false, false), { label: 'Restart engine', visible: true, enabled: true })
 })
 
 test('a stopped engine shows an enabled restart entry', () => {
@@ -62,8 +64,25 @@ test('a failed start or restart still offers the entry, so the user can retry', 
   assert.deepEqual(trayEngineState(UNAVAILABLE, false, false), { label: 'Restart engine', visible: true, enabled: true })
 })
 
-test('boot startup shows nothing: there is no engine to restart yet', () => {
-  assert.equal(trayEngineState(STARTING, false, false).visible, false)
+test('boot startup shows the row, greyed: there is no engine to restart yet', () => {
+  // `blocked` is what says so — index.ts `engineRestartBlocked()` is true until
+  // `engineRestartOptions` is captured, which happens immediately before the
+  // first attach/start. The row is visible from the first paint either way.
+  assert.deepEqual(trayEngineState(STARTING, false, true), { label: 'Restart engine', visible: true, enabled: false })
+})
+
+test('THERE IS NO STATE THAT HIDES THE ROW', () => {
+  // The acceptance is "visible in every engine state". Enumerate them all,
+  // against every combination of the two flags, rather than sampling four.
+  for (const status of [READY, STARTING, STOPPED, UNAVAILABLE]) {
+    for (const restarting of [true, false]) for (const blocked of [true, false]) {
+      assert.equal(trayEngineState(status, restarting, blocked).visible, true,
+        `hidden at ${status.state} restarting=${restarting} blocked=${blocked}`)
+      // and enablement is exactly "a restart can be run", independent of state
+      assert.equal(trayEngineState(status, restarting, blocked).enabled, !restarting && !blocked,
+        `wrong enablement at ${status.state} restarting=${restarting} blocked=${blocked}`)
+    }
+  }
 })
 
 test('a restart in flight says so, stays on screen, and cannot be clicked again', () => {
@@ -86,12 +105,14 @@ test('a quit, an update install or an installer upgrade disables the entry witho
 })
 
 test('the row NEVER claims the engine is back at the moment of the click', () => {
-  // The only input that can make the entry disappear is the engine's own
-  // status reaching 'ready'. There is no argument to this function that
-  // represents "was clicked", so an optimistic tray is unrepresentable.
-  for (const restarting of [true, false]) for (const blocked of [true, false]) {
-    assert.equal(trayEngineState(READY, restarting, blocked).enabled, false)
-    assert.equal(trayEngineState(STOPPED, restarting, blocked).visible, true)
+  // There is no argument to this function that represents "was clicked", so an
+  // optimistic tray is unrepresentable. What the click DOES change is
+  // `restarting`, and while that is true the row is greyed in every engine
+  // state — including the instant the engine reports ready, because the
+  // attempt owns the row until the attempt itself settles.
+  for (const status of [READY, STARTING, STOPPED, UNAVAILABLE]) {
+    assert.equal(trayEngineState(status, true, false).enabled, false)
+    assert.match(trayEngineState(status, true, false).label, /Restarting engine/)
   }
 })
 
@@ -107,7 +128,10 @@ test('refreshTrayEngineMenu writes label, visibility and enablement onto the liv
   refreshTrayEngineMenu(menu, STARTING, true, false)
   assert.deepEqual(menu.item, { label: 'Restarting engine...', enabled: false, visible: true })
   refreshTrayEngineMenu(menu, READY, false, false)
-  assert.equal(menu.item.visible, false)
+  assert.deepEqual(menu.item, { label: 'Restart engine', enabled: true, visible: true })
+  // and a blocked shutdown greys it in place rather than removing it
+  refreshTrayEngineMenu(menu, READY, false, true)
+  assert.deepEqual(menu.item, { label: 'Restart engine', enabled: false, visible: true })
 })
 
 test('a menu built without the row is left alone rather than crashing the refresh', () => {
@@ -282,7 +306,9 @@ test('a stopped sandbox engine is brought back up, and the tray only says so onc
     assert.notEqual(secondPid, firstPid)
     assert.equal(alive(firstPid), false, 'the first engine was dead before the second existed')
     assert.equal(alive(secondPid), true)
-    assert.equal(trayEngineState(engine.status, false, false).visible, false, 'a running engine hides the entry again')
+    const after = trayEngineState(engine.status, false, false)
+    assert.equal(after.visible, true, 'the entry is still there over a healthy engine')
+    assert.equal(after.enabled, true, 'and clickable again, now that the attempt has settled')
   } finally { await teardown(engine, options) }
 })
 
@@ -331,12 +357,49 @@ test('clicking a real restart four times launches exactly one engine', { skip: w
 
 const indexSource = fs.readFileSync(path.join(path.resolve(import.meta.dirname, '..'), 'apps/desktop/main/index.ts'), 'utf8')
 
-test('the tray menu is built with the restart row, hidden by default', () => {
-  assert.match(indexSource, /\{ id: 'engine-restart', label: 'Restart engine', visible: false, enabled: false,/)
+test('the tray menu is built with the restart row already VISIBLE', () => {
+  // The seed, not just the refresh: `refreshTrayEngine()` runs a few lines
+  // later, and a row seeded invisible would be invisible in between. Seeded
+  // disabled because no engine options are captured at that instant.
+  assert.match(indexSource, /\{ id: 'engine-restart', label: 'Restart engine', visible: true, enabled: false,/)
+  assert.doesNotMatch(indexSource, /\{ id: 'engine-restart',[^\n]*visible: false/,
+    'the 2026-09-15 hidden seed must be gone, not merely overridden at runtime')
   assert.match(indexSource, /click: \(\) => \{ void restartEngine\(\) \} \}/)
-  // It shares the Quit group's separator, so a hidden row cannot leave the
-  // menu with two separators in a row.
-  assert.match(indexSource, /\{ type: 'separator' \},\s*\n\s*\/\/[^\n]*\n\s*\/\/[^\n]*\n\s*\{ id: 'engine-restart'/)
+  // It shares the Quit group's separator rather than introducing its own.
+  assert.match(indexSource, /\{ type: 'separator' \},\s*(?:\n\s*\/\/[^\n]*)+\n\s*\{ id: 'engine-restart'/)
+})
+
+test('the superseded 2026-09-15 hide-while-running rule is recorded, not left standing', () => {
+  // The old justification sat above `trayEngineState` and described behaviour
+  // the code no longer has. It must name the new ruling and its date, and it
+  // must not still read as the rule in force.
+  const engineSource = fs.readFileSync(path.join(path.resolve(import.meta.dirname, '..'), 'apps/desktop/main/engine.ts'), 'utf8')
+  const doc = engineSource.slice(engineSource.lastIndexOf('/**', engineSource.indexOf('export function trayEngineState')),
+    engineSource.indexOf('export function trayEngineState'))
+  assert.match(doc, /ALWAYS VISIBLE \(user ruling 2026-09-17\)/, 'the new ruling and its date are recorded')
+  assert.match(doc, /2026-09-15/, 'the superseded ruling is kept rather than deleted')
+  assert.match(doc, /SUPERSEDING|supersed/i, 'and it is marked as superseded, so it does not read as current')
+  assert.doesNotMatch(doc, /HIDDEN WHILE THE ENGINE RUNS \(user ruling 2026-09-15\)/,
+    'the stale heading that asserted the old rule is gone')
+  // USER RULING 2026-09-17 16:02: "No confirmation." The user was told the row
+  // becomes clickable while agents are live and that ending their turns is not
+  // undoable, and chose the unguarded row anyway. The comment must say so, or
+  // the next reader reads the hazard as an oversight and "fixes" it.
+  assert.match(doc, /ACCEPTED COST/, 'the mis-click hazard is recorded as accepted, not as an open gap')
+  assert.match(doc, /No confirmation/, 'the ruling is quoted')
+})
+
+test('a click restarts immediately: there is no confirmation step in front of it', () => {
+  // The user ruled against a confirmation dialog on 2026-09-17 with the hazard
+  // in front of them. `restartEngine` DOES use dialog.showMessageBox — for the
+  // FAILURE report, after the attempt — so the assertion is specifically that
+  // nothing prompts BEFORE the restart is handed to the engine.
+  const handler = indexSource.slice(indexSource.indexOf('const restartEngine = async () =>'), indexSource.indexOf('const rebuildTray = () =>'))
+  const beforeRestart = handler.slice(0, handler.indexOf('engine.restart(options)'))
+  assert.ok(!/showMessageBox|confirm|areYouSure/i.test(beforeRestart),
+    'nothing may prompt the user between the click and the restart')
+  // and the only guard on the path is the mechanical one: can a restart run
+  assert.match(beforeRestart, /if \(!options \|\| engineRestartBlocked\(\) \|\| engine\.restartInProgress\) return/)
 })
 
 test('the click drives the existing engine lifecycle, not a new spawn path', () => {

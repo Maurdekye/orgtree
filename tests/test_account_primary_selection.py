@@ -7,6 +7,8 @@ from unittest.mock import patch
 import test_account_selection_contract as fx
 
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 class PrimarySelection(unittest.TestCase):
     @property
     def _seq(self):
@@ -165,12 +167,12 @@ class PrimarySelection(unittest.TestCase):
         st = fx.supervisor.state(self.slug, 'worker')
         st['busy'] = True
         try:
-            with self.assertRaises(fx.api.HTTPException):
-                self.call('orgtree_retool', node='worker', account='primary', charter='changed')
+            out = self.call('orgtree_retool', node='worker', account='primary', charter='changed')
+            self.assertTrue(out['account_binding']['queued'])
         finally:
             st['busy'] = False
         self.assertEqual(self.bound('worker'), old['id'])
-        self.assertEqual(fx.store.load_org(self.slug).node('worker')['charter'], 'fixture')
+        self.assertEqual(fx.store.load_org(self.slug).node('worker')['charter'], 'changed')
 
     def test_operator_endpoint_accepts_the_visible_primary_value(self):
         self.bind_worker()

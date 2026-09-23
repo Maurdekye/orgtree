@@ -13,6 +13,8 @@ does not strand the slot.  No live org document or filesystem data is read.
 
 import unittest
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from orgtree import reservations
 
 

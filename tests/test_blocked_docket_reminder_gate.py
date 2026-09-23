@@ -28,6 +28,9 @@ from unittest import mock
 
 _data = tempfile.TemporaryDirectory(prefix="orgtree-blocked-reminder-gate-")
 os.environ["ORGTREE_DATA"] = _data.name
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.backend.orgtree import appsettings, ledger, store, supervisor  # noqa: E402
 assert str(store.DATA_ROOT).lower().startswith(_data.name.lower())
 

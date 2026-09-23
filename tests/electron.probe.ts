@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, session, Menu } from 'electron'
+import { app, BrowserWindow, clipboard, ipcMain, session, Menu } from 'electron'
 import http from 'node:http'
 import crypto from 'node:crypto'
 import path from 'node:path'
@@ -6,6 +6,7 @@ import fs from 'node:fs'
 import assert from 'node:assert/strict'
 import { refreshTrayUpdateMenu } from '../apps/desktop/main/updater'
 import { refreshTrayEngineMenu } from '../apps/desktop/main/engine'
+import { editMenuTemplate } from '../apps/desktop/main/editmenu'
 import { assertNativeSender, configureArtifactSession, configureEngineSession, configureWindow } from '../apps/desktop/main/windows'
 
 app.setPath('userData', process.env.ORGTREE_ELECTRON_TEST_ROOT!)
@@ -35,29 +36,58 @@ app.whenReady().then(async () => {
   // anything below it ever ran.
   assert.equal(updateMenu.getMenuItemById('update-check')!.enabled, true)
 
-  // The engine row, through REAL Electron menu items - `visible` on a native
-  // MenuItem is the property the whole "hidden while the engine runs" ruling
-  // rests on, and a hand-written double cannot prove Electron accepts it.
+  // The engine row, through REAL Electron menu items - `visible` and `enabled`
+  // on a native MenuItem are the properties the whole rule rests on, and a
+  // hand-written double cannot prove Electron accepts them.
+  //
+  // USER RULING 2026-09-17, superseding 2026-09-15: the row is ALWAYS VISIBLE,
+  // in every engine state, and communicates availability by being enabled or
+  // greyed rather than by appearing and disappearing. It used to be hidden
+  // while the engine was healthy, which is the case the user most wants it in.
+  //
+  // The seed below is deliberately `visible: false`: it is the WORST case for
+  // the assertion that follows, since Electron must be seen to turn a hidden
+  // native item back on. (index.ts now seeds it `visible: true`; that seed is
+  // asserted at source level in tests/engine-restart.test.mjs.)
   const engineMenu = Menu.buildFromTemplate([
     { id: 'engine-restart', label: 'Restart engine', visible: false, enabled: false },
     { label: 'Quit Orgtree' },
   ])
   const restartItem = engineMenu.getMenuItemById('engine-restart')!
+  assert.equal(restartItem.visible, false, 'the native item really did start hidden')
   refreshTrayEngineMenu(engineMenu, { state: 'ready' }, false, false)
-  assert.equal(restartItem.visible, false, 'a running engine hides the restart row')
+  assert.equal(restartItem.visible, true, 'a HEALTHY engine still shows the restart row')
+  assert.equal(restartItem.enabled, true, 'and it is clickable — the case the user asked to reach')
+  assert.equal(restartItem.label, 'Restart engine')
   refreshTrayEngineMenu(engineMenu, { state: 'stopped', message: 'Engine exited.' }, false, false)
   assert.equal(restartItem.visible, true, 'a stopped engine shows the restart row')
   assert.equal(restartItem.enabled, true)
   assert.equal(restartItem.label, 'Restart engine')
+  refreshTrayEngineMenu(engineMenu, { state: 'starting' }, false, false)
+  assert.equal(restartItem.visible, true, 'boot shows the row too')
   refreshTrayEngineMenu(engineMenu, { state: 'starting' }, true, false)
   assert.equal(engineMenu.getMenuItemById('engine-restart'), restartItem, 'the row is refreshed in place')
   assert.equal(restartItem.visible, true, 'a restart in flight keeps its row on screen')
   assert.equal(restartItem.enabled, false, 'a restart in flight cannot be clicked again')
   assert.match(restartItem.label, /Restarting engine/)
+  // A quit, an update install or an installer upgrade greys it WITHOUT hiding
+  // it — including over a healthy engine, which is the new normal case.
+  refreshTrayEngineMenu(engineMenu, { state: 'ready' }, false, true)
+  assert.equal(restartItem.visible, true, 'a blocked shutdown greys the row in place')
+  assert.equal(restartItem.enabled, false)
   // A failed restart lands here, and must still offer the user a retry.
   refreshTrayEngineMenu(engineMenu, { state: 'unavailable', message: 'port in use' }, false, false)
   assert.equal(restartItem.visible, true)
   assert.equal(restartItem.enabled, true)
+  // The whole matrix through the NATIVE item: no state hides it, and
+  // enablement is exactly "a restart can be run".
+  for (const state of ['ready', 'starting', 'stopped', 'unavailable'] as const) {
+    for (const restarting of [true, false]) for (const blocked of [true, false]) {
+      refreshTrayEngineMenu(engineMenu, { state }, restarting, blocked)
+      assert.equal(restartItem.visible, true, `hidden at ${state}/${restarting}/${blocked}`)
+      assert.equal(restartItem.enabled, !restarting && !blocked, `wrong enablement at ${state}/${restarting}/${blocked}`)
+    }
+  }
 
   outsider = http.createServer((req, res) => { foreign.push(req.headers['x-orgtree-desktop-token'] as string | undefined); res.setHeader('Access-Control-Allow-Origin', '*'); res.end('outside') })
   await new Promise<void>(resolve => outsider.listen(0, '127.0.0.1', resolve))
@@ -92,6 +122,17 @@ app.whenReady().then(async () => {
   const options = { show: false, webPreferences: { session: ses, preload: path.resolve('dist/preload/index.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, additionalArguments: [`--orgtree-ui-origin=${origin}`] } }
   const main = new BrowserWindow(options)
   configureWindow(main, () => origin, true, register, undefined, url => { openedExternal.push(url) })
+  // THE EDITING MENU FOR TEXT FIELDS, ticket
+  // right-click-cut-copy-paste-in-every-textbox-in-t. Asserted HERE, before
+  // this probe adds a listener of its own, because the count is the evidence:
+  // configureWindow put exactly one `context-menu` handler on this window, and
+  // until 2026-09-18 there were none in the whole app.
+  assert.equal(main.webContents.listenerCount('context-menu'), 1, 'configureWindow gave the app window its editing menu')
+  // Every `context-menu` event the MAIN window sees, recorded from the start:
+  // the popout assertions further down have to show that a press inside a
+  // popped-out window never arrives here. See the editing-menu block at the end.
+  const raised: Electron.ContextMenuParams[] = []
+  main.webContents.on('context-menu', (_event, params) => raised.push(params))
   ipcMain.handle('desktop:status', event => { assertNativeSender(event, main, origin); return { state: 'ready' } })
   await main.loadURL(origin)
   assert.deepEqual(await main.webContents.executeJavaScript('window.orgtreeDesktop.getStatus()'), { state: 'ready' })
@@ -160,6 +201,36 @@ app.whenReady().then(async () => {
   assert.equal(await main.webContents.executeJavaScript('child.document.getElementById("draft").value'), 'same live draft')
   assert.equal(await child.webContents.executeJavaScript('typeof window.orgtreeDesktop'), 'undefined')
   assert.equal(await child.webContents.executeJavaScript('typeof require'), 'undefined')
+
+  // THE EDITING MENU IN A POPPED-OUT WINDOW. This child is the real case the
+  // ticket names: a frameless native window whose about:blank document has
+  // ADOPTED the main window's `#draft` input, so the field's React handlers run
+  // in the main window's realm while the press happens here. configureWindow
+  // recurses into this window, and the menu must arrive with that recursion.
+  assert.equal(child.webContents.listenerCount('context-menu'), 1, 'the popout got its own editing menu')
+  const popoutRaised: Electron.ContextMenuParams[] = []
+  child.webContents.on('context-menu', (_event, params) => popoutRaised.push(params))
+  const mainSawBefore = raised.length
+  const popoutBox = await child.webContents.executeJavaScript(`(() => {
+    const el = document.getElementById('draft'); el.focus(); el.setSelectionRange(0, 4)
+    const r = el.getBoundingClientRect()
+    return { x: Math.round(r.left + 4), y: Math.round(r.top + r.height / 2) } })()`)
+  for (const type of ['mouseDown', 'mouseUp'] as const) {
+    child.webContents.sendInputEvent({ type, button: 'right', x: popoutBox.x, y: popoutBox.y, clickCount: 1 })
+  }
+  for (let i = 0; i < 100 && !popoutRaised.length; i++) await new Promise(resolve => setTimeout(resolve, 20))
+  assert.ok(popoutRaised.length, 'a right-click inside the popout raised the context-menu event')
+  // ⚠ ON THE POPOUT'S OWN webContents, and NOT on the main window's — the whole
+  // "menu drawn on the main canvas while the user clicked in a popout" failure.
+  assert.equal(raised.length, mainSawBefore, 'the press never reached the main window')
+  const popoutMenu = Menu.buildFromTemplate(editMenuTemplate(popoutRaised[0], child.webContents)!)
+  assert.deepEqual(popoutMenu.items.filter(candidate => candidate.type !== 'separator').map(candidate => candidate.label),
+    ['Cut', 'Copy', 'Paste', 'Select All'], 'the popout gets the same menu as the main window')
+  assert.equal(popoutMenu.items.find(candidate => candidate.label === 'Copy')!.enabled, true,
+    'and its enablement comes from the selection in THIS window')
+  // popped in the popout, at the popout's own client coordinates
+  popoutMenu.popup({ window: child, x: popoutRaised[0].x, y: popoutRaised[0].y })
+  popoutMenu.closePopup(child)
   await main.webContents.executeJavaScript(`new Promise((resolve,reject)=>{const css=child.document.createElement('link');css.rel='stylesheet';css.href=${JSON.stringify(origin + '/asset.css?portal=1')};css.onload=()=>resolve(true);css.onerror=reject;child.document.head.appendChild(css)})`)
   assert.equal(await child.webContents.executeJavaScript('getComputedStyle(document.body).backgroundColor'), 'rgb(12, 34, 56)', 'registered portal loads authenticated CSS')
   await child.webContents.executeJavaScript(`fetch(${JSON.stringify(origin + '/api/portal-fetch')}).then(r=>r.text())`)
@@ -201,7 +272,104 @@ app.whenReady().then(async () => {
   await new Promise(resolve => setTimeout(resolve, 100))
   assert.ok(openedExternal.includes(foreignOrigin + '/same-tab'), 'same-tab external navigation launches through the controlled browser callback')
   assert.equal(await main.webContents.executeJavaScript('location.origin'), origin, 'external navigation is prevented in the app window')
-  console.log('ELECTRON_PROBE_PASS ' + JSON.stringify({ http: true, assets: true, websocket: true, redirectNoToken: true, portalIdentity: true, draftRetained: true, childNoBridge: true, foreignNativeCallerRefused: true, externalWindowRouted: true, externalNavigationRouted: true, foreignFrameBlocked: true, srcdocUnsigned: true, artifactPostBlocked: true, artifactInternetAllowed: true, preloadExactPort: true, orgHistoryAndReload: true, liveTokenRotation: true, engineRestartRow: true }))
+  // ── CUT/COPY/PASTE IN A TEXT FIELD ───────────────────────────────────────
+  // ticket right-click-cut-copy-paste-in-every-textbox-in-t. The RULES are
+  // tested without Electron in tests/edit-menu.test.mjs. What only real
+  // Chromium can settle is here, and none of it is simulated: a right-click on
+  // a real input raises the event, Chromium's own editFlags gate the entries,
+  // and choosing Paste puts actual characters into the actual field.
+  const rightClickField = async (prepare = '') => {
+    const box = await main.webContents.executeJavaScript(`(() => {
+      const el = document.getElementById('draft'); el.focus(); ${prepare}
+      const r = el.getBoundingClientRect()
+      return { x: Math.round(r.left + 4), y: Math.round(r.top + r.height / 2) } })()`)
+    const before = raised.length
+    for (const type of ['mouseDown', 'mouseUp'] as const) {
+      main.webContents.sendInputEvent({ type, button: 'right', x: box.x, y: box.y, clickCount: 1 })
+    }
+    for (let i = 0; i < 100 && raised.length === before; i++) await new Promise(resolve => setTimeout(resolve, 20))
+    assert.ok(raised.length > before, 'a right-click in the field raised the context-menu event')
+    // the same template the app's own handler built from these very params
+    return Menu.buildFromTemplate(editMenuTemplate(raised[raised.length - 1], main.webContents)!)
+  }
+  const entry = (menu: Menu, label: string) => menu.items.find(candidate => candidate.label === label)!
+
+  // AN EMPTY FIELD AND AN EMPTY CLIPBOARD — the gates, through real MenuItems.
+  clipboard.clear()
+  const emptyMenu = await rightClickField("el.value = ''")
+  assert.deepEqual(emptyMenu.items.filter(i => i.type !== 'separator').map(i => i.label),
+    ['Cut', 'Copy', 'Paste', 'Select All'], 'a text field offers all four')
+  assert.equal(entry(emptyMenu, 'Paste').enabled, false, 'an empty clipboard really disables Paste')
+  assert.equal(entry(emptyMenu, 'Select All').enabled, false, 'an empty field really disables Select All')
+  assert.equal(entry(emptyMenu, 'Copy').enabled, false, 'no selection really disables Copy')
+  // and the real popup call is well formed on a real window
+  emptyMenu.popup({ window: main, x: 10, y: 10 })
+  emptyMenu.closePopup(main)
+
+  // PASTE, END TO END. Not "the item was enabled" — the characters arrive.
+  clipboard.writeText('pasted through the menu')
+  const pasteMenu = await rightClickField()
+  assert.equal(entry(pasteMenu, 'Paste').enabled, true, 'a clipboard with text really enables Paste')
+  entry(pasteMenu, 'Paste').click!()
+  for (let i = 0; i < 100; i++) {
+    if (await main.webContents.executeJavaScript('document.getElementById("draft").value') === 'pasted through the menu') break
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
+  assert.equal(await main.webContents.executeJavaScript('document.getElementById("draft").value'),
+    'pasted through the menu', 'choosing Paste put the clipboard text into the field')
+
+  // CUT, END TO END: the characters leave the field and reach the clipboard.
+  const cutMenu = await rightClickField('el.setSelectionRange(0, 6)')
+  assert.equal(entry(cutMenu, 'Cut').enabled, true, 'a selection really enables Cut')
+  assert.equal(entry(cutMenu, 'Copy').enabled, true, 'a selection really enables Copy')
+  entry(cutMenu, 'Cut').click!()
+  // ⚠ MEASURED, and it contradicts the shipped typings: in Electron 44
+  // `clipboard.readText()` returns a PROMISE, though @types says `string`. An
+  // unawaited call compares a pending Promise against text and is never equal,
+  // which reads as "Cut did nothing" — it is the assertion that is broken, not
+  // the menu. `writeText` and `clear` are still synchronous.
+  const clipboardText = async () => await (clipboard.readText() as unknown as string | Promise<string>)
+  for (let i = 0; i < 100 && await clipboardText() !== 'pasted'; i++) await new Promise(resolve => setTimeout(resolve, 20))
+  assert.equal(await clipboardText(), 'pasted', 'choosing Cut put the selected text on the clipboard')
+  assert.equal(await main.webContents.executeJavaScript('document.getElementById("draft").value'),
+    ' through the menu', 'and removed it from the field')
+
+  // SELECT ALL, END TO END.
+  const selectMenu = await rightClickField()
+  assert.equal(entry(selectMenu, 'Select All').enabled, true, 'a filled field really enables Select All')
+  const remaining = ' through the menu'                   // what Cut left behind
+  assert.equal(await main.webContents.executeJavaScript('document.getElementById("draft").value'), remaining)
+  entry(selectMenu, 'Select All').click!()
+  const selection = async () => await main.webContents.executeJavaScript(
+    '(()=>{const el=document.getElementById("draft");return [el.selectionStart, el.selectionEnd]})()') as [number, number]
+  for (let i = 0; i < 100 && (await selection())[1] !== remaining.length; i++) await new Promise(resolve => setTimeout(resolve, 20))
+  assert.deepEqual(await selection(), [0, remaining.length], 'choosing Select All really selected the whole field')
+
+  // KEYBOARD RAISE — Shift+F10, as real key input rather than a synthesised DOM
+  // event (a synthetic `contextmenu` is untrusted and Chromium raises no menu
+  // for it, so it would prove nothing).
+  //
+  // ⚠ THE ContextMenu KEY CANNOT BE DRIVEN FROM HERE, measured in Electron 44:
+  // `sendInputEvent` accepts no keyCode that produces it — 'ContextMenu',
+  // 'Apps' and 'Menu' all arrive in the page as a keydown with an EMPTY `key`
+  // and raise nothing. What stands in for it is `menuSourceType`, asserted
+  // below: Chromium reports 'keyboard' for BOTH keys, and this handler reads
+  // only `params` and does no key handling at all, so it cannot tell them
+  // apart. Assert the class, not the one key the harness happens to reach.
+  await main.webContents.executeJavaScript('document.getElementById("draft").focus()')
+  const beforeKey = raised.length
+  main.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'F10', modifiers: ['shift'] })
+  main.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'F10', modifiers: ['shift'] })
+  for (let i = 0; i < 100 && raised.length === beforeKey; i++) await new Promise(resolve => setTimeout(resolve, 20))
+  assert.ok(raised.length > beforeKey, 'Shift+F10 raised the context-menu event')
+  const keyParams = raised[raised.length - 1]
+  assert.equal(keyParams.menuSourceType, 'keyboard', 'and Chromium reports it as a keyboard raise')
+  const keyMenu = Menu.buildFromTemplate(editMenuTemplate(keyParams, main.webContents)!)
+  assert.deepEqual(keyMenu.items.filter(i => i.type !== 'separator').map(i => i.label),
+    ['Cut', 'Copy', 'Paste', 'Select All'], 'a keyboard raise produced the same menu as a right-click')
+  clipboard.clear()
+
+  console.log('ELECTRON_PROBE_PASS ' + JSON.stringify({ http: true, assets: true, websocket: true, redirectNoToken: true, portalIdentity: true, draftRetained: true, childNoBridge: true, foreignNativeCallerRefused: true, externalWindowRouted: true, externalNavigationRouted: true, foreignFrameBlocked: true, srcdocUnsigned: true, artifactPostBlocked: true, artifactInternetAllowed: true, preloadExactPort: true, orgHistoryAndReload: true, liveTokenRotation: true, engineRestartRow: true, editMenuPasteLanded: true, editMenuKeyboardRaise: 'shift+f10' }))
   for (const w of BrowserWindow.getAllWindows()) w.destroy()
   server.close(); outsider.close(); app.exit(0)
 }).catch(error => { console.error(error); for (const w of BrowserWindow.getAllWindows()) w.destroy(); server?.close(); outsider?.close(); app.exit(1) })

@@ -287,8 +287,146 @@ test('--max-age-days refuses an old baseline instead of quietly trusting it', as
     TOOL, 'compare', '--baseline', baselineFile, '--max-age-days', '7',
   ], { cwd: REPO, encoding: 'utf8', windowsHide: true })
   assert.equal(result.status, 2, 'refusal is its own exit code, distinct from "found regressions"')
-  assert.match(result.stderr, /refusing/)
+  assert.match(result.stderr, /BASELINE REFUSED/)
+  // An automated caller records a refusal and a regression as the same non-zero
+  // exit, so the words have to separate them. Without this line the agent whose
+  // commit happened to trip a stale baseline goes looking for a regression that
+  // does not exist.
+  assert.match(result.stderr, /NOT a failure of your change/)
+  assert.match(result.stderr, /test-baseline\.mjs record/, 'a refusal must say what would fix it')
   assert.match(result.stdout, /STALE/)
+})
+
+// --------------------------------------------------------------------------
+// Usable vs fresh — the distinction the release `full` profile runs on.
+// --------------------------------------------------------------------------
+
+const HEAD = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: REPO, encoding: 'utf8', windowsHide: true }).stdout.trim()
+
+/** A baseline measured on THIS machine, at a commit this checkout can see. */
+function usableFixture(overrides = {}) {
+  const baseline = baselineFixture()
+  baseline.commit = HEAD
+  // `trees: {}` matches no current tree hash, so this baseline is DRIFTED by
+  // `code_moved` and nothing else — exactly the state a release verification is
+  // always in, because it runs on a commit past the one the baseline recorded.
+  return Object.assign(baseline, overrides)
+}
+
+function compareWith(t, baseline, args) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'baseline-test-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const baselineFile = path.join(dir, 'baseline.json')
+  const resultsFile = path.join(dir, 'results.json')
+  fs.writeFileSync(baselineFile, JSON.stringify(baseline))
+  fs.writeFileSync(resultsFile, JSON.stringify({
+    schema: 'orgtree.test-run/v1', ran_at: new Date().toISOString(), commit: HEAD,
+    suites: { 'node-root': { counts: { files: 1, tests: 1, passed: 1, failed: 0, skipped: 0 }, outcomes: [outcome('solid', 'passed')], duration_ms: 1 } },
+  }))
+  return spawnSync(process.execPath, [TOOL, 'compare', '--baseline', baselineFile, '--results', resultsFile, ...args], {
+    cwd: REPO, encoding: 'utf8', windowsHide: true,
+  })
+}
+
+test('--require-usable accepts a baseline the code has merely moved past; --require-fresh refuses the same one', async t => {
+  // This is the whole reason --require-usable exists. A release verification
+  // runs on a commit PAST the one the baseline was recorded at, by
+  // construction, so --require-fresh refuses every single verification — it was
+  // measured doing exactly that on 2026-09-17, on a baseline 14 hours old. A
+  // gate wired to --require-fresh would never pass, and a gate wired to nothing
+  // would trust a baseline from another machine. This flag is the line between.
+  const baseline = usableFixture()
+  const strict = compareWith(t, baseline, ['--require-fresh'])
+  assert.equal(strict.status, 2, '--require-fresh refuses ordinary code movement')
+  assert.match(strict.stdout, /DRIFTED/)
+
+  const usable = compareWith(t, baseline, ['--require-usable'])
+  assert.equal(usable.status, 0, '--require-usable tolerates the same drift')
+  assert.match(usable.stdout, /the code under test changed since/, 'tolerated, but never hidden')
+})
+
+test('--require-usable refuses a baseline measured on another machine', async t => {
+  // These failures are partly environmental, so another machine's acquittals
+  // are not evidence about this one. Exit 2, and the reason says whose they are.
+  const result = compareWith(t, usableFixture({
+    machine: { host: 'SomeOtherBox', platform: process.platform, arch: process.arch, node: process.version, cpus: 1, concurrency: 4 },
+  }), ['--require-usable'])
+  assert.equal(result.status, 2)
+  assert.match(result.stderr, /BASELINE REFUSED/)
+  assert.match(result.stderr, /NOT a failure of your change/)
+  assert.match(result.stderr, /SomeOtherBox/)
+})
+
+test('--require-usable refuses a baseline whose commit this checkout cannot see', async t => {
+  // Drift cannot be measured against a commit that is not here, so "no new
+  // failures" would be a claim with nothing behind it.
+  const result = compareWith(t, usableFixture({ commit: 'a'.repeat(40) }), ['--require-usable'])
+  assert.equal(result.status, 2)
+  assert.match(result.stderr, /not in this checkout/)
+})
+
+test('--require-usable refuses a baseline measured on a dirty tree, and names what would fix it', async t => {
+  const result = compareWith(t, usableFixture({ measured_tree_clean: false }), ['--require-usable'])
+  assert.equal(result.status, 2)
+  assert.match(result.stderr, /UNCOMMITTED changes/)
+  assert.match(result.stderr, /test-baseline\.mjs record/)
+})
+
+// --------------------------------------------------------------------------
+// Acquittal does not expire — but it is never silent.
+// --------------------------------------------------------------------------
+
+test('an acquitted failure is reported with its age and with the fact that nobody owns it', async t => {
+  // Acquitting a pre-existing failure deliberately does NOT expire: failing the
+  // next commit for a failure it did not cause is the defect this tool exists
+  // to remove. What replaces expiry is visibility — every acquittal carries how
+  // long it has been excused and whether anyone has ever been told about it, so
+  // "quietly forgiven for a month" cannot happen without it being on screen.
+  const baseline = baselineFixture()
+  baseline.suites['node-root'].failures[0].failing_since = new Date(Date.now() - 30 * 24 * 3_600_000).toISOString()
+  const { report, human, status } = runFixture(t, {
+    baseline,
+    outcomes: [outcome('old-broken', 'failed', 'boom'), outcome('solid', 'passed')],
+  })
+  assert.equal(status, 0, 'still acquitted — age is reported, not enforced')
+  const acquitted = report.pre_existing_failures[0]
+  assert.equal(acquitted.failing_for_days, 30)
+  assert.equal(acquitted.failing_since_is_lower_bound, false)
+  assert.equal(acquitted.open_handover, null, 'null is the answer this field exists to make visible')
+  assert.match(human, /failing for 30 day\(s\); UNOWNED — nobody has been told/)
+  assert.match(human, /handover --test/, 'the report must name the verb that hands it on')
+})
+
+test('an entry recorded before failing_since existed is dated "at least", never precisely', async t => {
+  // The fallback is the suite's own recorded_at: it was already failing then, so
+  // that is a lower bound and the report may not dress it up as the real age.
+  const baseline = baselineFixture()
+  baseline.suites['node-root'].recorded_at = new Date(Date.now() - 10 * 24 * 3_600_000).toISOString()
+  delete baseline.suites['node-root'].failures[0].failing_since
+  const { report, human } = runFixture(t, {
+    baseline,
+    outcomes: [outcome('old-broken', 'failed', 'boom'), outcome('solid', 'passed')],
+  })
+  assert.equal(report.pre_existing_failures[0].failing_since_is_lower_bound, true)
+  assert.match(human, /failing for at least 10 day\(s\)/)
+})
+
+test('an acquitted failure that has been handed over names its owner instead of shouting', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'baseline-ledger-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const ledger = path.join(dir, 'handovers.json')
+  fs.writeFileSync(ledger, JSON.stringify({
+    schema: 'orgtree.test-handover/v1',
+    handovers: [{ seq: 4, status: 'open', test_id: id('old-broken'), route_to: 'someone-else', at: new Date().toISOString(), work_item: 'a-ticket' }],
+  }))
+  const { report, human } = runFixture(t, {
+    baseline: baselineFixture(),
+    outcomes: [outcome('old-broken', 'failed', 'boom'), outcome('solid', 'passed')],
+    args: ['--ledger', ledger],
+  })
+  assert.equal(report.pre_existing_failures[0].open_handover.route_to, 'someone-else')
+  assert.match(human, /handed to someone-else as #4 \(a-ticket\)/)
+  assert.doesNotMatch(human, /UNOWNED/)
 })
 
 test('a handover cannot be recorded for a failure the baseline does not know about', async t => {
@@ -351,4 +489,132 @@ test('the same failure is not handed over twice by accident', async t => {
   const again = spawnSync(process.execPath, args, { cwd: REPO, encoding: 'utf8', windowsHide: true })
   assert.match(again.stderr, /already handed over as #1/)
   assert.equal(JSON.parse(fs.readFileSync(ledgerFile, 'utf8')).handovers.length, 1)
+})
+
+
+// ---------------------------------------------------------------------------
+// The suite name itself — a green verdict for a run that never happened
+// ---------------------------------------------------------------------------
+//
+// `compare --suite node` ran nothing, printed `VERDICT: no new failures` and
+// exited 0. The registered name is `node-root`. The only signal was an
+// ABSENCE — no suite block in the output — while the verdict line positively
+// asserted the opposite, and this tool is the team's designated proof that
+// nobody introduced a regression. `toolbar-polish` hit it on 2026-09-17 with
+// `--suite node` and `--suite python` and nearly quoted both as evidence.
+//
+// These cases run the tool with a bad command line, which returns before any
+// suite is executed, so they cost nothing measurable.
+
+/** Run the tool with no baseline dependency and capture everything. */
+function runTool(argv) {
+  const result = spawnSync(process.execPath, [TOOL, ...argv], {
+    cwd: REPO, encoding: 'utf8', windowsHide: true,
+  })
+  return { status: result.status, stdout: result.stdout, stderr: result.stderr }
+}
+
+// The two spellings that actually happened, plus one that is a near-miss in the
+// other direction, so the case does not rest on a single string.
+for (const name of ['node', 'python', 'renderer-x']) {
+  for (const command of ['compare', 'show', 'run', 'record']) {
+    test(`${command} --suite ${name} refuses instead of reporting a pass`, () => {
+      const { status, stdout, stderr } = runTool([command, '--suite', name])
+      assert.notEqual(status, 0, `--suite ${name} must not exit 0:\n${stderr}`)
+      // The heart of it: no verdict may be printed about a suite that never
+      // ran. Checked across BOTH streams, because `compare --json` moves the
+      // human output to stderr and a verdict hiding on the other stream is
+      // still a verdict somebody will quote.
+      assert.doesNotMatch(stdout + stderr, /VERDICT/,
+        `a command that ran nothing printed a verdict:\n${stdout}\n${stderr}`)
+      assert.doesNotMatch(stdout + stderr, /no new failures/,
+        `a command that ran nothing claimed no new failures:\n${stdout}\n${stderr}`)
+      // and it names the real ones, so the next thing the reader types is right
+      assert.match(stderr, /node-root/)
+      assert.match(stderr, /python-backend/)
+      assert.match(stderr, /renderer/)
+    })
+  }
+}
+
+test('the refusal suggests the registered name the typo was reaching for', () => {
+  assert.match(runTool(['compare', '--suite', 'node']).stderr, /did you mean: node-root\?/)
+  assert.match(runTool(['compare', '--suite', 'python']).stderr, /did you mean: python-backend\?/)
+})
+
+test('a valid suite name is still accepted — the guard refuses typos, not work', () => {
+  // `show` is the one subcommand that reaches a real result without running a
+  // test suite, so it is what proves the guard lets correct spellings through.
+  const { status, stdout } = runTool(['show', '--suite', 'node-root'])
+  assert.equal(status, 0, 'a registered suite name must not be refused')
+  assert.match(stdout, /── node-root/)
+})
+
+test('show --suite actually narrows the output instead of ignoring the flag', () => {
+  // It used to parse `--suite` and print all three suites anyway: the flag was
+  // accepted, the output was plausible, and nothing said they did not
+  // correspond. A refusal test alone would not have caught that.
+  const one = runTool(['show', '--suite', 'node-root']).stdout
+  const all = runTool(['show']).stdout
+  assert.doesNotMatch(one, /── python-backend/)
+  assert.doesNotMatch(one, /── renderer/)
+  assert.match(all, /── python-backend/, 'the unfiltered form must still show everything')
+  assert.match(all, /── renderer/)
+})
+
+test('a comparison that executes zero suites is never reported as clean', async t => {
+  // The general form of the same defect, reached without a typo: the baseline
+  // asks for node-root and the saved run holds only renderer, so the loop that
+  // builds `runs` matches nothing. Before the fix this fell through to
+  // newFailures === 0 and printed a green verdict about no measurement at all.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'baseline-test-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const baselineFile = path.join(dir, 'baseline.json')
+  const resultsFile = path.join(dir, 'results.json')
+  fs.writeFileSync(baselineFile, JSON.stringify(baselineFixture()))
+  fs.writeFileSync(resultsFile, JSON.stringify({
+    schema: 'orgtree.test-run/v1',
+    ran_at: new Date().toISOString(),
+    commit: 'b'.repeat(40),
+    suites: { renderer: { counts: { files: 0, tests: 0, passed: 0, failed: 0, skipped: 0 }, outcomes: [], duration_ms: 1 } },
+  }))
+  const { status, stdout, stderr } = runTool([
+    'compare', '--baseline', baselineFile, '--results', resultsFile, '--json',
+  ])
+  assert.notEqual(status, 0, 'zero suites compared must not exit 0')
+  assert.doesNotMatch(stdout + stderr, /VERDICT/)
+  assert.doesNotMatch(stdout + stderr, /no new failures/)
+  assert.match(stderr, /NOTHING WAS COMPARED/)
+  // and it must not emit a report either: a caller parsing stdout has to fail
+  // loudly rather than read an empty-but-green comparison
+  assert.equal(stdout.trim(), '', `stdout should carry no report:\n${stdout}`)
+})
+
+test('the verdict names the suites it actually covers', async t => {
+  // "Ran and found nothing new" and "ran nothing" must not be able to produce
+  // the same output. Naming the coverage is what makes them distinguishable at
+  // a glance, and it stops a one-suite run being quoted as a clean bill of
+  // health for the whole repo.
+  const { human, status } = runFixture(t, {
+    baseline: baselineFixture(),
+    outcomes: [outcome('old-broken', 'failed', 'boom'), outcome('solid', 'passed'), outcome('also-solid', 'passed')],
+  })
+  assert.equal(status, 0)
+  assert.match(human, /VERDICT: no new failures in 1 suite\(s\): node-root\./)
+})
+
+test('show says which suites ignore --concurrency', () => {
+  // `--concurrency` is accepted by every subcommand, documented as "test-file
+  // concurrency", and written into the baseline's machine provenance — but
+  // runPythonSuite never received it, so for the one suite slow enough to make
+  // anybody reach for the flag it did nothing at all. Measured 2026-09-18:
+  // 11m15s at 4 and 11m10s at 12, identical. Same family as this file's other
+  // cases — a flag accepted, plausible output, and no correspondence between
+  // them — so the tool says so rather than leaving it to a stopwatch.
+  const { status, stdout } = runTool(['show', '--suite', 'python-backend'])
+  assert.equal(status, 0)
+  assert.match(stdout, /runs SEQUENTIALLY/)
+  assert.match(stdout, /--concurrency does not apply/)
+  // and the suites that DO honour it must not claim otherwise
+  assert.doesNotMatch(runTool(['show', '--suite', 'node-root']).stdout, /--concurrency does not apply/)
 })

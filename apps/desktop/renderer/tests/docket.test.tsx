@@ -59,7 +59,13 @@ function mockWorkItems(activeItems: WorkItem[], archivedItems: WorkItem[] = [],
         // about the last updater would let the panel name one agent while the
         // reply reached another and nothing here would notice
         const isDeferred = found?.owner?.node === 'archived-agent'
-        return ok({ accepted: true, to: found?.owner?.node ?? 'agent', deferred: isDeferred })
+        // notice-toggle parity: the server echoes what it ACTUALLY did, not
+        // what was asked for — the real endpoint silently downgrades an
+        // impossible notice to ordinary mail, so the panel must read this
+        // field rather than its own toggle
+        const asNotice = Boolean((body as { notice?: boolean } | undefined)?.notice)
+        return ok({ accepted: true, to: found?.owner?.node ?? 'agent',
+          deferred: isDeferred, notice: asNotice })
       }
       if (method === 'GET' && path.includes('/work-items')) {
         // the two filters are INDEPENDENT query flags, and a group is served
@@ -738,6 +744,113 @@ uiTest('§13c the reply box attaches a real staged file and sends its path with 
   // "preserving reply context" — same as §13's existing assertion shape
   assert.deepEqual(replyCalls[0]!.body,
     { body: 'see attached', to: 'owner-agent', attachments: ['uploads/evidence.txt'] })
+})
+
+// notice-toggle parity (user 2026-09-17). The TICKET reply is again the one
+// of the three contextual composers whose backend also had to change —
+// work_item_reply had no `notice` field at all (test_work_item_reply_notice.py
+// covers that side). This is the frontend half: the armed toggle must reach
+// the wire, and the toast must report what the SERVER did.
+uiTest('§13e the ticket reply sends `notice: true` when the toggle is armed, '
+  + 'and says so', async (mount) => {
+  let toasted: string[] = []
+  const calls = mockWorkItems([mkItem({ id: 'w-notice', title: 'Work Item',
+    owner: { node: 'owner-agent', generation: 1 } })])
+  const { el } = await mount(docketModal({ toast: (t) => { toasted = t } }))
+  await flush()
+  await inAct(() => (rows(el)[0] as HTMLElement).click())
+  await flush()
+
+  const toggle = el.querySelector('.mail-reply .cc-notice-toggle') as HTMLButtonElement
+  assert.ok(toggle, 'the ticket reply box has a notice toggle at all')
+  assert.equal(toggle.classList.contains('armed'), false, 'and it starts OFF')
+
+  const textarea = el.querySelector('.mail-reply textarea') as HTMLTextAreaElement
+  const type = async (t: string) => {
+    await inAct(() => {
+      const set = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype, 'value')?.set
+      set?.call(textarea, t)
+      textarea.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await flush()
+  }
+  const sendBtn = () => el.querySelector('.mail-reply-send') as HTMLButtonElement
+
+  // CONTROL FIRST: unarmed, the flag is absent from the body entirely —
+  // otherwise "it sends a notice" would be indistinguishable from "it always
+  // sends a notice"
+  await type('ordinary reply')
+  await inAct(() => sendBtn().click())
+  await flush()
+  let replies = calls.filter((c) => c.method === 'POST' && c.url.includes('/reply'))
+  assert.equal(replies.length, 1)
+  assert.deepEqual(replies[0]!.body, { body: 'ordinary reply', to: 'owner-agent' })
+  assert.deepEqual(toasted, ['sent to owner-agent'])
+
+  await type('quiet reply')
+  await inAct(() => toggle.click())
+  await flush()
+  assert.equal(
+    (el.querySelector('.mail-reply') as HTMLElement).classList.contains('notice-armed'),
+    true, 'the composer shows it is armed before the send')
+  await inAct(() => sendBtn().click())
+  await flush()
+  replies = calls.filter((c) => c.method === 'POST' && c.url.includes('/reply'))
+  assert.equal(replies.length, 2)
+  assert.deepEqual(replies[1]!.body,
+    { body: 'quiet reply', to: 'owner-agent', notice: true })
+  assert.deepEqual(toasted, ['sent to owner-agent as a notice'],
+    'the toast reports the delivery, which is how a silent fallback stays visible')
+  assert.equal(toggle.classList.contains('armed'), false, 'and sending disarmed it')
+})
+
+uiTest('§13f the ticket reply toast says ORDINARY when the server refuses the '
+  + 'notice — the fallback is silent in delivery, not in reporting',
+  async (mount) => {
+  // The real endpoint downgrades a notice it cannot deliver and answers
+  // `notice: false`. The panel must believe the RESPONSE, never its own
+  // toggle — a toast that echoed the request would claim a quiet delivery
+  // that woke the agent.
+  let toasted: string[] = []
+  const calls: Call[] = []
+  mockWorkItems([mkItem({ id: 'w-fallback', title: 'Work Item',
+    owner: { node: 'owner-agent', generation: 1 } })], [], calls)
+  const realFetch = globalThis.fetch
+  ;(globalThis as unknown as { fetch: typeof fetch }).fetch =
+    ((url: string, init?: RequestInit) => {
+      if ((init?.method ?? 'GET') === 'POST' && String(url).includes('/reply')) {
+        calls.push({ method: 'POST', url: String(url),
+          body: init?.body ? JSON.parse(String(init.body)) : undefined })
+        return Promise.resolve({ ok: true, status: 200, headers: new Headers(),
+          json: () => Promise.resolve({ accepted: true, to: 'owner-agent',
+            deferred: false, notice: false }) })
+      }
+      return realFetch(url as never, init as never)
+    }) as typeof fetch
+
+  const { el } = await mount(docketModal({ toast: (t) => { toasted = t } }))
+  await flush()
+  await inAct(() => (rows(el)[0] as HTMLElement).click())
+  await flush()
+  const textarea = el.querySelector('.mail-reply textarea') as HTMLTextAreaElement
+  await inAct(() => {
+    const set = Object.getOwnPropertyDescriptor(
+      window.HTMLTextAreaElement.prototype, 'value')?.set
+    set?.call(textarea, 'tried to be quiet')
+    textarea.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await flush()
+  await inAct(() => (el.querySelector('.mail-reply .cc-notice-toggle') as HTMLButtonElement).click())
+  await flush()
+  await inAct(() => (el.querySelector('.mail-reply-send') as HTMLButtonElement).click())
+  await flush()
+  const replies = calls.filter((c) => c.method === 'POST' && c.url.includes('/reply'))
+  assert.equal(replies.length, 1)
+  assert.equal((replies[0]!.body as { notice?: boolean }).notice, true,
+    'positive control: the request DID ask for a notice')
+  assert.deepEqual(toasted, ['sent to owner-agent'],
+    'but the report follows the answer, which said it was ordinary mail')
 })
 
 uiTest('§13d CONTROL: an owner whose state is `missing` disables the attach '

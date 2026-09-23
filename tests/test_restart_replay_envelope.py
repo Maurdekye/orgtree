@@ -54,6 +54,9 @@ Path(os.environ['HOME']).mkdir()
 os.environ['ORGTREE_V2_TOKEN'] = 'restart-replay-only'
 for k in ('ORGTREE_V1_ROOT', 'ORGTREE_V1_DATA_ROOT', 'ORGTREE_V2_PORT'):
     os.environ.pop(k, None)
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.launch import load_app          # noqa: E402
 load_app()
 from orgtree import chat_window, events, ledger, store, supervisor as sup  # noqa: E402

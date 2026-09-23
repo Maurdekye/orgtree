@@ -36,7 +36,8 @@ import {
   workItemAttachmentUrl,
   req,
 } from '../api'
-import { CloseIcon, DocketIcon, DownloadIcon, TuneIcon } from '../icons'
+import { AttachIcon, CloseIcon, DocketIcon, DownloadIcon, TuneIcon } from '../icons'
+import { agentNavProps } from './agentnav'
 import { AttachThumb, fmtBytes, isImg } from './img'
 import { AskCard } from './asks'
 import { DocReader } from './docs'
@@ -2372,10 +2373,13 @@ function DocketAttachments({ slug, item, toast, refresh }: {
           })}
         </div>
       )}
+      {/* the same paperclip every other attach control wears (user
+          2026-09-17). This was the one attachment control in the app with no
+          glyph at all; the label, size, placement and tooltip are unchanged. */}
       <button type="button" className="badge docket-attach-add" disabled={busy}
         title="attach images or files to this item"
         onClick={() => fileRef.current?.click()}>
-        {busy ? 'attaching…' : 'Attach files…'}</button>
+        <AttachIcon fontSize="inherit" /> {busy ? 'attaching…' : 'Attach files…'}</button>
       <input type="file" ref={fileRef} style={{ display: 'none' }} multiple
         aria-label="attach files to this item"
         onChange={(e) => {
@@ -2616,7 +2620,12 @@ function DocketPane({ slug, item, toast, asksById, onDismiss, close, onFocusAgen
             <div className="docket-question-box">
               <div className="docket-question-head">
               Question from{' '}
-              <button className="cc-name cc-name-jump" title={`focus ${q.node}'s desk`}
+              {/* a third hand-rolled copy of AgentName's navigating button
+                  (App.tsx's SenderChip is the second). Found by
+                  agentnavmenu.test.tsx §4, not by reading — which is why that
+                  check is a source scan rather than a list of surfaces. */}
+              <button className="cc-name cc-name-jump" {...agentNavProps(q.node)}
+                title={`focus ${q.node}'s desk`}
                 onClick={() => { close(); onFocusAgent?.(q.node) }}>
                 {q.node}
               </button>
@@ -2699,15 +2708,19 @@ function DocketPane({ slug, item, toast, asksById, onDismiss, close, onFocusAgen
             {recipient.node} is retired — the reply waits for rehire.
           </div>}
           <MailReplyBox target={replyTo || undefined} slug={slug} toast={toast} sendDisabled={unavailable}
-            onSend={(text, attachments) => {
+            onSend={(text, attachments, notice) => {
               if (unavailable) return Promise.reject(new Error('Recipient unavailable'))
               setReplyBusy(true)
-              return replyWorkItem(slug, item.slug, text, replyTo, attachments)
+              return replyWorkItem(slug, item.slug, text, replyTo, attachments, notice)
                 .then((r) => {
                   const sentTo = r.to ?? replyTo
                   toast([r.deferred
                     ? `${sentTo} is archived — the reply waits for rehire`
-                    : `sent to ${sentTo}`, ...(r.warnings ?? [])])
+                    // SAY WHICH IT WAS. A notice can silently fall back to
+                    // ordinary mail, so the toast reports what the SERVER
+                    // did (r.notice), never what the toggle asked for.
+                    : r.notice ? `sent to ${sentTo} as a notice`
+                      : `sent to ${sentTo}`, ...(r.warnings ?? [])])
                   setReplyTo(currentOwner.current)
                 })
                 .catch((e: Error) => {

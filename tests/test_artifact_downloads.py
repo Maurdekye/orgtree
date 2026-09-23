@@ -8,6 +8,8 @@ import unittest
 import zipfile
 from pathlib import Path
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.backend.orgtree.artifact_downloads import (
     ArtifactForbidden,
     ArtifactNotFound,

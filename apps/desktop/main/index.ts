@@ -28,6 +28,7 @@ import { popupBounds, trayListHtml, trayNavigationSlug } from './traylist'
 import type { VisualTheme, PresetVisualTheme } from '../../../packages/contracts/visual-theme'
 import { hasInstallerUpgradeRequest } from './installer-upgrade'
 import { attachChildProcessFailureHandler, attachRendererFailureHandlers, crashReportDialog, crashReportFolder, CRASH_REPORTER_OPTIONS, RecoveryBudget } from './process-failure'
+import { attachWindowLoadRecovery, type WindowLoadRecovery, type WindowLoadStage } from './window-load-recovery'
 import type { ProcessFailureStage } from './process-failure'
 import { detectState, install, resolveMacEnginePythonPath, LABEL, autostartRemediationDialog, LOGIN_ITEMS_SETTINGS_URL } from './launchagent-mac'
 
@@ -118,10 +119,23 @@ else {
   // ------------------------------------------------ process-failure recording
   // Every line a dying Chromium process leaves behind goes through here, so
   // the renderer, GPU and utility paths cannot drift apart in how they record.
-  const recordProcessFailure = (stage: ProcessFailureStage, detail: string) => {
+  const recordToUpdateLog = (stage: ProcessFailureStage | WindowLoadStage, detail: string) => {
     try { updateLog.record(stage, detail) } catch { /* diagnostics never break the thing they describe */ }
     // Also to stderr, which a development run and `npm start` show immediately.
     console.warn(`[${stage}] ${detail}`)
+  }
+  const recordProcessFailure = (stage: ProcessFailureStage, detail: string) => {
+    recordToUpdateLog(stage, detail)
+  }
+  // ⚠ THE SAME LOG AND THE SAME FORMAT, under a second name so the two stage
+  // unions stay separate: a navigation failing is not a process dying — the
+  // render process is alive throughout — and letting one recorder take both
+  // would make `recordProcessFailure` accept stages that are not process
+  // failures. They interleave in one file on purpose, because the 2026-09-18
+  // white window is only legible as a 'renderer-recovered' immediately
+  // followed by a load that never landed.
+  const recordWindowLoad = (stage: WindowLoadStage, detail: string) => {
+    recordToUpdateLog(stage, detail)
   }
   // Where the dumps are and whether they travel, written once per run so the
   // answer is in the same file as the failures rather than only in the source.
@@ -156,6 +170,11 @@ else {
    *  Undefined until boot has composed them, and the entry stays disabled
    *  until then - there is nothing to restart before the first start. */
   let engineRestartOptions: EngineOptions | undefined
+  /** Keeps the main window's document loaded across an engine outage. Declared
+   *  here because the engine's status listener is registered before the window
+   *  exists, and 'ready' is the signal that makes a restart actually restore
+   *  the interface rather than merely restore the engine. */
+  let windowLoadRecovery: WindowLoadRecovery | undefined
   // The renderer owns provider discovery. This ephemeral value mirrors its
   // effective theme for native tray/taskbar/window icons and is never persisted.
   let effectiveTheme: VisualTheme | undefined
@@ -447,9 +466,13 @@ else {
       // only way to get at one, and it is the user's own deliberate act.
       { id: 'crash-reports', label: 'Crash reports...', click: () => { void showCrashReports().catch(() => {}) } },
       { type: 'separator' },
-      // Hidden while the engine runs (user ruling 2026-09-15), so this group
-      // is ordinarily just Quit and the menu keeps the shape it has today.
-      { id: 'engine-restart', label: 'Restart engine', visible: false, enabled: false,
+      // ALWAYS VISIBLE (user ruling 2026-09-17, superseding the 2026-09-15
+      // hide-while-running rule) — see `trayEngineState`, which owns the whole
+      // rule. The SEED matters: `refreshTrayEngine()` runs immediately below,
+      // but a row seeded invisible would be invisible for the window between
+      // the two, and seeding it visible-but-disabled is also what the row
+      // genuinely is at that instant, before any engine options are captured.
+      { id: 'engine-restart', label: 'Restart engine', visible: true, enabled: false,
         click: () => { void restartEngine() } },
       { label: 'Quit Orgtree', click: () => app.quit() },
     ])
@@ -1248,6 +1271,25 @@ else {
       if (main.isMaximized()) main.unmaximize(); else main.maximize()
     })
     handle('desktop:window-close', () => { main?.close() })
+    handle('desktop:window-refresh', async () => {
+      // ⚠ STRANDED IS NOT MERELY FAILED (review W1, 2026-09-20). Once the
+      // engine has moved, retryNow refuses to act — the preload origin is
+      // baked into the window's launch arguments, and re-pointing the window
+      // is the exact thing the recovery exists to never do — which left the
+      // holding page's enabled Refresh control a silent no-op in precisely
+      // the state whose page offers it. Take the SAME reconstruction path
+      // the changed-origin engine recovery already takes: persist the
+      // layout, then relaunch so the fresh process bakes the new origin into
+      // a fresh window. Nothing here navigates the current window anywhere.
+      if (windowLoadRecovery?.isStranded) {
+        await saveWindowLayout()
+        app.relaunch()
+        app.quit()
+        return
+      }
+      if (windowLoadRecovery?.isFailed) await windowLoadRecovery.retryNow('user refresh')
+      else if (main && !main.isDestroyed()) main.webContents.reload()
+    })
     // Deliberately NOT the desktop:window-* handlers above: those act on the
     // main window, and a popout's controls must never reach it.
     handle('desktop:popout-state', name => typeof name === 'string' ? popouts.state(name) : null)
@@ -1363,6 +1405,16 @@ else {
     })
     handle('desktop:provider-login-cancel', provider => cancelProviderLogin(asLoginProvider(provider)))
     engine.on('status', status => { broadcast({ type: 'engine-status', data: status }); stats = null; rebuildTray() })
+    // ⚠ BROADCASTING IS NOT ENOUGH WHEN THE WINDOW HAS NO DOCUMENT. The renderer
+    // is what would normally react to the status above, and after a failed load
+    // there is no renderer listening — which is precisely the state this exists
+    // for. A 'ready' engine is the one moment a blank window can be brought
+    // back, so take it directly rather than through the UI.
+    //
+    // A SECOND listener rather than a line inside the first: the tray's
+    // rebuild-on-every-status-change is pinned by tests as a single expression,
+    // and window recovery has no business being interleaved with it.
+    engine.on('status', status => { if (status.state === 'ready') windowLoadRecovery?.onEngineReady() })
     const base = app.isPackaged ? process.resourcesPath : app.getAppPath()
     const directory = path.join(base, 'engine')
     try {
@@ -1492,6 +1544,27 @@ else {
               + '\n\nThe full record is in update-log.json beside Orgtree\'s data.' }) },
           suspended: () => quitting || installerUpgradeShutdown,
         }, new RecoveryBudget())
+        // ⚠ AND THE RELOAD ABOVE CAN FAIL. Everything to this point assumes that
+        // re-navigating the window restores it, which is true only while the
+        // engine is serving — and the engine serves the document itself. On
+        // 2026-09-18 the renderer was OOM-killed, the reload above was issued
+        // 2 ms later, and the engine died 1.4 s into it; the window went white
+        // and nothing ever looked at it again. This watches the navigation the
+        // reload starts, so a failed load is a state the window leaves rather
+        // than the state it ends in.
+        windowLoadRecovery = attachWindowLoadRecovery(main.webContents, {
+          record: recordWindowLoad,
+          target: () => engine.origin,
+          builtFor: () => initialOrigin,
+          load: url => main && !main.isDestroyed() ? main.loadURL(url) : Promise.resolve(),
+          showHolding: html => main && !main.isDestroyed()
+            ? main.webContents.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
+            : Promise.resolve(),
+          suspended: () => quitting || installerUpgradeShutdown,
+          setTimer: (fn, ms) => setTimeout(fn, ms),
+          clearTimer: handle => clearTimeout(handle as ReturnType<typeof setTimeout>),
+        }, () => main && !main.isDestroyed() ? main.webContents.getURL() : '')
+        main.once('closed', () => { windowLoadRecovery?.dispose(); windowLoadRecovery = undefined })
         await main.loadURL(engine.origin + '/')
       }
       await createMainWindow()

@@ -130,6 +130,89 @@ def capacity(row: dict[str, Any], board: dict[str, Any], tier: str, pool: str) -
                for choice in choices)
 
 
+def exhausted(board: dict[str, Any], provider: str, tier: str,
+              pool: str, now: float) -> bool:
+    """POSITIVE evidence that this account cannot serve `tier` right now.
+
+    ⚠ IT IS NOT `not available(...)`, AND THAT IS THE WHOLE POINT. `available`
+    answers "has this board PROVED there is room", so everything it cannot
+    establish — an unreported window, a reading nobody has taken, a board that
+    errored — comes back False and reads, to a caller that negates it, as "this
+    account is full". Those are different facts, and conflating them is what
+    made `Continue on` unreachable: the claude readout carries a `session`
+    window with NO `resets_at` on every signed-in account (and marks the
+    currently-running one `is_active` at 0% used), so `available` was False for
+    accounts sitting at zero and the operator was shown nothing to click.
+
+    So this function answers the OTHER question — "has this board proved there
+    is NO room" — and answers False for everything it cannot establish. An
+    applicable window reporting 100% or more is the only positive evidence
+    there is. `available` is unchanged and still owns the AUTOMATIC path, where
+    the machine acts unasked and must prove capacity before it moves anybody.
+
+    ⚠ A PASSED `resets_at` DOES NOT DISCOUNT A FULL WINDOW. An expired window
+    has probably rolled over, but "probably" is not a reading: the most recent
+    number upstream gave for that lane still says full, and offering an account
+    on the strength of a stamp having gone stale is exactly the predictable
+    failure the operator must not be handed. Staleness makes evidence weaker,
+    never more permissive.
+    """
+    if board.get("error"):
+        return False                     # a failed read establishes nothing
+    rows = board.get("limits")
+    if not isinstance(rows, list):
+        return False
+
+    def full(windows: list[dict[str, Any]]) -> bool:
+        for w in windows:
+            value = w.get("percent")
+            if isinstance(value, bool) or not isinstance(value, (float, int)):
+                continue                 # unreadable percent: no evidence
+            if math.isfinite(value) and value >= 100:
+                return True
+        return False
+    if provider == "claude":
+        return full([w for w in rows if isinstance(w, dict)
+                     and w.get("kind") in ("session", "weekly_all",
+                                           "weekly_scoped")
+                     and limits.lane_applies(w, tier)])
+    if provider == "openai":
+        if board.get("lane") != "subscription":
+            # a board describing another lane says nothing about this pool
+            return False
+        wanted = (codex_route.PLAN_POOL if pool == "plan" else
+                  codex_route.RESERVE_POOL if pool == "reserve" else None)
+        return full([w for w in rows if isinstance(w, dict)
+                     and (wanted is None
+                          or codex_route.pool_of_window(w) == wanted)])
+    return False
+
+
+def offerable(row: dict[str, Any], board: dict[str, Any], tier: str,
+              pool: str) -> bool:
+    """THE MANUAL PATH'S RULE: is this account worth offering the operator?
+
+    `capacity`'s mirror, and deliberately a different question. The automatic
+    scheduler moves an agent with nobody watching, so it may act only on proof
+    of room. The operator is looking at the usage board when they open the menu
+    and is choosing on purpose — so what they must be protected from is a
+    choice that PREDICTABLY fails, not one whose evidence is merely silent.
+
+    An account is therefore offered unless something positively says otherwise:
+    an active capacity mark for this tier and pool (the same `marked` the
+    automatic path honours — a wall this org has already recorded), or a window
+    upstream reports at 100% (`exhausted`). A move made on silent evidence that
+    turns out to be wrong re-freezes the agent, visibly, and the operator picks
+    another account; a move the interface refused to offer at all leaves them
+    with no route but halting the agent and rebinding it by hand.
+    """
+    now = time.time()
+    choices = pool.split("+") if row["provider"] == "openai" else [pool]
+    return any(not marked(row, tier, choice)
+               and not exhausted(board, row["provider"], tier, choice, now)
+               for choice in choices)
+
+
 def source_matches(node: dict[str, Any]) -> bool:
     """An old freeze must not move an account the operator assigned afterward."""
     provider = providers.provider_of(str(node.get("model") or ""))
@@ -293,32 +376,53 @@ def cached_board(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def alternatives(org: Any, nid: str, *, board_of: Any = None,
-                 rows: list[dict[str, Any]] | None = None) -> list[str]:
+                 rows: list[dict[str, Any]] | None = None,
+                 rule: Any = None) -> list[str]:
     """The account IDs a frozen node could continue on, in registry order.
 
     `board_of` supplies the standing evidence — `cached_board` for the menu,
-    `read_board` for the action about to commit. The capacity rule itself is
-    `capacity`, the same one the automatic path uses, so "eligible to run this
-    exact model" means the same thing on both paths and for every provider:
-    a Claude tier needs its session AND its weekly window clear (the fable
-    tier's own weekly one when that is the tier), a Codex tier needs the pool
-    its freeze names, and a row carrying an active capacity mark is out.
+    `read_board` for the action about to commit.
+
+    `rule` is the STANDING TEST applied to each candidate's board, and it is an
+    argument because the two paths ask genuinely different questions of the
+    same evidence. The default is `capacity`: prove there is room — a Claude
+    tier needs its session AND its weekly window clear (the fable tier's own
+    weekly one when that is the tier), a Codex tier needs the pool its freeze
+    names, and a row carrying an active capacity mark is out. `offerable` is
+    the operator's: offer unless something positively says the account is full.
+    Both live in this module and both honour `marked`, so neither path has a
+    private idea of eligibility; what differs is which way the burden of proof
+    runs, and that is the one thing the two paths genuinely disagree about.
     """
     n = org.node(nid)
     tier = str(n.get("model") or "")
     pool = pool_of(n)
     read = board_of or cached_board
+    test = rule or capacity
     out: list[str] = []
     for row in replacements(org, nid, rows):
         if marked(row, tier, pool):
             continue
         try:
-            if not capacity(row, read(row), tier, pool):
+            if not test(row, read(row), tier, pool):
                 continue
         except (OSError, ValueError, RuntimeError, KeyError):
             continue
         out.append(str(row["id"]))
     return out
+
+
+def offered(org: Any, nid: str, *, board_of: Any = None,
+            rows: list[dict[str, Any]] | None = None) -> list[str]:
+    """⭐ THE MANUAL PATH'S LIST — what `Continue on …` may name, and what the
+    action will accept (docket `restore-continue-on-in-agent-context-menus`).
+
+    One function so the menu and the action cannot drift: the payload builds
+    its entries from this against cached evidence, and `_continue_on_account`
+    re-asks it against a forced live read before it moves a binding. An account
+    that disappears between the two is refused there, with its own message.
+    """
+    return alternatives(org, nid, board_of=board_of, rows=rows, rule=offerable)
 
 
 def candidates(org: Any) -> dict[str, dict[str, Any]]:

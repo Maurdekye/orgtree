@@ -26,6 +26,9 @@ os.environ.update(ORGTREE_DATA=str(_data), HOME=str(_home),
                   USERPROFILE=str(_home), ORGTREE_V2_TOKEN='operator')
 for _key in ('ORGTREE_V1_ROOT', 'ORGTREE_V1_DATA_ROOT', 'ORGTREE_V2_PORT'):
     os.environ.pop(_key, None)
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.launch import load_app
 load_app()
 from orgtree import store, ledger, supervisor, desktop_recovery
@@ -413,6 +416,114 @@ class RestartResumeTests(unittest.TestCase):
         self.run_startup('ordinary', driven)
         self.assertEqual(sorted(n for n, _, _ in driven),
                          ['imported', 'other', 'worker'])
+
+    # ---------------- §10 the queued message is IN the first turn's INPUT
+    #
+    # Every section above stubs `send_message`, so it can prove a turn was
+    # DRIVEN and cannot prove what that turn said. That is the gap the user's
+    # 2026-09-18 report lives in: "messages that are queued when an org
+    # restarts … only ever [wait] for its first turn to end". A test asserting
+    # the mailbox is non-empty proves the mailbox is non-empty; these run the
+    # startup pass with the provider seam one layer lower and assert the
+    # message TEXT is in the turn the agent wakes for.
+    #
+    # `_run_one_turn` composes that input by draining the mailbox inside
+    # itself (supervisor.py, the `_take_delivery_mail`/`_journal_drain` pair
+    # at turn start) and prepending the [MAIL] block BEFORE the CLI is
+    # spawned. `_envelope(..., "turn")` runs that same pair, which is the
+    # substitution tests/test_mail_drain.py makes for the same reason.
+    # tests/restart_mail_kill_probe.py is the end-to-end backing: a real
+    # process, a real `taskkill /T /F`, and the actual bytes the replacement
+    # CLI is handed.
+
+    QUEUED = 'the message queued before the restart'
+
+    def first_turn_inputs(self, slug, nid=None):
+        """Run the startup pass for real and return (node, turn text) for
+        every turn it starts, composed the way a real turn composes it."""
+        turns = []
+
+        def one_turn(s, n, carrier, *a, **kw):
+            toks = (list(carrier.get('toks') or [])
+                    if isinstance(carrier, dict) else [])
+            raw = carrier.get('text', '') if isinstance(carrier, dict) else carrier
+            ids = carrier.get('mail_ids') if isinstance(carrier, dict) else None
+            text, tok, _ = supervisor._envelope(s, n, raw, 'turn',
+                                                owned_toks=toks, mail_ids=ids)
+            if tok:
+                toks.append(tok)
+            turns.append((n, text))
+            supervisor._confirm_delivered(s, n, toks)
+            st = supervisor.state(s, n)
+            with supervisor._state_lock:
+                supervisor._fold_steer(st)
+                if st['queue']:
+                    return st['queue'].pop(0)
+                st['busy'] = False
+            return None
+
+        with patch.object(supervisor, '_transcript_evidence', return_value=set()), \
+             patch.object(supervisor, '_reconcile_steer_records'), \
+             patch.object(supervisor, '_native_context_hold', return_value=None), \
+             patch.object(supervisor, '_cancel_working_cache'), \
+             patch.object(supervisor, '_note_working_activity'), \
+             patch.object(supervisor, '_hold_for_deploy', return_value=True), \
+             patch.object(supervisor, 'scan_steer_records'), \
+             patch.object(supervisor, '_phantom_log'), \
+             patch.object(supervisor, '_start_turn_worker',
+                          side_effect=supervisor._run_turn), \
+             patch.object(supervisor, '_run_one_turn', side_effect=one_turn):
+            supervisor.reconcile(slug, active_only=True)
+        store._POOL.close_all(slug)
+        return [t for t in turns if nid is None or t[0] == nid]
+
+    def queue_a_batch(self, org, nid):
+        """The shape the desk labels "queued … not read yet": the mail has
+        LEFT the mailbox into an unconfirmed delivery journal batch, which is
+        the only copy that survives the process."""
+        org.d.setdefault('delivering', {})[nid] = [
+            {'tok': 'ab12cd34ef567890', 'at': '2026-09-18T20:49:00.000Z',
+             'via': 'steer',
+             'mail': [{'id': 'q1', 'from': '@user', 'kind': 'message',
+                       'at': '2026-09-18T20:49:00.000Z',
+                       'body': self.QUEUED}],
+             'notices': []}]
+        org.node(nid)['mail_drain'] = {'ids': ['q1'], 'retry_at': 0,
+                                       'failures': 0}
+        store.save_org(org)
+
+    def test_mail_queued_for_a_killed_turn_is_in_the_replayed_turns_input(self):
+        org = self.seed('firstturn')
+        self.queue_a_batch(org, 'worker')
+        turns = self.first_turn_inputs('firstturn', 'worker')
+        self.assertTrue(turns, 'the restarted agent never took a turn at all')
+        first = turns[0][1]
+        # the interrupted turn is replayed AND the queued message rides it —
+        # the agent reads it on the turn it wakes for, not at a later boundary
+        self.assertIn('[ORGTREE RESTART]', first)
+        self.assertIn(self.QUEUED, first,
+                      'the queued message was not in the first turn input:\n'
+                      + first[:600])
+
+    def test_mail_queued_for_an_idle_agent_is_in_its_first_turns_input(self):
+        org = self.seed('firstturn-idle')
+        org.node('mailed').pop('inflight', None)
+        self.queue_a_batch(org, 'mailed')
+        turns = self.first_turn_inputs('firstturn-idle', 'mailed')
+        self.assertTrue(turns, 'the restarted agent never took a turn at all')
+        self.assertIn(self.QUEUED, turns[0][1], turns[0][1][:600])
+
+    def test_a_message_queued_across_a_restart_is_delivered_exactly_once(self):
+        org = self.seed('firstturn-once')
+        self.queue_a_batch(org, 'worker')
+        first = self.first_turn_inputs('firstturn-once', 'worker')
+        self.assertEqual(sum(self.QUEUED in t for _, t in first), 1,
+                         [t[:200] for _, t in first])
+        # a SECOND restart must not re-present it: the batch was confirmed and
+        # the durable drain demand retired with it
+        again = self.first_turn_inputs('firstturn-once', 'worker')
+        self.assertEqual(sum(self.QUEUED in t for _, t in again), 0,
+                         [t[:200] for _, t in again])
 
 
 if __name__ == '__main__':

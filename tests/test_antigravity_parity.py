@@ -13,6 +13,9 @@ from unittest import mock
 _root = tempfile.TemporaryDirectory(prefix="agy-parity-tests-")
 os.environ["ORGTREE_DATA"] = _root.name
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine/backend"))
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from orgtree import antigravityrun as agy, antigravity_session as session
 from orgtree import ledger, supervisor as sup
 from orgtree import apikey_accounts, appsettings, providers, registry, store, tokens, warmpool

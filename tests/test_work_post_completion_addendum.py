@@ -59,6 +59,9 @@ Path(os.environ['HOME']).mkdir()
 os.environ['ORGTREE_V2_TOKEN'] = 'post-done-only'
 for k in ('ORGTREE_V1_ROOT', 'ORGTREE_V1_DATA_ROOT', 'ORGTREE_V2_PORT'):
     os.environ.pop(k, None)
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.launch import load_app                                   # noqa: E402
 load_app()
 from orgtree import events, ledger, store                            # noqa: E402,F401
@@ -283,11 +286,28 @@ class NothingBecomesIncomplete(AddendumBase):
     """§4 — the one property the ticket says must never be given up."""
 
     def test_the_path_has_no_status_argument_at_all(self):
+        """⚠ `attention` WAS ON THIS LIST UNTIL W-flag-clear, and came off it
+        deliberately. What this test protects is that a finished item has no
+        route through `addendum` back to being INCOMPLETE — and attention is
+        orthogonal to completeness: the argument only ever takes a flag DOWN
+        (raising is refused in the ledger), so nothing here becomes reachable
+        that was not before. The narrowness that matters is unchanged, and
+        tests/test_work_attention_retract.py pins the new surface."""
         import inspect
         sig = inspect.signature(self.org.work_addendum)
-        for forbidden in ('status', 'reopen', 'owner', 'attention',
-                          'reviewer', 'accept'):
+        for forbidden in ('status', 'reopen', 'owner', 'reviewer', 'accept',
+                          'acceptance', 'evidence', 'title', 'objective'):
             self.assertNotIn(forbidden, sig.parameters)
+
+    def test_attention_is_the_one_addition_and_it_cannot_raise(self):
+        """The replacement assertion for the line above: the widening is
+        exactly one direction wide."""
+        wid = self.landed_item()
+        with self.assertRaises(ledger.LedgerError) as e:
+            self.org.work_addendum(self.agent, wid, 'note', attention=True,
+                                   attention_reason='look at this')
+        self.assertIn('cannot RAISE', str(e.exception))
+        self.assertIsNone(self.item(wid)['manual_attention'])
 
     def test_an_open_item_is_refused(self):
         it = self.org.work_create(self.agent, 'Live work', 'problem, solution',

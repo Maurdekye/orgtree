@@ -22,6 +22,9 @@ from unittest.mock import patch
 
 _root = tempfile.TemporaryDirectory(prefix="staff-opts-", ignore_cleanup_errors=True)
 os.environ.update(ORGTREE_DATA=_root.name, ORGTREE_V2_TOKEN="staff-opts-tests")
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.launch import load_app
 app, *_ = load_app()
 from fastapi.testclient import TestClient
@@ -272,9 +275,12 @@ class StaffingOptionsRouteTests(unittest.TestCase):
         silently ignored — the second is what makes a stale menu safe."""
         seen = {}
         real = api._staff_call
-        def spy(org, slug, actor, args, drive, renamed, warnings):
+        # only `args` is read here, so the rest is forwarded blind — a spy
+        # that re-declares the whole signature breaks on any change to it and
+        # reports that as a failure of the door it is watching
+        def spy(org, slug, actor, args, *rest, **kw):
             seen.update(args)
-            return real(org, slug, actor, args, drive, renamed, warnings)
+            return real(org, slug, actor, args, *rest, **kw)
         choice = {"value": "claude/primary", "id": "default", "provider": "claude",
                   "ambient": True, "email": None}
         with patch.object(staffcache, "tier_accounts", return_value=[choice]), \

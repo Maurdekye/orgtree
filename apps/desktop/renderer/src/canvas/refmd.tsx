@@ -26,6 +26,7 @@
 //     destroy the reader's text selection every time an unrelated poll
 //     landed. `linkifyRefs` compares first and returns having touched no node.
 
+import { AGENT_NAV_ATTR } from './agentnav'
 import { useEffect, useRef } from 'react'
 import { resolveRef, refToken } from './reflinks'
 import type { RefOutcome, RefWorld, ResolvedRef } from './reflinks'
@@ -89,6 +90,9 @@ function chipEl(doc: Document, r: ResolvedRef,
   el.setAttribute(OUT, r.outcome)
   el.setAttribute(SIG, chipSig(r, live))
   if (r.ref.kind === 'agent') el.setAttribute('data-copy-agent-name', r.ref.id)
+  // the marker tracks `live`, the same predicate the element type does: an
+  // inert chip is not a navigation target and does not gain the agent's menu
+  if (live && r.ref.kind === 'agent') el.setAttribute(AGENT_NAV_ATTR, r.ref.id)
   if (r.copyTitle !== undefined) el.setAttribute('data-copy-ticket-title', r.copyTitle)
   // an agent's CURRENT model, the same claim its name carries elsewhere. No
   // tier means no icon and a working control — an unknown model is not an

@@ -40,7 +40,7 @@ const STAGES: (string | undefined)[] = [
   'stranded', 'queued', 'requested', 'claimed', 'acked', 'turn', undefined,
 ]
 
-const frames = (el: HTMLElement) => el.querySelectorAll('.notice-bubble').length
+const frames = (el: HTMLElement) => el.querySelectorAll('.passive').length
 
 const mail = (kind: string, stage: string | undefined): PendingMail => ({
   id: 'm1', from: 'user', kind, body: 'Backend restarted', delivering: true,
@@ -124,8 +124,8 @@ test('a pending notice is still distinguishable from a DELIVERED notice', async 
     } as never), (el: HTMLElement) => el)
   const pending = await mountView(row(mail('notice', 'acked')), (el: HTMLElement) => el)
   try {
-    assert.equal(pending.el.querySelectorAll('.notice-bubble').length, 1)
-    assert.equal(settled.el.querySelectorAll('.notice-bubble').length, 1)
+    assert.equal(pending.el.querySelectorAll('.passive').length, 1)
+    assert.equal(settled.el.querySelectorAll('.passive').length, 1)
     // the distinction: the receipt line, present only while undelivered
     assert.equal(pending.el.querySelectorAll('.pend-tag').length, 1,
       'the pending copy carries its delivery receipt')
@@ -145,10 +145,11 @@ test('the pending wrapper adds no dress of its own around the card', async () =>
   try {
     const wrapper = view.el.querySelector('.pendrow')!
     assert.ok(wrapper, 'the pending wrapper renders')
-    assert.equal(wrapper.classList.contains('notice-bubble'), false,
+    assert.equal(wrapper.classList.contains('passive'), false,
       'the WRAPPER must not carry the kind marker — the card it wraps already '
       + 'draws it, and a copy here is the double border')
-    assert.ok(wrapper.querySelector('.notice-bubble'),
+    assert.equal(wrapper.classList.contains('notice-bubble'), false)
+    assert.ok(wrapper.querySelector('.passive'),
       'the marker lives on the card inside')
   } finally { await view.unmount() }
 })

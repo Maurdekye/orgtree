@@ -11,6 +11,8 @@ import unittest
 from unittest.mock import patch
 from pathlib import Path
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("python_verification_runner", ROOT / "tools" / "run-python-verification.py")
@@ -151,6 +153,165 @@ if __name__ == '__main__':
 """
         [result] = self.execute(self.module("teardown.py", source))
         self.assertEqual(result.phase, "teardown_failure")
+
+    # --------------------------------------------------- the result-protocol line
+    #
+    # The child reports its phase and provenance on a line of stdout beginning
+    # with a marker. A module whose last write had no trailing newline used to
+    # leave that marker mid-line, so the payload was never found: the run
+    # reported EMPTY import_provenance -- the one field that proves which build
+    # was tested -- and leaked the whole protocol line into the reported stdout.
+    # `print("x", end="")` was enough, with no encoding involved.
+
+    MARKER = "__ORGTREE_VERIFY_RESULT__"
+
+    def test_unterminated_final_write_still_reports_provenance(self):
+        path = self.module(
+            "unterminated.py",
+            "import sys\nprint('a normal line')\nsys.stdout.write('tail with no newline')\n")
+        [result] = self.execute(path)
+        self.assertEqual(result.phase, "pass")
+        # The defect, pinned: this was {} before the fix.
+        self.assertIn("orgtree", result.import_provenance)
+        self.assertIn("engine", result.import_provenance)
+        # And the protocol line must not be reported as the module's output.
+        self.assertEqual(result.stdout, "a normal line\ntail with no newline")
+        self.assertNotIn(self.MARKER, result.stdout)
+
+    def test_a_marker_the_module_prints_itself_does_not_win(self):
+        """The rule is LAST marker line wins, and it is a rule, not an accident.
+
+        The child emits its own marker after the module has finished, so a
+        module's copy -- a test covering this protocol, a log echoing it -- can
+        only ever appear earlier. Anything the module claims is overridden
+        rather than trusted.
+        """
+        forged = json.dumps({"phase": "skip", "marker": "skip",
+                             "import_provenance": {"orgtree": "C:/Program Files/forged"}})
+        path = self.module(
+            "forged_marker.py",
+            f"print({self.MARKER + forged!r})\nprint('after the forgery')\n")
+        [result] = self.execute(path)
+        # The forged payload claimed skip; the real one says pass.
+        self.assertEqual(result.phase, "pass")
+        self.assertNotIn("forged", json.dumps(result.import_provenance))
+        self.assertTrue(str(result.import_provenance["orgtree"]).startswith(str(ROOT)))
+        # Every marker line is stripped from the reported stdout, the module's
+        # own included -- unchanged behaviour, asserted so it stays that way.
+        self.assertEqual(result.stdout, "after the forgery")
+
+    def test_a_forged_marker_left_unterminated_does_not_win_either(self):
+        """The nastier ordering: the forgery is the module's last write, so the
+        child's separator turns it into its own line. Last-wins still holds."""
+        forged = json.dumps({"phase": "skip", "marker": "skip",
+                             "import_provenance": {"orgtree": "C:/Program Files/forged"}})
+        path = self.module(
+            "forged_tail.py",
+            f"import sys\nsys.stdout.write({self.MARKER + forged!r})\n")
+        [result] = self.execute(path)
+        self.assertEqual(result.phase, "pass")
+        self.assertNotIn("forged", json.dumps(result.import_provenance))
+        self.assertEqual(result.stdout, "")
+
+    def test_output_that_already_parsed_is_reported_byte_identical(self):
+        """The separator the child now writes must not show up in the report.
+
+        Without the parent dropping exactly one empty line before the marker,
+        every already-parsing module would gain a trailing blank line -- a
+        change to a field callers read, for a fix they did not ask for.
+        """
+        path = self.module("ordinary.py", "print('one')\nprint('two')\n")
+        [result] = self.execute(path)
+        self.assertEqual(result.stdout, "one\ntwo")
+
+    def test_a_blank_line_the_module_printed_itself_survives(self):
+        """Only the child's own separator is dropped, not the module's blanks."""
+        path = self.module("blanks.py", "import sys\nsys.stdout.write('one\\n\\n')\n")
+        [result] = self.execute(path)
+        self.assertEqual(result.stdout, "one\n")
+
+    # ------------------------------------------------------- child stream decoding
+    #
+    # A byte the ambient Windows code page has no character for used to kill the
+    # reader thread, leave the stream None, and take the WHOLE run's JSON with
+    # it -- every module's result, not just the noisy one -- with a traceback
+    # that named no module. A caller reading the exit code saw "the tests
+    # failed"; a caller parsing the JSON got nothing. The bytes below are
+    # undefined in cp1252, so these tests fail on the unfixed runner.
+
+    UNDECODABLE = r"b'\x81\x8d\x90\x9d'"
+
+    def test_child_stderr_that_the_code_page_cannot_decode_keeps_the_verdict(self):
+        source = (
+            "import sys, unittest\n"
+            f"sys.stderr.buffer.write({self.UNDECODABLE})\n"
+            "sys.stderr.buffer.flush()\n"
+            "class T(unittest.TestCase):\n"
+            "    def test_named_failure(self):\n"
+            "        self.assertEqual(1, 2)\n"
+            "unittest.main()\n"
+        )
+        [result] = self.execute(self.module("noisy_stderr.py", source))
+        # The module's REAL verdict, which is what the crash destroyed.
+        self.assertEqual(result.phase, "assertion_failure")
+        self.assertEqual(result.failure_id, "noisy_stderr.py:assertion_failure")
+        self.assertIn("test_named_failure", result.stderr)
+        # The undecodable bytes arrive as replacement characters rather than
+        # ending the run. Asserting this pins `errors="replace"`: dropping it
+        # for a strict decode brings the crash straight back.
+        self.assertIn("�", result.stderr)
+        self.assertIsInstance(result.stdout, str)
+
+    def test_child_stdout_that_the_code_page_cannot_decode_keeps_provenance(self):
+        # Newline-terminated, which is what a noisy module actually emits. The
+        # child's result protocol is a line prefix on this same stream, so an
+        # unterminated write would run into it and cost the run its provenance
+        # -- true of any unterminated write, ASCII included, and not this
+        # ticket's defect. Recorded on the item rather than changed here.
+        source = (
+            "import sys\n"
+            f"sys.stdout.buffer.write({self.UNDECODABLE} + b'\\n')\n"
+            "sys.stdout.buffer.flush()\n"
+        )
+        [result] = self.execute(self.module("noisy_stdout.py", source))
+        self.assertEqual(result.phase, "pass")
+        self.assertIn("�", result.stdout)
+        # Proves the noise did not cost the run its provenance.
+        self.assertIn("orgtree", result.import_provenance)
+
+    def test_a_stream_that_was_never_captured_is_reported_not_fatal(self):
+        """The second half of the defect, which the encoding fix alone hides.
+
+        `subprocess` reads each pipe on its own thread; a thread that dies
+        leaves the attribute None instead of raising, and the failure surfaces
+        later as a TypeError that destroys every module's result. With the
+        decode fixed, a dead reader is no longer reachable from a stray byte --
+        so this drives the None directly, to keep the guard under test rather
+        than trusting an unreachable branch.
+        """
+        real = runner.subprocess.run
+
+        def lost_streams(*args, **kwargs):
+            completed = real(*args, **kwargs)
+            return runner.subprocess.CompletedProcess(
+                completed.args, completed.returncode, stdout=None, stderr=None)
+
+        path = self.module("quiet.py", "print('hello')\n")
+        # Select the interpreter and the data root BEFORE patching: the
+        # interpreter probe shells out too, and patching around it would test
+        # the probe's own guard instead of this one.
+        interpreter = runner.select_interpreter(
+            ROOT, os.environ.get("ORGTREE_V2_PYTHON") or sys.executable)
+        run_root, _ = runner.make_data_root(ROOT, str(self.data))
+        with patch.object(runner.subprocess, "run", side_effect=lost_streams):
+            [result] = runner.run_modules(
+                [path], repo_root=ROOT, interpreter=interpreter, data_root=run_root)
+        self.assertIn("was not captured", result.stdout)
+        self.assertIn("was not captured", result.stderr)
+        # A missing stream must not read as a module that printed nothing, and
+        # the module must still get a verdict rather than taking the run down.
+        self.assertNotEqual(result.stdout, "")
+        self.assertIn(result.phase, {"pass", "execution_failure"})
 
 
 if __name__ == "__main__":

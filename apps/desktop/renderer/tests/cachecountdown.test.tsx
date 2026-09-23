@@ -96,8 +96,17 @@ test('at the boundary the badge stops being green by itself', async () => {
     // depending on whether the UI or the backend noticed it first.
     assert.equal(state(view.el), 'cold')
     assert.equal(text(view.el), 'cache ×')
-    assert.match(badge(view.el)?.getAttribute('aria-label') ?? '',
-      /passed its derived expiry/)
+    // ⚠ AND THE TOOLTIP AGREES WITH THE COLOUR. The forecast's readiness is
+    // still `ready` here — the backend has not re-polled — so the phrase it
+    // would produce on its own is "cache ready", under a red ×. The elapsed
+    // countdown overrides it with the expired cause's phrase, which is what
+    // the next poll will say. The old wording ("passed its derived expiry")
+    // was a sentence appended below the ten-line blurb; the 2026-09-17 cut
+    // replaced the blurb with the phrase asserted here.
+    assert.equal(badge(view.el)?.getAttribute('aria-label'),
+      'cache not ready — the entry expired')
+    assert.doesNotMatch(badge(view.el)?.getAttribute('aria-label') ?? '',
+      /cache ready/, 'a red badge wore a green tooltip')
   } finally { await view.unmount(); mock.timers.reset() }
 })
 

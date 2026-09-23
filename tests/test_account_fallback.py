@@ -2,8 +2,11 @@
 import os
 import tempfile
 import unittest
+import uuid
 from unittest.mock import patch
 
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 class AccountFallbackSettingsTests(unittest.TestCase):
     @classmethod
@@ -16,9 +19,16 @@ class AccountFallbackSettingsTests(unittest.TestCase):
 
     def setUp(self):
         self.org = self.ledger.Org.create("fallback-settings")
+        # Built by hand rather than through Org._new_node, so it has to carry
+        # the keys _new_node ALWAYS sets. `session_id` is one of them, and
+        # omitting it made account fallback raise KeyError deep inside
+        # _archive_session_in_place -- which _auto_resume_org swallows as
+        # "account fallback deferred", so the switch silently did not happen
+        # and the failure read like a product bug rather than a thin fixture.
         self.org.nodes["worker"] = {"state": "live", "parent": None,
             "model": "opus", "scope": {"tools": {}, "add_dirs": []},
-            "grant": 10, "free": 10, "generation": 1}
+            "grant": 10, "free": 10, "generation": 1,
+            "session_id": str(uuid.uuid4()), "seat_id": str(uuid.uuid4())}
 
     def test_absent_inherits_default_off_and_live_org_changes(self):
         self.assertFalse(self.org.account_fallback_for("worker"))
@@ -313,14 +323,30 @@ class AccountFallbackSettingsTests(unittest.TestCase):
         from engine.backend.orgtree import supervisor
         def step(slug):
             if slug == "broken": raise RuntimeError("fixture failure")
+        # REPAIRED 2026-09-19, intent unchanged. This test never executed --
+        # the module had no __main__ block -- and while it sat dead the loop
+        # moved from `store.list_orgs()` to `store.cached_list()` and grew a
+        # cheap read-only gate that calls _auto_resume_org only for an org
+        # whose cached snapshot actually shows a freeze. Patching
+        # `self.store.list_orgs` therefore patched nothing the loop reads, and
+        # the real cached_list returned the fixture org instead.
+        snapshot = self.ledger.Org.create("snapshot-for-gate")
+        snapshot.nodes["n"] = {"state": "live", "parent": None, "model": "opus",
+            "scope": {"tools": {}, "add_dirs": []}, "grant": 0, "free": 0,
+            "generation": 1, "session_id": str(uuid.uuid4()),
+            "frozen": {"at": "2026-09-11T00:00:00Z", "limit": True}}
         with patch.object(supervisor, "_auto_resume_started", False), \
              patch.object(supervisor.threading, "Thread") as thread, \
              patch.object(supervisor.time, "sleep", side_effect=[None, StopIteration]), \
-             patch.object(self.store, "list_orgs", return_value=[{"slug": "broken"}, {"slug": "healthy"}]), \
+             patch.object(supervisor.store, "cached_list", return_value=[{"slug": "broken"}, {"slug": "healthy"}]), \
+             patch.object(supervisor.store, "cached_org", return_value=snapshot), \
+             patch.object(supervisor, "_invariant_sweep_org", return_value=None), \
              patch.object(supervisor, "_auto_resume_org", side_effect=step) as tick:
             supervisor.start_auto_resume_loop()
             with self.assertRaises(StopIteration):
                 thread.call_args.kwargs["target"]()
+            # "broken" raises and the loop must still reach "healthy": that
+            # per-org try/except is the whole point of this test.
             self.assertEqual([c.args[0] for c in tick.call_args_list], ["broken", "healthy"])
 
     def test_active_claude_window_and_pending_manual_switch_prevent_fallback(self):
@@ -386,3 +412,7 @@ class AccountFallbackSettingsTests(unittest.TestCase):
         n = self.store.load_org("fallback-settings").node("worker")
         self.assertEqual(n["account"], source["id"])
         self.assertIn("frozen", n)
+
+
+if __name__ == "__main__":
+    unittest.main()

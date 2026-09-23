@@ -263,21 +263,82 @@ def conversation_path(cid: str, env: dict[str, str]) -> Path | None:
 
 
 def _identity(path: Path) -> tuple[int, int]:
+    if not path.is_file():
+        raise ValueError("database not a file")
     stat = path.stat()
-    if not path.is_file() or Path(str(path) + "-wal").exists() or Path(str(path) + "-journal").exists():
-        raise ValueError("database not a stable standalone file")
     return stat.st_dev, stat.st_ino
 
 
+def _live(path: Path) -> bool:
+    """Is the CLI holding this database open right now?
+
+    A `-wal` (or legacy `-journal`) sidecar means committed rows may live
+    OUTSIDE the main file. It does NOT mean the database is unreadable — it
+    is the ORDINARY state of a SQLite file that some process has open, which
+    on this lane is the ordinary state of the conversation we care about.
+    """
+    return (Path(str(path) + "-wal").exists()
+            or Path(str(path) + "-journal").exists())
+
+
 class _Read:
+    """A bounded read-only snapshot of one conversation store.
+
+    ⚠ WHY THERE ARE TWO OPEN MODES, measured live on `notice-toggle`
+    2026-09-17. This used to open `immutable=1` unconditionally and REFUSE any
+    database carrying a sidecar (`_identity` raised "not a stable standalone
+    file"). `immutable=1` is the fastest possible read — no locking, no shm,
+    no interference with the CLI that owns the file — but it reaches that
+    speed by ignoring the WAL entirely, so on a live database it would read a
+    stale main file and silently miss every committed row still in the WAL.
+    The refusal was the correct guard for that mode.
+
+    It was also fatal, because the CLI holds its conversation in WAL mode FOR
+    THE DURATION OF A TURN — which is precisely when `reconcile` re-opens it.
+    Measured: `data/antigravity/provenance.ndjson` held 108 outcomes over six
+    days and every one was `declined`; the guard this module exists to apply
+    had never once run in production, and an agent sat frozen for 22 hours on
+    a quota sentence its own conversation store showed was historical.
+
+    So the sidecar chooses the READ STRATEGY instead of vetoing the read:
+      · no sidecar — `immutable=1`, exactly as before, plus the unchanged
+        size/mtime equality check that proves the file never moved under us.
+      · sidecar    — plain `mode=ro`, which HONOURS the WAL, inside one
+        explicit read transaction so every `rows()` call in a session sees a
+        single committed snapshot. Size and mtime are then expected to change
+        (the writer is still working) and are deliberately NOT compared;
+        SQLite's snapshot isolation is what makes the read coherent, and the
+        identity check below still catches the file being REPLACED.
+    Either way this never writes, and a database it cannot read coherently
+    still declines rather than guessing.
+    """
+
     def __init__(self, path: Path, cid: str):
         self.path = path
         self.identity = _identity(path)
         self.before = path.stat()
-        self.db = sqlite3.connect(path.as_uri() + "?mode=ro&immutable=1", uri=True, timeout=.1)
+        self.live = _live(path)
+        if self.live:
+            # isolation_level=None: take manual control, so the BEGIN below is
+            # OUR read transaction and not one the driver opens and closes
+            # around each statement.
+            self.db = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True,
+                                      timeout=.5, isolation_level=None)
+        else:
+            self.db = sqlite3.connect(path.as_uri() + "?mode=ro&immutable=1",
+                                      uri=True, timeout=.1)
         self.work = 0
         self.bytes = 0
         self.db.set_progress_handler(self._budget, 1000)
+        if self.live:
+            try:
+                # DEFERRED: the snapshot is taken at the first read below and
+                # held until close(), so the boundary row and the interval
+                # cannot be read from two different versions of the file.
+                self.db.execute("BEGIN")
+            except Exception:
+                self.db.close()
+                raise
         try:
             rows = self.db.execute("SELECT cascade_id FROM trajectory_meta LIMIT 2").fetchall()
             if rows != [(cid,)]:
@@ -291,9 +352,27 @@ class _Read:
         return int(self.work > 200_000)
 
     def close(self) -> None:
+        if self.live:
+            # end the read transaction before dropping the connection, so the
+            # writer's next checkpoint is not held up by our snapshot
+            try:
+                self.db.execute("ROLLBACK")
+            except sqlite3.Error:
+                pass
         self.db.close()
+        # REPLACEMENT is fatal in both modes: a different inode means the rows
+        # just read describe a file that is no longer the conversation.
+        if _identity(self.path) != self.identity:
+            raise ValueError("database changed during read")
+        if self.live:
+            return
+        # Only the immutable read needs this. There the file was asserted to
+        # be stable, so any size or mtime movement means the assertion was
+        # false and the snapshot may be torn. On the live path the writer is
+        # expected to move both, and snapshot isolation — not stillness — is
+        # what made the read coherent.
         after = self.path.stat()
-        if (_identity(self.path) != self.identity or after.st_size != self.before.st_size
+        if (after.st_size != self.before.st_size
                 or after.st_mtime_ns != self.before.st_mtime_ns):
             raise ValueError("database changed during read")
 
@@ -352,10 +431,34 @@ class Boundary:
     errors: tuple[tuple[int, str, str], ...]
 
 
+#: why the LAST capture on THIS thread did not return a boundary, so
+#: `reconcile`'s own record can name it.
+#:
+#: THREAD-LOCAL, NOT MODULE-GLOBAL: antigravity turns run concurrently across
+#: nodes, and one node's decline must never be recorded against another's turn.
+#: capture() and reconcile() for a given turn run on the same thread —
+#: antigravityrun holds both around one Popen on one run object.
+#:
+#: ⚠ STAMPED ON EVERY EXIT, INCLUDING SUCCESS (peer review, freeze-provenance
+#: 2026-09-17). Setting it only on the decline paths left the previous turn's
+#: reason lying on the thread, so a turn that reached reconcile with no
+#: boundary WITHOUT having called capture would be recorded under a confident,
+#: wrong predicate. Stamping unconditionally makes a stale read structurally
+#: impossible rather than merely unlikely, and a thread that never captured at
+#: all is named as exactly that instead of borrowing someone else's answer.
+_capture = threading.local()
+_NO_CAPTURE = "no_capture_on_thread"
+
+
+def _capture_reason() -> str:
+    return str(getattr(_capture, "reason", _NO_CAPTURE))
+
+
 def capture(cid: str | None, env: dict[str, str]) -> Boundary | None:
     """Best effort, before Popen: never fail a turn for unavailable evidence.
     Says once, content-free, whether evidence was captured and if not why."""
     reader = None
+    _capture.reason = _NO_CAPTURE
     try:
         if not cid:
             raise _Decline("no_conversation")
@@ -381,11 +484,14 @@ def capture(cid: str | None, env: dict[str, str]) -> Boundary | None:
             raise _Decline("no_historical_quota_error", boundary=boundary.index)
         _emit(f"capture: captured boundary={boundary.index} historical_errors={len(errors)}"
               f" newest_error_step={errors[0][0]}")
+        _capture.reason = "captured"
         return boundary
     except _Decline as d:
+        _capture.reason = d.reason
         _emit(f"capture: none reason={d.reason}{_fmt(d.detail)}")
         return None
     except (OSError, sqlite3.Error, ValueError, IndexError, TypeError) as exc:
+        _capture.reason = "exception_" + type(exc).__name__
         _emit(f"capture: none reason=exception:{type(exc).__name__}")
         return None
     finally:
@@ -400,7 +506,16 @@ def reconcile(boundary: Boundary | None, prompt: str, cid: str | None,
     reader = None
     try:
         if boundary is None:
-            raise _Decline("no_boundary")
+            # ⚠ NAME WHICH capture() PREDICATE SAID NO. `no_boundary` on its own
+            # was a black hole: it is this function's FIRST test, so it swallowed
+            # every capture outcome — the benign majority (a conversation that
+            # has never seen a quota error, so there is nothing to match against)
+            # and the real failures alike, and the two are indistinguishable in
+            # the record. Measured 2026-09-17: 100 of 108 retained outcomes were
+            # a bare `no_boundary`, which is why nobody could tell that this
+            # module had never once fired. capture()'s reason is its own code,
+            # never conversation content, so it is safe to carry here.
+            raise _Decline("no_boundary_" + _capture_reason())
         if cid != boundary.cid or result.get("conversation_id") != cid:
             raise _Decline("conversation_mismatch")
         if result.get("status") != "ERROR":

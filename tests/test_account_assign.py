@@ -9,6 +9,8 @@ import time
 import unittest
 
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 class AccountAssignTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -121,15 +123,16 @@ class AccountAssignTests(unittest.TestCase):
             self.supervisor.assign_account("as-scope", "root", keyrow["id"],
                                            actor="USER")
 
-    def test_busy_node_refused_session_boundary(self):
+    def test_busy_node_queues_session_boundary(self):
         row = self._row()
         self._org("as-busy")
         st = self.supervisor.state("as-busy", "root")
         st["busy"] = True
         try:
-            with self.assertRaises(RuntimeError):
-                self.supervisor.assign_account("as-busy", "root", row["id"],
-                                               actor="USER")
+            out = self.supervisor.assign_account("as-busy", "root", row["id"],
+                                                 actor="USER")
+            self.assertTrue(out["queued"])
+            self.assertEqual(self.store.load_org("as-busy").node("root").get("pending_account")["account"], row["id"])
         finally:
             st["busy"] = False
 

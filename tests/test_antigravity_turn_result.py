@@ -65,6 +65,8 @@ USAGE = {"input_tokens": 1200, "output_tokens": 34, "thinking_tokens": 0,
 CLOSING = "breadcrumbs.md updated."
 
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 class AntigravityTurnResultTests(unittest.TestCase):
     """Each test spawns one fake `agy` and drives one real turn through it."""
 

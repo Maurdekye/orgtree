@@ -7,6 +7,8 @@ import unittest
 _data = tempfile.TemporaryDirectory(prefix="orgtree-next-action-routing-")
 os.environ["ORGTREE_DATA"] = _data.name
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.backend.orgtree import ledger, supervisor  # noqa: E402
 
 

@@ -1,4 +1,5 @@
 import { transcriptViewport } from '../transcriptViewport'
+import { agentNavProps } from './agentnav'
 import { HaltControl, HaltStatus } from './haltcontrol'
 import { resolveRef } from './reflinks'
 import { readReply, replyContext, replyFromRow, replyWire, storeReply } from '../eventReply'
@@ -10,7 +11,9 @@ import { foldKeysOf, FoldProvider, sysFoldKey, thoughtFoldKey, toolFoldKey, useF
 import { useChangedState } from '../changedstate'
 import { messageCopyText, toolCallCopyText, toolResultCopyText } from './copytext'
 import type { MouseEvent as ReplyMouseEvent } from 'react'
-import { discardAllRecoverableDrafts, discardRecoverableDraft, readAttachments, recoverableDrafts, storeAttachments } from '../draftstore'
+import { readAttachments, storeAttachments } from '../draftstore'
+import { absorbStrandedDrafts, readHistory, recordSent } from '../composerhistory'
+import type { HistoryEntry } from '../composerhistory'
 import { DeskSlot } from './deskhosts'
 import { PopoutButton, PopoutWindowControls, useSurface, useSurfaceDocument } from '../popout'
 // canvas/desk.tsx — the desk: DeskChat (the zoomed-in per-agent chat window,
@@ -37,13 +40,16 @@ import { AttachThumb, fmtBytes, ImgCardCaption, isImg } from './img'
 import { openLightbox } from './lightbox'
 import PushPinIcon from '@mui/icons-material/PushPinOutlined'
 import {
-  ArrowDownIcon, ArrowUpIcon, AutorenewIcon, CloseIcon, DocIcon, DotIcon,
+  ArrowDownIcon, ArrowUpIcon, AttachIcon, AutorenewIcon, CloseIcon, DocIcon, DotIcon,
   DownloadIcon, EditIcon, EyeIcon, FileIcon, FolderIcon, FrozenIcon,
   DocketIcon, HearingIcon, LayersIcon, LockIcon, MailIcon, NotificationsActiveIcon,
   NotificationsIcon, PlayIcon, PsychologyIcon,
   SettingsIcon, SparkIcon, StopIcon, WarnIcon,
 } from '../icons'
-import { isNoticeArmed, setNoticeArmed, toggleNoticeArmed, useNoticeArmed } from '../noticestore'
+import {
+  isChatActive, isNoticeArmed, registerChat, setActiveChatKey, setNoticeArmed,
+  toggleNoticeArmed, unregisterChat, useNoticeArmed,
+} from '../noticestore'
 import { ago, ALL_PRESENT, ALL_TIERS, anyTierSeat, CODEX_TIERS, CopyIcon, EXTERN, fmtCredits, freezeKind, FREEZE_LABEL, ANTIGRAVITY_TIERS, isOpenRouterTier, md, openrouterTierIds, PROVIDER_LABEL, providerOf, queuedSwitchTitle, reportedLabel, stateLabel, TIER_LETTER, tierCapabilityNotes, tierLabel, tierShown, USER, useHideRetired, usePolled } from './shared'
 import { closeIfCentred, ModalOverPins, PinFrame } from './modalpin'
 import type { ProviderPresence } from './shared'
@@ -250,64 +256,47 @@ export function RouteBadge({ route }: { route?: CodexRouteInfo | null }) {
  *  locator for the same reason.
  *
  *  THE VISIBLE TEXT IS THE CANONICAL ACCOUNT ID and nothing else — the card
- *  is a glance answer to "which account is this turn on". The rest is
- *  revealed on hover or keyboard focus.
+ *  is a glance answer to "which account is this turn on". Hovering adds the
+ *  email, and that is the whole of the detail.
  *
- *  ⚠ THAT REVEAL IS A REAL ELEMENT, NOT A `title` ATTRIBUTE, and the
- *  difference is the requirement. A native tooltip is shown by the browser on
- *  MOUSE HOVER ONLY — no engine renders one for a keyboard-focused element —
- *  so `title` alone satisfies exactly half of "on hover or keyboard focus"
- *  while looking like it satisfies both. The detail therefore lives in a
- *  sibling `.serving-account-tip` that the stylesheet reveals on `:hover` AND
- *  `:focus-visible`, the same construction `.cbar-tip` and the edge-jump
- *  labels already use, and `servingaccount.test.tsx` asserts BOTH halves of
- *  that CSS selector against the shipped stylesheet.
+ *  ⚠ THE DETAIL IS AN ORDINARY `title` (user ruling 2026-09-17). It used to
+ *  be a custom `.serving-account-tip` panel listing account, provider, label,
+ *  email, sign-in and standing, revealed on `:hover` and `:focus-visible`;
+ *  the user asked for that panel gone and a normal hover tooltip carrying the
+ *  bare minimum — the id and the email — in its place. The panel, its CSS and
+ *  the four fields it alone carried are therefore removed rather than moved.
  *
- *  It is a `<button>` so keyboard focus can land on it at all — a `<span>`
- *  takes no tab stop, so a focus-revealed tip on one would be unreachable.
- *  `type="button"` and the stopped pointerdown keep it from submitting
- *  anything or swallowing the press that focuses the agent — the same two
- *  guards `ActionBadge` uses.
+ *  ⚠ ONE COMPONENT SERVES BOTH SURFACES. The card's badge row (cards.tsx) and
+ *  the desk header (below) mount this same component, so the plain `title`
+ *  here is the tooltip on both, and there is no second path to keep in step.
  *
- *  THE TIP IS `aria-hidden`, deliberately: its exact text is already the
- *  button's `aria-label`, so exposing both would announce the whole detail
- *  twice. Sighted keyboard users get the visible surface, assistive users get
- *  the label, and neither reads a credential — every field is whitelisted
- *  below and nothing else on the object is touched. */
+ *  A native tooltip is a MOUSE-HOVER surface — no engine renders one for a
+ *  keyboard-focused element — so the keyboard reader is served by the
+ *  `aria-label`, which now carries exactly the same short text. It stays a
+ *  `<button>` so focus can land on it at all; `type="button"` and the stopped
+ *  pointerdown keep it from submitting anything or swallowing the press that
+ *  focuses the agent — the same two guards `ActionBadge` uses. */
 export function ServingAccountBadge({ account }: { account?: ServingAccount | null }) {
   if (!account) return null
   const display = account.display || account.id
-  // ⚠ A WHITELIST, NOT A SERIALISATION. Only these fields are ever read off
-  // the object, so a field added to the payload later — or one that should
-  // never have been there — cannot reach the DOM through this component.
-  // Each part is omitted when the row does not carry it rather than rendered
-  // as "unknown": an absent address is not an observation, and `unobserved`
-  // auth already says so in its own words.
-  const parts = [
-    `account ${display}`,
-    `provider ${account.provider}`,
-    account.label ? `label ${account.label}` : '',
-    account.email ? `${account.email}` : '',
-    `sign-in ${account.auth}`,
-    `standing ${account.state}`,
-  ].filter(Boolean)
-  const active = account.active !== false
-  const detail = `${active ? 'serving this turn' : 'configured account'} — ${parts.join(' · ')}`
+  // ⚠ A WHITELIST, NOT A SERIALISATION. Only these two fields are ever read
+  // off the object, so a field added to the payload later — or one that
+  // should never have been there — cannot reach the DOM through this
+  // component. `auth` and `state` below choose a class name and never become
+  // text. The email is OMITTED when the row does not carry it rather than
+  // rendered as "unknown" or as a dangling separator: an absent address is
+  // not an observation.
+  const detail = account.email ? `${display} · ${account.email}` : display
   return (
-    <span className="serving-account-wrap">
-      <button type="button"
-        className={'badge serving-account auth-' + account.auth + ' state-' + account.state}
-        data-serving-account={display}
-        aria-label={detail}
-        onPointerDown={(e) => e.stopPropagation()}
-        onClick={(e) => e.stopPropagation()}>
-        {display}
-      </button>
-      <span className="serving-account-tip" role="presentation" aria-hidden="true">
-        <span className="sa-tip-head">{active ? 'serving this turn' : 'configured account'}</span>
-        {parts.map((p) => <span className="sa-tip-row" key={p}>{p}</span>)}
-      </span>
-    </span>
+    <button type="button"
+      className={'badge serving-account auth-' + account.auth + ' state-' + account.state}
+      data-serving-account={display}
+      title={detail}
+      aria-label={detail}
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}>
+      {display}
+    </button>
   )
 }
 
@@ -379,12 +368,29 @@ export function UsageFreezeStatus({ frozen, variant = 'card' }: {
   const stamp = frozen.until_ts
   const deadline = typeof stamp === 'number' && Number.isFinite(stamp) && stamp > 0
     ? stamp * 1000 : null
+  // ⚠ THE SECOND COUNTDOWN (user ruling 2026-09-17 18:00): "badge shows reset
+  // time (what it does now) until hitting zero, then a new 60s countdown until
+  // wake". The wake instant is LATER than the stated reset by the backend's
+  // clock-skew allowance, and it is published rather than derived — the rule
+  // has an exception (a connection backoff gets none) and lives in one place.
+  const wakeStamp = frozen.wake_ts
+  const wakeDeadline = typeof wakeStamp === 'number' && Number.isFinite(wakeStamp)
+    && wakeStamp > 0 ? wakeStamp * 1000 : null
   const left = useCountdown(deadline)
-  const time = left === null ? null : left <= 0 ? 'reset due' : countdownText(left)
+  const wakeLeft = useCountdown(wakeDeadline)
+  // the stated reset has passed and the wake has not: this is the minute the
+  // badge used to spend saying "reset due" while nothing happened, which is
+  // the whole of what was reported.
+  const waking = left !== null && left <= 0 && wakeLeft !== null && wakeLeft > 0
+  const time = left === null ? null
+    : waking ? countdownText(wakeLeft)
+      : left <= 0 ? 'reset due' : countdownText(left)
   const title = left === null
     ? `Frozen: ${frozen.until || 'reset time unknown'}`
-    : left <= 0 ? 'Frozen: recorded reset reached; awaiting server release'
-      : `Frozen: capacity reset in ${countdownText(left)}; release is controlled by the server`
+    : waking
+      ? `Frozen: capacity reset reached; waking in ${countdownText(wakeLeft)}`
+      : left <= 0 ? 'Frozen: recorded reset reached; awaiting server release'
+        : `Frozen: capacity reset in ${countdownText(left)}; release is controlled by the server`
   return <span className={'usage-freeze-status ' + (variant === 'banner'
     ? 'turn-status-banner frozen' : variant === 'tray' ? 'tray-status' : '')}
     title={title} aria-label={title}>
@@ -855,10 +861,18 @@ export function ProcessLifecycleMark({ warm, live, relaunch, reason, busy,
   </button>
 }
 
-export function McpToolCountMark({ count, last, provider, source, reason,
+export function McpToolCountMark({ count, last, reason,
   readinessState, readinessReason }: {
-  count?: number | null; last?: number | null; provider?: string | null;
-  source?: string | null; reason?: string | null;
+  count?: number | null; last?: number | null; reason?: string | null
+  /** ⚠ ACCEPTED AND DELIBERATELY UNREAD (2026-09-18). `provider` and `source`
+   *  were the tooltip's third line, `provider/source: claude / system/init.tools`,
+   *  and that line was cut as plumbing. They stay in the props because the
+   *  backend still sends both fields and the call site still threads them, so
+   *  removing them would be an API change in a text-only ticket — but nothing
+   *  renders them, and a caller passing them should not expect them to show.
+   *  If they are ever genuinely wanted on screen again, put them somewhere a
+   *  reader would look for them rather than back into this hover. */
+  provider?: string | null; source?: string | null
   readinessState?: string | null; readinessReason?: string | null
 }) {
   const known = typeof count === 'number'
@@ -877,15 +891,46 @@ export function McpToolCountMark({ count, last, provider, source, reason,
   // resolved right now", never "27 right now". Only a node that has never
   // completed a turn — nothing measured, ever — still reads '—'.
   const stale = !known && hasLast
-  const title = [
-    known ? `current callable MCP tools: ${count}`
-      : `current callable MCP tools: unknown${reason ? ` — ${reason}` : ''}`,
-    hasLast ? `last successful turn: ${last}` : 'last successful turn: none',
-    `provider/source: ${provider || 'unknown'} / ${source || 'unavailable'}`,
-    readinessState
-      ? `readiness: ${readinessState}${readinessReason ? ` — ${readinessReason}` : ''}`
-      : '',
-  ].filter(Boolean).join('\n')
+  // ⚠ ONE SHORT LINE, NOT FOUR (user ruling 2026-09-17, extended to this chip
+  // 2026-09-18) — the same cut already applied to the account badge and the
+  // cache forecast in bb6dc2b. This built four lines: the count, the
+  // last-turn count, `provider/source`, and readiness. Two of them are gone
+  // and the other two are down to a clause each.
+  //
+  // WHAT WAS DROPPED, and why each is safe to drop:
+  //   · `current callable MCP tools: 3` — the glyph beside it already reads
+  //     "MCP 3". A tooltip line that only restates the glyph is the clearest
+  //     case there is for cutting.
+  //   · `last successful turn: none` — "none" beside a "—" glyph says the
+  //     same nothing twice. The last-turn count SURVIVES where it is actually
+  //     informative: the `changed` state, where it is the reason the chip
+  //     changed colour, and the stale state, where it is the number shown.
+  //   · `provider/source: claude / system/init.tools` — plumbing. It is the
+  //     exact counterpart of the cache tooltip's `lane/source` line, cut for
+  //     the same reason: it identifies which code path produced the reading,
+  //     which is a developer's question, not a hover hint.
+  //
+  // WHAT WAS KEPT, and why none of it is padding:
+  //   · the `reason` for an unknown count. №21 below is explicit that a blank
+  //     "unknown" was a real user complaint; dropping the reason would walk
+  //     straight back into it.
+  //   · the readiness state and its reason, as a trailing clause. "waiting:
+  //     missing mcp__alpha__one" names a tool the agent is actually short of
+  //     — nothing on the glyph carries it.
+  //   · the words "last turn" on a stale reading. THIS IS THE JUDGEMENT CALL:
+  //     the `~` prefix could have carried it alone, but the comment below has
+  //     to spell out what `~` means, and a notation that needs a comment is
+  //     exactly the thing a hover should say out loud. It costs two words.
+  const plural = (n: number) => `${n} callable MCP tool${n === 1 ? '' : 's'}`
+  const count_ = known
+    ? same ? plural(count) : `${plural(count)} (${last} last turn)`
+    : stale
+      ? `${plural(last as number)} last turn — ${reason || 'not resolved right now'}`
+      : `MCP tool count unknown${reason ? ` — ${reason}` : ''}`
+  const title = count_
+    + (readinessState
+      ? ` · ${readinessState}${readinessReason ? `: ${readinessReason}` : ''}`
+      : '')
   return <span className={'mcp-tool-count '
     + (!known ? (stale ? 'unknown stale' : 'unknown') : same ? 'same' : 'changed')}
     title={title} aria-label={title}>
@@ -1016,52 +1061,97 @@ const readinessOf = (forecast: CacheForecast): Readiness =>
 const readinessCause = (forecast: CacheForecast): string =>
   readinessVerdict(forecast).cause
 
+/** ONE SHORT PHRASE PER READINESS CAUSE (user ruling 2026-09-17).
+ *
+ * This table mirrors `cachecontinuity.READINESS` key for key — every cause the
+ * backend can emit has a phrase here, so no state falls through to a vaguer
+ * one. Each entry is a COMPLETE standalone sentence fragment: it opens with
+ * what the badge is claiming ("cache ready", "cache not ready", "cache
+ * unknown", "no cache yet") and then says why in a few words, because it is
+ * read on its own with no heading above it.
+ *
+ * ⚠ THE OPENING WORDS MUST MATCH THE BADGE'S COLOUR. `cache unknown` belongs
+ * to the grey diagnostics and to nothing else: D-226 made grey an enumerated
+ * fault rather than an absence of opinion, and wording a red as "unknown"
+ * would put the two back together in the reader's head. */
+const CAUSE_PHRASE: Record<string, string> = {
+  // GREEN. The observational context ("observed 4m ago") is appended below
+  // rather than written in, because it is measured, not constant.
+  receipt_valid: 'cache ready',
+  receipt_valid_codex_estimate: 'cache ready (30-minute estimate)',
+  // NONE — there is no cache to have an opinion about. The badge renders
+  // nothing in these states; the phrases exist so a caller that reaches the
+  // text anyway is never handed a blank.
+  no_completed_fingerprint: 'no cache yet — no completed turn',
+  turn_in_flight: 'no verdict yet — a turn is running',
+  // RED. None of these except an elapsed entry is proof of a provider miss,
+  // so each says what is NOT ESTABLISHED and never predicts a miss.
+  history_unobserved: 'cache not ready — local history not observed',
+  no_positive_receipt: 'cache not ready — no cache receipt on this lane',
+  receipt_prefix_unobserved: "cache not ready — the receipt's prefix is unverified",
+  prefix_changed: 'cache not ready — the prefix changed',
+  receipt_expired: 'cache not ready — the entry expired',
+  lane_unobserved: 'cache not ready — this lane has not been observed yet',
+  legacy_forecast_unmigrated:
+    'cache not ready — this forecast predates the readiness check',
+  // GREY — an enumerated fault that stopped a verdict being formed at all.
+  unsupported_capability: 'cache unknown — this lane publishes no cache data',
+  receipt_timestamp_unreadable: 'cache unknown — the receipt timestamp is unreadable',
+  clock_anomaly: 'cache unknown — the receipt is stamped ahead of the clock',
+  internal_error: 'cache unknown — readiness could not be classified',
+}
+
+/** The badge's own words for a readiness, used only when a cause arrives that
+ *  `CAUSE_PHRASE` has never heard of. It must still say something honest —
+ *  the raw cause, read as words — rather than reaching for a paragraph. */
+const readinessHead = (readiness: Readiness): string =>
+  readiness === 'ready' ? 'cache ready'
+    : readiness === 'none' ? 'no cache yet'
+      : readiness === 'diagnostic' ? 'cache unknown' : 'cache not ready'
+
+/** ⚠ THE BARE MINIMUM, DELIBERATELY (user ruling 2026-09-17): "show only the
+ *  absolute bare minimum to the user needed to explain the card's current
+ *  state; no excessive explanatory text blurbs, just brief reasons for cache
+ *  unreadiness or a simple 'cache ready' message with simple observational
+ *  context."
+ *
+ *  What this returned before was ten lines — a compatibility sentence, the
+ *  machine-readable readiness triple, the backend's paragraph-long detail,
+ *  the reason, the changed components as a bulleted list, lane/source, the
+ *  receipt stamp, the derived TTL, the expiry instant and the pre-compaction
+ *  policy. All of it is gone. The cause, in a few words, is what survives.
+ *
+ *  ⚠ THE CHANGED COMPONENTS ARE THE EXCEPTION, and only for `prefix_changed`.
+ *  "The prefix changed" without saying WHICH part changed is the one brief
+ *  reason that does not actually explain the state, and the labels are
+ *  already safe to show (the backend sends component names, never values). */
 const cacheForecastTitle = (forecast: CacheForecast, midTurn = false): string => {
-  const ttl = typeof forecast.ttl_seconds === 'number'
-    ? forecast.ttl_seconds === 3600 ? '60 minutes (subscription authentication)'
-      : forecast.ttl_seconds === 1800 ? '30 minutes (Codex subscription estimate)'
-      : forecast.ttl_seconds === 300 ? '5 minutes (API-key inference)'
-        : `${forecast.ttl_seconds} seconds (derived from inference lane)`
-    : 'unavailable'
+  // Mid-turn the badge survives only for a claim the running turn cannot
+  // change (see CacheForecastMark), and that claim is conditional on missing
+  // the steer window — never a promise of a miss.
+  if (midTurn) {
+    return 'a turn is running — a message that steers into it is unaffected; '
+      + 'one that misses the steer window lands cold'
+  }
   const readiness = readinessOf(forecast)
-  const compatibility = readiness === 'ready'
-    ? 'compatibility-ready — a positive receipt for this exact prefix is still inside its window (provider hit not guaranteed)'
-    : readiness === 'not_ready'
-      ? 'NOT compatibility-ready — compatibility is not established for the next turn'
-      : readiness === 'none'
-        ? 'no cache established — no completed turn has been observed yet'
-        : `no verdict — ${readinessCause(forecast).replace(/_/g, ' ')}`
-  const changed = forecast.changed_inputs?.length
-    ? `changed components:\n${forecast.changed_inputs.map((v) => `• ${v}`).join('\n')}`
-    : 'changed components: none reported'
-  return [
-    // Mid-turn the badge survives only for a claim the running turn cannot
-    // change (see CacheForecastMark); say so, so the reader knows why this
-    // one is still here while the countdown and the rest are not.
-    midTurn ? 'a turn is running — the prefix has moved since it was sent: a message that '
-      + 'steers into this turn is unaffected; one that misses the steer window lands cold' : '',
-    `next-turn cache compatibility: ${compatibility}`,
-    // D-226: a grey badge must ALWAYS be able to say why it is grey, and the
-    // cause is machine-readable so a screenshot is still triage-able.
-    `readiness: ${readiness} (${readinessCause(forecast)})`,
-    // The server's detail when it sent one; the UI's account of a re-derived
-    // or unreadable verdict otherwise — a grey must never arrive unexplained.
-    readinessVerdict(forecast).detail,
-    `reason: ${forecast.reason || 'unavailable'}`,
-    changed,
-    `lane/source: ${forecast.lane || 'unknown'} / ${forecast.source || 'unknown'}`,
-    // Local time with the zone said out loud (user rule: no visible UTC). These
-    // two lines predate timefmt.ts and were the last raw `Z` instants a desk
-    // could show — found by LOOKING at the deployed build, 2026-09-05.
-    `last authoritative inference receipt: ${fmtFull(forecast.last_receipt_at) || 'none'}`,
-    `derived expiry: ${ttl}`,
-    `expires at: ${fmtFull(forecast.expires_at) || 'not authoritatively known'}`,
-    // The policy line describes a send that STARTS a turn. Mid-turn a send
-    // steers into the turn already running, so the line is vacuous there and
-    // is dropped rather than left to imply a cost that cannot occur.
-    forecast.precompact_reason && !midTurn
-      ? `pre-turn compaction: ${forecast.precompact_reason}` : '',
-  ].filter(Boolean).join('\n')
+  const cause = readinessCause(forecast)
+  const phrase = CAUSE_PHRASE[cause]
+    ?? `${readinessHead(readiness)} — ${cause.replace(/_/g, ' ')}`
+  if (readiness === 'ready') {
+    const seen = ago(forecast.last_receipt_at)
+    return seen ? `${phrase}, receipt observed ${seen} ago` : phrase
+  }
+  // ⚠ THE ONE TOKEN THAT SURVIVED THE CUT, and only on grey. D-226: "a grey
+  // badge must ALWAYS be able to say why it is grey, and the cause is
+  // machine-readable so a screenshot is still triage-able." A grey is an
+  // enumerated FAULT and it is rare; one word in brackets is what makes a
+  // screenshot of it actionable, and the prose beside it is what the user
+  // asked for. Red and green carry no token — they are ordinary states and
+  // their phrase is the whole explanation.
+  if (readiness === 'diagnostic') return `${phrase} (${cause})`
+  const changed = cause === 'prefix_changed' && forecast.changed_inputs?.length
+    ? ` (${forecast.changed_inputs.join(', ')})` : ''
+  return `${phrase}${changed}`
 }
 
 /** The one claim that survives on the badge while a turn is running.
@@ -1231,13 +1321,19 @@ export function CacheForecastMark({ forecast, busy }: {
   const body = steer ? '!'
     : compatible && live ? countdownText(left)
       : compatible ? '✓' : diagnostic ? '?' : '×'
+  // ⚠ ONE LINE, and the countdown is ONE CLAUSE of it (user ruling
+  // 2026-09-17). The middle branch is the LOCALLY OVERRULED GREEN: readiness
+  // is still `ready` because the backend has not re-polled, but the countdown
+  // has run out, so the forecast's own phrase would read "cache ready" under
+  // a red × — the exact contradiction the countdown exists to prevent. It
+  // borrows the expired cause's phrase, which is what the next poll will say.
+  // An already-red row with a stale expiry keeps its OWN cause instead.
   const title = steer
     ? cacheForecastTitle(forecast, true)
     : compatible && live
-      ? `${cacheForecastTitle(forecast)}\nexpires in ${countdownText(left)}`
-      : expired
-        ? `${cacheForecastTitle(forecast)}\nthe observed cache entry has passed `
-          + 'its derived expiry'
+      ? `${cacheForecastTitle(forecast)}, expires in ${countdownText(left)}`
+      : expired && readiness === 'ready'
+        ? CAUSE_PHRASE.receipt_expired
         : cacheForecastTitle(forecast)
   return <span className={`cache-forecast ${cls}`} title={title} aria-label={title}>
     <span aria-hidden="true">cache {body}</span>
@@ -1517,7 +1613,8 @@ export function NavChip({ n, dir, onJump }:
   // to whichever provider's themed desk this chip happens to render inside
   const prov = !eye && n.tier ? ' prov-' + providerOf(n.tier) : ''
   return <span className="desk-nav-entry">
-    <button data-copy-agent-name={eye ? undefined : n.id} className={'desk-nav-chip' + (!eye && n.state !== 'live' ? ' dim' : '') + prov}
+    <button data-copy-agent-name={eye ? undefined : n.id}
+        {...agentNavProps(eye ? undefined : n.id)} className={'desk-nav-chip' + (!eye && n.state !== 'live' ? ' dim' : '') + prov}
         title={eye ? 'jump to the switchboard'
           : `jump to ${n.id}${n.state !== 'live' ? ` (${n.state})` : ''}`}
         onClick={() => onJump(n.id)}>
@@ -1638,15 +1735,6 @@ function readerAnchor(el: HTMLElement): { row: HTMLElement; offset: number } | n
   return null
 }
 
-/** the identity of the OLDEST rendered row — the one thing that changes when,
- *  and only when, an older page is actually prepended. Live rows append,
- *  expanding content resizes; neither touches this. */
-function oldestRowKey(rows: readonly ChatMessage[]): string | null {
-  const m = rows[0]
-  if (!m) return null
-  return String(m.row_id ?? m.native_event_id ?? m.event_id ?? m.assistant_id ?? m.seq ?? '')
-}
-
 function ctxTargetElement(root: Element | null,
   target: { id?: string; el: Element } | null): Element | null {
   if (!target) return null
@@ -1677,18 +1765,46 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   const surface = useSurface()
   const surfaceDocument = useSurfaceDocument()
   const convo = useConvo(slug, node.id)
-  const noticeArmed = useNoticeArmed()
+  const chatKey = `${slug}/${node.id}`
+  const noticeArmed = useNoticeArmed(chatKey)
+  const deskRef = useRef<HTMLFieldSetElement>(null)
+  useEffect(() => {
+    registerChat(chatKey)
+    return () => {
+      unregisterChat(chatKey)
+    }
+  }, [chatKey])
   useEffect(() => {
     const win = surfaceDocument?.defaultView ?? window
     const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return
       if (e.altKey && (e.key === 'n' || e.key === 'N')) {
+        const target = e.target as any
+        const active = (surfaceDocument ?? document).activeElement as any
+        const targetNode = (target && typeof target.nodeType === 'number') ? (target as Node) : null
+        const activeNode = (active && typeof active.nodeType === 'number') ? (active as Node) : null
+        const insideThisDesk = (targetNode && deskRef.current?.contains(targetNode)) ||
+                               (activeNode && deskRef.current?.contains(activeNode))
+        if (!insideThisDesk) {
+          if (target && typeof target.closest === 'function' && target.closest('.desk-control-scope, .desk-bare, .desk-over')) {
+            return
+          }
+          if (active && typeof active.closest === 'function' && active.closest('.desk-control-scope, .desk-bare, .desk-over')) {
+            return
+          }
+          if (!isChatActive(chatKey)) {
+            return
+          }
+        }
         e.preventDefault()
-        toggleNoticeArmed()
+        e.stopImmediatePropagation?.()
+        setActiveChatKey(chatKey)
+        toggleNoticeArmed(chatKey)
       }
     }
     win.addEventListener('keydown', onKey)
     return () => win.removeEventListener('keydown', onKey)
-  }, [surfaceDocument])
+  }, [surfaceDocument, chatKey])
   const providerClass = node.tier ? ' prov-' + providerOf(node.tier) : ''
   const processClass = node.state === 'live'
     ? (node.proc_warm ? ' proc-warm' : ' proc-cold') : ''
@@ -1711,6 +1827,62 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   }), [draftKey])
   const [reply, setReplyRaw] = useState<ReplyContext | null>(() => readReply(draftKey))
   const setReply = (next: ReplyContext | null) => { setReplyRaw(next); storeReply(draftKey, next) }
+  /** SENT-MESSAGE HISTORY - Up and Down walk what you have sent to THIS agent,
+   *  the way PowerShell and bash do (user request 2026-09-18). Kept per agent
+   *  and deliberately NOT per generation, so a compaction or a rehire cannot
+   *  wipe it; see composerhistory.ts. */
+  const [sentHistory, setSentHistory] = useState<HistoryEntry[]>(() => readHistory(slug, node.id))
+  /** Where in the history the box is showing from. null = showing your own
+   *  live text and not navigating; 0 = the newest entry. */
+  const [histAt, setHistAt] = useState<number | null>(null)
+  /** What you had typed before navigation started. Down past the newest entry
+   *  puts it back - losing an unsent message to a stray Up is the one thing
+   *  this feature must never do. */
+  const histStash = useRef('')
+  /** Set when a recall changed the text, so the caret lands at the END of the
+   *  recalled message rather than wherever it happened to be. */
+  const histCaret = useRef(false)
+  const histEntry = histAt === null ? null : sentHistory[sentHistory.length - 1 - histAt] ?? null
+  // A draft eaten by an agent state change is written into this same history,
+  // so some entries were never actually delivered. Recall says so rather than
+  // letting them pass for sent (decision 1 on the item).
+  const histUndelivered = !!histEntry && !histEntry.delivered
+  useEffect(() => {
+    // Fold every stranded draft for this agent into the history: the previous
+    // generation's orphaned draft, anything left in the old recovery keys by
+    // an earlier release, and the pre-generation legacy key.
+    if (absorbStrandedDrafts(slug, node.id, node.generation)) setSentHistory(readHistory(slug, node.id))
+  }, [slug, node.id, node.generation])
+  /** Up: one step further back. Returns false when nothing moved, and the key
+   *  is then left to do its ordinary caret job. */
+  const histBack = () => {
+    if (!sentHistory.length) return false
+    if (histAt === null) histStash.current = text
+    const next = histAt === null ? 0 : Math.min(histAt + 1, sentHistory.length - 1)
+    const entry = sentHistory[sentHistory.length - 1 - next]
+    if (next === histAt || !entry) return false
+    setHistAt(next)
+    setText(entry.text)
+    histCaret.current = true
+    return true
+  }
+  /** Down: one step forward, and past the newest entry back to what you typed. */
+  const histForward = () => {
+    if (histAt === null) return false
+    if (histAt === 0) {
+      setHistAt(null)
+      setText(histStash.current)
+      histCaret.current = true
+      return true
+    }
+    const next = histAt - 1
+    const entry = sentHistory[sentHistory.length - 1 - next]
+    if (!entry) return false
+    setHistAt(next)
+    setText(entry.text)
+    histCaret.current = true
+    return true
+  }
   const replyMenu = useContextMenu()
   // every fold this desk's transcript draws, held above the rows (foldstate.tsx)
   const folds = useFoldState()
@@ -1869,12 +2041,6 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
     const context = replyContext(wire)
     return context && <ReplyPreview reply={context} available={replyAvailable(context)} onLocate={() => locateReply(context)} />
   }
-  const [recoveryRevision, setRecoveryRevision] = useState(0)
-  const recoveryDrafts = useMemo(() => recoverableDrafts(slug, node.id, node.generation),
-    [slug, node.id, node.generation, recoveryRevision])
-  const [legacyDraft, setLegacyDraft] = useState(() => {
-    try { return localStorage.getItem(`orgtree-draft-${slug}-${node.id}`) || '' } catch { return '' }
-  })
   // №11: which door the last send went through. It is a RECEIPT, not a state —
   // it answers "where did that message just go", and that answer goes stale the
   // moment the queue drains. It had no clear at all (user bug 2026-08-02: the
@@ -1993,92 +2159,173 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   // every row carries markdown and tool chips. The server stamps `seq` as the
   // PRE-slice ordinal, so messages[0].seq > 0 means older rows exist.
   const loadingOlder = convo.loadingOlder
-  // distance-from-bottom is invariant when older rows are PREPENDED, so it is
-  // the anchor that keeps the reader's place instead of jumping them down
-  // ⚠ AND IT IS SPENT ON THE PREPEND IT WAS TAKEN FOR, AND NOTHING ELSE.
+  // distance-from-bottom is invariant when older rows are PREPENDED, so it
+  // LOOKS like the anchor that keeps the reader's place. It is not — see the
+  // history below — and what actually holds is the reader's own row at its
+  // own scrollport offset, re-asserted for as long as a page request is in
+  // the air plus a short settle window after it lands.
   //
-  // Two wrong versions of this preceded the right one, and both are worth
-  // knowing about because they fail in opposite directions.
+  // Four wrong versions preceded this one, and each is worth knowing about
+  // because each failed somewhere the previous fix could not see.
   //
   // A PLAIN NUMBER was consumed by the FIRST render after it was recorded —
-  // and that render is almost always the `loadingOlder: true` state change,
-  // which happens while the page is still in flight and nothing has been
-  // prepended yet. It restored the offset the reader was already at, cleared
-  // itself, and by the time the rows landed there was nothing left: the reader
-  // was left wherever the prepend shoved them (measured: 1600px from the
-  // newest message before the page, 2400px after).
+  // almost always the `loadingOlder: true` state change, before anything had
+  // been prepended. It restored the offset the reader was already at, and by
+  // the time the rows landed there was nothing left (measured: 1600px from
+  // the newest message before the page, 2400px after).
   //
-  // KEYING IT ON THE HEIGHT fixed that and broke something else, which
+  // KEYING IT ON THE HEIGHT fixed that and broke the other direction, which
   // independent review caught: while a page is pending, ANY growth looks like
-  // the prepend. A live row arriving or a tool chip expanding — both of which
-  // grow the content BELOW the reader — consumed the anchor, moved them toward
-  // the newest message by the appended height, and left the real prepend
-  // unanchored when it finally landed.
+  // the prepend — a live row arriving grows the content BELOW the reader,
+  // consumed the anchor there, and left the real prepend unanchored.
   //
-  // So the gate is the OLDEST RENDERED ROW's identity, which changes when and
-  // only when an older page is really prepended, and the restore holds the
-  // reader's own row at its own offset rather than a distance from the bottom
-  // — because a single commit can add rows above AND below them, and only the
-  // row-relative measure is invariant under both.
-  const growAnchor = useRef<
-    { row: HTMLElement | null; offset: number; fromBottom: number; oldest: string | null }
-  | null>(null)
-  /** the oldest rendered row of the CURRENT render, for the effect to compare
-   *  against the one the anchor was taken at */
-  const oldestKeyRef = useRef<string | null>(null)
-  useLayoutEffect(() => {
+  // KEYING IT ON THE OLDEST RENDERED ROW's identity fixed that and still
+  // failed twice over, which is what the user reported as the view drifting
+  // "progressively earlier" through history (2026-09-20):
+  //   · the trigger band is 240px tall and a wheel emits MANY scroll events
+  //     inside it — the first armed the anchor and started the page, and
+  //     every later one had its loadOlder() refused by the store, whose
+  //     refusal handler nulled the LIVE anchor. The page landed with nothing
+  //     to restore against, on essentially every wheel-driven load;
+  //   · on the first flight of a visit the store's `paged` flag is still
+  //     false, so a poll landing mid-flight installs the raw slid tail (a
+  //     busy agent appends a row, the window evicts the top one). The oldest
+  //     row changes with NO prepend, the "prepend landed" branch spent the
+  //     anchor on it, and the real page again landed unanchored.
+  //
+  // The one-shot shape itself is what kept failing, so the anchor is no
+  // longer spent on a detected prepend at all. While ARMED it is re-applied
+  // on every commit (the layout effect below) and on every animation frame
+  // (armSettle), so a mid-flight tail slide, the prepend itself, and layout
+  // that settles late — markdown re-measuring, an image arriving — all
+  // resolve to the same statement: the reader's row stays where it was. A
+  // scroll the reader makes themselves re-captures the anchor at their new
+  // place, because their movement is the truth (transcriptprepend §5);
+  // this desk's own writes are recognised by value (anchorEcho) and change
+  // nothing; and the whole thing disarms when the reader re-sticks to the
+  // tail, or a settle window after the flight ends.
+  //
+  // ⚠ AND THE EVENT IS NOT THE MOVEMENT (independent review, 2026-09-20).
+  // A native scroller moves the moment scrollTop is assigned or
+  // scrollIntoView runs — reply navigation does exactly that — but the
+  // scroll EVENT reporting it is delivered asynchronously, coalesced, a
+  // task later. A page landing inside that gap used to find the anchor
+  // still describing the pre-move position and write it back, erasing a
+  // move the reader had already made; the event then arrived carrying the
+  // hold's own value, so the echo check read the theft as an echo. The
+  // hold therefore never trusts the anchor against the live viewport:
+  // knownTop below records every position this desk has ACCOUNTED FOR (a
+  // delivered event, its own write, a capture), and a hold that finds the
+  // viewport anywhere else re-captures there instead of asserting — that
+  // difference IS the reader's (or the browser's own scroll anchoring's)
+  // not-yet-reported movement (transcriptprepend §7/§8).
+  const growAnchor = useRef<{ row: HTMLElement | null; offset: number; fromBottom: number } | null>(null)
+  /** the scrollTop this desk itself just wrote — the next scroll event
+   *  carrying this value is our own hold's echo, not the reader moving */
+  const anchorEcho = useRef<number | null>(null)
+  /** the last scroll position this desk has accounted for: every delivered
+   *  scroll event, every hold write and every capture records it. A hold
+   *  that reads anything else is looking at native movement whose event has
+   *  not arrived yet, and must yield to it. */
+  const knownTop = useRef<number | null>(null)
+  const anchorRaf = useRef<number | null>(null)
+  const anchorSettleLeft = useRef(0)
+  /** the latest render's `loadingOlder`, for the scroll handler and the
+   *  settle loop — both outlive the render that armed them */
+  const loadingOlderRef = useRef(false)
+  loadingOlderRef.current = loadingOlder
+  /** the reader's row and offset RIGHT NOW (plus the bottom distance the
+   *  fallback needs); null only before anything renders */
+  const captureAnchor = (): { row: HTMLElement | null; offset: number; fromBottom: number } | null => {
     const el = scroller.current
-    // ⚠ THE ANCHOR IS RESTORED BEFORE ANYTHING ELSE MEASURES.
-    // `fillViewport` can ask for another page, and `loadOlder` records the
-    // next anchor as `scrollHeight - scrollTop` — so running it first had it
-    // measuring the offset this render STARTED with, before the restore below
-    // moved the reader. It then overwrote the anchor it was standing on: the
-    // restore computed `scrollHeight - (scrollHeight - staleTop)` and put the
-    // reader back at the un-restored offset, i.e. left them where the prepend
-    // had shoved them instead of where they were reading. Measured: 1600px
-    // from the newest message before a page settled, 2400px after.
+    if (!el) return null
+    knownTop.current = el.scrollTop   // a capture accepts the position as truth
+    const at = readerAnchor(el)
+    return { row: at?.row ?? null, offset: at?.offset ?? 0,
+      fromBottom: el.scrollHeight - el.scrollTop }
+  }
+  /** re-assert the armed anchor: the reader's own row back at its own offset.
+   *  The distance-from-bottom fallback is ONLY for a row that left the DOM
+   *  (the tail window slid past it) — and it immediately re-bases on whatever
+   *  row is under the reader after the write, so the fallback arithmetic,
+   *  which mixed heights would skew, is never applied twice in a row. */
+  const holdAnchor = () => {
+    const el = scroller.current
     const anchor = growAnchor.current
-    if (!stickRef.current && el && anchor) {
-      if (oldestKeyRef.current !== anchor.oldest) {
-        // THE PREPEND LANDED — the oldest rendered row is not the one it was.
-        // Hold the reader's own row where it was on screen; fall back to the
-        // distance from the bottom only if that row is no longer rendered,
-        // which is the best remaining guess.
-        if (anchor.row && anchor.row.isConnected) {
-          el.scrollTop = anchor.row.offsetTop - anchor.offset
-        } else {
-          el.scrollTop = el.scrollHeight - anchor.fromBottom
-        }
-        growAnchor.current = null
-      } else if (!loadingOlder) {
-        // the request settled and prepended nothing, so this anchor has no
-        // page left to answer for — and an anchor that outlives its page is
-        // exactly the trap described below
-        growAnchor.current = null
-      }
+    if (!el || !anchor || stickRef.current) return
+    // the viewport is somewhere this desk never put it and no event has
+    // reported: the reader moved natively (a wheel's scroll, navigation's
+    // scrollIntoView) — or the browser's own scroll anchoring already did
+    // this hold's job — since the last delivered event. Either way the
+    // position on screen is the truth and the recorded anchor is stale:
+    // re-capture where the reader IS and hold that. Writing the stale
+    // anchor here is how a landing page used to undo a move whose scroll
+    // event was still in flight (transcriptprepend §7/§8).
+    if (knownTop.current !== null && Math.abs(el.scrollTop - knownTop.current) > 1) {
+      growAnchor.current = captureAnchor()
+      return
     }
+    const alive = !!anchor.row && anchor.row.isConnected
+    const want = alive
+      ? anchor.row!.offsetTop - anchor.offset
+      : el.scrollHeight - anchor.fromBottom
+    if (Math.abs(el.scrollTop - want) > 1) {
+      const clamped = Math.max(0, Math.min(want, el.scrollHeight - el.clientHeight))
+      anchorEcho.current = clamped
+      el.scrollTop = want
+      knownTop.current = clamped
+    }
+    if (!alive) growAnchor.current = captureAnchor()
+  }
+  /** how many frames the hold survives the flight settling. Late layout
+   *  displaces the reader just as surely as the prepend did, and none of it
+   *  re-renders React, so the hold has to ride FRAMES, not commits. ~400ms
+   *  covers what a landed page does to itself; anything later belongs to the
+   *  browser's own scroll anchoring. */
+  const SETTLE_FRAMES = 24
+  const stopSettle = () => {
+    if (anchorRaf.current !== null) { cancelAnimationFrame(anchorRaf.current); anchorRaf.current = null }
+  }
+  const armSettle = () => {
+    anchorSettleLeft.current = SETTLE_FRAMES
+    if (anchorRaf.current !== null) return
+    const tick = () => {
+      anchorRaf.current = null
+      if (!growAnchor.current || stickRef.current) return
+      holdAnchor()
+      if (loadingOlderRef.current) anchorSettleLeft.current = SETTLE_FRAMES
+      else if (--anchorSettleLeft.current <= 0) { growAnchor.current = null; return }
+      anchorRaf.current = requestAnimationFrame(tick)
+    }
+    anchorRaf.current = requestAnimationFrame(tick)
+  }
+  // the loop must not outlive the desk: an armed tick re-schedules itself,
+  // and after unmount nothing else would ever stop it
+  useEffect(() => stopSettle, [])   // eslint-disable-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => {
+    // ⚠ THE ANCHOR IS RE-ASSERTED BEFORE ANYTHING ELSE MEASURES.
+    // `fillViewport` can ask for another page, and `loadOlder` captures the
+    // next anchor from the live DOM — so running it first had it measuring
+    // the offset this render STARTED with, before the hold below moved the
+    // reader back to where they were reading. Measured: 1600px from the
+    // newest message before a page settled, 2400px after.
+    holdAnchor()
     fillViewportRef.current()
     if (stickRef.current) {
       // ⚠ AND THE ANCHOR DIES HERE (user bug 2026-09-12: "scrolling up forces
-      // the view back to the bottom"). `growAnchor` is a DISTANCE FROM THE
-      // BOTTOM, recorded so that prepended rows do not move the reader. While
-      // the reader is stuck at the tail there is nothing to preserve — the
-      // pin below is the whole behaviour — but the branch used to `return`
-      // without clearing it, so an anchor captured at the bottom (where the
-      // distance IS the viewport height) simply waited. The moment the reader
-      // scrolled up, `stickRef` went false, the next render took the branch
-      // below, and it restored them to the exact distance-from-bottom it had
-      // recorded: the bottom. Tall desks hit this on the FIRST scroll, because
-      // `fillViewport` issues a `loadOlder` for every screen it still needs
-      // while the reader sits at the tail. An anchor that outlives the visit
-      // it belongs to is not an anchor, it is a trap.
+      // the view back to the bottom"). While the reader is stuck at the tail
+      // there is nothing to preserve — the pin below is the whole behaviour —
+      // but the branch used to `return` without clearing it, so an anchor
+      // captured at the bottom simply waited, and the reader's first upward
+      // scroll was restored straight back to the bottom it had recorded. Tall
+      // desks hit this on the FIRST scroll, because `fillViewport` issues a
+      // `loadOlder` for every screen it still needs while the reader sits at
+      // the tail. An anchor that outlives the visit it belongs to is not an
+      // anchor, it is a trap.
       growAnchor.current = null
+      stopSettle()
       pin(); calcPin(); return
     }
-    // (no second restore here on purpose: `fillViewport` above may have just
-    // recorded the anchor for a page that is still IN FLIGHT, and consuming
-    // it now would spend it on a prepend that has not happened yet — leaving
-    // the real one unanchored.)
     calcPin()   // FR-20: content growth moves the target without a scroll event
   })
   // seq is the PRE-slice ordinal, so a non-zero first seq means older rows exist
@@ -2221,14 +2468,26 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
     if (!el) return
     // …and it is not RECORDED while stuck either, for the same reason it is
     // cleared above: a reader at the tail is pinned there, so the only thing
-    // this anchor could ever restore them to is the bottom they never left.
-    const at = stickRef.current ? null : readerAnchor(el)
-    growAnchor.current = stickRef.current ? null : {
-      row: at?.row ?? null, offset: at?.offset ?? 0,
-      fromBottom: el.scrollHeight - el.scrollTop,
-      oldest: oldestKeyRef.current,
+    // this anchor could ever hold them to is the bottom they never left.
+    growAnchor.current = stickRef.current ? null : captureAnchor()
+    const accepted = storeLoadOlder(slug, node.id, count ?? transcriptViewport(el).page, count !== undefined)
+    if (growAnchor.current && (accepted || loadingOlderRef.current)) armSettle()
+    else if (!accepted) {
+      // nothing took the request and nothing is in the air: an armed anchor
+      // would outlive any page it could answer for.
+      //
+      // ⚠ THE `loadingOlderRef` HALF ABOVE IS A FIX, NOT AN OPTIMISATION. The
+      // refusal used to clear the anchor UNCONDITIONALLY — and the common
+      // refusal is "a page is already in flight", reached by the second,
+      // third, nth scroll event inside the 240px trigger band, i.e. by every
+      // wheel that ever crossed it. Each one destroyed the live anchor of the
+      // flight in progress, the landing restored nothing, and the reader was
+      // shoved a full page backward through history (transcriptprepend §1).
+      // A refused re-trigger during a flight now leaves the anchor exactly as
+      // the re-capture above set it: at the reader's newest position.
+      growAnchor.current = null
+      stopSettle()
     }
-    if (!storeLoadOlder(slug, node.id, count ?? transcriptViewport(el).page, count !== undefined)) growAnchor.current = null
   }
 
   const fillViewportRef = useRef<() => void>(() => {})
@@ -2407,10 +2666,6 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   // what the payload still holds, not a list of what this desk drew, and
   // keeping a key one poll too long costs nothing — sweeping one that is still
   // on screen cost the operator their desk.
-  // what the growAnchor gate compares against — see growAnchor's note. Set
-  // during render so the layout effect, which runs after it, reads THIS
-  // render's oldest row while the anchor still holds the one it was taken at.
-  oldestKeyRef.current = oldestRowKey(viewMessages)
   const liveFoldKeys = foldKeysOf(chat?.messages ?? [], live_feed, rawPendMail, pending)
   const pruneFolds = folds.prune
   useEffect(() => {
@@ -2462,11 +2717,17 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
     if (!t) t = '(file attached)'
     const paths = attached.map((a) => a.path)
     const sentReply = reply
-    const armedNotice = isNoticeArmed()
-    if (armedNotice) setNoticeArmed(false)
+    const armedNotice = isNoticeArmed(chatKey)
+    if (armedNotice) setNoticeArmed(chatKey, false)
     setReply(null)
     setText('')
     setAttached([])
+    // Sending appends to the history and returns the box to the newest end of
+    // it, the way a shell does. `t` is what was actually sent, so the history
+    // records the delivered text and not the untrimmed buffer.
+    if (recordSent(slug, node.id, t)) setSentHistory(readHistory(slug, node.id))
+    setHistAt(null)
+    histStash.current = ''
     // optimistic ghost only until the server confirms — the durable copy
     // then renders from chat.pending_mail (№11); a failed send clears the
     // ghost instead of leaving a dimmed bubble forever.
@@ -2575,6 +2836,16 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   // already in the DOM when this reads scrollHeight — reading it inside the
   // handler would measure the outgoing text.
   useLayoutEffect(grow, [text, grow])
+  // Recall puts the caret at the END of the recalled message. Done as a layout
+  // effect because the textarea only holds the new text once React has
+  // committed it; setting selection inside the key handler would move it
+  // within the OLD value.
+  useLayoutEffect(() => {
+    if (!histCaret.current) return
+    histCaret.current = false
+    const el = taRef.current
+    if (el) el.selectionStart = el.selectionEnd = el.value.length
+  }, [text])
   // №6: dropping a file anywhere on the desk uploads it (and prevents the
   // browser's default navigate-away, which would also eat the draft)
   const dropProps = {
@@ -2732,7 +3003,17 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
     <ReplySourceProvider value={resolveReplySource}>
       <div className="cc-head">
         <div className="cc-head-top">
-        <span className="cc-head-left" data-copy-agent-name={node.id}>
+        {/* ⚠ MARKED UNCONDITIONALLY, unlike every other target. The scope
+            predicate everywhere else is "the primary click navigates", and on
+            the FOCUSED desk this name deliberately does not: `atDestination`
+            makes it plain text, because the click would take you where you
+            already are. But the desk header name is the surface the original
+            ticket was filed about — "in Desk view the context menu on an
+            agent's displayed name shows only Copy agent name" — so it is in
+            scope by name, not by predicate, and the marker goes on the
+            header region rather than on the name's navigating branch. */}
+        <span className="cc-head-left" data-copy-agent-name={node.id}
+          {...agentNavProps(node.id)}>
           {/* ⚠ `bare` IS THE DESTINATION TEST, which is why this reads
               `atDestination={!bare}` and never compares ids. A switchboard
               panel and a pinned window BOTH show this agent's own name, and
@@ -3071,6 +3352,26 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
             // desk is drawing (user report 2026-09-12)
             if (!wasStuck && stickRef.current) collapseWindow(slug, node.id, viewportRows())
             calcPin()
+            // an armed anchor follows the READER, not the request. A scroll
+            // event that is not our own hold's echo is the reader moving:
+            // while the flight is up, re-capture at their new place so the
+            // landing holds where they ARE (transcriptprepend §5); once it
+            // has settled, their first movement releases the hold. The echo
+            // check is what lets the settle loop's own writes through — in a
+            // real browser they arrive here as scroll events, and treating
+            // them as the reader would disarm the hold it is part of.
+            const echo = anchorEcho.current !== null
+              && Math.abs(e.currentTarget.scrollTop - anchorEcho.current) <= 1
+            anchorEcho.current = null
+            // a delivered event accounts for the position it reports — from
+            // here on, a hold finding the viewport elsewhere knows it moved
+            // natively again without this desk having heard yet
+            knownTop.current = e.currentTarget.scrollTop
+            if (growAnchor.current && !echo) {
+              if (stickRef.current) { growAnchor.current = null; stopSettle() }
+              else if (loadingOlderRef.current) growAnchor.current = captureAnchor()
+              else { growAnchor.current = null; stopSettle() }
+            }
             // within a screen of the top: page in the previous window
             if (!stickRef.current && e.currentTarget.scrollTop < Math.min(240, e.currentTarget.clientHeight / 2) && hasOlder) loadOlder()
           }}>
@@ -3435,29 +3736,9 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
       {reply && <ReplyPreview reply={reply} available={replyAvailable(reply)}
         onLocate={() => locateReply(reply)} onRemove={() => setReply(null)} />}
       {sendMode && <div className="sendmode dim">{sendMode}</div>}
-      {legacyDraft && !staleIdentity && <div className="popout-error">
-        An older saved draft is available. Its generation was not recorded.
-        <button onClick={() => {
-          setText((previous) => previous ? previous + '\n' + legacyDraft : legacyDraft)
-          try { localStorage.removeItem(`orgtree-draft-${slug}-${node.id}`) } catch { /* unavailable */ }
-          setLegacyDraft('')
-        }}>Restore draft</button>
+      {histUndelivered && <div className="dim composer-history-note" role="status">
+        recalled from history - this message was never sent
       </div>}
-      {!staleIdentity && recoveryDrafts.length > 0 && <details className="popout-draft-recovery">
-        <summary>Older unsent drafts ({recoveryDrafts.length})</summary>
-        <button type="button" onClick={() => {
-          discardAllRecoverableDrafts(slug, node.id, recoveryDrafts.map(d => d.generation), node.generation)
-          setRecoveryRevision((v) => v + 1)
-        }}>Dismiss all</button>
-        {recoveryDrafts.map(d => <div key={d.key}>
-          <p>Generation {d.generation} draft <button type="button" onClick={() => {
-            discardRecoverableDraft(slug, node.id, d.generation, node.generation)
-            setRecoveryRevision((v) => v + 1)
-          }}>Discard</button></p><pre>{d.text}</pre>
-          {d.reply && <ReplyPreview reply={d.reply} available={replyAvailable(d.reply)} onLocate={() => locateReply(d.reply!)} />}
-          {d.attachments.map(a => <p key={a.path}>{a.name} ({a.bytes} bytes) {a.path}</p>)}
-        </div>)}
-      </details>}
       {/* staged attachments ride the NEXT message as mail attachments */}
       {attached.length > 0 && (
         <div className="attach-row">
@@ -3489,18 +3770,38 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
         cheapCompactOn={node.cheap_compact_on}
         cheapCompactOcc={node.cheap_compact_occ} contextRatio={contextRatio} />
       <div className={'cc-composer' + (canMail ? '' : ' off') + (noticeArmed ? ' notice-armed' : '')}>
-        <button className="cc-attach" disabled={!canMail}
-          title="attach a file — it lands in the agent's uploads/ folder"
-          onClick={() => fileRef.current?.click()}>
-          <FileIcon fontSize="inherit" /></button>
-        <button className={'cc-notice-toggle' + (noticeArmed ? ' armed' : '')}
-          type="button"
-          disabled={!canMail}
-          aria-label={noticeArmed ? 'Notice-send armed: next message arrives as a passive notice' : 'Notice-send: send next message as a passive notice'}
-          title={noticeArmed ? 'Notice-send armed: next message will arrive as a passive notice without waking recipient (Alt+N)' : 'Send next message as a passive notice without waking recipient (Alt+N)'}
-          onClick={() => toggleNoticeArmed()}>
-          {noticeArmed ? <NotificationsActiveIcon fontSize="inherit" /> : <NotificationsIcon fontSize="inherit" />}
-        </button>
+        {/* the notice toggle sits ABOVE the attach button, not beside it
+            (user 2026-09-17). One column, bottom-aligned by the composer's
+            align-items:flex-end, so the attach button stays exactly where it
+            always was on the composer's baseline and the toggle rides above
+            it. Moving the control only — its behaviour is untouched. */}
+        <div className="cc-btnstack">
+          <button className={'cc-notice-toggle' + (noticeArmed ? ' armed' : '')}
+            type="button"
+            disabled={!canMail}
+            aria-label={noticeArmed ? 'Notice-send armed: next message arrives as a passive notice' : 'Notice-send: send next message as a passive notice'}
+            title={noticeArmed ? 'Notice-send armed: next message will arrive as a passive notice without waking recipient (Alt+N)' : 'Send next message as a passive notice without waking recipient (Alt+N)'}
+            onClick={() => {
+              setActiveChatKey(chatKey)
+              toggleNoticeArmed(chatKey)
+            }}>
+            {noticeArmed ? <NotificationsActiveIcon fontSize="inherit" /> : <NotificationsIcon fontSize="inherit" />}
+          </button>
+          {/* ONE attachment glyph everywhere (user 2026-09-17). This button
+              used to draw FileIcon (a document sheet) while every OTHER attach
+              control in the app drew AttachIcon (the paperclip), so the same
+              action looked like a different feature depending on where you
+              were. The main composer was the odd one out, so it moved to the
+              majority glyph rather than the other three moving to it. The
+              button itself — size, class, placement, tooltip, flow — is
+              untouched; only the glyph changed. FileIcon still labels a
+              staged-attachment CHIP below; a chip is a listing, not a
+              control. */}
+          <button className="cc-attach" disabled={!canMail}
+            title="attach a file — it lands in the agent's uploads/ folder"
+            onClick={() => fileRef.current?.click()}>
+            <AttachIcon fontSize="inherit" /></button>
+        </div>
         <input type="file" ref={fileRef} style={{ display: 'none' }} multiple
           onChange={(e) => {
             [...e.target.files!].forEach(attach)
@@ -3520,7 +3821,10 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
             : node.state === 'archived'
               ? `message ${node.id} — queued until rehire…` : node.state}
           onChange={(e) => { flashMode(''); setText(e.target.value); grow() }}
-          onFocus={() => setComposerFocused(true)}
+          onFocus={() => {
+            setActiveChatKey(chatKey)
+            setComposerFocused(true)
+          }}
           onBlur={() => setComposerFocused(false)}
           onPaste={(e) => {
             // №6: Ctrl+V of an image/file auto-bridges to a real upload
@@ -3532,8 +3836,29 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
           onKeyDown={(e) => {
             if (e.altKey && (e.key === 'n' || e.key === 'N')) {
               e.preventDefault()
-              toggleNoticeArmed()
+              e.stopPropagation()
+              setActiveChatKey(chatKey)
+              toggleNoticeArmed(chatKey)
               return
+            }
+            // HISTORY, and the one real conflict in the design: this box is
+            // multi-line and a shell prompt is not, so Up and Down already
+            // move the caret between lines. History triggers ONLY when the
+            // caret is on the first line (Up) or the last line (Down) and
+            // nothing is selected. Anywhere else the arrow moves the caret, so
+            // a multi-line message can never be replaced out from under you.
+            if ((e.key === 'ArrowUp' || e.key === 'ArrowDown')
+              && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
+              const el = e.currentTarget
+              const from = el.selectionStart ?? 0
+              const to = el.selectionEnd ?? 0
+              const edge = e.key === 'ArrowUp'
+                ? !el.value.slice(0, from).includes('\n')
+                : !el.value.slice(to).includes('\n')
+              if (from === to && edge && (e.key === 'ArrowUp' ? histBack() : histForward())) {
+                e.preventDefault()
+                return
+              }
             }
             // mobile: soft keyboards emit Enter with shiftKey:false and no
             // gesture recovers the newline — send is the button's job there
@@ -3569,8 +3894,10 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   // no overlay wrapper, no second scale (that would double-scale), no
   // recenter-on-click
   return (
-    <fieldset disabled={staleIdentity} className="desk-control-scope"><div className={bare || surface?.detached ? "desk-bare" : "desk-over"} onWheel={(e) => e.stopPropagation()}
+    <fieldset ref={deskRef} disabled={staleIdentity} className="desk-control-scope"
+      onFocusCapture={() => setActiveChatKey(chatKey)}><div className={bare || surface?.detached ? "desk-bare" : "desk-over"} onWheel={(e) => e.stopPropagation()}
       onPointerDown={(e) => {
+        setActiveChatKey(chatKey)
         // ROOT CAUSE (user bug 2026-09-03: "after the first drag finishes,
         // all subsequent drags immediately fail" / "focusing a node allows
         // it to work again once"). A focused desk fills most or all of the

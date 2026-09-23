@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import collections
+import contextlib
 import hashlib
 import importlib.util
 import ipaddress
@@ -87,6 +88,7 @@ from . import registry
 from . import refs
 from . import deployment
 from . import frozen_install
+from . import profiling
 from . import workitems
 from . import workevidence
 from . import opreceipts
@@ -94,14 +96,15 @@ from . import reservations
 from . import ledger as ledger_mod
 from . import (accounts, antigravity_limits, appsettings, bridgeauth,
                codex_limits, codex_route, limits, net,
-               providers, quickstaff, restart_wake, sandbox, staffcache, store,
-               subproxy, supervisor, warmpool)
+               providers, quickstaff, restart_wake, sandbox, slowtrace,
+               staffcache, stateprobe, store, subproxy, supervisor, warmpool)
 from . import statepreview
 from .ledger import (LedgerError, Org, StaleRevError, USER, VIS_LEVELS,
                      actor_of, norm_dirs, norm_tools)
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Iterator, Mapping
+    from contextlib import AbstractContextManager
 
     import httpx
     # aliased: `Scope` is taken by the pydantic body model of the same name
@@ -161,14 +164,88 @@ _PROFILE_TIMING_ROUTE = "/api/desktop/profile-timing"
 #: profile dict is merged in AFTER these — excluding them from that merge
 #: (rather than relying on merge order) means a handler cannot clobber `seq`
 #: or any other reserved field no matter what it stashes under that name.
-_PROFILE_RESERVED_FIELDS = frozenset({"seq", "route", "handler_ms", "total_ms", "bytes"})
+_PROFILE_RESERVED_FIELDS = frozenset({"seq", "route", "handler_ms", "total_ms",
+                                      "bytes", "unattributed_ms", "pid", "ts",
+                                      "instance", "method", "status", "inflight"})
 # Only known stage measurements may leave a handler profile dictionary. A
 # closed allowlist prevents future callers from exposing numeric prompt, mail,
 # credential, or token values by choosing an arbitrary field name.
+#
+# The last two are new, and they complete the write stages (see `profiling`):
+# a write is a wait, a parse, some work and a write-back, and naming them
+# separately is the whole point — "the save took 4.9 s" and "the lock took
+# 4.9 s" have nothing in common except the number. `lock_wait_ms` and
+# `org_load_ms` were already allowed and, before this, were populated by one
+# route (`history_page`) and by no write at all.
 _PROFILE_ALLOWED_FIELDS = frozenset({
     "load_snapshot_ms", "tree_ms", "annotate_ms",
     "lock_wait_ms", "org_load_ms", "chat_read_ms", "history_work_ms",
+    "org_save_ms", "mutate_ms",
+    # The paired thread-CPU readings (profiling.cpu_field): wall minus CPU per
+    # stage is the off-CPU share — the GIL-convoy/scheduler time the
+    # 2026-09-19 interference control proved the wall stages alone hide
+    # (org_save_ms 5063 ms of which CPU was 46.9 ms).
+    "org_load_cpu_ms", "org_save_cpu_ms", "mutate_cpu_ms",
+    "chat_read_cpu_ms", "history_work_cpu_ms",
 })
+#: Wall-clock stage fields that decompose handler time; the emit computes
+#: `unattributed_ms = handler_ms - sum(present wall stages)` from exactly
+#: this set, so time no stage claims is EXPLICIT in every record instead of
+#: an exercise for the reader (user decision 2026-09-19). CPU fields are
+#: excluded: they re-measure the same intervals on a different clock.
+_PROFILE_WALL_STAGE_FIELDS = frozenset({
+    "load_snapshot_ms", "tree_ms", "annotate_ms",
+    "lock_wait_ms", "org_load_ms", "chat_read_ms", "history_work_ms",
+    "org_save_ms", "mutate_ms",
+})
+#: The ONE non-numeric field a record may carry, and the only exception to the
+#: "route templates and finite numbers, nothing else" rule above.
+#:
+#: WHY IT IS WORTH AN EXCEPTION. `/api/agent` is a single route serving all ~46
+#: agent verbs, so every hire, retire, move and watchdog files under the same
+#: label. The stage timings above now say a call spent 4.9 s waiting for the
+#: document lock; without the verb they cannot say which call, and "some agent
+#: tool is slow" is not an answer anyone can act on.
+#:
+#: WHY IT IS STILL SAFE. `AgentCall.tool` is an unvalidated `str` straight off
+#: the request body, and `orgtree_op_call` carries a second one in
+#: `args["tool"]` — so this value is attacker-chosen until it is checked. It is
+#: therefore checked HERE, at the point of publication, against the tool
+#: catalogue, and anything not in that closed set is dropped rather than
+#: recorded. A member of the set is by construction one of the catalogue's
+#: `[a-z_]` ASCII names, which matters twice over: it cannot carry a prompt,
+#: mail id or credential, and it cannot carry a non-ASCII byte — and a
+#: non-ASCII byte on this line would raise `UnicodeEncodeError` under the
+#: caller's `except Exception: pass` and silently destroy the whole record
+#: (see `_access_emit`).
+_PROFILE_TOOL_FIELD = "tool"
+#: Dispatchable verbs that are deliberately absent from `mcptool.TOOLS`, so
+#: deriving the set from the catalogue alone would silently stop naming them:
+#:   orgtree_send_file_once  internal transport verb (`agent_call`), never
+#:                           advertised to a model
+#:   orgtree_self_update     deprecated alias kept dispatchable for live
+#:                           sessions and stored charters (rename 2026-08-21)
+#:   orgtree_op_call         the receipt wrapper itself; `toolwait.tool_name`
+#:                           normally unwraps it to the verb it carries, and
+#:                           this entry only covers a wrapper that arrives
+#:                           carrying nothing usable
+_PROFILE_EXTRA_TOOL_VERBS = ("orgtree_send_file_once", "orgtree_self_update",
+                             "orgtree_op_call")
+#: Built once, lazily: `mcptool` is imported inside functions everywhere else
+#: in this module and there is no reason for this to be the one thing that
+#: drags it into import time. Derived FROM the catalogue rather than retyped,
+#: so a tool added later is nameable without anyone remembering this list.
+_PROFILE_TOOL_NAMES: "frozenset[str] | None" = None
+
+
+def _profile_tool_names() -> "frozenset[str]":
+    global _PROFILE_TOOL_NAMES
+    if _PROFILE_TOOL_NAMES is None:
+        from . import mcptool
+        _PROFILE_TOOL_NAMES = frozenset(
+            [str(t["name"]) for t in mcptool.TOOLS if t.get("name")]
+            + list(_PROFILE_EXTRA_TOOL_VERBS))
+    return _PROFILE_TOOL_NAMES
 
 #: THIS PROCESS's identity — a fresh value on every start.
 #:
@@ -333,9 +410,30 @@ class AccessRecord:
         # themselves are `def` and run in the threadpool, but they are not
         # here. A wrong count would cost a misleading log field, never
         # correctness.
-        profile = {} if _PROFILE_TIMING else None
-        if profile is not None:
-            scope.setdefault("state", {})["profile_timing"] = profile
+        #
+        # ⚠ ALWAYS BOUND, not only while the operator toggle is on (user
+        # decision 2026-09-19: every slow request gets durable attribution).
+        # The toggle now gates only the VERBOSE surfaces — the printed
+        # profile line and the in-memory ring — while the stage dict itself
+        # is collected for every request so `slowtrace` can attribute a slow
+        # one that nobody was watching for. The per-request cost of the
+        # always-on half is one contextvar bind plus a handful of dict adds
+        # at the stage sites, measured in `test_latency_tier1`.
+        profile: dict[str, Any] = {}
+        scope.setdefault("state", {})["profile_timing"] = profile
+        # The same dict, reachable two ways. `request.state` is how a
+        # HANDLER gets it — it has a request. `profiling.bind` is how the
+        # places that actually spend the time get it: `store.load_org`,
+        # `store.save_org` and `store.DOC_LOCK` are called from eighteen
+        # modules and have no request to ask. Bound here, on the
+        # OUTERMOST middleware, so the whole stack is inside the window.
+        profile_token = profiling.bind(profile)
+        # storage-boundary attribution (stateprobe): the label must be the
+        # route TEMPLATE, which exists only after routing — so it is resolved
+        # lazily at record time, and the concrete path can never leak into a
+        # label. agent_call refines it to the tool verb.
+        stateprobe.label_deferred(
+            lambda: str(scope.get("method") or "?") + " " + _route_label(scope))
         global _access_inflight
         _access_inflight += 1
         depth = _access_inflight
@@ -365,6 +463,11 @@ class AccessRecord:
                 _access_emit(scope, status, handler_ms, total_ms, nbytes, depth, profile)
             except Exception:                                   # noqa: BLE001
                 pass      # a log line may never be the reason a request fails
+            if profile_token is not None:
+                # After the emit, so anything the emit itself touches is still
+                # inside the window, and unconditional so a raising handler
+                # cannot leave the var bound to a request that is over.
+                profiling.unbind(profile_token)
 
 
 def _route_label(scope: ASGIScope) -> str:
@@ -400,18 +503,50 @@ def _access_emit(scope: ASGIScope, status: int, handler_ms: float,
     print(f"[orgtree.access] {stamp} {method} {route} {status} "
           f"handler={handler_ms:.0f}ms total={total_ms:.0f}ms "
           f"bytes={nbytes} inflight={depth}", flush=True)
-    if profile is not None and _PROFILE_TIMING:
+    slow_trace = handler_ms >= slowtrace.THRESHOLD_MS
+    if profile is not None and (_PROFILE_TIMING or slow_trace):
         # Build the printed projection from the same allowlisted values as the
         # retrievable sink.  A future handler must not be able to smuggle a
         # prompt, mail body, credential, token, or non-finite value into the
         # log merely by adding a field to its timing dict.
-        numeric_profile = {k: v for k, v in profile.items()
-                           if isinstance(v, (int, float)) and not isinstance(v, bool)
-                           and math.isfinite(v) and k in _PROFILE_ALLOWED_FIELDS
-                           and k not in _PROFILE_RESERVED_FIELDS}
+        # A SNAPSHOT, not the live dict: a managed tool's worker thread
+        # (toolwait.invoke) shares this dict and may still be writing to it
+        # after its request gave up waiting. Iterating it directly would
+        # eventually raise "dictionary changed size during iteration" inside
+        # the caller's `except Exception: pass` and drop the whole record in
+        # silence. See `profiling.snapshot`.
+        snap = profiling.snapshot(profile)
+        safe_profile = {k: v for k, v in snap.items()
+                        if isinstance(v, (int, float)) and not isinstance(v, bool)
+                        and math.isfinite(v) and k in _PROFILE_ALLOWED_FIELDS
+                        and k not in _PROFILE_RESERVED_FIELDS}
+        # The one non-numeric field, and the only value here that started life
+        # as request text. Membership in the catalogue is the whole check: a
+        # verb that is not in it is DROPPED, so the field is either one of ~49
+        # fixed ASCII names or absent. See `_PROFILE_TOOL_FIELD`.
+        verb = snap.get(_PROFILE_TOOL_FIELD)
+        if (_PROFILE_TOOL_FIELD not in _PROFILE_RESERVED_FIELDS
+                and isinstance(verb, str) and verb in _profile_tool_names()):
+            safe_profile[_PROFILE_TOOL_FIELD] = verb
+        # Time no stage claims, explicit in every record (user decision
+        # 2026-09-19). Deliberately UNCLAMPED: a negative value says the wall
+        # stages overlap (two brackets covering the same interval), which is
+        # an attribution bug worth seeing, not rounding to hide.
+        unattributed = handler_ms - sum(
+            v for k, v in safe_profile.items()
+            if k in _PROFILE_WALL_STAGE_FIELDS)
         record = {"route": route, "handler_ms": round(handler_ms, 3),
                   "total_ms": round(total_ms, 3), "bytes": nbytes,
-                  **numeric_profile}
+                  "unattributed_ms": round(unattributed, 3),
+                  **safe_profile}
+        if slow_trace:
+            # Durable, toggle-independent, bounded — the whole point: a slow
+            # request nobody was watching for is attributable hours later,
+            # from a cold engine (user decision 2026-09-19).
+            slowtrace.emit({**record, "method": method, "status": status,
+                            "instance": INSTANCE, "inflight": depth})
+        if not _PROFILE_TIMING:
+            return _slow_alarm(route, method, handler_ms, nbytes, depth)
         print("[orgtree.profile] " + route + " " +
               json.dumps(record, sort_keys=True), flush=True)
         # Same call already sits behind the caller's `except Exception: pass`
@@ -424,10 +559,13 @@ def _access_emit(scope: ASGIScope, status: int, handler_ms: float,
         # those would crowd out the routes this sink exists to hold; (2) not
         # this route itself — a caller polling `/api/desktop/profile-timing`
         # would otherwise evict what it came to read with its own reads; (3)
-        # only numeric values leave the handler's dict — `**profile` merges
-        # only known timing fields leave the handler's dict. Numeric type alone
+        # only allowlisted fields leave the handler's dict. Numeric type alone
         # is not enough: a handler must not expose arbitrary content such as a
-        # token or mail identifier by choosing a field name.
+        # token or mail identifier by choosing a field name. The lone
+        # non-numeric field, `tool`, is held to the stricter rule of the two —
+        # its VALUE must also be a member of the tool catalogue (see
+        # `_PROFILE_TOOL_FIELD`), because unlike a stage timing it starts out
+        # as request text.
         if profile and route != _PROFILE_TIMING_ROUTE:
             global _PROFILE_SEQ
             _PROFILE_SEQ += 1
@@ -448,7 +586,12 @@ def _access_emit(scope: ASGIScope, status: int, handler_ms: float,
             _PROFILE_RECORDS.append({"seq": _PROFILE_SEQ, "route": route,
                                      "handler_ms": round(handler_ms, 3),
                                      "total_ms": round(total_ms, 3),
-                                     "bytes": nbytes, **numeric_profile})
+                                     "bytes": nbytes, **safe_profile})
+    return _slow_alarm(route, method, handler_ms, nbytes, depth)
+
+
+def _slow_alarm(route: str, method: str, handler_ms: float,
+                nbytes: int, depth: int) -> None:
     if handler_ms < _SLOW_MS:
         return
     # The alarm. Rate-limited per route by a TIME WINDOW rather than by a set
@@ -527,6 +670,40 @@ def profile_timing() -> dict[str, Any]:
             "newest_seq": records[-1]["seq"] if records else None,
             "dropped": records[0]["seq"] - 1 if records else 0}
 
+@app.get("/api/diagnostics/state-access", dependencies=[Depends(_profile_operator_only)])
+def state_access_diagnostics(reset: bool = False) -> dict[str, Any]:
+    """The storage-boundary decomposition (stateprobe): per operation label —
+    tool verb, route template, worker loop — lock wait/held, document loads
+    (count, ms, bytes), lazy-section materializations, and what each save
+    changed vs. what it re-serialized. Same operator-only gate and the same
+    privacy boundary as the route-timing sink: labels are templates and
+    verbs, never a path, an argument or content. `?reset=1` returns the
+    aggregate and clears it, for clean before/after windows."""
+    return stateprobe.snapshot(reset=reset)
+
+
+@app.post("/api/diagnostics/state-access", dependencies=[Depends(_profile_operator_only)])
+def state_access_control(body: ProfileTimingControl) -> dict[str, Any]:
+    """Live enable/disable for the storage-boundary probe (no restart)."""
+    stateprobe.set_enabled(body.enabled)
+    return {"enabled": stateprobe.enabled()}
+
+
+@app.get("/api/diagnostics/slow-requests", dependencies=[Depends(_profile_operator_only)])
+def slow_requests(n: int = 200) -> dict[str, Any]:
+    """The durable slow-request attribution (slowtrace): newest rows oldest
+    first plus per-(route, tool) rankings, worst total first. Rows exist for
+    every request over the threshold since install, across restarts and
+    regardless of the profiling toggle — this is the door the user's
+    decision of 2026-09-19 names for 'which operation was slow, where did
+    its time go, and how much of it is unattributed'. Same operator-only
+    gate and privacy boundary as the other diagnostics: templates, verbs
+    and finite numbers, never a path or content."""
+    rows = slowtrace.tail(max(1, min(int(n), 2000)))
+    return {"threshold_ms": slowtrace.THRESHOLD_MS, "path": slowtrace.path(),
+            "rows": rows, "rankings": slowtrace.rankings(rows)}
+
+
 @app.put("/api/desktop/profile-timing", dependencies=[Depends(_profile_operator_only)])
 @app.post("/api/diagnostics/timing", dependencies=[Depends(_profile_operator_only)])
 def profile_timing_control(body: ProfileTimingControl) -> dict[str, Any]:
@@ -567,6 +744,45 @@ async def _validation_error(  # type: ignore[unused-function]  # registered by t
     from fastapi.responses import JSONResponse
     return JSONResponse(status_code=422,
                         content={"detail": fix(jsonable_encoder(exc.errors()))})
+
+
+@app.exception_handler(Exception)
+async def _unhandled_error(  # type: ignore[unused-function]  # registered by the decorator
+        request: Request, exc: Exception) -> Response:
+    """Answer an unhandled handler exception in JSON, like every other error.
+
+    ⚠ WITHOUT THIS THE BODY IS THE BARE TEXT `Internal Server Error`. That is
+    Starlette's default 500 — `text/plain`, no JSON anywhere — and the desktop
+    parses error bodies as JSON, so on 2026-09-20 a stop that hit an
+    unhandled `OSError` showed the user
+    `Unexpected token 'I', "Internal S"... is not valid JSON` instead of
+    anything about the agent they were trying to stop. Two defects sat behind
+    that one sentence and both are fixed: the client no longer assumes JSON
+    (apps/desktop/renderer/src/api.ts) and the server no longer answers in
+    plain text.
+
+    The status stays 500 and NOTHING IS SWALLOWED — deliberately not logged
+    here either. Starlette's `ServerErrorMiddleware` sends this response and
+    then re-raises, which is what puts the traceback in the server log, and
+    it is the OUTERMOST layer of this app (every middleware in this file
+    appears inside it in a live traceback). A `print_exc` here would print
+    the same stack a second time for every 500. What changes is only the
+    SHAPE of the body. `detail` is the same key every `HTTPException` on this
+    app already uses, so every existing client reads this with the code it
+    already has. The exception's own text is included because an operator
+    reading a failed stop needs to know it was `[Errno 22] Invalid argument`,
+    not merely that something went wrong — and these are local, single-user
+    backends, not a public service with an attacker reading error strings."""
+    from fastapi.responses import JSONResponse
+    kind = type(exc).__name__
+    text = str(exc).strip()
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"{kind}: {text}" if text else kind,
+                 "error": {"type": kind, "message": text,
+                           "path": str(request.url.path),
+                           "method": request.method,
+                           "unhandled": True}})
 
 
 def _encodable(v: Any) -> Any:
@@ -667,13 +883,16 @@ def _public_denied(method: str, rest: str, slug: str) -> tuple[int, str] | None:
         # unstick does not touch it, so this was never a way past the spend
         # cap — only past every other lock the owner relies on.)
         or rest.endswith("/unstick")                         # user-only override
-        # ⚠ THE SAME BOUNDARY, for the same reason. `/continue-on` also
-        # passes USER unconditionally — to `assign_account` AND to the
-        # `unstick` it performs — so it is every power `/unstick` has plus
-        # the power to move an agent's billing onto another of the operator's
-        # accounts. Frozen here or a share-token holder could spend an
-        # account the kiosk was never meant to reach; it also names account
-        # ids, which D-145 keeps off the public side entirely.
+        # ⚠ THE SAME BOUNDARY, for the same reason. This ROUTE passes USER
+        # unconditionally — to `assign_account` AND to the `unstick` it
+        # performs — so it is every power `/unstick` has plus the power to
+        # move an agent's billing onto another of the operator's accounts.
+        # Frozen here or a share-token holder could spend an account the
+        # kiosk was never meant to reach; it also names account ids, which
+        # D-145 keeps off the public side entirely. (The agent verb
+        # `orgtree_continue_on` shares this route's implementation but passes
+        # the CALLING AGENT as the actor and never arrives here — it comes in
+        # over the tool dispatch, which has its own authority check.)
         or rest.endswith("/continue-on")                     # user-only override
         # /scope is OPEN (ceiling spec §2): visitors retool freely WITHIN the
         # kiosk permission ceiling — the ledger clamps, never a 403 here
@@ -1068,7 +1287,7 @@ async def _wire_notify() -> None:  # type: ignore[unused-function]  # registered
             _tree_cache_drop(slug)
         asyncio.run_coroutine_threadsafe(
             hub._send(slug, {"type": "node_stream", "org": slug, "node": node,
-                             **payload}), loop)
+                             "rev": _next_sync_rev(slug), **payload}), loop)
 
     supervisor.notify = notify
     supervisor.stream = stream
@@ -1230,12 +1449,14 @@ class Hub:
             self.leave(slug, ws)
 
     async def changed(self, slug: str) -> None:
-        await self._send(slug, {"type": "changed", "org": slug})
+        await self._send(slug, {"type": "changed", "org": slug,
+                                "rev": _next_sync_rev(slug)})
 
     async def node_event(self, slug: str, node: str, event: str,
                          detail: dict[str, Any] | None = None) -> None:
         payload: dict[str, Any] = {"type": "node_event", "org": slug,
-                                   "node": node, "event": event}
+                                   "node": node, "event": event,
+                                   "rev": _next_sync_rev(slug)}
         if detail:
             payload.update(detail)
         await self._send(slug, payload)
@@ -1244,6 +1465,44 @@ class Hub:
 hub = Hub()
 # captured at startup — threadsafe broadcasts from sync code
 _LOOP: asyncio.AbstractEventLoop | None = None
+
+# ── the sync revision (2026-09-19, approved base+patch protocol) ─────────────
+#
+# Every STATE-BEARING ws frame ('changed', 'node_stream', 'node_event')
+# carries a per-slug monotonically increasing `rev`, and every full tree
+# payload carries `sync_rev` — the rev current when its snapshot was
+# acquired. The renderer's convergence rule is then arithmetic instead of
+# guesswork: a narrow patch frame with rev > the payload's sync_rev applies
+# ON TOP of it; one with rev <= sync_rev is already included; a gap in frame
+# revs means frames were missed (sleep, reconnect) and one full fetch
+# catches up. This retires the wholesale-discard behavior where a fetched
+# tree racing ANY patch frame was thrown away — under continuous patch
+# traffic those bounded retries starved and lifecycle state sat visibly
+# stale for over a minute while the backend was already correct (beta.1
+# wave-2, user timeline 21:01:50-21:02:43Z; swarm-astra's renderer finding).
+#
+# `sync_rev` is read BEFORE the snapshot is acquired, deliberately: if a
+# frame lands between the read and the build, the payload may carry NEWER
+# content than its stamp, and the renderer re-applies that frame's values
+# onto identical content — idempotent. The reverse order could stamp newer
+# than the content and make the renderer DISCARD a patch it still needs.
+# Animation-only frames ('mail' sparks) carry no rev and take no part in
+# ordering. Revs are per-process (the hub lives in the writer process), so
+# the contract also holds unchanged if read serving later moves to worker
+# processes — workers relay frames, the writer mints.
+_sync_revs: dict[str, int] = {}
+_sync_rev_lock = threading.Lock()
+
+
+def _next_sync_rev(slug: str) -> int:
+    with _sync_rev_lock:
+        _sync_revs[slug] = _sync_revs.get(slug, 0) + 1
+        return _sync_revs[slug]
+
+
+def _current_sync_rev(slug: str) -> int:
+    with _sync_rev_lock:
+        return _sync_revs.get(slug, 0)
 
 
 _BCAST_COALESCE = 0.4      # seconds; see hub_changed
@@ -1692,6 +1951,45 @@ def _capacity_label(ts: float, src: str, schedule_kind: str) -> str:
             + supervisor._reset_label(ts))
 
 
+def _stamp_wake_countdown(node: dict[str, Any]) -> None:
+    """THE SECOND COUNTDOWN (user ruling 2026-09-17 18:00).
+
+    The user asked for two countdowns, not one number moved: "badge shows
+    reset time (what it does now) until hitting zero, then a new 60s
+    countdown until wake". So `until_ts` keeps meaning exactly what it has
+    always meant - the provider's stated reset, per the 2026-09-12 ruling
+    that what is shown takes precedence from the 429 - and this publishes
+    the instant the WAKE may fire as its own field beside it.
+
+    ⚠ WHY THE CLIENT CANNOT WORK THIS OUT FOR ITSELF, and why it is not
+    simply `until_ts + 60`. The grace is a backend rule with an exception in
+    it: a connection backoff gets NONE, because its deadline is our own timer
+    and there is no foreign clock to be early against. `supervisor.
+    wake_grace_for` is the one place that rule lives, and re-expressing it in
+    TypeScript is how the two surfaces drifted apart in the first place. The
+    renderer reads these numbers; it does not decide them.
+
+    ⚠ IT IS DELIBERATELY DERIVED FROM THE NUMBER ALREADY ON THE PAYLOAD,
+    not from a second ranking pass. `_rederive_freeze_reset` has just settled
+    which deadline this badge shows; the second countdown must begin exactly
+    where the first one ends, so it is that same value plus the grace. Asking
+    the ranking again could answer differently and reopen the disagreement
+    this whole item is about.
+
+    `None` when there is nothing to count down to - no deadline, or a kind
+    that carries no grace - so the renderer shows one countdown, as now.
+    """
+    fz = node.get("frozen")
+    if not isinstance(fz, dict):
+        return
+    try:
+        shown = float(fz.get("until_ts") or 0.0)
+    except (TypeError, ValueError):
+        shown = 0.0
+    grace = supervisor.wake_grace_for(fz)
+    fz["wake_ts"] = (shown + grace) if (shown and grace) else None
+
+
 def _rederive_freeze_reset(node: dict[str, Any],
                            cache: dict[str, dict[str, Any]]) -> None:
     """Re-derive a usage-limit freeze's reset from the CURRENT account roster.
@@ -2028,7 +2326,15 @@ def _summarise_archived(node: dict[str, Any]) -> None:
 # polling an unchanged org shares one build and usually just gets a 304.
 _TREE_STALE_BUCKET_S = 30.0
 _tree_cache_lock = threading.Lock()
-_tree_cache: dict[tuple[str, bool], tuple[str, dict[str, Any]]] = {}
+#: (etag, built dict, serialized body). The BYTES are first-class cache
+#: content: FastAPI's encode-per-request of the cached dict cost ~32 ms per
+#: hit on a ~1 MB tree against ~5 ms for one direct dumps (measured
+#: byte-identical, 2026-09-19) — and serialize-once means hits re-encode
+#: nothing at all. The dict stays cached beside the bytes because the
+#: archived-summary suite calls the route function directly and reads the
+#: payload as a mapping, and because node-detail and future delta patching
+#: work on the dict.
+_tree_cache: dict[tuple[str, bool], tuple[str, dict[str, Any], bytes]] = {}
 #: one build at a time per (slug, public): concurrent misses on the SAME
 #: etag must share one build, not race two (perf-review reproduction #4 —
 #: a barrier probe produced two builds). The dict of locks is tiny and
@@ -2094,13 +2400,11 @@ def org_tree(slug: str, request: Request,
         # nothing the payload derives from has moved — no load, no tree(),
         # no annotate, no serialize; the client keeps what it has
         return Response(status_code=304, headers={"ETag": etag})
-    if response is not None:
-        response.headers["ETag"] = etag
     key = (slug, pub)
     with _tree_cache_lock:
         hit = _tree_cache.get(key)
     if hit is not None and hit[0] == etag:
-        return hit[1]
+        return _tree_payload(hit, response)
     with _tree_build_lock(key):
         # a concurrent miss may have filled the cache while we queued —
         # answer from its build instead of making a second one
@@ -2108,8 +2412,9 @@ def org_tree(slug: str, request: Request,
             hit = _tree_cache.get(key)
             rev_before = _tree_inval_rev.get(slug, 0)
         if hit is not None and hit[0] == etag:
-            return hit[1]
+            return _tree_payload(hit, response)
         tree = _org_view(slug, request, None)
+        entry = (etag, tree, _dump_tree(tree))
         with _tree_cache_lock:
             if _tree_inval_rev.get(slug, 0) == rev_before:
                 # GUARDED PUBLICATION (perf-review round 2): a patch frame
@@ -2118,8 +2423,26 @@ def org_tree(slug: str, request: Request,
                 # drop. The build still answers THIS request (its etag is
                 # already retired by the rev bump, so no one can 304 onto
                 # it); it just never enters the cache.
-                _tree_cache[key] = (etag, tree)
-    return tree
+                _tree_cache[key] = entry
+    return _tree_payload(entry, response)
+
+
+def _dump_tree(tree: dict[str, Any]) -> bytes:
+    """Exactly JSONResponse's serialization options, so the served bytes are
+    what the framework would have produced — verified byte-identical on the
+    real tree payload before this bypass shipped."""
+    return json.dumps(tree, ensure_ascii=False, allow_nan=False,
+                      indent=None, separators=(",", ":")).encode("utf-8")
+
+
+def _tree_payload(entry: tuple[str, dict[str, Any], bytes], response) -> Any:
+    """HTTP callers get the pre-serialized body (no per-request re-encode);
+    a DIRECT in-process caller (`response is None`, e.g. the archived-summary
+    suite driving the route function) keeps the plain payload dict."""
+    if response is None:
+        return entry[1]
+    return Response(content=entry[2], media_type="application/json",
+                    headers={"ETag": entry[0]})
 
 
 @app.get("/api/orgs/{slug}/nodes/{nid}/detail")
@@ -2139,17 +2462,43 @@ def org_node_detail(slug: str, nid: str, request: Request) -> dict[str, Any]:
 
 def _org_view(slug: str, request: Request,
               detail_node: str | None) -> dict[str, Any]:
-    profile = (getattr(request.state, "profile_timing", None)
-               if _PROFILE_TIMING else None)
+    # Always populated when the middleware bound a dict (which is every HTTP
+    # request since the 2026-09-19 universal-tracing decision): a slow tree
+    # build must decompose in the durable trace even when nobody had the
+    # verbose profiling toggle on. Direct in-process callers have no bound
+    # dict and skip the bookkeeping exactly as before.
+    profile = getattr(request.state, "profile_timing", None)
+    # Read BEFORE the snapshot: see the sync-revision note at the Hub —
+    # stamping older-than-content is safe (idempotent re-apply), newer is not.
+    sync_rev0 = _current_sync_rev(slug)
     try:
         _stage = time.perf_counter()
-        org = store.load_org_snapshot(slug, ("org_inbox",))
+        # THE SHARED REFRESHED SNAPSHOT, not a fresh parse (2026-09-19).
+        # `load_org_snapshot` re-parsed the whole eager document on every
+        # tree build — 65-115 ms of GIL-held CPU per save under swarm load,
+        # measured as the largest single component of the rebuild and a
+        # direct contributor to every stretched write hold. `cached_org`
+        # serves the same coherent view refreshed section-granularly from
+        # each save's change set (~1.7 ms after a one-node write), with
+        # herd suppression. Lazy sections (mail, asks, org_inbox) simply
+        # materialize into the shared object on first touch and refresh
+        # only when a save changes them.
+        #
+        # ⚠ THE VIEW MUST NOT MUTATE THE SHARED DOCUMENT. Projection rows
+        # are fresh dicts, but they REFERENCE document structures (scope,
+        # denial lists, kiosk config); every downstream mutator writes
+        # row-level fields or fresh copies — `_scrub_public` was converted
+        # to copy-on-scrub for exactly this change, and
+        # `test_latency_tier1.SharedSnapshotTreeView` pins the whole
+        # private+public build leaving the document byte-identical.
+        org = store.cached_org(slug)
         if profile is not None: profile["load_snapshot_ms"] = (time.perf_counter() - _stage) * 1000.0
     except LedgerError as e:
         raise HTTPException(404, str(e))
     _t0 = time.perf_counter()
     _stage = time.perf_counter()
     tree = org.tree()
+    tree["sync_rev"] = sync_rev0
     if profile is not None: profile["tree_ms"] = (time.perf_counter() - _stage) * 1000.0
     # FR-27: the primed restart is a MACHINE fact, not an org one — it is
     # armed from one org and cuts every org on the box. So it is injected
@@ -2202,6 +2551,7 @@ def _org_view(slug: str, request: Request,
             node["account_tint_ordinal"] = account_row["tint_ordinal"]
             node["account_label"] = accountusage.canonical_name(account_row, primary, ambient_paths)
         _rederive_freeze_reset(node, _cap_cache)
+        _stamp_wake_countdown(node)
         # §4.8: an archived seat has no turn and no process, so every field
         # below is a constant for it — and deriving 242 constants from the
         # supervisor was most of this handler's own time. `full=True` is the
@@ -2266,11 +2616,24 @@ def _org_view(slug: str, request: Request,
         # behind the same D-145 bound as `serving_account`; and it is only
         # ever a candidate list, never a promise — `/continue-on` re-decides
         # it against a forced read before it moves a binding.
+        #
+        # ⚠ `offered`, NOT `alternatives` (docket
+        # `restore-continue-on-in-agent-context-menus`). The strict rule is
+        # "prove this account has room", and everything it cannot ESTABLISH
+        # fails it — including a claude `session` window reported with no
+        # `resets_at`, which is the ordinary shape for a window that has not
+        # started. Every signed-in claude account failed it, this list was
+        # empty for every frozen agent, and the menu had nothing to build, so
+        # the operator's only route back was halting the agent and rebinding
+        # it by hand. `offered` asks the operator's question instead — offer
+        # unless something POSITIVELY says the account is full — while the
+        # automatic scheduler keeps the strict rule, because it moves agents
+        # with nobody watching.
         node["continue_accounts"] = []
         if node.get("frozen") and not public_view and node["state"] == "live":
             try:
                 if accountfallback.manual_only(org, node["id"]):
-                    node["continue_accounts"] = accountfallback.alternatives(
+                    node["continue_accounts"] = accountfallback.offered(
                         org, node["id"], rows=list(account_rows.values()))
             except (LedgerError, KeyError, ValueError, OSError):
                 node["continue_accounts"] = []
@@ -2615,21 +2978,28 @@ def _scrub_public(tree: dict[str, Any]) -> None:
     tree["dirs"] = [{**d, "path": base(d.get("path", ""))} for d in dirs]
     if isinstance(tree.get("kiosk"), dict):
         # the ceiling's add_dirs are host paths; visitors see clamp warnings
-        # naming the ceiling, never the ceiling itself
-        tree["kiosk"].pop("max_scope", None)
-        tree["kiosk"].pop("auto_raise", None)
-        tree["kiosk"].pop("share_url", None)
+        # naming the ceiling, never the ceiling itself.
+        # ⚠ REPLACED, NEVER POPPED IN PLACE: `tree["kiosk"]` can be the
+        # document's own dict, and the tree is now built over the SHARED
+        # refreshed snapshot (2026-09-19) — an in-place pop here would strip
+        # the operator's ceiling from every subsequent private serve until
+        # the next section refresh. Same rule for every nested value below:
+        # the projection may reference document structures, so the scrub
+        # writes fresh copies onto the ROW and mutates nothing it reached
+        # through one.
+        tree["kiosk"] = {k: v for k, v in tree["kiosk"].items()
+                         if k not in ("max_scope", "auto_raise", "share_url")}
 
     def walk(n: dict[str, Any]) -> None:
-        n.pop("session_id", None)
+        n.pop("session_id", None)              # row-level field: safe to pop
         # an @mcp: peer id is a bearer credential, not a label: anyone holding
         # it can GET /api/extern/{peer}/messages and read that channel. Kiosk
         # visitors get the org, never its outside channels.
         n.pop("external_handles", None)
         sc: dict[str, Any] = n.get("scope") or {}
         if sc.get("add_dirs"):
-            sc["add_dirs"] = [{**d, "path": base(d.get("path", ""))}
-                              for d in sc["add_dirs"]]
+            n["scope"] = {**sc, "add_dirs": [
+                {**d, "path": base(d.get("path", ""))} for d in sc["add_dirs"]]}
         if n.get("last_error"):
             n["last_error"] = _WINPATH.sub("<path>", str(n["last_error"]))
         # the other two ENGINE-generated strings on a node. `frozen.error` is
@@ -2640,20 +3010,23 @@ def _scrub_public(tree: dict[str, Any]) -> None:
         # leaked the operator's username).
         fz: dict[str, Any] = n.get("frozen") or {}
         if fz.get("error"):
+            # `frozen` is a filtered copy built per row — mutable safely
             fz["error"] = _WINPATH.sub("<path>", str(fz["error"]))
         # …and `last_approvals` (2026-09-05) rides the same row shape with
         # the same host-path exposure, plus a `cwd` that is ALWAYS a host
         # path — scrub both lists, both fields, or the new one leaks exactly
-        # the way the old one was measured to.
+        # the way the old one was measured to. Fresh lists and dicts: the
+        # row's value is the document's own list.
         for key in ("last_denials", "last_approvals"):
             rows: list[Any] = n.get(key) or []
-            for dn in rows:
-                if not isinstance(dn, dict):
-                    continue
-                d2 = cast("dict[str, Any]", dn)
-                for fld in ("arg", "cwd"):
-                    if d2.get(fld):
-                        d2[fld] = _WINPATH.sub("<path>", str(d2[fld]))
+            if rows:
+                n[key] = [
+                    ({**cast("dict[str, Any]", dn),
+                      **{fld: _WINPATH.sub("<path>", str(cast("dict[str, Any]", dn)[fld]))
+                         for fld in ("arg", "cwd")
+                         if cast("dict[str, Any]", dn).get(fld)}}
+                     if isinstance(dn, dict) else dn)
+                    for dn in rows]
         children: list[dict[str, Any]] = n.get("children") or []
         for c in children:
             walk(c)
@@ -3092,7 +3465,7 @@ class KioskCfg(Body):
 
 
 @app.post("/api/orgs/{slug}/kiosk")
-async def org_kiosk(slug: str, body: KioskCfg) -> dict[str, Any]:
+def org_kiosk(slug: str, body: KioskCfg) -> dict[str, Any]:
     """Admin-only (the public gateway 403s the path): enable/disable an org as
     a kiosk, adjust its caps, rotate its secret URL. Raising a breached limit
     clears the matching hard freeze — ▶ resume then replays halted turns."""
@@ -3189,7 +3562,7 @@ async def org_kiosk(slug: str, body: KioskCfg) -> dict[str, Any]:
     if supervisor.storage_check(slug) == "cleared":
         cleared.append("storage")
     _token_cache["at"] = 0.0             # rotation/enable takes effect now
-    await hub.changed(slug)
+    hub_changed(slug)
     safe = {kk: v for kk, v in k.items()
             if kk not in ("api_key", "sandbox_secret")}
     return {"kiosk": safe, "share_url": _share_url(k.get("token")),
@@ -3205,15 +3578,14 @@ class HireDefaults(Body):
 
 
 @app.post("/api/orgs/{slug}/defaults")
-async def org_hire_defaults(slug: str, body: HireDefaults,
-                            request: Request) -> dict[str, Any]:
+def org_hire_defaults(slug: str, body: HireDefaults,
+                      request: Request) -> dict[str, Any]:
     """Agent-hire defaults — OPEN to kiosk visitors (user ruling 2026-07-31):
     a default is a pre-filled grant, so the ceiling clamps it like any grant.
     The rest of /settings (org folders, caps, policies) stays admin-only."""
     pub = bool(_public_slug(request))
-    with store.DOC_LOCK:
+    with _entry_ledger_422(store.write_org(slug)) as org:
         try:
-            org = store.load_org(slug)
             rc = (not pub) and (bool((org.d.get("kiosk") or {}).get("auto_raise"))
                                 or body.raise_ceiling)
             result = org.set_hire_defaults(
@@ -3226,7 +3598,7 @@ async def org_hire_defaults(slug: str, body: HireDefaults,
         store.save_org(org)
     if pub and isinstance(result, dict):
         result.pop("bridge", None)
-    await hub.changed(slug)
+    hub_changed(slug)
     return result
 
 
@@ -3267,9 +3639,8 @@ class Scope(Body):
 def node_scope(slug: str, nid: str, body: Scope,
                request: Request) -> dict[str, Any]:
     pub = bool(_public_slug(request))
-    with store.DOC_LOCK:
+    with _entry_ledger_422(store.write_org(slug)) as org:
         try:
-            org = store.load_org(slug)
             rc = (not pub) and (bool((org.d.get("kiosk") or {}).get("auto_raise"))
                                 or body.raise_ceiling)
             result = org.set_scope(USER, nid, add_dirs=body.add_dirs, tools=body.tools,
@@ -4046,9 +4417,20 @@ class OpenRouterFavorite(Body):
 
 def _openrouter_doc(force: bool = False) -> dict[str, Any]:
     from . import openrouter                    # noqa: PLC0415 — one lane
+    from . import openrouter_harness            # noqa: PLC0415
     st = openrouter.status(force)
     st["tiers"] = openrouter.tier_infos()
     st["user_enabled"] = appsettings.provider_enabled(openrouter.PROVIDER_ID)
+    # THE WHOLE SELECTOR, DECIDED IN THE BACKEND. The renderer draws what this
+    # says and derives nothing: which harnesses exist, whether the control is
+    # enabled, what is selected, and the sentence to show when it is not. The
+    # three-state rule (both usable / exactly one / neither) lives in
+    # `openrouter_harness.selector` so there is one implementation of it
+    # rather than one per surface — D-182's standing warning.
+    if force:
+        openrouter_harness.forget_probe()
+    st["harness"] = openrouter_harness.selector(
+        appsettings.openrouter_harness())
     return st
 
 
@@ -4073,6 +4455,44 @@ async def openrouter_set_key(body: OpenRouterKey) -> dict[str, Any]:
     except OSError as e:
         raise HTTPException(500, str(e)) from e
     return await run_in_threadpool(_openrouter_doc, True)
+
+
+class OpenRouterHarness(Body):
+    harness: str
+
+
+@app.put("/api/openrouter/harness")
+async def openrouter_set_harness(body: OpenRouterHarness) -> dict[str, Any]:
+    """Choose the CLI that NEWLY HIRED OpenRouter agents are given.
+
+    ⚠ IT MOVES NOBODY. Every agent stamped its harness at hire and keeps it
+    (`ledger.Org.harness_for`), so this changes what the next hire gets and
+    nothing about anyone already running — the user's own ruling, and the only
+    way to avoid ending a live agent's provider-side session continuity
+    without being asked.
+
+    An unavailable harness is REFUSED here rather than stored and failed at
+    launch: the person is choosing in front of a panel that already tells them
+    what is installed, so "you cannot pick that, because X" belongs at the
+    moment they pick it.
+    """
+    from . import openrouter_harness            # noqa: PLC0415
+    from fastapi.concurrency import run_in_threadpool
+    want = str(body.harness or "").strip().lower()
+    if want not in openrouter_harness.HARNESSES:
+        raise HTTPException(
+            422, f"unknown harness {body.harness!r}; know "
+                 f"{', '.join(openrouter_harness.HARNESSES)}")
+    states = await run_in_threadpool(openrouter_harness.availability)
+    if not states[want]["available"]:
+        raise HTTPException(
+            422, f"{openrouter_harness.LABEL[want]} cannot be selected — "
+                 f"{states[want]['why']}")
+    try:
+        await run_in_threadpool(appsettings.set_openrouter_harness, want)
+    except (appsettings.AppSettingsUnreadable, OSError, ValueError) as e:
+        raise HTTPException(500, str(e)) from e
+    return await run_in_threadpool(_openrouter_doc)
 
 
 @app.delete("/api/openrouter/key")
@@ -4130,6 +4550,7 @@ async def openrouter_favorite(body: OpenRouterFavorite) -> dict[str, Any]:
 
 class RuntimePreference(Body):
     quick_staff_behavior: Literal["request", "under_assignee", "top_level"] | None = None
+    quick_staff_request_accounts: bool | None = None
     # `enabled` is the established process-warming wire key. Keep it stable;
     # the explicit second key lets either control change without rewriting the
     # other durable value.
@@ -4144,6 +4565,7 @@ class RuntimePreference(Body):
 def _runtime_preferences() -> dict[str, Any]:
     return {
         "quick_staff_behavior": appsettings.quick_staff_behavior(),
+        "quick_staff_request_accounts": appsettings.quick_staff_request_accounts(),
         "git_periodic_fetch_enabled": appsettings.git_periodic_fetch_enabled(),
         "warming_enabled": warmpool.warm_enabled(),
         "working_checkups_enabled": appsettings.working_checkups_enabled(),
@@ -4179,12 +4601,16 @@ async def runtime_preference(body: RuntimePreference) -> dict[str, Any]:
             and body.idle_docket_reminders_enabled is None
             and body.blocked_docket_reminders_enabled is None
             and body.git_periodic_fetch_enabled is None
-            and body.quick_staff_behavior is None):
+            and body.quick_staff_behavior is None
+            and body.quick_staff_request_accounts is None):
         raise HTTPException(422, "one runtime setting is required")
     try:
         if body.quick_staff_behavior is not None:
             await run_in_threadpool(appsettings.set_quick_staff_behavior,
                                     body.quick_staff_behavior)
+        if body.quick_staff_request_accounts is not None:
+            await run_in_threadpool(appsettings.set_quick_staff_request_accounts,
+                                    body.quick_staff_request_accounts)
         if body.enabled is not None:
             await run_in_threadpool(warmpool.set_enabled, body.enabled)
         if body.working_checkups_enabled is not None:
@@ -4478,27 +4904,42 @@ async def accounts_usage(account_id: str) -> dict[str, Any]:
 
 @app.delete("/api/accounts/{account_id}")
 async def accounts_remove(account_id: str) -> dict[str, Any]:
-    """Remove a registry row. REFUSED while any node is bound to it (design
-    D5): explicit reassignment first — a removal that silently unbinds
-    agents would be the automatic movement the rules forbid. An apikey row's
-    secret material goes with it (token-store entry / minted key home): an
-    API key is re-pastable from the provider console, so disposal is safe
-    where a setup-token's never was."""
-    bound = _account_bindings().get(account_id, [])
-    if bound:
-        names = ", ".join(f"{b['org']}/{b['node']}" for b in bound[:8])
-        raise HTTPException(
-            422, f"account {account_id} has {len(bound)} bound agent(s) "
-                 f"({names}) — reassign them explicitly first")
+    """Remove a secondary account, REBINDING its agents to the provider's
+    primary first (user ticket 2026-09-21). One coordinated operation: every
+    stored binding to the row — live, halted, frozen, archived, and the queued
+    intents and org default that name it — moves to `<provider>/primary`, and
+    only then is the row removed.
+
+    This used to REFUSE while anything was bound ("reassign them explicitly
+    first"), which made the control unusable: the bindings the operator had to
+    clear by hand included archived ones no UI lists. The movement is no longer
+    silent or implicit — it is what the button says it does, it is disclosed in
+    the response, and every live node goes through `supervisor.assign_account`
+    so the session-boundary, park and thaw rules are the ones a hand-made
+    reassignment gets.
+
+    It is still REFUSED, with nothing changed, when the operation could not be
+    completed safely: a primary account, an org document that cannot be read,
+    or an agent whose provider needs a session boundary while its turn is still
+    running. An apikey row's secret material goes with it (token-store entry /
+    minted key home): an API key is re-pastable from the provider console, so
+    disposal is safe where a setup-token's never was."""
+    from . import account_removal
     try:
-        row = registry.get_account(account_id)
+        out = await asyncio.to_thread(
+            account_removal.remove_account_rebinding_agents,
+            account_id, actor=USER)
     except registry.UnknownAccount:
         raise HTTPException(404, f"no account {account_id!r}")
-    if not registry.remove_account(account_id):
-        raise HTTPException(404, f"no account {account_id!r}")
-    from . import apikey_accounts
-    apikey_accounts.forget_credentials(row)
-    return {"removed": account_id}
+    except account_removal.RemovalRefused as e:
+        raise HTTPException(422, str(e))
+    except account_removal.RemovalIncomplete as e:
+        raise HTTPException(500, str(e))
+    account_removal.announce(out["wakes"], out["rebound"])
+    for slug in out["orgs"]:
+        await hub.changed(slug)
+    return {"removed": out["removed"], "rebound": out["rebound"],
+            "orgs": out["orgs"]}
 
 
 class AccountEnabled(Body):
@@ -4545,7 +4986,7 @@ async def node_account_assign(slug: str, nid: str,
 
 
 @app.post("/api/orgs/{slug}/nodes/{nid}/reorder")
-async def node_reorder(slug: str, nid: str, body: Reorder) -> dict[str, Any]:
+def node_reorder(slug: str, nid: str, body: Reorder) -> dict[str, Any]:
     with store.DOC_LOCK:
         try:
             org = store.load_org(slug)
@@ -4553,7 +4994,7 @@ async def node_reorder(slug: str, nid: str, body: Reorder) -> dict[str, Any]:
         except LedgerError as e:
             raise HTTPException(422, str(e))
         store.save_org(org)
-    await hub.changed(slug)
+    hub_changed(slug)
     return result
 
 
@@ -4647,9 +5088,8 @@ def node_message(slug: str, nid: str, body: Message,
     # the user reached, not about whether a copy was filed.
     if stripped.startswith("/") \
             and re.fullmatch(r"/[A-Za-z?][\w-]*", stripped.split()[0]):
-        with store.DOC_LOCK:
+        with _entry_ledger_422(store.write_org(slug), 404) as org:
             try:
-                org = store.load_org(slug)
                 n = org.node(nid)
             except LedgerError as e:
                 raise HTTPException(404, str(e))
@@ -4785,9 +5225,8 @@ def node_message(slug: str, nid: str, body: Message,
             # an agent's context
             missing.append(f"{extra} further attachment(s) — past the "
                            f"{ledger_mod.ATTACHMENT_MAX}-per-message limit")
-    with store.DOC_LOCK:
+    with _entry_ledger_422(store.write_org(slug)) as org:
         try:
-            org = store.load_org(slug)
             reply_meta: dict[str, Any] | None = None
             if body.reply_to is not None and target is None:
                 raw_ref = body.reply_to.get("source_event_ref")
@@ -4983,18 +5422,48 @@ def node_steer_state(slug: str, nid: str) -> dict[str, Any]:
 @app.post("/api/orgs/{slug}/nodes/{nid}/interrupt")
 def node_interrupt(slug: str, nid: str) -> dict[str, Any]:
     """Manual ⏸: stop the node's current response (the only sanctioned
-    interrupt — message delivery never interrupts, user ruling)."""
+    interrupt — message delivery never interrupts, user ruling).
+
+    IDEMPOTENT AGAINST A HALT IN PROGRESS. Pressing ⏸ on an agent that is
+    already halting used to be answered by whatever the provider lane did
+    next — on 2026-09-20 that was an unhandled `OSError` and a plain-text
+    `Internal Server Error`. It is now always a result, and when a halt owns
+    the node the result SAYS SO: `halt` carries the phase, the settle
+    operation's id, and the plain-sentence list of what is still blocking,
+    so a second press reports the state of the first request instead of
+    racing it."""
     try:
         org = store.load_org(slug)
-        org.node(nid)
+        node = org.node(nid)
     except LedgerError as e:
         raise HTTPException(404, str(e))
-    return supervisor.interrupt_turn(slug, nid)
+    out = supervisor.interrupt_turn(slug, nid)
+    rec = node.get("halt")
+    if rec:
+        phase = str(rec.get("phase") or "")
+        out["halt"] = {"phase": phase,
+                       "requested_at": rec.get("requested_at"),
+                       "operation": supervisor.halt.operation(slug, nid),
+                       "blocking": (supervisor.halt.blocking(slug, nid)
+                                    if phase != "halted" else [])}
+        out.setdefault("reason", (
+            "this agent is already halted; no turn can run until an explicit "
+            "unhalt" if phase == "halted" else
+            "a halt is already settling this agent; the interrupt was applied "
+            "on top of it and changes nothing about that halt"))
+    return out
 
 
 @app.post("/api/orgs/{slug}/nodes/{nid}/halt")
 def node_halt(slug: str, nid: str) -> dict[str, Any]:
-    """Close all turn admission, then await abrupt termination and cleanup."""
+    """Close all turn admission, kill the agent's CLI/provider processes,
+    confirm they are gone, and only then report `halted`.
+
+    A halt that does not complete inside this request is NOT left ambiguous:
+    the reply carries `operation` (a named background settle operation that
+    owns the rest of the transition), `blocking` (plain sentences naming what
+    is still open) and `surviving_processes` (kind and pid). Calling it again
+    while that operation runs joins it rather than starting a second one."""
     try:
         return supervisor.halt.halt(slug, nid)
     except LedgerError as e:
@@ -5142,7 +5611,7 @@ def lineage_drop_phantom(slug: str, nid: str) -> dict[str, Any]:
 
 
 @app.post("/api/orgs/{slug}/dissolve-all")
-async def org_dissolve_all(slug: str) -> dict[str, Any]:
+def org_dissolve_all(slug: str) -> dict[str, Any]:
     """Dissolve EVERY agent in the org at once (context kept — rehire revives)."""
     with store.DOC_LOCK:
         try:
@@ -5155,7 +5624,7 @@ async def org_dissolve_all(slug: str) -> dict[str, Any]:
             store.save_org(org)
         except LedgerError as e:
             raise HTTPException(422, str(e))
-    await hub.changed(slug)
+    hub_changed(slug)
     return {"freed": freed, "nodes": nodes}
 
 
@@ -5228,7 +5697,7 @@ class CreditDecision(Body):
 
 
 @app.post("/api/orgs/{slug}/credit-requests")
-async def credit_request_decide(slug: str, body: CreditDecision) -> dict[str, Any]:
+def credit_request_decide(slug: str, body: CreditDecision) -> dict[str, Any]:
     """Decide a top-level agent's credit request: approve as asked, counter-
     offer any legal amount (F-05), or deny. The outcome reaches the agent as
     ordinary user MAIL (the unified ask system: the answer is a mail that
@@ -5269,7 +5738,7 @@ async def credit_request_decide(slug: str, body: CreditDecision) -> dict[str, An
             "(orgtree) The mail above contains the user's decision on your "
             "credit request — proceed accordingly.", mail_ping=True,
             ping_reason="credit_decision")
-    await hub.changed(slug)
+    hub_changed(slug)
     return req
 
 
@@ -5499,7 +5968,7 @@ def document_mockup(slug: str, did: str, request: Request) -> Response:
 
 
 @app.delete("/api/orgs/{slug}/documents/{did}")
-async def document_dismiss(slug: str, did: str) -> dict[str, Any]:
+def document_dismiss(slug: str, did: str) -> dict[str, Any]:
     """FR-03: the card's ✕ — remove a presented document."""
     with store.DOC_LOCK:
         try:
@@ -5508,7 +5977,7 @@ async def document_dismiss(slug: str, did: str) -> dict[str, Any]:
         except LedgerError as e:
             raise HTTPException(404, str(e))
         store.save_org(org)
-    await hub.changed(slug)
+    hub_changed(slug)
     return {"ok": True, "node": r["node"]}
 
 
@@ -5524,7 +5993,7 @@ class RenameRepair(Body):
 
 
 @app.post("/api/orgs/{slug}/repair-rename")
-async def repair_rename(slug: str, body: RenameRepair) -> dict[str, Any]:
+def repair_rename(slug: str, body: RenameRepair) -> dict[str, Any]:
     """Finish a rename for records an earlier rename stranded under the old id
     — presented documents, and the current ownership fields of work items.
 
@@ -5560,7 +6029,7 @@ async def repair_rename(slug: str, body: RenameRepair) -> dict[str, Any]:
             # a side effect of failing
             raise HTTPException(422, str(e))
         store.save_org(org)
-    await hub.changed(slug)
+    hub_changed(slug)
     return {"ok": True, "migrated": migrated, **r}
 
 
@@ -5733,6 +6202,10 @@ def quick_staff_select(slug: str, wid: str, body: QuickStaffSelection) -> dict[s
         # anything marked stale, so the worst a menu rendered a moment before an
         # account was disabled can do is get the click refused with a reason.
         snap = staffcache.read(max_age=staffcache.COMMIT_MAX_AGE, allow_stale=False)
+        # ⚠ OFF DOC_LOCK, exactly as at the other two hiring doors: choosing a
+        # new OpenRouter agent's harness spawns a Codex process, and provider
+        # reads never happen under the document lock. See `new_hire_harness`.
+        _hire_harness = new_hire_harness(body.tier)
         with store.DOC_LOCK:
             org = store.load_org(slug)
             _work_identity_ready(org, slug)
@@ -5752,10 +6225,13 @@ def quick_staff_select(slug: str, wid: str, body: QuickStaffSelection) -> dict[s
                 raise LedgerError("Immediate staffing requires a model. Reopen Staff… and select one.")
             if body.account and not body.tier:
                 raise LedgerError("Select a model before choosing an account.")
-            if body.account and ctx["mode"] == "request":
+            if (body.account and ctx["mode"] == "request"
+                    and not appsettings.quick_staff_request_accounts()):
                 # Request staffing hands the choice to the assignee, which hires
                 # on its own authority. Naming an account here would look like a
-                # binding and bind nothing.
+                # binding and bind nothing — unless the user has turned on
+                # "Include account selection when requesting staffing", which
+                # carries the account as an explicit SUGGESTION in the request.
                 raise LedgerError("Request staffing cannot pin an account — the "
                                   "assignee makes that choice when it hires.")
             if body.tier:
@@ -5773,6 +6249,10 @@ def quick_staff_select(slug: str, wid: str, body: QuickStaffSelection) -> dict[s
                     text += f" Suggested model: {body.tier}."
                 if body.effort is not None:
                     text += f" Suggested effort: {body.effort}."
+                if body.account:
+                    # A suggestion, not a binding: the assignee hires on its own
+                    # authority and may choose differently.
+                    text += f" Suggested account: {body.account}."
                 # everything the undo needs, read BEFORE the first mutation
                 undo = {"status": item.get("status"),
                         "done": list(item.get("done_so_far") or []),
@@ -5786,7 +6266,9 @@ def quick_staff_select(slug: str, wid: str, body: QuickStaffSelection) -> dict[s
                 if not mailed.get("deferred"):
                     drive.append(nid)
                 undo["mail"] = mailed.get("id")
-                result = {"message": f"Staffing requested from {nid}; ticket moved to Open.",
+                result = {"message": f"Staffing requested from {nid}"
+                          + (f" (suggested account {body.account})" if body.account else "")
+                          + "; ticket moved to Open.",
                           "requested_from": nid, "mail": mailed.get("id")}
             else:
                 # Keep the assignee that owned the ticket before the immediate
@@ -5799,7 +6281,8 @@ def quick_staff_select(slug: str, wid: str, body: QuickStaffSelection) -> dict[s
                                      if ctx["mode"] == "under_assignee" else "")
                 args = quickstaff.staff_args(org, item, ctx, str(body.tier),
                                              body.effort, body.account)
-                result = _staff_call(org, slug, USER, args, drive, None, [])
+                result = _staff_call(org, slug, USER, args, drive, None, [],
+                                     _hire_harness)
                 result["message"] = f"Staffed {result['node']} " + (
                     "at top level" if ctx["mode"] == "top_level" else f"under {ctx['owner']['node']}") + (
                     f" on {body.account}" if body.account else "") + "; ticket moved to Open."
@@ -5893,6 +6376,12 @@ class WorkReply(Body):
     # stages them via the ordinary upload endpoint and sends them WITH the
     # reply.
     attachments: list[str] = []
+    # Passive notice, EXACTLY as Message.notice means it (notice-toggle
+    # parity, user 2026-09-17): deliver into the recipient's mailbox without
+    # waking an idle one. Nothing about what a notice IS changes here — this
+    # endpoint simply gains the flag the ordinary send path already had, so
+    # the ticket-reply composer can reach the same behaviour.
+    notice: bool = False
 
 
 class WorkDismiss(Body):
@@ -6021,7 +6510,16 @@ def work_item_reply(slug: str, wid: str, body: WorkReply,
     that is neither is refused with nothing sent and nobody substituted. A
     participant is told, in the mail and in the wake, that the reply is
     addressed to it as a participant and who owns the item; ownership does
-    not move. `role` in the response says which of the two was reached."""
+    not move. `role` in the response says which of the two was reached.
+
+    A PASSIVE NOTICE (user 2026-09-17, notice-toggle parity): `notice` asks for
+    the reply to be delivered as mail-minus-the-wake, exactly as
+    `Message.notice` already means it on the ordinary send path. Nothing about
+    what a notice IS changes here; this endpoint simply gained the flag so the
+    ticket-reply composer could reach it. `notice` in the RESPONSE is what
+    actually happened, never what was asked for — an unsupported recipient
+    silently sends ordinary mail, and the composer reads the response rather
+    than its own toggle to say which it was."""
     text = str(body.body or "").strip()
     if not text:
         raise HTTPException(422, "empty reply")
@@ -6082,9 +6580,17 @@ def work_item_reply(slug: str, wid: str, body: WorkReply,
                 if extra > 0:
                     missing.append(f"{extra} further attachment(s) — past the "
                                    f"{ledger_mod.ATTACHMENT_MAX}-per-message limit")
+            # notice-toggle parity (user 2026-09-17): the SAME rule
+            # node_message applies — a notice is possible for an in-org agent
+            # and for nobody else, and when it is not possible the send
+            # silently becomes ordinary mail rather than failing. A docket
+            # reply always resolves to a node, so the guard is belt-and-braces
+            # against a recipient spelled like the user or an outside address.
+            can_notice = bool(body.notice and nid != USER and not nid.startswith("@"))
+            kind = "notice" if can_notice else "message"
             # typed (family linked_reply): reply.docket — the header/instruction
             # prose is the renderer's; the body is the user's text
-            r = org.post_mail(USER, nid, "", ev=events.mint(
+            r = org.post_mail(USER, nid, "", kind=kind, ev=events.mint(
                 "reply.docket", actor_of(USER),
                 org.work_item_ref(org._work_find(wid)[0]), body=text, role=role,
                 owner=(str(tgt.get("owner") or "") if role == "participant" else None)),
@@ -6094,7 +6600,12 @@ def work_item_reply(slug: str, wid: str, body: WorkReply,
             # A successful user reply acknowledges manual attention without
             # taking the explicit-dismissal path (which blocks the item).
             # Attached questions deliberately keep attention active.
-            org.work_clear_attention_on_user_reply(wid)
+            #
+            # ⚠ THE REPLY TEXT GOES WITH IT (W-flag-question). The clearing row
+            # used to carry a bare `set_rev`, so answering a flag destroyed the
+            # question it answered; passing `text` here is what puts the ruling
+            # and the thing it ruled on together on one row that `get` serves.
+            org.work_clear_attention_on_user_reply(wid, text)
             store.save_org(org)
         except LedgerError as e:
             raise HTTPException(422, str(e))
@@ -6108,8 +6619,25 @@ def work_item_reply(slug: str, wid: str, body: WorkReply,
         # archived recipient: the mail waits in its inbox for a rehire — the
         # UI says so; nobody else is picked
         return {"accepted": True, "to": nid, "role": role, "deferred": True,
+                "notice": can_notice,
                 "node_state": tgt.get("state"), **receipt,
                 **({"warnings": warn} if warn else {})}
+    if can_notice:
+        # A NOTICE IS MAIL MINUS THE WAKE, word for word as node_message does
+        # it: it steers a recipient that is already running, so the notice
+        # arrives mid-task, and it leaves an idle one idle (wake=False). It
+        # never starts a turn — which is the whole point of the toggle.
+        sent = supervisor.send_message(
+            slug, nid,
+            "(orgtree) A notice arrived in your mail above — the user's reply "
+            "on a docket item; informational, no reply expected. Note it and "
+            "continue your current task.",
+            wake=False, mail_ping=True, sender=USER, ping_reason="notice")
+        return {"accepted": True, "to": nid, "role": role, "deferred": False,
+                "notice": True, "node_state": tgt.get("state"),
+                "delivery": supervisor.delivery_note(slug, nid, sent,
+                                                     kind="notice"),
+                **receipt, **({"warnings": warn} if warn else {})}
     sent = supervisor.send_message(
         slug, nid,
         ("(orgtree) The mail above is the user's reply on a docket item you "
@@ -6120,6 +6648,7 @@ def work_item_reply(slug: str, wid: str, body: WorkReply,
          "ASSIGNED TO YOU — act on it now."), mail_ping=True,
         ping_reason="docket_reply")
     return {"accepted": True, "to": nid, "role": role, "deferred": False,
+            "notice": False,
             "node_state": tgt.get("state"),
             "delivery": supervisor.delivery_note(slug, nid, sent), **receipt,
             **({"warnings": warn} if warn else {})}
@@ -6266,40 +6795,50 @@ async def work_item_attach(slug: str, wid: str, request: Request,
                   os.path.basename(name or "upload.bin")).strip(" .") or "upload.bin"
     stem, ext = os.path.splitext(safe)
     stem, ext = (stem[:120] or "upload"), ext[:20]
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
-        try:
-            _work_identity_ready(org, slug)
-        except LedgerError as e:
-            raise HTTPException(422, str(e))
-        try:
-            it, _ = org._work_find(wid)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
-        adir = _work_attach_dir(slug, str(it["slug"]))
-        os.makedirs(adir, exist_ok=True)
-        final, i = stem + ext, 2
-        while os.path.exists(os.path.join(adir, final)):
-            final, i = f"{stem}-{i}{ext}", i + 1
-        try:
-            with open(os.path.join(adir, final), "wb") as f:
-                f.write(data)
-        except OSError as e:
-            raise HTTPException(422, f"could not store the attachment: {e}")
-        try:
-            rec = org.work_attach(USER, wid, final, len(data), final)
-            store.save_org(org)
-        except LedgerError as e:
-            # the record was refused, so the bytes must not linger unlisted
+    # This one KEEPS `async`: reading the raw request body is a genuine await
+    # and deleting it would be a correctness bug, not a speed-up. So the
+    # locked part goes to the threadpool instead -- same rule as No.22 (a
+    # threading lock plus a whole-document load and save must never run on the
+    # event loop), reached the other way round. `run_in_threadpool` is already
+    # this module's idiom for exactly this (see the usage/limits routes).
+    def _store_attachment() -> dict[str, Any]:
+        with store.DOC_LOCK:
             try:
-                os.unlink(os.path.join(adir, final))
-            except OSError:
-                pass
-            raise HTTPException(422, str(e))
-    return {"attachment": rec}
+                org = store.load_org(slug)
+            except LedgerError as e:
+                raise HTTPException(404, str(e))
+            try:
+                _work_identity_ready(org, slug)
+            except LedgerError as e:
+                raise HTTPException(422, str(e))
+            try:
+                it, _ = org._work_find(wid)
+            except LedgerError as e:
+                raise HTTPException(404, str(e))
+            adir = _work_attach_dir(slug, str(it["slug"]))
+            os.makedirs(adir, exist_ok=True)
+            final, i = stem + ext, 2
+            while os.path.exists(os.path.join(adir, final)):
+                final, i = f"{stem}-{i}{ext}", i + 1
+            try:
+                with open(os.path.join(adir, final), "wb") as f:
+                    f.write(data)
+            except OSError as e:
+                raise HTTPException(422, f"could not store the attachment: {e}")
+            try:
+                rec = org.work_attach(USER, wid, final, len(data), final)
+                store.save_org(org)
+            except LedgerError as e:
+                # the record was refused, so the bytes must not linger unlisted
+                try:
+                    os.unlink(os.path.join(adir, final))
+                except OSError:
+                    pass
+                raise HTTPException(422, str(e))
+        return {"attachment": rec}
+
+    from fastapi.concurrency import run_in_threadpool
+    return await run_in_threadpool(_store_attachment)
 
 
 @app.get("/api/orgs/{slug}/work-items/{wid}/attachments/{aid}")
@@ -6732,14 +7271,126 @@ _WORK_UPDATE_ARGS: frozenset[str] = frozenset({
     "review_note", "review_evidence", "review_candidate", "candidate",
 })
 
-#: Where a field an update does NOT write is actually written. A refusal that
+#: EVERY OTHER ACTION'S READ SET, on exactly the same terms. `update` was
+#: guarded first because that is where the defect was found (274fdb2); the
+#: audit that came with it showed the dispatch has the same shape everywhere —
+#: an action reads the arguments it NAMES, and the card offers all 77 of them
+#: to all 32 actions, so anything else was accepted, dropped, and on a
+#: mutating action still moved the revision.
+#:
+#: ⚠ EVERY NAME HERE IS ASSERTED AGAINST THE DISPATCH SOURCE by
+#: tests/test_docket_action_args.py, per action. A field the dispatch stops
+#: reading, or one added to the dispatch and forgotten here, fails the suite
+#: instead of misleading a person. That assertion is the durable half of this;
+#: the list itself is only today's answer.
+#:
+#: `action` is read on every action and `slug` on every action but `list` and
+#: `create` — both are added by `_work_allowed`, not repeated in each row.
+_WORK_ACTION_ARGS: dict[str, frozenset[str]] = {
+    # ---- reads (api._work_read_call and its helpers) ----------------------
+    "list": frozenset({"include_archived", "include_backlogged", "compact",
+                       "projection", "fields"}),
+    "get": frozenset({"compact", "projection", "fields"}),
+    "verify": frozenset({"stage"}),
+    "receipts": frozenset(),
+    "artifact_read": frozenset({"artifact"}),
+    "receipt": frozenset({"checkout", "logs", "command", "candidate",
+                          "execution", "result", "runner", "note", "base",
+                          "ref", "kind"}),
+    "rangediff": frozenset({"checkout", "old_base", "old_tip", "new_base",
+                            "new_tip", "note"}),
+    # ---- mutations (api._work_mutate_action) ------------------------------
+    "create": frozenset({"title", "objective", "kind", "owner", "participants",
+                         "acceptance", "dependencies", "done_so_far",
+                         "working_on_next", "status", "parent",
+                         "blocked_reason", "waiting_reason"}),
+    "update": _WORK_UPDATE_ARGS,
+    "addendum": frozenset({"note", "done_so_far", "working_on_next",
+                           "keep_done", "keep_next", "done_append",
+                           "next_append", "expected_rev",
+                           # W-flag-clear: retract or amend the manual attention
+                           # flag on finished work. `attention: true` reaches
+                           # the ledger and is refused there — it is READ by
+                           # this action, which is what this list records, and
+                           # dropping it here would make the refusal look like
+                           # an unknown argument instead of a deliberate one.
+                           "attention", "attention_amend",
+                           "attention_reason"}),
+    "assign": frozenset({"owner"}),
+    "handoff": frozenset({"target", "reason"}),
+    "review": frozenset({"decision", "note", "candidate", "candidate_sha",
+                         "sha", "evidence"}),
+    "verdict": frozenset({"candidate", "candidate_sha", "sha", "decision",
+                          "verdict", "evidence", "note", "next_actor",
+                          "items"}),
+    "review_request": frozenset({"reviewer", "note"}),
+    "review_grant": frozenset({"reviewer", "items", "note"}),
+    "review_revoke": frozenset({"reviewer", "note"}),
+    "participants": frozenset({"add", "remove"}),
+    "evidence": frozenset({"items", "kind", "ref", "note", "execution",
+                           "classification", "artifact", "runner", "result",
+                           "gate", "blocked_count", "composition",
+                           "expected_rev"}),
+    "decision": frozenset({"text", "supersedes"}),
+    "artifact": frozenset({"path", "name", "scope", "note", "expected_rev",
+                           "grant_to"}),
+    "grant": frozenset({"artifact", "to", "note", "expected_rev"}),
+    "revoke": frozenset({"artifact", "to", "expected_rev"}),
+    "finding": frozenset({"title", "detail", "severity", "evidence_ref",
+                          "expected_rev"}),
+    "dispose": frozenset({"finding", "disposition", "note", "expected_rev"}),
+    "claim": frozenset({"stage", "ref", "note"}),
+    "check": frozenset({"checks", "index", "evidence_ref", "note",
+                        "classification", "artifact", "runner", "execution",
+                        "result", "gate", "blocked_count", "composition",
+                        "expected_rev"}),
+    "accept": frozenset({"note", "expected_rev"}),
+    "archive": frozenset(),
+    "move": frozenset({"parent"}),
+    "supersede": frozenset({"by"}),
+    "delete": frozenset({"note"}),
+}
+
+#: the further spellings the dispatch answers to, each resolved to the branch
+#: that actually serves it. An alias shares its target's read set exactly —
+#: they are the same `if act in (...)` branch.
+_WORK_ACTION_ALIASES: dict[str, str] = {
+    "handoff_request": "handoff",
+    "candidate_verdict": "verdict",
+    "integration_verdict": "verdict",
+    "review_verdict": "verdict",
+    "review_seat_request": "review_request",
+    "review_grants": "review_grant",
+    "review_seat_revoke": "review_revoke",
+}
+
+#: the actions that WRITE, as opposed to the ones that only read. A refused
+#: read never had a revision to move, so it must not claim one did not move.
+_WORK_READ_ONLY = frozenset({"list", "get", "verify", "receipts",
+                             "artifact_read"})
+
+#: Fields the guard lets through even though no action reads them. EMPTY, and
+#: meant to stay empty — it exists so that a refusal too disruptive to ship
+#: with the rest can be held back for one commit and reverted on its own.
+#:
+#: `expected_rev` was the only entry it ever had. The card did not merely
+#: permit it on the nineteen actions that dropped it, it INSTRUCTED callers to
+#: pass it there, so the refusal and the card correction landed together in
+#: this commit — never the refusal first, and never the correction alone.
+_WORK_GUARD_EXEMPT: frozenset[str] = frozenset()
+
+#: Where a field an action does NOT write is actually written. A refusal that
 #: only says "not here" leaves the caller to guess, which on a docket means
-#: guessing about a record people audit.
+#: guessing about a record people audit. Most rows are DERIVED from
+#: `_WORK_ACTION_ARGS` — the actions that do read the field — and cannot go
+#: stale; these are the ones where the mechanical answer would mislead.
 _WORK_UPDATE_ELSEWHERE: dict[str, str] = {
     "participants": "`action=participants` with `add`/`remove`",
     "dependencies": "set at creation only — record a dependency that arrives "
                     "later in the description (`objective`) or as a `decision`",
-    "kind": "set at creation only (code|non-code)",
+    "kind": "the item's kind is set at creation only (code|non-code); the "
+            "`kind` on `evidence` and `receipt` is the evidence row's kind, "
+            "which is a different field",
     "parent": "`action=move` with `parent` (an empty string returns the item "
               "to the top level)",
     "note": "the durable prose of an update is the description (`objective`), "
@@ -6764,6 +7415,81 @@ _WORK_UPDATE_ELSEWHERE: dict[str, str] = {
     "compact": "`action=get` or `action=list`",
 }
 
+#: per-(action, field) prose, for the handful where the answer depends on
+#: WHICH action was called. Keyed (action, field).
+_WORK_FIELD_HERE: dict[tuple[str, str], str] = {
+    ("list", "slug"): "`list` has no per-item argument — it serves the items "
+                      "you may read. To name one, use `action=get` with "
+                      "`slug`",
+    ("create", "slug"): "an item's name is MINTED FROM ITS `title` at "
+                        "creation and cannot be chosen; the name the call "
+                        "returns is the one every later action takes",
+    ("rangediff", "logs"): "`action=receipt` — a range-diff records the two "
+                           "git ranges it compared, not captured log files",
+    ("revoke", "note"): "`action=grant` keeps a note on the grant, and "
+                        "`action=review_revoke` keeps one on the seat; "
+                        "revoking an artifact grant records no reason",
+}
+
+
+def _work_expected_rev_route(act: str) -> str:
+    """Why `expected_rev` did nothing HERE, and where it does something.
+
+    The audit's one piece of genuinely dead schema. The card advertised it for
+    "update/evidence/receipt and every other mutating action" and the ledger
+    had the parameter on eight methods; on the other nineteen the argument was
+    read by nobody. That is the worst shape this defect takes, because the
+    whole purpose of the field is to make a call SAFE: a caller that passes it
+    believes it has compare-and-set protection, and had none.
+
+    TWO OF THE NINETEEN WERE GIVEN THE REAL THING RATHER THAN A REFUSAL:
+    `check` and `accept` write the acceptance record that decides whether an
+    item is complete, which is the one write whose mistakes stop being looked
+    at. They honour it now; seventeen still refuse it, and the list of
+    honouring actions below is DERIVED, so this sentence cannot outlive it.
+    """
+    writers = ", ".join(f"`action={x}`" for x in
+                        sorted(k for k, v in _WORK_ACTION_ARGS.items()
+                               if "expected_rev" in v))
+    if act in ("receipt", "rangediff"):
+        return (f"not needed here — `action={act}` does its OWN compare-and-"
+                f"set: it reads the item's rev under the lock, measures the "
+                f"tree with the lock released, and refuses with `stale` "
+                f"rather than writing to an item that moved. Elsewhere "
+                f"compare-and-set is honoured by {writers}")
+    return (f"compare-and-set is honoured by {writers}. `action={act}` has no "
+            f"compare-and-set at all, so passing it here bought NO protection "
+            f"— read the item and repeat the call if it matters")
+
+
+def _work_field_route(field: str, act: str) -> str:
+    """Where `field` IS read, written for somebody who just had it refused."""
+    if field == "expected_rev":
+        return _work_expected_rev_route(act)
+    here = _WORK_FIELD_HERE.get((act, field))
+    if here:
+        return here
+    curated = _WORK_UPDATE_ELSEWHERE.get(field)
+    if curated:
+        return curated
+    # DERIVED, so it cannot drift from the table above
+    writers = sorted(k for k, v in _WORK_ACTION_ARGS.items() if field in v)
+    if not writers:
+        return f"no `orgtree_work` action reads `{field}`"
+    return ", ".join(f"`action={w}`" for w in writers)
+
+
+def _work_allowed(act: str) -> frozenset[str] | None:
+    """Every argument `act` reads, or None if `act` is not an action at all
+    (the dispatch's own action-list refusal is the better message then)."""
+    canon = _WORK_ACTION_ALIASES.get(act, act)
+    allowed = _WORK_ACTION_ARGS.get(canon)
+    if allowed is None:
+        return None
+    # the envelope: `action` always, `slug` on every action that names an item
+    return allowed | {"action"} | (set() if canon in ("list", "create")
+                                   else {"slug"})
+
 
 def _work_refuse_unused(a: dict[str, Any], act: str) -> None:
     """An argument this action does not read is REFUSED, NOT IGNORED.
@@ -6779,26 +7505,47 @@ def _work_refuse_unused(a: dict[str, Any], act: str) -> None:
     A rev bump is a claim that something changed. Refusing here, before the
     ledger is entered, means a call carrying a field this action cannot write
     changes nothing at all: no field, no history row, no revision, no mail.
+
+    Applied to EVERY action now, not just `update`. 274fdb2 deliberately
+    scoped itself to the one action the defect was found on rather than widen
+    a guard across thirty-one others inside a bug fix; this is the widening it
+    named, done on its own ticket where the behaviour change is announced.
     """
-    if act != "update":
-        # scoped deliberately to the action the defect was found on. The same
-        # rule is worth having everywhere, but widening it silently in this
-        # change would turn a bug fix into a behaviour change across nineteen
-        # other actions at once.
-        return
-    unused = sorted(k for k in a if k not in _WORK_UPDATE_ARGS)
+    allowed = _work_allowed(act)
+    if allowed is None:
+        return                     # unknown action: let the dispatch say so
+    # ⚠ TWO FIELDS ALREADY HAVE A BETTER REFUSAL THAN "this action does not
+    # read it", and a generic guard placed in front of a specific one SHADOWS
+    # it. Both are delegated rather than duplicated, so the message a caller
+    # gets is the one written for its mistake.
+    if "id" in a:
+        # the retired identifier: `_work_ref` explains that items have one
+        # identity and it is the readable one
+        _work_ref(a)
+    if act == "evidence" and a.get("receipt") is not None:
+        # a caller-supplied fingerprint is the unverifiable claim the receipt
+        # package exists to replace — that refusal names the `receipt` action
+        # and what it captures, which "no action reads `receipt`" does not
+        _work_refuse_supplied_receipt([a], batch=False)
+    unused = sorted(k for k in a
+                    if k not in allowed and k not in _WORK_GUARD_EXEMPT)
     if not unused:
         return
-    lines = "; ".join(
-        f"`{k}` — {_WORK_UPDATE_ELSEWHERE.get(k, 'no action=update writes it')}"
-        for k in unused)
+    lines = "; ".join(f"`{k}` — {_work_field_route(k, act)}" for k in unused)
+    named = ", ".join("`" + k + "`" for k in unused)
+    if act in _WORK_READ_ONLY:
+        raise LedgerError(
+            f"action={act} does not read {named}, so the whole call was "
+            f"REFUSED rather than serving a result that quietly ignored it. "
+            f"Where each one is read: {lines}. (Send the call again without "
+            f"them.)")
     raise LedgerError(
-        f"action=update does not write "
-        f"{', '.join('`' + k + '`' for k in unused)}, so the whole call was "
+        f"action={act} does not write "
+        f"{named}, so the whole call was "
         f"REFUSED rather than reporting success for a change it would not have "
         f"made. NOTHING WAS WRITTEN — no field, no history row, and the "
         f"revision did not advance. Where each one is written: {lines}. "
-        f"(Send the update again without them; a revision that advances is a "
+        f"(Send the {act} again without them; a revision that advances is a "
         f"claim that something changed.)")
 
 
@@ -7005,6 +7752,12 @@ def _work_read_call(body: AgentCall, a: dict[str, Any]) -> dict[str, Any]:
     item's rev is unchanged (docs/work-items.md §locking)."""
     act = str(a.get("action") or "")
     try:
+        # ⚠ THE READ HALF OF THE SAME RULE. A read moves no revision, so the
+        # damage is smaller — but `list slug=...` reads as a filter and
+        # `rangediff logs=[...]` reads as attached evidence, and both were
+        # accepted and dropped. A refusal is information; a result that
+        # quietly ignored an argument is not.
+        _work_refuse_unused(a, act)
         if act in ("receipt", "rangediff"):
             try:
                 return _work_receipt_call(body, a, rangediff=(act == "rangediff"))
@@ -7034,7 +7787,13 @@ def _work_read_call(body: AgentCall, a: dict[str, Any]) -> dict[str, Any]:
                 if not r.get("stale"):
                     store.save_org(org)
             return r
-        org = store.load_org(body.org)
+        # `list` and `get` only read. The shared snapshot (`org_seq`-guarded,
+        # dropped by every save) serves them without a third whole-document
+        # parse in a call that has already paid for two — 56 ms of the 266 ms
+        # a `work list` cost on the live org (measured 2026-09-18).
+        # ⚠ Read-only by contract: never mutate or save this object. Every
+        # write-shaped work action runs under DOC_LOCK on its own private load.
+        org = store.cached_org(body.org)
         org._require_live(body.node)
         _work_identity_guard(org)
         # ⚠ THESE RETURN EARLY, outside the lock and outside `_attach_ref`, so
@@ -7107,6 +7866,12 @@ def _work_mutate_action(org: Org, nid: str, a: dict[str, Any],
     def _s(key: str) -> str | None:
         v = a.get(key)
         return None if v is None else str(v)
+    # ⚠ BEFORE EVERY BRANCH, AND BEFORE THE LEDGER. An argument this action
+    # does not read is refused here, so a call carrying one leaves the item
+    # byte-identical and its revision where it was. Each branch below reads the
+    # arguments it NAMES and nothing else; that is the whole of the defect and
+    # `_WORK_ACTION_ARGS` is the same list, asserted against this source.
+    _work_refuse_unused(a, act)
     if act == "create":
         return org.work_create(
             nid, str(a.get("title") or ""), str(a.get("objective") or ""),
@@ -7121,11 +7886,21 @@ def _work_mutate_action(org: Org, nid: str, a: dict[str, Any],
             blocked_reason=_s("blocked_reason"),
             waiting_reason=_s("waiting_reason"))
     if act == "update":
-        _work_refuse_unused(a, act)
         return org.work_update(
             nid, wid, a.get("done_so_far"), a.get("working_on_next"),
             status=_s("status"),
-            attention=(True if _arg_flag(a, "attention") else None),
+            # ⚠ ABSENT AND FALSE ARE DIFFERENT HERE, and collapsing them was
+            # finding f3. This used to read `True if _arg_flag(...) else None`,
+            # which turned an explicit `attention: false` into None — "do not
+            # touch the flag" — so an agent's retraction was silently a no-op.
+            # That was survivable while ANY update cleared a standing flag; the
+            # 2026-09-19 ruling removed that, which left agents with no way at
+            # all to take their own flag down on an active item, while the
+            # documentation rewritten in the same commit told them to do it.
+            # `addendum` below has always drawn the distinction correctly; this
+            # is the same expression, so the two paths now genuinely agree.
+            attention=(None if a.get("attention") is None
+                       else _arg_flag(a, "attention")),
             attention_reason=_s("attention_reason"),
             blocked_reason=_s("blocked_reason"),
             waiting_reason=_s("waiting_reason"),
@@ -7165,10 +7940,15 @@ def _work_mutate_action(org: Org, nid: str, a: dict[str, Any],
     if act == "addendum":
         # ---- THE POST-COMPLETION CORRECTION (W-post-done). Deliberately a
         # DIFFERENT action rather than a flag on `update`: everything `update`
-        # can do — move the status, raise attention, reopen, reassign — is
+        # can do — move the status, RAISE attention, reopen, reassign — is
         # unreachable from here, so a completed item has no route through this
-        # call back to being incomplete. The two lists and the required note
-        # are the whole of its surface.
+        # call back to being incomplete.
+        #
+        # ⚠ W-flag-clear WIDENED IT BY EXACTLY ONE THING, in the one direction
+        # that cannot make a finished item unfinished: taking an attention flag
+        # DOWN, or editing the text of the one standing. Raising a new one is
+        # still refused (in the ledger, with a message that says why), so the
+        # property above is unchanged.
         return org.work_addendum(
             nid, wid, str(a.get("note") or ""),
             a.get("done_so_far"), a.get("working_on_next"),
@@ -7177,7 +7957,17 @@ def _work_mutate_action(org: Org, nid: str, a: dict[str, Any],
             done_append=a.get("done_append"),
             next_append=a.get("next_append"),
             expected_rev=(None if a.get("expected_rev") is None
-                          else _arg_int(a, "expected_rev", -1)))
+                          else _arg_int(a, "expected_rev", -1)),
+            # ⚠ TRISTATE, NOT A FLAG. `_arg_flag` would fold an absent
+            # `attention` and an explicit `attention: false` into the same
+            # False, and those are the two cases this whole feature is about
+            # telling apart — absent means "do not touch the flag" and false
+            # means "take it down".
+            attention=(None if a.get("attention") is None
+                       else _arg_flag(a, "attention")),
+            attention_amend=_arg_flag(a, "attention_amend"),
+            attention_reason=(None if a.get("attention_reason") is None
+                              else str(a.get("attention_reason"))))
     if act == "assign":
         return org.work_assign(nid, wid, str(a.get("owner") or ""))
     if act in ("handoff", "handoff_request"):
@@ -7273,9 +8063,14 @@ def _work_mutate_action(org: Org, nid: str, a: dict[str, Any],
         except workitems.ShaError as e:
             raise LedgerError(str(e))
     if act == "check":
-        # same either/or care as `evidence`: absent stays absent on the batch
+        # same either/or care as `evidence`: absent stays absent on the batch.
+        # `expected_rev` is REAL compare-and-set on this action, and it reaches
+        # BOTH shapes — a batch is the call most likely to have been composed
+        # against a read, so exempting it would leave the guard off where it
+        # matters most.
         if a.get("checks") is not None:
-            return org.work_check(nid, wid, checks=a.get("checks"))
+            return org.work_check(nid, wid, checks=a.get("checks"),
+                                  expected_rev=a.get("expected_rev"))
         return org.work_check(nid, wid, _arg_int(a, "index", -1),
                               str(a.get("evidence_ref") or ""), _s("note"),
                               classification=_s("classification"),
@@ -7283,9 +8078,11 @@ def _work_mutate_action(org: Org, nid: str, a: dict[str, Any],
                               execution=_s("execution"), result=_s("result"),
                               gate=_s("gate"),
                               blocked_count=a.get("blocked_count"),
-                              composition=_s("composition"))
+                              composition=_s("composition"),
+                              expected_rev=a.get("expected_rev"))
     if act == "accept":
-        return org.work_accept(nid, wid, _s("note"))
+        return org.work_accept(nid, wid, _s("note"),
+                               expected_rev=a.get("expected_rev"))
     if act == "archive":
         return org.work_archive_now(nid, wid)
     if act == "move":
@@ -7327,15 +8124,14 @@ class AskAnswer(Body):
 
 
 @app.post("/api/orgs/{slug}/asks/{aid}/answer")
-async def ask_answer(slug: str, aid: str, body: AskAnswer) -> dict[str, Any]:
+def ask_answer(slug: str, aid: str, body: AskAnswer) -> dict[str, Any]:
     """Answer an agent's question (F-04) — from the desk card or the inbox
     card, whichever the user reached first. Marking happens before the mail
     is posted, under one doc lock; every other rendering of the card nulls
     to grey "answered" on the next payload. (The wake-void this ordering
     once guarded against was retired 2026-08-06 — see withdraw_ask.)"""
-    with store.DOC_LOCK:
+    with _entry_ledger_422(store.write_org(slug)) as org:
         try:
-            org = store.load_org(slug)
             r = (org.ask_dismiss(aid) if body.dismiss
                  else org.ask_answer(aid, selected=body.selected,
                                      text=body.text, rev=body.rev))
@@ -7358,7 +8154,7 @@ async def ask_answer(slug: str, aid: str, body: AskAnswer) -> dict[str, Any]:
             "(orgtree) The mail above reports that the user dismissed your "
             "question — proceed accordingly.", mail_ping=True,
             ping_reason="ask_answer")
-    await hub.changed(slug)
+    hub_changed(slug)
     return {"answered": aid, "node": r["node"],
             "mail": posted.get("id")}
 
@@ -7378,13 +8174,12 @@ class BatchResolve(Body):
 
 
 @app.post("/api/orgs/{slug}/nodes/{nid}/batch")
-async def batch_resolve(slug: str, nid: str, body: BatchResolve) -> dict[str, Any]:
+def batch_resolve(slug: str, nid: str, body: BatchResolve) -> dict[str, Any]:
     """FR-14: resolve a node's whole request batch — question answers, the
     credit decision and per-item scope grants — in one submit, one lock, one
     composed answer mail. The desk card and the inbox card both land here."""
-    with store.DOC_LOCK:
+    with _entry_ledger_422(store.write_org(slug)) as org:
         try:
-            org = store.load_org(slug)
             r = org.resolve_batch(nid, body.revs, answers=body.answers,
                                   credits=body.credits, scope=body.scope)
             _kiosk_cap_check(org)
@@ -7408,7 +8203,7 @@ async def batch_resolve(slug: str, nid: str, body: BatchResolve) -> dict[str, An
             "(orgtree) The mail above resolves your request batch — act on "
             "it now. A skipped tab returned unanswered; re-ask it later if "
             "it still matters.", mail_ping=True, ping_reason="batch")
-    await hub.changed(slug)
+    hub_changed(slug)
     return {"resolved": nid}
 
 
@@ -7419,7 +8214,7 @@ class WatchdogAction(Body):
 
 
 @app.post("/api/orgs/{slug}/watchdogs")
-async def watchdog_action(slug: str, body: WatchdogAction) -> dict[str, Any]:
+def watchdog_action(slug: str, body: WatchdogAction) -> dict[str, Any]:
     """FR-18: the user manages any dog from the canvas detail panel."""
     with store.DOC_LOCK:
         try:
@@ -7428,12 +8223,12 @@ async def watchdog_action(slug: str, body: WatchdogAction) -> dict[str, Any]:
         except LedgerError as e:
             raise HTTPException(422, str(e))
         store.save_org(org)
-    await hub.changed(slug)
+    hub_changed(slug)
     return r
 
 
 @app.post("/api/orgs/{slug}/nodes/{nid}/unstick")
-async def node_unstick(slug: str, nid: str) -> dict[str, Any]:
+def node_unstick(slug: str, nid: str) -> dict[str, Any]:
     """⭐ The user's per-node override (ruling 2026-08-06): release EVERY
     lock holding this agent — freeze of any kind, limit_locked, and the org
     fable_lock if this was its last holder — then drive the node with its
@@ -7456,7 +8251,7 @@ async def node_unstick(slug: str, nid: str) -> dict[str, Any]:
             supervisor.send_message(slug, nid, t,
                                     view=views[i] if i < len(views) else t)
         supervisor.notify(slug, nid, "turn_started")
-    await hub.changed(slug)
+    hub_changed(slug)
     return r
 
 
@@ -7475,11 +8270,22 @@ def _continue_lock(slug: str, nid: str) -> threading.Lock:
         return _continue_locks.setdefault((slug, nid), threading.Lock())
 
 
-@app.post("/api/orgs/{slug}/nodes/{nid}/continue-on")
-async def node_continue_on(slug: str, nid: str, body: ContinueOn) -> dict[str, Any]:
-    """⭐ CONTINUE A FROZEN AGENT ON ANOTHER ACCOUNT (user requirement
-    2026-09-14): move the binding to `account`, then release the freeze so the
-    held work goes on — one operator action, two steps, reported honestly.
+def _continue_on_account(slug: str, nid: str, account: str, *, actor: str,
+                         via: str, banner: str, retry_hint: str,
+                         sender: str | None = None) -> dict[str, Any]:
+    """⭐ CONTINUE A FROZEN AGENT ON ANOTHER ACCOUNT — THE ONE IMPLEMENTATION.
+
+    Both doors run this: the user's `/continue-on` route below, and the agent's
+    `orgtree_continue_on` verb in the tool dispatch (user ruling 2026-09-17
+    21:37 — "need the ability for you to switch accounts and unstick at the
+    same time, similar to how i can"). They differ in exactly three things,
+    which are the arguments: WHO is acting, what the released agent is TOLD,
+    and which retry to name if the release fails. Every gate, the order, and
+    the live capacity read are shared, because two copies of "may this move
+    happen" agree the day they are written and never again.
+
+    ⚠ AUTHORITY IS THE CALLER'S. The route is loopback-admin; the agent door
+    checks strict descent before it gets here. Nothing below re-derives it.
 
     ⚠ THE ORDER IS THE SAFETY PROPERTY. The switch happens first and the
     unstick only if it succeeded, because unsticking first would resume the
@@ -7490,16 +8296,21 @@ async def node_continue_on(slug: str, nid: str, body: ContinueOn) -> dict[str, A
     ⚠ AND THE SECOND STEP IS NOT ASSUMED. If the switch lands and the release
     fails, that is a REAL state — the agent is on the new account and still
     frozen — and it is reported as `switched_not_resumed` with the retry that
-    finishes it (`/unstick`), rather than being called a continuation. Nothing
-    here claims work resumed that has not.
+    finishes it, rather than being called a continuation. Nothing here claims
+    work resumed that has not.
+
+    ⚠ `agent` SAYS WHETHER IT IS RUNNING. Every exit carries "running" or
+    "idle", and an idle exit says in its own `status` that a message is still
+    owed. The caller never has to infer it from which fields came back.
 
     Eligibility is re-decided at THIS moment against a forced provider read,
     not against whatever the menu was showing: the payload's list is cache-only
     and a minute old at worst, and capacity is exactly the thing that moves.
     """
-    account = str(body.account or "").strip()
+    account = str(account or "").strip()
     lock = _continue_lock(slug, nid)
-    # A second click while the first is still moving is not a second move.
+    # A second click (or a second agent) while the first is still moving is
+    # not a second move.
     if not lock.acquire(blocking=False):
         raise HTTPException(409, f"{nid} is already being continued on another "
                                  f"account; that operation is still running")
@@ -7530,16 +8341,17 @@ async def node_continue_on(slug: str, nid: str, body: ContinueOn) -> dict[str, A
         # app-server); account_fallback's own rule is that provider reads never
         # happen under the document lock.
         row = next(r for r in rows if str(r["id"]) == account)
-        fresh = accountfallback.alternatives(
+        fresh = accountfallback.offered(
             org, nid, board_of=accountfallback.read_board, rows=[row])
         if account not in fresh:
             raise HTTPException(
-                409, f"{account} has no capacity for {tier} right now, or its "
-                     f"standing could not be established — nothing was changed")
+                409, f"{account} is at its limit for {tier} right now — its "
+                     f"latest reading reports a window at 100%, or this org "
+                     f"has recorded a wall on it that has not expired. Nothing "
+                     f"was changed")
         try:
             disclosure = supervisor.assign_account(
-                slug, nid, account, actor=USER, via="manual_continue",
-                allow_frozen=True)
+                slug, nid, account, actor=actor, via=via, allow_frozen=True)
         except (LedgerError, RuntimeError, ValueError, KeyError) as e:
             raise HTTPException(422, f"account switch failed, {nid} left frozen "
                                      f"and unchanged: {e}") from e
@@ -7548,42 +8360,82 @@ async def node_continue_on(slug: str, nid: str, body: ContinueOn) -> dict[str, A
         with store.DOC_LOCK:
             try:
                 org = store.load_org(slug)
-                released = org.unstick(USER, nid)
+                # the ACTOR, not USER: `unstuck.by` is the audit record of who
+                # released this seat, and an agent's rescue must not be filed
+                # under the user's name. The authority re-check it performs is
+                # the same strict-descent one the agent door already passed.
+                released = org.unstick(actor, nid)
                 store.save_org(org)
             except LedgerError as e:
-                await hub.changed(slug)
                 return {"switched": True, "resumed": False,
                         "state": "switched_not_resumed", "account": account,
                         "disclosure": disclosure,
                         "error": str(e),
-                        "retry": f"/api/orgs/{slug}/nodes/{nid}/unstick",
+                        "agent": "idle",
+                        "retry": retry_hint,
                         "status": f"{nid} is now on {account} but is STILL "
                                   f"FROZEN — releasing it failed ({e}). Its "
-                                  f"held work has not resumed; use unstick to "
-                                  f"finish the move."}
+                                  f"held work has not resumed and it is IDLE; "
+                                  f"use {retry_hint} to finish the move."}
+        # ⚠ WHETHER IT IS RUNNING IS READ, NOT ASSUMED. Releasing a freeze is
+        # not the only hold on a seat: a HALTED node (and the docket's own
+        # workaround halted one) takes the replay into its durable queue and
+        # answers `deferred`, so a turn does not start. Reporting "running"
+        # there would be the one thing this result must never get wrong.
+        held = ""
         if released.get("released"):
-            texts = cast("list[str]", released.get("resume_texts") or []) or [
-                f"(orgtree) The user moved you to account {account} and "
-                f"released your freeze — handle any mail above and continue "
-                f"from where you left off."]
+            texts = cast("list[str]", released.get("resume_texts") or []) or [banner]
             views = cast("list[str]", released.get("resume_views") or [])
             for i, t in enumerate(texts):
-                supervisor.send_message(slug, nid, t,
-                                        view=views[i] if i < len(views) else t)
+                r = supervisor.send_message(slug, nid, t, sender=sender,
+                                            view=views[i] if i < len(views) else t)
+                if isinstance(r, dict) and r.get("deferred") and not held:
+                    held = str(r.get("deferred"))
             supervisor.notify(slug, nid, "turn_started")
-        await hub.changed(slug)
+        running = bool(released.get("released")) and not held
         return {"switched": True, "resumed": bool(released.get("released")),
                 "state": "continued" if released.get("released")
                 else "switched_nothing_to_release",
                 "account": account, "disclosure": disclosure,
                 "released": released.get("released") or [],
                 "warnings": released.get("warnings") or [],
-                "status": (f"{nid} continues on {account}"
-                           if released.get("released") else
+                "agent": "running" if running else "idle",
+                **({"held": held} if held else {}),
+                "status": (f"{nid} continues on {account} — it is RUNNING its "
+                           f"replayed work now; no further message is needed"
+                           if running else
+                           f"{nid} is on {account} and its freeze is released, "
+                           f"but its turn was not admitted ({held}) — it is "
+                           f"IDLE and its replayed work is queued"
+                           if held else
                            f"{nid} is on {account}; there was no freeze left "
-                           f"to release")}
+                           f"to release, so it is IDLE — message it if you "
+                           f"want it to act")}
     finally:
         lock.release()
+
+
+@app.post("/api/orgs/{slug}/nodes/{nid}/continue-on")
+async def node_continue_on(slug: str, nid: str, body: ContinueOn) -> dict[str, Any]:
+    """⭐ CONTINUE A FROZEN AGENT ON ANOTHER ACCOUNT (user requirement
+    2026-09-14): move the binding to `account`, then release the freeze so the
+    held work goes on — one operator action, two steps, reported honestly.
+
+    ⚠ THE BODY MOVED TO `_continue_on_account`, which the agent verb
+    `orgtree_continue_on` also runs (user ruling 2026-09-17). Read it there:
+    the order, the live capacity read and the honest middle state are its
+    docstring, and this route now supplies only what is the USER's about this
+    call — the actor, the wording the released agent is told, and the retry
+    path to name if the release fails.
+    """
+    out = _continue_on_account(
+        slug, nid, body.account, actor=USER, via="manual_continue",
+        banner=(f"(orgtree) The user moved you to account "
+                f"{str(body.account or '').strip()} and released your freeze — "
+                f"handle any mail above and continue from where you left off."),
+        retry_hint=f"/api/orgs/{slug}/nodes/{nid}/unstick")
+    await hub.changed(slug)
+    return out
 
 
 @app.get("/api/orgs/{slug}/inbox")
@@ -7607,14 +8459,10 @@ class InboxRead(Body):
 
 
 @app.post("/api/orgs/{slug}/inbox/read")
-async def user_inbox_read(slug: str, body: InboxRead) -> dict[str, Any]:
+def user_inbox_read(slug: str, body: InboxRead) -> dict[str, Any]:
     """Per-mail read: a viewed mail is marked read when the user clicks off it
     (user ruling) — it moves from unread into the read archive."""
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
+    with _entry_ledger_422(store.write_org(slug), 404) as org:
         ids = set(body.ids)
         keep: list[UserMailEntry] = []
         read: list[UserMailEntry] = []
@@ -7632,7 +8480,7 @@ async def user_inbox_read(slug: str, body: InboxRead) -> dict[str, Any]:
             log.sort(key=lambda m: m.get("at") or "")
 
             store.save_org(org)
-    await hub.changed(slug)
+    hub_changed(slug)
     return {"read": len(read)}
 
 
@@ -7764,10 +8612,19 @@ async def extern_wait(peer: str, org: str | None = None,
     # and gets nothing still counts as alive
     deadline = time.monotonic() + min(max(timeout, 1), 55)
     rev = None
+    # This one KEEPS `async`: the whole point of a long poll is to suspend
+    # without holding a thread, and `asyncio.sleep` is a genuine await. But
+    # `_extern_scan` takes DOC_LOCK and reads org documents, and doing that on
+    # the event loop froze every other request and every websocket frame for
+    # its duration -- No.22's rule, and a parked waiter can sit here for 55
+    # seconds rescanning. So the scan goes to the threadpool and only the
+    # sleep stays on the loop.
+    from fastapi.concurrency import run_in_threadpool
     while True:
         if rev != store.REVISION:
             rev = store.REVISION
-            msgs = _extern_scan(addr, org, after, fresh_only=True)
+            msgs = await run_in_threadpool(_extern_scan, addr, org, after,
+                                           fresh_only=True)
             if msgs:
                 return {"messages": msgs, "cursor": msgs[-1]["at"]}
         if time.monotonic() >= deadline:
@@ -7851,7 +8708,7 @@ def mail_one(slug: str, box: str, mid: str, request: Request = cast(Request, Non
 
 
 @app.post("/api/orgs/{slug}/org_inbox/read")
-async def org_inbox_read(slug: str) -> dict[str, Any]:
+def org_inbox_read(slug: str) -> dict[str, Any]:
     """The user opened the org-inbox panel: clear its unread count."""
     with store.DOC_LOCK:
         try:
@@ -7860,7 +8717,7 @@ async def org_inbox_read(slug: str) -> dict[str, Any]:
             raise HTTPException(404, str(e))
         org.org_inbox_mark_read()
         store.save_org(org)
-    await hub.changed(slug)
+    hub_changed(slug)
     return {"ok": True}
 
 
@@ -8006,7 +8863,7 @@ def org_inbox_send(slug: str, body: OrgInboxSend,
 
 
 @app.post("/api/orgs/{slug}/inbox/clear")
-async def user_inbox_clear(slug: str) -> dict[str, Any]:
+def user_inbox_clear(slug: str) -> dict[str, Any]:
     """Mark-all-read: archives into the read log (mirror of a node's mail_log)
     rather than deleting."""
     with store.DOC_LOCK:
@@ -8019,7 +8876,7 @@ async def user_inbox_clear(slug: str) -> dict[str, Any]:
 
         org.d["user_inbox"] = []
         store.save_org(org)
-    await hub.changed(slug)
+    hub_changed(slug)
     return {"ok": True}
 
 
@@ -8308,7 +9165,7 @@ class AudienceAction(Body):
 
 
 @app.post("/api/orgs/{slug}/audiences")
-async def user_audience(slug: str, body: AudienceAction) -> dict[str, Any]:
+def user_audience(slug: str, body: AudienceAction) -> dict[str, Any]:
     """User-side audience management: grant/deny requests that reached you, and
     one-click rescind of any audience (your authority is unconditional)."""
     with store.DOC_LOCK:
@@ -8328,7 +9185,7 @@ async def user_audience(slug: str, body: AudienceAction) -> dict[str, Any]:
     for t in result.pop("drive", []):
         supervisor.send_message(slug, t, "(orgtree) You have new mail above.",
                                 mail_ping=True, ping_reason="audience")
-    await hub.changed(slug)
+    hub_changed(slug)
     return result
 
 
@@ -8830,7 +9687,19 @@ def _seat_finish(org: Org, slug: str, actor: str, nid: str, a: dict[str, Any],
         applied.append(f"review_items:{len(result['review_items'])}")
     if wi is not None and str(wi).strip():
         _work_identity_ready(org, slug)
-        ares = org.work_assign(actor, str(wi).strip(), nid)
+        # ⚠ `starts_agent` BECAUSE THIS ROUTE STARTS THE AGENT — see the note
+        # above: a hire carrying `work_item` and no `kickoff` is hired,
+        # assigned, told so, and RUNNING. A plain `assign` leaves `backlogged`
+        # alone (user ruling 2026-09-19), but an item with an agent already
+        # running on it must not still read as unstarted: it would be hidden
+        # from the active count and never nudged by the idle reminder.
+        #
+        # This is the SAME rule `orgtree_staff` gets, reached from the other
+        # side: `_staff_call` pops `work_item` before the seat is made, so that
+        # path never comes through here and the two cannot be fixed as one call
+        # site. The rule itself lives in `Org._work_start_if_backlogged` so
+        # they cannot drift apart again (regression found in review, f1).
+        ares = org.work_assign(actor, str(wi).strip(), nid, starts_agent=True)
         if ares.get("notified"):
             mail_notify(slug, actor, nid)
             if not ares.get("deferred"):
@@ -8877,8 +9746,43 @@ def _seat_finish(org: Org, slug: str, actor: str, nid: str, a: dict[str, Any],
     return None
 
 
+def new_hire_harness(tier: object, explicit: object = None) -> str | None:
+    """The harness to stamp on a brand-new OpenRouter agent — answered HERE,
+    at the door, and never under `store.DOC_LOCK`.
+
+    ⚠ WHY IT IS NOT LEFT TO `ledger.hire`. `hire` still knows how to answer
+    this by itself, and for a caller that is not holding the document lock
+    that is still the right thing. But answering it asks whether the Codex CLI
+    can run, and `openrouter_harness.codex_state` answers that by SPAWNING
+    one — `codex app-server` for the capability probe, and `codex --version`
+    behind `providers.codex_status`'s 60-second cache. A subprocess spawn
+    under the document lock stalls every other org operation in the process,
+    not just the request that asked for it; account_fallback's standing rule,
+    written out at the `orgtree_continue_on` branch, is that provider reads
+    never happen under DOC_LOCK, and this is one. The answer needs nothing
+    from the org document, so every door resolves it out here and hands it in
+    as the explicit choice — `hire` then takes its explicit branch and spawns
+    nothing at all while the lock is held (reviewer finding f5).
+
+    Returns None for a tier that has no harness to choose, which is exactly
+    what `hire` already reads as "no explicit choice was made". An explicitly
+    supplied harness comes back untouched: naming one is a deliberate act,
+    it is allowed to fail loudly at launch, and nothing here may substitute
+    for it.
+    """
+    from . import openrouter as _orr                # noqa: PLC0415
+    t = str(tier or "")
+    if not t or not _orr.is_tier(t):
+        return None
+    if explicit:
+        return str(explicit)
+    from . import appsettings, openrouter_harness   # noqa: PLC0415
+    return openrouter_harness.for_new_hire(appsettings.openrouter_harness())
+
+
 def _hire_seat(org: Org, slug: str, actor: str, a: dict[str, Any],
-               drive: list[str]) -> dict[str, Any]:
+               drive: list[str],
+               harness: str | None = None) -> dict[str, Any]:
     """`orgtree_hire`, lifted out of the dispatch WHOLE (2026-09-05) so that
     `orgtree_staff` runs the same hire rather than a second one written to
     look like it. Not a line of it changed in the move: a shortcut whose seat
@@ -8956,7 +9860,8 @@ def _hire_seat(org: Org, slug: str, actor: str, a: dict[str, Any],
                       tools=a.get("tools"),
                       org_visibility=a.get("org_visibility"),
                       charter=a.get("charter"),
-                      account=a.get("account"))
+                      account=a.get("account"),
+                      harness=harness)
     if dwarns:
         result.setdefault("warnings", []).extend(dwarns)
     if result.get("node"):
@@ -9207,7 +10112,8 @@ _STAFF_WORK_ONLY: tuple[str, ...] = ("action", "slug", "title", "objective", "ki
 
 def _staff_call(org: Org, slug: str, actor: str, a: dict[str, Any],
                 drive: list[str], renamed_to: str | None,
-                rename_warnings: list[str]) -> dict[str, Any]:
+                rename_warnings: list[str],
+                harness: str | None = None) -> dict[str, Any]:
     """`orgtree_staff` — the docket item, the seat, and the assignment that
     ties them together, in ONE call (user request 2026-09-05 20:46).
 
@@ -9247,7 +10153,7 @@ def _staff_call(org: Org, slug: str, actor: str, a: dict[str, Any],
     # assignments and mail the seat twice for one call.
     seat_args.pop("work_item", None)
     if mode == "hire":
-        result = _hire_seat(org, slug, actor, seat_args, drive)
+        result = _hire_seat(org, slug, actor, seat_args, drive, harness)
     else:
         result = _rehire_seat(org, slug, actor, seat_args, drive,
                               renamed_to, rename_warnings)
@@ -9267,12 +10173,30 @@ def _staff_call(org: Org, slug: str, actor: str, a: dict[str, Any],
             parent=(str(a["parent"]) if a.get("parent") else None))
         item = str(w.get("created") or "")
     else:
+        # ⚠ THE BACKLOG TRANSITION IS NOT RESOLVED HERE ANY MORE. The first cut
+        # of this change read the item's status at this call site and passed an
+        # explicit `status`, which worked for `orgtree_staff` and left
+        # `orgtree_hire`/`orgtree_rehire` carrying `work_item` broken — they
+        # reach the assignment through `_seat_finish`, never through here, so
+        # they kept starting agents on items the docket still called backlogged
+        # (found in review, finding f1).
+        #
+        # The rule now lives in `Org._work_start_if_backlogged` and this path
+        # reaches it through `staffed_to` below, which already means "the
+        # substantive change in this update is that the item was STAFFED". One
+        # rule, two call sites, no second copy to drift.
         w = org.work_update(
             actor, str(a.get("slug") or ""), a.get("done_so_far"),
             a.get("working_on_next"), status=(str(a["status"])
                                               if a.get("status") is not None
                                               else None),
-            attention=(True if _arg_flag(a, "attention") else None),
+            # the same absent-vs-false distinction as the `update` door (f3).
+            # Staffing normally RAISES a flag rather than retracting one, so
+            # this was not the path that bit — but it is the identical
+            # expression, and leaving it would have left a third copy free to
+            # diverge from the two that now agree.
+            attention=(None if a.get("attention") is None
+                       else _arg_flag(a, "attention")),
             attention_reason=(str(a["attention_reason"])
                               if a.get("attention_reason") is not None else None),
             blocked_reason=(str(a["blocked_reason"])
@@ -9536,6 +10460,27 @@ class _op_inflight:
                 _OP_INFLIGHT.pop(self._k, None)
 
 
+@contextlib.contextmanager
+def _entry_ledger_422(cm: "AbstractContextManager[Org]",
+                      code: int = 422) -> "Iterator[Org]":
+    """Enter a `store.write_org` cycle; a LedgerError raised by the ENTRY
+    itself (no such org, bad slug) becomes the same HTTP refusal the old
+    in-block `load_org` produced at that site (422 at the dispatch, 404 on
+    the inbox doors). Errors from the body or the exit pass through
+    untouched, so nothing that used to escape as a 500 gets reclassified."""
+    try:
+        v = cm.__enter__()
+    except LedgerError as e:
+        raise HTTPException(code, str(e))
+    try:
+        yield v
+    except BaseException as e:
+        if not cm.__exit__(type(e), e, e.__traceback__):
+            raise
+    else:
+        cm.__exit__(None, None, None)
+
+
 OP_CALL, OP_LOOKUP = opreceipts.OP_CALL, opreceipts.OP_LOOKUP
 OP_EPOCH = opreceipts.OP_EPOCH
 
@@ -9761,6 +10706,14 @@ async def _run_chat_read(function: Any, *args: Any) -> Any:
 @app.post("/api/agent")
 async def _agent_call_route(body: AgentCall, request: Request) -> dict[str, Any]:
     from . import toolwait
+    # WHICH verb this is, recorded before dispatch so all three paths below
+    # (managed worker, chat read, plain threadpool) carry it and a handler
+    # that raises still gets labelled. `tool_name` rather than `body.tool`,
+    # so an `orgtree_op_call` reports the verb it WRAPS instead of the
+    # wrapper — that is the whole value of the field for receipt-bearing
+    # calls. Unvalidated here on purpose: `_access_emit` checks it against
+    # the tool catalogue at the point of publication and drops anything else.
+    profiling.label(_PROFILE_TOOL_FIELD, toolwait.tool_name(body))
     if body.node != USER and toolwait.tool_name(body) in toolwait.TOOLS:
         from fastapi.concurrency import run_in_threadpool
 
@@ -9789,28 +10742,51 @@ def _agent_identity(body: AgentCall, request: Request, *, durable: bool = False)
         raise HTTPException(403, "bridge secret is scoped to its own org")
     if body.node == USER:
         return {}
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(body.org)
-            caller = org.node(body.node)
-        except LedgerError as exc:
-            raise HTTPException(403, "authenticated seat is missing; reconnect through a live seat") from exc
-        if caller.get("state") != "live" or caller.get("successor"):
-            raise HTTPException(403, "authenticated seat is archived or replaced; reconnect through its live successor")
-        if identity is not None and int(caller.get("generation", 0)) != identity[2]:
-            raise HTTPException(403, "agent credential is stale: session generation changed; reconnect this session")
-        if durable and not caller.get("seat_id"):
-            # Legacy hires predate seat_id. Authenticate and validate the live
-            # record FIRST, then mint once under the same lock and persist
-            # before a managed worker can execute. Never reconstruct it from
-            # request args or a provider session id (both can change/recur).
-            caller["seat_id"] = str(uuid.uuid4())
-            store.save_org(org)
-        return dict(caller)
+    # THE READ HALF takes the shared snapshot (store.cached_org), not a
+    # private parse — and NO LONGER UNDER DOC_LOCK (state-access
+    # rearchitecture, incident 2026-09-19: a user message send stalled for
+    # minutes). The snapshot is seq-gated and torn-proof without the lock,
+    # the identity→dispatch window was never covered by it anyway (the lock
+    # released between the two), and the dispatch re-validates the seat,
+    # halt and killswitch under its own lock on the resident. What the lock
+    # DID do under swarm load was convoy: a snapshot rebuild that fell back
+    # to a full parse ran inside it and stalled every write behind a
+    # 20-second hold.
+    try:
+        org = store.cached_org(body.org)
+        caller = org.node(body.node)
+    except LedgerError as exc:
+        raise HTTPException(403, "authenticated seat is missing; reconnect through a live seat") from exc
+    if caller.get("state") != "live" or caller.get("successor"):
+        raise HTTPException(403, "authenticated seat is archived or replaced; reconnect through its live successor")
+    if identity is not None and int(caller.get("generation", 0)) != identity[2]:
+        raise HTTPException(403, "agent credential is stale: session generation changed; reconnect this session")
+    if durable and not caller.get("seat_id"):
+        # Legacy hires predate seat_id. Authenticate and validate the live
+        # record FIRST, then mint once and persist before a managed worker
+        # can execute. Never reconstruct it from request args or a provider
+        # session id (both can change/recur).
+        #
+        # ⚠ THE MINT IS A REAL WRITE and takes its own write cycle — the
+        # snapshot above is shared with every reader and must never be
+        # mutated or saved. Absence is re-checked under the lock (another
+        # request may have minted between our snapshot and here). This
+        # branch is the rare one (a legacy hire, once ever), so the cycle
+        # costs nothing measurable and keeps the read path honest.
+        with store.write_org(body.org) as morg:
+            caller = morg.node(body.node)
+            if not caller.get("seat_id"):
+                caller["seat_id"] = str(uuid.uuid4())
+                store.save_org(morg)
+        caller = dict(caller)
+    return dict(caller)
 
 
 def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
     """Execute one authenticated tool through the existing authority/admission gates."""
+    # the tool verb is the operation the storage instrumentation attributes
+    # to — far more useful than the one dispatch route all verbs share
+    stateprobe.refine("tool:" + str(body.tool))
     if body.tool == 'orgtree_send_file_once':
         # Internal transport verb: old backends must refuse BEFORE a copy,
         # rather than silently ignore delivery_id and claim retry safety.
@@ -9840,12 +10816,12 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
         # protect it — arriving BEFORE any mutation has been attempted
         # rather than after one has already applied.
         #
-        # It mutates nothing. It does take DOC_LOCK, because the seq it reads
-        # is what the rewind check compares and reading it beside a
-        # half-written transaction would be a false rewind.
-        with store.DOC_LOCK:
+        # It mutates nothing. It does take the write cycle's lock, because
+        # the seq it reads is what the rewind check compares and reading it
+        # beside a half-written transaction would be a false rewind. The
+        # resident makes this lock-consistent read cost microseconds.
+        with _entry_ledger_422(store.write_org(body.org)) as org:
             try:
-                org = store.load_org(body.org)
                 org.node(body.node)
             except LedgerError as e:
                 raise HTTPException(422, str(e))
@@ -9975,7 +10951,12 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                      "orgtree_chart", "orgtree_send_file",
                      "orgtree_list_tiers"):
         try:
-            org = store.load_org(body.org)
+            # read-shaped tools, and the block says so at every branch below:
+            # the shared snapshot rather than a private parse of the whole
+            # document. Nothing in here saves — `send_file` is filesystem-only
+            # and the rest render a payload — so the read-only contract on
+            # `store.cached_org` holds. It is `org_seq`-guarded, not time-based.
+            org = store.cached_org(body.org)
             org.node(body.node)
             if body.tool == "orgtree_list_tiers":
                 # Provider discovery may probe a CLI or API behind its own
@@ -10084,19 +11065,51 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
         # Halt must wait OUTSIDE DOC_LOCK: the target's cleanup owns that
         # same lock. These idempotent lifecycle operations own their saves;
         # the receipt honestly names this PRE-transaction coverage.
+        #
+        # BATCHED ADMISSION (2026-09-19, approved tier-1 scope): `nodes` takes
+        # a LIST and the whole group is one call — authority for every target
+        # is checked in one lock pass, and for a batch HALT every target's
+        # process tree is interrupted FIRST, so their turns terminate in
+        # parallel and each settle confirms an already-dying process instead
+        # of waiting in line behind its siblings' settles (the wave-2
+        # four-agent halt batch cost 66.6 s mostly by exactly that
+        # serialization). Per-node failures land in that node's result slot;
+        # they do not fail the siblings. The single-`node` form and its
+        # result shape are unchanged.
         with _op_inflight(body):
             try:
+                raw_nodes = a.get("nodes")
+                if raw_nodes is not None and not isinstance(raw_nodes, list):
+                    raise LedgerError("nodes must be a list of node ids")
+                targets = ([str(x) for x in raw_nodes if str(x)]
+                           if raw_nodes else [str(a.get("node") or "")])
+                if not targets:
+                    raise LedgerError("halt/unhalt needs a node or a nodes list")
                 with store.DOC_LOCK:
                     org = store.load_org(body.org)
-                    target = str(a.get("node") or "")
-                    org._require_authority(body.node, target)
+                    for target in targets:
+                        org._require_authority(body.node, target)
                     rcpt = _op_admit(org, body, a)
                     if rcpt is not None and "replay" in rcpt:
                         return cast("dict[str, Any]", rcpt["replay"])
-                if body.tool == "orgtree_halt":
-                    result = supervisor.halt.halt(body.org, target, body.node)
-                else:
-                    result = supervisor.halt.unhalt(body.org, target, body.node)
+                halting = body.tool == "orgtree_halt"
+                if halting and len(targets) > 1:
+                    for target in targets:
+                        supervisor.halt._cut(body.org, target,
+                                             supervisor.state(body.org, target))
+
+                def _one(target: str) -> dict[str, Any]:
+                    op = (supervisor.halt.halt if halting
+                          else supervisor.halt.unhalt)
+                    try:
+                        return op(body.org, target, body.node)
+                    except LedgerError as e:
+                        if len(targets) == 1:
+                            raise
+                        return {"node": target, "error": str(e)}
+                per_node = {target: _one(target) for target in targets}
+                result = (per_node[targets[0]] if len(targets) == 1
+                          else {"batch": len(targets), "nodes": per_node})
             except LedgerError as e:
                 raise HTTPException(422, str(e)) from e
             with store.DOC_LOCK:
@@ -10106,6 +11119,67 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                     store.save_org(org)
                     opreceipts.witness(store.DATA_ROOT, body.org,
                                       opreceipts.seq(cast("dict[str, Any]", org.d)))
+            return result
+    if body.tool == "orgtree_continue_on":
+        # ⭐ SWITCH A FROZEN REPORT'S ACCOUNT AND RELEASE IT IN ONE ACT (user
+        # ruling 2026-09-17 21:37). The agent-side twin of the user's
+        # `/continue-on`, and the SAME implementation — `_continue_on_account`.
+        #
+        # ⚠ WHY IT IS ITS OWN VERB RATHER THAN A FLAG ON orgtree_retool. The
+        # retool branch writes its account change INSIDE the shared dispatch
+        # transaction (`_account_selection`, below). This operation cannot live
+        # there: between its gate and its write it performs a LIVE provider read
+        # — for Codex that starts an app-server — and account_fallback's
+        # standing rule is that provider reads never happen under DOC_LOCK.
+        # Folding it into retool would therefore have meant a second code path
+        # wearing retool's name, one that could also refuse AFTER retool's scope
+        # fields had already applied: exactly the half-applied state this ticket
+        # exists to remove. So it runs out here beside halt/unhalt, which are
+        # out here for the same class of reason, and owns its own saves.
+        #
+        # AUTHORITY IS RETOOL'S, NOT unstick's: strictly downward, never
+        # yourself. An agent choosing which account it bills is the one thing
+        # neither its superiors nor the user ever delegated, and that rule does
+        # not loosen because the move also clears a freeze.
+        with _op_inflight(body):
+            _c_target = str(a.get("node") or "")
+            try:
+                with store.DOC_LOCK:
+                    org = store.load_org(body.org)
+                    org.node(_c_target)       # 422s a bogus target before it acts
+                    if _c_target == body.node:
+                        raise HTTPException(
+                            403, "you cannot choose your own account — a "
+                                 "node's billing is its supervisors' and the "
+                                 "user's decision, never its own, and that "
+                                 "does not change because the move would also "
+                                 "release your own freeze")
+                    org._require_authority(body.node, _c_target)
+                    org._require_live(_c_target)
+                    rcpt = _op_admit(org, body, a)
+                    if rcpt is not None and "replay" in rcpt:
+                        return cast("dict[str, Any]", rcpt["replay"])
+            except LedgerError as e:
+                raise HTTPException(422, str(e)) from e
+            _c_account = str(a.get("account") or "").strip()
+            result = _continue_on_account(
+                body.org, _c_target, _c_account, actor=body.node,
+                via="agent_continue", sender=body.node,
+                banner=(f"(orgtree) {body.node} moved you to account "
+                        f"{_c_account} and released your freeze — handle any "
+                        f"mail above and continue from where you left off."),
+                retry_hint="orgtree_unstick")
+            if rcpt is not None:
+                # the receipt is filed AFTER the move, in its own window, and
+                # its class says so: PRE, because the switch is already durable
+                # by now. A missing receipt for this verb is `unknown`, never
+                # "nothing happened".
+                with store.DOC_LOCK:
+                    org = store.load_org(body.org)
+                    _op_file(org, body, a, rcpt, result)
+                    store.save_org(org)
+                    opreceipts.witness(store.DATA_ROOT, body.org,
+                                       opreceipts.seq(cast("dict[str, Any]", org.d)))
             return result
     account_notify: str | None = None
     account_unpark: str | None = None   # a node an assignment just un-parked (SH-2)
@@ -10186,9 +11260,20 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
             raise HTTPException(422, str(e))
         _archive_warnings = supervisor.interrupt_before_archive(
             body.org, _pre_org, _arch_node)
-    with _op_inflight(body), store.DOC_LOCK:
+    # ⚠ OUT HERE FOR A DIFFERENT REASON THAN THE ARCHIVE WAIT ABOVE, and the
+    # same reason `orgtree_continue_on` is out here: choosing a new OpenRouter
+    # agent's harness is a LIVE PROVIDER READ that spawns a Codex process, and
+    # provider reads never happen under DOC_LOCK. `new_hire_harness` explains
+    # the whole rule; the value is handed to the hire below as its explicit
+    # choice, so nothing under the lock re-asks.
+    _hire_harness = (new_hire_harness(a.get("tier"), a.get("harness"))
+                     if body.tool in ("orgtree_hire", "orgtree_staff")
+                     else None)
+    # the RESIDENT write cycle (rearchitecture Phase B): same DOC_LOCK, same
+    # save fanout, same discard-on-failure — without re-parsing 11 MB of
+    # document per tool call.
+    with _op_inflight(body), _entry_ledger_422(store.write_org(body.org)) as org:
         try:
-            org = store.load_org(body.org)
             org.node(body.node)
             if org.node(body.node).get("halt"):
                 raise LedgerError("agent is halted — tools cannot execute until unhalt")
@@ -10770,7 +11855,8 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                 if _mail_target:
                     mail_to = str(_mail_target)
             elif body.tool == "orgtree_hire":
-                result = _hire_seat(org, body.org, body.node, a, drive)
+                result = _hire_seat(org, body.org, body.node, a, drive,
+                                    _hire_harness)
             elif body.tool == "orgtree_account_assign":
                 # multi-account D2d: node authority here (strictly downward
                 # — a node cannot rebind ITSELF, a DECIDED refusal: own-
@@ -10893,7 +11979,8 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
             elif body.tool == "orgtree_staff":
                 # the docket item + the seat + the assignment, in one call
                 result = _staff_call(org, body.org, body.node, a, drive,
-                                     _renamed_to, _rename_warnings)
+                                     _renamed_to, _rename_warnings,
+                                     _hire_harness)
             elif body.tool == "orgtree_move":
                 _batch = a.get("moves")
                 if _batch:
@@ -12417,7 +13504,7 @@ def clear_reply_events(slug: str, nid: str) -> dict[str, Any]:
 
 
 @app.delete("/api/orgs/{slug}/nodes/{nid}/mail/{mid}")
-async def node_mail_retract(slug: str, nid: str, mid: str) -> dict[str, Any]:
+def node_mail_retract(slug: str, nid: str, mid: str) -> dict[str, Any]:
     """Parity №17: retract one UNDRAINED mail entry — the only correction
     channel for a wrong send, since delivery deliberately never interrupts."""
     with store.DOC_LOCK:
@@ -12430,7 +13517,7 @@ async def node_mail_retract(slug: str, nid: str, mid: str) -> dict[str, Any]:
             raise HTTPException(404, "no such pending mail — it may already "
                                      "have been delivered")
         store.save_org(org)
-    await hub.changed(slug)
+    hub_changed(slug)
     return {"retracted": mid}
 
 
@@ -12885,8 +13972,16 @@ def org_op(slug: str, body: Op, request: Request) -> dict[str, Any]:
             raise HTTPException(422, str(e))
         _archive_warnings = supervisor.interrupt_before_archive(
             slug, _pre_org, body.node)
+    # ⚠ OFF DOC_LOCK for the same class of reason as the wait above, though
+    # not the same reason: a new OpenRouter agent's harness is chosen by a
+    # LIVE PROVIDER READ that spawns a Codex process, and provider reads never
+    # happen under the document lock. See `new_hire_harness`; the hire below
+    # takes this as its explicit choice and re-asks nothing under the lock.
+    _hire_harness = (new_hire_harness(body.tier, getattr(body, "harness", None))
+                     if body.op == "hire" else None)
     with store.DOC_LOCK:
-        result = _org_op_locked(slug, body, allow_raise=not pub)
+        result = _org_op_locked(slug, body, allow_raise=not pub,
+                                harness=_hire_harness)
         if _archive_warnings and isinstance(result, dict):
             result.setdefault("warnings", []).extend(_archive_warnings)
     # FR-01 (redteam): retire/dissolve/delete must not orphan a running
@@ -12917,7 +14012,8 @@ def org_op(slug: str, body: Op, request: Request) -> dict[str, Any]:
     return result
 
 
-def _org_op_locked(slug: str, body: Op, allow_raise: bool = False) -> dict[str, Any]:
+def _org_op_locked(slug: str, body: Op, allow_raise: bool = False,
+                   harness: str | None = None) -> dict[str, Any]:
     try:
         org = store.load_org(slug)
     except LedgerError as e:
@@ -12987,7 +14083,8 @@ def _org_op_locked(slug: str, body: Op, allow_raise: bool = False) -> dict[str, 
                               charter=body.charter,
                               external_handles=body.external_handles,
                               raise_ceiling=rc,
-                              account=body.account)
+                              account=body.account,
+                              harness=harness)
             if body.effort:
                 # applied WITH the hire, atomically (same save): the draft
                 # gear's effort used to ride a separate /scope call that the

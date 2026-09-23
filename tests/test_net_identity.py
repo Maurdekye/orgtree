@@ -60,6 +60,8 @@ os.environ["ORGTREE_STEER_HOOK"] = "0"
 os.environ["ORGTREE_PORT"] = "7404"          # never bound — only _share_url reads it
 os.environ["ORGTREE_PUBLIC_PORT"] = "7404"
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from orgtree import api, net, sandbox, store, supervisor          # noqa: E402
 from orgtree.ledger import LedgerError, Org, USER                 # noqa: E402
 

@@ -18,6 +18,70 @@ def scope(org, nid, *, session_id=None):
                        session_id or org.node(nid).get('session_id')], separators=(',', ':'))
 
 
+# ------------------------------------------------------------- scope cache
+# (slug, nid) -> (org_seq at population, scope). Both halves of the scope --
+# the node's transcript_incarnation and its session_id -- live in the org
+# document and can only change through a save, so "the org's save seq is
+# unchanged" proves the cached string is exactly current. This is the same
+# argument reply_events.identity() rests on, and it is what lets
+# supervisor.capture_reply_stream's prose branch shed the DOC_LOCK + full
+# load_org it paid per streamed delta (61.3 ms of a 75.5 ms delta at 673
+# nodes, measured 2026-09-18).
+_scope_lock = threading.Lock()
+_scope_cache = {}
+
+
+def _scope_forget(slug=None):
+    """Test seam / delete hook: drop cached scopes (one org or all)."""
+    with _scope_lock:
+        if slug is None:
+            _scope_cache.clear()
+        else:
+            for key in [k for k in _scope_cache if k[0] == slug]:
+                _scope_cache.pop(key, None)
+
+
+def scope_ident(slug, nid):
+    """`scope` without DOC_LOCK and -- once cached -- without a document load.
+
+    Raises the same error `scope(load_org(slug), nid)` does when the node does
+    not exist.
+
+    SCOPE COMES FROM ONE COHERENT READ, exactly as reply_events.identity()
+    documents. transcript_records.incarnation() mints under DOC_LOCK and
+    saves; reading session_id off the object we loaded BEFORE that mint would
+    cache a value the save could have moved, under a seq read before it. So
+    the seq is read BEFORE the load, a mint re-reads both, and the entry is
+    stored only if the seq is unchanged across the whole read -- a save
+    landing mid-read simply costs one more load next call.
+
+    It reads the SHARED snapshot (`store.cached_org`), not `load_org`: a miss
+    here is a miss for every agent at once, since one save invalidates every
+    entry. Per-agent parsing turned a single save into one full document
+    parse per streaming agent. The snapshot is read-only by contract and
+    nothing below writes to it; `transcript_records.incarnation` already
+    refuses to stamp a `_shared_snapshot` and mints on its own copy under
+    DOC_LOCK.
+    """
+    from . import store
+    key = (slug, nid)
+    seq = store.org_seq(slug)
+    with _scope_lock:
+        hit = _scope_cache.get(key)
+    if hit is not None and hit[0] == seq:
+        return hit[1]
+    org = store.cached_org(slug)        # shared read-only snapshot, see below
+    if not org.node(nid).get('transcript_incarnation'):
+        transcript_records.incarnation(org, nid)   # mints under DOC_LOCK, saves
+        seq = store.org_seq(slug)       # the mint's save bumped it...
+        org = store.cached_org(slug)    # ...and ONLY a fresh read is coherent
+    value = scope(org, nid)
+    if store.org_seq(slug) == seq:
+        with _scope_lock:
+            _scope_cache[key] = (seq, value)
+    return value
+
+
 def identity(source: str, provider: str, item: str, part=0) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_URL,
         json.dumps([source, provider, item, part], separators=(',', ':'))))

@@ -34,6 +34,9 @@ os.environ.update(ORGTREE_DATA=str(_data), HOME=str(_home), USERPROFILE=str(_hom
                   ORGTREE_V2_TOKEN='quit-hold-test')
 for key in ('ORGTREE_V1_ROOT', 'ORGTREE_V1_DATA_ROOT', 'ORGTREE_V2_PORT'):
     os.environ.pop(key, None)
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine import launch                                       # noqa: E402
 launch.load_app()
 from orgtree import ledger, store, supervisor                   # noqa: E402

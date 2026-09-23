@@ -15,6 +15,8 @@ os.environ.setdefault("ORGTREE_DATA", os.path.join(_tmp, "data"))
 os.environ.pop("ORGTREE_AGENT_PARENT_DATA", None)
 os.environ.pop("ORGTREE_AGENT_LEGACY_DATA", None)
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.backend.orgtree import statepreview  # noqa: E402
 from engine.backend.orgtree import api  # noqa: E402
 from engine.backend.orgtree.ledger import LedgerError, Org, USER  # noqa: E402

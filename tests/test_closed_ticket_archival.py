@@ -3,6 +3,8 @@ import tempfile
 import unittest
 
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 class ClosedTicketArchivalTests(unittest.TestCase):
     """The archive rules for closed work, and the one thing that overrides
     them.

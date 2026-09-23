@@ -23,6 +23,8 @@ from unittest.mock import patch
 import urllib.error
 import urllib.request
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine import service_host
 from engine.service_host import (DESCRIPTOR, clear_stale_descriptor, parse_ready,
                                  pin_profile_environment, remove_descriptor,

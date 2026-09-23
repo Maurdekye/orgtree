@@ -38,7 +38,8 @@ import sys
 import threading
 import time
 import uuid
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import (Callable, Iterable, Mapping, MutableMapping,
+                             Sequence)
 from functools import wraps
 from pathlib import Path
 from typing import Any, Final, Protocol, cast
@@ -48,13 +49,15 @@ from . import (accounts, agentauth, antigravity_limits, appsettings,
                cachecontinuity, clipin, codex_limits, codex_route, deployment,
                envelope, events, events_table, failfix, handoff, imgblock,
                lifecycle, limits,
-               liveness, localtime, net, openrouter, opreceipts, providers, registry,
-               sandbox as sbx, steer, store, workevidence,
+               liveness, localtime, net, openrouter, openrouter_harness,
+               opreceipts, providers, registry,
+               sandbox as sbx, stateprobe, steer, store, workevidence,
                tokens, turnlog, turnusage, warmpool)
 from .fleet_walk import fleet_walk
 from .desktop_native import NativeInventory
 from .ledger import (EXTERN, SYSTEM, USER, LedgerError, Org, expand_mcp,
-                     freeze_describes_provider, now as now_iso)
+                     freeze_describes_provider, next_config_seq,
+                     now as now_iso)
 from .schema import (Denial, FrozenInfo, InflightInfo, KioskCfg, MailEntry,
                      NodeDoc, NoticeEntry, TurnStat)
 
@@ -281,7 +284,8 @@ TIER_CONTEXT: dict[str, int] = {"haiku": 200_000, "sonnet": 1_000_000,
 # the codex family shares the published model window
 # (providers.CODEX_CONTEXT).  It is added before the env override so the
 # user's ORGTREE_CONTEXT_WINDOWS still wins for these tiers too.
-TIER_CONTEXT.update({t: providers.CODEX_CONTEXT for t in providers.CODEX_TIERS})
+TIER_CONTEXT.update({t: providers.CODEX_CONTEXT for t in providers.CODEX_TIERS
+                     if t not in providers.CODEX_UNPINNED_CONTEXT_TIERS})
 TIER_CONTEXT.update({t: providers.ANTIGRAVITY_CONTEXT
                      for t in providers.ANTIGRAVITY_TIERS})
 try:
@@ -306,6 +310,9 @@ def tier_context(tier: str,
     cw = TIER_CONTEXT.get(tier)
     if cw:
         return cw
+    if tier in {"sol", "luna"} and models is not None and str(
+            models.get(tier) or "").startswith("gpt-5.6-"):
+        return providers.CODEX_CONTEXT
     if openrouter.is_tier(tier):
         return openrouter.context_for(tier, models)
     return None
@@ -613,10 +620,10 @@ def claude_model_for(org: Org, nid: str) -> str:
     that has not redeployed yet; the alternative was breaking every fable turn
     on it.
 
-    ⚠ NOT the place to enforce anything else. Every other model id in the
-    table predates the current floor, so this deliberately touches ONE id
-    rather than growing into a general "is this model known" filter that would
-    need a per-version registry orgtree has no way to keep honest.
+    This remains a Fable-only compatibility rule. In particular, Opus 5.5
+    must reach the CLI verbatim, even if an operator resolves an older CLI;
+    silently replacing it with Opus 5 would run a different requested model.
+    The packaged CLI pin includes Opus 5.5 support and pricing.
     """
     want = org.model_for(nid)
     if want == clipin.FABLE_5_1 and not cli_knows_fable_5_1():
@@ -2208,7 +2215,10 @@ def _mcp_infrastructure_fingerprint(org: Org, nid: str) -> str | None:
     chosen = {name: registry[name] for name in granted_names
               if name in registry}
     provider = providers.provider_of(str(n.get("model") or ""))
-    if provider == "openai":
+    # the narrowing and the built-in catalogue below are both HARNESS facts —
+    # what this CLI can attach, and how it is handed orgtree's own powers —
+    # so they follow the harness, not the provider (see `codex_harness_turn`)
+    if codex_harness_turn(org, nid, str(n.get("model") or "")):
         from . import codexrun                         # noqa: PLC0415
         chosen, _ = codexrun.deliverable_mcp(chosen)
     elif provider == "google":
@@ -2221,10 +2231,10 @@ def _mcp_infrastructure_fingerprint(org: Org, nid: str) -> str | None:
     # they are deliberately excluded from both the runtime MCP count and its
     # infrastructure generation. Claude/Antigravity launch Orgtree as an MCP
     # server, so its callable catalogue is part of their surface.
-    builtin = ([] if provider == "openai" else
-               sorted(str(tool.get("name") or "")
-                      for tool in mcptool.available_tools()
-                      if isinstance(tool, dict) and tool.get("name")))
+    builtin = ([] if codex_harness_turn(org, nid, str(n.get("model") or ""))
+               else sorted(str(tool.get("name") or "")
+                           for tool in mcptool.available_tools()
+                           if isinstance(tool, dict) and tool.get("name")))
     raw = json.dumps({
         "version": 1,
         "provider": provider,
@@ -3196,15 +3206,24 @@ def capture_reply_stream(slug: str, nid: str, payload: dict[str, Any]) -> dict[s
     mid = payload.get('assistant_id')
     if mid and kind in {'delta', 'draft', 'text'} and not payload.get('cmd_output'):
         from . import assistant_messages, reply_events
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
+        # identity() and scope_ident() are both save-seq-cached: after the
+        # first delta of a session this branch is two dict lookups -- no
+        # DOC_LOCK, no document load. The old form here (DOC_LOCK + load_org
+        # per delta) was 61.3 ms of a 75.5 ms prose delta at 673 nodes and
+        # made an ordinary write's latency linear in concurrent streams out to
+        # 32 agents, almost all of it lock wait. It is the SAME defect the
+        # comment below describes; the 2026-09-12 fix reached only the
+        # thinking branch, and Claude prose deltas always carry an
+        # assistant_id, so the user-visible reply text took the slow one.
+        scope, generation = reply_events.identity(slug, nid)
         row = assistant_messages.observe(str(payload.get('assistant_scope') or
-            assistant_messages.scope(org, nid)), str(mid),
+            assistant_messages.scope_ident(slug, nid)), str(mid),
             str(payload.get('text') or ''), now_iso(), complete=kind == 'text',
             append=kind == 'delta' and not payload.get('assistant_reset'),
             native_id=payload.get('event_id') if kind == 'text' else None,
             owned=payload.get('assistant_ids'))
-        annotated = reply_events.annotate(org, nid, {'messages': [row]})['messages'][0]
+        annotated = reply_events.annotate_ident(slug, nid, scope, generation,
+                                                {'messages': [row]})['messages'][0]
         return {**payload, 'assistant_row': annotated,
                 'event_id': annotated['event_id'], 'reply_quote': annotated['reply_quote']}
     if kind not in {'draft', 'delta', 'thinking', 'thinking_start', 'thought', 'starting', 'error'}:
@@ -4227,6 +4246,68 @@ def _transcript_root(org: Org, nid: str | None = None, *,
     return None
 
 
+#: ⚠ THE AGENT CLI'S FOREGROUND COMMAND CEILING (user ruling 2026-09-18).
+#:
+#: 25 minutes, in MILLISECONDS, because that is the unit the variable is
+#: named for and reads in.
+#:
+#: ⚠ WHY 25 AND NOT 30, WHICH IS THE OBVIOUS ROUND NUMBER TO DRIFT TO. The
+#: value comes from PROVIDER PROMPT-CACHE WINDOWS, not from the suite's
+#: runtime. A long foreground command holds the agent's turn open for its whole
+#: duration; if that can outlast the provider's prompt-cache TTL, the agent
+#: resumes into a cold cache and pays full price to re-read its entire context
+#: on that turn and arguably every turn after it. So the ceiling has to fit
+#: inside the SHORTEST cache window any lane here has, which is Codex at 30
+#: minutes (Claude's is 60, so it is not the constraint). 25 minutes sits
+#: inside the Codex window with five minutes of grace.
+#:
+#: Which means BOTH directions are wrong. Rounding UP to 30 puts the ceiling
+#: exactly on the edge of the Codex window, and that failure is invisible at
+#: the call site and expensive on every turn afterwards. Trimming DOWN to
+#: "just over the 675 s the suite takes" is equally wrong: the headroom over
+#: the suite is a side effect of the cache arithmetic, not the reason for the
+#: number. (User, 2026-09-18: "the 25 minute timeout is intentionally within
+#: the bounds of cache limits for both codex and claude, with an extra 5
+#: minute grace period.")
+#:
+#: WHY IT EXISTS. `node tools/test-baseline.mjs compare --suite python-backend`
+#: is the run every agent here is told to quote before landing a change, and it
+#: takes 675 s — measured twice on an idle machine, 2026-09-18. The Claude Code
+#: harness caps a foreground shell command at 600 s by default, so that run
+#: could not complete in a plain foreground call: agents had to background it
+#: and poll, which is the pattern the house rules tell them not to use, and
+#: several lost whole sessions to runs that were killed at a turn boundary
+#: before producing a verdict.
+#:
+#: WHY THE CEILING MOVED RATHER THAN THE SUITE. Raising concurrency was
+#: measured and does nothing: 11m15s at 4 and 11m10s at 12, because
+#: `runPythonSuite` never passes the flag on and `run-python-verification.py`
+#: has no parallelism to receive it. It is sequential BY DESIGN — one
+#: interpreter and one ORGTREE_DATA per module — and that isolation is the
+#: reason the suite's results are worth quoting at all. 675 s is what correct
+#: isolation costs, so the limit moves instead of the isolation.
+#:
+#: ⚠ THIS IS THE CEILING, NOT THE DEFAULT. `BASH_MAX_TIMEOUT_MS` raises the
+#: largest timeout an agent may ASK FOR; `BASH_DEFAULT_TIMEOUT_MS` is what it
+#: gets when it asks for nothing, and that one is deliberately left alone. A
+#: 25-minute default would mean every hung command — an interactive prompt, a
+#: wedged installer — costs 25 minutes of an agent's turn instead of two. The
+#: long runs that need it are known in advance and pass the timeout explicitly.
+#:
+#: ⚠ CLAUDE LANE ONLY, and that is a finding rather than an omission. Surveyed
+#: 2026-09-18 against the shipped binaries: the Codex CLI exposes no
+#: shell-timeout environment variable at all (its only TIMEOUT env names are
+#: OpenTelemetry exporter settings; its shell limit is the config.toml key
+#: `background_terminal_max_timeout` and a per-call `timeout_ms` argument), and
+#: the Gemini CLI reads no timeout variable from the environment either. There
+#: is nothing to set on those lanes, so they are not silently left unset — they
+#: have no such control to set.
+#:
+#: A single node can still override this through `env_overrides` (the name is
+#: not on that function's refused list), which is what that knob is for.
+AGENT_BASH_MAX_TIMEOUT_MS = "1500000"
+
+
 def clean_env() -> dict[str, str]:
     env = dict(os.environ)
     for k in list(env):
@@ -4260,6 +4341,10 @@ def clean_env() -> dict[str, str]:
     env.pop("CLAUDE_CONFIG_DIR", None)
     env.pop("CODEX_HOME", None)
     env.pop("ORGTREE_ACCOUNT_ID", None)
+    # Set, not defaulted: whatever the HOST happens to have is not the ceiling
+    # this org's agents should run under, and an inherited lower value would be
+    # the silent-switch failure the strips above exist to prevent.
+    env["BASH_MAX_TIMEOUT_MS"] = AGENT_BASH_MAX_TIMEOUT_MS
     from . import devguard
     return devguard.child_env(env)
 
@@ -4707,7 +4792,18 @@ def identity_in_spec(spec: Mapping[str, Any]) -> str:
     `ANTHROPIC_*` variable — reading one off an inherited environment would
     attribute a codex turn to an Anthropic credential it never held.
     """
-    marker = str((spec.get("env_extra") or {}).get(registry.MARKER) or "")
+    env_extra = spec.get("env_extra") or {}
+    # THE GATEWAY LANE ANSWERS FIRST, and it answers the same sentinel the
+    # Claude harness's OpenRouter turns already record (`openrouter_env` →
+    # `OPENROUTER_IDENTITY`). Without this branch a Codex-harness OpenRouter
+    # turn falls to `accounts.PRIMARY` and is attributed to the machine's
+    # ChatGPT login — a turn billed to the gateway key, reported against a
+    # subscription it never touched. One lane, one sentinel, whichever CLI
+    # happens to be holding the wire: that is the whole point of the harness
+    # being a harness and not a provider.
+    if env_extra.get(openrouter_harness.KEY_ENV):
+        return OPENROUTER_IDENTITY
+    marker = str(env_extra.get(registry.MARKER) or "")
     return marker or accounts.PRIMARY
 
 
@@ -5773,9 +5869,22 @@ def _stamp_wakes_on_save(org: Org) -> None:
     added; a rule enforced at one choke point cannot be forgotten by the next
     one. Cheap by construction: `commit_node_wake` returns immediately for a
     node that is not frozen or already promised, so the steady state is a
-    dict lookup per node and no IO at all."""
-    for n in org.nodes.values():
-        commit_node_wake(n)
+    dict lookup per node and no IO at all.
+
+    ⚠ RAW WALK, BARRIERED WRITE (state-access rearchitecture). This hook
+    runs inside EVERY save; a `values()` walk would expose all ~700 node
+    values mutably and put the whole node table back into every save's dump
+    set — measured 8.8 MB re-serialized per one-field save at the API door.
+    The walk therefore reads the backing dict directly and touches the
+    barrier only for the rare node it actually stamps, so the scoped save
+    sees exactly those."""
+    nodes = cast("dict[str, Any]", org.d.get("nodes") or {})
+    for nid in list(dict.keys(nodes)):
+        n = dict.__getitem__(nodes, nid)
+        if not isinstance(n, dict) or not n.get("frozen"):
+            continue
+        # the barrier get marks the node BEFORE the mutation can land
+        commit_node_wake(cast("NodeDoc", nodes[nid]))
 
 
 store.pre_save_hooks.append(_stamp_wakes_on_save)
@@ -5799,13 +5908,75 @@ def freeze_waits_on_capacity(fz: FrozenInfo) -> bool:
         and fz.get("cause") not in ("auth", "balance")
 
 
+#: How long after a freeze's stated deadline the wake may actually fire.
+#:
+#: ⚠ IT IS A CLOCK-SKEW ALLOWANCE, NOT A DELAY WE WANT. A usage-limit
+#: deadline is the PROVIDER'S claim about the provider's clock; ours may
+#: differ, and waking a hair early spends a real turn only to be refused and
+#: re-frozen. Keep it.
+WAKE_GRACE_S = 60.0
+
+
+def wake_grace_for(fz: FrozenInfo) -> float:
+    """The grace THIS freeze's wake carries — one definition, every reader.
+
+    ⚠ A CONNECTION BACKOFF GETS NONE, and that is not symmetry for its own
+    sake: its deadline is OUR OWN timer, computed here from our own clock, so
+    there is no foreign clock to be early against. Padding it would make the
+    node wait longer than the label it had already shown — the same defect
+    this rule exists to remove, pointed the other way.
+    """
+    return 0.0 if fz.get("connection") else WAKE_GRACE_S
+
+
+def effective_wake_instant(fz: FrozenInfo, now: float | None = None,
+                           ) -> dict[str, Any] | None:
+    """WHEN THIS FREEZE BECOMES ACTIONABLE — the instant the badge counts down
+    to AND the instant the wake may fire. One number, both readers.
+
+    ⚠ WHY THIS EXISTS (user report 2026-09-17 17:16: "i have auto-rwsume on,
+    but the flash didnt wake when its timer hit 0"). The grace used to be
+    added by `auto_resume_ready` alone, AFTER the shared deadline:
+
+        if now >= float(ts) + (0.0 if fz.get("connection") else 60.0):
+
+    so the badge rendered the deadline, counted down to zero, and the wake was
+    still a minute away. That is exactly the one-time-shown/another-time-woken
+    split the 2026-09-12 ruling set out to remove, reintroduced one layer
+    further out. Measured on `notice-toggle`: 300-second probe freezes at
+    16:57, 17:03 and 17:10, each waking about 360 seconds later.
+
+    ⚠ IT IS A SEPARATE FUNCTION, NOT A CHANGE TO `effective_freeze_deadline`,
+    and the distinction is load-bearing twice over:
+
+    · THE WRITER MUST NOT SEE IT. `commit_node_wake` stamps what that function
+      returns as `frozen.wake`, the promise that by ruling never moves. Graced
+      there, the allowance would be baked into the record and added again on
+      the next read — +60 per commit, compounding, on the one value whose
+      whole purpose is to stay put.
+    · THE RANKING IS A DIFFERENT QUESTION. `effective_freeze_deadline` answers
+      "which deadline does this freeze have", and that answer is what the 429
+      precedence, the promise and the fallbacks are all about. This answers
+      "when does that deadline become actionable". Folding the second into the
+      first made 49 tests fail that were only ever asserting the first.
+    """
+    eff = effective_freeze_deadline(fz, None, now)
+    if eff is None:
+        return None
+    grace = wake_grace_for(fz)
+    return eff if not grace else {**eff, "ts": float(eff["ts"]) + grace}
+
+
 def effective_freeze_deadline(fz: FrozenInfo, mark: dict[str, Any] | None,
                               now: float | None = None,
                               roster: Mapping[str, Any] | None = None,
                               *, include_sources: bool = False,
                               ) -> dict[str, Any] | None:
     """THE deadline a usage-limit freeze has — the one the badge shows AND the
-    one the wake timer uses. There is only ever one number (USER RULING
+    one the wake timer uses, both of them through `effective_wake_instant`
+    above, which adds the skew allowance neither of them may add for itself.
+
+    There is only ever one number (USER RULING
     2026-09-12: "the wake timer should follow whats shown, and what's shown
     should always take precedence from the 429 error, not from usage").
 
@@ -6761,7 +6932,16 @@ def _standing_notes_block(org: Org, nid: str) -> str:
     supplies only bounded authorized docket facts; it never invents notes.
     """
     tier = str(org.node(nid).get("model") or "")
-    if providers.provider_of(tier) in _NATIVE_CLAUDEMD_PROVIDERS:
+    # ⚠ THE HARNESS DECIDES THIS, NOT THE PROVIDER — and this function is the
+    # one place where getting that wrong reproduces, exactly, the defect it
+    # was written to fix. "Reads CLAUDE.md natively" is a statement about a
+    # CLI. An OpenRouter tier satisfies it only while Claude Code is the CLI;
+    # on the codex harness the process reads AGENTS.md and never CLAUDE.md
+    # (measured 2026-09-04 with `codex debug prompt-input`), so returning ""
+    # here would hand that agent the same silently-unread notes file, and it
+    # would find out the same way — at a compaction, too late.
+    if (providers.provider_of(tier) in _NATIVE_CLAUDEMD_PROVIDERS
+            and not codex_harness_turn(org, nid, tier)):
         return ""
     try:
         path = os.path.join(scratch_dir(org.d["slug"], nid), "CLAUDE.md")
@@ -7049,11 +7229,47 @@ def _status_note(org: Org, rid: str, now: float) -> str:
       It is process-bound and resets to False on a backend restart, which is
       the CORRECT answer after one: no turn is running.
     * `inflight` (on the node, durable) — the turn's START time. Written at
-      `o2.node(nid)["inflight"] = inf`; popped in exactly ONE place, the turn's
-      `finally`. ⚠ THERE IS NO BOOT-TIME RECONCILIATION, so a backend killed
-      mid-turn leaves this marker behind for good. `inflight` ALONE IS NOT
-      PROOF OF A RUNNING TURN — read against `busy` or it lies exactly the way
-      a stale "working" lies.
+      `o2.node(nid)["inflight"] = inf`. ⚠ IT IS REMOVED IN AT LEAST SIX
+      PLACES, NOT TWO — do not read an absent marker as "a turn ran here and
+      finished". As of 2026-09-19 the removers are: the turn's own `finally`
+      (`_mark_turn_ended`, the only one that leaves a `turn_ended` stamp);
+      `reconcile()`'s spend, which IS a boot-time reconciliation (`api.py`
+      runs it for every org at startup) and which spends each marker as it
+      replays that turn; `reconcile()`'s separate in-memory drop of a COMMAND
+      marker, which is not replayable; `halt`, twice, which moves the marker
+      into `halt["interrupted_turn"]` rather than deleting it; the import
+      resume in `desktop_recovery`; and `ledger`, which sets it to None
+      instead of deleting the key (`.get("inflight")` tested for truthiness,
+      so None and absent behave identically — no gap, but no key either).
+      THE COUNT IS THE POINT AND IT KEEPS ROTTING, so treat the roles above
+      as the durable part and re-grep the sites before trusting a number.
+      ⚠ CORRECTED 2026-09-19, the SECOND correction to this same sentence
+      (restart-mail, in review). It then said "popped in exactly TWO places",
+      which is not a harmless undercount: a reader who believes only the
+      turn's `finally` and `reconcile` remove the marker concludes that an
+      absence after startup must mean a turn ran — which is mutant M12, the
+      drop-on-bare-absence behaviour the user ruled AGAINST on 2026-09-19.
+      The stamp below `turn_ended` exists precisely because absence alone is
+      not that proof.
+      ⚠ CORRECTED 2026-09-18. This said "popped in exactly ONE place" and
+      "THERE IS NO BOOT-TIME RECONCILIATION, so a backend killed mid-turn
+      leaves this marker behind for good". Both halves were false, and the
+      file already contradicted them — the code that WRITES the marker says
+      "if orgtree dies mid-turn, reconcile() auto-resumes this node". A
+      comment asserting a safety property the code does not have is worse
+      than no comment, and this one was read as a guarantee.
+      WHAT IS STILL TRUE, and it is why the signature below is kept: a marker
+      does survive for every node `reconcile` deliberately SKIPS — halted,
+      held by `_native_context_hold` or `_import_recovery_hold`, not live,
+      condemned, or frozen — and it survives the window before the startup
+      pass has run. `inflight` ALONE IS NOT PROOF OF A RUNNING TURN — read
+      against `busy` or it lies exactly the way a stale "working" lies.
+      ⚠ AND THE ABSENCE OF A MARKER IS NOT PROOF OF AN IDLE AGENT. Until
+      2026-09-18 `reconcile` erased every replayable marker before dispatching
+      any, so a backend killed inside that loop left the un-replayed agents
+      with no marker at all and they rendered here as ordinary idle nodes.
+      That is fixed — each marker is now spent immediately before its own
+      dispatch — but a doc written by an older build can still carry it.
     * `last_status` / `prev_status` — self-reported. A turn start POPS
       `last_status` into `prev_status`, so a PRESENT `last_status` was set
       during this agent's current-or-most-recent turn, while `prev_status`
@@ -7787,8 +8003,14 @@ DOCKET_DOCTRINE = (
     "limit and the overage — so fix it in one step rather than guessing your "
     "way down. The supporting detail belongs in the description or in "
     "`evidence`, neither of which has any limit. Never put a checkbox or form "
-    "in front of them for routine implementation choices. A "
-    "later update without it clears the flag. TO ADD DETAIL TO A FLAG THEY "
+    "in front of them for routine implementation choices. ⚠ A LATER UPDATE NO "
+    "LONGER CLEARS THE FLAG (user ruling 2026-09-19): it used to, so an "
+    "unrelated edit like fixing a title silently dropped a question the user "
+    "was still reading. It stays up until the user replies, the user dismisses "
+    "it, or an agent takes it down deliberately with `attention: false`. That "
+    "means you must retract your own flag once it is answered — a flag left "
+    "standing after it stopped mattering is a chore on the user's screen with "
+    "your name on it. TO ADD DETAIL TO A FLAG THEY "
     "ARE ALREADY LOOKING AT, AMEND IT — `attention_amend` with the fuller "
     "reason edits the standing one in place and does NOT count as a new raise, "
     "so one question with three parts stays one question instead of becoming "
@@ -7928,7 +8150,8 @@ ACCOUNT_LANE_DOCTRINE = (
     "emails never redirect billing. Omit the field on a hire to inherit the "
     "org default; omit it on a rehire or retool to keep the stored binding. "
     "A retool account change is strictly downward, never on yourself, and "
-    "is refused while the agent is mid-turn. Moving a Codex agent, including "
+    "is queued while the agent is mid-turn; the active turn keeps its current "
+    "account and the change applies at the boundary. Moving a Codex agent, including "
     "back to primary, archives the old session as a readable knowledge "
     "bearer and starts fresh. Primary restores ambient authentication and "
     "existing fallback rules; it does not promise available capacity. "
@@ -8242,7 +8465,7 @@ def identity_prompt(org: Org, nid: str, include_archived: bool = False, *,
                           f"container ({', '.join(dropped)} unavailable despite "
                           f"the grant) — they are outside contact points the "
                           f"sandbox restricts. ")
-    if str(n.get("model") or "") in providers.CODEX_TIERS:
+    if codex_harness_turn(org, nid, str(n.get("model") or "")):
         # D-180: the codex lane attaches granted servers by LAUNCHING the
         # app-server with `-c mcp_servers.…` overrides, which cannot express
         # every registry shape (a name that is not a TOML bare key aborts the
@@ -10800,6 +11023,18 @@ def _cache_semantic_inputs(
     """Digests of normalized provider-visible tool and argv surfaces."""
     n = org.node(nid)
     scope = n.get("scope") or {}
+    # ⚠ WHICH CLI, NOT WHICH PROVIDER — and on this lane they finally differ.
+    # The branches below project an ARGV and a TOOL SURFACE, so they belong to
+    # the harness; `provider` decides them only because, until the harness
+    # axis existed, it fixed them. An OpenRouter node on the codex harness
+    # projected the CLAUDE argv here (`_build_cmd`) and compared every future
+    # launch against a command line no process of its would ever run.
+    if provider == openrouter.PROVIDER_ID and codex_harness_turn(
+            org, nid, str(n.get("model") or "")):
+        manifest = codex_manifest or _codex_startup_manifest(
+            org, nid, write_ident=False)
+        return (cachecontinuity.digest(manifest["cache_tools"]),
+                cachecontinuity.digest(manifest["cache_argv"]))
     if provider in _NATIVE_CLAUDEMD_PROVIDERS:
         # `claude` AND `openrouter`: the same Claude CLI, the same argv — an
         # OpenRouter tier only re-points its endpoint (audit C1, 2026-09-04:
@@ -10931,10 +11166,21 @@ def _cache_openrouter_namespace(resolved_env: dict[str, str]
     ⚠ READS THE RESOLVED ENV, NOT `openrouter._key()`. The env is what the
     spawn will actually carry (the `identity_in_env` rule); re-reading the
     key store would answer "which key WOULD a spawn get now".
+
+    EITHER CARRIER, ONE NAMESPACE (the harness axis, 2026-09-19). The Claude
+    harness carries the key as `ANTHROPIC_AUTH_TOKEN` and the Codex one as
+    `openrouter_harness.KEY_ENV`; the credential, the endpoint and therefore
+    the provider-side cache namespace are IDENTICAL, so both carriers digest
+    to the same value on purpose. Reading only the Anthropic-shaped one would
+    have reported every Codex-harness agent's account as `unobserved` — not
+    wrong-looking, just permanently blind, which is the worse failure.
     """
-    if openrouter_env(resolved_env):
+    token = (resolved_env.get("ANTHROPIC_AUTH_TOKEN")
+             if openrouter_env(resolved_env)
+             else resolved_env.get(openrouter_harness.KEY_ENV))
+    if token:
         return ("openrouter-key:" + cachecontinuity.digest(
-                    {"credential": resolved_env["ANTHROPIC_AUTH_TOKEN"]}, 16),
+                    {"credential": token}, 16),
                 "api_key")
     return OPENROUTER_ACCOUNT_UNOBSERVED, "unobserved"
 
@@ -11024,6 +11270,11 @@ def _cache_snapshot(org: Org, nid: str, *, now: float | None = None,
     n = org.node(nid)
     tier = str(n.get("model") or "")
     provider = providers.provider_of(tier)
+    # WHICH CLI this node's next request comes out of. Every component below
+    # is one of two kinds — a statement about the CREDENTIAL (which follows
+    # the provider) or about the PROCESS (which follows the harness) — and
+    # this is the variable that keeps the second kind honest.
+    codex_harness = codex_harness_turn(org, nid, tier)
     account = account_override
     lane = lane_override
     resolved_env: dict[str, str] = {}
@@ -11043,15 +11294,33 @@ def _cache_snapshot(org: Org, nid: str, *, now: float | None = None,
         account = account or resolved_account
         lane = lane or resolved_lane
     elif provider == openrouter.PROVIDER_ID:
-        # the Claude CLI pointed at openrouter.ai: the ROUTE INPUTS are the
-        # Claude harness's (argv, startup files, env pins — the shared
-        # `_NATIVE_CLAUDEMD_PROVIDERS` legs below), the NAMESPACE is the
-        # gateway key's, and the lane is the gateway's measured 5-minute one
-        resolved_env = env or _cache_openrouter_spawn_env(org, tier, nid)
-        resolved_account, resolved_lane = _cache_openrouter_namespace(
-            resolved_env)
-        account = account or resolved_account
-        lane = lane or resolved_lane
+        # the gateway lane, EITHER HARNESS. The split is exact and it is only
+        # ever between the two halves of this record: the NAMESPACE is the
+        # gateway key's and the lane is the gateway's measured 5-minute one
+        # whichever CLI runs (one credential, one endpoint, one cache
+        # namespace), while the ROUTE INPUTS — argv, startup files, env — are
+        # the HARNESS'S, because they describe a process.
+        if codex_harness:
+            # resolved here, not below, for the reason the openai leg states:
+            # both projections must describe the SAME launch rather than two
+            # reads that merely happened close together.
+            codex_manifest = codex_manifest or _codex_startup_manifest(
+                org, nid, write_ident=False)
+            # the namespace comes off the CAPTURED launch, exactly as the
+            # Claude-harness branch takes it off the resolved env — same
+            # credential, same digest, same lane
+            resolved_account, resolved_lane = _cache_openrouter_namespace(
+                dict(cast("dict[str, Any]",
+                          codex_manifest["provider_spec"]).get("env_extra")
+                     or {}))
+            account = account or resolved_account
+            lane = lane or resolved_lane
+        else:
+            resolved_env = env or _cache_openrouter_spawn_env(org, tier, nid)
+            resolved_account, resolved_lane = _cache_openrouter_namespace(
+                resolved_env)
+            account = account or resolved_account
+            lane = lane or resolved_lane
     elif provider == "openai":
         # Cache rendering stays read-only: the default resolver never writes
         # the managed AGENTS.md. A real launch passes the manifest it already
@@ -11076,8 +11345,7 @@ def _cache_snapshot(org: Org, nid: str, *, now: float | None = None,
                 board=codex_limits.snapshot(now),
                 marks=cast("dict[str, Any] | None", n.get("codex_routes")),
                 account=account,
-                direct_model=providers.CODEX_MODELS.get(tier)
-                or org.model_for(nid), now=now,
+                direct_model=org.model_for(nid), now=now,
                 prefer_reserve=org.prefer_reserve_for(nid))
             route_model = _rt["model"]
             route_pool = _rt["pool"]
@@ -11090,8 +11358,9 @@ def _cache_snapshot(org: Org, nid: str, *, now: float | None = None,
         agy_row = antigravity_session.selected_account(org, nid)
         account = account or (str(agy_row["id"]) if agy_row else _cache_antigravity_account_namespace())
         lane = lane or "provider_unsupported"
-    claude_harness = provider in _NATIVE_CLAUDEMD_PROVIDERS
-    if provider == "openai":
+    claude_harness = (provider in _NATIVE_CLAUDEMD_PROVIDERS
+                      and not codex_harness)
+    if codex_harness:
         assert codex_manifest is not None
         system = cachecontinuity.digest(codex_manifest["identity"])
         tools_digest, argv_digest = _cache_semantic_inputs(
@@ -13106,8 +13375,147 @@ def drive_unfrozen_by_switch(slug: str, nids: Iterable[str]) -> None:
             print(f"[orgtree] {slug}/{t}: unfrozen-by-switch wake failed")
 
 
+def _apply_pending_account_locked(o2: Org, slug: str, nid: str) -> dict[str, Any]:
+    """Consume `nid`'s queued account rebind at the turn boundary, on the doc
+    the caller holds under DOC_LOCK (the caller saves). Returns
+    ``{"changed": bool, "auth_thaw": bool, "unpark": bool}``; the wake flags
+    are driven by the caller AFTER its save, off the lock, exactly like the
+    immediate doors.
+
+    R1 (review 2026-09-20): with a model switch ALSO queued, the two intents
+    are composed BY REQUEST ORDER — never by which door wrote first — and
+    nothing is applied here: the winning account rides the switch's own
+    atomic finish, so there is no intermediate rebind whose session archive
+    the switch would immediately repeat. A rebind queued AFTER the switch
+    overrides the switch's account choice, validated against the switch
+    TARGET; a rebind queued BEFORE a switch that names its own account is
+    superseded by that newer complete choice; a rebind that cannot run the
+    queued target is a recorded drop. Every outcome is logged — a queued
+    rebind is never silently forgotten — and never a raise (this runs inside
+    the turn's shared finally).
+
+    R2: a STANDALONE rebind applied here preserves `assign_account`'s
+    frozen-node policy (coordinator ruling 2026-09-16): a movable USAGE-LIMIT
+    freeze refuses the move as a recorded drop — rebinding cannot clear a
+    limit and would strand the node frozen on the new account — while an
+    AUTH/CREDENTIAL freeze (cause auth/balance, or untrusted) is thawed in
+    the same transaction, because the freeze named a dead credential the
+    rebind just replaced. Usage-limit freezes, account parks and halts stay
+    distinct throughout."""
+    out: dict[str, Any] = {"changed": False, "auth_thaw": False, "unpark": False}
+    if nid not in o2.nodes or not o2.node(nid).get("pending_account"):
+        return out
+    node = o2.node(nid)
+    _ap = dict(node.pop("pending_account") or {})
+    out["changed"] = True  # consuming durable intent is itself a document change
+    _aa = str(_ap.get("account") or "primary")
+    _by = str(_ap.get("by") or "USER")
+    kept = str(node.get("account") or "primary")
+
+    def _drop(reason: str, line: str, **detail: Any) -> None:
+        o2._log("account_queue_dropped", _by,
+                {"node": nid, "account": _aa, "reason": reason,
+                 "queued_at": _ap.get("at"), **detail}, [line])
+        print(f"[orgtree] {slug}/{nid}: queued account rebind DROPPED — "
+              f"{reason}")
+
+    _pend_sw = node.get("pending_switch")
+    if isinstance(_pend_sw, dict) and _pend_sw.get("tier"):
+        sw_tier = str(_pend_sw.get("tier") or "")
+        sw_acct = _pend_sw.get("account") or None
+        # R1a (review 2026-09-20): both queue writers allocate a durable
+        # per-node acceptance sequence under DOC_LOCK (`ledger.
+        # next_config_seq`) — THAT is the request order, immune to two
+        # acceptances inside one millisecond and to a wall clock stepping
+        # backwards between them. Wall-clock stamps are display only.
+        # R1a-upgrade (round 3): each writer also sequences a pre-seq
+        # COUNTERPART before allocating its own, so a mixed pair only exists
+        # when no post-upgrade writer has touched the node — and then the
+        # order is still KNOWN: a sequenced record was accepted by a
+        # post-upgrade writer, a record without one predates the upgrade.
+        # Stamps decide nothing in a mixed pair. Only a BOTH-legacy pair is
+        # genuinely ambiguous, and only there does the documented old stamp
+        # rule apply — missing stamp reads as oldest, tie keeps the switch's
+        # own complete tier+account choice.
+        _ap_seq, _sw_seq = _ap.get("seq"), _pend_sw.get("seq")
+        if isinstance(_ap_seq, int) and isinstance(_sw_seq, int):
+            rebind_newer = _ap_seq > _sw_seq
+        elif isinstance(_ap_seq, int) or isinstance(_sw_seq, int):
+            rebind_newer = isinstance(_ap_seq, int)
+        else:
+            rebind_newer = str(_ap.get("at") or "") > str(_pend_sw.get("at") or "")
+        if sw_acct and not rebind_newer:
+            _drop(f"superseded by the later queued switch to {sw_tier}, "
+                  f"which names its own account {sw_acct}",
+                  f"the queued account rebind of {nid} to {_aa} was "
+                  f"SUPERSEDED at the end of its turn by the later queued "
+                  f"switch to {sw_tier} on {sw_acct}.",
+                  superseded_by_switch=sw_tier)
+            return out
+        # The rebind is the effective account intent — it rides the switch's
+        # atomic finish, so it must be able to run the switch TARGET.
+        try:
+            registry.validate_selection(slug, sw_tier, _aa)
+        except Exception as _e:  # noqa: BLE001 — recorded drop, never a raise
+            _drop(f"it cannot run the queued switch target {sw_tier}: {_e}",
+                  f"the queued account rebind of {nid} to {_aa} was DROPPED "
+                  f"at the end of its turn: it cannot run the queued switch "
+                  f"target {sw_tier}. The queued switch proceeds with its "
+                  f"own account choice.")
+            return out
+        _pend_sw["account"] = _aa
+        o2._log("account_queue_into_switch", _by,
+                {"node": nid, "account": _aa, "queued_at": _ap.get("at"),
+                 "switch_to": sw_tier, "replaced": sw_acct}, [])
+        return out
+    # STANDALONE rebind — `assign_account` parity, recorded drops for what
+    # the immediate door would refuse.
+    _fz0 = node.get("frozen")
+    _auth_fz = isinstance(_fz0, dict) and (
+        _fz0.get("cause") in ("auth", "balance") or bool(_fz0.get("untrusted")))
+    _limit_fz = (isinstance(_fz0, dict) and bool(_fz0.get("limit"))
+                 and not _auth_fz and _fz0.get("cause") != "account")
+    if _limit_fz:
+        _drop(f"{nid} is frozen by a usage limit — moving its account cannot "
+              f"clear that and would leave it frozen on the new account; use "
+              f"a switch-and-release recovery, or release it in place first",
+              f"the queued account rebind of {nid} to {_aa} was DROPPED at "
+              f"the end of its turn: a usage-limit freeze arrived first, and "
+              f"a bare rebind cannot clear it. It stays on {kept}.")
+        return out
+    previous = str(node.get("account") or "")
+    try:
+        _reb = finish_switch_binding(o2, slug, nid, _aa, _by)
+    except Exception as _e:  # boundary must never break turn bookkeeping
+        reason = str(_e)
+        _drop(reason,
+              f"the queued account rebind of {nid} was DROPPED at "
+              f"the end of its turn: {reason}. It stays on {kept}.")
+        return out
+    out["unpark"] = bool(_reb.get("unparked"))
+    node = o2.node(nid)  # a session archive above may have re-fetched it
+    changed_binding = previous != str(node.get("account") or "")
+    # AUTH/CREDENTIAL thaw (`assign_account` parity): the freeze named a dead
+    # credential and the rebind replaced it with a valid one — cleared in
+    # THIS transaction; the caller wakes the node after its save.
+    _fzn = node.get("frozen")
+    if (isinstance(_fzn, dict) and changed_binding
+            and (_fzn.get("cause") in ("auth", "balance")
+                 or bool(_fzn.get("untrusted")))):
+        node.pop("frozen", None)
+        node.pop("parked_run", None)
+        out["auth_thaw"] = True
+    o2._log("account_assign", _by,
+            {"node": nid, "account": _aa, "queued_at": _ap.get("at"),
+             "via": "queued_retool",
+             **({"auth_thawed": True} if out["auth_thaw"] else {}),
+             **({"unparked": True} if out["unpark"] else {})}, [])
+    return out
+
+
 def _apply_pending_switch_locked(o2: Org, slug: str, nid: str,
-                                 wake: list[str] | None = None) -> bool:
+                                 wake: list[str] | None = None,
+                                 account_wake: list[tuple[str, str]] | None = None) -> bool:
     """D-234: apply the model switch queued behind `nid`'s turn, on the doc
     the caller already holds under DOC_LOCK (the caller saves). True when the
     doc changed. The transcript copy a crossing owes the successor rides the
@@ -13119,9 +13527,28 @@ def _apply_pending_switch_locked(o2: Org, slug: str, nid: str,
     cannot drive — the caller passes a list and, after releasing the lock,
     hands it to `drive_unfrozen_by_switch`. Without that the node ends live,
     unfrozen and idle with its interrupted work discarded and nothing ever
-    re-driving it."""
+    re-driving it.
+
+    `account_wake` (R2, review 2026-09-20): same contract for what a queued
+    STANDALONE rebind cleared — ("auth_thaw"|"unpark", nid) tuples the caller
+    hands to `drive_auth_thaw`/`drive_account_unpark` after its save."""
+    changed = False
+    # Account rebinds share the model switch's boundary: the running process
+    # is never repointed, and the durable intent is consumed exactly once
+    # before any successor carrier is admitted. R1: the queued rebind and the
+    # queued switch are composed BY REQUEST ORDER inside the helper — with a
+    # switch queued, the winning account rides that switch's atomic finish
+    # below instead of rebinding twice.
+    _acct = _apply_pending_account_locked(o2, slug, nid)
+    if _acct["changed"]:
+        changed = True
+    if account_wake is not None:
+        if _acct["auth_thaw"]:
+            account_wake.append(("auth_thaw", nid))
+        if _acct["unpark"]:
+            account_wake.append(("unpark", nid))
     if nid not in o2.nodes or not o2.node(nid).get("pending_switch"):
-        return False
+        return changed
     # multi-account D2d, checked BEFORE the ledger pops and applies: an
     # accountless cross-provider switch on a bound node (queued before this
     # feature, or against a binding that appeared meanwhile) is a RECORDED
@@ -13175,10 +13602,11 @@ def _apply_pending_switch_locked(o2: Org, slug: str, nid: str,
         return True
     r = o2.apply_pending_switch(nid)
     if r is None:
-        return False
+        return changed
     if wake is not None and r.get("resume_stale_freeze"):
         wake.extend(str(x) for x in r["resume_stale_freeze"])
     if not r.get("dropped"):
+        _pre_binding = str(o2.node(nid).get("account") or "")
         _fsb = finish_switch_binding(o2, slug, nid, _p_acct,
                                      str(_pend.get("by") or "USER"))
         if _fsb.get("unparked"):
@@ -13187,6 +13615,35 @@ def _apply_pending_switch_locked(o2: Org, slug: str, nid: str,
             # said out loud rather than silently; any later mail drives it
             print(f"[orgtree] {slug}/{nid}: queued switch's account choice "
                   f"cleared an account park (node wakes on its next mail)")
+        # R2 continuation (review 2026-09-20): an account change carried BY
+        # the switch keeps the standalone rebind's auth recovery. The freeze
+        # named a credential this transition just replaced, and the ledger's
+        # own clear covers only a provider CROSSING (`resume_stale_freeze`,
+        # woken above via `wake`) — a same-provider composed change used to
+        # land the new binding, consume both queues, and leave the node
+        # stranded on the dead credential's freeze with no wake at all. The
+        # two clears are mutually exclusive by construction (the crossing
+        # already popped `frozen`, so this test sees nothing), which is what
+        # keeps the contract at exactly ONE wake after the caller's save.
+        # Usage-limit freezes, account parks, halts and unrelated holds are
+        # untouched: the test below matches only auth/balance/untrusted.
+        _n2 = o2.node(nid)
+        _fz2 = _n2.get("frozen")
+        if (str(_n2.get("account") or "") != _pre_binding
+                and isinstance(_fz2, dict)
+                and (_fz2.get("cause") in ("auth", "balance")
+                     or bool(_fz2.get("untrusted")))):
+            _n2.pop("frozen", None)
+            _n2.pop("parked_run", None)
+            if account_wake is not None:
+                account_wake.append(("auth_thaw", nid))
+            o2._log("account_assign", str(_pend.get("by") or "USER"),
+                    {"node": nid, "account": str(_n2.get("account") or ""),
+                     "via": "queued_switch", "auth_thawed": True},
+                    [f"the account change {nid} carried with its queued "
+                     f"switch replaced the credential its freeze named — "
+                     f"thawed in the same transaction; it wakes once the "
+                     f"boundary saves."])
     if r.get("old_session"):
         export_predecessor_transcript(o2, nid,
                                       old_sid=cast(str, r["old_session"]),
@@ -13252,6 +13709,7 @@ def _run_turn(slug: str, nid: str, text: str | dict[str, Any]) -> None:
     (test_turn_lifecycle "deepqueue"): a 260-deep queue against a 200-frame
     limit died at depth 189 with 71 messages still queued; the stock limit
     puts the cliff at ~900. Iterating costs nothing and has no cliff."""
+    stateprobe.set_op("turn:run")   # storage-boundary attribution for the thread
     # The desk's `starting...` row covers only the interval before THIS turn's
     # first event. `live` cannot answer that: its rows retire as the transcript
     # catches up, leaving normal between-event gaps empty. Reset a separate
@@ -13754,10 +14212,25 @@ def _codex_tool_config(sc: Mapping[str, Any]) -> list[str]:
     return out
 
 
+def _continue_verb(actor: str) -> str:
+    """Name the switch-and-release path THIS caller can actually reach.
+
+    A refusal that points an agent at `/continue-on` points it at a command
+    only the user can run — which is how a coordinator came to halt its own
+    report just to move it (docket
+    `agents-cannot-switch-a-frozen-report-s-account-a`, 2026-09-17). The two
+    doors are the same operation, so the refusal names whichever one belongs
+    to whoever asked.
+    """
+    return ("`/continue-on <account>`" if actor == USER
+            else "`orgtree_continue_on` (node + account)")
+
+
 def assign_account(slug: str, nid: str, account_id: str, *,
                    actor: str,
                    org: Org | None = None, via: str = "manual",
                    allow_frozen: bool = False,
+                   immediate: bool = False,
                    notify_change: bool = True) -> dict[str, Any]:
     """Reassign a node's account binding — the ONE writer both surfaces call
     (design D2d). Authority is checked by the CALLER (operator token, or
@@ -13769,16 +14242,18 @@ def assign_account(slug: str, nid: str, account_id: str, *,
       * A MOVABLE USAGE-LIMIT freeze (`frozen.limit` and NOT an auth kind) is
         REFUSED for a bare rebind (`allow_frozen` False): moving the binding
         cannot clear a usage limit and would strand the node frozen on the new
-        account — the supported path is `/continue-on`, which switches AND
-        releases with a live capacity check on the target. The refusal is
-        raised BEFORE any mutation, so the node is left EXACTLY as it was.
+        account — the supported path is the switch-and-release operation
+        (`/continue-on` for the user, `orgtree_continue_on` for an agent),
+        which switches AND releases with a live capacity check on the
+        target. The refusal is raised BEFORE any mutation, so the node is
+        left EXACTLY as it was.
       * An AUTH/CREDENTIAL freeze (`frozen.cause` in ("auth","balance") or
         `frozen.untrusted`) is the opposite: it describes a DEAD credential, so
         rebinding to a valid account IS the fix — allowed, and thawed below
         (cleared in-transaction, woken after the save like the account-park).
-    Recovery paths — `/continue-on` and the automatic account fallback — pass
-    `allow_frozen=True` and own their own release, so neither the refusal nor
-    the auto-thaw ever applies to them.
+    Recovery paths — the two switch-and-release doors and the automatic
+    account fallback — pass `allow_frozen=True` and own their own release, so
+    neither the refusal nor the auto-thaw ever applies to them.
 
     The result is the full disclosure set (D2d, ruling 19:00Z): target
     account id+label, credential kind, BILLING MODE (subscription vs API
@@ -13793,13 +14268,13 @@ def assign_account(slug: str, nid: str, account_id: str, *,
     For codex nodes reassignment is a SESSION BOUNDARY (codexrun §3.4:
     CODEX_HOME is never repointed live) — refused while the node is busy;
     the warm pool's cred component (account id + profile selector) makes a
-    parked process for the OLD account a non-match by construction."""
+    parked process for the OLD account a non-match by construction.
+
+    `immediate` opens the busy door for a rebind that owes NO session boundary
+    (account removal, 2026-09-21 — see `account_removal`). It changes nothing
+    else: the frozen policy, the validation and the disclosure are the same."""
     from . import warmpool
     st = state(slug, nid)
-    if st.get("busy") or st.get("responding"):
-        raise RuntimeError(
-            f"{nid} is mid-turn — reassignment is a session boundary and "
-            f"never repoints a live session; retry when the turn ends")
     # a caller mid-transaction (the agent-tool dispatch) passes its OWN org
     # — mutating a fresh load and saving it would be clobbered by the
     # caller's later save of its stale copy. With `org` given, the caller
@@ -13818,21 +14293,9 @@ def assign_account(slug: str, nid: str, account_id: str, *,
             raise RuntimeError(
                 "sandboxed orgs are container-managed — accounts do not "
                 "apply (declared exemption, design D2a)")
-        # F (2026-09-16): the in-memory busy gate above dies with the process,
-        # but the seat's durable `inflight` marker survives a backend death
-        # mid-turn — and the startup reconcile deliberately skips FROZEN nodes
-        # when replaying it. A bare rebind through that window would repoint a
-        # session that still owes a turn. Refused like the busy gate (the
-        # ledger's switch_model already reads this marker for the same
-        # reason); recovery paths (allow_frozen) proceed — they own the
-        # release and the replay of exactly that interrupted work.
-        if node.get("inflight") and not allow_frozen:
-            raise RuntimeError(
-                f"{nid} has an in-flight turn recorded (possibly interrupted "
-                f"by a backend restart) — reassignment is a session boundary "
-                f"and never repoints a session that still owes a turn; retry "
-                f"when the turn ends or has been reconciled, or recover a "
-                f"frozen seat with `/continue-on` / `orgtree_unstick`")
+        # A durable `inflight` marker survives a backend death mid-turn. It is
+        # handled by the same queue below; recovery paths (allow_frozen) still
+        # own release and replay of interrupted work.
         # Frozen-node policy (see docstring). Distinguish the kinds explicitly,
         # then refuse a bare rebind on a usage-limit freeze BEFORE any mutation
         # — nothing below has run, so the node is untouched. `_auth_freeze` is
@@ -13851,12 +14314,113 @@ def assign_account(slug: str, nid: str, account_id: str, *,
             raise RuntimeError(
                 f"{nid} is frozen by a usage limit — moving its account here "
                 f"cannot clear that and would leave it frozen on the new "
-                f"account. Use `/continue-on <account>`, which switches AND "
+                f"account. Use {_continue_verb(actor)}, which switches AND "
                 f"releases it with a live capacity check on the target, or "
                 f"`orgtree_unstick` to release it in place first.")
         tier = str(node.get("model") or "")
-        row = registry.validate_selection(slug, tier, account_id)
         previous = str(node.get("account") or "")
+        _busy_now = bool(st.get("busy") or st.get("responding") or node.get("inflight"))
+        # `immediate` (account removal, user ticket 2026-09-21): the CALLER has
+        # established that this particular rebind owes NO session boundary —
+        # the binding can move while a turn runs, because the running process
+        # is never repointed (it keeps the credential its spawn resolved, and
+        # its usage attribution was captured at spawn from the resolved env's
+        # marker) and the NEXT turn resolves the new binding. It is not a
+        # general bypass: `account_removal.needs_session_boundary` is the only
+        # thing allowed to decide it, and where a boundary IS owed that module
+        # refuses the removal instead of passing this.
+        _queue_door = _busy_now and not allow_frozen and not immediate
+        # R1b (review 2026-09-20): with a switch already queued on a busy
+        # node, the accepted account will run the switch TARGET, never the
+        # current model — so the EFFECTIVE destination is what the selection
+        # is validated against, ONCE, before any mutation. The reverse
+        # request order (queue the cross-provider switch first, then rebind
+        # to an account for its destination) used to be refused against the
+        # CURRENT tier before the target check below could run. The one
+        # exception: a selector that resolves, on the current tier, to the
+        # account the node is bound to RIGHT NOW is the explicit cancellation
+        # of a queued rebind — judged on the current binding, whatever the
+        # queued destination, so cancellation never requires an account that
+        # can run a tier the node is not on yet.
+        _psw = node.get("pending_switch") if _queue_door else None
+        _sw_tier = str(_psw.get("tier") or "") if isinstance(_psw, dict) else ""
+        row = None
+        if _sw_tier:
+            try:
+                row = registry.validate_selection(slug, _sw_tier, account_id)
+            except ValueError as _sw_e:
+                try:
+                    _cur_row = registry.validate_selection(slug, tier, account_id)
+                except ValueError:
+                    _cur_row = None
+                if _cur_row is None or previous != _cur_row["id"]:
+                    raise RuntimeError(
+                        f"{nid} has a queued switch to {_sw_tier}; the "
+                        f"requested account cannot run that target: {_sw_e} "
+                        f"Choose an account compatible with the queued "
+                        f"switch, or cancel/replace the queued switch "
+                        f"first.") from _sw_e
+                row = _cur_row      # the explicit current-account cancellation
+        if row is None:
+            row = registry.validate_selection(slug, tier, account_id)
+        if _queue_door:
+            # An AMBIENT selection is stored QUALIFIED (round 3, R1b-primary):
+            # "primary" alone loses which provider's ambient was chosen, and
+            # the destination's ambient is exactly what a rebind aimed at a
+            # queued crossing names. A qualified selector re-validates
+            # honestly everywhere later — including as a recorded drop if the
+            # switch it was aimed at is gone by the boundary.
+            requested = row["id"] or f"{row['provider']}/primary"
+            pending = node.get("pending_account")
+            # R1b-primary (round 3): two AMBIENT bindings share the empty id
+            # but are the same account only when the PROVIDER matches too —
+            # current claude/primary and a requested openai/primary collided
+            # as "" == "" and turned an explicit destination choice into a
+            # false cancellation. A bound id is globally unique on its own;
+            # the ambient case additionally compares the provider (the
+            # current binding's ambient is the CURRENT tier's).
+            _is_current = (previous == row["id"]
+                           and (bool(previous)
+                                or row["provider"] == providers.provider_of(tier)))
+            if _is_current:
+                node.pop("pending_account", None)
+                if pending:
+                    org._log("account_queue_cancelled", actor,
+                              {"node": nid, "was": pending.get("account"),
+                               "kept": requested}, [])
+                out = {"account": row["name"], "label": row["name"],
+                       "previous_account": previous or None, "queued": False}
+                if pending:
+                    out["cancelled"] = pending.get("account")
+                if not _caller_owns_save:
+                    store.save_org(org)
+                return out
+            replaced = pending.get("account") if pending else None
+            # R1a-upgrade (round 3): a pre-seq counterpart was ACCEPTED before
+            # this door ran — order it FIRST under the same lock, so the pair
+            # leaves here fully sequenced and the boundary never has to guess
+            # a mixed pair's order from wall-clock stamps.
+            _psw_rec = node.get("pending_switch")
+            if (isinstance(_psw_rec, dict) and _psw_rec.get("tier")
+                    and not isinstance(_psw_rec.get("seq"), int)):
+                _psw_rec["seq"] = next_config_seq(node)
+            node["pending_account"] = {"account": requested,
+                                        "from": previous or "primary",
+                                        "by": actor, "at": now_iso(),
+                                        # R1a: acceptance order under this
+                                        # DOC_LOCK; `at` is display only
+                                        "seq": next_config_seq(node)}
+            org._log("account_queued", actor,
+                      {"node": nid, "from": previous or "primary",
+                       "to": requested, "replaced": replaced}, [])
+            out = {"account": row["name"], "label": row["name"],
+                   "previous_account": previous or None, "queued": True,
+                   "pending_account": requested, "replaced": replaced,
+                   "cache_namespace_changed": True,
+                   "session_boundary": row["provider"] in ("openai", "google")}
+            if not _caller_owns_save:
+                store.save_org(org)
+            return out
         changed = previous != row["id"]
         try:
             prev_hash, prev_comp = warmpool.identity_snapshot(org, nid)
@@ -14127,6 +14691,55 @@ def codex_bound_home(org: Org, nid: str) -> tuple[str, str]:
     return _codex_home_for(row), bound
 
 
+def codex_harness_turn(org: Org, nid: str, tier: str = "") -> bool:
+    """Does this node's next turn go down the CODEX leg?
+
+    ONE PREDICATE, asked everywhere the lane is chosen — the dispatch, the
+    cache-input projection and the turn record. Before the harness axis
+    existed the question was `tier in providers.CODEX_TIERS` written out at
+    each site, which was the same question three times only because there was
+    exactly one way to reach the codex leg. There are two now, and D-182 is
+    this codebase's standing warning about what happens next: three copies of
+    a rule, two agreeing, and the odd one out being a live bug.
+
+    ⚠ THE TIER STILL DECIDES THE PROVIDER. A codex tier goes down this leg
+    whatever else is true; an OpenRouter tier goes down it only when its
+    stored harness says so, and it is still an OpenRouter agent when it does —
+    OpenRouter's model, OpenRouter's key, OpenRouter's bill.
+    """
+    tier = tier or str((org.node(nid) or {}).get("model") or "")
+    if tier in providers.CODEX_TIERS:
+        return True
+    return (openrouter.is_tier(tier)
+            and org.harness_for(nid) == openrouter_harness.CODEX_CLI)
+
+
+def _openrouter_codex_home() -> str:
+    """The CODEX_HOME an OpenRouter-harness launch runs under.
+
+    ITS OWN TREE, never `~/.codex`. Three reasons, in order of how badly each
+    one bites:
+
+      · the user's codex home holds their ChatGPT `auth.json`, and handing it
+        to a launch that authenticates with a gateway key puts a credential in
+        reach of a turn that has no business with it — the same
+        one-credential-per-spawn rule `codexrun.child_env` enforces by
+        stripping, applied to the file half;
+      · rollouts (the thread store a resume reads) would interleave two
+        genuinely different accounts in one history, and a resume across that
+        boundary has no rollout to find;
+      · `config.toml` is the user's own. A `model_provider` they set by hand
+        would silently redirect every OpenRouter agent, and orgtree writes
+        nothing there to stop it.
+
+    Created lazily and left empty: the lane needs no auth.json and writes its
+    whole configuration as `-c` overrides per launch.
+    """
+    home = os.path.join(store.DATA_ROOT, "codex-openrouter")
+    os.makedirs(home, exist_ok=True)
+    return home
+
+
 def _codex_process_spec(org: Org, nid: str, *,
                         write_ident: bool = True) -> dict[str, Any]:
     """The exact process-scoped inputs for one Codex app-server.
@@ -14145,6 +14758,12 @@ def _codex_process_spec(org: Org, nid: str, *,
         raise RuntimeError(
             "turn failed: the Codex CLI is not installed — the accounts "
             "panel's Codex section shows the install command")
+    # ⚠ WHOSE MODELS THIS CODEX LAUNCH REACHES. A node on an `or-` tier that
+    # arrives here is an OpenRouter agent whose HARNESS is Codex: the CLI is
+    # OpenAI's, every other input is OpenRouter's. The two lanes diverge on
+    # the credential and on nothing else, which is why the split is here —
+    # one spec builder, one argv shape, one set of MCP and tool overrides.
+    _or_tier = openrouter.is_tier(str((org.node(nid) or {}).get("model") or ""))
     # ⚠ RESOLVE THE ACCOUNT BEFORE ASKING WHETHER THE MACHINE IS SIGNED IN.
     # `codex_status()["connected"]` reports the AMBIENT ~/.codex login, and
     # gating on it first made API-key-only operation impossible for this
@@ -14153,18 +14772,37 @@ def _codex_process_spec(org: Org, nid: str, *,
     # installed/executable checks above stay unconditional; only the
     # signed-in question is lane-dependent, because only it is about a
     # credential this turn may not use.
-    _bound_home, _bound_id = codex_bound_home(org, nid)
-    _metered = False
-    if _bound_id:
-        try:
-            _metered = registry.account_mode(
-                registry.get_account(_bound_id)) == "apikey"
-        except registry.UnknownAccount:
-            _metered = False
-    if not _metered and not cstat.get("connected"):
-        raise RuntimeError(
-            "turn failed: codex is not signed in on this machine — run "
-            "`codex login` (accounts panel → Codex)")
+    if _or_tier:
+        # THE GATEWAY LANE. `codex login` is not consulted and must not be:
+        # this launch authenticates to openrouter.ai with the machine's
+        # gateway key and never opens auth.json at all (measured — both the
+        # capability probe and a real completed turn ran under a CODEX_HOME
+        # containing no auth.json whatsoever). Demanding a ChatGPT session
+        # here would refuse a launch that works, and would send the person to
+        # a login that changes nothing about this lane.
+        #
+        # The HARNESS IS RE-CHECKED HERE, at the spawn seam, because this is
+        # the last moment before the process exists: a CLI removed between
+        # the choice and the launch refuses with the real condition rather
+        # than starting somewhere else (acceptance condition 5). `resolve`
+        # has no branch that answers with a harness other than the one asked
+        # about — there is no fallback to fall into.
+        openrouter_harness.resolve(org.harness_for(nid))
+        _bound_home, _bound_id = _openrouter_codex_home(), ""
+        _metered = False
+    else:
+        _bound_home, _bound_id = codex_bound_home(org, nid)
+        _metered = False
+        if _bound_id:
+            try:
+                _metered = registry.account_mode(
+                    registry.get_account(_bound_id)) == "apikey"
+            except registry.UnknownAccount:
+                _metered = False
+        if not _metered and not cstat.get("connected"):
+            raise RuntimeError(
+                "turn failed: codex is not signed in on this machine — run "
+                "`codex login` (accounts panel → Codex)")
     if sbx.is_sandboxed(org):
         raise RuntimeError("turn failed: codex agents cannot run in a "
                            "sandboxed kiosk org yet (user ruling)")
@@ -14185,12 +14823,31 @@ def _codex_process_spec(org: Org, nid: str, *,
         _key_env = registry.inject_binding(
             {}, registry.get_account(_bound_id), secret_resolver=tokens.get)
         _key_env.pop(registry.MARKER, None)
+    # the gateway lane's own credential + endpoint, in the same two carriers
+    # every other codex input uses: `-c` overrides and env_extra. Nothing is
+    # written to the user's config.toml and CODEX_HOME is never re-pointed at
+    # their login tree — the rules `codexrun.mcp_config_overrides` states.
+    _or_overrides: list[str] = []
+    if _or_tier:
+        _k = openrouter._key()
+        if not _k:
+            # the same loud, local failure the Claude-harness OpenRouter lane
+            # already raises (spawn_env): a missing key dies HERE rather than
+            # out on the network under a model id nobody can bill
+            raise RuntimeError(
+                "turn failed: this agent runs on an OpenRouter tier and no "
+                "OpenRouter API key is set — "
+                f"{providers.install_hint(openrouter.PROVIDER_ID)}")
+        _or_overrides = openrouter_harness.config_overrides(
+            org.model_for(nid))
+        _key_env[openrouter_harness.KEY_ENV] = _k
     return {
         "argv_head": providers.codex_argv(exe),
         "cwd": cwd,
         "identity": ident,
         "config_overrides": (codexrun.mcp_config_overrides(mcp_chosen)
-                             + _codex_tool_config(org.node(nid)["scope"])),
+                             + _codex_tool_config(org.node(nid)["scope"])
+                             + _or_overrides),
         "env_extra": {**agentauth.child_env(slug, nid, generation=int(org.node(nid).get("generation", 0))), "ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
                       "ORGTREE_PORT": port,
                       **_codex_git_trust_env(org.node(nid)["scope"]),
@@ -14201,7 +14858,11 @@ def _codex_process_spec(org: Org, nid: str, *,
                       **({registry.MARKER: _bound_id} if _bound_id else {})},
         "port": port,
         "exe": exe,
-        "login_kind": str(cstat.get("kind") or ""),
+        # ⚠ EMPTY ON THE GATEWAY LANE, deliberately. `login_kind` describes
+        # the ChatGPT session this launch would bill, and this launch bills
+        # none — reporting the ambient one would attribute an OpenRouter turn
+        # to an OpenAI plan in the route record and the cache namespace alike.
+        "login_kind": "" if _or_tier else str(cstat.get("kind") or ""),
         # Capture the resolved home beside the executable. Re-reading the
         # ambient variable after launch could describe a different login
         # tree than the process actually inherited. Resolved from the NODE'S
@@ -14711,6 +15372,26 @@ def _codex_resolve_route(org: Org, nid: str, tier: str, *,
     a cold cache costs one app-server read, at turn start, never per
     render) and hands the decision to the pure resolver."""
     n = org.node(nid)
+    if openrouter.is_tier(tier):
+        # ── THE GATEWAY LANE HAS ONE ROUTE ────────────────────────────────
+        # `codex_route` exists to choose between the gpt-reserve pool and the
+        # ChatGPT plan pool — two OpenAI billing pools, neither of which an
+        # OpenRouter turn can reach or spend. Running the resolver here would
+        # read an OpenAI limits board, stamp an OpenAI pool onto the node's
+        # header and freeze this agent when a plan it does not use runs out.
+        # So the route is synthesised, honestly: one destination, the model
+        # the org asked for, and the gateway named as the account the
+        # evidence belongs to (the same sentinel `identity_in_spec` records).
+        # ⚠ `reserve_ts`/`board_age` stay None rather than 0 — this lane has
+        # no board, and "unknown" is not "fresh and fine".
+        return cast("codex_route.Route", {
+            "requested": tier, "route": "direct",
+            "pool": openrouter.PROVIDER_ID,
+            "model": org.model_for(nid),
+            "account": OPENROUTER_IDENTITY,
+            "reason": "OpenRouter has one route — the gateway",
+            "evidence": "tier", "board_age": None, "reset_ts": None,
+            "selection": selection, "prefer": openrouter.PROVIDER_ID})
     resolved_login_kind = (str(providers.codex_status().get("kind") or "")
                            if login_kind is None else str(login_kind)) or None
     try:
@@ -14725,7 +15406,7 @@ def _codex_resolve_route(org: Org, nid: str, tier: str, *,
         # idle preview has no launch capture and uses current local evidence.
         account=(account if account is not None
                  else _codex_account_namespace()),
-        direct_model=providers.CODEX_MODELS.get(tier) or org.model_for(nid),
+        direct_model=org.model_for(nid),
         selection=selection,
         # the per-agent "Prefer reserve" checkbox (absent = on)
         prefer_reserve=org.prefer_reserve_for(nid))
@@ -16510,6 +17191,8 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
             blob=blob, reset_ts=_reset, schedule_kind=_schedule_kind,
             provider="openai", account=str(route.get("account") or ""),
             resource_pool=("reserve+plan" if tier == codex_route.ROUTED_TIER
+                           and route["model"] in (codex_route.RESERVE_MODEL,
+                                                   codex_route.RESERVE_LUNA_MODEL)
                            else str(_served or route.get("pool") or "")),
             reset_from=("board" if _reset_src == codex_route.SRC_BOARD
                         else "message"))
@@ -16549,7 +17232,7 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
         _visible_live_row(fallback_live)
     res: dict[str, Any] = {
         "status": status,
-        "total_cost_usd": providers.codex_cost(tier, tu),
+        "total_cost_usd": providers.codex_cost(tier, tu, route["model"]),
         "usage": {"output_tokens": int(((tu or {}).get("total") or {})
                                        .get("outputTokens") or 0)},
         "duration_ms": int((time.time() - t0) * 1000),
@@ -17594,6 +18277,11 @@ def _run_one_turn_recorded(slug: str, nid: str,
     carrier_segs: list[dict[str, Any]] | None = (
         _freezable_segments(text.get("segs")) if isinstance(text, dict) else None)
     carrier_mail_ids = text.get('mail_ids') if isinstance(text, dict) else None
+    # Distinct from `resumed` below, which is `bool(retry_payload)` and means
+    # a retry of a FAILED ATTEMPT. This one means reconcile() is replaying a
+    # turn the backend's death interrupted.
+    is_restart_replay = (bool(text.get("restart_replay"))
+                         if isinstance(text, dict) else False)
     if isinstance(text, dict):
         is_cmd = bool(text.get("cmd"))
         turn_view = carrier_view or ""
@@ -17604,7 +18292,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
     if _trec is not None:
         # the attempt's inputs, as counts (turnlog header)
         _trec.set(cmd=is_cmd, ping=is_ping, toks=len(toks),
-                  text_len=len(text), resumed=bool(retry_payload))
+                  text_len=len(text), resumed=bool(retry_payload),
+                  restart_replay=is_restart_replay)
     try:
         # blocked on a turn slot is NOT running (№12) — the UI shows it hollow
         if is_cmd:
@@ -18121,8 +18810,14 @@ def _run_one_turn_recorded(slug: str, nid: str,
                 # the node's own retry counter and its origin: the key that
                 # ties the attempts of one failure run together (turnlog)
                 _tn = org.node(nid)
+                # the lane is WHICH CLI RAN IT, which is what every reader of
+                # this record is asking; an OpenRouter tier on the codex
+                # harness reads `codex` here for the same reason it takes the
+                # codex leg below (it used to read `claude`, naming a CLI that
+                # was never started)
                 _trec.set(tier=_turn_tier,
-                          lane=("codex" if _turn_tier in providers.CODEX_TIERS
+                          lane=("codex" if codex_harness_turn(
+                                    org, nid, _turn_tier)
                                 else "antigravity"
                                 if _turn_tier in providers.ANTIGRAVITY_TIERS
                                 else "claude"),
@@ -18165,11 +18860,15 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     if _spend_admit_once(_o_pass, nid):
                         store.save_org(_o_pass)
 
-            if _turn_tier in providers.CODEX_TIERS:
+            if codex_harness_turn(org, nid, _turn_tier):
                 # THE PROVIDER SEAM (FR-15 M1b): a codex tier takes its own
                 # leg here — after the provider-neutral prologue above, before
                 # any claude machinery — and rejoins through the success tail
                 # + the SHARED finally via the control raise below.
+                # ⚠ AND NOW ALSO AN OPENROUTER TIER WHOSE HARNESS IS CODEX
+                # (2026-09-19). The seam was always about which CLI runs the
+                # turn, not about whose models it reaches; the harness axis is
+                # what finally makes those two questions distinguishable.
                 res, codex_occ = _codex_leg(
                     slug, nid, org, st, text, toks, turn_images, turn_view,
                     view_spans=view_spans, view_segments=view_segments,
@@ -21286,11 +21985,22 @@ def _run_one_turn_recorded(slug: str, nid: str,
         # boundary and rides out as `follow`, so the node continues instead
         # of ending live-but-idle with nothing ever re-driving it.
         _switch_wake: list[str] = []
+        _account_wake: list[tuple[str, str]] = []
         try:
             with store.DOC_LOCK:
                 o2 = store.load_org(slug)
-                changed = (nid in o2.nodes
-                           and o2.node(nid).pop("inflight", None) is not None)
+                # ⚠ THE POPPED MARKER IS KEPT, NOT DISCARDED. It used to be
+                # popped straight into the truth test and thrown away; the
+                # startup reconcile then had no way to tell a seat whose turn
+                # ENDED here from one whose marker went missing for some other
+                # reason, because both are an absent key (see
+                # `_mark_turn_ended`). The stamp rides the SAME `save_org` as
+                # this pop, so the two can never be observed apart.
+                _popped = (o2.node(nid).pop("inflight", None)
+                           if nid in o2.nodes else None)
+                changed = _popped is not None
+                if changed:
+                    _mark_turn_ended(o2.node(nid), _popped)
                 # D-234: a model switch asked for DURING this turn was queued
                 # behind it; the turn is over, so it applies here — on every
                 # exit (result, interrupt, watchdog kill, CLI death, halt,
@@ -21300,7 +22010,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
                 # pardon, while `ran_sid` names the session this turn
                 # actually ran — the bearer's now — so that spend is a no-op.
                 if _apply_pending_switch_locked(o2, slug, nid,
-                                                wake=_switch_wake):
+                                                wake=_switch_wake,
+                                                account_wake=_account_wake):
                     changed = True
                 if changed:
                     store.save_org(o2)
@@ -21313,6 +22024,13 @@ def _run_one_turn_recorded(slug: str, nid: str,
             pass
         if _switch_wake:
             drive_unfrozen_by_switch(slug, _switch_wake)
+        # R2: wake what the queued REBIND cleared — an auth thaw or an
+        # account unpark — AFTER the save and off the lock, exactly like the
+        # immediate doors. A node never appears in both lists: the standalone
+        # rebind path and the switch path are mutually exclusive per node.
+        for _kind, _t in dict.fromkeys(_account_wake):
+            (drive_auth_thaw if _kind == "auth_thaw"
+             else drive_account_unpark)(slug, _t)
         if pardon_pending:
             # …however the turn ended: if the CLI wrote a transcript for the
             # session it ran, the pardon is spent (see spend_unrun_pardon)
@@ -21403,6 +22121,85 @@ def _run_one_turn_recorded(slug: str, nid: str,
 ABANDON_DRIVE_WINDOW = 120.0
 _abandon_drove: dict[str, float] = {}
 
+# How long one superior is spared a second STOPPED-REPORT drive, shared by
+# `_limit_announce` and `_parked_announce`. Same rule and same size as
+# `ABANDON_DRIVE_WINDOW` above, for the same reason: one account hitting its
+# limit walls every report on that lane AT ONCE, so a drive per walled report
+# would cost a manager one turn each for a single fact. The mail is deposited
+# every time regardless — only the WAKE is bounded. Loud once, complete always.
+#
+# ⚠ ONE BUCKET FOR BOTH KINDS, and that is deliberate. A superior already woken
+# for a walled report does not need a second turn to hear that another report's
+# credential was rejected: it is awake, and `send_message`'s own delivery makes
+# the second notice ride into the turn the first one started (a busy node
+# queues to the same live process at each result boundary; a responding one
+# steers after its next tool call). Sharing suppresses a redundant WAKE, never
+# a notice.
+STOPPED_REPORT_DRIVE_WINDOW = 120.0
+_stopped_drove: dict[str, float] = {}
+
+#: The mail kind a STOPPED-WORK announcement uses when it has no superior to
+#: tell and must reach the USER instead.
+#:
+#: ⚠ IT MUST NOT BE "notice", and that is the whole point of this constant.
+#: `Org.to_user_inbox` routes `kind == "notice"` straight past `user_inbox` —
+#: which IS the unread set — into the archive, deliberately, because a notice
+#: is passive by construction and never had business claiming unread status.
+#: Correct for a notice; wrong for these. A top-level agent that has STOPPED is
+#: the same stopped work that now WAKES an agent superior (228a594), and a
+#: top-level agent's superior is the user: for them the equivalent of a wake is
+#: an unread badge. Delivered pre-read it is the same failure in different
+#: clothes — they find out when they happen to look, which is exactly what went
+#: wrong in the 2026-09-17 21:19 incident.
+#:
+#: `decision` rather than some new kind, because this mailbox already has the
+#: precedent and the renderer already honours it: `policy.weekly_limit` and
+#: `policy.fable_flagged` — a Fable limit exhausted, agents halted or whole
+#: subtrees dissolved — are `decision` from @system, and `isSystemNotice` in
+#: the renderer excludes exactly those from the de-emphasise-and-collapse path
+#: as "the mail they most need to see". A stopped agent belongs in that group,
+#: not folded in with the FYIs.
+#:
+#: NOT urgent. An unread badge is what this needs; the urgent flag pulses the
+#: inbox and stays lit, and it only keeps working while it stays rare.
+STOPPED_WORK_KIND: Final[str] = "decision"
+
+
+def _wake_superior(slug: str, nid: str, sup: str, text: str, what: str) -> bool:
+    """Wake a superior because one of its reports has STOPPED.
+
+    User ruling 2026-09-17 21:29, on finding a report frozen for ten minutes
+    while the coordinator sat idle: *"your report was frozen. it seems the
+    notification was only queued, and it didnt wake you. something like that
+    should always wake you."* Before this, a usage-limit wall and an
+    indefinitely-parked report both deposited mail and stopped, so a superior
+    with nothing else to do never learned of it until something unrelated woke
+    it.
+
+    Returns True if a turn was actually driven. The caller has ALREADY written
+    the durable mail before calling this — that write is unconditional and is
+    what makes throttling the drive safe.
+    """
+    key = f"{slug}/{sup}"
+    now = time.time()
+    recent = _stopped_drove.get(key, 0.0)
+    if now - recent < STOPPED_REPORT_DRIVE_WINDOW:
+        print(f"[orgtree] {slug}/{nid}: {what} — mailed its superior "
+              f"({sup}); not driving, one was driven {now - recent:.0f}s ago "
+              f"and this rides with it")
+        return False
+    _stopped_drove[key] = now
+    try:
+        send_message(slug, sup, text)
+    except Exception:                                            # noqa: BLE001
+        # a failed drive must not cost the caller its own bookkeeping: the
+        # durable mail is already in the box and still says everything.
+        print(f"[orgtree] {slug}/{nid}: {what} — drive of its superior "
+              f"({sup}) failed; the durable mail still waits in its box")
+        return False
+    print(f"[orgtree] {slug}/{nid}: {what} — woke its superior ({sup})")
+    return True
+
 
 def _turn_abandoned(slug: str, nid: str, door: str, err: str) -> bool:
     """A turn failed TERMINALLY — nothing will retry it and nothing will
@@ -21485,7 +22282,7 @@ def _turn_abandoned(slug: str, nid: str, door: str, err: str) -> bool:
                                   cause="terminal", audience="user",
                                   attempts=None, classified=None, door=door, err=err)
                 org.to_user_inbox({
-                    "id": uuid_hex8(), "from": SYSTEM, "kind": "notice",
+                    "id": uuid_hex8(), "from": SYSTEM, "kind": STOPPED_WORK_KIND,
                     "at": now_iso(), "body": events.render_agent(uev)}, uev)
             store.save_org(org)
         mail_spark(slug, "@system", nid)
@@ -21641,7 +22438,7 @@ def _retry_exhausted(slug: str, nid: str, run: int, err: str,
                                   cause="repeated", audience="user",
                                   attempts=int(run), classified=kind, door=None, err=err)
                 org.to_user_inbox({
-                    "id": uuid_hex8(), "from": SYSTEM, "kind": "notice",
+                    "id": uuid_hex8(), "from": SYSTEM, "kind": STOPPED_WORK_KIND,
                     "at": now_iso(), "body": events.render_agent(uev)}, uev)
             store.save_org(org)
         # ⚠ name who was ACTUALLY told. This said "agent and superior told"
@@ -21788,9 +22585,17 @@ def _parked_announce(slug: str, nid: str, kind: str, lane: str) -> bool:
     only by a turn that COMPLETES (`_after_turn`), so an operator who replaces
     the credential, resumes, and watches it get stuck again is told again.
 
-    PASSIVE, like `_limit_announce`: mail, never a drive. One broken
-    credential parks every node on that account at once, so a drive would cost
-    a manager a turn per node for a fact only the operator can act on.
+    WAKES ITS SUPERIOR, like `_limit_announce` — user ruling 2026-09-17 21:29,
+    which reversed the passive delivery both of these used to have. This case
+    is if anything the stronger of the two: a parked node has NO reset time and
+    nothing will ever wake it, so a superior that does not hear promptly does
+    not hear until it happens to run for some other reason.
+
+    One broken credential still parks every node on that account at once, so
+    the WAKE is bounded per superior by `_wake_superior`
+    (`STOPPED_REPORT_DRIVE_WINDOW`) while the durable mail is deposited on
+    every park. Throttling the drive loses nothing: the notices ride into the
+    turn the first wake started.
 
     No superior ⇒ the user's inbox, for the third time and the same reason.
 
@@ -21834,13 +22639,17 @@ def _parked_announce(slug: str, nid: str, kind: str, lane: str) -> bool:
                 sup = ""
                 uev = _ev("user")
                 org.to_user_inbox({
-                    "id": uuid_hex8(), "from": SYSTEM, "kind": "notice",
+                    "id": uuid_hex8(), "from": SYSTEM, "kind": STOPPED_WORK_KIND,
                     "at": now_iso(), "body": events.render_agent(uev)}, uev)
             store.save_org(org)
         if sup:
             mail_spark(slug, "@system", sup)
-            print(f"[orgtree] {slug}/{nid}: parked ({kind}) on {lane} — "
-                  f"mailed its superior ({sup}); not driving")
+            _wake_superior(
+                slug, nid, sup,
+                f"(orgtree) Your report {name} {headline} and is STOPPED with "
+                f"no reset time — nothing will wake it. The mail above has the "
+                f"detail and the remedy.",
+                f"parked ({kind}) on {lane}")
         else:
             print(f"[orgtree] {slug}/{nid}: parked ({kind}) on {lane} — no "
                   f"superior to tell; left a notice in the user's inbox")
@@ -21870,11 +22679,23 @@ def _limit_announce(slug: str, nid: str, lane: str,
     measured the asymmetry both ways: deposited mail COALESCES (three deposits
     then one drive gave ONE envelope carrying all three) while drives do NOT
     (three drives gave three envelopes). One account wall breaks every report
-    on that lane AT ONCE, so driving would cost a manager one turn per walled
-    report for a fact that can wait — and unlike an abandonment there is
-    nothing for it to do urgently: the node is frozen with a reset time, not
-    broken. So this deposits and stops. The notices ride along with whatever
-    wakes the manager next.
+    on that lane AT ONCE, so a drive per walled report would cost a manager one
+    turn each for a single fact.
+
+    ⚠ IT NOW DRIVES ANYWAY, BOUNDED — reversed by user ruling 2026-09-17 21:29.
+    This used to deposit and stop, on the reasoning that a frozen report "is not
+    urgent: the node is frozen with a reset time, not broken". Measured against
+    reality that was wrong: `toolbar-polish` was walled at 21:19:19Z holding an
+    assigned, in-progress ticket, and its coordinator — idle, with nothing else
+    to wake it — did not find out for ten minutes, and then only because the
+    USER noticed. A report whose work has STOPPED is exactly the thing a manager
+    must hear about while it is still actionable. The user's words: *"something
+    like that should always wake you."*
+
+    The firehose argument above survives intact and is answered where it
+    belongs: `_wake_superior` bounds the WAKE per superior
+    (`STOPPED_REPORT_DRIVE_WINDOW`), while the durable mail is still deposited
+    unconditionally on every wall. Loud once, complete always.
 
     ⚠ ONCE PER EPISODE, bounded by `limit_run` — the same shape, for the same
     reason, as `hard_fail_run` and `net_fail_run`, and cleared in exactly the
@@ -21970,15 +22791,18 @@ def _limit_announce(slug: str, nid: str, lane: str,
                 sup = ""
                 uev = _ev("user")
                 org.to_user_inbox({
-                    "id": uuid_hex8(), "from": SYSTEM, "kind": "notice",
+                    "id": uuid_hex8(), "from": SYSTEM, "kind": STOPPED_WORK_KIND,
                     "at": now_iso(), "body": events.render_agent(uev)}, uev)
                 told = True
             store.save_org(org)
         if sup:
             mail_spark(slug, "@system", sup)
-            print(f"[orgtree] {slug}/{nid}: usage limit on {lane} — mailed "
-                  f"its superior ({sup}); not driving, a frozen report is not "
-                  f"urgent and the notice rides with its next turn")
+            _wake_superior(
+                slug, nid, sup,
+                f"(orgtree) Your report {name} is FROZEN on a usage limit and "
+                f"its work has stopped — the mail above has the lane and the "
+                f"reset time.",
+                f"usage limit on {lane}")
         else:
             print(f"[orgtree] {slug}/{nid}: usage limit on {lane} — no "
                   f"superior to tell; left a notice in the user's inbox")
@@ -22617,7 +23441,8 @@ def _after_turn(slug: str, nid: str, org: Org, res: dict[str, Any],
                        and mcp_fingerprint_raw else None)
     # the pinned per-tier window wins; the CLI's modelUsage.contextWindow is
     # only a fallback for unknown tiers (it under-reported 1M models as 200k)
-    cw = tier_context(str(org.node(nid)["model"]), org.d.get("models"))
+    _tier = str(org.node(nid)["model"])
+    cw = tier_context(_tier, {_tier: org.model_for(nid)})
     if not cw:
         for mu in (res.get("modelUsage") or {}).values():
             cw = mu.get("contextWindow") or cw
@@ -22668,6 +23493,12 @@ def _after_turn(slug: str, nid: str, org: Org, res: dict[str, Any],
             # needs no reset time to be right — an episode ends when the
             # agent RUNS, however early or late the window really lifted.
             n.pop("limit_run", None)
+            # …and the remembered WALL itself goes with that run, for exactly
+            # the reason stated above: the agent RAN, so whatever wall it was
+            # last held behind is over, and the next one is a new episode that
+            # must be honoured with its own full deadline rather than matched
+            # against a sentence from the episode that just ended.
+            _forget_wall(n)
             # …and any run of PARKED-INDEFINITELY freezes (`_parked_announce`).
             # An operator who replaces a rejected credential, resumes, and
             # watches the node get stuck again must be told again — otherwise
@@ -23841,7 +24672,7 @@ def _compact_split_codex_body(slug: str, nid: str, org: Org,
         new_sid = str(compacted.get("thread_id") or "")
         token_usage = compacted.get("token_usage")
         usage = token_usage if isinstance(token_usage, dict) else None
-        fork_cost = providers.codex_cost(tier, usage)
+        fork_cost = providers.codex_cost(tier, usage, model)
         occ_new = providers.codex_occupancy(usage) or None
 
         # The provider owns thread memory; Orgtree owns the journal rendered
@@ -23964,7 +24795,11 @@ def _compact_split_body(slug: str, nid: str) -> None:
         # fable id, so it is a no-op on those lanes, and computing it once
         # here is what keeps the fork's `--model` equal to the turn's.
         model = claude_model_for(org, nid)
-    if str(n.get("model") or "") in providers.CODEX_TIERS:
+    # the fork is a CLI operation — `thread/fork` on an app-server, or the
+    # claude CLI's own resume — so it follows the harness. An OpenRouter node
+    # on the codex harness holds a codex threadId, which the claude fork
+    # machinery below has no way to resume.
+    if codex_harness_turn(org, nid, str(n.get("model") or "")):
         _compact_split_codex_body(slug, nid, org, n, old_sid, model)
         return
     if str(n.get("model") or "") in providers.ANTIGRAVITY_TIERS:
@@ -24431,6 +25266,7 @@ def send_message(slug: str, nid: str, text: str,
                  sender: str = "",
                  ping_reason: str | None = None,
                  segments: list[dict[str, Any]] | None = None,
+                 restart_replay: bool = False,
                  _inventory: NativeInventory | None = None) -> dict[str, Any]:
     """The send door. `check_ping_reason` runs FIRST and outside halt admission:
     a reason the event table cannot type must be refused at the call, before
@@ -24440,7 +25276,8 @@ def send_message(slug: str, nid: str, text: str,
     recipient's turn. See `check_ping_reason` and `_ping_drive`."""
     check_ping_reason(ping_reason)
     return _admit_message(slug, nid, text, command, wake, mail_ping, idle_only,
-                          view, sender, ping_reason, segments, _inventory)
+                          view, sender, ping_reason, segments,
+                          restart_replay=restart_replay, _inventory=_inventory)
 
 
 @halt.admission
@@ -24452,6 +25289,7 @@ def _admit_message(slug: str, nid: str, text: str,
                    sender: str = "",
                    ping_reason: str | None = None,
                    segments: list[dict[str, Any]] | None = None,
+                   restart_replay: bool = False,
                    _inventory: NativeInventory | None = None) -> dict[str, Any]:
     """Drive a node with a nudge; returns immediately. EVERY substantive message
     — user and agent alike — is MAIL (user ruling: the direct-message channel
@@ -24513,6 +25351,13 @@ def _admit_message(slug: str, nid: str, text: str,
     # "no projection was composed", and a caller that brought a composition has
     # by definition composed one — so the two cannot coincide.
     _segs: dict[str, Any] = {"segs": segments} if segments else {}
+    # Rides the carrier dict so it reaches `_run_one_turn` without a new
+    # parameter on every hop between here and there. `_segs` is spread into
+    # every carrier this door builds EXCEPT the command one, which is correct
+    # by construction: `reconcile` drops command markers rather than replaying
+    # them, so a command turn is never a restart replay.
+    if restart_replay:
+        _segs["restart_replay"] = True
     # a FROZEN node runs nothing: mail stays safe in its mailbox (not drained)
     # until the org-wide ▶ resume. Both freeze kinds land here — the usage
     # limit and, since 2026-08-06, the connection backoff, which reuses the
@@ -24700,7 +25545,19 @@ def interrupt_turn(slug: str, nid: str) -> dict[str, Any]:
     """Manual ⏸ from the user: stop the node's current response via the CLI's
     control_request interrupt (the ONLY sanctioned interrupt — message delivery
     never interrupts, user ruling). The process stays alive; queued mail
-    delivers at the now-immediate result boundary."""
+    delivers at the now-immediate result boundary.
+
+    ⚠ THIS FUNCTION MUST NOT RAISE FOR A DEAD OR DYING PROVIDER. It is the
+    single choke point for the desktop's ⏸, `orgtree_interrupt`, and — through
+    `interrupt_before_archive` — retire, dissolve and rescind. On 2026-09-20 a
+    halt had already killed five agents' app-servers while their turns were
+    still registered, so `codex_turn.interrupt()` below wrote to a dead pipe
+    and raised a bare `OSError: [Errno 22] Invalid argument`. Retire and
+    dissolve returned that errno verbatim, `orgtree_interrupt` became a
+    plain-text `Internal Server Error`, and the desktop fed that text to
+    `JSON.parse`. The provider-side fixes make that specific write typed, and
+    the guards here make the whole class structural: a lane that cannot be
+    asked to stop is a RESULT saying so, with a reason, never an exception."""
     st = state(slug, nid)
     with _state_lock:
         operation_id = str(st.get("lifecycle_operation_id") or "")
@@ -24747,24 +25604,34 @@ def interrupt_turn(slug: str, nid: str) -> dict[str, Any]:
         if isinstance(readiness_event, threading.Event):
             readiness_event.set()
         return _result(True)
-    if codex_turn is not None:
-        # the codex lane's graceful stop: turn/interrupt on the live session
-        # (the turn completes with status "interrupted", C.3)
-        if codex_turn.interrupt():
+    def _ask(turn: Any, lane: str) -> dict[str, Any]:
+        """One lane's stop request, turned into a result rather than a raise.
+        `RuntimeError` covers the codex lane's whole `CodexServerError` family;
+        `OSError`/`ValueError` cover a pipe that broke under the request."""
+        try:
+            asked = bool(turn.interrupt())
+        except (OSError, ValueError, RuntimeError) as e:
+            with _state_lock:
+                st.pop("interrupted", None)
+            return _result(False, f"the {lane} lane could not be asked to stop "
+                                  f"({type(e).__name__}: {e}); its process is "
+                                  f"gone or its pipe is closed, so turn cleanup "
+                                  f"is what remains")
+        if asked:
             return _result(True)
         with _state_lock:
             st.pop("interrupted", None)
         return _result(False, "the turn was already over")
+    if codex_turn is not None:
+        # the codex lane's graceful stop: turn/interrupt on the live session
+        # (the turn completes with status "interrupted", C.3)
+        return _ask(codex_turn, "codex")
     if antigravity_turn is not None:
         # the antigravity lane's stop: the process tree is killed — the
         # conversation store already holds the turn so far (measured), and
         # the leg books an interrupted completed turn from the per-request
         # usage it had seen
-        if antigravity_turn.interrupt():
-            return _result(True)
-        with _state_lock:
-            st.pop("interrupted", None)
-        return _result(False, "the turn was already over")
+        return _ask(antigravity_turn, "antigravity")
     if proc is None:
         return _result(False, "the turn is admitted but no provider call is active")
     if proc.poll() is not None:
@@ -24781,10 +25648,59 @@ def interrupt_turn(slug: str, nid: str) -> dict[str, Any]:
             "request": {"subtype": "interrupt"}}) + "\n")
         proc.stdin.flush()
         return _result(True)
-    except (OSError, ValueError) as e:   # ValueError = stdin already closed
+    # ValueError = stdin already closed; AttributeError = the handle was
+    # replaced by None between the snapshot above and the write. Windows
+    # reports a pipe whose reader has been killed as OSError(22), not
+    # BrokenPipeError, so there is nothing narrower worth catching here.
+    except (OSError, ValueError, AttributeError) as e:
         with _state_lock:
             st.pop("interrupted", None)
-        return _result(False, str(e))
+        return _result(False, f"{type(e).__name__}: {e}")
+
+
+WALL_MEMORY = "last_wall"
+
+
+def _remember_wall(n: NodeDoc, fz: FrozenInfo) -> None:
+    """Keep this wall's evidence where the RELEASE cannot destroy it.
+
+    ⚠ WHY THIS EXISTS, measured live on `notice-toggle` 2026-09-17 13:43Z.
+    `resume_frozen` calls `n.pop("frozen", None)` the moment a freeze expires,
+    so the woken node re-hits its wall with an EMPTY freeze record. The prior
+    countdown and the deadline it produced were BOTH in that record, so the
+    restated sentence read as brand new and `classify_countdown` honoured it
+    again: the node re-anchored from 13:41:47Z to 16:37:19Z, another 2h53m47s,
+    exactly the slide the whole fix exists to stop.
+
+    The structural part is worse than one bad anchor. `stale` — same countdown,
+    its own deadline already past — is the ONLY branch that can un-stick a node
+    that is already wrongly frozen, and a deadline can only be in the past
+    AFTER a release. The release was erasing the evidence that branch reads, so
+    `stale` could never fire on a real node. Its unit tests passed because they
+    supplied the prior record by hand, which is a state that does not exist at
+    that point in the lifecycle.
+
+    Only a LIMIT freeze carrying a parsable countdown is worth remembering: an
+    auth park or an account park says nothing about when a wall lifts.
+    """
+    if not fz.get("limit"):
+        return
+    err = str(fz.get("error") or "")
+    until = fz.get("until_ts")
+    if not err or not isinstance(until, (int, float)):
+        return
+    n[WALL_MEMORY] = {"error": err, "until_ts": float(until)}
+
+
+def _forget_wall(n: NodeDoc) -> None:
+    """One turn that COMPLETED ends the episode, so the remembered wall stops
+    describing anything. Without this the memory would outlive its usefulness
+    and a genuinely new wall quoting the same countdown — providers reuse these
+    sentences verbatim — would be written off as a restatement of an episode
+    that ended days ago, and parked on the probe floor instead of its real
+    deadline. Called from the same place that pops `limit_run`, and for the
+    same reason: the lane let the agent through."""
+    n.pop(WALL_MEMORY, None)
 
 
 def _ensure_frozen(n: NodeDoc) -> FrozenInfo:
@@ -25029,8 +25945,20 @@ def freeze_provider_limit(slug: str, nid: str, blob: str,
             # `_looks_like_usage_limit` has already said "this is a wall", and
             # every branch here still freezes. The only question asked is
             # which deadline a sentence that has not changed may set.
+            # The surviving record first; then, when there is none because the
+            # node was RELEASED and `resume_frozen` popped it, the wall kept
+            # across that release. Without the fallback every post-release wall
+            # looks brand new and re-anchors — the measured `notice-toggle`
+            # failure — and the `stale` branch below can never be reached.
+            _prior_msg = str(fz.get("error") or "")
+            _prior_until = fz.get("until_ts")
+            if not _prior_msg:
+                _mem = o2.node(nid).get(WALL_MEMORY)
+                if isinstance(_mem, dict):
+                    _prior_msg = str(_mem.get("error") or "")
+                    _prior_until = _mem.get("until_ts")
             _cd_kind, _cd_ts = antigravity_limits.classify_countdown(
-                blob, str(fz.get("error") or ""), fz.get("until_ts"))
+                blob, _prior_msg, _prior_until)
             if _cd_kind == antigravity_limits.COUNTDOWN_REPEAT:
                 # one wall restated: keep the release time it first named
                 ts, src = cast("float", _cd_ts), "provider"
@@ -25671,14 +26599,40 @@ def interrupt_before_archive(slug: str, org: Org, nid: str,
         return []
     targets = [nid] + org.descendants(nid, live_only=True)
     interrupted: list[str] = []
+    warnings: list[str] = []
     for t in targets:
         st = state(slug, t)
         with _state_lock:
             st["queue"].clear()
             st["steer"] = []
-        if interrupt_turn(slug, t).get("interrupted"):
+        # ⚠ AN ARCHIVE IS NOT CANCELLED BY A FAILED INTERRUPT. `interrupt_turn`
+        # is defensive now, but this is the ONE call site where a raise would
+        # be worst — it would abort retire/dissolve/rescind before the ledger
+        # op even ran, which is exactly what the user hit: an already-killed
+        # codex app-server turned retire and dissolve into a bare
+        # `[Errno 22] Invalid argument` and the seat could not be freed at
+        # all. A lane that cannot be asked to stop becomes a warning and the
+        # reap below still runs; it never stops the archive.
+        try:
+            asked = bool(interrupt_turn(slug, t).get("interrupted"))
+        except Exception as e:                             # noqa: BLE001
+            warnings.append(
+                f'"{t}" could not be sent an interrupt '
+                f"({type(e).__name__}: {e}); its process tree is reaped below "
+                f"and the archive proceeds")
+            asked = False
+            with _state_lock:
+                st["interrupted"] = True
+        # ⚠ `or busy` IS THE SECOND HALF OF THE SAME FIX. This list decides
+        # who gets the settle wait and the fallback process reap below. A
+        # node whose interrupt was REFUSED because its provider process is
+        # already dead — the precise shape of the stuck-halting agents — used
+        # to be skipped here, so the archive committed while its turn worker
+        # was still registered and still holding cleanup open. A turn that is
+        # still busy needs that reap whether or not anyone could ask it to
+        # stop.
+        if asked or state(slug, t)["busy"]:
             interrupted.append(t)
-    warnings: list[str] = []
     for t in interrupted:
         deadline = time.monotonic() + timeout
         while state(slug, t)["busy"] and time.monotonic() < deadline:
@@ -25882,6 +26836,12 @@ def resume_frozen(slug: str, only: Iterable[str] | None = None,
             # holds every condition; this is `org`'s node dict and the save
             # below is already coming.
             _issue_admit_once(n, fz, time.time())
+            # ⚠ ALSO BEFORE THE POP, and for a different reason than the admit
+            # above: this record is about to be deleted, and it is the only
+            # place the wall's countdown and the deadline it set are written
+            # down. A node woken here re-hits the same wall seconds later, and
+            # without this it cannot tell a RESTATED countdown from a new one.
+            _remember_wall(n, fz)
             n.pop("frozen", None)
             _texts, _ridx, _rpayload = _retry_replay(org, nid, fz)
             resumed.append((nid, _texts,
@@ -26389,10 +27349,16 @@ def auto_resume_ready(org: Org, now: float | None = None) -> set[str]:
         # and nothing else, so the timer must too, or the two drift apart the
         # moment live state changes between them. `commit_node_wake` is where
         # live evidence enters, and it enters by being WRITTEN DOWN.
-        _eff = effective_freeze_deadline(fz, None, now)
+        # ⚠ THE WAKE INSTANT, NOT THE BARE DEADLINE. This line used to read
+        # `effective_freeze_deadline(...)` and then add the grace itself,
+        # `+ (0.0 if fz.get("connection") else 60.0)`, which is what made the
+        # badge count down to zero a full minute before this test could pass.
+        # The badge asks the SAME function now, so the number shown IS the
+        # number compared here.
+        _eff = effective_wake_instant(fz, now)
         ts = _eff["ts"] if _eff else None
         if ts:
-            if now >= float(ts) + (0.0 if fz.get("connection") else 60.0):
+            if now >= float(ts):
                 ready.add(nid)
         elif (fz.get("limit") or fz.get("connection")) and now - last >= 300:
             ready.add(nid)
@@ -31070,6 +32036,137 @@ def _condemnable(n: NodeDoc, seen: Mapping[str, str]) -> bool:
             and n["session_id"] not in seen)
 
 
+def _marker_is_same(cur: Any, inf: Any) -> bool:
+    """Is the marker on disk NOW the one this dispatch collected?
+
+    `reconcile` collects markers under DOC_LOCK, releases the lock, and then
+    spends each one immediately before its own dispatch. Every dispatch in
+    between is a whole turn, so a live agent can message a seat the loop has
+    not reached yet; that seat starts a real turn and writes itself a NEW
+    marker. This predicate is what tells the two apart, and BOTH answers now
+    carry weight: true spends the marker and replays, false SKIPS the seat
+    entirely and drops the interrupted turn (user ruling 2026-09-19).
+
+    ⚠ `at` FIRST, FULL EQUALITY ONLY WHEN THERE IS NO `at`. Each half alone
+    is wrong, in opposite directions:
+
+    * `at` is the turn's start time, so it is what "the same turn" MEANS.
+      Equality asks a stricter question than the guard does — whether the
+      marker is byte-identical — and any edit to a marker that kept its `at`
+      would read as a different turn. Since a false "different" now DROPS the
+      replay rather than merely leaking it, asking the stricter question is
+      the more expensive mistake.
+
+      ⚠ THE ASSUMPTION THIS BRANCH RESTS ON, STATED RATHER THAN LEFT IMPLICIT:
+      that two turns ON THE SAME NODE cannot share an `at`. It is written by
+      `now_iso` — `ledger.now`, MILLISECOND resolution since the user ruling
+      of 2026-07-31 — and a node runs one turn at a time, each of which
+      spawns a process, so consecutive turns on one seat are milliseconds
+      apart at the very least. This is an ARGUMENT, not a measurement. If
+      `at` ever loses resolution, or a marker is ever copied forward onto a
+      genuinely new turn, this branch would call two different turns the same
+      one and spend a running turn's marker. Whoever changes either of those
+      owns this line. (Resolution and reasoning supplied by restart-mail in
+      review; verified here against `ledger.now` and the write site.)
+    * but a marker written by an older build carries no `at`, and comparing
+      `None == None` would make two DIFFERENT turns compare equal — spending
+      a running turn's marker, the unsafe direction. With no `at` to identify
+      it by, nothing less than full equality will do.
+
+    ⚠ NO KNOWN LIVE PATH EDITS A MARKER IN PLACE, and this docstring does not
+    claim one. `desktop_import.py:461-462` does pop `cache_attempt` and
+    rewrite `text` on an existing `inflight`, but it runs inside
+    `_prepare_document` against a STAGED document during the V1→V2 import,
+    before that org is published and reconcilable — so it cannot fall between
+    a collection and its spend. Every other write replaces the whole dict or
+    sets it to None. The `at` branch is therefore written for the case where
+    such an edit ever DOES fall inside that window, not for one that does
+    today. Saying otherwise would be this file's own original defect — a
+    comment asserting a property the code does not have — committed again.
+    (Reviewed by restart-mail, 2026-09-19, which traced the staging and
+    corrected an earlier version of this note that claimed a live hazard.)
+    """
+    if not isinstance(cur, dict) or not isinstance(inf, dict):
+        return False
+    if inf.get("at") is not None:
+        return cur.get("at") == inf.get("at")
+    return cur == inf
+
+
+def _mark_turn_ended(n: MutableMapping[str, Any], popped: Any) -> None:
+    """Record that a turn ENDED on this seat, in the same breath as the pop
+    that ends it.
+
+    ⚠ THIS EXISTS BECAUSE AN ABSENT MARKER IS UNREADABLE. `reconcile` collects
+    a marker under the lock and spends it later, outside the lock; if the
+    marker is GONE by then, the doc alone cannot say whether a newer turn ran
+    here and finished or whether the marker was taken by something else. Both
+    are a missing key. The first must drop the interrupted turn's replay (user
+    ruling 2026-09-19 — the agent has moved on); the second must still replay
+    it, because that is the stranding the parent ticket exists to prevent. So
+    the fact is WRITTEN DOWN when it is known, rather than reconstructed from
+    an absence that cannot carry it.
+
+    Deliberately written under the SAME `store.save_org` as the pop, by the
+    same `finally`. A second save would open a window in which the marker is
+    gone and the stamp is not yet there — which is precisely the unreadable
+    state this removes, re-created at a smaller scale.
+
+    ⚠ WHAT IS STORED IS THE POPPED MARKER'S OWN `at`, not `now`. See
+    `schema.TurnEnded`: the comparison it has to survive is against ANOTHER
+    turn's start stamp, so both sides must mean "when a turn started".
+
+    Silent no-op for a marker with no `at` — a marker written by an older
+    build carries none, and a stamp that cannot be ordered is worse than no
+    stamp, because `_newer_turn_ended` would have to invent an ordering for
+    it. Absence of the stamp already means "cannot tell", which is the answer.
+    """
+    if not isinstance(popped, dict):
+        return
+    at = popped.get("at")
+    if not at:
+        return
+    n["turn_ended"] = {"at": str(at), "ended": now_iso()}
+
+
+def _newer_turn_ended(n: Mapping[str, Any], inf: Mapping[str, Any]) -> bool:
+    """Did a turn that started LATER than `inf` already finish on this seat?
+
+    This is the whole of the marker-absent decision, and it answers only when
+    it can. `False` means "no evidence", never "no", and every caller must
+    treat it as the REPLAY side — the safe direction, because a wrong replay
+    costs a duplicate drive while a wrong drop destroys text that exists
+    nowhere but the marker.
+
+    ⚠ STRICTLY LATER, and the equality case is left alone ON PURPOSE.
+    `ended == started` would mean the interrupted turn ITSELF reached its own
+    `finally` — which a startup pass cannot see, because that turn's process
+    died with the backend and a dead process runs no `finally`. Rather than
+    reason about an unreachable case, this returns False for it and replays,
+    which is the behaviour that shipped. If some future caller makes equality
+    reachable, dropping there is probably right — but that is a decision to
+    take deliberately, with the case in hand, not a `>=` written today on the
+    strength of an argument about code that does not exist yet.
+
+    ⚠ EPOCHS, NOT STRING ORDER. `ledger.now` gained milliseconds on
+    2026-07-31 and says so in its own comment: within one second, a legacy
+    "…:00Z" stamp sorts AFTER a new "…:00.123Z" one. Two turns milliseconds
+    apart across that format change would compare backwards, and this
+    predicate would then call the older turn the newer one — dropping a
+    replay on the strength of a turn that ran BEFORE it. `_stamp_epoch`
+    parses both forms to a number and returns None for anything it cannot
+    read, which lands on the replay side by construction.
+    """
+    te = n.get("turn_ended")
+    if not isinstance(te, dict):
+        return False
+    ended = _stamp_epoch(te.get("at"))
+    started = _stamp_epoch(inf.get("at") if isinstance(inf, Mapping) else None)
+    if ended is None or started is None:
+        return False
+    return ended > started
+
+
 def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -> list[str]:
     """№31 eager pass at startup: any ledger-live node that has demonstrably run
     before (cost > 0) but whose transcript is gone cannot resume — say so now,
@@ -31141,7 +32238,7 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
                     cause="terminal", audience="user",
                     attempts=None, classified=None, door=_udoor, err="")
                 org.to_user_inbox({
-                    "id": uuid_hex8(), "from": SYSTEM, "kind": "notice",
+                    "id": uuid_hex8(), "from": SYSTEM, "kind": STOPPED_WORK_KIND,
                     "at": now_iso(), "body": events.render_agent(_uev)}, _uev)
         if marked or healed:
             store.save_org(org)
@@ -31191,25 +32288,47 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
                     or _import_recovery_hold(org, nid, n.get("inflight"))):
                 continue  # Retain interrupted intent until explicit resolution.
             if n["state"] == "live" and nid not in marked and not n.get("frozen"):
-                inf = n.pop("inflight", None)
+                inf = n.get("inflight")
                 # a command turn can't replay honestly (the restart preamble
                 # would bury the "/" mid-prose and the CLI would run it as
                 # text) — a lost command is dropped, not degraded (review)
                 if inf and not inf.get("cmd"):
+                    # ⚠ READ, NOT POPPED — and this is the whole fix for the
+                    # 2026-09-18 stranding. This loop used to `pop` every
+                    # replayable marker and `save_org` that erasure BEFORE the
+                    # dispatch loop below ran a single turn. The dispatch loop
+                    # runs OUTSIDE the lock and each iteration is a whole turn,
+                    # so a backend killed partway through it lost every
+                    # not-yet-dispatched marker permanently: the `finally` that
+                    # put them back cannot run when the process is killed, and
+                    # no later boot replays a marker that is already off disk.
+                    # Worse, the marker is also what renders the node as
+                    # died-mid-turn, so the stranded agent read as merely IDLE
+                    # — invisible precisely because the evidence was erased.
+                    # Reproduced with a real `taskkill /T /F`:
+                    # tests/restart_reconcile_kill_probe.py.
+                    # Each marker is now spent immediately before ITS OWN
+                    # dispatch instead (see the loop below), so a kill can cost
+                    # at most the single marker in flight — which is the one
+                    # the "spent by its dispatch" rule below already treats as
+                    # gone — and never the ones the loop has not reached.
                     inflight.append((nid, inf))
                     if recovery_observer is not None \
                             and _import_recovery_unsettled(org, nid):
                         recovery_seats.add(nid)
                 elif inf:
-                    # ⚠ the pop above is IN MEMORY. Saving only when something
+                    # A COMMAND marker is still dropped HERE, because dropping
+                    # it is the outcome — there is no dispatch later to hang it
+                    # on. ⚠ the pop is IN MEMORY. Saving only when something
                     # is replayable meant an org whose only in-flight turn was
                     # a COMMAND never wrote the drop back: the marker survived
                     # on disk, every later restart re-dropped it, and the tree
                     # kept reporting `inflight_at` — "running for 6 days" on an
                     # idle node. Measured 2026-08-04 (test_turn_lifecycle
                     # "reconcile · its inflight marker is cleared").
+                    n.pop("inflight", None)
                     dropped_cmd = True
-        if inflight or dropped_cmd:
+        if dropped_cmd:
             store.save_org(org)
         # D-234: a switch queued behind a turn the backend's death ended
         # applies NOW, before that turn is replayed below — the replay is the
@@ -31221,11 +32340,14 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
         # dispatch below wakes them, unconditionally like the inflight
         # replays — active_only gates only the generic mail revive.)
         switch_wake: list[str] = []
+        account_wake: list[tuple[str, str]] = []
         queued = [k for k, n in org.nodes.items()
-                  if n["state"] == "live" and n.get("pending_switch")]
+                  if n["state"] == "live"
+                  and (n.get("pending_switch") or n.get("pending_account"))]
         if queued:
             for nid in queued:
-                _apply_pending_switch_locked(org, slug, nid, wake=switch_wake)
+                _apply_pending_switch_locked(org, slug, nid, wake=switch_wake,
+                                             account_wake=account_wake)
             store.save_org(org)
         # delivery-journal fold-back: batches drained for a turn whose
         # delivery never confirmed — the backend died in between. The mail
@@ -31298,6 +32420,124 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
     dispatched = 0
     try:
         for nid, inf in ([] if latched else inflight):
+            # SPEND THIS ONE MARKER, NOW, IMMEDIATELY BEFORE ITS OWN DISPATCH.
+            # The erasure and the dispatch it pays for are adjacent, so the
+            # doc is never in a state where a marker is neither present nor
+            # about to be replayed. The old code erased ALL of them up front
+            # and relied on the `finally` below to put back whatever the loop
+            # never reached — and a `finally` does not run when the process is
+            # killed, which is exactly how a restart stranded agents silently.
+            # Deliberately NOT a journal: a journal is a second artifact that
+            # has to be written in the same save as the erasure to be correct,
+            # and writing it in its own save would move the window rather than
+            # close it. There is nothing to keep in step here.
+            # Cost: this adds at most one `save_org` per MID-TURN node to a
+            # pass that already performs six, on the one code path where a
+            # single engine process is alive. Measured shape, not assumed.
+            # ⚠ IDENTITY, NEVER TRUTHINESS — and this guard is the mirror of
+            # the one in the `finally` below, which already refuses to
+            # overwrite a marker because "a node that has since started a new
+            # turn owns its own marker". The spend has the SAME hazard in the
+            # other direction and shipped without the guard (2026-09-19,
+            # caught in review by restart-mail): collection runs under the
+            # lock, the lock is released, and every dispatch below is a whole
+            # turn during which a live agent can message a seat this loop has
+            # not reached yet. That seat starts a real turn and writes itself
+            # a NEW marker. Popping on truthiness destroys THAT marker — the
+            # running turn is left with none, a later death replays nothing,
+            # and `_status_note` draws it as an ordinary idle node. Which is
+            # this ticket's own bug, re-entered through the fix for it.
+            # The old erase-everything-up-front code could not do this: the
+            # marker was already gone before any dispatch, so a newly written
+            # one was simply left alone. The window is one THIS fix opened.
+            # Reproduced: tests/restart_reconcile_spend_race_probe.py.
+            # See `_marker_is_same` for why identity is `at` first.
+            with store.DOC_LOCK:
+                _spend = store.load_org(slug)
+                _snode = _spend.node(nid) if nid in _spend.nodes else None
+                _cur = _snode.get("inflight") if _snode is not None else None
+                # READ IN THE SAME LOCK AS `_cur`, and that is not tidiness.
+                # The two are one observation of one node: asking "is the
+                # marker gone?" and "did a newer turn end here?" against two
+                # different loads could see a turn end in between and answer
+                # the two questions about different moments.
+                _ended_newer = (_snode is not None and not _cur
+                                and _newer_turn_ended(_snode, inf))
+                _ours = _marker_is_same(_cur, inf)
+                if _ours:
+                    _spend.node(nid).pop("inflight", None)
+                    store.save_org(_spend)
+            if not _ours and (_cur or _ended_newer):
+                # ⚠ A NEWER TURN HAS ALREADY STARTED — DROP THE OLD REPLAY.
+                # USER RULING 2026-09-19: "if restart recovery discovers that
+                # an agent has already started a newer turn before its
+                # interrupted turn is replayed, skip the older interrupted
+                # replay. Do not queue or dispatch that stale replay after
+                # the newer turn." The agent has moved on; delivering the
+                # pre-restart drive behind its current work would inject
+                # stale instructions into a turn that never asked for them.
+                # This REPLACES the earlier behaviour, which dispatched the
+                # replay anyway and let it queue behind the running turn.
+                # The newer marker is left exactly as its own turn wrote it
+                # — we neither spend it nor restore over it.
+                # ⚠ WHAT IS LOST HERE, AND WHAT IS NOT. Stated because "skip
+                # the replay" reads as though queued messages go with it, and
+                # they do not.
+                #   LOST: the interrupted turn's DRIVE TEXT — what
+                #     `_restart_replay(inf, ...)` would have composed out of
+                #     `inf["text"]` and its frozen segments. That text exists
+                #     nowhere but this marker, so dropping it is a real loss
+                #     and it is the loss the user chose.
+                #   NOT LOST: the agent's MAIL. Mail lives in the mailbox and
+                #     the delivery journal, not in the marker, and is drained
+                #     at the start of whatever turn runs next — so the newer
+                #     turn already running on this seat picks it up. Read
+                #     here from `_restart_replay`'s inputs (it takes `inf`
+                #     and the build facts, never the mailbox); measured
+                #     independently by restart-mail's 14-shape probe, which
+                #     establishes delivery exactly once per message.
+                # NOT SILENT: the incident behind this whole ticket was a
+                # marker disappearing with nothing recording that it had, so
+                # a DROP most certainly says so.
+                # ⚠ TWO WAYS TO GET HERE, AND THE OPERATOR IS TOLD WHICH.
+                # `_cur` is a newer turn still RUNNING; `_ended_newer` is a
+                # newer turn that has already FINISHED and left only its
+                # stamp. Same ruling, same outcome, but a log line that could
+                # not tell them apart would leave the second looking like the
+                # first with a marker mysteriously missing — which is the kind
+                # of unreadable evidence this whole line of tickets came from.
+                if _cur:
+                    print(f"[orgtree] {slug}/{nid}: a newer turn started "
+                          f"first; discarding the interrupted turn's drive "
+                          f"text (its mail is unaffected)")
+                else:
+                    print(f"[orgtree] {slug}/{nid}: a newer turn already ran "
+                          f"and finished here; discarding the interrupted "
+                          f"turn's drive text (its mail is unaffected)")
+                # ⚠ COUNTED AS SETTLED, and this is load-bearing. The
+                # `finally` below restores `inflight[dispatched:]` — every
+                # seat this loop has not resolved. A skipped seat IS
+                # resolved: leaving it in that slice would let the `finally`
+                # write the stale marker back the moment the newer turn ends
+                # and clears its own, and the next boot would replay exactly
+                # the turn this ruling says to drop.
+                dispatched += 1
+                continue
+            # ⚠ THE MARKER-ABSENT CASE REPLAYS, AND ONLY BECAUSE NOTHING
+            # PROVED OTHERWISE. The drop above now also covers absence when —
+            # and only when — `turn_ended` shows a newer turn finished here.
+            # Reaching this line means the marker is gone and the seat has NO
+            # such stamp, so there is no evidence a turn ran: something else
+            # took the marker, or it was written by a build too old to stamp
+            # anything. That is "cannot tell", not "no".
+            #
+            # THE ASYMMETRY IS THE WHOLE POINT, and it is why this is not
+            # simply `if not _ours: drop`. A wrong replay costs a duplicate
+            # drive the agent can read and ignore. A wrong drop destroys the
+            # interrupted turn's drive text, which exists nowhere else — the
+            # exact loss the stranding fix was written to prevent. So the
+            # unproven case sits on the replay side, permanently, and the
+            # drop is spent only on evidence somebody wrote down on purpose.
             print(f"[orgtree] {slug}/{nid}: resuming the turn interrupted by shutdown")
             observer = recovery_observer if nid in recovery_seats else None
             if observer:
@@ -31306,6 +32546,7 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
                 _rtext, _rview, _rsegs = _restart_replay(inf, _boot_build())
                 recovery_result = send_message(slug, nid, _rtext,
                          view=_rview, segments=_rsegs,
+                         restart_replay=True,
                          _inventory=inventory)
             except Exception:
                 if observer:
@@ -31323,14 +32564,17 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
             if observer:
                 observer(nid,'result',recovery_result)
     finally:
-        # A MARKER IS SPENT BY ITS DISPATCH, NOT BY BEING READ. They are all
-        # taken under the lock above so the doc is consistent while this loop
-        # runs outside it; whatever the loop never reached — because an
-        # earlier seat's admission raised — goes back, and the next restart
-        # still has it. A node that has since started a new turn owns its
-        # own marker and must not be overwritten — and `inflight` is a key
-        # that legitimately holds None (a reseeded bearer), so the test is
-        # the VALUE, never the key's presence.
+        # A MARKER IS SPENT BY ITS DISPATCH, NOT BY BEING READ. Since each
+        # marker is now spent immediately before its own dispatch, the seats
+        # this loop never reached still hold theirs ON DISK and the guard
+        # below simply skips them — that is the point, and it is what makes a
+        # killed process survivable. What remains for this block to repair is
+        # the ONE seat whose marker was spent and whose dispatch then raised;
+        # without this it would be the single marker a live failure could
+        # still lose. A node that has since started a new turn owns its own
+        # marker and must not be overwritten — and `inflight` is a key that
+        # legitimately holds None (a reseeded bearer), so the test is the
+        # VALUE, never the key's presence.
         # (A COMMAND marker is deliberately absent from this list: dropping
         # one is the honest outcome, see the drop above.)
         undispatched = inflight[dispatched:]
@@ -31373,6 +32617,19 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
         print(f"[orgtree] {slug}: waking {_sw} — a queued provider switch "
               f"cleared their stale freeze at startup")
         drive_unfrozen_by_switch(slug, _sw)
+    # R2: wake nodes whose queued REBIND thawed an auth freeze or cleared an
+    # account park at startup — once, after persistence, and never on top of
+    # an inflight replay or a switch wake (either of those already drives the
+    # node, and a second carrier here would be the duplicate resume).
+    if not latched:
+        for _kind, _t in dict.fromkeys(account_wake):
+            if _t in resumed or _t in _sw:
+                continue
+            print(f"[orgtree] {slug}/{_t}: waking — a queued account rebind "
+                  + ("thawed its auth freeze" if _kind == "auth_thaw"
+                     else "cleared its account park") + " at startup")
+            (drive_auth_thaw if _kind == "auth_thaw"
+             else drive_account_unpark)(slug, _t)
     # state-audit SH-4: the condemned nodes' superiors get their DRIVE now,
     # off the lock — one wake per superior however many of its reports were
     # condemned (the durable mail above already carries the per-node detail).
@@ -31391,6 +32648,7 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
             print(f"[orgtree] {slug}/{_usup}: unrecoverable-report drive "
                   f"failed — the durable mail still waits in its box")
     for nid in [r for r in revive if r not in _sw
+                and r not in {t for _, t in account_wake}
                 and (not active_only or maildrain.pending(org, r))]:
         print(f"[orgtree] {slug}/{nid}: driving mail that waited across restart")
         send_message(slug, nid,

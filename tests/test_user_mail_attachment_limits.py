@@ -21,6 +21,8 @@ os.environ.update(ORGTREE_DATA=str(_DATA), HOME=str(_HOME),
 for _key in ("ORGTREE_V1_ROOT", "ORGTREE_V1_DATA_ROOT", "ORGTREE_V2_PORT"):
     os.environ.pop(_key, None)
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.launch import load_app  # noqa: E402
 
 load_app()

@@ -42,6 +42,9 @@ _root = tempfile.TemporaryDirectory(prefix='v2-wake-estimate-')
 os.environ.update(ORGTREE_DATA=_root.name, HOME=_root.name,
                   USERPROFILE=_root.name)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine/backend'))
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from orgtree import store  # noqa: E402
 from orgtree.ledger import USER  # noqa: E402
 
@@ -50,7 +53,7 @@ if Path(store.DATA_ROOT).resolve() != Path(_root.name).resolve():
         'store.DATA_ROOT already bound elsewhere in this process; '
         'run this file on its own (see tests/test_lazydoc_bool.py)')
 
-from orgtree import accounts, api, registry  # noqa: E402
+from orgtree import accounts, api, registry, supervisor  # noqa: E402
 
 _SLUGS = []
 
@@ -1671,6 +1674,78 @@ class WakeEstimateTreeTests(unittest.TestCase):
         fz = self._badge()
         self.assertIsNone(fz['until_ts'])
         self.assertEqual(fz['until'], 'reset time unknown')
+
+
+class WakeCountdownTests(unittest.TestCase):
+    """THE SECOND COUNTDOWN (user ruling 2026-09-17 18:00).
+
+    The report was "i have auto-rwsume on, but the flash didnt wake when its
+    timer hit 0" — the wake waits out a clock-skew allowance that the badge
+    did not show, so the countdown sat at zero for a minute while nothing
+    happened. Measured on `notice-toggle`: 300-second probe freezes at 16:57,
+    17:03 and 17:10, each waking about 360 seconds later.
+
+    The user kept BOTH numbers rather than moving one: "badge shows reset time
+    (what it does now) until hitting zero, then a new 60s countdown until
+    wake". So `until_ts` still means the provider's stated reset — every other
+    test in this file pins that, and none of them changed — and `wake_ts` is
+    published beside it.
+    """
+
+    def test_the_second_countdown_starts_where_the_first_one_ends(self):
+        until = time.time() + 300
+        node = {'frozen': {'limit': True, 'until_ts': until}}
+        api._stamp_wake_countdown(node)
+        self.assertAlmostEqual(node['frozen']['wake_ts'],
+                               until + supervisor.WAKE_GRACE_S, delta=0.001,
+                               msg='the wake countdown must begin exactly '
+                                   'where the stated reset ends')
+
+    def test_the_stated_reset_is_not_moved(self):
+        """⚠ THE 2026-09-12 RULING, which this change must not trade away:
+        "what's shown should always take precedence from the 429 error"."""
+        until = time.time() + 300
+        node = {'frozen': {'limit': True, 'until_ts': until}}
+        api._stamp_wake_countdown(node)
+        self.assertEqual(node['frozen']['until_ts'], until,
+                         "the badge still counts down to the provider's own "
+                         "stated reset, untouched")
+
+    def test_a_connection_backoff_has_no_second_countdown(self):
+        """⚠ NEGATIVE CONTROL. Its deadline is OUR timer, so there is no
+        foreign clock to be early against and no allowance is added. Padding
+        it would make the node wait longer than the label already shown."""
+        until = time.time() + 300
+        node = {'frozen': {'connection': True, 'until_ts': until}}
+        api._stamp_wake_countdown(node)
+        self.assertIsNone(node['frozen']['wake_ts'])
+
+    def test_a_freeze_with_no_deadline_has_no_second_countdown(self):
+        node = {'frozen': {'limit': True, 'until_ts': None}}
+        api._stamp_wake_countdown(node)
+        self.assertIsNone(node['frozen']['wake_ts'])
+
+    def test_the_badge_and_the_wake_now_name_the_same_instant(self):
+        """THE WHOLE POINT, asserted as one equality.
+
+        `auto_resume_ready` fires at `effective_wake_instant`; the badge's
+        second countdown runs to `wake_ts`. They must be the same number, or
+        the defect is simply back in a new place.
+        """
+        until = time.time() + 300
+        fz = {'limit': True, 'until_ts': until, 'reset_src': 'provider'}
+        node = {'frozen': dict(fz)}
+        api._stamp_wake_countdown(node)
+        woken = supervisor.effective_wake_instant(fz)
+        self.assertIsNotNone(woken)
+        self.assertAlmostEqual(node['frozen']['wake_ts'], woken['ts'],
+                               delta=0.001,
+                               msg='shown and scheduled must be one instant')
+
+    def test_the_grace_rule_has_one_definition(self):
+        self.assertEqual(supervisor.wake_grace_for({'limit': True}),
+                         supervisor.WAKE_GRACE_S)
+        self.assertEqual(supervisor.wake_grace_for({'connection': True}), 0.0)
 
 
 if __name__ == '__main__':

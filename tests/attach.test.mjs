@@ -51,12 +51,29 @@ const engineIdentity = { protocol: 1, pid: 4242, dataRootId: realRoot }
 // live there. Identity/lifecycle tests therefore stub it; the real check has
 // its own dedicated positive and negative controls on icacls-cleaned dirs.
 const trusting = engine => { engine.trustCheck = async () => ({ ok: true, detail: 'test stub' }); return engine }
-// REAL trust-check fixtures cannot live under %TEMP%: its ancestor chain
-// carries foreign delete-class ACEs on this machine, which the ancestor
-// replacement rule rightly refuses. Default to the worktree; an explicitly
-// prepared test-only base lets the required positive run on a trusted chain.
-const aclFixtureRoot = process.env.ORGTREE_TEST_ACL_BASE || process.cwd()
+// REAL trust-check fixtures need an ancestor chain that nobody but us can
+// replace, and BOTH of the obvious homes fail that on a developer machine.
+// Measured here with the real check on 2026-09-17:
+//
+//   %TEMP%        REFUSED - AppData\Local\Temp carries delete-class ACEs for
+//                 three foreign local accounts (sandbox users).
+//   process.cwd() REFUSED - the checkout sits under a user-created path whose
+//                 ancestors grant Users (S-1-5-32-545) and Authenticated Users
+//                 (S-1-5-11). Every ancestor counts: clearing inheritance on
+//                 the fixture itself is useless if a parent can be swapped.
+//   %LOCALAPPDATA% ACCEPTED - Windows creates it for this user only, and
+//                 C:\Users and C:\ grant Users read/execute but not delete.
+//
+// The checkout was the old default, and it is why this file's positive control
+// failed on every ordinary run. It also made the test litter the repository
+// root with acl-fixtures-* directories, which agents then swept into commits
+// with `git add -A`. One root cause, both symptoms. LocalAppData (NOT its Temp
+// subdirectory) is the home that is trusted by Windows default rather than by
+// luck. ORGTREE_TEST_ACL_BASE still overrides, for a prepared environment.
+const aclFixtureRoot = process.env.ORGTREE_TEST_ACL_BASE
+  || path.join(process.env.LOCALAPPDATA || os.homedir(), 'orgtree-test-acl')
 assert(path.isAbsolute(aclFixtureRoot), 'ACL fixture base must be an explicit absolute path')
+fs.mkdirSync(aclFixtureRoot, { recursive: true })
 const aclBase = fs.mkdtempSync(path.join(aclFixtureRoot, 'acl-fixtures-'))
 test.after(() => {
   if (process.env.ORGTREE_TEST_ACL_BASE) { console.log(`Retained ACL fixture evidence: ${aclBase}`); return }

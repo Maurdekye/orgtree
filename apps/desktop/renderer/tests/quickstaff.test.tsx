@@ -288,6 +288,35 @@ test('one eligible account that the tier would take anyway adds no account layer
   assert.equal('account' in sent.at(-1)!, false)
 })
 
+test('request mode offers accounts as suggestions and the tier row still sends none', async t => {
+  // "Include account selection when requesting staffing" ON: the backend put
+  // account rows on the request offers. The tier row sends NO account, so even
+  // a single eligible account is a real choice here — nothing is suppressed.
+  const sent = captureFetch(t)
+  const p = preview()
+  p.models = [{ tier: 'haiku', seat: 1, efforts: ['low', 'high'],
+    accounts: [{ value: 'claude/primary', id: 'default', provider: 'claude', ambient: true, email: null }] }]
+  const entry = quickStaffEntry('org', 'request-account', p, () => {})
+  const model = entry.children![0] as MenuItem
+  assert.notEqual(model.actionDisabled, true)
+  const effort = model.children![1] as MenuItem
+  assert.deepEqual((effort.children as MenuItem[]).map(c => c.label), ['default'])
+  // the row says what a request does with it: suggest, not staff on
+  assert.match((effort.children![0] as MenuItem).title!, /^suggest /)
+  ;(effort.children![0] as MenuItem).onSelect(); await flush()
+  assert.deepEqual({ mode: sent.at(-1)!.mode, tier: sent.at(-1)!.tier,
+    effort: sent.at(-1)!.effort, account: sent.at(-1)!.account },
+  { mode: 'request', tier: 'haiku', effort: 'high', account: 'claude/primary' })
+  model.onSelect(); await flush()
+  assert.equal(sent.at(-1)!.tier, 'haiku')
+  assert.equal('account' in sent.at(-1)!, false)
+  // CONTROL — the option OFF payload carries no accounts, and the request
+  // menu draws exactly the layers it always drew.
+  const off = quickStaffEntry('org', 'request-noaccounts', preview(), () => {})
+  const offEffort = (off.children![0] as MenuItem).children![0] as MenuItem
+  assert.equal(offEffort.children, undefined)
+})
+
 test('setting restores and writes all three modes through application preferences', async t => {
   const old = globalThis.fetch
   let mode = 'under_assignee'
@@ -303,6 +332,30 @@ test('setting restores and writes all three modes through application preference
     await inAct(() => { select.value = value; select.dispatchEvent(new W.Event('change', { bubbles: true })) }); await flush()
     assert.equal(mode, value); assert.equal(select.value, value)
   }
+})
+
+test('the request-account option restores absent as off and writes the exact key', async t => {
+  const old = globalThis.fetch
+  // an engine that never stored the option — the payload omits the key
+  let stored: Record<string, unknown> = { quick_staff_behavior: 'request' }
+  const bodies: Record<string, unknown>[] = []
+  globalThis.fetch = async (_url, init) => {
+    if (init?.body) { const b = JSON.parse(String(init.body)) as Record<string, unknown>
+      bodies.push(b); stored = { ...stored, ...b } }
+    return new Response(JSON.stringify(stored))
+  }
+  t.after(() => { globalThis.fetch = old })
+  const v = await mountView(<QuickStaffSetting />, h => h); t.after(() => v.unmount()); await flush()
+  const toggle = document.querySelector<HTMLInputElement>(
+    '[aria-label="Include account selection when requesting staffing"]')!
+  assert.ok(toggle)
+  assert.equal(toggle.checked, false)
+  await inAct(() => { toggle.click() }); await flush()
+  assert.deepEqual(bodies.at(-1), { quick_staff_request_accounts: true })
+  assert.equal(toggle.checked, true)
+  await inAct(() => { toggle.click() }); await flush()
+  assert.deepEqual(bodies.at(-1), { quick_staff_request_accounts: false })
+  assert.equal(toggle.checked, false)
 })
 
 test('real docket rows load Staff only for backlog and submit the previewed selection', async t => {
@@ -387,4 +440,21 @@ test('every rendered row is selectable, in Request and in Direct alike', async t
       assert.equal(sent.at(-1)!.tier, 'or-vendor-live')
     } finally { await view.unmount() }
   }
+})
+
+test('OpenRouter quick staffing exposes all standard efforts and forwards the choice', async t => {
+  const sent = captureFetch(t)
+  const p = preview()
+  p.models = [{ tier: 'or-vendor-live', seat: 2,
+    efforts: ['low', 'medium', 'high', 'xhigh', 'max'] }]
+  const entry = quickStaffEntry('org', 'openrouter-effort', p, () => {})
+  const view = await mountView(<Fixture entries={[entry]} />, h => h)
+  try {
+    await open(); await key(named('Staff\u2026'), 'ArrowRight')
+    await hover('or-vendor-live')
+    assert.deepEqual(rowsUnder('or-vendor-live'), ['low', 'medium', 'high', 'xhigh', 'max'])
+    await inAct(() => { named('max').click() }); await flush()
+    assert.equal(sent.at(-1)!.tier, 'or-vendor-live')
+    assert.equal(sent.at(-1)!.effort, 'max')
+  } finally { await view.unmount() }
 })

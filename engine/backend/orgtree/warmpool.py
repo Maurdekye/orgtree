@@ -1056,11 +1056,19 @@ def identity_snapshot(org: Any, nid: str, *,
         from . import antigravity_session
         spec = provider_spec or antigravity_session.specification(org, nid)
         return antigravity_session.process_identity(spec)
-    if model in providers.CODEX_TIERS:
+    if sup.codex_harness_turn(org, nid, model):
         # Codex's process-scoped identity is not Claude's `_build_cmd`.
         # External MCP servers are app-server argv and the managed identity is
         # AGENTS.md written before launch. Resolve the whole manifest once so
         # keeper, turn admission and cache recording cannot disagree.
+        #
+        # ⚠ THE HARNESS DECIDES, NOT THE TIER (D-182). This used to ask
+        # `model in providers.CODEX_TIERS`, which was the same question only
+        # while a codex tier was the one way to reach an app-server. An
+        # OpenRouter node whose harness is Codex CLI runs one too, and hashing
+        # `_build_cmd` for it described a Claude process that never existed —
+        # the parked identity could then never match the turn's, so the seat
+        # was permanently cold while the pool still counted it as warm.
         manifest = codex_manifest or sup._codex_startup_manifest(
             org, nid, write_ident=False, provider_spec=provider_spec)
         # The projection keeps the stable four-component vocabulary; Codex's
@@ -1825,12 +1833,48 @@ def _journal_exit_once(wp: WarmProcess, reason: str | None = None) -> None:
 def _classify_kill(slug: str, nid: str, reason: str) -> str:
     cls = KILL_REASON_CLASS.get(reason)
     if cls is None:
-        print(f"[orgtree] warmpool ⚠ UNLISTED KILL REASON {reason!r} for "
-              f"{slug}/{nid} — a warm process is being torn down outside "
-              f"the closed death list; this is a defect to report, not a "
-              f"style issue")
+        _warn_unlisted_kill(slug, nid, reason)
         return "UNLISTED"
     return cls
+
+
+def _warn_unlisted_kill(slug: str, nid: str, reason: str) -> None:
+    """Shout about an unlisted teardown — WITHOUT being able to break the
+    teardown it is shouting about.
+
+    ⚠ THIS DIAGNOSTIC USED TO KILL ITS OWN CALLER, and it is reachable from
+    the halt path today. `halt_kill` passes the reason `"halted"`, which is
+    not in `KILL_REASON_CLASS`, so every durable halt that kills a warm
+    process lands here. The message carries `⚠` and `—`, and the engine's
+    stdout is a PIPE from the desktop: measured on this machine, the bundled
+    interpreter reports `sys.stdout.encoding == 'cp1252'` when piped, and
+    printing those characters to it raises `UnicodeEncodeError`. That
+    exception propagates `_journal_proc` → `_journal_exit_once` → `kill_node`
+    → `warmpool.halt_kill` → `halt._cut_state` → `halt._cut` → out of
+    `halt.halt()` itself — a 500 from the halt endpoint, which is a second
+    route to the very failure docket
+    fix-agents-stuck-halting-and-non-json-stop-error exists to remove.
+
+    So the text is unchanged and the delivery is defensive: the message is
+    retried ASCII-clean if the console cannot spell it, and nothing escapes.
+    An unenumerated teardown must be loud, but never load-bearing.
+
+    ⚠ THE REASON `"halted"` IS STILL UNLISTED and this does NOT paper over
+    that. It is reported as a finding on the docket item rather than
+    classified here: `KILL_REASON_CLASS`'s own header says the authoritative
+    vocabulary lives in the D-201 register entry, so picking a class for
+    halt is that register's call, not a guess to slip into a bug fix."""
+    message = (f"[orgtree] warmpool ⚠ UNLISTED KILL REASON {reason!r} for "
+               f"{slug}/{nid} — a warm process is being torn down outside "
+               f"the closed death list; this is a defect to report, not a "
+               f"style issue")
+    try:
+        print(message)
+    except Exception:                               # noqa: BLE001
+        try:
+            print(message.encode("ascii", "replace").decode("ascii"))
+        except Exception:                           # noqa: BLE001
+            pass
 
 
 def _kill_proc(wp: WarmProcess) -> None:
@@ -2019,7 +2063,13 @@ def _spawn_for(org: Any, nid: str, why: str) -> WarmProcess | None:
                 client.close()
                 raise
 
-        if model in providers.CODEX_TIERS:
+        # ⚠ THE HARNESS DECIDES, NOT THE TIER (D-182) — the same correction as
+        # in `identity_snapshot` above, and the one that actually spawns. The
+        # keeper used to launch a real `claude` process, carrying the
+        # OpenRouter gateway key in its env, for a node the user had put on
+        # Codex CLI; the turn then discarded it as `provider-lane` and cold
+        # spawned an app-server, every time, forever.
+        if sup.codex_harness_turn(org, nid, model):
             from . import codexrun                  # noqa: PLC0415
 
             manifest = sup._codex_startup_manifest(

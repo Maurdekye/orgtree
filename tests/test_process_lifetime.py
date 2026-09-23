@@ -10,6 +10,8 @@ import tempfile
 import time
 import unittest
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 REPO = Path(__file__).resolve().parents[1]
 
 

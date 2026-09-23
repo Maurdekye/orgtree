@@ -50,7 +50,7 @@ export const TIERS = ['haiku', 'sonnet', 'opus', 'fable']
 /** seat cost per tier — mirrors ledger.TIERS. One table, four tiers; the
  *  frontend had four copies of this before. */
 export const TIER_SEAT: Record<string, number> =
-  { haiku: 1, sonnet: 2, opus: 5, fable: 10 }
+  { haiku: 1, sonnet: 2, opus: 4, fable: 10 }
 /** Model VERSIONS inside a tier — mirrors ledger.MODEL_VERSIONS. A version is
  *  a subcategory of the tier (user ruling 2026-08-04): it never changes the
  *  seat cost and never appears as a chip, only in the gear. A tier absent
@@ -60,25 +60,24 @@ export const TIER_SEAT: Record<string, number> =
  *  the head, or the menu reads as though the node is pinned to the older
  *  version it is merely listing. */
 export const MODEL_VERSIONS: Record<string, string[]> =
-  { opus: ['5', '4.8'], fable: ['5.1', '5'], flash: ['3.8', '3.7', '3.6'] }
+  { opus: ['5.5', '5', '4.8'], fable: ['5.1', '5'], flash: ['3.8', '3.7', '3.6'],
+    sol: ['6', '5.6'], luna: ['6', '5.6'] }
 /** The codex family (FR-15 preview) — ChatGPT/OpenAI tiers. A
  *  SEPARATE list, never merged into TIERS: every existing surface iterates
  *  TIERS, and a family that cannot be hired yet must not grow chips there by
  *  accident. Mirrors backend providers.py (CODEX_TIERS / CODEX_MODELS) the
- *  same way TIER_SEAT mirrors ledger.TIERS. Seat costs RULED 2026-08-28:
- *  API $ per M input tokens at the STANDING price (sol $5 standard, not the
- *  promo $4; gpt-reserve/luna $0.20). Those two used to floor to 1 and now
- *  cost 0.2 — sub-$1 tiers are priced fractionally by user ruling
- *  2026-09-03, so a `Record<string, number>` here genuinely holds a
- *  fraction. The hire surfaces use this family list when the Codex CLI is
+ *  same way TIER_SEAT mirrors ledger.TIERS. User ruling 2026-09-22 sets
+ *  Sol to 2 and Luna to 0.1 credits, across supported model versions.
+ *  The legacy reserve tier stays 0.2; fractions remain real seat costs.
+ *  The hire surfaces use this family list when the Codex CLI is
  *  available. */
 export const CODEX_ALWAYS_TIERS = ['luna', 'terra', 'sol']
 /** LEGACY Codex tokens (user ruling 2026-09-04, audit item 12): known to the
  *  axis so a node that already wears one keeps its letter, colour, seat and
  *  provider class — but NEVER offered by any hire or switch surface
  *  (`codexTierOffer` answers 'hide' for them unconditionally). `gpt-reserve`
- *  stopped being a tier: a `luna` hire spends OpenAI's reserve pool first
- *  and falls back to the direct lane by itself; the backend's route receipt
+ *  stopped being a tier: a Luna 5.6 agent may spend OpenAI's reserve pool
+ *  first and fall back to the direct lane; GPT-6 Luna runs direct. The backend's route receipt
  *  (`TreeNode.codex_route`) says which one a turn actually ran on. Mirrors
  *  providers.LEGACY_CODEX_TIERS. */
 export const LEGACY_CODEX_TIERS = ['gpt-reserve']
@@ -87,11 +86,12 @@ export const LEGACY_CODEX_TIERS = ['gpt-reserve']
  *  before their account access exists. A rollout tier is never offered merely
  *  because it is in this list; `codexTierOffer` requires it in the backend's
  *  live account-scoped tier rows. */
-export const CODEX_TIERS = [...LEGACY_CODEX_TIERS, ...CODEX_ALWAYS_TIERS, 'astra']
+export const CODEX_TIERS = [...LEGACY_CODEX_TIERS, ...CODEX_ALWAYS_TIERS,
+  'astra']
 export const CODEX_TIER_LETTER: Record<string, string> = {
   'gpt-reserve': 'R', luna: 'L', terra: 'T', sol: 'S', astra: 'A' }
 export const CODEX_TIER_SEAT: Record<string, number> = {
-  'gpt-reserve': 0.2, luna: 0.2, terra: 2, sol: 5, astra: 10 }
+  'gpt-reserve': 0.2, luna: 0.1, terra: 2, sol: 2, astra: 10 }
 /** The antigravity family (D-189, re-walked for the Antigravity CLI
  *  2026-09-02) — Google tiers served by `agy`: flash (3.8-flash, with 3.7 and
  *  3.6 in the version menu) and pro (3.1-pro). Same separate-list rule as the
@@ -689,6 +689,7 @@ export interface CanvasNode {
   inflight_at?: string | null
   /** D-234: the model switch queued behind the running turn (TreeNode's) */
   pending_switch?: PendingSwitch | null
+  pending_account?: { account: string; from: string; by: string; at: string } | null
   last_denials?: TreeNode['last_denials']
   last_approvals?: TreeNode['last_approvals']
   turns?: TreeNode['turns']
@@ -982,6 +983,18 @@ export const queuedSwitchTitle = (n: {
   const who = p.by === USER ? 'the user' : p.by
   return `model switch QUEUED by ${who}: ${n.tier ?? '?'} → ${p.tier} applies `
     + 'when the current turn ends — interrupt the turn to apply it now'
+}
+
+/** Account rebind queued behind a live turn; the bound account remains the
+ * source of truth until the boundary applies this intent. */
+export const queuedAccountTitle = (n: {
+  account?: string | null
+  pending_account?: { account: string; by: string } | null
+}): string => {
+  const p = n.pending_account
+  if (!p) return ''
+  const who = p.by === USER ? 'the user' : p.by
+  return `account rebind QUEUED by ${who}: ${n.account ?? 'primary'} → ${p.account} applies when the current turn ends`
 }
 export const EXTERN = '@extern'      // the org-inbox audience grantor sentinel
 /** the ledger's own hand — mirrors ledger.SYSTEM. Mail wearing this `from`

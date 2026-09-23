@@ -8,6 +8,8 @@ import tempfile
 import unittest
 from ctypes import wintypes as w
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.backend.orgtree.managed_profiles import create_profile
 
 

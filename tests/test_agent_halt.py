@@ -19,6 +19,9 @@ from unittest.mock import patch
 _root = tempfile.TemporaryDirectory(prefix="orgtree-agent-halt-")
 os.environ["ORGTREE_DATA"] = _root.name
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine/backend"))
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from orgtree import halt, ledger, store, supervisor as sup, warmpool
 _real_warm_kill = warmpool.kill_node
 

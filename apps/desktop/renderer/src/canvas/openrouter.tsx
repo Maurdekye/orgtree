@@ -37,12 +37,12 @@ import { Fragment, useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import {
   clearOpenRouterKey, getOpenRouter, searchOpenRouterModels, setOpenRouterFavorite,
-  setOpenRouterKey,
+  setOpenRouterHarness, setOpenRouterKey,
 } from '../api'
 import { AutorenewIcon, CheckIcon, CloseIcon, DeleteIcon, EditIcon } from '../icons'
 import type {
-  OpenRouterDoc, OpenRouterModel, OpenRouterModelsPage, OpenRouterSort,
-  ProviderInfo, ProviderTier,
+  OpenRouterDoc, OpenRouterHarness, OpenRouterModel, OpenRouterModelsPage,
+  OpenRouterSort, ProviderInfo, ProviderTier,
 } from '../types'
 import { capabilityNote, capabilityNotes, fmtCredits, isDarkTierColor, modelLabel, setOpenRouterTiers } from './shared'
 import { fmtHm, fmtMonth } from '../timefmt'
@@ -181,6 +181,9 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
 
   const off = provider?.user_enabled === false
   const keySet = !!doc?.key_set
+  // bound once: an older backend serves no `harness` at all, and the whole
+  // row (and the head's clause) simply does not appear for it
+  const harness = doc?.harness
   const favorites = doc?.tiers ?? []
   const standing = doc ? standingOf(doc) : []
   // line 1's verdict word, and the tone it reads in
@@ -193,7 +196,13 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
       <div className={'set-group-head acct-provider-head prov-openrouter'
         + (off ? ' provider-off' : '')}>
         OpenRouter
-        <span className="dim"> · REST API, runs on Claude Code</span>
+        {/* the subtitle used to assert "runs on Claude Code" unconditionally.
+            That was true while there was one harness and became a false
+            claim the moment there were two — the head is exactly where a
+            person looks to learn what this lane is. */}
+        <span className="dim"> · REST API{harness?.selected
+          ? `, runs on ${labelOf(harness, harness.selected)}`
+          : ''}</span>
         <span className="set-head-right">
           {!off && keySet && !provider?.hire_enabled
             && <span className="acct-preview-tag">preview</span>}
@@ -277,6 +286,16 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
         </div>
       )}
 
+      {/* the HARNESS row — which CLI drives OpenRouter agents (user ruling
+          2026-09-19). Three visible states, and the backend decides which:
+          a live choice, one harness shown greyed out because it is the only
+          one there is, or no choice at all because there is none. The
+          renderer derives nothing — see `OpenRouterHarness`. */}
+      {harness && <HarnessRow h={harness} busy={busy}
+        onPick={(id) => run(
+          setOpenRouterHarness(id),
+          `new OpenRouter agents will run on ${labelOf(harness, id)}`)} />}
+
       {/* the favorites ROW — one control (user spec): highlight on hover /
           focus, click opens the picker. Rendered only once a key exists. */}
       {doc && keySet && (
@@ -307,6 +326,96 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
                 `${selected ? 'added' : 'removed'} ${m.name}`)}
           onClose={() => setPickerOpen(false)} />
       )}
+    </div>
+  )
+}
+
+export function labelOf(h: OpenRouterHarness, id: string | null): string {
+  return h.harnesses.find((x) => x.id === id)?.label ?? (id ?? '')
+}
+
+/** WHICH CLI DRIVES OPENROUTER AGENTS.
+ *
+ *  Every state here is a state the backend named; this component chooses no
+ *  policy of its own. That matters because the three cases look similar on
+ *  screen and mean very different things:
+ *
+ *    · a live choice — both CLIs are installed and ready;
+ *    · a DISABLED control showing one harness — it is the only one available,
+ *      so there is nothing to choose; the row says which and why the other is
+ *      out, because "greyed out with no reason" is the state people file bugs
+ *      about;
+ *    · NO control — neither can run, so no option is offered at all. Drawing
+ *      a picker here would invite a choice that cannot be honoured.
+ *
+ *  ⚠ THE SELECTED RADIO IS NOT ALWAYS THE STORED PREFERENCE. When the stored
+ *  harness is the unavailable one, the row shows what the machine can
+ *  actually do and says so in its note — nothing is written back, and no
+ *  agent is moved. */
+export function HarnessRow({ h, busy, onPick }: {
+  h: OpenRouterHarness
+  busy: boolean
+  onPick: (id: string) => void
+}) {
+  if (h.unavailable) {
+    return (
+      <div className="acct-line">
+        <span className="acct-gutter" />
+        <div className="acct-row orr-harness">
+          <div className="acct-main">
+            <span className="acct-grip acct-ghost">⠿</span>
+            <span className="acct-email ask-warn-inline">
+              no OpenRouter harness available
+            </span>
+          </div>
+          <div className="acct-provenance">
+            {h.harnesses.map((o) => (
+              <span key={o.id} className="acct-dead">{o.label}: {o.why}</span>
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
+  const stale = h.selected !== null && h.stored !== h.selected
+  return (
+    <div className="acct-line">
+      <span className="acct-gutter" />
+      <div className="acct-row orr-harness">
+        <div className="acct-main">
+          <span className="acct-grip acct-ghost">⠿</span>
+          <span className="acct-email">harness</span>
+          <div className="orr-harness-opts" role="radiogroup"
+            aria-label="OpenRouter harness"
+            aria-disabled={!h.enabled || undefined}>
+            {h.harnesses.map((o) => (
+              <label key={o.id}
+                className={'orr-harness-opt'
+                  + (o.id === h.selected ? ' on' : '')
+                  + (h.enabled && o.available ? '' : ' off')}
+                title={o.available
+                  ? `${o.label}${o.version ? ` ${o.version}` : ''}`
+                  : `${o.label} — ${o.why}`}>
+                <input type="radio" name="orr-harness" value={o.id}
+                  checked={o.id === h.selected}
+                  disabled={busy || !h.enabled || !o.available}
+                  onChange={() => onPick(o.id)} />
+                {o.label}
+              </label>
+            ))}
+          </div>
+        </div>
+        <div className="acct-provenance">
+          {h.explain
+            ? <span className="acct-dead">{h.explain}</span>
+            : <span>new agents only — everyone already hired keeps the
+              harness they started on</span>}
+          {stale && <span className="ask-warn-inline">
+            your saved choice is {labelOf(h, h.stored)}, which is not available
+            right now; agents set to it will refuse rather than switch
+          </span>}
+        </div>
+      </div>
     </div>
   )
 }

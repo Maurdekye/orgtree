@@ -182,6 +182,16 @@ HEADER_FIELDS: dict[str, FieldSpec] = {
     "lane": S(LANES), "tier": S(TIERS), "run": I, "run_since_ms": I,
     "resumed": B, "cmd": B, "ping": B, "toks": I, "text_len": I,
     "images_n": I, "view_len": I, "warm": B,
+    # ⚠ `restart_replay` is NOT `resumed`, and conflating them cost a whole
+    # incident investigation. `resumed` is set from `bool(retry_payload)` —
+    # it means "a retry of a FAILED ATTEMPT". `restart_replay` means "this
+    # turn is reconcile() replaying a turn the backend's death interrupted".
+    # An investigation into the 2026-09-18 stranding had to reconstruct the
+    # whole replay table from timing and from ABSENT rows, because `resumed`
+    # was false on all 26 rows including the obvious replays, which is what
+    # it should be. This is the field that answers "was this agent replayed
+    # after a restart" directly.
+    "restart_replay": B,
 }
 # ⚠ fullmatch, never `$`: `$` admits a trailing newline
 _FIXTURE_RE = re.compile(

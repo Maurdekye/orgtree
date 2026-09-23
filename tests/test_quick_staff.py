@@ -8,6 +8,9 @@ from unittest.mock import patch
 
 _root = tempfile.TemporaryDirectory(prefix="quick-staff-", ignore_cleanup_errors=True)
 os.environ.update(ORGTREE_DATA=_root.name, ORGTREE_V2_TOKEN="quick-staff-tests")
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.launch import load_app
 app, *_ = load_app()
 from fastapi.testclient import TestClient
@@ -50,6 +53,7 @@ class QuickStaffTests(unittest.TestCase):
         p.start(); self.addCleanup(p.stop)
         self.neutralize_staff_cache()
         appsettings.set_quick_staff_behavior("request")
+        appsettings.set_quick_staff_request_accounts(False)
 
     def neutralize_staff_cache(self):
         """Compute availability on every read, as this code did before the warm
@@ -119,6 +123,40 @@ class QuickStaffTests(unittest.TestCase):
                     item = current._work_find(self.item)[0]
                     self.assertEqual(item["owner"]["node"], r.json()["node"])
                     self.assertEqual(item["status"], "open")
+
+    def test_openrouter_immediate_effort_is_stored_and_effective(self):
+        self.org.d["tiers"]["or-live"] = 1
+        self.offered["providers"].append({"id": "openrouter", "hire_enabled": True,
+            "tiers": [{"tier": "or-live", "model": "vendor/live", "seat": 1}]})
+        store.save_org(self.org)
+        appsettings.set_quick_staff_behavior("top_level")
+        with patch.object(quickstaff.openrouter, "refresh_catalog",
+                          return_value=[{"id": "vendor/live"}]), \
+             patch.object(quickstaff, "supported_efforts",
+                          return_value=list(ledger.Org.EFFORTS)):
+            r = self.send(self.selection("or-live", "max"))
+        self.assertEqual(r.status_code, 200, r.text)
+        current = self.loaded()
+        node = current.node(r.json()["node"])
+        self.assertEqual(node["scope"].get("effort"), "max")
+        self.assertEqual(current.effective_effort(r.json()["node"]), "max")
+
+    def test_openrouter_effort_omission_keeps_the_existing_default(self):
+        self.org.d["tiers"]["or-live"] = 1
+        self.offered["providers"].append({"id": "openrouter", "hire_enabled": True,
+            "tiers": [{"tier": "or-live", "model": "vendor/live", "seat": 1}]})
+        store.save_org(self.org)
+        appsettings.set_quick_staff_behavior("top_level")
+        with patch.object(quickstaff.openrouter, "refresh_catalog",
+                          return_value=[{"id": "vendor/live"}]), \
+             patch.object(quickstaff, "supported_efforts",
+                          return_value=list(ledger.Org.EFFORTS)):
+            r = self.send(self.selection("or-live"))
+        self.assertEqual(r.status_code, 200, r.text)
+        current = self.loaded()
+        node = current.node(r.json()["node"])
+        self.assertNotIn("effort", node["scope"])
+        self.assertEqual(current.effective_effort(r.json()["node"]), ledger.Org.DEFAULT_EFFORT)
 
     def test_under_assignee_immediate_staffing_notifies_previous_assignee(self):
         appsettings.set_quick_staff_behavior("under_assignee")
@@ -322,6 +360,74 @@ class QuickStaffTests(unittest.TestCase):
         r = self.client.put("/api/app-settings/runtime", headers=HEADERS, json={"quick_staff_behavior": "bad"})
         self.assertEqual(r.status_code, 422)
 
+    def test_request_account_option_defaults_off_and_preserves_the_flow(self):
+        # A configuration saved BEFORE the option existed has no stored value,
+        # and that absence must read as OFF — asserted against the raw document
+        # rather than whatever this process happens to have written.
+        with patch.object(appsettings, "load",
+                          return_value={"runtime": {"quick_staff_behavior": "request"}}):
+            self.assertFalse(appsettings.quick_staff_request_accounts())
+        with self.assertRaises(ValueError):
+            appsettings.set_quick_staff_request_accounts("on")  # type: ignore[arg-type]
+        settings = self.client.get("/api/app-settings/runtime", headers=HEADERS).json()
+        self.assertIs(settings["quick_staff_request_accounts"], False)
+        # OFF: the request flow is exactly what it was — no account rows in the
+        # preview, and naming an account is still the pinning refusal.
+        for model in self.preview()["models"]:
+            self.assertNotIn("accounts", model)
+        r = self.send(self.selection("haiku") | {"account": "claude/primary"})
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("cannot pin an account", r.json()["detail"])
+        item = self.loaded()._work_find(self.item)[0]
+        self.assertEqual(item["status"], "backlogged")
+        self.assertNotIn("quick_staff_receipts", item)
+
+    def test_request_account_option_on_offers_validates_and_carries_the_choice(self):
+        r = self.client.put("/api/app-settings/runtime", headers=HEADERS,
+                            json={"quick_staff_request_accounts": True})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.addCleanup(appsettings.set_quick_staff_request_accounts, False)
+        self.assertIs(r.json()["quick_staff_request_accounts"], True)
+        self.assertTrue(appsettings.quick_staff_request_accounts())
+        rows = {m["tier"]: m for m in self.preview()["models"]}
+        # Both offered lanes are account lanes here, so each row carries the
+        # same eligibility answer the immediate modes read.
+        for tier, provider in (("haiku", "claude"), ("luna", "openai")):
+            values = [a["value"] for a in rows[tier]["accounts"]]
+            self.assertIn(f"{provider}/primary", values)
+        account = rows["haiku"]["accounts"][0]["value"]
+        r = self.send(self.selection("haiku", "high") | {"account": account})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertIn(f"suggested account {account}", r.json()["message"])
+        current = self.loaded()
+        self.assertEqual(len(current.nodes), 1)          # a request, never a hire
+        item = current._work_find(self.item)[0]
+        self.assertEqual(item["status"], "open")
+        self.assertEqual(item["owner"]["node"], self.owner)
+        self.assertIn(f"Suggested account: {account}.", str(current.d))
+        receipt = next(iter(item["quick_staff_receipts"].values()))
+        self.assertEqual(receipt["selection"]["account"], account)
+
+    def test_request_account_option_on_still_refuses_what_cannot_run(self):
+        appsettings.set_quick_staff_request_accounts(True)
+        self.addCleanup(appsettings.set_quick_staff_request_accounts, False)
+        with patch.object(quickstaff, "eligible_accounts",
+                          return_value=[{"value": "claude-4", "id": "claude-4"}]):
+            r = self.send(self.selection("haiku") | {"account": "claude-9"})
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("cannot run this model right now", r.json()["detail"])
+        with patch.object(quickstaff.staffcache, "tier_needs_account", return_value=False):
+            r = self.send(self.selection("haiku") | {"account": "claude/primary"})
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("routed key", r.json()["detail"])
+        # an account still requires a model to hang on, exactly as in Direct
+        r = self.send(self.selection() | {"account": "claude/primary"})
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("Select a model before choosing an account", r.json()["detail"])
+        # none of the refusals moved the ticket or wrote a receipt
+        item = self.loaded()._work_find(self.item)[0]
+        self.assertEqual(item["status"], "backlogged")
+        self.assertNotIn("quick_staff_receipts", item)
 
     def test_request_does_not_consult_actor_hire_gates(self):
         # Each failing instrument fires in Direct, while Request must not
@@ -658,6 +764,19 @@ class QuickStaffEligibilityTests(unittest.TestCase):
                           return_value={"efforts": {model: ["medium"]}}):
             self.assertEqual(staffcache._supported_efforts("luna"), ["medium"])
         self.assertNotIn("xhigh", staffcache._supported_efforts("flash"))
+
+    def test_openrouter_tiers_offer_the_standard_effort_vocabulary(self):
+        """OpenRouter is a Claude Code lane, not an effort-less fallback.
+
+        The old blanket fallback returned [], which made the renderer omit the
+        effort layer before any request could carry a selected value.
+        """
+        with patch.object(staffcache.providers, "codex_model_inventory",
+                          side_effect=AssertionError("OpenRouter must not use Codex inventory")):
+            self.assertEqual(staffcache._supported_efforts("or-vendor-live"),
+                             list(ledger.Org.EFFORTS))
+        self.assertEqual(staffcache.efforts({"efforts": {}}, "or-vendor-live"),
+                         list(ledger.Org.EFFORTS))
 
     def test_quickstaff_reads_efforts_from_the_snapshot_and_probes_nothing(self):
         """The contract is unchanged; WHERE the probe happens is the fix. A

@@ -29,6 +29,9 @@ Path(os.environ['HOME']).mkdir()
 os.environ['ORGTREE_V2_TOKEN'] = 'staff-progress-only'
 for k in ('ORGTREE_V1_ROOT', 'ORGTREE_V1_DATA_ROOT', 'ORGTREE_V2_PORT'):
     os.environ.pop(k, None)
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from engine.launch import load_app                                   # noqa: E402
 load_app()
 from orgtree import api, ledger, mcptool, store, supervisor          # noqa: E402
@@ -282,8 +285,19 @@ class StaffProgressOptional(unittest.TestCase):
                          ledger.Org.STAFFING_BOUNDARY.format(node='veteran2'))
 
     def test_s5c_backlogged_is_opened_by_the_staffing_as_before(self):
-        """Assignment starts a backlogged item; preservation must not have
-        moved that transition."""
+        """Staffing starts a backlogged item; preservation must not have moved
+        that transition.
+
+        ⚠ STAFFING IS NOW THE ONLY PATH THAT DOES THIS. Since 2026-09-19 a
+        plain `assign` leaves the status alone, backlog included, because
+        ownership and status are independent metadata (see
+        tests/test_work_metadata_isolation.py). Staffing keeps the transition
+        because it creates the seat and starts the agent in the same call, so a
+        `backlogged` item here would mean the docket reporting work as
+        unstarted while an agent is actively running it. It is resolved into an
+        explicit `status` in `api._staff_call`, not as a side effect of the
+        shared assignment core, and a caller's own `status` still wins.
+        """
         wid = self.item('Unstarted', status='backlogged')
 
         out = self.staff(wid, 'opener')
@@ -453,6 +467,45 @@ class StaffProgressOptional(unittest.TestCase):
             with self.subTest(field=field):
                 self.assertIn('OPTIONAL', props[field]['description'].upper())
                 self.assertIn('preserve', props[field]['description'].lower())
+
+    # ── §8 the attention tristate, on THIS door ─────────────────────────
+    # Ticket: allow-every-ticket-metadata-field-to-be-updated.
+    # `_staff_call` reads `attention` with the same absent-vs-false expression
+    # as `orgtree_work update` and `addendum`. That was fixed in dd956c2 along
+    # with the two others, but it was FIXED AND PINNED BY NOTHING: the reviewer
+    # collapsed this call site alone, ran the API-door, staffing and isolation
+    # modules, and got zero failures. A future edit here would therefore
+    # regress in silence — which is exactly how f1 and f3 happened, twice, on
+    # this same ticket. Sibling coverage for the other two doors lives in
+    # tests/test_work_attention_api_door.py; this is the third.
+
+    def test_s8a_staffing_can_take_a_standing_flag_down(self):
+        """`attention: false` through `orgtree_staff` must reach the ledger as
+        an explicit retraction, not be folded into "do not touch"."""
+        wid = self.item(done_so_far=['found it'], working_on_next=['fix it'])
+        self.call('orgtree_work', action='update', slug=wid,
+                  done_so_far=['found it'], working_on_next=['fix it'],
+                  attention=True, attention_reason='please confirm the edge case')
+        self.assertTrue(self.read(wid)['manual_attention'])
+
+        self.staff(wid, 'flag-taker', attention=False)
+
+        self.assertIsNone(self.read(wid)['manual_attention'])
+
+    def test_s8b_a_staffing_that_says_nothing_leaves_the_flag_standing(self):
+        """The other half of the tristate, and the half that makes the first
+        one meaningful: omission must NOT clear. Without this, a call site that
+        cleared unconditionally would pass s8a."""
+        wid = self.item(done_so_far=['found it'], working_on_next=['fix it'])
+        self.call('orgtree_work', action='update', slug=wid,
+                  done_so_far=['found it'], working_on_next=['fix it'],
+                  attention=True, attention_reason='please confirm the edge case')
+
+        self.staff(wid, 'flag-keeper', status='in_progress')
+
+        flag = self.read(wid)['manual_attention']
+        self.assertIsNotNone(flag)
+        self.assertEqual(flag['reason'], 'please confirm the edge case')
 
 
 def mcptool_schema(tool):

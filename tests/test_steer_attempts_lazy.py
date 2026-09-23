@@ -33,6 +33,9 @@ os.environ.update(ORGTREE_DATA=_root.name, HOME=_root.name,
                   USERPROFILE=_root.name,
                   ORGTREE_MIGRATE="1")   # the JSON-era fixture below migrates
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine/backend'))
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from orgtree import store                # noqa: E402
 from orgtree.ledger import Org           # noqa: E402
 if Path(store.DATA_ROOT).resolve() != Path(_root.name).resolve():

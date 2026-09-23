@@ -13,6 +13,9 @@ root = tempfile.TemporaryDirectory(prefix="orgtree-inbox-projection-")
 os.environ["ORGTREE_DATA"] = root.name
 os.environ["ORGTREE_STORE"] = "sqlite"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine/backend"))
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from orgtree import store
 assert Path(store.DATA_ROOT).resolve() == Path(root.name).resolve()
 

@@ -18,6 +18,8 @@ import subprocess
 import sys
 import traceback
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 

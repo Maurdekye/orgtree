@@ -335,10 +335,15 @@ def main():
             page.locator('textarea').wait_for()
             assert page.locator('textarea').input_value() == ''
             assert child.locator('textarea').is_disabled()
-            page.get_by_text('Older unsent drafts', exact=False).click()
-            assert page.locator('.popout-draft-recovery').inner_text().find('removed agent recovery') >= 0
+            # REPOINTED 2026-09-19: the Older unsent drafts panel is retired.
+            # The stranded draft now lands in the agent's sent-message history,
+            # so the recovery route is pressing Up in the composer.
+            assert page.locator('.popout-draft-recovery').count() == 0
+            page.locator('textarea').press('ArrowUp')
+            assert page.locator('textarea').input_value() == 'removed agent recovery'
+            assert page.get_by_text('this message was never sent', exact=False).count() == 1
             child.close()
-            results.append('observed deletion permanently disables predecessor; same-generation namesake gets empty composer and explicit recoverable old text')
+            results.append('observed deletion permanently disables predecessor; same-generation namesake gets empty composer and recovers the old text with Up, marked as never sent')
             page.goto(f'http://127.0.0.1:{server.server_port}/?desk=1&retired=1')
             with page.expect_popup() as popup:
                 page.get_by_role('button', name='Open in new window', exact=True).click()

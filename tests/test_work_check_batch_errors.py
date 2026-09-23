@@ -24,6 +24,8 @@ sys.path.insert(0, str(REPO / "engine" / "backend"))
 
 assert os.environ.get("ORGTREE_DATA") == _DATA.name, "ORGTREE_DATA isolation guard failed"
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
 from orgtree import ledger, mcptool, workevidence  # noqa: E402
 from orgtree.ledger import LedgerError, USER       # noqa: E402
 

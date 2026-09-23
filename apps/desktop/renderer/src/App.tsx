@@ -32,6 +32,8 @@ import { primaryEmail, usageIdentity } from './accountidentity'
 import type { HostIdentity } from './accountidentity'
 import { groupByProvider } from './usagegroups'
 import { bumpLive } from './livebus'
+import { newSync, onBase, onFrame, resetSync } from './treesync'
+import { AgentNavProvider, agentNavProps } from './canvas/agentnav'
 import { AudienceFold, ConfirmModal, MailFolders, MailList, OrgCanvas, OrgRecord, RetiredFold } from './Canvas'
 import { KillSwitch } from './KillSwitch'
 import {
@@ -101,18 +103,21 @@ const USER = '@user'       // typed actor sentinels — a node may be NAMED user
 const SYSTEM = '@system'
 
 // the WS broadcast shapes the handler actually reads (any other event type
-// only triggers the tree refetch) — cast once at the JSON.parse boundary
+// only triggers the tree refetch) — cast once at the JSON.parse boundary.
+// `rev` is the per-org sync revision every state-bearing frame carries
+// (2026-09-19 base+patch protocol — see treesync.ts); sparks have none.
 type WsEvent =
   | { type: 'mail'; from: string; to: string }
-  | { type: 'node_stream'; event_id?: string; reply_quote?: string; node: string; kind: string; text?: string; sticky?: boolean; id?: string;
+  | { type: 'node_stream'; rev?: number; event_id?: string; reply_quote?: string; node: string; kind: string; text?: string; sticky?: boolean; id?: string;
       assistant_row?: unknown;
       segments?: unknown; delivery?: unknown;
       count?: number | null; last_turn_count?: number | null; provider?: string;
       source?: string | null; reason?: string | null; emitted_at_ms?: number;
       waiting?: boolean; state?: string | null;
       forecast?: CacheForecast | null }
-  | { type: 'node_event'; node: string; event: string; was?: string;
+  | { type: 'node_event'; rev?: number; node: string; event: string; was?: string;
       renamed?: Record<string, string> }
+  | { type: 'changed'; rev?: number }
 
 function emitRename(slug: string, value: {
   was?: unknown; node?: unknown; renamed?: unknown
@@ -173,6 +178,25 @@ export const patchMcpReadinessNode = (
     mcp_readiness_state: data.state ?? null,
     mcp_readiness_reason: data.reason ?? null,
   }
+}
+
+/** One patch frame applied to one tree — used by the LIVE ws branches and,
+ *  since the base+patch protocol (2026-09-19, treesync.ts), by the replay
+ *  step that re-applies buffered frames on top of every fetched payload.
+ *  Returns a new tree; never mutates. Unknown kinds return the tree as-is. */
+export const applyPatchFrame = (
+  t: TreePayload, data: Extract<WsEvent, { type: 'node_stream' }>,
+): TreePayload => {
+  if (data.kind === 'cache_forecast') {
+    return { ...t, roots: t.roots.map((n) => patchCacheNode(n, data.node, data.forecast ?? null)) }
+  }
+  if (data.kind === 'mcp_tool_count') {
+    return { ...t, roots: t.roots.map((n) => patchMcpNode(n, data.node, data)) }
+  }
+  if (data.kind === 'mcp_readiness') {
+    return { ...t, roots: t.roots.map((n) => patchMcpReadinessNode(n, data.node, data)) }
+  }
+  return t
 }
 
 /** D-202: the usage button's tooltip named "Claude and Codex" as a literal,
@@ -618,6 +642,8 @@ export default function App() {
     return () => { alive = false }
   }, [])
   const wsRef = useRef<WebSocket | null>(null)
+  // base+patch bookkeeping for the active org's ws stream (treesync.ts)
+  const syncRef = useRef(newSync())
 
   // №17: a toast may carry an UNDO — a 12-second reverse on the gesture just
   // made (mis-drag reorders, accidental promotes, one-click retires)
@@ -696,14 +722,25 @@ export default function App() {
         // ordering is deterministic and the stale one is simply not applied;
         // the switch has already queued its own fetch as `pending`.
         //
-        // ⚠ a NULL resolve is a SUPERSEDED refresh (perf-review round 4):
-        // every bounded attempt raced a ws invalidation, and those same
-        // frames already patched the rendered tree in place — any body
-        // getTree could have returned predates what is on screen. Keep
-        // the render; the entry is deleted, so the next heartbeat or
-        // `changed` frame does a real fetch. The server DID answer, so
-        // this still counts as fetchOk, not a connection error.
-        if (t && wantSlug.current === want) setTree(t)
+        // BASE+PATCH RECONCILE (2026-09-19, treesync.ts): the fetched body
+        // is ALWAYS applied — the old wholesale-discard resolved null when
+        // a fetch raced any ws patch invalidation, and under a working
+        // swarm's continuous patch traffic every bounded attempt raced
+        // one, refreshes starved, and lifecycle state sat visibly stale
+        // for over a minute while the backend was already correct. Any
+        // buffered patch frames NEWER than the body's sync_rev replay on
+        // top of it in rev order; replaying values the body already
+        // carries is an idempotent overwrite. With zero newer frames the
+        // body is applied by reference, so an unchanged 304 keeps React's
+        // Object.is render bail.
+        if (t && wantSlug.current === want) {
+          const replay = onBase(syncRef.current,
+            (t as TreePayload & { sync_rev?: number }).sync_rev)
+          setTree(replay.length
+            ? replay.reduce((acc, f) => applyPatchFrame(
+                acc, f as Extract<WsEvent, { type: 'node_stream' }>), t)
+            : t)
+        }
         fetchOk()
       }).catch(fetchErr).finally(() => {
         treeBusy.current = false
@@ -829,6 +866,9 @@ export default function App() {
     let timer: ReturnType<typeof setTimeout> | null = null
     const connect = () => {
       if (dead) return
+      // a fresh connection may have missed any number of frames — start
+      // the base+patch bookkeeping over; the fetch establishes the base
+      resetSync(syncRef.current)
       refreshTree(slug)
       wsRef.current = openWs(slug, handleWs,
         () => { if (!dead) timer = setTimeout(connect, 1500) })
@@ -840,41 +880,32 @@ export default function App() {
         setMailEvt({ from: data.from, to: data.to, t: Date.now() })
         return
       }
+      // every state-bearing frame advances the sync revision; a GAP means
+      // frames were missed (sleep, drop) and one full fetch catches up
+      const gap = data ? onFrame(syncRef.current, data).gap : false
       if (data?.type === 'node_stream') {
-        if (data.kind === 'cache_forecast') {
-          invalidateTreeCache(slug)   // a 304 must not revert this patch
-          setTree((old) => old ? {
-            ...old,
-            roots: old.roots.map((n) => patchCacheNode(
-              n, data.node, data.forecast ?? null)),
-          } : old)
-          return
-        }
-        if (data.kind === 'mcp_tool_count') {
-          // Inventory is a hard-realtime process fact. Apply the websocket
-          // payload directly; the next ordinary tree fetch is reconciliation,
-          // not the primary update path.
-          invalidateTreeCache(slug)   // a 304 must not revert this patch
-          setTree((old) => old ? {
-            ...old,
-            roots: old.roots.map((n) => patchMcpNode(n, data.node, data)),
-          } : old)
-          window.dispatchEvent(new CustomEvent('orgtree:mcp-tool-count-applied', {
-            detail: {
-              node: data.node,
-              latency_ms: typeof data.emitted_at_ms === 'number'
-                ? Math.max(0, Date.now() - data.emitted_at_ms) : null,
-            },
-          }))
-          return
-        }
-        if (data.kind === 'mcp_readiness') {
-          invalidateTreeCache(slug)   // a 304 must not revert this patch
-          setTree((old) => old ? {
-            ...old,
-            roots: old.roots.map((n) => patchMcpReadinessNode(
-              n, data.node, data)),
-          } : old)
+        if (data.kind === 'cache_forecast'
+            || data.kind === 'mcp_tool_count'
+            || data.kind === 'mcp_readiness') {
+          // Live patch: applied in place immediately (these are
+          // hard-realtime process facts); the frame is also buffered by
+          // onFrame above so a fetch racing it converges by replay
+          // instead of being discarded. The cache entry is still dropped:
+          // a 304 must not revalidate a pre-patch body for the CACHE —
+          // the render itself no longer depends on that.
+          invalidateTreeCache(slug)
+          const frame = data
+          setTree((old) => old ? applyPatchFrame(old, frame) : old)
+          if (frame.kind === 'mcp_tool_count') {
+            window.dispatchEvent(new CustomEvent('orgtree:mcp-tool-count-applied', {
+              detail: {
+                node: frame.node,
+                latency_ms: typeof frame.emitted_at_ms === 'number'
+                  ? Math.max(0, Date.now() - frame.emitted_at_ms) : null,
+              },
+            }))
+          }
+          if (gap) refreshTree(slug)
           return
         }
         // the conversation model is fed ONCE here, not once per mounted view:
@@ -892,6 +923,7 @@ export default function App() {
           // transcript, so the live-feed reconciliation must never sweep it
           ...(data.sticky ? { sticky: true } : {}),
           ...(data.id ? { id: data.id as string } : {}), t: Date.now() })
+        if (gap) refreshTree(slug)
         return   // live feed only — no tree refetch per message
       }
       if (data?.type === 'node_event') {
@@ -1004,7 +1036,7 @@ export default function App() {
   )
 
   return (
-    <CurrentOrg.Provider value={slug}><ObjectMenuBoundary className="app" toast={toast}>
+    <CurrentOrg.Provider value={slug}><AgentNavProvider><ObjectMenuBoundary className="app" toast={toast}>
       <RestartNotice />
       {orgTransitionPrompt}
       {/* no active org: the org list IS the screen */}
@@ -1473,7 +1505,7 @@ export default function App() {
       </WindowMirrors>
       {/* the in-app folder picker: LAST so it stacks above every modal */}
       <FolderPickerHost />
-    </ObjectMenuBoundary></CurrentOrg.Provider>
+    </ObjectMenuBoundary></AgentNavProvider></CurrentOrg.Provider>
   )
 }
 
@@ -2144,7 +2176,8 @@ export function SenderChip({ id, nodes, onFocusAgent }: {
          `AgentName` stops it for the same reason; the two must not drift.
          type="button" for the same reason `AgentName` carries one — this is
          rendered inside forms, where the default submit would be wrong. */
-      <button type="button" className="cc-name cc-name-jump" title={`focus ${id}'s desk`}
+      <button type="button" {...agentNavProps(id)}
+        className="cc-name cc-name-jump" title={`focus ${id}'s desk`}
         onClick={(e) => { e.stopPropagation(); onFocusAgent(id) }}>
         {chip}
       </button>
@@ -2426,9 +2459,9 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
                   onRead={(m: MailEntry) => markRead(slug, [m.id])
                     .then(() => { setReadBump((n) => n + 1); refresh?.() })
                     .catch(() => {})}
-                  onReply={(m: MailEntry, text: string, attachments?: string[]) => {
+                  onReply={(m: MailEntry, text: string, attachments?: string[], notice?: boolean) => {
                     return sendLinkedReply(slug, m.from, text, { kind: 'mail', org: slug, box: 'user', id: m.id },
-                      attachments)
+                      attachments, notice)
                       .then(async (receipt) => {
                         toast([`sent to ${m.from}`, ...(receipt.warnings ?? [])])
                         // Commands have no mail receipt. Read only after a

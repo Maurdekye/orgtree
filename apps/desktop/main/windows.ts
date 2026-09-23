@@ -1,5 +1,6 @@
 import { BrowserWindow, shell, type Session } from 'electron'
-import { externalHttpUrl, scopedHeaders, trustedUiUrl } from './policy'
+import { attachEditMenu } from './editmenu'
+import { externalHttpUrl, isHoldingUrl, scopedHeaders, trustedUiUrl } from './policy'
 
 /** Origin/token sources may be live getters: after a boot-engine recovery the
  *  desktop re-attaches with a NEW per-boot token (usually the same origin,
@@ -10,7 +11,7 @@ type Live = string | (() => string)
 const live = (value: Live): string => typeof value === 'function' ? value() : value
 
 export function assertNativeSender(event: Electron.IpcMainInvokeEvent, main: BrowserWindow | undefined, origin: string): void {
-  if (!main || event.sender !== main.webContents || event.senderFrame !== main.webContents.mainFrame || !trustedUiUrl(event.senderFrame.url, origin)) throw new Error('Native operation refused for this document')
+  if (!main || event.sender !== main.webContents || event.senderFrame !== main.webContents.mainFrame || (!trustedUiUrl(event.senderFrame.url, origin) && !isHoldingUrl(event.senderFrame.url))) throw new Error('Native operation refused for this document')
 }
 
 export function configureEngineSession(session: Session, liveOrigin: Live, liveToken: Live): (window: BrowserWindow, portal?: boolean) => void {
@@ -155,6 +156,12 @@ export function configureWindow(window: BrowserWindow, liveOrigin: Live, isMain:
     throttle()
   }
   window.webContents.on('will-attach-webview', event => event.preventDefault())
+  // Cut/copy/paste in every text field of this window. Registered HERE, and not
+  // once for the main window, because this function recurses into every popout
+  // through `did-create-window` below — so each popped-out surface gets its own
+  // listener on its own webContents, and its menu is popped in the window that
+  // was actually clicked in. See main/editmenu.ts.
+  attachEditMenu(window)
   const routeExternal = (url: string): boolean => {
     const origin = live(liveOrigin), current = window.webContents.getURL()
     const trustedDocument = trustedUiUrl(current, origin) || (!isMain && current === 'about:blank')
