@@ -74,6 +74,23 @@ class JudgeTests(unittest.TestCase):
         security = g.Security(g.SID_SYSTEM, True, SAFE.aces + (allow(CREATOR_OWNER, FULL, flags=0x3),))
         self.assertTrue(g.judge("x", security, g.PAYLOAD_WRITE_MASK))
 
+    def test_unrecognised_entry_types_fail_closed(self):
+        # An object allow entry (0x5) or callback object allow entry (0xB) with
+        # no object type acts as a plain allow on a file; the guard does not
+        # model them, so any unrecognised type is refused, even inherit-only.
+        for ace_type in (0x5, 0xB, 0x6, 0x11, 0xFF):
+            for flags in (0, g.INHERIT_ONLY_ACE):
+                with self.subTest(ace_type=hex(ace_type), flags=flags):
+                    security = g.Security(g.SID_SYSTEM, True, SAFE.aces + (g.Ace(ace_type, flags, 0, "unknown"),))
+                    for mask in (g.PAYLOAD_WRITE_MASK, g.ANCESTOR_WRITE_MASK):
+                        problems = g.judge("x", security, mask)
+                        self.assertEqual(len(problems), 1)
+                        self.assertIn(f"type 0x{ace_type:02x}", problems[0])
+
+    def test_callback_deny_entries_are_ignored_like_plain_deny(self):
+        security = g.Security(g.SID_SYSTEM, True, SAFE.aces + (g.Ace(g.ACCESS_DENIED_CALLBACK_ACE_TYPE, 0, FULL, USER),))
+        self.assertEqual(g.judge("x", security, g.PAYLOAD_WRITE_MASK), [])
+
     def test_ancestors_tolerate_adding_entries_but_not_removal_or_reprotection(self):
         drive_root = g.Security(g.SID_TRUSTED_INSTALLER, True, SAFE.aces + (
             allow(AUTH_USERS, g.FILE_APPEND_DATA | g.FILE_WRITE_DATA | RX),))

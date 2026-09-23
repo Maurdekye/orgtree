@@ -65,8 +65,11 @@ ANCESTOR_WRITE_MASK = (FILE_DELETE_CHILD | DELETE | WRITE_DAC | WRITE_OWNER
                        | ACCESS_SYSTEM_SECURITY | GENERIC_ALL)
 
 ACCESS_ALLOWED_ACE_TYPE = 0x0
+ACCESS_DENIED_ACE_TYPE = 0x1
 ACCESS_ALLOWED_CALLBACK_ACE_TYPE = 0x9
+ACCESS_DENIED_CALLBACK_ACE_TYPE = 0xA
 ALLOW_TYPES = frozenset({ACCESS_ALLOWED_ACE_TYPE, ACCESS_ALLOWED_CALLBACK_ACE_TYPE})
+DENY_TYPES = frozenset({ACCESS_DENIED_ACE_TYPE, ACCESS_DENIED_CALLBACK_ACE_TYPE})
 INHERIT_ONLY_ACE = 0x08
 
 FILE_ATTRIBUTE_REPARSE_POINT = 0x400
@@ -109,8 +112,15 @@ def judge(path: str, security: Security, write_mask: int) -> list[str]:
         problems.append(f"{path}: has no DACL, so everyone has full access")
         return problems
     for ace in security.aces:
-        if ace.ace_type not in ALLOW_TYPES or ace.flags & INHERIT_ONLY_ACE:
-            continue  # deny entries only narrow access; inherit-only ones do not apply here
+        if ace.ace_type in DENY_TYPES:
+            continue  # deny entries only narrow access
+        if ace.ace_type not in ALLOW_TYPES:
+            # Object and other entry types can still grant access on a file;
+            # this module does not model them, so it refuses them (fail closed).
+            problems.append(f"{path}: has an entry of unrecognised type 0x{ace.ace_type:02x}")
+            continue
+        if ace.flags & INHERIT_ONLY_ACE:
+            continue  # applies only to children, which are checked themselves
         if ace.sid in TRUSTED_SIDS:
             continue
         if ace.mask & write_mask:
@@ -331,13 +341,13 @@ def read_file_security(path: Path) -> Security:
             if not advapi.GetAce(dacl.value, index, ctypes.byref(pointer)):
                 raise ctypes.WinError(ctypes.get_last_error())
             ace_header = AceHeader.from_address(pointer.value)
-            if ace_header.AceType in ALLOW_TYPES or ace_header.AceType == 0x1:  # 0x1 = denied
+            if ace_header.AceType in ALLOW_TYPES or ace_header.AceType in DENY_TYPES:
                 body = AllowAce.from_address(pointer.value)
                 sid = sid_text(pointer.value + AllowAce.SidStart.offset)
                 aces.append(Ace(ace_header.AceType, ace_header.AceFlags, body.Mask, sid))
             else:
-                # Object or conditional entries of other kinds never belong on
-                # a file; an unknown allow-like entry is reported, not skipped.
+                # Any other type (object, compound, ...) is kept with its type
+                # so judge() refuses it: never silently skipped.
                 aces.append(Ace(ace_header.AceType, ace_header.AceFlags, 0, "unknown"))
         return Security(owner_sid, True, tuple(aces))
     finally:
