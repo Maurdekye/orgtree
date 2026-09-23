@@ -7,6 +7,14 @@ import {
   acceptanceLaunchArgs, runtimeManifest, prerequisites, phaseResult,
 } from './run.mjs'
 
+function macosPreflight(target) {
+  const result = spawnSync(process.execPath, [path.join(target, 'tools/verify-macos-preflight.mjs')], {
+    cwd: target, encoding: 'utf8', windowsHide: true,
+  })
+  try { return JSON.parse(result.stdout) }
+  catch { return { status: 'FAIL', reason: 'verify-macos-preflight.mjs produced no parsable output', stderr: result.stderr } }
+}
+
 const here = path.dirname(fileURLToPath(import.meta.url))
 
 function main() {
@@ -27,6 +35,16 @@ function main() {
     || path.join(target, 'node_modules/electron/dist', process.platform === 'win32' ? 'electron.exe' : 'electron')
   const python = process.env.ORGTREE_ACCEPTANCE_PYTHON
     || path.join(target, 'engine/runtime', process.platform === 'win32' ? 'python.exe' : 'bin/python3')
+
+  // Required first step: fail loud on the known process-lifecycle blockers
+  // rather than attempting the real turn and surfacing a confusing mid-run
+  // failure (Task 2's gate, tools/verify-macos-preflight.mjs).
+  const preflight = macosPreflight(target)
+  if (preflight.status !== 'PASS') {
+    console.log(JSON.stringify({ status: 'BLOCKED', preflight }))
+    process.exitCode = 2
+    return
+  }
 
   const missing = prerequisites(target, electron, python)
   if (missing.length) {
