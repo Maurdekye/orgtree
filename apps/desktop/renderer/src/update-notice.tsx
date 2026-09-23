@@ -85,7 +85,7 @@ export function UpdateNotice({ transientMs = 6000 }: { transientMs?: number } = 
           void desktop()!.openReleasePage!().then(result => {
             if (!result.ok) setError('Couldn’t open the release page — copy the link from Check for Updates and open it manually.')
           })
-        }}>{`Orgtree ${status.version} available — View release`}</button>
+        }}>{status.version ? `Orgtree ${status.version} available — View release` : 'A new version is available — View release'}</button>
       : status.state === 'pending-idle' && desktop()?.installUpdate
       ? <button disabled={applying}
           /* The attention glow (user 2026-09-11), ONLY while a download is

@@ -107,6 +107,20 @@ test('darwin pending-idle offers View release, never an auto-apply Update now bu
   await teardown()
 })
 
+test('darwin pending-idle with no version falls back to a version-less label, never "undefined"', async () => {
+  // Documented race (see update-notice.tsx comment above updateActionTitle):
+  // a fast cached autoDownload can fire update-downloaded before the check's
+  // own promise settles, leaving `version` unset at pending-idle.
+  const bridge = { platform: 'darwin', openReleasePage: async () => ({ ok: true }) }
+  const { push, teardown } = await mount({ state: 'idle' }, 50, bridge)
+  await push({ state: 'pending-idle' })
+  const button = document.querySelector('button')
+  assert.ok(button, 'a mac release link must render even without a known version')
+  assert.equal(button.textContent, 'A new version is available — View release')
+  assert.doesNotMatch(button.textContent, /undefined/)
+  await teardown()
+})
+
 test('darwin View release opens the release page, and reports the documented fallback on failure', async () => {
   let calls = 0
   const bridge = { platform: 'darwin', openReleasePage: async () => { calls++; return { ok: false } } }
