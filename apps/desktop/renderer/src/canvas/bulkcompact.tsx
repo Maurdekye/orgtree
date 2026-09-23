@@ -11,8 +11,9 @@
 // ⚠ NOTHING HERE IS A NEW DEFINITION OF "MAY BE CHEAP-COMPACTED". Each target
 // goes through the one existing operator op, `cheap_compact`, which keeps every
 // backend check it already had (authority, live seat, no open background
-// tasks). The plan's skip rules are the desk's own `canCompactContext` gate
-// (desk.tsx) — the only door the single action has — plus ONE rule the single
+// tasks). The plan's skip rules follow the desk's own `canCompactContext` gate
+// (desk.tsx; planBulkCompact names the one, safe-side difference) — the only
+// door the single action has — plus ONE rule the single
 // action does not need: an agent that is MID-TURN is skipped, never interrupted
 // and never has its session swapped out from under the running turn. The
 // single op has no in-flight guard (supervisor.py says so at the cli-compaction
@@ -73,8 +74,13 @@ export function allAgents(map: Map<string, CanvasNode>): CanvasNode[] {
 
 /**
  * Split `targets` into what the run will attempt and what it will skip.
- * The skip rules mirror `canCompactContext` in desk.tsx — the gate that decides
+ * The skip rules follow `canCompactContext` in desk.tsx — the gate that decides
  * whether the single cheap-compact is offered at all — plus the mid-turn rule.
+ * ⚠ ONE DIFFERENCE, on the safe side: an open desk reads the context size from
+ * its chat payload first (`chat?.occupancy ?? node.occupancy`), and a menu has
+ * no chat payload, so this reads the tree's `occupancy` only. An agent whose
+ * size is known only to its open desk is skipped as "no measured context"
+ * rather than compacted.
  */
 export function planBulkCompact(targets: CanvasNode[]): BulkCompactPlan {
   const eligible: CanvasNode[] = []
@@ -154,7 +160,11 @@ export async function cheapCompactAgents(scope: string, plan: BulkCompactPlan,
     }
     for (const target of plan.eligible) {
       try {
-        await op({ op: 'cheap_compact', node: target.id, if_idle: true })
+        // quiet: the final summary reports every refusal, so the shared op
+        // wrapper must not also toast "error: …" for a target the summary
+        // calls a skip
+        await op({ op: 'cheap_compact', node: target.id, if_idle: true },
+          { quiet: true })
         outcome.compacted.push(target.id)
       } catch (e) {
         const err = e as Error & { status?: number }

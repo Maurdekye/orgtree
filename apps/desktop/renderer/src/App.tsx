@@ -980,7 +980,7 @@ export default function App() {
   }, [slug, refreshTree])
 
   // op fires only from the active-org canvas — slug is set there (hence !)
-  const op = useCallback((body: OpRequest) =>
+  const op = useCallback((body: OpRequest, opts?: { quiet?: boolean }) =>
     runOp(slug!, body)
       .then((r) => {
         if ((r as { renamed?: unknown; was?: unknown; node?: unknown }).renamed) {
@@ -1003,7 +1003,8 @@ export default function App() {
         } else toast(r.warnings)
         refreshTree(slug); refreshOrgs(); return r
       })
-      .catch((e: Error) => { toast([`error: ${e.message}`]); throw e }),
+      // `quiet`: the caller reports this failure itself (OpOptions)
+      .catch((e: Error) => { if (!opts?.quiet) toast([`error: ${e.message}`]); throw e }),
     [slug, toast, refreshTree, refreshOrgs])
 
   // ⚠ NO `setShowSettings(false)` HERE ANY MORE. It existed so that opening

@@ -818,7 +818,10 @@ export interface MailEvent { from: string; to: string; t: number }
 // a client-side accumulation, and types.ts may not import from here (this file
 // imports from it). Re-exported so existing importers are untouched.
 export type { ActivityInfo } from '../types'
-export type OpFn = (body: OpRequest) => Promise<OpResult>
+/** `quiet`: the caller reports the failure itself (the bulk cheap-compaction
+ *  summary), so the shared wrapper must not also toast "error: …" for it. */
+export interface OpOptions { quiet?: boolean }
+export type OpFn = (body: OpRequest, opts?: OpOptions) => Promise<OpResult>
 /** a chat chip's mail pointer — routed to whichever box holds the mail */
 export type MailLinkFn = (
   m: { id?: string | null; to?: string | null } | null | undefined,

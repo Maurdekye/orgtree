@@ -152,18 +152,23 @@ const failWith = (message: string, status?: number) =>
 test('§3a one op per eligible agent, in order, each with if_idle; a refusal '
   + 'does not stop the rest, and the summary names every outcome', async () => {
   const sent: OpRequest[] = []
+  const quiet: (boolean | undefined)[] = []
   const said: string[][] = []
   const plan = planBulkCompact([
     agent('a'), agent('b'), agent('c'), agent('d'), agent('busy', { busy: true }),
   ])
-  const outcome = await cheapCompactAgents('all agents', plan, async (body) => {
+  const outcome = await cheapCompactAgents('all agents', plan, async (body, opts) => {
     sent.push(body)
+    quiet.push(opts?.quiet)
     if (body.node === 'b') throw failWith('b still owns open background tasks', 422)
     if (body.node === 'c') throw failWith('c is mid-turn — not cheap-compacted', 409)
     return {} as OpResult
   }, (lines) => { if (lines) said.push(lines) })
   assert.deepEqual(sent, ['a', 'b', 'c', 'd'].map((node) =>
     ({ op: 'cheap_compact', node, if_idle: true })))
+  // every call is QUIET: the summary reports refusals, so the shared op
+  // wrapper must not add an "error: …" toast for a target it calls a skip
+  assert.deepEqual(quiet, [true, true, true, true])
   assert.ok(outcome)
   assert.deepEqual(outcome!.compacted, ['a', 'd'])
   // the 409 is the backend's mid-turn refusal: a SKIP, not a failure
