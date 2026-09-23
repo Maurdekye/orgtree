@@ -20,6 +20,8 @@ import path from 'node:path'
 // `'Orgtree Background Engine'` (tools/boot-engine-task.ps1:3).
 export const LABEL = 'com.maurdekye.orgtree.boot-engine'
 
+export type AutostartState = 'ok' | 'not-installed' | 'disabled' | 'unknown'
+
 export interface PlistOptions {
   label: string
   pythonPath: string
@@ -129,4 +131,56 @@ export function uninstall(label: string, uid?: number): void {
     // already removed, or never installed — nothing left to surface
   }
   fs.rmSync(plistPath(label), { force: true })
+}
+
+/** Best-effort: does a `sfltool dumpbtm` block for this label carry a
+ *  `Disposition:` that includes `disallowed`? `sfltool` is undocumented and
+ *  private (Pitfall 4) — this is enrichment only, never the sole signal,
+ *  and callers must treat any error here as "no match", not "disabled". */
+function btmDisallowsLabel(dumpbtmOutput: string, label: string): boolean {
+  return dumpbtmOutput
+    .split(/\n\s*\n/)
+    .some(block => block.includes(label) && /Disposition:.*disallowed/i.test(block))
+}
+
+/** Three-layer, exit-code-first classification (Pattern 3, corrected from
+ *  D-04). `launchctl print`'s exit code is the primary, stable signal
+ *  (Pitfall 4 — its stdout text is explicitly disclaimed as unstable by
+ *  Apple and must never be parsed as a contract). `print-disabled` is the
+ *  secondary signal for launchd's own persistent, re-enableable disable.
+ *  `sfltool dumpbtm`'s BTM disable is the tertiary, best-effort signal for
+ *  the case with no programmatic re-enable (D-04's real match). Never
+ *  throws. */
+export function detectState(
+  label: string,
+  deps: { execFileSyncImpl?: typeof execFileSync; uid?: number } = {},
+): AutostartState {
+  const uid = deps.uid ?? process.getuid!()
+  const exec = deps.execFileSyncImpl ?? execFileSync
+
+  try {
+    exec('launchctl', ['print', `gui/${uid}/${label}`])
+  } catch {
+    return 'not-installed'
+  }
+
+  let printDisabledOutput: string
+  try {
+    printDisabledOutput = exec('launchctl', ['print-disabled', `gui/${uid}`]).toString()
+  } catch {
+    // print-disabled succeeding is what makes 'ok' trustworthy below — a
+    // failed call here must not fall through to 'ok'.
+    return 'unknown'
+  }
+  if (printDisabledOutput.includes(label)) return 'disabled'
+
+  try {
+    const dumpbtmOutput = exec('sfltool', ['dumpbtm']).toString()
+    if (btmDisallowsLabel(dumpbtmOutput, label)) return 'disabled'
+  } catch {
+    // sfltool absent or unparsable — never propagates or downgrades the
+    // result; falls through to 'ok'.
+  }
+
+  return 'ok'
 }
