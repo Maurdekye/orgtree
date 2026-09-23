@@ -23,6 +23,18 @@ class WtsSessionInfo(ctypes.Structure):
                 ("State", ctypes.c_int)]
 
 
+WTS_ACTIVE = 0
+WTS_DISCONNECTED = 4
+
+
+def signed_in_sessions(rows: list[WtsSessionInfo]) -> list[int]:
+    """Prefer attached logons, then real disconnected logons awaiting return."""
+    candidates = [row for row in rows if row.SessionId != 0 and
+                  row.State in (WTS_ACTIVE, WTS_DISCONNECTED)]
+    candidates.sort(key=lambda row: row.State != WTS_ACTIVE)
+    return [int(row.SessionId) for row in candidates]
+
+
 class SessionSource(Protocol):
     def active_sessions(self) -> list[int]: ...
     def query_verified(self, session_id: int, sid: str) -> int: ...
@@ -45,8 +57,7 @@ class WindowsWtsSource(WindowsSessionTokens):
                                                ctypes.byref(count)):
             raise ctypes.WinError(ctypes.get_last_error())
         try:
-            return [int(rows[index].SessionId) for index in range(count.value)
-                    if rows[index].State == 0 and rows[index].SessionId != 0]
+            return signed_in_sessions([rows[index] for index in range(count.value)])
         finally:
             if rows:
                 self.wts.WTSFreeMemory(rows)
@@ -80,7 +91,7 @@ class BridgeMonitor:
             self._revoked.intersection_update(sessions)
             sessions = [session for session in sessions if session not in self._revoked]
         current = self.state.status()["sessionId"]
-        if current in sessions:
+        if sessions and current == sessions[0]:
             return
         if isinstance(current, int):
             self.state.signed_out(current)

@@ -1,7 +1,8 @@
 import unittest
 
 from engine.winservice import scm
-from engine.winservice.bridge_monitor import BridgeMonitor
+from engine.winservice.bridge_monitor import (BridgeMonitor, WtsSessionInfo,
+                                              signed_in_sessions)
 from engine.winservice.bridge_state import BridgeState
 
 
@@ -24,6 +25,31 @@ class FakeSource:
 
 
 class MonitorTests(unittest.TestCase):
+    def test_disconnected_real_logon_remains_eligible_until_logoff(self):
+        rows = [WtsSessionInfo(7, None, 4), WtsSessionInfo(8, None, 0),
+                WtsSessionInfo(9, None, 6), WtsSessionInfo(0, None, 0)]
+        self.assertEqual(signed_in_sessions(rows), [8, 7])
+        context = scm.ServiceContext(scm.StatusReporter(lambda _status: None))
+        state = BridgeState[int]()
+        source = FakeSource()
+        source.sessions = [7]
+        source.owners = {7: "operator"}
+        monitor = BridgeMonitor("operator", context, state, source)
+        monitor.reconcile()
+        self.assertEqual(state.status()["sessionId"], 7)
+        self.assertEqual(state.begin_turn("from-disconnected"), 107)
+        source.sessions = [8, 7]  # an attached logon takes priority
+        source.owners[8] = "operator"
+        monitor.reconcile()
+        self.assertEqual(state.status()["sessionId"], 8)
+        self.assertEqual(source.closed, [])  # old turn still owns its token
+        state.finish_turn("from-disconnected")
+        self.assertEqual(source.closed, [107])
+        source.sessions = [7]
+        monitor.reconcile()
+        context.on_session_logoff(7)
+        self.assertIsNone(state.begin_turn("after-logoff"))
+
     def test_foreign_session_cannot_activate_bridge_and_logoff_is_immediate(self):
         context = scm.ServiceContext(scm.StatusReporter(lambda _status: None))
         state = BridgeState[int]()
