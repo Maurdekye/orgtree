@@ -416,7 +416,7 @@ export function updateReplacementInFlight(status: UpdateStatus): boolean {
 }
 
 /** Update controls stay in one native menu, so progress also changes while open. */
-export function trayUpdateState(status: UpdateStatus, downloaded: boolean, applying: boolean, hold?: string) {
+export function trayUpdateState(status: UpdateStatus, downloaded: boolean, applying: boolean, hold?: string, platform: string = process.platform) {
   const version = status.version ? ` ${status.version}` : ''
   const labels: Record<UpdateState, string> = {
     idle: 'Updates have not been checked', checking: 'Checking for updates...',
@@ -437,15 +437,21 @@ export function trayUpdateState(status: UpdateStatus, downloaded: boolean, apply
   // holding it - so the install item stays enabled and only the status line
   // changes. Applying outranks the hold: it describes work already under way.
   const ready = downloaded && !busy ? (hold ? `Update${version}: ${hold}` : labels['pending-idle'] + recheck) : labels[status.state]
+  // macOS never offers an auto-apply install (UPD-01): the install row is
+  // replaced entirely by a "View release" row pointing at MANUAL_UPGRADE_URL,
+  // visible exactly when a downloaded update is sitting there pending-idle -
+  // the same trigger the mac update-notice component (Task 1) uses.
+  const isMac = platform === 'darwin'
   return {
     label: applying ? 'Installing update...' : ready,
     // Visible throughout, so a check does not make the item flicker out of an
     // open menu and back; enabled only while there is something to install and
-    // nothing in flight that could be replacing it.
-    installVisible: downloaded, installEnabled: downloaded && !applying && !busy,
+    // nothing in flight that could be replacing it. Mac never offers install.
+    installVisible: !isMac && downloaded, installEnabled: !isMac && downloaded && !applying && !busy,
     // A prepared update no longer disables checking (user 2026-09-11): being
     // able to replace it with a newer release is the entire point.
     checkEnabled: !applying && !busy,
+    ...(isMac ? { viewReleaseVisible: status.state === 'pending-idle', viewReleaseLabel: `Orgtree${version} available — View release` } : {}),
   }
 }
 
@@ -512,14 +518,18 @@ export function updateOfferIsNewer(offered: string | undefined, prepared: string
 
 export function refreshTrayUpdateMenu(menu: { getMenuItemById(id: string): {
   label: string; enabled: boolean; visible: boolean
-} | null }, status: UpdateStatus, downloaded: boolean, applying: boolean, hold?: string): void {
-  const view = trayUpdateState(status, downloaded, applying, hold)
+} | null }, status: UpdateStatus, downloaded: boolean, applying: boolean, hold?: string, platform: string = process.platform): void {
+  const view = trayUpdateState(status, downloaded, applying, hold, platform)
   const label = menu.getMenuItemById('update-status')
   const install = menu.getMenuItemById('update-install')
   const check = menu.getMenuItemById('update-check')
   if (label) label.label = view.label
   if (install) { install.visible = view.installVisible; install.enabled = view.installEnabled }
   if (check) check.enabled = view.checkEnabled
+  if (platform === 'darwin') {
+    const viewRelease = menu.getMenuItemById('update-view-release')
+    if (viewRelease) { viewRelease.visible = view.viewReleaseVisible ?? false; viewRelease.label = view.viewReleaseLabel ?? viewRelease.label }
+  }
 }
 
 /** Whether Windows will quote `/D=<directory>` on the way to the installer.

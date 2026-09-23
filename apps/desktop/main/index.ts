@@ -310,7 +310,7 @@ else {
     return dialog.showMessageBox({ type: 'error', message: 'Orgtree could not install the update.', detail })
   }
   const refreshTrayUpdates = () => {
-    if (trayMenu) refreshTrayUpdateMenu(trayMenu, updater.current(), downloaded, updateApplying || quitting, updateHold)
+    if (trayMenu) refreshTrayUpdateMenu(trayMenu, updater.current(), downloaded, updateApplying || quitting, updateHold, process.platform)
     const automatic = trayMenu?.getMenuItemById('update-automatic')
     if (automatic) {
       automatic.checked = preferences.get().automaticUpdates
@@ -360,15 +360,26 @@ else {
     // the four update rows would only mislead: their ids are absent, which
     // refreshTrayUpdates already tolerates, and one honest line takes their
     // place. Not "up to date" - a build with no feed cannot claim that.
-    const updateRows: Electron.MenuItemConstructorOptions[] = updatesSupported ? [
-      { id: 'update-status', label: 'Updates have not been checked', enabled: false },
-      { id: 'update-install', label: 'Update now', visible: downloaded, enabled: !updateApplying && !quitting,
-        click: () => { void requestUpdateInstall().catch(error => { void showUpdateInstallError(error) }) } },
-      { id: 'update-automatic', label: 'Automatic updates', type: 'checkbox', checked: prefs.automaticUpdates,
-        enabled: canInstallUnattended(),
-        click: item => setPreferences({ automaticUpdates: item.checked }) },
-      { id: 'update-check', label: 'Check for updates', click: () => { void checkForUpdates().catch(() => {}) } },
-    ] : [{ label: 'Updates are disabled in this development build', enabled: false }]
+    // macOS never offers auto-install (UPD-01): update-install/update-automatic
+    // are dropped entirely and replaced by a "View release" row that opens the
+    // same MANUAL_UPGRADE_URL the mac update-notice component (Task 1) uses -
+    // one implementation, two entry points, never a forked copy.
+    const updateRows: Electron.MenuItemConstructorOptions[] = updatesSupported
+      ? process.platform === 'darwin' ? [
+        { id: 'update-status', label: 'Updates have not been checked', enabled: false },
+        { id: 'update-view-release', label: 'View release', visible: false,
+          click: () => { void shell.openExternal(MANUAL_UPGRADE_URL).catch(() => {}) } },
+        { id: 'update-check', label: 'Check for updates', click: () => { void checkForUpdates().catch(() => {}) } },
+      ] : [
+        { id: 'update-status', label: 'Updates have not been checked', enabled: false },
+        { id: 'update-install', label: 'Update now', visible: downloaded, enabled: !updateApplying && !quitting,
+          click: () => { void requestUpdateInstall().catch(error => { void showUpdateInstallError(error) }) } },
+        { id: 'update-automatic', label: 'Automatic updates', type: 'checkbox', checked: prefs.automaticUpdates,
+          enabled: canInstallUnattended(),
+          click: item => setPreferences({ automaticUpdates: item.checked }) },
+        { id: 'update-check', label: 'Check for updates', click: () => { void checkForUpdates().catch(() => {}) } },
+      ]
+      : [{ label: 'Updates are disabled in this development build', enabled: false }]
     // The mail hub's running status, on the right-click menu (user
     // requirement 2026-09-15). One honest line from the last stats poll:
     // running (with its port, and whether it is exposed beyond this

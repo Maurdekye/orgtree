@@ -19,10 +19,12 @@ app.whenReady().then(async () => {
     { id: 'update-check', label: 'Check for updates' },
   ])
   const statusItem = updateMenu.getMenuItemById('update-status')!
-  refreshTrayUpdateMenu(updateMenu, { state: 'downloading', version: '2.0.3', percent: 37 }, false, false)
+  // win32 explicit: this probe exercises the install-row behaviour, which
+  // must stay deterministic regardless of the host OS running the probe.
+  refreshTrayUpdateMenu(updateMenu, { state: 'downloading', version: '2.0.3', percent: 37 }, false, false, undefined, 'win32')
   assert.match(statusItem.label, /37%/)
   assert.equal(updateMenu.getMenuItemById('update-install')!.visible, false)
-  refreshTrayUpdateMenu(updateMenu, { state: 'pending-idle', version: '2.0.3' }, true, false)
+  refreshTrayUpdateMenu(updateMenu, { state: 'pending-idle', version: '2.0.3' }, true, false, undefined, 'win32')
   assert.equal(updateMenu.getMenuItemById('update-status'), statusItem)
   assert.match(statusItem.label, /ready to install/)
   assert.equal(updateMenu.getMenuItemById('update-install')!.visible, true)
