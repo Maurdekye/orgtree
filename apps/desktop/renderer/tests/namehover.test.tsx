@@ -178,23 +178,101 @@ test('zooming from far into medium under a still pointer shows the overlay; zoom
   }
 })
 
-test('stylesheet: the medium-zoom overlay has a backdrop, extends freely and never moves', () => {
+// ---- stylesheet guards. jsdom does no layout, so the "same position, no lift,
+// under the controls" guarantees are held here, against the CSS text itself.
+
+const readCss = () => readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+
+/** every innermost `selectors { body }` block, @media contents included */
+const cssRules = (css: string) => [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+  .map((m) => ({ selectors: m[1].split(',').map((s) => s.trim()), body: m[2] }))
+
+const parseDecls = (body: string) => body.split(';').map((d) => d.trim()).filter(Boolean)
+  .map((d) => {
+    const i = d.indexOf(':')
+    return [d.slice(0, i).trim().toLowerCase(), d.slice(i + 1).trim()] as const
+  })
+
+/** the merged declarations of every rule whose selector list names `sel` exactly */
+function declsFor(css: string, sel: string): Map<string, string> {
+  const out = new Map<string, string>()
+  for (const r of cssRules(css)) {
+    if (r.selectors.includes(sel)) for (const [p, v] of parseDecls(r.body)) out.set(p, v)
+  }
+  return out
+}
+
+/** margin/padding shorthand -> [top, right, bottom, left] in px */
+function box(v: string): number[] {
+  const parts = v.split(/\s+/).map((s) => {
+    assert.match(s, /^-?\d+(\.\d+)?(px)?$/, `box value ${s} is plain px`)
+    return Number(s.replace(/px$/, ''))
+  })
+  const [t, r = t, b = t, l = r] = parts
+  return [t, r, b, l]
+}
+
+const OVERLAY = '.sq-head .name-full'
+
+test('stylesheet: the overlay has a backdrop, runs on past the card, and is one rule', () => {
+  const css = readCss()
+  const d = declsFor(css, OVERLAY)
+  assert.ok(d.size, `${OVERLAY} rule exists`)
+  assert.equal(d.get('position'), 'absolute')
+  assert.equal(d.get('white-space'), 'nowrap', 'one line, running past the card edge')
+  assert.equal(d.get('background'), 'var(--tip-panel)', 'backdrop behind the text')
+  assert.equal(d.get('pointer-events'), 'none', 'presses still land on the card')
+  assert.deepEqual(declsFor(css, '.sq-title').get('position'), 'relative',
+    'positioned against the name row')
+  // no other rule anywhere (a :hover lift, a media override) may reach it
+  const reaching = cssRules(css).filter((r) => r.selectors.some((s) => /\.name-full\b/.test(s)))
+  assert.deepEqual(reaching.map((r) => r.selectors.join(', ')), [OVERLAY],
+    'exactly one rule styles .name-full')
+})
+
+test('stylesheet: the overlay sits exactly on the cut name and never moves (no lift)', () => {
+  const css = readCss()
+  const rule = cssRules(css).find((r) => r.selectors.includes(OVERLAY))!
+  assert.doesNotMatch(rule.body, /!important/, 'nothing may outrank the inline left/top')
+  // A WHITELIST, not a blacklist: top/bottom/right/left/inset, translate,
+  // rotate, scale, transform, offset-*, line-height, vertical-align, margin-*
+  // longhands… every way of moving it is refused by not being on this list.
+  const allowed = new Set(['position', 'z-index', 'margin', 'padding', 'font-family',
+    'font-weight', 'font-size', 'color', 'white-space', 'background', 'border-radius',
+    'box-shadow', 'pointer-events', 'transition', 'animation'])
+  const d = declsFor(css, OVERLAY)
+  for (const p of d.keys()) assert.ok(allowed.has(p), `${OVERLAY} may not declare ${p}`)
+  assert.equal(d.get('transition'), 'none')
+  assert.equal(d.get('animation'), 'none')
+  // the margin cancels the padding exactly, so the text lands where the name's
+  // text is: same x, same baseline
+  const [mt, mr, mb, ml] = box(d.get('margin')!)
+  const [pt, , , pl] = box(d.get('padding')!)
+  assert.equal(mt, -pt, 'margin-top cancels padding-top (no vertical shift)')
+  assert.equal(ml, -pl, 'margin-left cancels padding-left (no horizontal shift)')
+  assert.equal(mr, 0)
+  assert.equal(mb, 0)
+  // same glyphs as the name it covers — compared, not hard-coded
+  const name = declsFor(css, '.sq-head .name')
+  for (const p of ['font-family', 'font-weight', 'font-size']) {
+    assert.ok(name.get(p), `.sq-head .name declares ${p}`)
+    assert.equal(d.get(p), name.get(p), `overlay ${p} matches the name's`)
+  }
+})
+
+test('stylesheet: the overlay stays under the card controls and hire strips', () => {
+  const css = readCss()
+  const z = Number(declsFor(css, OVERLAY).get('z-index'))
+  assert.ok(Number.isFinite(z), 'overlay declares a numeric z-index')
+  for (const sel of ['.gearbtn', '.mailbtn', '.expandbtn', '.retirebtn', '.dismissbtn', '.hsof']) {
+    const cz = Number(declsFor(css, sel).get('z-index'))
+    assert.ok(Number.isFinite(cz), `${sel} declares a numeric z-index`)
+    assert.ok(z < cz, `overlay z ${z} is below ${sel} z ${cz}`)
+  }
+})
+
+test('stylesheet: the far-zoom lift reveal is unchanged', () => {
   const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
-  const m = css.match(/\.sq-head \.name-full\s*\{([^}]*)\}/)
-  assert.ok(m, '.sq-head .name-full rule exists')
-  const body = m![1]
-  assert.match(body, /position:\s*absolute/)
-  assert.match(body, /white-space:\s*nowrap/, 'one line, running past the card edge')
-  assert.match(body, /background:\s*var\(--tip-panel\)/, 'backdrop behind the text')
-  assert.match(body, /pointer-events:\s*none/, 'presses still land on the card')
-  assert.match(body, /transition:\s*none/)
-  assert.match(body, /animation:\s*none/)
-  assert.doesNotMatch(body, /max-width|overflow|text-overflow|transform/,
-    'never clipped again and never transformed')
-  assert.match(css, /\.sq-title\s*\{\s*position:\s*relative;\s*\}/, 'anchored to the name row')
-  // no other rule may move or animate it (e.g. a :hover lift)
-  const others = [...css.matchAll(/([^{}]*\.name-full[^{}]*)\{([^}]*)\}/g)]
-  assert.equal(others.length, 1, 'exactly one rule styles .name-full')
-  // far-zoom lift is untouched
   assert.match(css, /\.sq\.mini:hover \.sq-far-tier,\s*\n\.sq\.mini:focus-within \.sq-far-tier,\s*\n\.sq\.mini:focus-visible \.sq-far-tier \{\s*top: -26px;/)
 })
