@@ -87,6 +87,11 @@ export interface ProviderLoginStatus {
   error?: string
 }
 export interface DesktopBridge {
+  /** `process.platform` from the main process, surfaced so the renderer can
+   *  branch on OS-specific chrome (e.g. macOS never offers auto-apply
+   *  updates). A plain value, not an IPC round trip — it never changes for
+   *  the lifetime of the process. */
+  platform: string
   getAppVersion(): Promise<string>
   installUpdate(): Promise<void>
   getStatus(): Promise<EngineStatus>
@@ -119,6 +124,10 @@ export interface DesktopBridge {
   revealFile?(path: string): Promise<{ ok: boolean; error?: string }>
   getUpdateStatus(): Promise<UpdateStatus>
   getUpdateCapability?(): Promise<UpdateCapability>
+  /** macOS: opens MANUAL_UPGRADE_URL (the releases page) in the default
+   *  browser via the main process — the renderer never gets a raw URL to
+   *  pass, closing off arbitrary-external-URL requests at the IPC boundary. */
+  openReleasePage?(): Promise<{ ok: boolean; error?: string }>
   /** Window commands for ONE popped-out desk or modal, named by the frame name
    *  the renderer opened it under. Separate from the window commands above,
    *  which always act on the main window: a popout's own header must never

@@ -95,6 +95,40 @@ test('pending-idle stays visible (no auto-hide) and reports the ready-to-install
   await teardown()
 })
 
+// ── macOS: never an auto-apply button, always "View release" (UPD-01) ─────
+test('darwin pending-idle offers View release, never an auto-apply Update now button', async () => {
+  const bridge = { platform: 'darwin', openReleasePage: async () => ({ ok: true }) }
+  const { push, teardown } = await mount({ state: 'idle' }, 50, bridge)
+  await push({ state: 'pending-idle', version: '2.0.5' })
+  assert.match(document.querySelector('.update-notice').textContent, /Orgtree 2\.0\.5 available.*View release/)
+  const button = document.querySelector('button')
+  assert.ok(button, 'a mac release link must render')
+  assert.doesNotMatch(button.textContent, /Update now/, 'macOS must never offer the auto-apply button')
+  await teardown()
+})
+
+test('darwin View release opens the release page, and reports the documented fallback on failure', async () => {
+  let calls = 0
+  const bridge = { platform: 'darwin', openReleasePage: async () => { calls++; return { ok: false } } }
+  const { push, teardown } = await mount({ state: 'idle' }, 50, bridge)
+  await push({ state: 'pending-idle', version: '2.0.5' })
+  const button = document.querySelector('button')
+  await act(async () => button.click())
+  assert.equal(calls, 1, 'clicking must call bridge.openReleasePage()')
+  assert.equal(document.querySelector('[role="alert"]').textContent,
+    'Couldn’t open the release page — copy the link from Check for Updates and open it manually.')
+  await teardown()
+})
+
+test('a plain-browser/back-compat bridge with no platform field still renders the existing Update now button unchanged', async () => {
+  const bridge = { installUpdate: () => new Promise(() => {}) }
+  const { push, teardown } = await mount({ state: 'idle' }, 50, bridge)
+  await push({ state: 'pending-idle', version: '2.0.5' })
+  const button = document.querySelector('button')
+  assert.equal(button.textContent, 'Update now', 'non-mac/back-compat bridges are unaffected by the darwin branch')
+  await teardown()
+})
+
 test('up-to-date, unavailable and failed are transient feedback that auto-hides', async () => {
   for (const state of ['up-to-date', 'unavailable', 'failed']) {
     const { push, teardown } = await mount({ state: 'idle' }, 50)

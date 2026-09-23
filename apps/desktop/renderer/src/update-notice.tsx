@@ -77,7 +77,16 @@ export function UpdateNotice({ transientMs = 6000 }: { transientMs?: number } = 
   const label = describeUpdateStatus(status)
   if (!label) return null
   return <div className="update-notice" role="status" aria-live="polite">
-    {status.state === 'pending-idle' && desktop()?.installUpdate
+    {status.state === 'pending-idle' && desktop()?.platform === 'darwin'
+      // macOS never offers an auto-apply install (UPD-01): a "View release"
+      // link opens MANUAL_UPGRADE_URL via the main process instead.
+      ? <button className="update-now glow" title="View release" onClick={() => {
+          setError(null)
+          void desktop()!.openReleasePage!().then(result => {
+            if (!result.ok) setError('Couldn’t open the release page — copy the link from Check for Updates and open it manually.')
+          })
+        }}>{`Orgtree ${status.version} available — View release`}</button>
+      : status.state === 'pending-idle' && desktop()?.installUpdate
       ? <button disabled={applying}
           /* The attention glow (user 2026-09-11), ONLY while a download is
              sitting there ready to install. Deliberately the SAME vocabulary

@@ -1194,6 +1194,13 @@ else {
     })
     handle('desktop:sync-notifications', value => notifications.sync(value))
     handle('desktop:pending-attention', value => { taskbarAttention.set(attentionIdentities(value)) })
+    // No renderer-supplied argument, ever: this always opens the one hardcoded
+    // MANUAL_UPGRADE_URL, never a URL the renderer could forge — closing off
+    // the classic Electron arbitrary-external-URL-open vulnerability class.
+    handle('desktop:open-release-page', () =>
+      shell.openExternal(MANUAL_UPGRADE_URL)
+        .then(() => ({ ok: true }))
+        .catch((error: unknown) => ({ ok: false, error: error instanceof Error ? error.message : String(error) })))
     handle('desktop:open-harness', id => {
       if (typeof id !== 'string' || !Object.hasOwn(HARNESS_LINKS, id)) throw new Error('Unknown harness')
       return shell.openExternal(HARNESS_LINKS[id as keyof typeof HARNESS_LINKS])
