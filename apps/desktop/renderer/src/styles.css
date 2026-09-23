@@ -1437,8 +1437,8 @@ button.badge.audience-fold.alert {
   /* bottom-LEFT beside the agents tray (user spec): every zoom target in
      one stack — switchboard · full view · + · −
      ⚠ THE OFFSETS LIVE HERE AND ONLY HERE. `--free-*` is the inset of the
-     rectangle pins leave free, set by OrgCanvas only when the user turns the
-     bounded-anchor preference on (canvas/canvasanchor.tsx). Unset it is 0px,
+     rectangle pins leave free, set by OrgCanvas only while the bounded-anchor
+     preference is on (canvas/canvasanchor.tsx). Unset it is 0px,
      so `calc(0px + 10px)` is exactly the 10px this always was — which is what
      makes the preference's OFF state provably unchanged rather than
      re-derived. */

@@ -1,21 +1,24 @@
 // canvasanchor.test.tsx — user 2026-09-12: the zoom cluster and the Agents
 // list anchor to the whole canvas, so a pinned modal or an expanded desk over
 // that corner leaves them looking detached from the area actually in use.
-// An OPT-IN preference, OFF by default, anchors them to the rectangle those
-// surfaces leave free instead — same corner, same offsets, different
-// reference rectangle.
+// A preference anchors them to the rectangle those surfaces leave free
+// instead — same corner, same offsets, different reference rectangle. It is
+// ON BY DEFAULT since private v3 (user 2026-09-23); a saved choice wins.
 //
 //   §1  the insets are the free rectangle's own edges
 //   §2  …and nothing is emitted when there is nothing to anchor to
-//   §3  the preference is off by default and survives a round trip
+//   §3  the preference is on by default and survives a round trip
+//   §3b a saved choice, off or on, is kept — never reset to the default
+//   §3c the Settings toggle shows the effective value
 //   §4  OFF: the canvas carries no variables at all  (placement unchanged)
+//   §4b UNSET: the canvas anchors, exactly as when turned on
 //   §5  ON with a pin: the canvas carries the free rectangle's insets
 //   §6  the shipped stylesheet actually reads them
 //
-// ⚠ WHY §4 IS THE ONE THAT MATTERS MOST. This is an opt-in preference, so the
-// promise that costs the most if broken is that the DEFAULT is untouched.
-// §4 is that promise: no variables set, so `calc(0px + 10px)` is the 10px the
-// stylesheet always had.
+// ⚠ WHY §3b AND §4 MATTER MOST. Flipping the default must not flip anyone
+// who already chose off: §3b is that promise. And off must still mean the
+// placement the stylesheet always had: §4 is that one — no variables set, so
+// `calc(0px + 10px)` is the 10px the stylesheet always had.
 //
 // ⚠ WHAT jsdom CANNOT DO. It performs no layout, so §5's viewport box is one
 // this file installs and §6 reads the stylesheet as text rather than
@@ -31,7 +34,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import { CANVAS_ANCHOR_KEY, forgetCanvasAnchor, freeInsets, setCanvasAnchor, useCanvasAnchor } from '../src/canvas/canvasanchor'
+import { CANVAS_ANCHOR_KEY, CanvasAnchorSettings, forgetCanvasAnchor, freeInsets, setCanvasAnchor, useCanvasAnchor } from '../src/canvas/canvasanchor'
 import { addPin, forgetPins, pinsKey } from '../src/canvas/pins'
 import { PIN_GAP } from '../src/canvas/clearRect'
 import { pinSurfaceKey, updatePinSurface } from '../src/canvas/pinspace'
@@ -65,22 +68,66 @@ test('§2 nothing is emitted when there is nothing to anchor to', () => {
   assert.equal(freeInsets({ rect: { x: NaN, y: 0, w: 700, h: 800 }, status: 'reduced' }, VP), null)
 })
 
-test('§3 the preference is off by default and survives a round trip', async (t) => {
+test('§3 the preference is on by default and survives a round trip', async (t) => {
   localStorage.clear(); forgetCanvasAnchor()
   t.after(() => { localStorage.clear(); forgetCanvasAnchor() })
   const seen: boolean[] = []
   function Probe() { seen.push(useCanvasAnchor().enabled); return null }
   const view = await mountView(<Probe />, el => el)
   t.after(() => view.unmount())
-  assert.equal(seen[0], false, 'a fresh browser must not get this behaviour unasked')
+  assert.equal(seen[0], true, 'a preference never saved reads as on')
+  assert.equal(localStorage.getItem(CANVAS_ANCHOR_KEY), null,
+    'reading the default must not write it: an unset preference stays unset')
 
-  await inAct(() => { setCanvasAnchor({ enabled: true }) })
-  assert.equal(seen[seen.length - 1], true, 'turning it on must reach a mounted reader')
-  assert.match(localStorage.getItem(CANVAS_ANCHOR_KEY) ?? '', /"enabled":true/)
+  await inAct(() => { setCanvasAnchor({ enabled: false }) })
+  assert.equal(seen[seen.length - 1], false, 'turning it off must reach a mounted reader')
+  assert.match(localStorage.getItem(CANVAS_ANCHOR_KEY) ?? '', /"enabled":false/)
 
   forgetCanvasAnchor()
-  await inAct(() => { setCanvasAnchor({ enabled: false }) })
-  assert.equal(seen[seen.length - 1], false, 'and turning it off again must too')
+  await inAct(() => { setCanvasAnchor({ enabled: true }) })
+  assert.equal(seen[seen.length - 1], true, 'and turning it on again must too')
+  assert.match(localStorage.getItem(CANVAS_ANCHOR_KEY) ?? '', /"enabled":true/)
+})
+
+test('§3b a saved choice, off or on, is kept — never reset to the default', async (t) => {
+  t.after(() => { localStorage.clear(); forgetCanvasAnchor() })
+  const readFresh = async (stored: string | null) => {
+    localStorage.clear(); forgetCanvasAnchor()
+    if (stored !== null) localStorage.setItem(CANVAS_ANCHOR_KEY, stored)
+    let got: boolean | undefined
+    function Probe() { got = useCanvasAnchor().enabled; return null }
+    const view = await mountView(<Probe />, el => el)
+    await view.unmount()
+    return got
+  }
+  // a user who turned it off before the default changed stays off …
+  assert.equal(await readFresh('{"enabled":false}'), false, 'a saved OFF must survive the new default')
+  assert.equal(localStorage.getItem(CANVAS_ANCHOR_KEY), '{"enabled":false}', 'and is not rewritten')
+  // … and one who turned it on stays on
+  assert.equal(await readFresh('{"enabled":true}'), true, 'a saved ON stays on')
+  // anything that is not a saved boolean was never a choice: the default applies
+  assert.equal(await readFresh(null), true, 'unset reads on')
+  assert.equal(await readFresh('not json'), true, 'a malformed value reads on')
+  assert.equal(await readFresh('{"enabled":"no"}'), true, 'a non-boolean value reads on')
+})
+
+test('§3c the Settings toggle shows the effective value and flips it', async (t) => {
+  localStorage.clear(); forgetCanvasAnchor()
+  t.after(() => { localStorage.clear(); forgetCanvasAnchor() })
+  const view = await mountView(<CanvasAnchorSettings />, el => el)
+  t.after(() => view.unmount())
+  const box = () => view.el.querySelector(
+    'input[aria-label="keep canvas controls inside the area pins leave free"]') as HTMLInputElement | null
+  assert.ok(box(), 'the toggle renders under its unchanged label')
+  assert.equal(box()!.checked, true, 'unset: the Settings UI shows on')
+
+  await inAct(() => { box()!.click() })
+  assert.equal(box()!.checked, false, 'clicking turns it off')
+  assert.equal(localStorage.getItem(CANVAS_ANCHOR_KEY), '{"enabled":false}', 'and saves off')
+
+  await inAct(() => { box()!.click() })
+  assert.equal(box()!.checked, true, 'clicking again turns it back on')
+  assert.equal(localStorage.getItem(CANVAS_ANCHOR_KEY), '{"enabled":true}', 'and saves on')
 })
 
 // ------------------------------------------------------------ the real canvas
@@ -106,9 +153,12 @@ const tree = (): TreePayload => ({ slug: SLUG, name: SLUG, workspace: null, dirs
  *  measures from a ResizeObserver whose first delivery lands inside the same
  *  `act()` that mounts it, so an element-level stub applied afterwards is one
  *  measurement too late and the canvas stays 0x0 forever. */
-async function canvas(t: { after: (fn: () => void | Promise<void>) => void }, pin?: { x: number; y: number; w: number; h: number }) {
+async function canvas(t: { after: (fn: () => void | Promise<void>) => void },
+  pin?: { x: number; y: number; w: number; h: number }, saved?: boolean) {
   localStorage.clear(); forgetCanvasAnchor(); forgetPins(SLUG)
   localStorage.removeItem(pinsKey(SLUG))
+  // `saved` omitted = the preference was never saved, which reads as on
+  if (saved !== undefined) localStorage.setItem(CANVAS_ANCHOR_KEY, JSON.stringify({ enabled: saved }))
   if (pin) addPin(SLUG, 'a1', pin)
   const proto = HTMLElement.prototype
   const real = proto.getBoundingClientRect
@@ -140,10 +190,17 @@ const varsOf = (el: HTMLElement) => ({
 })
 
 test('§4 OFF: the canvas carries no anchoring variables at all', async (t) => {
-  const { vp } = await canvas(t, { x: 0, y: 0, w: 400, h: 800 })
+  const { vp } = await canvas(t, { x: 0, y: 0, w: 400, h: 800 }, false)
   assert.deepEqual(varsOf(vp), { left: '', top: '', bottom: '' },
     'with the preference off nothing may be written - the stylesheet’s own '
     + 'numbers are the placement, unchanged')
+})
+
+test('§4b UNSET: the canvas anchors, exactly as when turned on', async (t) => {
+  const { vp } = await canvas(t, { x: 0, y: 0, w: 400, h: 800 })
+  assert.equal(varsOf(vp).left, `${400 + PIN_GAP}px`,
+    'a preference never saved is on, so a pin down the left moves the controls '
+    + `beside it (got ${JSON.stringify(varsOf(vp))})`)
 })
 
 test('§5 ON: the canvas carries the free rectangle’s insets', async (t) => {
