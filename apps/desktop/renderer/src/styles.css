@@ -1283,6 +1283,26 @@ button.badge.audience-fold.alert {
   color: var(--ink-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .sq-head .ctxwheel { margin-left: auto; flex: none; width: 13px; height: 13px; }
+/* Medium-zoom full name (cards.tsx `fullNameAt`): mounted only while a card at
+   `lod === 'norm'` is hovered AND its `.name` is really cut. It is laid over
+   the name at the name's own offset — the -4px/-1px margin cancels the
+   padding, so the text sits on the same baseline and x as the cut name — and
+   is left to run past the card edge. `.sq-title` is its positioning box.
+   ⚠ NO MOTION: no transition, no transform, no animation. The far-zoom
+   `.sq-far-name` reveal lifts and grows; this one is meant to stay put.
+   Stacks at z 2, under the hire strips (z 3), so it never hides a control,
+   and ignores the pointer so every press still lands on the card. */
+.sq-title { position: relative; }
+.sq-head .name-full {
+  position: absolute; z-index: 2;
+  margin: -1px 0 0 -4px; padding: 1px 4px;
+  font-family: var(--mono); font-weight: 600; font-size: 10.5px;
+  color: var(--ink-strong); white-space: nowrap;
+  background: var(--tip-panel); border-radius: 4px;
+  box-shadow: 0 0 0 1px var(--line), var(--shadow);
+  pointer-events: none;
+  transition: none; animation: none;
+}
 .busydot {
   width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--accent);
   margin-left: auto; animation: pulse 1.2s ease-in-out infinite;

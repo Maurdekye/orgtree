@@ -4,7 +4,7 @@
 // agent card itself (NodeSquare). Extracted verbatim from Canvas.tsx in the
 // phase-3 split.
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { ToastFn, TreePayload } from '../types'
@@ -1592,6 +1592,23 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   if (!focused && stackN) cls.push('stack' + Math.min(stackN, 3))
   const toggleCompactHire = (which: 'b' | 'l' | 'r' | 't') =>
     setExpandedHireEdge((open) => open === which ? null : which)
+  // MEDIUM-ZOOM FULL NAME (docket show-full-truncated-agent-name-on-hover-at-
+  // mediu): at `lod === 'norm'` a long name is cut to an ellipsis by the card
+  // width. While the card is hovered, and only when the rendered name really
+  // IS cut (scrollWidth > clientWidth — layout widths, so the canvas zoom does
+  // not change the answer), a backdrop-backed copy is laid exactly over it
+  // and runs on past the card edge. It stays where the name is: no lift and
+  // no motion, unlike the far-zoom `.sq-far-name` reveal, which is untouched.
+  // `nameHover` also flips on pointermove because a card that zooms from mini
+  // into norm under a still pointer gets no fresh pointerenter.
+  const nameRef = useRef<HTMLSpanElement>(null)
+  const [nameHover, setNameHover] = useState(false)
+  const [fullNameAt, setFullNameAt] = useState<{ left: number; top: number } | null>(null)
+  useLayoutEffect(() => {
+    const el = nameRef.current
+    setFullNameAt(nameHover && el && el.scrollWidth > el.clientWidth
+      ? { left: el.offsetLeft, top: el.offsetTop } : null)
+  }, [nameHover, lod, focused, node.id, node.tier, node.pending_switch?.tier])
   // FR-23: the most recent completed turn (killed included — TurnStat.at is
   // written unconditionally at completion, unlike NodeStatus.at)
   const lastTurn = node.turns?.[node.turns.length - 1]
@@ -1654,9 +1671,10 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
         downAt.current = { x: e.clientX, y: e.clientY }
         if (!focused) onDragStart(e, node.id)
       }}
-      onPointerMove={(e) => { trackEdge(e); onDragMove(e, node.id) }}
+      onPointerEnter={() => setNameHover(true)}
+      onPointerMove={(e) => { setNameHover(true); trackEdge(e); onDragMove(e, node.id) }}
       onPointerUp={(e) => onDragEnd(e, node.id, node, focused)}
-      onPointerLeave={() => { setExpandedHireEdge(null); setHireReveal(false) }}
+      onPointerLeave={() => { setExpandedHireEdge(null); setHireReveal(false); setNameHover(false) }}
       /* the card's context menu — NOT at desk zoom: the open desk is its own
          surface (chat text, mail rows, its own header controls), and a
          right-click on its content must keep the browser's or the row's menu */
@@ -1714,7 +1732,11 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           {node.pending_switch &&
             <span className="queued-mark" title={queuedSwitchTitle(node)}>
               →{TIER_LETTER[node.pending_switch.tier] ?? '?'}</span>}
-          <span className="name" title={node.account ? `${node.id}: account ${node.account}` : node.id}>{node.id}</span>
+          <span ref={nameRef} className="name" title={node.account ? `${node.id}: account ${node.account}` : node.id}>{node.id}</span>
+          {fullNameAt && (
+            <span className="name-full" aria-hidden="true"
+              style={{ left: fullNameAt.left, top: fullNameAt.top }}>{node.id}</span>
+          )}
         </div>
         <div className="sq-meta">
           <ContextWheel occ={node.occupancy} cw={node.context_window}
