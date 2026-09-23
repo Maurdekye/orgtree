@@ -9656,35 +9656,13 @@ def _confirm_delivered(slug: str, nid: str, toks: Iterable[str], *,
     with _state_lock:
         st.setdefault("mail_confirmed", set()).update(drop)
     net_ids = []
-    receipt = None
     try:
         with store.DOC_LOCK:
             org = store.load_org(slug)
-            with _state_lock:
-                mailruntime.settle_confirmation(org, st, nid)
-                mailruntime.release_rowless(org, st, nid, drop)
-            receipt = mailruntime.confirmation_receipt(
-                org, nid, drop, operation=lifecycle.new_operation(operation_kind))
-            if receipt is None:
+            done = _confirm_locked(org, st, nid, drop, operation_kind=operation_kind)
+            if done is None:
                 return
-            selected = set(receipt["before"])
-            dlmap = org.d.get("delivering") or {}
-            dl = dlmap.get(nid) or []
-            consumed = [b for b in dl if b.get("tok") in selected]
-            net_ids = [str(m["net_id"]) for b in consumed
-                       for m in b.get("mail") or [] if m.get("net_id")]
-            maildrain.discard(org, nid, [str(m.get("id")) for b in consumed
-                                       for m in b.get("mail") or []])
-            keep = [b for b in dl if b.get("tok") not in selected]
-            if keep:
-                dlmap[nid] = keep
-            else:
-                dlmap.pop(nid, None)
-            halt.confirmed(org, nid, selected)
-            mailruntime.write_reclaim_receipt(org, receipt)
-            mailruntime.settle_replay(org, nid)
-            with _state_lock:
-                mailruntime.compact_receipts(org, st, nid, keep=(receipt["operation"],))
+            receipt, net_ids = done
             try:
                 store.save_org(org)
             except Exception:
@@ -9698,6 +9676,44 @@ def _confirm_delivered(slug: str, nid: str, toks: Iterable[str], *,
             net.note_read(slug, net_ids)
     except Exception:                                        # noqa: BLE001
         pass  # Keep pending confirmation; retry before any fold-back.
+
+
+def _confirm_locked(org: Org, st: dict[str, Any], nid: str, drop: set[str], *,
+                    operation_kind: str
+                    ) -> tuple[dict[str, Any], list[str]] | None:
+    """The document half of `_confirm_delivered`, on the CALLER's document.
+
+    Takes no DOC_LOCK, loads and saves nothing, and spends no provider
+    acknowledgement: the caller owns all three. Returns `(receipt,
+    net_ids)` for the batches it confirmed, or None when no journaled,
+    unconfirmed token was asked for. It raises; a caller composing it into a
+    larger transaction decides what a failure discards (P08c)."""
+    with _state_lock:
+        mailruntime.settle_confirmation(org, st, nid)
+        mailruntime.release_rowless(org, st, nid, drop)
+    receipt = mailruntime.confirmation_receipt(
+        org, nid, drop, operation=lifecycle.new_operation(operation_kind))
+    if receipt is None:
+        return None
+    selected = set(receipt["before"])
+    dlmap = org.d.get("delivering") or {}
+    dl = dlmap.get(nid) or []
+    consumed = [b for b in dl if b.get("tok") in selected]
+    net_ids = [str(m["net_id"]) for b in consumed
+               for m in b.get("mail") or [] if m.get("net_id")]
+    maildrain.discard(org, nid, [str(m.get("id")) for b in consumed
+                               for m in b.get("mail") or []])
+    keep = [b for b in dl if b.get("tok") not in selected]
+    if keep:
+        dlmap[nid] = keep
+    else:
+        dlmap.pop(nid, None)
+    halt.confirmed(org, nid, selected)
+    mailruntime.write_reclaim_receipt(org, receipt)
+    mailruntime.settle_replay(org, nid)
+    with _state_lock:
+        mailruntime.compact_receipts(org, st, nid, keep=(receipt["operation"],))
+    return receipt, net_ids
 
 
 def _fold_back_locked(org: Org, nid: str, *,
@@ -10602,45 +10618,12 @@ def scan_manual_records(slug: str, nid: str) -> dict[str, int]:
     try:
         with store.DOC_LOCK:
             org = store.load_org(slug)
-            node = org.nodes.get(nid)
-            if node is None:
+            found = _manual_candidates(org, nid)
+            if not found:
                 return counts
-            atts = (org.d.get("manual_attempts") or {}).get(nid) or {}
-            found = []
-            for b in (org.d.get("delivering") or {}).get(nid) or []:
-                if not isinstance(b, dict):
-                    continue
-                record = b.get("manual")
-                if (b.get("mode") != mailruntime.CUSTODY_MANUAL_FETCH
-                        or mailruntime.manual_ref(record) is None):
-                    continue
-                att = atts.get(record["delivery_id"]) if isinstance(atts, dict) else None
-                if (not isinstance(att, dict) or att.get("tok") != b.get("tok")
-                        or not att.get("chunk_calls") or "seat" not in record
-                        or record.get("seat") != node.get("seat_id")
-                        or record.get("generation") != node.get("generation")
-                        or record.get("mailbox") != node.get("mailbox_id")
-                        or not isinstance(record.get("session"), str)):
-                    continue
-                found.append((b["tok"], copy.deepcopy(record), copy.deepcopy(att)))
             incarnation = _transcript_incarnation(org, nid)
         counts["candidates"] = len(found)
-        if not found:
-            return counts
-        from . import transcript_records                      # noqa: PLC0415
-
-        def key_digest(seat: str, generation: int, call: Mapping[str, str]) -> str:
-            return codex_call_digest(slug, nid, seat, generation, call)
-
-        toks = []
-        for tok, record, att in found:
-            rows = transcript_records.records_containing(
-                transcript_records.journal_source(slug, record["session"], incarnation),
-                [c.get("op_id") for c in att["chunk_calls"] if isinstance(c, dict)])
-            evidence, _rejected = inbox.codex_chunk_evidence(
-                record, att, rows, key_digest=key_digest)
-            if inbox.confirmation_complete(record, evidence):
-                toks.append(tok)
+        toks = _manual_complete_toks(slug, nid, found, incarnation)
         counts["complete"] = len(toks)
         if toks:
             _confirm_delivered(slug, nid, toks, provider_ack=False,
@@ -10648,6 +10631,125 @@ def scan_manual_records(slug: str, nid: str) -> dict[str, int]:
     except Exception:                                        # noqa: BLE001
         pass
     return counts
+
+
+def _manual_candidates(org: Org, nid: str
+                       ) -> list[tuple[str, dict[str, Any], dict[str, Any]]]:
+    """This node's journaled manual batches that could carry chunk evidence:
+    a well-formed record of the node's CURRENT mailbox, generation and seat,
+    with a session and an attempt of the same token that made keyed chunk
+    calls. Returns copies `(tok, record, attempt)`; reads the document only."""
+    node = org.nodes.get(nid)
+    if node is None:
+        return []
+    atts = (org.d.get("manual_attempts") or {}).get(nid) or {}
+    found = []
+    for b in (org.d.get("delivering") or {}).get(nid) or []:
+        if not isinstance(b, dict):
+            continue
+        record = b.get("manual")
+        if (b.get("mode") != mailruntime.CUSTODY_MANUAL_FETCH
+                or mailruntime.manual_ref(record) is None):
+            continue
+        att = atts.get(record["delivery_id"]) if isinstance(atts, dict) else None
+        if (not isinstance(att, dict) or att.get("tok") != b.get("tok")
+                or not att.get("chunk_calls") or "seat" not in record
+                or record.get("seat") != node.get("seat_id")
+                or record.get("generation") != node.get("generation")
+                or record.get("mailbox") != node.get("mailbox_id")
+                or not isinstance(record.get("session"), str)):
+            continue
+        found.append((b["tok"], copy.deepcopy(record), copy.deepcopy(att)))
+    return found
+
+
+def _manual_complete_toks(slug: str, nid: str,
+                          found: Iterable[tuple[str, dict[str, Any], dict[str, Any]]],
+                          incarnation: Any) -> list[str]:
+    """The candidates whose every chunk of every message has matched runtime
+    evidence in the session's durable journal. Reads the journal only; a read
+    that fails raises, and the caller confirms nothing."""
+    from . import transcript_records                          # noqa: PLC0415
+
+    def key_digest(seat: str, generation: int, call: Mapping[str, str]) -> str:
+        return codex_call_digest(slug, nid, seat, generation, call)
+
+    toks = []
+    for tok, record, att in found:
+        rows = transcript_records.records_containing(
+            transcript_records.journal_source(slug, record["session"], incarnation),
+            [c.get("op_id") for c in att["chunk_calls"] if isinstance(c, dict)])
+        evidence, _rejected = inbox.codex_chunk_evidence(
+            record, att, rows, key_digest=key_digest)
+        if inbox.confirmation_complete(record, evidence):
+            toks.append(tok)
+    return toks
+
+
+#: The per-node sections `_confirm_locked` writes, staged by the startup pass
+#: so a failure part-way leaves the caller's document exactly as it was.
+_MANUAL_CONFIRM_SECTIONS = ("delivering", "mail_transitions")
+
+
+def _reconcile_manual_records(org: Org, *, net_ids: list[str] | None = None) -> int:
+    """Startup (P08c): confirm manual batches from durable evidence BEFORE
+    the restart fold, on the org in hand (caller holds DOC_LOCK and saves).
+
+    The turn-end scan is the only other place a manual delivery is confirmed;
+    a process that died mid-turn, or a scan that failed, never reached it,
+    and the restart fold would then return a batch whose every chunk the
+    runtime demonstrably echoed as a possible duplicate. This applies the
+    same selection, matcher and confirmation, positive-only, like the steer
+    pass beside it: absence of evidence changes nothing, and no owner proof
+    is needed to act on positive evidence. A node the reclaim gate blocks
+    (halted, frozen, non-live, killswitched, native hold...) is skipped, and
+    so is any node whose journal read fails. A confirmation that fails part-way
+    restores that node's sections and confirms nothing. The initial provider
+    acknowledgement is never spent (manual path). `net_ids` collects the
+    network ids to mark read once the caller's save succeeds."""
+    slug = org.d["slug"]
+    n = 0
+    for nid in list(org.d.get("delivering") or {}):
+        try:
+            if nid not in org.nodes or _reclaim_blocked(org, nid):
+                continue
+            found = _manual_candidates(org, nid)
+            if not found:
+                continue
+            toks = _manual_complete_toks(slug, nid, found,
+                                         _transcript_incarnation(org, nid))
+        except Exception:                                    # noqa: BLE001
+            continue
+        if not toks:
+            continue
+        staged = {k: (k in org.d, copy.deepcopy((org.d.get(k) or {}).get(nid)),
+                      nid in (org.d.get(k) or {}))
+                  for k in _MANUAL_CONFIRM_SECTIONS}
+        node_before = copy.deepcopy(org.nodes[nid])
+        st = state(slug, nid)
+        try:
+            done = _confirm_locked(org, st, nid, set(toks),
+                                   operation_kind="manual-confirm")
+        except Exception:                                    # noqa: BLE001
+            for k, (had_section, value, had_nid) in staged.items():
+                if not had_section:
+                    org.d.pop(k, None)
+                elif had_nid:
+                    org.d[k][nid] = value
+                else:
+                    org.d[k].pop(nid, None)
+            org.nodes[nid].clear()
+            org.nodes[nid].update(node_before)
+            continue
+        if done is None:
+            continue
+        receipt, ids = done
+        with _state_lock:
+            st.setdefault("mail_confirmed", set()).update(receipt["before"])
+        if net_ids is not None:
+            net_ids.extend(ids)
+        n += 1
+    return n
 
 
 
@@ -33762,11 +33864,24 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
             recorded = _reconcile_steer_records(org)
         except Exception:                                    # noqa: BLE001
             pass
+        # P08c: a manual read whose every chunk the runtime echoed is
+        # confirmed from that durable evidence before the fold could return it.
+        manual = 0
+        manual_net: list[str] = []
+        try:
+            manual = _reconcile_manual_records(org, net_ids=manual_net)
+        except Exception:                                    # noqa: BLE001
+            pass
         restart_changed: list[str] = []
         folded = _reconcile_mail_journal(org, owners_gone=_restart_owners_gone(),
                                          changed=restart_changed)
-        if recorded or folded or restart_changed:
+        if recorded or manual or folded or restart_changed:
             store.save_org(org)
+            if manual_net:
+                try:
+                    net.note_read(slug, manual_net)
+                except Exception:                            # noqa: BLE001
+                    pass
             for dnid in org.nodes:
                 rst = state(slug, dnid)
                 with _state_lock:
