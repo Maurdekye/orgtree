@@ -26,6 +26,7 @@ import random
 import struct
 import sys
 import unicodedata
+from decimal import Decimal
 from pathlib import Path
 
 SCHEMA = "orgtree.op-receipt-codec-vectors/v1"
@@ -209,7 +210,28 @@ def float_corpus(rng: random.Random):
     for _ in range(100):
         e = rng.randint(1, 22)
         out.append(float(rng.randrange(1, 2**53 // 5**e + 1) * 5**e * 2**e))
+    # Small binary exponents. 2**-24 is a tie whose even neighbour does not
+    # round-trip (the gap below a power of two is narrower), so repr keeps the
+    # odd digit; 2**-25 is a tie that goes to the even digit. The ties
+    # m * 2**e for -25 <= e <= -13 pin the lower end of the tie range.
+    out += [2.0**-24, 2.0**-25, -(2.0**-24), -(2.0**-25)]
+    for e in range(-25, -12):
+        found = 0
+        for m in range(1, 200_001, 2):
+            x = m * 2.0**e
+            if is_tie(x):
+                out.append(x)
+                found += 1
+                if found == 4:
+                    break
     return out
+
+
+def is_tie(x: float) -> bool:
+    """The exact value of `x` is one digit longer than its repr and ends in 5."""
+    exact = Decimal(x).normalize().as_tuple().digits
+    short = Decimal(repr(x)).normalize().as_tuple().digits
+    return len(exact) == len(short) + 1 and exact[-1] == 5
 
 
 def section_float(rng):
