@@ -32,7 +32,7 @@ function main() {
   // Resolve Electron/Python with run.mjs's own platform branch, never
   // run_lifecycle.mjs's hardcoded electron.exe/python.exe paths (Windows-only).
   const electron = process.env.ORGTREE_ACCEPTANCE_ELECTRON
-    || path.join(target, 'node_modules/electron/dist', process.platform === 'win32' ? 'electron.exe' : 'electron')
+    || path.join(target, 'node_modules/electron/dist', process.platform === 'win32' ? 'electron.exe' : process.platform === 'darwin' ? 'Electron.app/Contents/MacOS/Electron' : 'electron')
   const python = process.env.ORGTREE_ACCEPTANCE_PYTHON
     || path.join(target, 'engine/runtime', process.platform === 'win32' ? 'python.exe' : 'bin/python3')
 
