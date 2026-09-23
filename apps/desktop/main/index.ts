@@ -217,7 +217,9 @@ else {
     () => anyOrgtreeWindowFocused(BrowserWindow.getAllWindows()))
   // The taskbar's own attention behaviour, driven by the same cross-org
   // projection as the in-app dot so the two indicators cannot disagree.
-  const taskbarAttention = new TaskbarAttention(() => main)
+  // `() => app.dock` is only ever dereferenced lazily inside the darwin-gated
+  // branch in TaskbarAttention, so it is never touched on non-mac platforms.
+  const taskbarAttention = new TaskbarAttention(() => main, () => app.dock)
   const show = () => { if (main && !main.isDestroyed()) { restoreWindows = true; main.show(); if (main.isMinimized()) main.restore(); if (restoreMaximized) { restoreMaximized = false; main.maximize() }; main.focus(); broadcast({ type: 'main-window-shown', data: windowState() }) } }
   const broadcast = (event: DesktopEvent) => { if (main && !main.isDestroyed()) main.webContents.send('desktop:event', event) }
   const publishWindowState = () => broadcast({ type: 'window-state', data: windowControlsState() })
@@ -1204,7 +1206,15 @@ else {
       return notifications.notify(value, preferences.get())
     })
     handle('desktop:sync-notifications', value => notifications.sync(value))
-    handle('desktop:pending-attention', value => { taskbarAttention.set(attentionIdentities(value)) })
+    handle('desktop:pending-attention', value => {
+      // The dock bounce and badge must never drift apart: both read the same
+      // ids array from the same handler invocation, not two independently
+      // maintained counts. app.setBadgeCount is a documented no-op on
+      // Windows, so no platform guard is needed around it.
+      const ids = attentionIdentities(value)
+      taskbarAttention.set(ids)
+      app.setBadgeCount(ids.length)
+    })
     // No renderer-supplied argument, ever: this always opens the one hardcoded
     // MANUAL_UPGRADE_URL, never a URL the renderer could forge — closing off
     // the classic Electron arbitrary-external-URL-open vulnerability class.
