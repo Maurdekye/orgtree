@@ -2739,6 +2739,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       onHire: () => { go(); setHireReveal((h) => ({ id: n.id, seq: (h?.seq ?? 0) + 1 })) },
       onRetireAsk: (kind) => ask({ id: n.id, kind }),
       canRetireAll: !tree.public,
+      canBulkCompact: !tree.public,
       onDismiss: hideRetired && n.state === 'archived' && shownRetired.has(n.id)
         ? () => dismissRetiredAgent(n.id) : undefined,
       // same executor, same words as the card's entry — the whole point of

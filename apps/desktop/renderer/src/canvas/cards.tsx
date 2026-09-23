@@ -40,6 +40,7 @@ import { useContextMenu } from './contextmenu'
 import type { MenuEntry } from './contextmenu'
 import { AgentRetireConfirm, agentMenuEntries, continueFrozenOnAccount } from './agentmenu'
 import type { RetireKind } from './agentmenu'
+import { BulkCompactConfirm, allAgents } from './bulkcompact'
 import { useDeskActionsNow } from './deskhosts'
 import { isMobile } from '../mobile'
 import { AgentName, TierChip } from './identity'
@@ -128,6 +129,7 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
   const showShortcuts = useAgentShortcuts()
   const menu = useContextMenu()
   const [askingRetireAll, setAskingRetireAll] = useState(false)
+  const [askingCompactAll, setAskingCompactAll] = useState(false)
   // ⚠ THE MENU IS THE UNCONDITIONAL ROUTE. The two buttons above are a
   // convenience that most readers will never switch on, so every action they
   // offer has to be reachable without them — otherwise turning the setting
@@ -141,6 +143,17 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
       entries.push({ label: 'Org settings',
         title: 'the whole settings modal — hire defaults are a tab of it',
         onSelect: () => onGear() })
+    }
+    // bulk cheap compaction of every live agent (canvas/bulkcompact.tsx). The
+    // same presentation gate as the agent menu's bulk entries: not for a
+    // kiosk viewer. Each target still runs the normal op and its checks.
+    if (!pub) {
+      entries.push({
+        label: 'Cheap-compact all agents…',
+        title: 'give every live agent a fresh session; old sessions stay '
+          + 'consultable, mid-turn agents are skipped',
+        onSelect: () => setAskingCompactAll(true),
+      })
     }
     entries.push('sep', {
       label: 'Retire all agents…', danger: true,
@@ -274,6 +287,10 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
             .then((r) => toast([`dissolved ${r.nodes} node(s), freed ${fmtCredits(r.freed)} credits`]))
             .catch((e: Error) => toast([`error: ${e.message}`]))}
           close={() => setAskingRetireAll(false)} />, document.body)}
+      {askingCompactAll && createPortal(
+        <BulkCompactConfirm title="cheap-compact all agents?"
+          scope="all agents" targets={allAgents(map)} op={op} toast={toast}
+          close={() => setAskingCompactAll(false)} />, document.body)}
     </div>
   )
 }
@@ -1495,6 +1512,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       onHire: revealHireChips,
       onRetireAsk: setAsking,
       canRetireAll: !pub,
+      canBulkCompact: !pub,
       onDismiss,
       // the same public gate the frozen badge's own unstick already applies:
       // a kiosk visitor releases nothing and moves no account (the backend

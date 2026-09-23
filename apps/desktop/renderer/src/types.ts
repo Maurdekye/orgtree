@@ -2036,6 +2036,10 @@ export interface OpRequest {
   new_parent?: string | null
   dir?: string | null
   raise_ceiling?: boolean
+  /** cheap_compact — refuse (409) instead of acting when the target is
+   *  mid-turn. Sent by the bulk actions only (canvas/bulkcompact.tsx); the
+   *  single action keeps its existing behaviour. */
+  if_idle?: boolean
 }
 
 // api.py Scope (POST .../nodes/{nid}/scope)

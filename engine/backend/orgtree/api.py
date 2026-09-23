@@ -14024,6 +14024,12 @@ class Op(Body):
     # set and an over-ceiling admin grant raises the ceiling to fit (logged,
     # named, never silent). Ignored for visitors: no legal raise path exists.
     raise_ceiling: bool = False
+    # cheap_compact only: refuse with 409 instead of replacing the session of
+    # an agent that is MID-TURN. The single action does not send it and keeps
+    # its existing behaviour; the renderer's bulk actions always do, because a
+    # bulk run must never swap a running turn's session out from under it
+    # (docket add-bulk-cheap-compact-context-menu-actions).
+    if_idle: bool = False
 
 
 def provider_hire_gate(
@@ -14457,6 +14463,17 @@ def _org_op_locked(slug: str, body: Op, allow_raise: bool = False,
             # inside the ceiling per D-001, same as delete
             result = org.rescind(body.actor, body.node)  # type: ignore[arg-type]
         elif body.op == "cheap_compact":
+            if body.if_idle:
+                # checked under DOC_LOCK, after the node is known to exist
+                # (org.node raises the ordinary 422 for an unknown id), so an
+                # agent that began a turn after the bulk run was planned is
+                # skipped rather than compacted mid-turn. Nothing is changed.
+                org.node(cast(str, body.node))
+                if supervisor.state(slug, cast(str, body.node)).get("busy"):
+                    raise HTTPException(
+                        409, f"{body.node} is mid-turn — not cheap-compacted; "
+                             "a running turn is never interrupted for a bulk "
+                             "compaction")
             # FR-24 (opt-in ruling 2026-08-11): retire + fresh hire instead
             # of a cache-cold /compact fork; the transcript copy into the
             # predecessor's scratch rides the same save window

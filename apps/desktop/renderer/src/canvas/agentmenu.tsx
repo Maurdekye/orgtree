@@ -35,6 +35,7 @@
 import { continueOnAccount } from '../api'
 import { lineageCount } from '../archived'
 import type { ToastFn } from '../types'
+import { BulkCompactConfirm, subtreeAgents } from './bulkcompact'
 import type { MenuEntry } from './contextmenu'
 import { ConfirmModal } from './modals'
 import { fmtCredits } from './shared'
@@ -42,8 +43,11 @@ import type { CanvasNode, OpFn } from './shared'
 
 /** Which lifecycle confirm the menu decided on. The choice is the BUILDER's
  *  (a node with live reports dissolves, one without retires) so no caller has
- *  to write that rule a second time — it is handed the answer. */
-export type RetireKind = 'retire' | 'dissolve' | 'retire-all'
+ *  to write that rule a second time — it is handed the answer.
+ *  `cheap-compact-subtree` rides the same plumbing so that every surface that
+ *  already hosts the retire confirm hosts the bulk compaction confirm too,
+ *  without a second piece of state per surface (canvas/bulkcompact.tsx). */
+export type RetireKind = 'retire' | 'dissolve' | 'retire-all' | 'cheap-compact-subtree'
 
 export interface AgentMenuHandlers {
   /** open this agent's desk — the card re-centres the camera on itself, the
@@ -92,6 +96,10 @@ export interface AgentMenuHandlers {
   /** presentation-layer authority gate for bulk retirement. The backend still
    *  rechecks authority for every normal retire operation. */
   canRetireAll?: boolean
+  /** presentation-layer gate for the bulk cheap-compaction entry, the same
+   *  shape as `canRetireAll` (a kiosk viewer passes false). Every target still
+   *  goes through the normal `cheap_compact` op and its backend checks. */
+  canBulkCompact?: boolean
   /** hide an explicitly revealed retired agent again (hide-retired setting) */
   onDismiss?: () => void
   /** ⭐ continue this FROZEN agent on another account (user requirement
@@ -215,6 +223,18 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
     })
   }
   const ask = h.onRetireAsk
+  // Bulk cheap compaction of this agent AND everyone below it. Offered only
+  // with live reports — without them it is the single action, which already
+  // has its door on the desk's context wheel. Not `danger`: it retires no one
+  // and interrupts nothing; the confirm names every target and every skip.
+  if (canRetire && ask && liveKids && h.canBulkCompact !== false) {
+    entries.push({
+      label: 'Cheap-compact subtree…',
+      title: `give ${node.id} and every agent below it a fresh session; `
+        + 'old sessions stay consultable, mid-turn agents are skipped',
+      onSelect: () => ask('cheap-compact-subtree'),
+    })
+  }
   if (canRetire && ask) {
     if (liveKids && h.canRetireAll !== false) entries.push({
       label: 'Retire all subordinates…', danger: true,
@@ -252,6 +272,13 @@ export function AgentRetireConfirm({ kind, node, op, toast, close }: {
   toast: ToastFn
   close: () => void
 }) {
+  if (kind === 'cheap-compact-subtree') {
+    return (
+      <BulkCompactConfirm title={`cheap-compact ${node.id} and its subtree?`}
+        scope={`subtree of ${node.id}`} targets={subtreeAgents(node)}
+        op={op} toast={toast} close={close} />
+    )
+  }
   if (kind === 'retire-all') {
     const direct = node.children.filter((child) => child.state === 'live')
     const nested = direct.reduce((count, child) => {
