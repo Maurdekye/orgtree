@@ -1,6 +1,6 @@
 {
   "schema": "orgtree.state-diagnostic-boundary/v1",
-  "source_contract_sha256": "5cf47791b48f39e9e6272d7c76e9073f0271b06424c6fce5d5a70f53b2c2ed15",
+  "source_contract_sha256": "e7e237e84a283a12e225e65bcd862a8149651bc8550c9d9f79acac2a9e754941",
   "qualification": {
     "runtime_census": false,
     "conversion_authorized": false
