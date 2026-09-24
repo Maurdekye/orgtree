@@ -46,7 +46,7 @@ class ContractCoverage(unittest.TestCase):
         self.assertEqual(result["contracts"], 42)
         self.assertEqual((result["summary"]["entries"]["mapped"], result["summary"]["dispatch"]["mapped"],
                           result["summary"]["storage"]["mapped"]), (29, 50, 0))
-        self.assertEqual(len(result["pending"]), 560)
+        self.assertEqual(len(result["pending"]), 559)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
@@ -125,7 +125,7 @@ class ContractCoverage(unittest.TestCase):
         def at(i):
             return (registrations[i]["path"].rsplit("/", 1)[1], registrations[i]["line"])
         excluded = {at(i) for i, r in rows.items() if r["disposition"] == "excluded"}
-        self.assertEqual(excluded, self.W1_EXCLUDED)
+        self.assertEqual(excluded & (self.W1_EXCLUDED | self.W1_PENDING), self.W1_EXCLUDED)
         for i, r in rows.items():
             with self.subTest(site=at(i)):
                 if at(i) in self.W1_EXCLUDED:
@@ -157,7 +157,8 @@ class ContractCoverage(unittest.TestCase):
 
         def at(i):
             return (selectors[i]["path"].rsplit("/", 1)[1], selectors[i]["line"])
-        self.assertEqual({at(i) for i, r in rows.items() if r["disposition"] == "excluded"}, self.W8_EXCLUDED)
+        self.assertEqual({at(i) for i, r in rows.items() if r["disposition"] == "excluded"}
+                         & (self.W8_EXCLUDED | self.W8_PENDING), self.W8_EXCLUDED)
         self.assertEqual(len(self.W8_PENDING), 26)
         # the ruling's condition: a client-process exclusion must cite the inventoried route it calls, and no other
         routes = {(r["source"]["path"].rsplit("/", 1)[1], r["source"]["line"]): r["selectors"]
@@ -182,6 +183,54 @@ class ContractCoverage(unittest.TestCase):
                     self.assertTrue(r["reason"].startswith("Stays pending (P01 W8): "), r["reason"][:60])
                     self.assertIn("Owner: ", r["reason"])
         self.assertEqual(seen, self.W8_PENDING)
+
+    W2_EXCLUDED = {("providers.py", 1434)}
+    W2_PENDING = ({("codexrun.py", n) for n in (742, 1346, 1742, 1746)}
+                  | {("gitworkspace.py", n) for n in (808, 809, 810, 820, 932, 933, 1230)}
+                  | {("net.py", 1387), ("net.py", 1389), ("sandbox.py", 1195)}
+                  | {("supervisor.py", n) for n in (192, 6417, 6567, 17379, 17493, 17803, 17949, 18885, 18999, 20259,
+                                                    31551)}
+                  | {("warmpool.py", n) for n in (1446, 2249, 2809, 2948)})
+    S2K_EXCLUDED = {("antigravity_provenance.py", 325), ("antigravity_provenance.py", 328), ("api.py", 1338),
+                    ("liveness.py", 228)}
+
+    def test_w2_provider_and_machine_workers_are_triaged(self):
+        registrations = {r["site_id"]: r["source"] for r in self.source["registrations"]}
+        rows = {r["id"]: r for r in self.document["entries"]}
+
+        def at(i):
+            return (registrations[i]["path"].rsplit("/", 1)[1], registrations[i]["line"])
+        mine = self.W2_EXCLUDED | self.W2_PENDING
+        self.assertEqual(len(mine), 30)
+        self.assertEqual({at(i) for i, r in rows.items() if r["disposition"] == "excluded"} & mine, self.W2_EXCLUDED)
+        seen = set()
+        for i, r in rows.items():
+            if at(i) not in mine:
+                continue
+            seen.add(at(i))
+            with self.subTest(site=at(i)):
+                if at(i) in self.W2_EXCLUDED:
+                    self.assertTrue(r["reason"].startswith("Not ") and r["reason"].endswith(" P01 W2."), r["reason"])
+                else:
+                    self.assertEqual(r["disposition"], "pending")
+                    self.assertTrue(r["reason"].startswith("Stays pending (P01 W2): "), r["reason"][:60])
+                    self.assertIn("Owner: ", r["reason"])
+        self.assertEqual(seen, mine)
+
+    def test_every_excluded_witness_belongs_to_a_reviewed_triage_step(self):
+        # no exclusion outside S2k (storage) and W1/W2/W8 (their review records hold the source reading)
+        def where(source):
+            return (source["path"].rsplit("/", 1)[1], source["line"])
+        groups = {"entries": ({r["site_id"]: r["source"] for r in self.source["registrations"]},
+                              self.W1_EXCLUDED | self.W2_EXCLUDED),
+                  "dispatch": ({contracts.witness_id("dispatch", r): r["source"]
+                                for r in self.source["dispatch_selectors"]}, self.W8_EXCLUDED),
+                  "storage": ({contracts.witness_id("storage", r): r["source"]
+                               for r in self.source["connection_sites"]}, self.S2K_EXCLUDED)}
+        for group, (sites, reviewed) in groups.items():
+            with self.subTest(group=group):
+                excluded = {where(sites[r["id"]]) for r in self.document[group] if r["disposition"] == "excluded"}
+                self.assertEqual(excluded, reviewed)
 
     def test_contacts_is_specified_only_with_agent_level_mail_locality(self):
         # S2b ruling R1: org-store locality is not mail locality. contacts became

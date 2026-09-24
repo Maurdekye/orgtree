@@ -12364,28 +12364,28 @@
       "id": "0852acebcf5f665b77408001c0f9cbea2fd41e499d077d50f64e269302f220d7",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W2): the Codex app-server client's worker runs admitted server requests (tool calls and approvals) for the turn. It feeds the turn's event path, which writes org state (rule 2 as sharpened). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "5e9c42dedb340526d83b4af9788b6b9c2ad52b10bfd0520e2eb6887ac6a80a9e",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W2): CodexTurn's _observe callback folds every Codex event of the turn. It feeds the turn's event path, which writes org state (rule 2 as sharpened). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "49533ebb7902057bc923d69759e52c7fc4c15ce03ea3ddbee5634417f3f86ac4",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W2): the late steer resolver (on_late) handles a steer answer that arrived after its waiter gave up. It feeds the turn's event path, which writes org state (rule 2 as sharpened). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "1a11faecf2bf5b1de5e5e2cd67f83495dd0629f82ef21c97a795641e00524f96",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W2): the late steer callback (_late) routes a late steer answer back to the turn. It feeds the turn's event path, which writes org state (rule 2 as sharpened). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
@@ -12651,49 +12651,49 @@
       "id": "fc8af560bf21a773ffc60f91437e3d5b4ecd85cab7051fed1b45da5001638c4a",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W2): a git read (refs) submitted by gitworkspace.snapshot, which reads the org (org_facts: load_org under DOC_LOCK). A registered repository may sit inside an agent's scratch root (org material), so it is not clearly outside org state. Owner: the git workspace feature.",
       "source_refs": []
     },
     {
       "id": "0a46c77c02a0b2377f5e0969b38b0befbe9e5094e9d359d2923de51d2ff0273d",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W2): a git read (worktrees) submitted by gitworkspace.snapshot, which reads the org (org_facts: load_org under DOC_LOCK). A registered repository may sit inside an agent's scratch root (org material), so it is not clearly outside org state. Owner: the git workspace feature.",
       "source_refs": []
     },
     {
       "id": "b66b747a82deeb8804a4466c7dbb7c15e8c648e7f0d3871ea37b6b22007b3626",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W2): a git read (shallow check) submitted by gitworkspace.snapshot, which reads the org (org_facts: load_org under DOC_LOCK). A registered repository may sit inside an agent's scratch root (org material), so it is not clearly outside org state. Owner: the git workspace feature.",
       "source_refs": []
     },
     {
       "id": "87b768e279d4a730c152ce79612761e43c0303b5f154aa68b6fd8d2550d7ffb8",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W2): a git read (remote config) submitted by gitworkspace.snapshot, which reads the org (org_facts: load_org under DOC_LOCK). A registered repository may sit inside an agent's scratch root (org material), so it is not clearly outside org state. Owner: the git workspace feature.",
       "source_refs": []
     },
     {
       "id": "83aaa764ec0b55df2190bc98fe5b358aa33241082f089282a97e87ea2ce7416b",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W2): a git read (refs) submitted by gitworkspace.snapshot, which reads the org (org_facts: load_org under DOC_LOCK). A registered repository may sit inside an agent's scratch root (org material), so it is not clearly outside org state. Owner: the git workspace feature.",
       "source_refs": []
     },
     {
       "id": "0bdbef1320f568defd5c29bd028e27fdc558ecb954937af1900d56d635d30872",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W2): a git read (worktrees) submitted by gitworkspace.snapshot, which reads the org (org_facts: load_org under DOC_LOCK). A registered repository may sit inside an agent's scratch root (org material), so it is not clearly outside org state. Owner: the git workspace feature.",
       "source_refs": []
     },
     {
       "id": "51bb20fb7001bf74f73cf1c0b89f65fc4ee2f3b1a31afd47ae58cc45d4c70b84",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W2): a background git fetch of a registered repository (FetchScheduler.request), requested by the uncontracted git workspace routes. A registered repository may sit inside an agent's scratch root (org material), so it is not clearly outside org state. Owner: the git workspace feature.",
       "source_refs": []
     },
     {
@@ -13265,22 +13265,35 @@
       "id": "e7f59429bccbadb81ad0e2807b29f5f44fed72b7ff0f104e25fb7ac57a122f06",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W2): the @net: mail hub client's sender loop, which delivers outbound org mail and acknowledges inbound mail (_deliver_inbound deposits it into orgs). Org state. Owner: channels and mail (P07).",
       "source_refs": []
     },
     {
       "id": "137f5f419f6ceb73d8692e62efffaaa1157e49cf59dc3efb42c85a5aad83f67a",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W2): the @net: mail hub client's poller loop, which deposits inbound mail into orgs (_deliver_inbound). Org state. Owner: channels and mail (P07).",
       "source_refs": []
     },
     {
       "id": "4e01d1c7e61b0943e6f8629c190eef7f8d19250785dd282dc8acb20de0a87d52",
-      "disposition": "pending",
+      "disposition": "excluded",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "reason": "Not org state: the task probes the Antigravity CLI's login and version status and returns a cached provider status document (providers.antigravity_status), which is machine and provider state (P08). It reads and writes no org store or sidecar, and its result is never written into node state; callers such as the providers route and the staffing options only read it. JUDGEMENT CALL: it can gate a later hire choice without carrying data into the node. P01 W2.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/providers.py",
+          "start": 1434,
+          "end": 1436,
+          "sha256": "e19209d45a797634c90ce431e7ad813116744574c585b36edb10ee596f6d5525"
+        },
+        {
+          "path": "engine/backend/orgtree/providers.py",
+          "start": 1204,
+          "end": 1229,
+          "sha256": "f4bda2841412de78f0fb0450423f6c1221f4da905f3a2b47f1ab8a580e841be5"
+        }
+      ]
     },
     {
       "id": "fc16f0ec4f28045a3f5aa058a9fe35155bd4df5fafa3d7349c96c7531788c6f4",
@@ -13328,7 +13341,7 @@
       "id": "92a598ac7578db2ecf914a374dec9b56deb539f3dc69dc26a8c680fe46bb9157",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W2): the sandbox warm-up runs ensure_container for a sandboxed org (its container, mounted disk and chowned paths), the org's runtime environment. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
@@ -13363,21 +13376,21 @@
       "id": "27675a1fdea8e96d9831b6de7876ddf7c3a86c76d6a7c4e0098f4e5a010dd40e",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W2): the background walk (workspace_usage_bytes) measures an org's workspace and scratch roots (org material) for the storage figure the org views show (api uses workspace_usage_cached in the tree). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "429378e11529fee07c5c2cbaf7ad6f404b1d8a0e6890497408541567cd2a6586",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W2): the freeze-reset refresh works on a frozen node's provider-limit freeze state. Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "f8e538ab915673f306d92133c9cc02ad748d95cdcf4978f6abf87f007ea03b9a",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W2): the usage warm loop keeps the provider usage readout warm so a freeze can be stamped from cache, and lists the org store (store.list_orgs). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
@@ -13412,49 +13425,49 @@
       "id": "fb20e8341f1ccf0dd707c8747d851761bde97a759240be36526eedf34e5fe87f",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W2): the Codex MCP refresh on an event (_refresh_codex_mcp) updates the turn's MCP tool state. It feeds the turn's event path, which writes org state (rule 2 as sharpened). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "c04ecef6e8df36c567f68feab787f9acea642c958b2776317d04c011a27fa2b9",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W2): the Codex leg's _on_event callback handles every event of a Codex turn. It feeds the turn's event path, which writes org state (rule 2 as sharpened). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "62f26865b6178f696a1a4749ee77abe761833222b7dc384bafc8ec710e0727d6",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W2): the Codex steer pump's callback (_late_steer) routes a late steer answer. It feeds the turn's event path, which writes org state (rule 2 as sharpened). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "4c0cef8f4cd713cb80a2ac85e5e7fcc17c4dd2207e8d7afdf2fb76604e840c8a",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W2): the Codex leg's steer pump delivers queued steers into the running turn. It feeds the turn's event path, which writes org state (rule 2 as sharpened). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "701de417b6b85a79c5c4b87352c102dc2174234caeb20ed72d5676ae2526241c",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W2): the Antigravity leg's _on_event callback handles every event of an Antigravity turn. It feeds the turn's event path, which writes org state (rule 2 as sharpened). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "f61e246c228c0c25d3a5f6abfa8f464e02bb9d21ffaa7d46fad1c0fc903e6bc7",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W2): the Antigravity leg's steer pump delivers queued steers into the running turn. It feeds the turn's event path, which writes org state (rule 2 as sharpened). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "7c2782a8a49826cdc1fbe852d5a3458c3398f421e126a49944d398d5be335468",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W2): the cold Claude MCP pump reads the process's stdout, folds the init event's tool names and puts every line into the turn's queue. It feeds the turn's event path, which writes org state (rule 2 as sharpened). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
@@ -13524,7 +13537,7 @@
       "id": "71cd9840c7cb674292b18d921582dfa1441cd82e230406442d4481a16f61b0ec",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W2): the credential watcher loads and saves orgs under DOC_LOCK when provider credentials change. Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
@@ -13622,28 +13635,28 @@
       "id": "047d2ebc8ff898c8710e5661cdbaa320d9b2273ef2852dfe5e84edd38e638a43",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W2): releasing process control starts the held first turn (supervisor._run_turn). Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "768a2ce1fc96a45d5ffe3ed90c738a65ad141572eaa138bf9125e00322ed446f",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W2): the Codex prewarm event refresh updates a node's warm-process runtime state, which the tree view shows (proc_warm). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "a54970b3fdd1c8b6cc00bb0f148f85b1e011c9964e5ad6c49e1d1385b2600c2b",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W2): the Codex prewarm finish settles a node's warm process and its runtime state, which the tree view shows and a later turn claims. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "ceaad48b476992a655345aaaab9663fc96dc6b1c1cd2c19e17cb6802f4823516",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W2): the warm-pool keeper, poked by the org store's save hook (store.save_hooks), keeps nodes' warm processes that later turns claim. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
