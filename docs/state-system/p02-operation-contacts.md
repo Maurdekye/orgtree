@@ -245,6 +245,8 @@ Each agent gets a role:
 
 `third_agent_mail` counts logical mail changes that belong to a third agent.
 `third_agent_rows_written` counts physical writes to a third agent's rows.
+`physical_written` lists every agent whose row a statement WROTE, whatever
+its role (a subset of `physical_nodes`).
 `mail_producing` is true when any mail section changed.
 
 What the synthetic run shows:
@@ -363,10 +365,9 @@ Owned elsewhere, with no rows added:
   design, then P03, with P07 or P05;
 - `status.wire` and `chart.wire`: the native/Rust conversion.
 
-F1b, F2 (agent and human mail, inbox routes), F3 (funding), F3b (staffing)
-and F3c (operator ops) follow below. Still pending:
-- quick-staff (the staffing chooser's four routes);
-- receipt-lookup (receipt replay) and work-read (the work-item GET routes).
+F1b, F2 (agent and human mail, inbox routes), F3 (funding), F3b (staffing),
+F3c (operator ops) and F3d (quick-staff) follow below. Still pending:
+receipt-lookup (receipt replay) and work-read (the work-item GET routes).
 
 ## P01 S3 F1b: `org.tree`, `org.node-detail`, `org.feed`
 
@@ -709,6 +710,12 @@ Deliberate product behaviour, recorded:
   previous owner only") is therefore narrower than the intended behaviour
   and does not name the peers or the anchor's reports. The rows declare
   them. The fan-out grows with the number of peers.
+  - The per-agent view cannot show HOW an agent is told twice. A superior
+    hire first seats the new agent under the anchor, so the anchor's
+    reports get BOTH a `lifecycle.hired` peer notice and a
+    `lifecycle.inserted` child notice. `agents.logical` lists each agent
+    once per section. P01 pins the two notices by relation in
+    `tests/test_state_staffing_boundary.py`.
 
 Observed and recorded; legacy behaviour, NOT endorsed, not fixed:
 - **Every hire and staff call journals in the `tool_waits` sidecar.** Hire
@@ -777,8 +784,11 @@ Observed and recorded:
   This is `ledger._chain_acquire`: for an operator action, a raise's
   shortfall bubbles up every ancestor to the top level, inflating grants on
   the way. The down rows do not touch the grandparent. P01's clause ("the
-  target, its chain") names this. The rows declare the whole ancestor chain,
-  and the test asserts the grandparent write.
+  target, its chain") names this. The rows declare the whole ancestor chain.
+  The test asserts, per node, that the target, its parent AND its
+  grandparent are each WRITTEN (`agents.physical_written`, the agents whose
+  rows a statement wrote), and that the down rows neither read nor write
+  the grandparent.
 - **A top-level hire tells every live top-level seat** (its peers under
   `@user`). That is the same deliberate fan-out as the agent door's hire,
   above.
@@ -799,6 +809,77 @@ Clauses from the Owner lines at v3 56a9c22 (unchanged from b84131f).
 Owned elsewhere, with no rows added:
 - `operator-ops.conflicts`: the native design, then P03;
 - `operator-ops.wire`: the native/Rust conversion.
+
+## P01 S3 F3d: quick-staff (the staffing chooser)
+
+The fixture follows `tests/test_state_quick_staff_boundary.py` with
+distinctive `qs-*` ids:
+- org tiers `haiku` and `luna`;
+- `qs-mgr` is top-level (the tickets' assignee, visibility `self`), with
+  `qs-kid` under it (the third agent of the request-mode control);
+- `qs-other` is top-level.
+
+Every row is an HTTP call on the desktop token as the operator (`@user`),
+through `run(call=...)`. Machine state is patched for the WHOLE family, as
+in the P01 fixture:
+- provider discovery gives a fixed offer (`api._providers_payload`);
+- the provider gate, account reasons and advertised efforts are stubbed;
+- `staffcache.read` recomputes the snapshot on EVERY read, and
+  `staffcache.warm` is a no-op.
+
+So there is no warm staffing snapshot. Cold and warm are the org store's
+conditions only, and the snapshot's own reads (provider state, account
+boards) are outside what these rows observe. The mode is set with
+`appsettings.set_quick_staff_behavior` outside each row. The kickoff spy
+answers `accepted`, because the route undoes a request whose kickoff is not
+accepted. An immediate commit names its seat from the ticket title, so each
+ticket is titled with the seat's registered id.
+
+- **`quick-staff.options`** and **`quick-staff.options-refresh`**, each cold
+  and warm. The refresh runs no statement at all.
+- **`quick-staff.preview`** in each mode (`request`, `:under-assignee`,
+  `:top-level`), each cold and warm, on a backlogged ticket owned by
+  `qs-mgr`.
+- **`quick-staff.select`** in each mode, each cold and warm, each followed by
+  its `:replay` (the same request id and selection). The replay answers 200
+  from the ticket's receipt with no write, no mail and no wake.
+- **Refusals** (warm; nothing written, no wake): an agent credential on the
+  options read and on the commit (401, refused before any attempt is
+  recorded), a stale selection, an effort without a model, an account in
+  request mode, an immediate mode without a model, and a preview of a ticket
+  that is no longer backlogged.
+- **Agent-level locality:** reads write nothing and tell nobody. A commit
+  writes only the assignee's row and, in an immediate mode, the new seat's
+  (`agents.physical_written`). Its mail reaches the assignee (the request,
+  or the "staffed beneath you" notice and the item-moved notice) and the new
+  seat. Notices also reach the new seat's parent and live peers: `qs-kid`
+  under the assignee, and every live top-level seat at the top level. That is
+  the hire's deliberate fan-out (see S3 F3b), and the rows declare it. The
+  control `control:quick-staff-third-agent` (a request-mode commit whose
+  closing tree broadcast also mails `qs-kid`) is flagged.
+
+Observed and recorded:
+- A WARM options read, preview or replay runs no SQL statement at all. The
+  org comes from the resident document, even though these routes call
+  `store.load_org` under DOC_LOCK.
+- Wakes: a request commit drives the assignee once and sparks once; an
+  immediate commit drives the new seat once and sparks twice (the
+  assignment and the kickoff).
+- The kickoff-refused undo path (P01 pins it, including the recorded
+  empty-progress 500) has no rows here.
+
+## Hand-off to P01 (S3 F3d, quick-staff): facet → clause → rows
+
+Clauses from the Owner lines at v3 845b2c7.
+
+| Facet | Closing clause | Status | Rows |
+|---|---|---|---|
+| `quick-staff.reads` | observed per-operation contacts for staffing-options (cold and warm), the preview in each mode and the commit in each mode, including the replay | covered | `quick-staff.options`, `quick-staff.options-refresh`; `quick-staff.preview`, `:under-assignee`, `:top-level`; `quick-staff.select`, `:under-assignee`, `:top-level`, each with `:replay`; every row cold and warm; plus the refusal rows. The staffing snapshot's own reads are patched out (P01's fixture), so they are not observed here |
+| `quick-staff.instrumentation` | an observed, loss-accounted contact record for the chooser with agent-level locality (the assignee, the new seat and the ticket only) | partly | covered: the rows above, per-row loss zero; writes only the assignee's and the new seat's rows; `control:quick-staff-third-agent` flagged. The observed locality is WIDER than the clause: an immediate commit's notices also reach the new seat's parent and live peers (the hire's deliberate fan-out, declared). P01 should widen the set as for staffing. NOT covered: P03 native negative controls |
+
+Owned elsewhere, with no rows added:
+- `quick-staff.conflicts`: the native design, then P03;
+- `quick-staff.wire`: the native/Rust conversion.
 
 ## Limits
 

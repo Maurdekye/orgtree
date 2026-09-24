@@ -62,6 +62,7 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Callable
 
@@ -906,6 +907,7 @@ class Probe:
         physical: dict[str, int] = {}
         nodes: dict[str, str] = {}
         third_sites: dict[str, int] = {}
+        written: set[str] = set()
         third_rows_written = 0
         for st in c.statements:
             table = (st["written"] or st["read"] or ["other"])[0]
@@ -914,6 +916,8 @@ class Probe:
                 for nid in ids:
                     r = self.role(nid, actor, targets)
                     nodes[nid] = r
+                    if rw == "write":
+                        written.add(nid)
                     key = f"{table}:{rw}:{r}"
                     physical[key] = physical.get(key, 0) + 1
                     if r == "third":
@@ -927,6 +931,8 @@ class Probe:
             "actor": actor, "targets": targets,
             "physical": dict(sorted(physical.items())),
             "physical_nodes": dict(sorted(nodes.items())),
+            # the agents whose rows a statement WROTE (a subset of physical_nodes)
+            "physical_written": sorted(written),
             "logical": logical,
             "mail_producing": bool(changes),
             "third_agent_mail": sum(1 for sect in logical.values()
@@ -2589,6 +2595,166 @@ class Probe:
             refusal="negative control (not a product path)",
             patches=[(api, "hub_changed", mail_third)])
 
+    # -- P01 S3 F3d: quick-staff.options, -options-refresh, -preview, -select ---
+    #: tests/test_state_quick_staff_boundary.py's fixed provider offer
+    QS_OFFER = {"providers": [
+        {"id": "claude", "hire_enabled": True, "tiers": [{"tier": "haiku", "seat": 1}]},
+        {"id": "openai", "hire_enabled": True, "tiers": [{"tier": "luna", "seat": .2}]}]}
+    QS_MODES = {"request": "request", "under": "under_assignee", "top": "top_level"}
+
+    def build_quickstaff(self) -> None:
+        """The P01 quick-staff fixture's shape (distinctive `qs-*` ids): qs-mgr
+        top-level (the tickets' assignee), qs-kid under it (the third agent of
+        the request-mode control), qs-other top-level."""
+        store, ledger = self.m["store"], self.m["ledger"]
+        org = store.create_org("p02-contacts-quickstaff")
+        self.qsslug = str(org.d["slug"])
+        org.d["tiers"] = {"haiku": 1, "luna": .2}
+        org.hire(ledger.USER, None, "haiku", 20, "qs-mgr", add_dirs=[], tools=self.NO_TOOLS,
+                 org_visibility="self", charter="fixture")
+        org.hire("qs-mgr", "qs-mgr", "haiku", 0, "qs-kid",
+                 **{**self.SCOPE, "org_visibility": "self"})
+        org.hire(ledger.USER, None, "haiku", 0, "qs-other", add_dirs=[], tools={},
+                 charter="fixture")
+        org.d["mail"], org.d["audiences"] = {}, []
+        store.save_org(org)
+        self.tokens[(self.qsslug, "qs-mgr")] = self.m["agentauth"].child_env(
+            self.qsslug, "qs-mgr")["ORGTREE_AGENT_TOKEN"]
+
+    def quick_staff(self) -> None:
+        """staffing-options and its refresh, the preview in each mode and the
+        commit in each mode with its replay, cold and warm, as @user on the
+        desktop token; refusals and a locality control. Machine state is
+        patched for the whole family as in the P01 fixture: provider
+        discovery (a fixed offer), the provider gate, account reasons,
+        advertised efforts, and `staffcache.read` recomputes the snapshot on
+        EVERY read (so there is no warm staffcache; cold/warm is the org
+        store's). The kickoff spy answers `accepted` (the route undoes a
+        request whose kickoff is not accepted). The seat an immediate commit
+        creates is named from the ticket title, so it is known in advance."""
+        from orgtree import quickstaff, staffcache
+        s, store, api = self.qsslug, self.m["store"], self.m["api"]
+        supervisor, appsettings = self.m["supervisor"], self.m["appsettings"]
+        user, op, both = self.m["ledger"].USER, self.OPERATOR, ("cold", "warm")
+        base = f"/api/orgs/{s}"
+        _NODES[s] |= {f"qs-{m}-{cond}" for m in self.QS_MODES for cond in both}
+
+        def kickoff(*_a: Any, **_k: Any) -> dict[str, Any]:
+            self.wakes["send_message"] += 1
+            return {"accepted": True, "queued": 0}
+        family = [(api, "provider_hire_gate", lambda *_a, **_k: None),
+                  (quickstaff, "account_reason", lambda *_a, **_k: None),
+                  (quickstaff, "supported_efforts", lambda *_a, **_k: ["low", "high"]),
+                  (api, "_providers_payload", lambda *_a, **_k: copy.deepcopy(self.QS_OFFER)),
+                  (staffcache, "read", lambda **_k: staffcache._compute()),
+                  (staffcache, "warm", lambda *_a, **_k: None),
+                  (supervisor, "send_message", kickoff)]
+        saved = [(obj, name, getattr(obj, name)) for obj, name, _ in family]
+        for obj, name, value in family:
+            setattr(obj, name, value)
+        staffcache.reset_for_tests()
+        appsettings.set_quick_staff_request_accounts(False)
+        try:
+            self._quick_staff_rows(s, base, store, api, appsettings, user, op, both)
+        finally:
+            for obj, name, value in reversed(saved):
+                setattr(obj, name, value)
+            staffcache.reset_for_tests()
+            appsettings.set_quick_staff_behavior("request")
+
+    def _quick_staff_rows(self, s: str, base: str, store: Any, api: Any, appsettings: Any,
+                          user: str, op: dict[str, str], both: tuple[str, str]) -> None:
+        def run(contract: str, variant: str, condition: str, method: str, path: str,
+                body: Any = None, headers: Any = op, **kw: Any) -> None:
+            self.run(contract, variant, condition, s, user, f"{method} {contract}", {},
+                     call=self.http(self.client, base + path, headers, body), **kw)
+
+        def ticket(title: str) -> str:
+            out: dict[str, str] = {}
+            self.mutate(s, lambda o: out.update(wid=str(o.work_create(
+                "qs-mgr", title, "Problem. Fix.", status="backlogged", owner="qs-mgr")["slug"])))
+            return out["wid"]
+
+        def selection(wid: str, **extra: Any) -> dict[str, Any]:
+            p = self.client.get(f"{base}/work-items/{wid}/quick-staff", headers=op).json()
+            return {**{k: p[k] for k in ("mode", "configured_mode", "owner")},
+                    "request_id": str(uuid.uuid4()), **extra}
+
+        def told(parent: "str | None", *extra: str) -> tuple[str, ...]:
+            """The new seat's parent and the parent's live children (every
+            top-level seat, at the top level), read before the row."""
+            org = store.load_org(s)
+            peers = {k for k, v in org.nodes.items()
+                     if v.get("parent") == parent and v.get("state") != "archived"}
+            return tuple(sorted(peers | ({parent} if parent else set()) | set(extra)))
+
+        for cond in both:
+            run("quick-staff.options", "quick-staff.options", cond, "GET", "/staffing-options")
+            run("quick-staff.options-refresh", "quick-staff.options-refresh", cond, "POST",
+                "/staffing-options/refresh", {})
+            for short, mode in self.QS_MODES.items():
+                appsettings.set_quick_staff_behavior(mode)
+                wid = ticket(f"qs-{short}-{cond}")
+                path = f"/work-items/{wid}/quick-staff"
+                variant = "" if short == "request" else f":{mode.replace('_', '-')}"
+                run("quick-staff.preview", f"quick-staff.preview{variant}", cond, "GET", path,
+                    implied=("qs-mgr",))
+                body = selection(wid, **({} if short == "request" else {"tier": "haiku"}))
+                # the assignee (the request's recipient, or the item's previous
+                # owner), the new seat, and the seat's parent and live peers
+                implied = (("qs-mgr",) if short == "request" else
+                           told("qs-mgr", wid) if short == "under" else
+                           tuple(sorted(set(told(None, wid)) | {"qs-mgr"})))
+                run("quick-staff.select", f"quick-staff.select{variant}", cond, "POST", path,
+                    body, implied=implied)
+                run("quick-staff.select", f"quick-staff.select{variant}:replay", cond, "POST",
+                    path, body, implied=implied,
+                    refusal="replay (answered from the ticket's receipt, no effect)")
+        appsettings.set_quick_staff_behavior("request")
+        wid = ticket("qs-refusals")
+        path = f"/work-items/{wid}/quick-staff"
+        body = selection(wid)
+        agent = {"X-Orgtree-Agent-Token": self.tokens[(s, "qs-mgr")]}
+        # the agent-credential commit gets a ticket of its own: were the gate
+        # ever to let it through, its effect must not disturb the other rows
+        token_wid = ticket("qs-refusal-token")
+        token_path, token_body = f"/work-items/{token_wid}/quick-staff", selection(token_wid)
+        for contract, variant, method, p, b, headers, refusal in (
+                ("quick-staff.options", "refusal:qs-options-agent-token", "GET",
+                 "/staffing-options", None, agent, "401 an agent credential is refused here"),
+                ("quick-staff.select", "refusal:qs-stale-selection", "POST", path,
+                 {**body, "mode": "top_level"}, op, "422 the staffing behavior changed"),
+                ("quick-staff.select", "refusal:qs-effort-without-tier", "POST", path,
+                 {**body, "effort": "high"}, op, "422 an effort needs a model"),
+                ("quick-staff.select", "refusal:qs-account-in-request-mode", "POST", path,
+                 {**body, "tier": "haiku", "account": "claude/primary"}, op,
+                 "422 request staffing cannot pin an account"),
+                ("quick-staff.select", "refusal:qs-agent-token", "POST", token_path,
+                 {**token_body, "tier": "haiku"}, agent,
+                 "401 an agent credential is refused here")):
+            run(contract, variant, "warm", method, p, b, headers=headers, refusal=refusal)
+        appsettings.set_quick_staff_behavior("under_assignee")
+        run("quick-staff.select", "refusal:qs-immediate-without-tier", "warm", "POST", path,
+            selection(wid), refusal="422 immediate staffing needs a model")
+        appsettings.set_quick_staff_behavior("request")
+        self.mutate(s, lambda o: o.work_update("qs-mgr", wid, ["x"], ["y"], status="open"))
+        run("quick-staff.preview", "refusal:qs-preview-not-backlogged", "warm", "GET", path,
+            refusal="422 quick staff needs a backlogged ticket")
+
+        # agent-level locality control: a request-mode commit whose closing
+        # tree broadcast (api.hub_changed) ALSO posts mail to a third agent
+        wid = ticket("qs-control")
+        body = selection(wid)
+
+        def mail_third(*_a: Any, **_k: Any) -> None:
+            with store.write_org(s) as o:
+                o.post_mail("qs-mgr", "qs-kid", "p02 control: mail to a third agent")
+                store.save_org(o)
+        run("quick-staff.select", "control:quick-staff-third-agent", "warm", "POST",
+            f"/work-items/{wid}/quick-staff", body, implied=("qs-mgr",),
+            refusal="negative control (not a product path)",
+            patches=[(api, "hub_changed", mail_third)])
+
     # -- the r5 residuals ----------------------------------------------------
     def residuals(self) -> dict[str, Any]:
         """db_unbound and unclassified_action, reproduced: which records carry
@@ -2678,11 +2844,12 @@ class Probe:
             self.build_funding()
             self.build_staffing()
             self.build_operator()
+            self.build_quickstaff()
         self.build_human()
         for slug in ((self.dslug, self.hslug) if json_backend else
                      (self.rslug, self.mslug, self.dslug, self.pslug, self.sslug,
                       self.stslug, self.ovslug, self.mlslug, self.hslug, self.fslug,
-                      self.stfslug, self.opslug)):
+                      self.stfslug, self.opslug, self.qsslug)):
             _NODES[slug] = {str(n) for n in self.m["store"].load_org(slug).nodes}
         self.operator("post", "/api/diagnostics/operation-census/reset")
         self.operator("post", "/api/diagnostics/operation-census", json={"enabled": True})
@@ -2706,6 +2873,7 @@ class Probe:
             self.funding()
             self.staffing()
             self.operator_ops()
+            self.quick_staff()
         w1 = self.census_state()
         self.load_table_catalogue()
         self.map_tables()

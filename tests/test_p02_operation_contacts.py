@@ -38,7 +38,9 @@ CONTRACTS = {f"reservation.{v}" for v in RESERVATION} | {
     "mail.human-send", "mail.user-inbox", "mail.user-inbox-read", "mail.node-inbox",
     "credits.request", "credits.reallocate", "credits.decide",
     "staffing.hire", "staffing.staff-create", "staffing.staff-update",
-    "operator.hire", "operator.reallocate"}
+    "operator.hire", "operator.reallocate",
+    "quick-staff.options", "quick-staff.options-refresh", "quick-staff.preview",
+    "quick-staff.select"}
 
 
 class OperationContacts(unittest.TestCase):
@@ -232,8 +234,9 @@ class OperationContacts(unittest.TestCase):
                 self.assertTrue(agents["actor"])
                 for key in ("targets", "physical", "physical_nodes", "logical",
                             "mail_producing", "third_agent_mail", "third_agent_rows_written",
-                            "third_sites"):
+                            "third_sites", "physical_written"):
                     self.assertIn(key, agents)
+                self.assertLessEqual(set(agents["physical_written"]), set(agents["physical_nodes"]))
                 # every physical touch of a third agent's row names its product step
                 self.assertEqual(sum(agents["third_sites"].values()),
                                  sum(n for k, n in agents["physical"].items()
@@ -264,7 +267,8 @@ class OperationContacts(unittest.TestCase):
         for r in self.doc["rows"]:
             if r["variant"] in (self.CONTROL, self.STATUS_CONTROL, self.MAIL_CONTROL,
                                 self.HUMAN_CONTROL, self.FUNDING_CONTROL,
-                                self.STAFFING_CONTROL, self.OPERATOR_CONTROL):
+                                self.STAFFING_CONTROL, self.OPERATOR_CONTROL,
+                                self.QS_CONTROL):
                 continue
             with self.subTest(variant=r["variant"], condition=r["condition"]):
                 self.assertEqual(r["agents"]["third_agent_mail"], 0)
@@ -278,7 +282,8 @@ class OperationContacts(unittest.TestCase):
                                      "mail.message", "mail.notice", "mail.human-send",
                                      "credits.reallocate", "credits.decide", "staffing.hire",
                                      "staffing.staff-create", "staffing.staff-update",
-                                     "operator.hire", "operator.reallocate"})
+                                     "operator.hire", "operator.reallocate",
+                                     "quick-staff.select"})
 
     def test_third_agent_mail_control_is_flagged(self):
         control = self.rows(variant=self.CONTROL)
@@ -1259,9 +1264,12 @@ class OperationContacts(unittest.TestCase):
         for condition in ("cold", "warm"):
             up = self.rows(variant="operator.reallocate", condition=condition)[0]["agents"]
             self.assertEqual(up["physical_nodes"].get("oh-above-cold"), "target")
-            self.assertGreaterEqual(up["physical"].get("nodes:write:target", 0), 3)
+            # every link of the chain is WRITTEN, the grandparent included
+            self.assertLessEqual({"op-mid", "oh-above-warm", "oh-above-cold"},
+                                 set(up["physical_written"]))
             down = self.rows(variant="operator.reallocate:down", condition=condition)[0]["agents"]
             self.assertNotIn("oh-above-cold", down["physical_nodes"])
+            self.assertNotIn("oh-above-cold", down["physical_written"])
         frac = self.rows(variant="operator.reallocate:fractional")[0]
         self.assertEqual((frac["http_status"], frac["agents"]["third_agent_rows_written"]), (200, 0))
 
@@ -1290,6 +1298,86 @@ class OperationContacts(unittest.TestCase):
         self.assertEqual(control["http_status"], 200, control["detail"])
         agents = control["agents"]
         self.assertEqual(agents["logical"]["mail"], {"op-sib": "third"})
+        self.assertGreaterEqual(agents["third_agent_mail"], 1)
+        self.assertGreaterEqual(agents["third_agent_rows_written"], 1)
+        self.assertTrue(agents["third_sites"])
+
+    # -- P01 S3 F3d: quick-staff (the staffing chooser) --------------------------
+    QS_CONTROL = "control:quick-staff-third-agent"
+    #: select variant -> (new seat stem or None, mail_notify sparks)
+    QS_SELECT = {"quick-staff.select": (None, 1),
+                 "quick-staff.select:under-assignee": ("qs-under", 2),
+                 "quick-staff.select:top-level": ("qs-top", 2)}
+
+    def test_quick_staff_by_mode_reaches_only_the_declared_set(self):
+        """quick-staff.reads/instrumentation: staffing-options and its refresh,
+        the preview in each mode and the commit in each mode with its replay,
+        cold and warm, loss-accounted. Reads write nothing; a commit writes
+        only the assignee's row and, immediate, the new seat's; nothing
+        outside the assignee, the new seat and its parent and live peers is
+        told (the hire's deliberate peer fan-out)."""
+        def primary_written(r):
+            return r["harness"]["stores"].get("primary", {}).get("tables_written", [])
+        reads = ["quick-staff.options", "quick-staff.options-refresh", "quick-staff.preview",
+                 "quick-staff.preview:under-assignee", "quick-staff.preview:top-level"]
+        reads += [f"{v}:replay" for v in self.QS_SELECT]
+        for condition in ("cold", "warm"):
+            for variant in reads:
+                with self.subTest(variant=variant, condition=condition):
+                    r = self.rows(variant=variant, condition=condition)[0]
+                    self.assertEqual(r["http_status"], 200, r["detail"])
+                    self.assertEqual(r["census"]["records"], 1)
+                    self.assertEqual((primary_written(r), r["harness"]["writes"],
+                                      r["agents"]["logical"], r["agents"]["physical_written"]),
+                                     ([], 0, {}, []))
+                    # a replay is answered from the ticket's receipt: a 200 with
+                    # no write, no mail and no wake (a re-run would post again)
+                    self.assertEqual(r["wakes"], {"send_message": 0, "mail_notify": 0})
+            for variant, (stem, sparks) in self.QS_SELECT.items():
+                with self.subTest(variant=variant, condition=condition):
+                    r = self.rows(variant=variant, condition=condition)[0]
+                    self.assertEqual(r["http_status"], 200, r["detail"])
+                    self.assertEqual(r["census"]["records"], 1)
+                    agents = r["agents"]
+                    seat = {f"{stem}-{condition}"} if stem else set()
+                    self.assertEqual(set(agents["physical_written"]), {"qs-mgr"} | seat)
+                    roles = {role for sect in agents["logical"].values() for role in sect.values()}
+                    self.assertEqual(roles, {"target"})
+                    self.assertEqual((agents["third_agent_mail"],
+                                      agents["third_agent_rows_written"]), (0, 0))
+                    self.assertFalse(agents["third_sites"])
+                    self.assertEqual(r["wakes"], {"send_message": 1, "mail_notify": sparks})
+                    self.assertEqual(set(agents["logical"]["mail"]), {"qs-mgr"} | seat)
+        # the immediate modes' peer fan-out: under the assignee its report
+        # qs-kid is told; at the top level every live top-level seat is
+        under = self.rows(variant="quick-staff.select:under-assignee", condition="cold")[0]
+        self.assertIn("qs-kid", under["agents"]["logical"]["notices"])
+        top = self.rows(variant="quick-staff.select:top-level", condition="cold")[0]
+        self.assertIn("qs-other", top["agents"]["logical"]["notices"])
+        # the refresh never touches an org store
+        for condition in ("cold", "warm"):
+            refresh = self.rows(variant="quick-staff.options-refresh", condition=condition)[0]
+            self.assertEqual(refresh["census"]["statements"], 0)
+
+    def test_quick_staff_refusals_write_nothing(self):
+        for variant, status in (("refusal:qs-options-agent-token", 401),
+                                ("refusal:qs-stale-selection", 422),
+                                ("refusal:qs-effort-without-tier", 422),
+                                ("refusal:qs-account-in-request-mode", 422),
+                                ("refusal:qs-agent-token", 401),
+                                ("refusal:qs-immediate-without-tier", 422),
+                                ("refusal:qs-preview-not-backlogged", 422)):
+            with self.subTest(variant=variant):
+                r = self.rows(variant=variant)[0]
+                self.assertEqual((r["http_status"], r["harness"]["writes"], r["agents"]["logical"],
+                                  sum(r["wakes"].values())), (status, 0, {}, 0))
+                self.assertEqual(r["census"]["records"], 0 if status == 401 else 1)
+
+    def test_quick_staff_third_agent_control_is_flagged(self):
+        control = self.rows(variant=self.QS_CONTROL)[0]
+        self.assertEqual(control["http_status"], 200, control["detail"])
+        agents = control["agents"]
+        self.assertEqual(agents["logical"]["mail"], {"qs-kid": "third", "qs-mgr": "target"})
         self.assertGreaterEqual(agents["third_agent_mail"], 1)
         self.assertGreaterEqual(agents["third_agent_rows_written"], 1)
         self.assertTrue(agents["third_sites"])
