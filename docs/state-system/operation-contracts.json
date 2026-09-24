@@ -14904,7 +14904,7 @@
       "id": "b07f7c84d90501c93280583285a1220a063a7ae2b9e396c380773f6601af4f19",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Stays pending (P01 W7): desktop_maintenance.request's anything but restart and update branch refuses an unknown maintenance action before the request writes <DATA_ROOT>/desktop-maintenance.json. No production caller of request was found in the backend or engine/launch.py (only tests call it), so it is recorded rather than excluded. Owner: desktop maintenance.",
+      "reason": "Stays pending (P01 W7): (review fix) desktop_maintenance.request's anything but restart and update branch refuses an unknown maintenance action before the request writes <DATA_ROOT>/desktop-maintenance.json, which the launcher's maintenance routes read. Under the desktop launcher it is installed at engine/launch.py:336 (desktop_maintenance.install rebinds supervisor.launch_self_restart to request and supervisor.arm_prime_restart to prime, which calls request), so /api/agent reaches it through orgtree_self_relaunch, orgtree_self_restart and orgtree_self_update and the prime restart tools. Owner: desktop maintenance with the runtime (P08).",
       "source_refs": []
     },
     {

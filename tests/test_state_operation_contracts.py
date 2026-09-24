@@ -328,6 +328,12 @@ class ContractCoverage(unittest.TestCase):
                     for value in s["values"]:
                         self.assertIn(value, r["reason"])
         self.assertEqual(found, self.W7_SYMBOLS)
+        # the maintenance request IS reached in production: launch.py installs it as the restart hook (W7 fix)
+        [maintenance] = [rows[contracts.witness_id("dispatch", s)] for s in self.source["dispatch_selectors"]
+                         if s["source"]["path"].endswith("/desktop_maintenance.py")
+                         and s["source"]["symbol"] == "request"]
+        self.assertNotIn("only tests", maintenance["reason"])
+        self.assertIn("engine/launch.py:336", maintenance["reason"])
         # W4-W8 leave no dispatch witness with the generic reason
         self.assertEqual([r["id"] for r in self.document["dispatch"]
                           if r["reason"].startswith("Requires explicit source review")], [])

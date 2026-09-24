@@ -314,7 +314,8 @@ the same for 26 operator-operation, preview-simulation and receipt-helper branch
 variants (each files an applied receipt), so under rule 1 it is mapped to them.
 W7 closes nothing: it names the owner of the last 30 generic dispatch branches (watchdog
 actions and the watchdog tool, the audience tool and route, prime restart and relaunch, remote
-control, and the desktop maintenance request, which has no production caller). After W1-W8 no
+control, and the desktop maintenance request, which the launcher installs as the self-restart and
+prime restart hook). After W1-W8 no
 dispatch witness and no non-concrete registration keeps the generic reason; the remaining generic
 rows are concrete http, websocket and tool registrations.
 
