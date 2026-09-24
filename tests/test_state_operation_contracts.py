@@ -42,10 +42,10 @@ class ContractCoverage(unittest.TestCase):
         self.assertGreater(result["summary"]["storage"]["pending"], 0)
         # THE one registry-wide tripwire (review of S3 candidate 1): every candidate
         # that maps a witness or adds a contract moves these numbers here, and only here.
-        self.assertEqual(result["contracts"], 35)
+        self.assertEqual(result["contracts"], 39)
         self.assertEqual((result["summary"]["entries"]["mapped"], result["summary"]["dispatch"]["mapped"],
-                          result["summary"]["storage"]["mapped"]), (23, 46, 0))
-        self.assertEqual(len(result["pending"]), 616)
+                          result["summary"]["storage"]["mapped"]), (27, 49, 0))
+        self.assertEqual(len(result["pending"]), 625)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
@@ -152,11 +152,12 @@ class ContractCoverage(unittest.TestCase):
 
     def test_mapping_a_helper_witness_early_is_caught(self):
         document = copy.deepcopy(self.document)
-        row = next(r for r in document["dispatch"] if r["id"].startswith("f2c32b21"))
+        # credit_request_action's approve branch: the inbox batch submit is still uncontracted
+        row = next(r for r in document["dispatch"] if r["id"].startswith("c590e76e"))
         self.assertEqual(row["disposition"], "pending")
-        staff_call = document["contracts"]["staffing.staff-create"]["source_refs"][2]
-        row.update(disposition="mapped", contracts=["staffing.staff-create"], reason="early",
-                   source_refs=[staff_call])
+        action = next(r for r in document["facets"]["funding.predicates"]["source_refs"]
+                      if r["path"].endswith("ledger.py") and r["start"] == 9615)
+        row.update(disposition="mapped", contracts=["credits.decide"], reason="early", source_refs=[action])
         self.assertTrue(self.validate(document)["valid"])     # the validator alone does not see it
         self.assertEqual(self.early_helper_witnesses(document), {row["id"]})
 

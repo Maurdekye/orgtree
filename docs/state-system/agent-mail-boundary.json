@@ -1,6 +1,6 @@
 {
   "schema": "orgtree.agent-mail-boundary/v1",
-  "source_contract_sha256": "1897aa6338625007723882dbc030f1b25eab8c4c148b707a5cd59849505bacc6",
+  "source_contract_sha256": "7794ac15a14848fd62adca76aa19297172ccd272abca874dd62d49eaaf3251e1",
   "qualification": {
     "runtime_census": false,
     "conversion_authorized": false

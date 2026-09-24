@@ -217,6 +217,30 @@ class OperatorOpsBoundary(unittest.TestCase):
         self.refused(self.op({'op': 'hire', 'tier': 'haiku', 'name': 'x', 'actor': 'mid', 'parent': 'mid'}),
                      'agent hires have no defaults')
 
+    def test_kiosk_visitors_reach_hire_and_reallocate_as_sent(self):
+        # the 6b reviewer's note: the public-gateway path, pinned (S3 candidate 7a)
+        with store.write_org(self.slug) as org:
+            org.d['kiosk'] = {'enabled': True, 'token': 'kioskOPS123',
+                              'max_scope': {**org.default_kiosk_ceiling(), 'org_visibility': 'team'}}
+            store.save_org(org)
+        api._token_cache['at'] = 0.0
+        public = TestClient(api.PublicGateway(api.app), raise_server_exceptions=False)
+        self.addCleanup(public.close)
+        visit = lambda body: lambda: public.post(f'/k/kioskOPS123/api/orgs/{self.slug}/ops', json=body)  # noqa: E731
+        # the admin gets the ceiling bridge offer; a visitor's is stripped and its raise_ceiling ignored
+        r, _, after = self.act(self.op({'op': 'hire', 'tier': 'haiku', 'name': 'adm'}))
+        self.assertEqual((r.json().get('bridge'), after['nodes']['adm']['scope']['org_visibility']),
+                         ({'raise_ceiling': True}, 'team'))
+        r, _, after = self.act(visit({'op': 'hire', 'tier': 'haiku', 'name': 'vis', 'raise_ceiling': True}))
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertNotIn('bridge', r.json())
+        self.assertEqual(after['nodes']['vis']['scope']['org_visibility'], 'team')
+        self.quiet()
+        r, _, after = self.act(visit({'op': 'reallocate', 'node': 'mid', 'delta': 1}))
+        self.assertEqual((r.status_code, after['nodes']['mid']['grant']), (200, 7))
+        self.refused(visit({'op': 'reallocate', 'node': 'mid', 'delta': 1, 'preview': True}),
+                     'kiosk: operator previews are available from the admin side', code=403)
+
     # -- operator.reallocate -------------------------------------------------------
     def test_user_reallocate_rounds_up_and_notifies(self):
         spec = self.spec

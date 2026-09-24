@@ -1,0 +1,104 @@
+{
+  "schema": "orgtree.quick-staff-boundary/v1",
+  "source_contract_sha256": "7794ac15a14848fd62adca76aa19297172ccd272abca874dd62d49eaaf3251e1",
+  "qualification": {
+    "runtime_census": false,
+    "conversion_authorized": false
+  },
+  "contracts": {
+    "quick-staff.options": "GET /api/orgs/{slug}/staffing-options",
+    "quick-staff.options-refresh": "POST /api/orgs/{slug}/staffing-options/refresh",
+    "quick-staff.preview": "GET /api/orgs/{slug}/work-items/{wid}/quick-staff",
+    "quick-staff.select": "POST /api/orgs/{slug}/work-items/{wid}/quick-staff"
+  },
+  "results": {
+    "options": [
+      "at",
+      "errors",
+      "generation",
+      "loading",
+      "stale",
+      "tiers"
+    ],
+    "refresh": [
+      "age",
+      "errors",
+      "generation",
+      "loading",
+      "stale",
+      "warm"
+    ],
+    "preview": [
+      "availability",
+      "configured_mode",
+      "disclosure",
+      "fallback",
+      "mode",
+      "models",
+      "owner"
+    ],
+    "request": [
+      "mail",
+      "message",
+      "requested_from"
+    ],
+    "under_assignee": [
+      "account",
+      "applied",
+      "assigned_to",
+      "assignee_notified",
+      "item",
+      "message",
+      "next_step",
+      "node",
+      "ref",
+      "staffing_boundary",
+      "started",
+      "updated",
+      "warnings"
+    ],
+    "top_level": [
+      "account",
+      "applied",
+      "assigned_to",
+      "item",
+      "message",
+      "next_step",
+      "node",
+      "ref",
+      "staffing_boundary",
+      "started",
+      "updated",
+      "warnings"
+    ]
+  },
+  "sections": {
+    "request": [
+      "events",
+      "lifecycle",
+      "mail",
+      "mail_log",
+      "nodes",
+      "user_outbox",
+      "work_items"
+    ],
+    "immediate": [
+      "events",
+      "lifecycle",
+      "mail",
+      "mail_log",
+      "nodes",
+      "notice_log",
+      "notices",
+      "user_outbox",
+      "work_items"
+    ]
+  },
+  "ping": {
+    "ping_reason": "quick_staff"
+  },
+  "legacy_defects": [
+    "a request-mode commit whose kickoff is refused on a ticket with empty progress lists fails with an unhandled 500 and undoes nothing"
+  ],
+  "scope": "Legacy boundary of staffing-options (read, refresh) and quick staff (preview, commit in request, under_assignee and top_level modes) on disposable SQLite: authority, predicates, committed sections, the request-id receipt and callbacks at their boundary. Provider discovery, the provider gate, account reasons and efforts are patched to a fixed offer (machine state). Nothing native, contact-level or concurrent is qualified."
+}

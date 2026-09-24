@@ -119,9 +119,9 @@ runtime probes remain unresolved. Material reads add two cards and two selectors
 diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
-Current totals are 35 contracts, 23 mapped registrations and 46 mapped
-dispatch witnesses. **616 obligations remain**: 296 registrations, 181 dispatch
-witnesses, 15 storage candidates and 124 unresolved dimension occurrences.
+Current totals are 39 contracts, 27 mapped registrations and 49 mapped
+dispatch witnesses. **625 obligations remain**: 292 registrations, 178 dispatch
+witnesses, 15 storage candidates and 140 unresolved dimension occurrences.
 How it got there: 600 was two more registrations than the preceding 598 because the scanner now
 recognizes `asyncio.to_thread` hand-offs; both new witnesses are pending and no
 existing witness identity, disposition or contract changed.
@@ -205,6 +205,11 @@ stay pending for the same reason: the uncontracted quick-staff route calls
 to `operator.hire` and `operator.reallocate`, whose four unresolved shared
 `operator-ops` facets add eight occurrences (+8). The ops route entry itself stays
 pending: its other operations are uncontracted.
+625 is nine more than that 616 (S3 candidate 7a): the four staffing-chooser routes
+are mapped (-4) to `quick-staff.options`, `quick-staff.options-refresh`,
+`quick-staff.preview` and `quick-staff.select`, whose four unresolved shared
+`quick-staff` facets add sixteen occurrences (+16), and `_staff_call`'s three action
+branches map back (-3) now that both of its callers are contracted.
 See "P03-prototype surface" below.
 
 Of the 53 open dimension occurrences on the sixteen legacy-family contracts, 37 (17 facets) cannot be closed at P01
@@ -438,6 +443,27 @@ anchor's scope for `above`, delta required and rounded up), writes, receipt (non
 a retried hire seats a second agent) and effects (one broadcast, no drive).
 Unresolved with an owner: reads and instrumentation (P02), conflicts (native
 design) and wire (native/Rust).
+
+Candidate 7a (F3b, the operator staffing chooser) adds `quick-staff.options` and
+`quick-staff.options-refresh` (GET and POST `/api/orgs/{slug}/staffing-options[/refresh]`),
+`quick-staff.preview` and `quick-staff.select` (GET and POST
+`/api/orgs/{slug}/work-items/{wid}/quick-staff`), sharing one set of `quick-staff`
+facets. Specified from source and pinned by `tests/test_state_quick_staff_boundary.py`
+against `quick-staff-boundary.json`, with provider discovery, the provider gate,
+account reasons and efforts patched to a fixed offer as machine state: authority (the
+desktop token gate; the commit acts as the user), predicates (backlogged tickets only,
+the configured mode, the stale-context refusal, the snapshot a commit accepts),
+writes (reads and the refresh write nothing durable; request and immediate commits),
+receipt (the commit's own request-id receipt and replay) and effects (one
+`quick_staff` ping per driven node, the compensating undo in request mode,
+`kickoff_failed` in the immediate modes). Unresolved with an owner: reads and
+instrumentation (P02), conflicts (native design) and wire (native/Rust). With both
+of its callers contracted, `_staff_call`'s three action branches map back, each to
+the contracts that take it: the create branch to `staffing.staff-create` alone,
+because quick staff always sends action update. Recorded legacy defect: a
+request-mode commit whose kickoff is refused on a ticket with empty progress lists
+fails with an unhandled 500 and undoes nothing. The operator ops door's kiosk-visitor
+path is now pinned too (the candidate 6b reviewer's note).
 
 ## Deliberate failing controls
 

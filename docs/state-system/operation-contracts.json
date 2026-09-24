@@ -6630,7 +6630,7 @@
       "dimension": "authority",
       "status": "specified",
       "facts": [
-        "POST /api/orgs/{slug}/ops is an operator route behind the desktop TokenGate (engine/launch.py, outside the pinned set): an agent credential is refused 401 (pinned). The operator acts as `actor`, which defaults to the user; naming an agent as `actor` makes the ledger apply THAT agent's authority and rules — an agent-actor hire needs the no-defaults fields and an agent-actor reallocation is downward-only (pinned). Kiosk visitors reach the same handler through the public gateway (not pinned here), where the ceiling bridge is stripped and raise_ceiling is not honoured.",
+        "POST /api/orgs/{slug}/ops is an operator route behind the desktop TokenGate (engine/launch.py, outside the pinned set): an agent credential is refused 401 (pinned). The operator acts as `actor`, which defaults to the user; naming an agent as `actor` makes the ledger apply THAT agent's authority and rules — an agent-actor hire needs the no-defaults fields and an agent-actor reallocation is downward-only (pinned). Kiosk visitors reach the same handler through the public gateway (/k/<token>/api/orgs/{slug}/ops, which does not deny it): a visitor hire and reallocation run with the visitor's `actor` as sent (default the user), raise_ceiling is not honoured and the ceiling bridge is stripped, the kiosk ceiling clamps the new seat, and a visitor preview is refused 403 (pinned).",
         "operator.hire: the user hires at the top level (no `parent`) or under any live parent; `above` inserts the new seat above an existing report of `parent` ('insert-superior: <x> does not report to <p>' otherwise), with check_placement's rules. The provider gate runs first (machine state, patched off by the boundary tests). operator.reallocate: the user may move any node's grant, drawn up the parent chain as for credits.reallocate; a top-level target is bounded by the top-level grant cap."
       ],
       "source_refs": [
@@ -6944,6 +6944,351 @@
       "open_questions": [
         "Extend the P02 per-operation probe to operator hire and reallocate.",
         "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed, loss-accounted contact record for operator hire and reallocate with agent-level locality (the target, its chain and the new seat's parent and peers only). Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to the operator ops door."
+      ]
+    },
+    "quick-staff.authority": {
+      "dimension": "authority",
+      "status": "specified",
+      "facts": [
+        "All four routes are operator routes behind the desktop TokenGate (engine/launch.py, outside the pinned set): an agent credential is refused 401 (pinned for staffing-options and the quick-staff commit). The commit acts as the user throughout: request mode mails the assignee as @user, and the immediate modes call _staff_call(org, slug, USER, …), so the seat and the docket write carry the user's authority and the staffing.staff-update rules. Kiosk visitors are not examined here."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6505,
+          "end": 6525,
+          "sha256": "b318266e948a6b8fc601f2bc16fd3414820465577d6bad8f4d04ef39c6c593b7"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6528,
+          "end": 6540,
+          "sha256": "98161b12c03c02396c36b37075ad9244987d7c55bcc94416fda64f720f2ed91a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6543,
+          "end": 6559,
+          "sha256": "006e1c90b8dc742148a101d94b70295339bf018d43ab5b338780edd021338140"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6633,
+          "end": 6815,
+          "sha256": "2c29ae2268f2119ff535c3e450c191aca80032b8faf02243d8f2cdc4688934e2"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10549,
+          "end": 10706,
+          "sha256": "c05dda630c5c9b3551574a6b61ab384de8d7c86945b4e73996387244ddd844aa"
+        }
+      ],
+      "open_questions": []
+    },
+    "quick-staff.predicates": {
+      "dimension": "predicates",
+      "status": "specified",
+      "facts": [
+        "Provider discovery (api._providers_payload, the OpenRouter catalog, account boards), the provider gate, account reasons and advertised efforts are machine state read through the staffcache snapshot; the boundary tests patch them to a fixed offer and recompute the snapshot on every read.",
+        "Preview and commit: the ticket must be backlogged and not archived ('Quick staff is available only for backlogged tickets. Reopen the menu.'); the mode is the app setting quick_staff_behavior (request | under_assignee | top_level), falling back to top_level when the assignee is not live (context). The commit refuses a selection whose mode, configured_mode or owner no longer match ('The staffing behavior or assignee changed. …'), an effort or an account without a tier, an immediate mode without a tier ('Immediate staffing requires a model. …'), and in request mode an account unless the quick_staff_request_accounts setting is on ('Request staffing cannot pin an account …'); the tier is re-checked by quickstaff.check_choice over a snapshot read with max_age COMMIT_MAX_AGE (30 s) and allow_stale False. Pinned.",
+        "staffing-options answers the org's tiers in catalog order, omitting a tier the provider gate or tier ceiling blocks and an account-needing tier with no eligible account; discovery errors are reported in `errors`, never as an empty list. The quick-staff preview lists the offered models in request mode and, in the immediate modes, only tiers a trial hire (HireProbe) admits. Pinned for the fixed offer."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6491,
+          "end": 6502,
+          "sha256": "4d111d3aa819130c74ffeb195372fca208b158db9e89f205befb9cf6e4cfc886"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6633,
+          "end": 6815,
+          "sha256": "2c29ae2268f2119ff535c3e450c191aca80032b8faf02243d8f2cdc4688934e2"
+        },
+        {
+          "path": "engine/backend/orgtree/quickstaff.py",
+          "start": 56,
+          "end": 70,
+          "sha256": "41126cb9033b8abc697ec2cbb8e648feeda163870cf061e99856daac788ad0e3"
+        },
+        {
+          "path": "engine/backend/orgtree/quickstaff.py",
+          "start": 313,
+          "end": 353,
+          "sha256": "111c2ac91c325aef305650d45ab9b6d30ce9c2402e7805b5c26b5676eb7a21ab"
+        },
+        {
+          "path": "engine/backend/orgtree/quickstaff.py",
+          "start": 372,
+          "end": 421,
+          "sha256": "27dc53f54c8af9b768b85d26d1969f4a6a1df707da7387e6c180c2c038cd393a"
+        },
+        {
+          "path": "engine/backend/orgtree/quickstaff.py",
+          "start": 439,
+          "end": 476,
+          "sha256": "586abbf5ed3c0c6625ded033bb4c4908f7d095975900afb35b7de091108fca5e"
+        },
+        {
+          "path": "engine/backend/orgtree/staffcache.py",
+          "start": 247,
+          "end": 269,
+          "sha256": "c45937054532ec880577e1b728b767d32ca5a89dbd54d34de45fee14ad115f82"
+        }
+      ],
+      "open_questions": []
+    },
+    "quick-staff.writes": {
+      "dimension": "writes",
+      "status": "specified",
+      "facts": [
+        "staffing-options, its refresh and the preview write nothing durable (pinned); the refresh changes only the in-process availability cache (staffcache: the snapshot is marked stale and the generation bumped).",
+        "Measured with the committed document read cold. Request mode: the ticket goes to open (working_on_next becomes ['Staff the ticket.'] when it was empty), the request mail to the assignee from @user (mail, mail_log, lifecycle, user_outbox, nodes), events, and the receipt quick_staff_receipts[request_id] on the item, in one save. Immediate modes: the seat and the item update exactly as _staff_call writes them, the previous owner's @system notice, under_assignee also a @user notice to the previous assignee, and the receipt, in one save; the seat is named from the ticket title. Refusals write nothing. Pinned."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6633,
+          "end": 6815,
+          "sha256": "2c29ae2268f2119ff535c3e450c191aca80032b8faf02243d8f2cdc4688934e2"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6588,
+          "end": 6630,
+          "sha256": "277042a8ac46f5ac514b0e000d789afcdc361f425c8cff247479cb35e20e874a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10549,
+          "end": 10706,
+          "sha256": "c05dda630c5c9b3551574a6b61ab384de8d7c86945b4e73996387244ddd844aa"
+        },
+        {
+          "path": "engine/backend/orgtree/quickstaff.py",
+          "start": 82,
+          "end": 116,
+          "sha256": "17f3eb70aa2c8a759942da557e8603637fe22485636e9d81794e1d75ee37f3ec"
+        },
+        {
+          "path": "engine/backend/orgtree/staffcache.py",
+          "start": 272,
+          "end": 295,
+          "sha256": "1e2870dcd6e353e5dcfb00c67ae001240318d9701b4584182d3f689493099f46"
+        }
+      ],
+      "open_questions": []
+    },
+    "quick-staff.receipt": {
+      "dimension": "receipt",
+      "status": "specified",
+      "facts": [
+        "The commit keeps its own idempotency receipt: quick_staff_receipts[request_id] = {selection, result} on the item, in the same save as the effect. The same request_id and selection returns the stored result with replayed: true and changes nothing; a request_id already used for a different selection is refused ('That staffing request id already belongs to a different selection.'). No op_receipts row is filed (the operator door has no op key). The other three routes have no receipt. Pinned."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6633,
+          "end": 6815,
+          "sha256": "2c29ae2268f2119ff535c3e450c191aca80032b8faf02243d8f2cdc4688934e2"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6588,
+          "end": 6630,
+          "sha256": "277042a8ac46f5ac514b0e000d789afcdc361f425c8cff247479cb35e20e874a"
+        }
+      ],
+      "open_questions": []
+    },
+    "quick-staff.effects": {
+      "dimension": "effects",
+      "status": "specified",
+      "facts": [
+        "After the commit's save: one hub_changed, then for each driven node (request mode: the assignee unless the mail was deferred; immediate modes: the new seat) mail_notify(org, @user, node) and one supervisor.send_message with mail_ping and ping_reason 'quick_staff' (the immediate modes also spark mail_notify once more from the staff assignment). A kickoff the send door does not accept undoes a request-mode commit (_quick_staff_undo, compare-and-set on the item rev) and 422s; in the immediate modes the seat stays and the result carries kickoff_failed. Recorded legacy defect: when the ticket had empty progress lists, the undo's work_update refuses 'both empty', escapes as an unhandled 500, and nothing is undone. staffing-options and the preview signal nothing; the refresh starts a background warm ('manual retry'). Pinned with spies."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6562,
+          "end": 6568,
+          "sha256": "5b3bf024c615f1bfcdd527e0a05c79acb0a368148c0e7d577933ed8bd3c0b5b7"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6633,
+          "end": 6815,
+          "sha256": "2c29ae2268f2119ff535c3e450c191aca80032b8faf02243d8f2cdc4688934e2"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6588,
+          "end": 6630,
+          "sha256": "277042a8ac46f5ac514b0e000d789afcdc361f425c8cff247479cb35e20e874a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6528,
+          "end": 6540,
+          "sha256": "98161b12c03c02396c36b37075ad9244987d7c55bcc94416fda64f720f2ed91a"
+        },
+        {
+          "path": "engine/backend/orgtree/staffcache.py",
+          "start": 236,
+          "end": 244,
+          "sha256": "6ea420fa42d4440c06669a96c46577a7300acbb5780aaa6b1e56169b8d8ef1de"
+        },
+        {
+          "path": "engine/backend/orgtree/staffcache.py",
+          "start": 298,
+          "end": 309,
+          "sha256": "b66e8e1d2a6505cf97eb193859e18f477bcd97596134ba64ca65644a732d6f66"
+        }
+      ],
+      "open_questions": []
+    },
+    "quick-staff.reads": {
+      "dimension": "reads",
+      "status": "unresolved",
+      "facts": [
+        "Source read set: the staffcache snapshot (read OUTSIDE DOC_LOCK), then under DOC_LOCK the whole org loaded (load_org), the ticket and its owner's liveness, the org's tiers, ceilings and scope defaults, and for the immediate modes a trial hire per tier over the eager sections (HireProbe); the commit's harness choice is a provider read before the lock."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6505,
+          "end": 6525,
+          "sha256": "b318266e948a6b8fc601f2bc16fd3414820465577d6bad8f4d04ef39c6c593b7"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6543,
+          "end": 6559,
+          "sha256": "006e1c90b8dc742148a101d94b70295339bf018d43ab5b338780edd021338140"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6633,
+          "end": 6815,
+          "sha256": "2c29ae2268f2119ff535c3e450c191aca80032b8faf02243d8f2cdc4688934e2"
+        },
+        {
+          "path": "engine/backend/orgtree/quickstaff.py",
+          "start": 372,
+          "end": 421,
+          "sha256": "27dc53f54c8af9b768b85d26d1969f4a6a1df707da7387e6c180c2c038cd393a"
+        },
+        {
+          "path": "engine/backend/orgtree/quickstaff.py",
+          "start": 439,
+          "end": 476,
+          "sha256": "586abbf5ed3c0c6625ded033bb4c4908f7d095975900afb35b7de091108fca5e"
+        },
+        {
+          "path": "engine/backend/orgtree/staffcache.py",
+          "start": 247,
+          "end": 269,
+          "sha256": "c45937054532ec880577e1b728b767d32ca5a89dbd54d34de45fee14ad115f82"
+        }
+      ],
+      "open_questions": [
+        "Record the statement-level read set of staffing-options, the quick-staff preview and each commit mode, cold and warm.",
+        "Owner: P02. Closes with: observed per-operation contacts for staffing-options (cold and warm), the preview in each mode and the commit in each mode, including the replay. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to the staffing chooser."
+      ]
+    },
+    "quick-staff.conflicts": {
+      "dimension": "conflicts",
+      "status": "unresolved",
+      "facts": [
+        "The commit is one load/mutate/save under DOC_LOCK with the snapshot read before it; the undo is a second DOC_LOCK cycle guarded by the item rev and the receipt, so it never clobbers a later writer. The reads take DOC_LOCK only to load."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6633,
+          "end": 6815,
+          "sha256": "2c29ae2268f2119ff535c3e450c191aca80032b8faf02243d8f2cdc4688934e2"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6588,
+          "end": 6630,
+          "sha256": "277042a8ac46f5ac514b0e000d789afcdc361f425c8cff247479cb35e20e874a"
+        }
+      ],
+      "open_questions": [
+        "Choose the native atomicity for the quick-staff commit, its receipt and its compensating undo.",
+        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 and P05 (staffing). Closes with: native rules for the ticket-plus-seat commit, the request-id receipt and the compensating undo, qualified by a commit racing an item update and an undo racing a later writer. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source decides."
+      ]
+    },
+    "quick-staff.wire": {
+      "dimension": "wire",
+      "status": "unresolved",
+      "facts": [
+        "Result shapes are fixtured in docs/state-system/quick-staff-boundary.json and compared by tests/test_state_quick_staff_boundary.py: staffing-options {tiers, at, stale, errors, loading, generation}; the refresh answers staffcache.state(); the preview {mode, configured_mode, owner, fallback, disclosure, availability, models}; the request commit {message, requested_from, mail}; the immediate commit is the staff result plus message (and assignee_notified)."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6505,
+          "end": 6525,
+          "sha256": "b318266e948a6b8fc601f2bc16fd3414820465577d6bad8f4d04ef39c6c593b7"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6528,
+          "end": 6540,
+          "sha256": "98161b12c03c02396c36b37075ad9244987d7c55bcc94416fda64f720f2ed91a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6543,
+          "end": 6559,
+          "sha256": "006e1c90b8dc742148a101d94b70295339bf018d43ab5b338780edd021338140"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6633,
+          "end": 6815,
+          "sha256": "2c29ae2268f2119ff535c3e450c191aca80032b8faf02243d8f2cdc4688934e2"
+        }
+      ],
+      "open_questions": [
+        "Carry the fixtured staffing-chooser shapes to the native/Rust door.",
+        "Owner: the native/Rust conversion, from the P03 prototype onward. Closes with: the fixtured chooser shapes passing against the native and Rust builds. Not coverable at P01 from available evidence: no native or Rust build exists to run the fixtures against."
+      ]
+    },
+    "quick-staff.instrumentation": {
+      "dimension": "instrumentation",
+      "status": "unresolved",
+      "facts": [
+        "The access middleware labels the four routes; the commit's kickoff is a supervisor drive with ping_reason quick_staff. No P02 per-operation record covers them."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6505,
+          "end": 6525,
+          "sha256": "b318266e948a6b8fc601f2bc16fd3414820465577d6bad8f4d04ef39c6c593b7"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6633,
+          "end": 6815,
+          "sha256": "2c29ae2268f2119ff535c3e450c191aca80032b8faf02243d8f2cdc4688934e2"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6562,
+          "end": 6568,
+          "sha256": "5b3bf024c615f1bfcdd527e0a05c79acb0a368148c0e7d577933ed8bd3c0b5b7"
+        }
+      ],
+      "open_questions": [
+        "Extend the P02 per-operation probe to the staffing chooser.",
+        "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed, loss-accounted contact record for the chooser with agent-level locality (the assignee, the new seat and the ticket only). Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to the staffing chooser."
       ]
     }
   },
@@ -9020,6 +9365,202 @@
           "sha256": "682a7b4fbebbb7e705cef5039b03280bb7dd19d437b1fe30dfc4095c79e97893"
         }
       ]
+    },
+    "quick-staff.options": {
+      "entry_ids": [
+        "113d4e27212249d3275e61fe36fce79aae25d30cbd72062779640fb244b6e9a0"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "domain_mode": "read",
+      "dimensions": {
+        "authority": [
+          "quick-staff.authority"
+        ],
+        "reads": [
+          "quick-staff.reads"
+        ],
+        "writes": [
+          "quick-staff.writes"
+        ],
+        "predicates": [
+          "quick-staff.predicates"
+        ],
+        "conflicts": [
+          "quick-staff.conflicts"
+        ],
+        "wire": [
+          "quick-staff.wire"
+        ],
+        "receipt": [
+          "quick-staff.receipt"
+        ],
+        "effects": [
+          "quick-staff.effects"
+        ],
+        "instrumentation": [
+          "quick-staff.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6505,
+          "end": 6525,
+          "sha256": "b318266e948a6b8fc601f2bc16fd3414820465577d6bad8f4d04ef39c6c593b7"
+        }
+      ]
+    },
+    "quick-staff.options-refresh": {
+      "entry_ids": [
+        "851c2ec6c0ba7c6328ee77f034623c31be8818462df1fdffd5b797a78ed7af55"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "domain_mode": "read",
+      "dimensions": {
+        "authority": [
+          "quick-staff.authority"
+        ],
+        "reads": [
+          "quick-staff.reads"
+        ],
+        "writes": [
+          "quick-staff.writes"
+        ],
+        "predicates": [
+          "quick-staff.predicates"
+        ],
+        "conflicts": [
+          "quick-staff.conflicts"
+        ],
+        "wire": [
+          "quick-staff.wire"
+        ],
+        "receipt": [
+          "quick-staff.receipt"
+        ],
+        "effects": [
+          "quick-staff.effects"
+        ],
+        "instrumentation": [
+          "quick-staff.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6528,
+          "end": 6540,
+          "sha256": "98161b12c03c02396c36b37075ad9244987d7c55bcc94416fda64f720f2ed91a"
+        }
+      ]
+    },
+    "quick-staff.preview": {
+      "entry_ids": [
+        "f6cb9002e5c888980f37be5a357856af62ac190681fcbc8873b54a6a2320ff45"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "domain_mode": "read",
+      "dimensions": {
+        "authority": [
+          "quick-staff.authority"
+        ],
+        "reads": [
+          "quick-staff.reads"
+        ],
+        "writes": [
+          "quick-staff.writes"
+        ],
+        "predicates": [
+          "quick-staff.predicates"
+        ],
+        "conflicts": [
+          "quick-staff.conflicts"
+        ],
+        "wire": [
+          "quick-staff.wire"
+        ],
+        "receipt": [
+          "quick-staff.receipt"
+        ],
+        "effects": [
+          "quick-staff.effects"
+        ],
+        "instrumentation": [
+          "quick-staff.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6543,
+          "end": 6559,
+          "sha256": "006e1c90b8dc742148a101d94b70295339bf018d43ab5b338780edd021338140"
+        }
+      ]
+    },
+    "quick-staff.select": {
+      "entry_ids": [
+        "47f1cc42531f402c39255f7276a6e6f2da0500789978e3294284a9645e34309a"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "domain_mode": "conditional_write",
+      "dimensions": {
+        "authority": [
+          "quick-staff.authority"
+        ],
+        "reads": [
+          "quick-staff.reads"
+        ],
+        "writes": [
+          "quick-staff.writes"
+        ],
+        "predicates": [
+          "quick-staff.predicates"
+        ],
+        "conflicts": [
+          "quick-staff.conflicts"
+        ],
+        "wire": [
+          "quick-staff.wire"
+        ],
+        "receipt": [
+          "quick-staff.receipt"
+        ],
+        "effects": [
+          "quick-staff.effects"
+        ],
+        "instrumentation": [
+          "quick-staff.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6633,
+          "end": 6815,
+          "sha256": "2c29ae2268f2119ff535c3e450c191aca80032b8faf02243d8f2cdc4688934e2"
+        }
+      ]
     }
   },
   "wire_cases": [
@@ -9610,6 +10151,39 @@
       },
       "contract": "operator.reallocate",
       "domain_mode": "write"
+    },
+    {
+      "name": "quick-staff.options",
+      "entry_id": "113d4e27212249d3275e61fe36fce79aae25d30cbd72062779640fb244b6e9a0",
+      "args": {},
+      "contract": "quick-staff.options",
+      "domain_mode": "read"
+    },
+    {
+      "name": "quick-staff.options-refresh",
+      "entry_id": "851c2ec6c0ba7c6328ee77f034623c31be8818462df1fdffd5b797a78ed7af55",
+      "args": {},
+      "contract": "quick-staff.options-refresh",
+      "domain_mode": "read"
+    },
+    {
+      "name": "quick-staff.preview",
+      "entry_id": "f6cb9002e5c888980f37be5a357856af62ac190681fcbc8873b54a6a2320ff45",
+      "args": {},
+      "contract": "quick-staff.preview",
+      "domain_mode": "read"
+    },
+    {
+      "name": "quick-staff.select",
+      "entry_id": "47f1cc42531f402c39255f7276a6e6f2da0500789978e3294284a9645e34309a",
+      "args": {
+        "request_id": "00000000-0000-4000-8000-000000000000",
+        "mode": "request",
+        "configured_mode": "request",
+        "owner": {}
+      },
+      "contract": "quick-staff.select",
+      "domain_mode": "conditional_write"
     }
   ],
   "limits": [
@@ -10361,31 +10935,67 @@
     },
     {
       "id": "113d4e27212249d3275e61fe36fce79aae25d30cbd72062779640fb244b6e9a0",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "quick-staff.options"
+      ],
+      "reason": "GET /api/orgs/{slug}/staffing-options (S3 F3b).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6505,
+          "end": 6525,
+          "sha256": "b318266e948a6b8fc601f2bc16fd3414820465577d6bad8f4d04ef39c6c593b7"
+        }
+      ]
     },
     {
       "id": "851c2ec6c0ba7c6328ee77f034623c31be8818462df1fdffd5b797a78ed7af55",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "quick-staff.options-refresh"
+      ],
+      "reason": "POST /api/orgs/{slug}/staffing-options/refresh (S3 F3b).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6528,
+          "end": 6540,
+          "sha256": "98161b12c03c02396c36b37075ad9244987d7c55bcc94416fda64f720f2ed91a"
+        }
+      ]
     },
     {
       "id": "f6cb9002e5c888980f37be5a357856af62ac190681fcbc8873b54a6a2320ff45",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "quick-staff.preview"
+      ],
+      "reason": "GET /api/orgs/{slug}/work-items/{wid}/quick-staff (S3 F3b).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6543,
+          "end": 6559,
+          "sha256": "006e1c90b8dc742148a101d94b70295339bf018d43ab5b338780edd021338140"
+        }
+      ]
     },
     {
       "id": "47f1cc42531f402c39255f7276a6e6f2da0500789978e3294284a9645e34309a",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "quick-staff.select"
+      ],
+      "reason": "POST /api/orgs/{slug}/work-items/{wid}/quick-staff (S3 F3b).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6633,
+          "end": 6815,
+          "sha256": "2c29ae2268f2119ff535c3e450c191aca80032b8faf02243d8f2cdc4688934e2"
+        }
+      ]
     },
     {
       "id": "199e39ae7b68b38d2edadac8d7fe71e12c4a788303f524bbd2f23bf473df364c",
@@ -12452,24 +13062,54 @@
     },
     {
       "id": "a129adb0711aa3c86eb0b63e4d4d692096f31bdd292b121329b41164de71967b",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "_staff_call's action check (create|update): staffing.staff-create/staffing.staff-update (the orgtree_staff agent door) is contracted, but the quick-staff route (POST /api/orgs/{slug}/work-items/{wid}/quick-staff, quick_staff_select -> _staff_call, actor USER) reaches it too and is uncontracted, so it stays pending until quick-staff is contracted (S3 decision 5; review of candidate 6).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "staffing.staff-create",
+        "staffing.staff-update",
+        "quick-staff.select"
+      ],
+      "reason": "_staff_call's action check (create|update). Both callers are contracted: the orgtree_staff agent door and the quick-staff commit (S3 candidate 7a).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10549,
+          "end": 10706,
+          "sha256": "c05dda630c5c9b3551574a6b61ab384de8d7c86945b4e73996387244ddd844aa"
+        }
+      ]
     },
     {
       "id": "41f825929d1206f2eb579e0aad6037380a11ef5ac273e42cfde30211a42d8d88",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "_staff_call's update-needs-slug branch: staffing.staff-create/staffing.staff-update (the orgtree_staff agent door) is contracted, but the quick-staff route (POST /api/orgs/{slug}/work-items/{wid}/quick-staff, quick_staff_select -> _staff_call, actor USER) reaches it too and is uncontracted, so it stays pending until quick-staff is contracted (S3 decision 5; review of candidate 6).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "staffing.staff-update",
+        "quick-staff.select"
+      ],
+      "reason": "_staff_call's update-needs-slug branch, taken by staff action update and by the quick-staff commit (which always sends action update).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10549,
+          "end": 10706,
+          "sha256": "c05dda630c5c9b3551574a6b61ab384de8d7c86945b4e73996387244ddd844aa"
+        }
+      ]
     },
     {
       "id": "f2c32b21411c4d5538cff9d28796fa7916b7fbc5754bb8ab6114228d6ff323eb",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "_staff_call's create branch (work_create): staffing.staff-create/staffing.staff-update (the orgtree_staff agent door) is contracted, but the quick-staff route (POST /api/orgs/{slug}/work-items/{wid}/quick-staff, quick_staff_select -> _staff_call, actor USER) reaches it too and is uncontracted, so it stays pending until quick-staff is contracted (S3 decision 5; review of candidate 6).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "staffing.staff-create"
+      ],
+      "reason": "_staff_call's create branch (work_create). Only staff action create takes it: the quick-staff commit always sends action update. Both callers of _staff_call are contracted.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10549,
+          "end": 10706,
+          "sha256": "c05dda630c5c9b3551574a6b61ab384de8d7c86945b4e73996387244ddd844aa"
+        }
+      ]
     },
     {
       "id": "225cd500a3ad4324c5222fd51ef5d08525004ad94c6871a23a8351955430cf25",
