@@ -98,14 +98,17 @@ class ContractCoverage(unittest.TestCase):
                                                   "antigravity_provenance.py:_Read.__init__",
                                                   "api.py:_share_url", "liveness.py:_observe_port"])
         self.assertNotIn("mapped", by)
-        self.assertEqual(len(by["pending"]), 11)
+        # 11 from S2k, plus the 3 mail hub store migration connections the launch.py item's wider scan found
+        self.assertEqual(len(by["pending"]), 14)
+        self.assertEqual(by["pending"].count("mailhub_runtime.py:MailhubRuntime._migrate_store"), 3)
         # the org store and every census-observed sidecar stay pending, each with its S2k reason
         self.assertLessEqual({"store.py:_open_conn", "toolwait.py:_db", "reply_events.py:_connect",
                               "reply_events.py:count", "transcript_records.py:database",
                               "chat_window.py:project_tail", "filedelivery.py:snapshot"}, set(by["pending"]))
         for i, r in rows.items():
             with self.subTest(site=where(i)):
-                prefix = "Stays pending (P01 S2k): " if r["disposition"] == "pending" else "Not "
+                step = "launch.py item" if where(i).startswith("mailhub_runtime.py:") else "S2k"
+                prefix = "Stays pending (P01 " + step + "): " if r["disposition"] == "pending" else "Not "
                 self.assertTrue(r["reason"].startswith(prefix), r["reason"][:60])
 
     # W1-W8 (coordinator-approved plan 2026-09-24 21:57Z; the rules are decision 1 on the W1 item): map only when
