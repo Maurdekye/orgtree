@@ -46,7 +46,7 @@ class ContractCoverage(unittest.TestCase):
         self.assertEqual(result["contracts"], 42)
         self.assertEqual((result["summary"]["entries"]["mapped"], result["summary"]["dispatch"]["mapped"],
                           result["summary"]["storage"]["mapped"]), (29, 50, 0))
-        self.assertEqual(len(result["pending"]), 560)
+        self.assertEqual(len(result["pending"]), 559)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
@@ -219,11 +219,11 @@ class ContractCoverage(unittest.TestCase):
         self.assertEqual(seen, mine)
 
     def test_every_excluded_witness_belongs_to_a_reviewed_triage_step(self):
-        # no exclusion outside S2k (storage) and W1/W2/W8 (their review records hold the source reading)
+        # no exclusion outside S2k (storage) and W1/W2/W3/W8 (their review records hold the source reading)
         def where(source):
             return (source["path"].rsplit("/", 1)[1], source["line"])
         groups = {"entries": ({r["site_id"]: r["source"] for r in self.source["registrations"]},
-                              self.W1_EXCLUDED | self.W2_EXCLUDED),
+                              self.W1_EXCLUDED | self.W2_EXCLUDED | self.W3_EXCLUDED),
                   "dispatch": ({contracts.witness_id("dispatch", r): r["source"]
                                 for r in self.source["dispatch_selectors"]}, self.W8_EXCLUDED),
                   "storage": ({contracts.witness_id("storage", r): r["source"]
@@ -232,6 +232,57 @@ class ContractCoverage(unittest.TestCase):
             with self.subTest(group=group):
                 excluded = {where(sites[r["id"]]) for r in self.document[group] if r["disposition"] == "excluded"}
                 self.assertEqual(excluded, reviewed)
+
+    W3_EXCLUDED = {("startup.py", 52)}
+    W3_PENDING = ({("api.py", 5620), ("api.py", 6011), ("assistant_messages.py", 193), ("desktop_import_jobs.py", 270),
+                   ("desktop_maintenance.py", 159), ("halt.py", 827), ("halt.py", 1006), ("maildrain.py", 359),
+                   ("staffcache.py", 230), ("startup.py", 45), ("toolwait.py", 239), ("toolwait.py", 327),
+                   ("transcript_ingest.py", 101)}
+                  | {("supervisor.py", n) for n in (13833, 14029, 14107, 14750, 20470, 27622, 27749, 27792, 28225,
+                                                    28901, 30075, 30223, 31372, 32392, 32975, 33138, 33267, 33290)})
+
+    def test_w3_org_state_workers_are_triaged(self):
+        registrations = {r["site_id"]: r for r in self.source["registrations"]}
+        rows = {r["id"]: r for r in self.document["entries"]}
+
+        def at(i):
+            return (registrations[i]["source"]["path"].rsplit("/", 1)[1], registrations[i]["source"]["line"])
+        mine = self.W3_EXCLUDED | self.W3_PENDING
+        self.assertEqual(len(mine), 32)
+        seen = set()
+        for i, r in rows.items():
+            if at(i) not in mine:
+                continue
+            seen.add(at(i))
+            with self.subTest(site=at(i)):
+                if at(i) in self.W3_EXCLUDED:
+                    self.assertEqual(r["disposition"], "excluded")
+                    self.assertTrue(r["reason"].startswith("Not ") and r["reason"].endswith(" P01 W3."), r["reason"])
+                else:
+                    self.assertEqual(r["disposition"], "pending")
+                    self.assertTrue(r["reason"].startswith("Stays pending (P01 W3): "), r["reason"][:60])
+                    self.assertIn("Owner: ", r["reason"])
+        self.assertEqual(seen, mine)
+        # W1-W3 leave no non-concrete registration with the generic reason (the two post-surface to_thread rows
+        # keep theirs, coordinator: not now)
+        generic = [at(i) for i, r in rows.items() if r["disposition"] == "pending"
+                   and r["reason"].startswith("Requires explicit source review")
+                   and registrations[i]["kind"] not in ("http", "websocket", "tool")]
+        self.assertEqual(generic, [])
+
+    def test_w4_agent_door_tool_branches_name_their_tool_and_owner(self):
+        rows = {r["id"]: r for r in self.document["dispatch"]}
+        branches = [s for s in self.source["dispatch_selectors"]
+                    if s["source"]["symbol"] == "agent_call" and s["selector"] == "body.tool"
+                    and rows[contracts.witness_id("dispatch", s)]["reason"].startswith("Stays pending (P01 W4): ")]
+        self.assertEqual(len(branches), 40)
+        for s in branches:
+            r = rows[contracts.witness_id("dispatch", s)]
+            with self.subTest(line=s["source"]["line"]):
+                self.assertEqual(r["disposition"], "pending")
+                for tool in s["values"]:
+                    self.assertIn(tool, r["reason"])
+                self.assertIn("Owner: ", r["reason"])
 
     def test_contacts_is_specified_only_with_agent_level_mail_locality(self):
         # S2b ruling R1: org-store locality is not mail locality. contacts became

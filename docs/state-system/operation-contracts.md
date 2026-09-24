@@ -120,7 +120,7 @@ diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
 Current totals are 42 contracts, 29 mapped registrations and 50 mapped
-dispatch witnesses. **560 obligations remain**: 277 registrations, 170 dispatch
+dispatch witnesses. **559 obligations remain**: 276 registrations, 170 dispatch
 witnesses, 11 storage candidates and 102 unresolved dimension occurrences.
 How it got there: 600 was two more registrations than the preceding 598 because the scanner now
 recognizes `asyncio.to_thread` hand-offs; both new witnesses are pending and no
@@ -301,6 +301,12 @@ usage loop, the freeze-reset refresh, the sandbox warm-up, the workspace-usage w
 workspace reads and fetch (P08 or the git workspace feature), and the @net: mail hub loops (P07).
 `tests/test_state_operation_contracts.py` now also checks that every excluded witness belongs to a
 reviewed triage step.
+559 is one fewer than that 560 (P01 W3 and W4, reviewed together). W3 triages the last 32
+non-concrete registrations, the org-state background workers: it excludes only the startup
+recovery's completion event, the same path W1 excluded through the shutdown hook, and gives the other
+31 an owner (the runtime, channels and mail, watchdogs, the desktop import and maintenance, the
+agent door, the staffing snapshot). W4 closes nothing: it names the tool and owner on each of the
+40 agent-door branches for tools that have no contract.
 
 Of the 41 open dimension occurrences on the sixteen legacy-family contracts, 25 (9 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the

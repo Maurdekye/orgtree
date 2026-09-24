@@ -11595,7 +11595,7 @@
       "id": "32155a2809f0b17a73856a906ff97dddde05726d04ea6f8f8adddcc14b227d92",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W3): a manual compaction (supervisor.manual_compact) started by the uncontracted desktop message route; compaction rewrites the node's session and transcript state. Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
@@ -11658,7 +11658,7 @@
       "id": "b19c0db2415893d7c0a8c92c6749974a82060bf89becc8e9a7a51c54fcbab785",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W3): a manual compaction (supervisor.manual_compact) started by the uncontracted compact route; compaction rewrites the node's session and transcript state. Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
@@ -12343,7 +12343,7 @@
       "id": "20393cd52654dd1eadae2d00ff2de49b37b2996ef527e09d5b9b523cbc7158b0",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W3): TextBatcher.flush hands batched assistant prose to its emit path, which publishes it and commits it through transcript_records (an org sidecar). Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
@@ -12434,14 +12434,14 @@
       "id": "c9116e6932f352e682d7f4049ad7fc1fd92edeee166b149635f2d1b53567685d",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W3): the V1 import job (_run) copies V1 organizations and writes and publishes V2 org stores. Org state, no contract. Owner: the desktop import.",
       "source_refs": []
     },
     {
       "id": "1efccdb44fa23ccbd074e031a84600bc702762892de9c9d12eff5d212667eeb3",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W3): the hold expiry marks an acknowledged desktop maintenance request failed in <DATA_ROOT>/desktop-maintenance.json, which the launcher's maintenance routes read; those routes are outside the inventory (p01-inventory-misses-the-production-routes-mount). Owner: desktop maintenance.",
       "source_refs": []
     },
     {
@@ -12700,14 +12700,14 @@
       "id": "8cf5a42287ea5f772d51ae726d4a2a35e644b8f5828031b90644c0a7117091da",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W3): the halt settler loads the org under DOC_LOCK and settles halted nodes. Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "ce7edb06863ad0d4f7ee76f92ab42333a541c912e1648300449fbb1e4306458c",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W3): resuming a halted node starts its held first turn (supervisor._run_turn). Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
@@ -12728,7 +12728,7 @@
       "id": "7be7e687c71508e0e5d6f0032125b793e5b41109523daca49caf3022ad1a9f82",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W3): the mail drain's loop discovers and sweeps queued mail into agents' turns. Org state. Owner: channels and mail (P07).",
       "source_refs": []
     },
     {
@@ -13335,7 +13335,7 @@
       "id": "883d2b38a427fdf99ea8b30ecee40c54c5dd9dab14f854bde3fda964634af267",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W3): the staffing snapshot refresh (_refresh_locked) recomputes the chooser's options from provider, account and org state; its own reads are the open remainder of quick-staff.reads. Owner: P02 with P08.",
       "source_refs": []
     },
     {
@@ -13349,15 +13349,28 @@
       "id": "5b13ee682715174451e9a53f84dab231939a13e69ad1666ae7a1c7dc12a441db",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W3): the startup recovery (Recovery.start's run, a thread running repair) repairs org state left by an interrupted run. Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "105b58ce35a7a131e927461f1f7b866fde4f4ad2941c8b70b7a290e5eede4901",
-      "disposition": "pending",
+      "disposition": "excluded",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "reason": "Not org state: the scheduled self.complete.set only sets the startup recovery's completion event when Recovery.cancel runs at shutdown; the same path through the shutdown hook _cancel_startup was excluded in W1 and accepted on review. The recovery's own work (Recovery.start's run) stays pending. P01 W3.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/startup.py",
+          "start": 52,
+          "end": 52,
+          "sha256": "f0449407b3cd380c5daffc3d06cb2c7f3fe7040e80e3912b4252ab49d032325d"
+        },
+        {
+          "path": "engine/backend/orgtree/startup.py",
+          "start": 47,
+          "end": 52,
+          "sha256": "416fd907a78c2bb259d75e089b43fc89a49919cbeb8485342e55259b312090c0"
+        }
+      ]
     },
     {
       "id": "27675a1fdea8e96d9831b6de7876ddf7c3a86c76d6a7c4e0098f4e5a010dd40e",
@@ -13384,28 +13397,28 @@
       "id": "82f750a72d0ce3b55ebb5e469e9fbad52f35a2ff705453fcfeb83ca2b92fbab0",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W3): the working-cache keep-alive read (_working_cache_read) makes a provider call for a node and updates its runtime state. Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "9d573621c82847f351bf1df64e177af5ece574189fa9364bc63289c67de4ca0b",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W3): the working lifecycle keeper (_auto_wake_keeper_pass) wakes nodes on a timer. Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "0e57cdebab81c231dfdeb8ae74dc476d7f29cd232bcd29ed5268c6d29ce3da67",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W3): the deploy watcher waits for the deploy helper and sets _deploy_done, which releases turns held for the deploy window. Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "480b3332b65ebc2ee40b93cec5153af9116b1b8e9dba93cfbfe22a14229ef72a",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W3): the turn worker itself (_run_turn): it loads and saves the org under DOC_LOCK. Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
@@ -13461,63 +13474,63 @@
       "id": "3624535a47672890fd13dcfe8bab38551c9da476058b8b5653511ce796b7c0b3",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W3): the turn's idle watchdog (_dog) ends a turn that stops producing events, which runs its failure path. Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "7484e6c45c1c373e29bf1d30da5ecbdcf5e614f28a1697eb51315a8f388931a8",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W3): the storage check (storage_check) loads the org and can block or unblock its storage. Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "9ca814e7782a90221bee1ddc9c4be577885fb5a0300316d2761ff1b7eb78a4f0",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W3): an immediate session command (for example /compact) runs against the node's session. Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "9fbf9ea3a4b497a07b92c08a8d7867df6bc4f3fd53cc147487b0d87b77223b11",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W3): the storage watchdog's loop runs storage checks over the orgs (cached_org). Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "d6e5e3ac7b99ec36ede92533e99708d1386e782979abf3508caf3cd7fe7d1300",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W3): resuming a frozen node starts its held turn (supervisor._run_turn). Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "4e7cd2460ffa41dd32af7c6cb1e688350c95c0b34b631468bda07e20d9e3ed88",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W3): the auto-resume loop reads the orgs (cached_org) and resumes frozen nodes. Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "a01eedf4c572ecf70e9f9ec03eafef0c52b2504ef134237562673a90a1544182",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W3): the prime execution watcher waits for the deploy helper, then clears the prime execution record (_clear_prime_execution). Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "65948f1a4a15943f0b0668496b8734646670073eb90fd238b5fcd47236d1b3ff",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W3): the prime restart engine (_prime_tick) drives the prime restart gate. Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "649bc4ce503fd993a9f09def09c2839927950a70b10b0cba068dd0a64585ce79",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W3): the late-steer watchdog (_steer_late_sweep) handles steers that arrived late. Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
@@ -13531,56 +13544,56 @@
       "id": "1060aa344201ad0ccafc9aa3a108beb1399db748800ec2326a2fa99e087b7024",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W3): the watchdog smoke reader collects a smoke run's stdout, whose result decides whether a watchdog is armed on the node. Owner: watchdogs (orgtree_watchdog, uncontracted).",
       "source_refs": []
     },
     {
       "id": "bbfc2c1faa6fcbfa80c18e97391a221b7eaff99528c7786075933d9d7e22b8fc",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W3): a watchdog's command run (_wd_run_command), whose firing mails its owner. Owner: watchdogs (orgtree_watchdog, uncontracted).",
       "source_refs": []
     },
     {
       "id": "2f12dcf16490b9399034eb32be2356c11662e158bf3ce4c92bbdaa008970eeb1",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W3): a watchdog stream reader buffers the watched stream's lines for the watchdog, whose firing mails its owner. Owner: watchdogs (orgtree_watchdog, uncontracted).",
       "source_refs": []
     },
     {
       "id": "683ee8af12923d4424afcab4ee5fe834423fa2c9097d01502fd989dffb810840",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W3): the external-chat handle sweeper (sweep_extern_handles). Owner: external chat (P07).",
       "source_refs": []
     },
     {
       "id": "bfefd8a463bc764370753d2c0896f929ea360bb0973f57e8ad56ec85506b1c0c",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W3): the watchdog engine (_wd_tick) evaluates the armed watchdogs and fires their mail. Owner: watchdogs (orgtree_watchdog, uncontracted).",
       "source_refs": []
     },
     {
       "id": "d0f474ef4d78ac72d3a270e328d23b434b283f54de629db525dd07a001d1896d",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W3): the managed-wait worker runs the agent's tool call and journals its outcome in the tool_waits sidecar. Owner: P01 (the agent door).",
       "source_refs": []
     },
     {
       "id": "93db163134496da34f1ee7445dc4cb2da07fdf517009d3ad32fc420d893f65e2",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W3): the managed-wait recovery sweep settles tool_waits journal rows left by a restart. Owner: P01 (the agent door).",
       "source_refs": []
     },
     {
       "id": "d8660f29bfa7154bdaaafede95e3cf97a0a00b1c59b1b7a5f9bac2500baf5041",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W3): the transcript ingest loop reads the orgs (cached_org) and ingests provider transcripts into transcript_records (an org sidecar). Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
@@ -14059,28 +14072,28 @@
       "id": "d868e5b607b8a09b86e070a661865fbc0986b7241767d21de6348a4e3736a8b9",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_send_file_once (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: channels and mail (P07).",
       "source_refs": []
     },
     {
       "id": "2762466942ae61416c27816812fe1c2645f0bcd89c5e7488679230991f1aa3fd",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_send_file (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: channels and mail (P07).",
       "source_refs": []
     },
     {
       "id": "cd162cb13bb17e9f48d5a776dc2abefcd7909372271c19d543793523028c0929",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_self_restart (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "e108fcd300df9a85955f7bcc61cf57e710b19c92712517cb5ab0ea43f27c8efc",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_self_restart and orgtree_self_update (agent_call, a shared branch for these tools); these tools have no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
@@ -14140,7 +14153,7 @@
       "id": "d5c7084188e88cf0324c691f4aaf8d7afb1f7d3ff569301cb950d611965fb327",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_list_tiers (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: P01, once the catalogue reads join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
@@ -14163,7 +14176,7 @@
       "id": "3a4260fd740a9cf5586d98acce7ceb8dd7ebdf7a41f121aa5fc2451dae4f5e14",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_send_file (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: channels and mail (P07).",
       "source_refs": []
     },
     {
@@ -14193,35 +14206,35 @@
       "id": "5a64d06c2be2a9c430a60111cbcf5bf99646c2a2c0493b40631997a3ead18a9a",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_rename (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: P01, once the org lifecycle tools join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
       "id": "f476037f0c3b7c786de2095b7caad4bf576a05e3a24a8b872b6a3a80f6a1ed4e",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_halt and orgtree_unhalt (agent_call, a shared branch for these tools); these tools have no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "d41aa8fb12334cff2b7aee9db4718621606a94308cce29c4b71d775db1fe8aa4",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_halt (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "7682f18af98472e7cf0c949b95e8908352e9352d6cd54205cf3027c93d099655",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_continue_on (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "d1b6558d0f42f587be004b7684930d1a8c8313173b2d36a7c3b8d7e84baa568d",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_rehire (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: P01, once the org lifecycle tools join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
@@ -14245,14 +14258,14 @@
       "id": "c37496b1268f1bd9f0e9fd1b410c9c1f62ae2d2d7d76fbfb8e14e5b3a17da8a5",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_retire and orgtree_dissolve (agent_call, a shared branch for these tools); these tools have no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: P01, once the org lifecycle tools join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
       "id": "3e10672008b8f43a28dab9a14c15399265d29b3692b05e6a7816259822f5a1ca",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_retire (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: P01, once the org lifecycle tools join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
@@ -14325,7 +14338,7 @@
       "id": "9f616d574e3d3f1e9f13ea03a6107e55aa3494c2385c71dca143efeaaf9ffdff",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_watchdog (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: watchdogs (orgtree_watchdog, uncontracted).",
       "source_refs": []
     },
     {
@@ -14346,14 +14359,14 @@
       "id": "2ab88ef1adc26e015ca02db3255992af2efa136a89cc534afe2a80414cb2abb8",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_request_scope (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: channels and mail (P07).",
       "source_refs": []
     },
     {
       "id": "69e034a6ebd862d6315b7d1ee387649dc904204fcee4b41dd7c2b0c1b46da0a3",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_ask (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: channels and mail (P07).",
       "source_refs": []
     },
     {
@@ -14393,35 +14406,35 @@
       "id": "0abb82d2cd01ee1f9adb8992fe73ea8b8d90840e65039505c3ddb016219886c1",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_withdraw_ask (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: channels and mail (P07).",
       "source_refs": []
     },
     {
       "id": "04c9ab3044870c36cba0f56a9eecb2df6b01c540492bdaa15c8bc5db34bb9333",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_self_relaunch (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "78bcf7d6e1d896289ac81dd76e82c9e19de38372978553721bc065e7bb1a929a",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_self_restart and orgtree_self_update (agent_call, a shared branch for these tools); these tools have no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "7260ec6dfe6db59567f38a37ceb69e607e07e41eba9c4e3ebb8820939faa6a0c",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_self_update (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "610bbe31f73f5199355498d73747cdb4cd0026eaa76af7cfe79f4eb6418255f3",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_prime_relaunch (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
@@ -14449,7 +14462,7 @@
       "id": "6d6142e4adf54ad77e92975fb0678862ea22848d7cbb25700faa714cdde86aed",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_prime_restart (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
@@ -14477,7 +14490,7 @@
       "id": "93a0645c57f856037785145b1024c1ac311b7c4156be99311dabe30ecff443c4",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_restart_wake (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
@@ -14505,14 +14518,14 @@
       "id": "6d9eacaf8d2f4500e9e71a8489ce935e11a9597c5f8b97fe45d3100d9a4c972c",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_present (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: channels and mail (P07).",
       "source_refs": []
     },
     {
       "id": "40ec444d8e18b87bbb5f804249df23e2a8587f5fdbba1bb11c161477da5d7b41",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_submit_report (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: channels and mail (P07).",
       "source_refs": []
     },
     {
@@ -14535,35 +14548,35 @@
       "id": "f4f632240b55eb9656d0b144438c0c279b8895a251a787c259bebb6a266a2e01",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_account_assign (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "b6594ff1d5dccebdbd80e33d8d45b1d5bdc8b7eb2f56f1621daeec060314344d",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_retool (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: P01, once the org lifecycle tools join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
       "id": "7f063efa365761bb48024f68f79c6c3428a86c5125e7a393cf34b774cdd40e4d",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_retire (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: P01, once the org lifecycle tools join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
       "id": "92c865a2f9734f758fc334eed64e7f771453ab1d4945d98cb30e710ec83b987b",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_cheap_compact (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: P01, once the org lifecycle tools join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
       "id": "c18d45ff655681388fdcce74612292e0e8dd2c5425cd2df16e1be6ea7e0c3d18",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_rehire (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: P01, once the org lifecycle tools join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
@@ -14587,35 +14600,35 @@
       "id": "3d8d2c7e5a4cb07ac6bb1ead402fad6a8d3e703bb43355caf3493adec32d7d80",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_move (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: P01, once the org lifecycle tools join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
       "id": "fad8b1859385498a83fb7c275cbd94e6a1150d4a188e732335fb97c1f9b60f0e",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_swap (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: P01, once the org lifecycle tools join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
       "id": "cce18177d6274405c9210886d7d6e17f4550256898aac21b3e275a1b401a3449",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_self_subjugate (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: P01, once the org lifecycle tools join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
       "id": "380cf712778106a6f2aa34a97da1ab3e8b6ec91445c711053b91361b8fd31eb4",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_list_orgs (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: P01, once the catalogue reads join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
       "id": "2578ad2cf6c173ed1bb834859c561150742eb2d8630eec9e54102895faac3d32",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_dissolve (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: P01, once the org lifecycle tools join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
@@ -14638,7 +14651,7 @@
       "id": "5e7aa359995706871993600d83408f923a15b360714fa37165e0ee4fee249ee5",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_switch_model (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
@@ -14661,7 +14674,7 @@
       "id": "ef44a5e34bc0196e92f3714034e7aa98a946f01a4a33fdd71861bd2efb53ae7d",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_audience (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: channels and mail (P07).",
       "source_refs": []
     },
     {
@@ -14703,21 +14716,21 @@
       "id": "36cf02780b96c7092990a89da241de9b3e433baf9b42000fc7734f7e3bb8a8a1",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_interrupt (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "6f22c3af56661dc8ea2b0a6ea3f645a3b07119b771efae3cad69c72c19615aa1",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_unstick (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "5023cdbfc8eaa13c41065cb2cd8e15cb1ed382b59891d0c5726440f8bfec14e6",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_retire, orgtree_dissolve, orgtree_rename and orgtree_cheap_compact (agent_call, a shared branch for these tools); these tools have no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: P01, once the org lifecycle tools join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
