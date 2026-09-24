@@ -1,0 +1,151 @@
+"""P01 S2b: the `contacts` and `wrapper-reads` facts, pinned to P02 contact rows.
+
+The registry specifies `wrapper-reads` and records observed facts on the still
+unresolved `contacts` facet, both from per-operation contacts
+(docs/state-system/p02-operation-contacts.md). This module runs the same probe
+on its own synthetic root and asserts each claim those facts make, so a product
+or probe change that falsifies one fails here instead of leaving stale prose in
+the registry. Synthetic data only; nothing live is touched.
+"""
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import unittest
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
+ROOT = Path(__file__).resolve().parents[1]
+TOOL = ROOT / "tools" / "p02_operation_contacts.py"
+ALIASES = ("orgtree_reservation", "orgtree_resource_reservation")
+READ_ONLY = ("list-read", "landing", "overlap")
+DOC_WRITERS = ("list-scope", "acquire", "renew", "recover", "invalidate", "release", "land")
+VARIANTS = READ_ONLY + DOC_WRITERS + ("release-notify",)
+COLD_READS = ["doc", "log_d", "log_l", "meta", "nodes"]
+WARM_READS = ["doc", "meta", "nodes"]
+QUIET_COUNTERS = {"observed", "recorded", "skipped_self", "unclassified_action"}
+
+
+class ContactFacets(unittest.TestCase):
+    doc: dict = {}
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._tmp = tempfile.TemporaryDirectory(prefix="p01-contact-facets-",
+                                               dir=os.environ.get("P02_HARNESS_TMP") or None)
+        out = Path(cls._tmp.name) / "out"
+        proc = subprocess.run([sys.executable, "-I", "-B", str(TOOL), "--out", str(out)],
+                              capture_output=True, text=True, timeout=1200)
+        if proc.returncode != 0:
+            raise AssertionError(f"probe exited {proc.returncode}: {proc.stderr[-3000:]}")
+        cls.doc = json.loads((out / "operation-contacts.json").read_text(encoding="utf-8"))
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls._tmp.cleanup()
+
+    def row(self, variant, condition="warm"):
+        # reservation family only: refusal/control labels recur in other families
+        [found] = [r for r in self.doc["rows"] if r["variant"] == variant and r["condition"] == condition
+                   and r["contract"].startswith("reservation.")]
+        return found
+
+    def reservation_rows(self):
+        return [r for r in self.doc["rows"] if r["contract"].startswith("reservation.")]
+
+    @staticmethod
+    def primary(r):
+        return r["harness"]["stores"].get("primary", {"tables_read": [], "tables_written": [], "statements": 0})
+
+    @staticmethod
+    def org_db(r):
+        return {k.split("@")[0] for k in r["audit"].get("sqlite_connect", {})}
+
+    # -- contacts: an observed contact set per variant, both aliases, cold and warm
+    def test_every_variant_alias_and_condition_has_an_attributed_contact_set(self):
+        for alias in ALIASES:
+            for short in VARIANTS:
+                for condition in ("cold", "warm"):
+                    with self.subTest(alias=alias, variant=short, condition=condition):
+                        r = self.row(f"{alias}:reservation.{short}", condition)
+                        self.assertEqual(r["http_status"], 200)
+                        self.assertTrue(r["census"]["db_present"])
+                        self.assertIs(r["harness"]["matches_census"], True)
+                        self.assertEqual(r["harness"]["statements_unbound"], 0)
+                        self.assertTrue(r["harness"]["all_writes_in_transaction"])
+                        self.assertEqual(r["harness"]["sidecars_touched"], {})
+                        self.assertEqual(set(r["harness"]["stores"]), {"primary"})
+                        self.assertLessEqual(set(r["census"]["counter_deltas"]), QUIET_COUNTERS)
+                        self.assertEqual(r["guard_refusals"], {})
+                        self.assertNotIn("process", r["audit"])
+                        self.assertNotIn("network", r["audit"])
+                        self.assertLessEqual(self.org_db(r), {"data:org-db:own"})
+                        # no file read, write or listing: only the orgs-dir mkdir, the store connect
+                        # and the in-process test client's loopback socketpair
+                        self.assertLessEqual(set(r["audit"]), {"fs_mutation", "sqlite_connect", "harness_event_loop"})
+                        self.assertEqual(r["census"]["connects"], 1 if condition == "cold" else 0)
+                        p = self.primary(r)
+                        self.assertEqual(p["tables_read"], COLD_READS if condition == "cold" else WARM_READS)
+                        written = (["doc", "log_d", "log_l", "nodes"] if short == "release-notify"
+                                   else ["doc"] if short in DOC_WRITERS else [])
+                        self.assertEqual(p["tables_written"], written)
+                        # callback probes: only the release with a successor drives anyone
+                        wakes = (1 if short == "release-notify" else 0)
+                        self.assertEqual(r["wakes"], {"mail_notify": wakes, "send_message": wakes})
+
+    def test_refusals_and_keyed_paths_have_bounded_contacts(self):
+        unauth = self.row("refusal:unauthenticated")
+        self.assertEqual((unauth["http_status"], unauth["census"]["records"], unauth["harness"]["matches_census"]), (401, 0, None))
+        self.assertEqual(unauth["harness"]["statements_attributed"] + unauth["harness"]["statements_unbound"], 0)
+        self.assertEqual((self.row("refusal:identity-mismatch")["http_status"],
+                          self.row("refusal:identity-mismatch")["census"]["statements"]), (403, 0))
+        for name, status in (("refusal:halted", 409), ("refusal:killswitch", 409),
+                             ("refusal:unaddressable-successor", 422), ("refusal:retained-row-cap", 422),
+                             ("refusal:keyed-conflict", 409), ("refusal:stale-epoch", 422), ("keyed:replay", 200)):
+            with self.subTest(name=name):
+                r = self.row(name)
+                self.assertEqual(r["http_status"], status)
+                self.assertEqual(self.primary(r)["tables_written"], [])     # a refusal or replay writes nothing
+                self.assertEqual(r["wakes"], {"mail_notify": 0, "send_message": 0})
+        halted = self.row("refusal:halted")
+        self.assertEqual((self.primary(halted)["tables_read"], halted["census"]["statements"]), (WARM_READS, 5))
+        self.assertEqual(self.primary(self.row("keyed:replay"))["tables_read"], ["doc", "log_l", "meta"])
+        self.assertEqual(self.primary(self.row("keyed:fresh"))["tables_read"], ["meta", "nodes"])
+        fresh = self.row("keyed:fresh")
+        self.assertEqual(self.primary(fresh)["tables_written"], ["doc", "log_l", "meta"])   # the receipt
+        self.assertTrue(fresh["harness"]["all_writes_in_transaction"])
+
+    def test_hidden_contact_and_org_locality_controls_fire_only_on_their_rows(self):
+        # org-STORE locality only: control:foreign-org-contact sends no mail, so it is
+        # not the agent-level mail-locality control `contacts` still lacks (S2b R1)
+        hidden = self.row("control:hidden-contact")
+        self.assertGreaterEqual(hidden["census"]["hidden_steps"], 1)
+        foreign = self.row("control:foreign-org-contact")
+        self.assertIn("data:org-db:foreign", self.org_db(foreign))
+        for r in self.reservation_rows():
+            if r["variant"].startswith("control:"):
+                continue
+            with self.subTest(variant=r["variant"], condition=r["condition"]):
+                self.assertEqual((r.get("census") or {}).get("hidden_steps", 0), 0)
+                self.assertNotIn("data:org-db:foreign", self.org_db(r))
+
+    def test_loss_accounting_per_row_and_window(self):
+        window = self.doc["window"]
+        self.assertTrue(window["same_window"])
+        for key in ("rejected", "dropped_stale_window", "dropped_capture_off", "evicted", "db_late",
+                    "db_observe_failed", "db_self_recursion", "db_hidden_unattributed"):
+            self.assertEqual(window["counters"][key], 0, key)
+        for r in self.doc["rows"]:
+            with self.subTest(variant=r["variant"], condition=r["condition"]):
+                deltas = (r.get("census") or {}).get("counter_deltas", {})
+                self.assertEqual(deltas.get("db_unattributed", 0), 0)
+                self.assertEqual(deltas.get("db_late", 0), 0)
+                self.assertEqual(r["harness"]["statements_unbound"], 0)
+
+
+if __name__ == "__main__":
+    unittest.main()

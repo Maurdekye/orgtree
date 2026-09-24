@@ -59,6 +59,15 @@ class ContractCoverage(unittest.TestCase):
                 self.assertIn(". Not coverable at P01 from available evidence: ", notes[0])
                 self.assertGreater(len(self.document["facets"][name]["open_questions"]), 1)
 
+    def test_contacts_stays_open_for_agent_level_mail_locality(self):
+        # S2b ruling R1 (rejected): org-store locality is not mail locality. The
+        # facet stays unresolved until an agent-level mail-locality control exists.
+        facet = self.document["facets"]["contacts"]
+        self.assertEqual(facet["status"], "unresolved")
+        [note] = [q for q in facet["open_questions"] if q.startswith("Owner: ")]
+        self.assertIn("agent-level mail-locality negative control", note)
+        self.assertEqual(self.document["facets"]["wrapper-reads"]["status"], "specified")
+
     def test_material_wire_names_its_legacy_projector_item(self):
         # S2 decision 2 (option b): this one facet's legacy clause is owned by a
         # follow-up docket item rather than being "not coverable".

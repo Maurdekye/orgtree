@@ -108,14 +108,15 @@ witnesses map to these variants. Source-backed reservation/item authority and
 legacy receipt semantics are specified. So are the release notification
 (`notify-effect`) and the public wrapper's writes (`wrapper-writes`): what each
 outcome commits, measured on the cold-read document, and the one durable
-diagnostic row. Wrapper reads, physical contacts, native conflicts, full
-malformed-input parity and runtime probes remain unresolved. Material reads add two cards and two selectors; structural
+diagnostic row. The wrapper's reads (`wrapper-reads`) are specified from P02's
+observed per-operation contacts. Agent-level mail locality (`contacts`), native
+conflicts, full malformed-input parity and runtime probes remain unresolved. Material reads add two cards and two selectors; structural
 diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
 Current totals are 16 contracts, seven mapped registrations and 31 mapped
-dispatch witnesses. **598 obligations remain**: 312 registrations, 196 dispatch
-witnesses, 15 storage candidates and 75 unresolved dimension occurrences.
+dispatch witnesses. **587 obligations remain**: 312 registrations, 196 dispatch
+witnesses, 15 storage candidates and 64 unresolved dimension occurrences.
 How it got there: 600 was two more registrations than the preceding 598 because the scanner now
 recognizes `asyncio.to_thread` hand-offs; both new witnesses are pending and no
 existing witness identity, disposition or contract changed.
@@ -138,15 +139,27 @@ and no other witness changed.
 598 is twelve fewer than that 610 because two shared facets were specified:
 `notify-effect` (used by one contract) and `wrapper-writes` (used by all eleven
 reservation contracts). No witness changed; only dimension occurrences closed.
+587 is eleven fewer than that 598 because `wrapper-reads` (used by all eleven
+reservation contracts) was specified from P02's observed per-operation contacts
+on synthetic data (`tools/p02_operation_contacts.py`, `p02-operation-contacts.md`).
+Its read set is one union per call, and the phases are bounded by refusal and
+keyed rows (a reviewed ruling). `contacts` gained the same observed facts but
+stays open: the probe is table-granular, so it cannot give the agent-level
+mail-locality control that facet asks for. `tests/test_state_p02_contact_facets.py`
+re-runs the probe and asserts every observed fact.
 
-Of the 75 open dimension occurrences, 59 (19 facets) cannot be closed at P01
+Of the 64 open dimension occurrences, 48 (18 facets) cannot be closed at P01
 from the evidence that exists. Their questions need observed runtime contacts
 (P02) or a chosen and qualified native PostgreSQL design (the separately staffed
 conflict/predicate design, then P03/P05). Each such facet keeps its original
 question and adds one line naming its owner, the evidence that would close it,
-and why the available evidence does not. The one P02 run available (20260924T063643Z)
-does not replay these tools, reports contacts only as whole-window totals and
-covers one connection site, so it closes none of them. The remaining 16 are the
+and why the available evidence does not. The P02 real-data replay
+(20260924T063643Z) does not replay these tools, so it closes none of them. The
+per-operation probe closes only `wrapper-reads`. `contacts` still lacks an
+agent-level mail-locality control. Every other P02-owned facet still has a
+clause the probe does not meet: the JSON backend, malformed state,
+legacy/recovery and migration paths, sandbox chown, provider failure modes,
+native placement or simulation design, or native controls. The remaining 16 are the
 four wire facets. Their legacy parity is now fixtured at the public door:
 - malformed-argument matrices, with the 500 serializer's exception-echo body
 - the agent/operator/bridge door matrix for every P01 tool

@@ -96,29 +96,53 @@
     },
     "wrapper-reads": {
       "dimension": "reads",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
-        "Public dispatch adds caller/authentication and operation-receipt admission/replay reads beyond the reservation rows.",
-        "Source sets below describe domain predicates, not physical SQL/table contacts."
+        "Observed per-operation contacts on SYNTHETIC data, which is the evidence class this facet asked for (observed per-operation contacts, not live traffic). The source is the P02 probe tools/p02_operation_contacts.py (landed on v3 at b6568a1; method and limits in docs/state-system/p02-operation-contacts.md; P02 artifact r3 on p02-capture-per-operation-contacts-for-the-four, sha256 25cca77ab5b277627b03daf5d2b24c8a65b0bd5cf6599661f94ea7bfe33b10cb). It was re-run independently, and every observed fact below is asserted by tests/test_state_p02_contact_facets.py, which runs the same probe.",
+        "The complete read set of one public call is recorded as ONE UNION per call, not split into dispatch, authentication and receipt phases (S2b ruling R2, accepted by review). Cold: doc, log_d, log_l, meta and nodes. Warm: doc, meta and nodes. All on the primary org store only; no sidecar store is read, and no sidecar or provider file is opened.",
+        "Phase attribution is BOUNDED by separately observed rows, not measured inside a successful call. 401: 0 statements (the token gate refuses before the census). 403: 0 statements (_agent_identity checks the cached snapshot and makes no statement). The halt/killswitch refusal before the lock reads doc, meta and nodes (5 statements) through halt.blocked.",
+        "Receipt admission reads the receipts tables. A keyed replay reads doc, log_l and meta and returns before the domain helper. A fresh keyed read reads meta and nodes, then writes its receipt. The domain predicate read sets per variant remain the source-level facts of the reservation facets; this facet adds the observed physical tables.",
+        "Limits carried from P02: statements only (no rows examined, pages, physical IO or database lock wait; the document-lock wait is in each record's profile). Tables come from the harness's SQL-text map onto the stores' own sqlite_master names, so contacts are table-granular. SQLite's own file IO is native and unobserved. One synthetic fixture set, in one process. Native or PostgreSQL contacts are outside this legacy facet."
       ],
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 12205,
-          "end": 12259,
-          "sha256": "d66a2b4efa181bbe055dde8852c9ecbbf4b73f515a64ab787e631eba3b1086a8"
+          "start": 11213,
+          "end": 11271,
+          "sha256": "3364dd0d8d7b27a9b16eff4385e2a0c17e3eefc0d9ad57b1411cef8111c7988e"
         },
         {
-          "path": "engine/backend/orgtree/opreceipts.py",
-          "start": 681,
-          "end": 762,
-          "sha256": "060e3f314b71f12592bbe0f9d34c94efda1bf56a4cc59ec060cfd977a3ca7d28"
+          "path": "engine/backend/orgtree/halt.py",
+          "start": 107,
+          "end": 132,
+          "sha256": "6308166ec00ac7fdaed5b78032a66f4d661427a868208a8071675df0fe86286d"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 4573,
+          "end": 4600,
+          "sha256": "9fa56593a3c9ff0271a5e34d3ddf5cc280ab55e8c9933f2ac2ee5533c7b416ba"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10838,
+          "end": 10875,
+          "sha256": "d63239c28f9f368d2480baa6132dd815bcd9b1e049c8afb1f33d04fca884909f"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11831,
+          "end": 11845,
+          "sha256": "6d6e90de70a545f4cc8f2bf9ddf48a34a218b2e4e3bd4574fe600952c66fa285"
+        },
+        {
+          "path": "engine/backend/orgtree/census_contacts.py",
+          "start": 409,
+          "end": 440,
+          "sha256": "15d6fc48d14285bd7ba88839eb2f8e6b5da2c2b12cabd20c4364ff184f33c0cd"
         }
       ],
-      "open_questions": [
-        "Resolve the complete dispatch/authentication/receipt/sidecar read set against P02 contacts.",
-        "Owner: P02 (runtime census), with per-operation connection, statement, table and wait evidence for orgtree_reservation/orgtree_resource_reservation. Closes with: the observed dispatch/authentication/receipt/sidecar read set of one public call, per variant. Not coverable at P01 from available evidence: the only P02 evidence available (run 20260924T063643Z, item run-approved-isolated-copy-p02-replay, artifact r5) replayed 13 route classes that do not include orgtree_reservation/orgtree_resource_reservation, reports contacts only as whole-window aggregates, instruments one connection site (store.py:_open_conn) with 4 sites uninstrumented and 6 secondary stores unobserved, and did not copy transcript-records.sqlite3."
-      ]
+      "open_questions": []
     },
     "wrapper-writes": {
       "dimension": "writes",
@@ -486,7 +510,13 @@
       "facts": [
         "Declare domain changes separately from actual database/connection/receipt/log/effect contacts.",
         "A pre-storage refusal must record zero contacts; a whole-operation claim needs every causal continuation.",
-        "No runtime census or native transaction was executed by this static registry."
+        "Observed per-operation contacts on SYNTHETIC data, which is the evidence class this facet asked for (observed per-operation contacts, not live traffic). The source is the P02 probe tools/p02_operation_contacts.py (landed on v3 at b6568a1; method and limits in docs/state-system/p02-operation-contacts.md; P02 artifact r3 on p02-capture-per-operation-contacts-for-the-four, sha256 25cca77ab5b277627b03daf5d2b24c8a65b0bd5cf6599661f94ea7bfe33b10cb). It was re-run independently, and every observed fact below is asserted by tests/test_state_p02_contact_facets.py, which runs the same probe.",
+        "Per variant (all 11, under both aliases, cold and warm), a call has exactly one attributed census record, and its statement count equals the harness's SQL-level count. There are 0 unbound statements. Only the primary org store is touched: no sidecar store, no foreign org store, no process or network contact, and no isolation-guard refusal. Cold calls read doc, log_d, log_l, meta and nodes with one new connection; warm calls read doc, meta and nodes on pooled connections. list-read, landing and overlap write nothing; list-scope, acquire, renew, recover, invalidate, release and land write doc; release-notify writes doc, log_d, log_l and nodes. Every write falls inside an explicit transaction on the autocommit primary store.",
+        "Callback probes: supervisor.send_message and api.mail_notify are spies, counted and never delivered. release-notify calls each exactly once; no other variant calls either. Cold calls also repeat the os.mkdir(exist_ok) of the orgs directory (store._orgs_dir), a filesystem contact with no durable change.",
+        "Refusals and keyed paths have bounded contacts. 401 (token gate): no record, 0 statements. 403: 0 statements. The 409 halt/killswitch before the lock, the 422 unaddressable successor, the 422 retained-row cap, the 409 keyed conflict, the 422 stale epoch and a keyed replay all read but write nothing and wake nobody. A fresh keyed call writes its receipt (doc, log_l, meta) inside a transaction.",
+        "Hidden-contact negative control: control:hidden-contact (a statement on a pooled connection through a plain cursor) is seen as census hidden_steps >= 1, and every other reservation row shows 0. A separate ORG-STORE control, control:foreign-org-contact, is classified org-db:foreign, and no other reservation row touches a foreign org store. That is evidence of org-store locality ONLY. It sends no mail, so it is NOT the mail-locality control this facet asks for (S2b ruling R1, rejected by review).",
+        "Loss accounting. For the window, rejected, dropped_stale_window, dropped_capture_off, evicted, db_late, db_observe_failed, db_self_recursion and db_hidden_unattributed are all 0. Each row's own counter deltas bracket its single request and contain only observed/recorded/skipped_self/unclassified_action (db_unattributed and db_late deltas 0, statements_unbound 0). The window-level db_unattributed is harness fixture work between operations, not attributed to any operation.",
+        "Limits carried from P02: statements only (no rows examined, pages, physical IO or database lock wait; the document-lock wait is in each record's profile). Tables come from the harness's SQL-text map onto the stores' own sqlite_master names, so contacts are table-granular. SQLite's own file IO is native and unobserved. One synthetic fixture set, in one process. Native or PostgreSQL contacts are outside this legacy facet."
       ],
       "source_refs": [
         {
@@ -500,11 +530,35 @@
           "start": 198,
           "end": 202,
           "sha256": "91e4a25235653bb97f3d29ab17e3d13c62e6fa6b1f1b204867e9ad3ee4b471d9"
+        },
+        {
+          "path": "engine/backend/orgtree/census_contacts.py",
+          "start": 137,
+          "end": 152,
+          "sha256": "803ee1fb87141e41a587bb69841fc9395105d0885d1ce07ffa4cc64329c18bb9"
+        },
+        {
+          "path": "engine/backend/orgtree/census_contacts.py",
+          "start": 409,
+          "end": 440,
+          "sha256": "15d6fc48d14285bd7ba88839eb2f8e6b5da2c2b12cabd20c4364ff184f33c0cd"
+        },
+        {
+          "path": "engine/backend/orgtree/census_contacts.py",
+          "start": 553,
+          "end": 576,
+          "sha256": "7293e14501a4014a7b0418db3fad5aef7c8ee550a780ac46713a54656e3736aa"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 1134,
+          "end": 1160,
+          "sha256": "28af70e7e82986425bc0916d76ab8df8c2d2cac44995135f4b5d61decdef0b66"
         }
       ],
       "open_questions": [
         "Bind actual connection/statement and callback probes with loss accounting in P02; test hidden contact and mail-locality controls.",
-        "Owner: P02 (runtime census), with per-operation connection, statement, table and wait evidence for orgtree_reservation/orgtree_resource_reservation, including its receipt/log/effect contacts and loss accounting. Closes with: an observed contact set for each reservation variant, with hidden-contact and mail-locality negative controls. Not coverable at P01 from available evidence: the only P02 evidence available (run 20260924T063643Z, item run-approved-isolated-copy-p02-replay, artifact r5) replayed 13 route classes that do not include orgtree_reservation/orgtree_resource_reservation, reports contacts only as whole-window aggregates, instruments one connection site (store.py:_open_conn) with 4 sites uninstrumented and 6 secondary stores unobserved, and did not copy transcript-records.sqlite3."
+        "Owner: P02, with agent-level (row- or per-agent-store) contact capture; the per-agent store design is P04. Closes with: an agent-level mail-locality negative control showing that release-notify's mail contacts are limited to the sender and the named successor and are never self-only. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py, v3 b6568a1) is table-granular (release-notify writes doc, log_d, log_l and nodes), so it cannot show which agent's mailbox or node rows were touched. Its org-store control is evidence of org-store locality only. Every other clause of this facet is met by the observed facts above."
       ]
     },
     "reservation.list-read.authority": {
@@ -1588,7 +1642,7 @@
       ],
       "open_questions": [
         "Complete the transitive/provider/import/sandbox and cache-hit/miss contact census, including all file reads and document accesses, before P02 closes this facet.",
-        "Owner: P02 (runtime census), with per-operation connection, statement, table and wait evidence for orgtree_read_scratch/orgtree_read_transcript. Closes with: the observed transitive provider/import/sandbox and cache-hit/miss read census, including file reads. Not coverable at P01 from available evidence: the only P02 evidence available (run 20260924T063643Z, item run-approved-isolated-copy-p02-replay, artifact r5) replayed 13 route classes that do not include orgtree_read_scratch/orgtree_read_transcript, reports contacts only as whole-window aggregates, instruments one connection site (store.py:_open_conn) with 4 sites uninstrumented and 6 secondary stores unobserved, and did not copy transcript-records.sqlite3."
+        "Owner: P02. Closes with: observed reads for a SANDBOXED organization (sandbox.on_disk, disk-backed placement). Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py, v3 b6568a1; docs/state-system/p02-operation-contacts.md) covers provider transcript file reads, lazy imports and cold/warm cache on an unsandboxed organization; the sandbox paths were not exercised."
       ]
     },
     "material.writes": {
@@ -1669,7 +1723,7 @@
       ],
       "open_questions": [
         "Complete physical write/effect coverage and native placement for every transitive branch; no cross-database atomicity has been established.",
-        "Owner: P02 (runtime census), with per-operation connection, statement, table and wait evidence for orgtree_read_scratch/orgtree_read_transcript, then native placement at P04 (schema/sidecar). Closes with: observed physical writes to transcript-records, chat-window-index and reply-events per call, and a native placement decision. Not coverable at P01 from available evidence: the only P02 evidence available (run 20260924T063643Z, item run-approved-isolated-copy-p02-replay, artifact r5) replayed 13 route classes that do not include orgtree_read_scratch/orgtree_read_transcript, reports contacts only as whole-window aggregates, instruments one connection site (store.py:_open_conn) with 4 sites uninstrumented and 6 secondary stores unobserved, and did not copy transcript-records.sqlite3."
+        "Owner: native placement at P04 (schema/sidecar). Closes with: a native placement decision for the transcript-records, chat-window-index and reply-events writes. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py, v3 b6568a1; docs/state-system/p02-operation-contacts.md) observes the per-call physical writes to those sidecars and the primary doc/meta/nodes, but placement is a native design decision."
       ]
     },
     "material.conflicts": {
@@ -1866,7 +1920,7 @@
       ],
       "open_questions": [
         "Inventory all conditional helpers and external effects with P02 probes; retain failure/recovery outcomes rather than claiming exactly-once from these fixtures.",
-        "Owner: P02 (runtime census), with per-operation connection, statement, table and wait evidence for orgtree_read_scratch/orgtree_read_transcript. Closes with: probes of every conditional helper and external effect (directory creation, sandbox chown, lazy imports, cache updates) with failure outcomes. Not coverable at P01 from available evidence: the only P02 evidence available (run 20260924T063643Z, item run-approved-isolated-copy-p02-replay, artifact r5) replayed 13 route classes that do not include orgtree_read_scratch/orgtree_read_transcript, reports contacts only as whole-window aggregates, instruments one connection site (store.py:_open_conn) with 4 sites uninstrumented and 6 secondary stores unobserved, and did not copy transcript-records.sqlite3."
+        "Owner: P02. Closes with: an observed sandbox chown_agent effect and its failure outcome. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py, v3 b6568a1; docs/state-system/p02-operation-contacts.md) covers directory creation, lazy imports, cache updates and the path-escape/outsider/halt failures on an unsandboxed organization; sandbox chown was not exercised."
       ]
     },
     "material.wire": {
@@ -2025,7 +2079,7 @@
       ],
       "open_questions": [
         "Implement P02 complete runtime instrumentation and drift/unknown-contact refusal, then native concurrency/negative controls; fixture observations are neither a full census nor conversion authorization.",
-        "Owner: P02 (runtime census), with per-operation connection, statement, table and wait evidence for orgtree_read_scratch/orgtree_read_transcript. Closes with: production-grade contact records with operation identity, surfaces, modes, transaction membership and waits. Not coverable at P01 from available evidence: the only P02 evidence available (run 20260924T063643Z, item run-approved-isolated-copy-p02-replay, artifact r5) replayed 13 route classes that do not include orgtree_read_scratch/orgtree_read_transcript, reports contacts only as whole-window aggregates, instruments one connection site (store.py:_open_conn) with 4 sites uninstrumented and 6 secondary stores unobserved, and did not copy transcript-records.sqlite3."
+        "Owner: P02 for production-grade labelling and drift/unknown-contact refusal, then P03 for native concurrency/negative controls. Closes with: production-grade contact records with drift/unknown-contact refusal, then native concurrency and negative controls. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py, v3 b6568a1; docs/state-system/p02-operation-contacts.md) covers per-operation synthetic contact records with operation identity, surfaces, modes, transaction membership and document-lock waits, but claims no production grade, has no drift refusal and no native controls."
       ]
     },
     "diagnostic.authority": {
@@ -2413,7 +2467,7 @@
       ],
       "open_questions": [
         "Complete middleware, legacy input, schema/pool cold paths, JSON backend and malformed-state contacts under P02; the synthetic SQL witness is not a full runtime census.",
-        "Owner: P02 (runtime census), with per-operation connection, statement, table and wait evidence for orgtree_state_inspect/orgtree_capabilities. Closes with: observed middleware, schema/pool cold-path, JSON-backend and malformed-state contacts. Not coverable at P01 from available evidence: the only P02 evidence available (run 20260924T063643Z, item run-approved-isolated-copy-p02-replay, artifact r5) replayed 13 route classes that do not include orgtree_state_inspect/orgtree_capabilities, reports contacts only as whole-window aggregates, instruments one connection site (store.py:_open_conn) with 4 sites uninstrumented and 6 secondary stores unobserved, and did not copy transcript-records.sqlite3."
+        "Owner: P02. Closes with: observed contacts on the JSON store backend and on malformed stored state. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py, v3 b6568a1; docs/state-system/p02-operation-contacts.md) covers middleware and schema/pool cold-path reads on the SQLite backend only; the JSON backend and malformed-state contacts were not probed."
       ]
     },
     "diagnostic.writes": {
@@ -2487,7 +2541,7 @@
       ],
       "open_questions": [
         "Inventory/qualify all migration, cold-schema, request-diagnostic and cache writes before native physical-contact closure; preserve restore/refusal behavior.",
-        "Owner: P02 (runtime census), with per-operation connection, statement, table and wait evidence for orgtree_state_inspect/orgtree_capabilities, then P03 qualification. Closes with: an observed inventory of migration, cold-schema, request-diagnostic and cache writes during these reads. Not coverable at P01 from available evidence: the only P02 evidence available (run 20260924T063643Z, item run-approved-isolated-copy-p02-replay, artifact r5) replayed 13 route classes that do not include orgtree_state_inspect/orgtree_capabilities, reports contacts only as whole-window aggregates, instruments one connection site (store.py:_open_conn) with 4 sites uninstrumented and 6 secondary stores unobserved, and did not copy transcript-records.sqlite3."
+        "Owner: P02, then P03 qualification. Closes with: observed writes on the migration paths (legacy JSON migrate_org, an interrupted migration finished by _ensure_migrated). Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py, v3 b6568a1; docs/state-system/p02-operation-contacts.md) shows no table written cold or warm on already-migrated synthetic data; the migration paths were not exercised."
       ]
     },
     "diagnostic.conflicts": {
@@ -2848,7 +2902,7 @@
       ],
       "open_questions": [
         "Complete transitive cold/legacy/recovery/diagnostic effects and their failure semantics before conversion; no effect/atomicity conclusion follows solely from a read-shaped tool.",
-        "Owner: P02 (runtime census), with per-operation connection, statement, table and wait evidence for orgtree_state_inspect/orgtree_capabilities. Closes with: probes of the transitive cold/legacy/recovery/diagnostic effects and their failure outcomes. Not coverable at P01 from available evidence: the only P02 evidence available (run 20260924T063643Z, item run-approved-isolated-copy-p02-replay, artifact r5) replayed 13 route classes that do not include orgtree_state_inspect/orgtree_capabilities, reports contacts only as whole-window aggregates, instruments one connection site (store.py:_open_conn) with 4 sites uninstrumented and 6 secondary stores unobserved, and did not copy transcript-records.sqlite3."
+        "Owner: P02. Closes with: probes of the legacy-JSON and recovery (interrupted-migration) effects and their failure outcomes. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py, v3 b6568a1; docs/state-system/p02-operation-contacts.md) covers the cold orgs-dir mkdir effect and the killswitch refusal only; legacy and recovery effects were not probed."
       ]
     },
     "diagnostic.instrumentation": {
@@ -2922,7 +2976,7 @@
       ],
       "open_questions": [
         "Implement the approved P02 complete contact/profile/loss/drift instrumentation and native negative controls; runtime_census and conversion_authorized remain false.",
-        "Owner: P02 (runtime census), with per-operation connection, statement, table and wait evidence for orgtree_state_inspect/orgtree_capabilities. Closes with: the approved complete contact/profile/loss/drift record for both tools, including cache hits and hidden eager loads. Not coverable at P01 from available evidence: the only P02 evidence available (run 20260924T063643Z, item run-approved-isolated-copy-p02-replay, artifact r5) replayed 13 route classes that do not include orgtree_state_inspect/orgtree_capabilities, reports contacts only as whole-window aggregates, instruments one connection site (store.py:_open_conn) with 4 sites uninstrumented and 6 secondary stores unobserved, and did not copy transcript-records.sqlite3."
+        "Owner: P02 for the approved instrumentation record, then P03 for native negative controls. Closes with: an approved (reviewed) drift-aware contact/profile/loss record for both tools, plus native negative controls. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py, v3 b6568a1; docs/state-system/p02-operation-contacts.md) covers per-operation contacts, profile, window loss and hidden_steps=0 for both tools on synthetic data, cold and warm; no approved drift policy exists and native negative controls need a native build."
       ]
     },
     "preview.authority": {
@@ -3226,7 +3280,7 @@
       ],
       "open_questions": [
         "Complete transitive provider/settings/registry, cold storage and underlying ledger read sets for every preview variant; replace whole-document cloning with bounded native query/simulation semantics under the approved design.",
-        "Owner: P02 (runtime census), with per-operation connection, statement, table and wait evidence for orgtree_preview, then the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 (native prototype) and P05 (state/authority conversion). Closes with: observed transitive provider/settings/registry/cold-storage read sets per variant, and an approved bounded native simulation design. Not coverable at P01 from available evidence: the only P02 evidence available (run 20260924T063643Z, item run-approved-isolated-copy-p02-replay, artifact r5) replayed 13 route classes that do not include orgtree_preview, reports contacts only as whole-window aggregates, instruments one connection site (store.py:_open_conn) with 4 sites uninstrumented and 6 secondary stores unobserved, and did not copy transcript-records.sqlite3; and the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source can supply."
+        "Owner: the separately staffed native conflict/predicate design, then P03/P05. Closes with: an approved bounded native simulation design replacing whole-document cloning. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py, v3 b6568a1; docs/state-system/p02-operation-contacts.md) covers the observed tables and file reads per preview operation; the native simulation design does not exist yet."
       ]
     },
     "preview.writes": {
@@ -3331,7 +3385,7 @@
       ],
       "open_questions": [
         "Inventory all transitive cold/migration/probe/cache writes and full underlying mutator effects before physical-contact or native write closure.",
-        "Owner: P02 (runtime census), with per-operation connection, statement, table and wait evidence for orgtree_preview. Closes with: an observed inventory of transitive cold/migration/probe/cache writes and the full underlying mutator effects. Not coverable at P01 from available evidence: the only P02 evidence available (run 20260924T063643Z, item run-approved-isolated-copy-p02-replay, artifact r5) replayed 13 route classes that do not include orgtree_preview, reports contacts only as whole-window aggregates, instruments one connection site (store.py:_open_conn) with 4 sites uninstrumented and 6 secondary stores unobserved, and did not copy transcript-records.sqlite3."
+        "Owner: P02. Closes with: observed writes on the migration paths, and the full underlying mutator effects inside the simulation clone. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py, v3 b6568a1; docs/state-system/p02-operation-contacts.md) shows no table written and lists file effects per operation, but the clone is not a census-visible store and the migration paths were not exercised."
       ]
     },
     "preview.predicates": {
@@ -3703,7 +3757,7 @@
       ],
       "open_questions": [
         "Finish provider/cache/registry/normalization failure and external-contact qualification; do not claim native or general no-network behavior from stubbed provider preflights.",
-        "Owner: P02 (runtime census), with per-operation connection, statement, table and wait evidence for orgtree_preview, with provider qualification at P08. Closes with: observed provider/cache/registry/normalization failure and external-contact outcomes, without stubbed preflights. Not coverable at P01 from available evidence: the only P02 evidence available (run 20260924T063643Z, item run-approved-isolated-copy-p02-replay, artifact r5) replayed 13 route classes that do not include orgtree_preview, reports contacts only as whole-window aggregates, instruments one connection site (store.py:_open_conn) with 4 sites uninstrumented and 6 secondary stores unobserved, and did not copy transcript-records.sqlite3."
+        "Owner: P02, with provider qualification at P08. Closes with: observed outcomes of the other provider failure modes (auth, registry, network refusals), without stubbed preflights. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py, v3 b6568a1; docs/state-system/p02-operation-contacts.md) shows the cold rows unstubbed with no process or network contact, and one failure outcome (switch_model 422); the other provider failure modes were not probed."
       ]
     },
     "preview.instrumentation": {
@@ -3783,7 +3837,7 @@
       ],
       "open_questions": [
         "Complete P02 actual contact/profile/loss/drift coverage and P03 native concurrency/failure gates before any conversion claim.",
-        "Owner: P02 (runtime census), with per-operation connection, statement, table and wait evidence for orgtree_preview, then P03 native concurrency/failure gates. Closes with: complete actual contact/profile/loss/drift coverage for every preview variant, including provider preflights. Not coverable at P01 from available evidence: the only P02 evidence available (run 20260924T063643Z, item run-approved-isolated-copy-p02-replay, artifact r5) replayed 13 route classes that do not include orgtree_preview, reports contacts only as whole-window aggregates, instruments one connection site (store.py:_open_conn) with 4 sites uninstrumented and 6 secondary stores unobserved, and did not copy transcript-records.sqlite3."
+        "Owner: P03 native concurrency/failure gates. Closes with: the P03 native concurrency and failure gates for every preview variant. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py, v3 b6568a1; docs/state-system/p02-operation-contacts.md) covers contact/profile/loss for all 13 preview operations cold (unstubbed preflight) and warm; the native gates need a native build."
       ]
     }
   },
