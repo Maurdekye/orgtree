@@ -2468,6 +2468,127 @@ class Probe:
             refusal="negative control (not a product path)",
             patches=[(supervisor, "send_message", drive_and_mail_third)])
 
+    # -- P01 S3 F3c: operator.hire, operator.reallocate (POST /api/orgs/{slug}/ops) ---
+    def build_operator(self) -> None:
+        """tests/test_state_operator_ops_boundary.py's shape (distinctive `op-*`
+        ids): op-top and op-top2 top-level, op-mid and op-sib (the third agent)
+        under op-top, op-kid under op-mid."""
+        store, ledger = self.m["store"], self.m["ledger"]
+        org = store.create_org("p02-contacts-operator")
+        self.opslug = str(org.d["slug"])
+        org.hire(ledger.USER, None, "haiku", 40, "op-top", add_dirs=[], tools={}, charter="fixture")
+        org.hire("op-top", "op-top", "haiku", 6, "op-mid", **self.SCOPE)
+        org.hire("op-top", "op-top", "haiku", 0, "op-sib", **self.SCOPE)
+        org.hire("op-top", "op-mid", "haiku", 0, "op-kid", **self.SCOPE)
+        org.hire(ledger.USER, None, "haiku", 5, "op-top2", add_dirs=[], tools={}, charter="fixture")
+        org.d["mail"], org.d["audiences"] = {}, []
+        store.save_org(org)
+        self.tokens[(self.opslug, "op-top")] = self.m["agentauth"].child_env(
+            self.opslug, "op-top")["ORGTREE_AGENT_TOKEN"]
+
+    def operator_ops(self) -> None:
+        """operator hire (top level, under a parent, above) and reallocate (up,
+        down, top level), cold and warm, as the operator (@user) on the desktop
+        token; refusals and a locality control. The door keeps no receipts, so
+        there are no keyed rows (P01 pins that a repeated hire seats a second
+        agent). `implied` is the new seat's parent and live peers (a hire tells
+        them: ledger.hire lifecycle.hired), an above-hire's anchor and its
+        reports, and a reallocation target's chain (every ancestor: a raise's
+        shortfall bubbles up it, and the grant notice reaches the parent)."""
+        s, store, api = self.opslug, self.m["store"], self.m["api"]
+        user, op, both = self.m["ledger"].USER, self.OPERATOR, ("cold", "warm")
+        gate = [(api, "provider_hire_gate", lambda *_a, **_k: None)]
+        _NODES[s] |= {f"oh-{c}-{cond}" for c in ("top", "under", "above") for cond in both}
+
+        def run(contract: str, variant: str, condition: str, body: dict[str, Any],
+                actor: str = user, headers: Any = op, **kw: Any) -> None:
+            if body.get("op") == "hire":
+                kw["patches"] = gate + list(kw.pop("patches", None) or [])
+            args = {k: v for k, v in body.items() if k in ("node", "parent", "above")}
+            self.run(contract, variant, condition, s, actor, f"POST {contract}", args,
+                     call=self.http(self.client, f"/api/orgs/{s}/ops", headers,
+                                    {**body, "actor": actor}), **kw)
+
+        def told(parent: "str | None", *extra: str) -> tuple[str, ...]:
+            """The new seat's parent and the parent's live children (every top-
+            level seat for a top-level hire), read from the stored org before
+            the row, plus `extra`."""
+            org = store.load_org(s)
+            peers = {k for k, v in org.nodes.items()
+                     if v.get("parent") == parent and v.get("state") != "archived"}
+            return tuple(sorted(peers | ({parent} if parent else set()) | set(extra)))
+
+        def parent_of(nid: str) -> "str | None":
+            p = store.load_org(s).node(nid)["parent"]
+            return str(p) if p else None
+
+        def chain(nid: str) -> tuple[str, ...]:
+            """Every ancestor of `nid`: a raise bubbles its shortfall up the
+            chain to the operator (ledger._chain_acquire, grants inflating on
+            the way), and the grant notice reaches the parent."""
+            up, p = [], parent_of(nid)
+            while p:
+                up.append(p)
+                p = parent_of(p)
+            return tuple(up)
+
+        hire = {"op": "hire", "tier": "haiku", "charter": "fixture"}
+        for cond in both:
+            run("operator.hire", "operator.hire", cond, {**hire, "name": f"oh-top-{cond}",
+                                                         "grant": 1},
+                implied=told(None, f"oh-top-{cond}"))
+            run("operator.hire", "operator.hire:under", cond,
+                {**hire, "name": f"oh-under-{cond}", "parent": "op-mid"},
+                implied=told("op-mid", f"oh-under-{cond}"))
+            # inserted ABOVE op-mid, under op-mid's current parent (op-top cold;
+            # the cold insertion warm); the anchor's own reports are told too
+            above = parent_of("op-mid")
+            run("operator.hire", "operator.hire:above", cond,
+                {**hire, "name": f"oh-above-{cond}", "parent": above, "above": "op-mid"},
+                implied=tuple(sorted(set(told(above, f"oh-above-{cond}"))
+                                     | set(told("op-mid")))))
+        for cond in both:
+            run("operator.reallocate", "operator.reallocate", cond,
+                {"op": "reallocate", "node": "op-mid", "delta": 2}, implied=chain("op-mid"))
+            run("operator.reallocate", "operator.reallocate:down", cond,
+                {"op": "reallocate", "node": "op-mid", "delta": -1},
+                implied=chain("op-mid"))
+            run("operator.reallocate", "operator.reallocate:top-level", cond,
+                {"op": "reallocate", "node": "op-top", "delta": 1})
+        run("operator.reallocate", "operator.reallocate:fractional", "warm",
+            {"op": "reallocate", "node": "op-mid", "delta": 0.5}, implied=chain("op-mid"))
+        agent = {"X-Orgtree-Agent-Token": self.tokens[(s, "op-top")]}
+        for contract, variant, body, actor, headers, refusal in (
+                ("operator.hire", "refusal:op-hire-no-name", {"op": "hire", "tier": "haiku"},
+                 user, op, "422 hire needs tier and name"),
+                ("operator.hire", "refusal:op-hire-unknown-tier",
+                 {"op": "hire", "tier": "nope", "name": "x"}, user, op, "422 unknown tier"),
+                ("operator.hire", "refusal:op-hire-above-not-a-report",
+                 {**hire, "name": "x", "parent": None, "above": "op-mid"}, user, op,
+                 "422 insert-superior: the anchor does not report to the named parent"),
+                ("operator.hire", "refusal:op-hire-agent-token",
+                 {**hire, "name": "x"}, user, agent, "401 an agent credential is refused here"),
+                ("operator.reallocate", "refusal:op-reallocate-no-delta",
+                 {"op": "reallocate", "node": "op-mid"}, user, op, "422 reallocate needs delta"),
+                ("operator.reallocate", "refusal:op-reallocate-committed-floor",
+                 {"op": "reallocate", "node": "op-mid", "delta": -100}, user, op,
+                 "422 below the committed floor"),
+                ("operator.reallocate", "refusal:op-reallocate-no-authority",
+                 {"op": "reallocate", "node": "op-top", "delta": 1}, "op-mid", op,
+                 "422 the named actor has no authority over its superior")):
+            run(contract, variant, "warm", body, actor=actor, headers=headers, refusal=refusal)
+
+        # agent-level locality control: a reallocation whose closing tree
+        # broadcast (api.hub_changed) ALSO posts mail to a third agent
+        def mail_third(*_a: Any, **_k: Any) -> None:
+            with store.write_org(s) as o:
+                o.post_mail("op-top", "op-sib", "p02 control: mail to a third agent")
+                store.save_org(o)
+        run("operator.reallocate", "control:operator-third-agent", "warm",
+            {"op": "reallocate", "node": "op-mid", "delta": 1}, implied=chain("op-mid"),
+            refusal="negative control (not a product path)",
+            patches=[(api, "hub_changed", mail_third)])
+
     # -- the r5 residuals ----------------------------------------------------
     def residuals(self) -> dict[str, Any]:
         """db_unbound and unclassified_action, reproduced: which records carry
@@ -2556,11 +2677,12 @@ class Probe:
             self.build_mail()
             self.build_funding()
             self.build_staffing()
+            self.build_operator()
         self.build_human()
         for slug in ((self.dslug, self.hslug) if json_backend else
                      (self.rslug, self.mslug, self.dslug, self.pslug, self.sslug,
                       self.stslug, self.ovslug, self.mlslug, self.hslug, self.fslug,
-                      self.stfslug)):
+                      self.stfslug, self.opslug)):
             _NODES[slug] = {str(n) for n in self.m["store"].load_org(slug).nodes}
         self.operator("post", "/api/diagnostics/operation-census/reset")
         self.operator("post", "/api/diagnostics/operation-census", json={"enabled": True})
@@ -2583,6 +2705,7 @@ class Probe:
             self.inbox()
             self.funding()
             self.staffing()
+            self.operator_ops()
         w1 = self.census_state()
         self.load_table_catalogue()
         self.map_tables()

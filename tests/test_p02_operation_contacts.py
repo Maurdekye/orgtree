@@ -37,7 +37,8 @@ CONTRACTS = {f"reservation.{v}" for v in RESERVATION} | {
     "org.tree", "org.node-detail", "org.feed", "mail.message", "mail.notice",
     "mail.human-send", "mail.user-inbox", "mail.user-inbox-read", "mail.node-inbox",
     "credits.request", "credits.reallocate", "credits.decide",
-    "staffing.hire", "staffing.staff-create", "staffing.staff-update"}
+    "staffing.hire", "staffing.staff-create", "staffing.staff-update",
+    "operator.hire", "operator.reallocate"}
 
 
 class OperationContacts(unittest.TestCase):
@@ -263,7 +264,7 @@ class OperationContacts(unittest.TestCase):
         for r in self.doc["rows"]:
             if r["variant"] in (self.CONTROL, self.STATUS_CONTROL, self.MAIL_CONTROL,
                                 self.HUMAN_CONTROL, self.FUNDING_CONTROL,
-                                self.STAFFING_CONTROL):
+                                self.STAFFING_CONTROL, self.OPERATOR_CONTROL):
                 continue
             with self.subTest(variant=r["variant"], condition=r["condition"]):
                 self.assertEqual(r["agents"]["third_agent_mail"], 0)
@@ -276,7 +277,8 @@ class OperationContacts(unittest.TestCase):
         self.assertEqual(producing, {"reservation.release-notify", "status.report",
                                      "mail.message", "mail.notice", "mail.human-send",
                                      "credits.reallocate", "credits.decide", "staffing.hire",
-                                     "staffing.staff-create", "staffing.staff-update"})
+                                     "staffing.staff-create", "staffing.staff-update",
+                                     "operator.hire", "operator.reallocate"})
 
     def test_third_agent_mail_control_is_flagged(self):
         control = self.rows(variant=self.CONTROL)
@@ -1209,6 +1211,85 @@ class OperationContacts(unittest.TestCase):
         self.assertEqual(control["http_status"], 200, control["detail"])
         agents = control["agents"]
         self.assertEqual(agents["logical"]["mail"], {"s-sib": "third", "hs-control-warm": "target"})
+        self.assertGreaterEqual(agents["third_agent_mail"], 1)
+        self.assertGreaterEqual(agents["third_agent_rows_written"], 1)
+        self.assertTrue(agents["third_sites"])
+
+    # -- P01 S3 F3c: operator.hire, operator.reallocate (the operator ops door) --
+    OPERATOR_CONTROL = "control:operator-third-agent"
+    #: variant -> (contract, new seat stem or None)
+    OPERATOR = {"operator.hire": ("operator.hire", "oh-top"),
+                "operator.hire:under": ("operator.hire", "oh-under"),
+                "operator.hire:above": ("operator.hire", "oh-above"),
+                "operator.reallocate": ("operator.reallocate", None),
+                "operator.reallocate:down": ("operator.reallocate", None),
+                "operator.reallocate:top-level": ("operator.reallocate", None)}
+
+    def test_operator_ops_by_class_reach_only_the_declared_set(self):
+        """operator-ops.reads/instrumentation: operator hire (top level, under
+        a parent, above) and reallocate (up, down, top level), cold and warm,
+        loss-accounted, as @user. Locality: nothing outside the target, its
+        chain, and the new seat's parent and peers is touched; the door drives
+        nobody and sparks nothing."""
+        for variant, (contract, stem) in self.OPERATOR.items():
+            for condition in ("cold", "warm"):
+                with self.subTest(variant=variant, condition=condition):
+                    r = self.rows(contract=contract, variant=variant, condition=condition)[0]
+                    self.assertEqual(r["http_status"], 200, r["detail"])
+                    self.assertEqual(r["census"]["records"], 1)
+                    agents = r["agents"]
+                    self.assertEqual(agents["actor"], "@user")
+                    if stem:
+                        self.assertIn(f"{stem}-{condition}", agents["targets"])
+                    roles = {role for sect in agents["logical"].values() for role in sect.values()}
+                    self.assertEqual(roles, {"target"})
+                    self.assertEqual(set(agents["logical"]), {"notices"})
+                    self.assertEqual((agents["third_agent_mail"],
+                                      agents["third_agent_rows_written"]), (0, 0))
+                    self.assertFalse(agents["third_sites"])
+                    self.assertEqual(r["wakes"], {"send_message": 0, "mail_notify": 0})
+        # a top-level hire tells EVERY live top-level seat (its peers)
+        top = self.rows(variant="operator.hire", condition="warm")[0]["agents"]["logical"]
+        self.assertEqual(set(top["notices"]), {"oh-top-cold", "op-top", "op-top2"})
+        # an above-hire also tells the anchor's own reports
+        above = self.rows(variant="operator.hire:above", condition="cold")[0]["agents"]["logical"]
+        self.assertIn("op-kid", above["notices"])
+        # a raise bubbles up the chain: the up rows WRITE the grandparent's row
+        # (declared: the target's chain), the down rows do not
+        for condition in ("cold", "warm"):
+            up = self.rows(variant="operator.reallocate", condition=condition)[0]["agents"]
+            self.assertEqual(up["physical_nodes"].get("oh-above-cold"), "target")
+            self.assertGreaterEqual(up["physical"].get("nodes:write:target", 0), 3)
+            down = self.rows(variant="operator.reallocate:down", condition=condition)[0]["agents"]
+            self.assertNotIn("oh-above-cold", down["physical_nodes"])
+        frac = self.rows(variant="operator.reallocate:fractional")[0]
+        self.assertEqual((frac["http_status"], frac["agents"]["third_agent_rows_written"]), (200, 0))
+
+    def test_operator_ops_refusals_write_nothing(self):
+        def primary_written(r):
+            return r["harness"]["stores"].get("primary", {}).get("tables_written", [])
+        for variant, status in (("refusal:op-hire-no-name", 422),
+                                ("refusal:op-hire-unknown-tier", 422),
+                                ("refusal:op-hire-above-not-a-report", 422),
+                                ("refusal:op-hire-agent-token", 401),
+                                ("refusal:op-reallocate-no-delta", 422),
+                                ("refusal:op-reallocate-committed-floor", 422),
+                                ("refusal:op-reallocate-no-authority", 422)):
+            with self.subTest(variant=variant):
+                r = self.rows(variant=variant)[0]
+                self.assertEqual((r["http_status"], primary_written(r), r["harness"]["writes"]),
+                                 (status, [], 0))
+                self.assertEqual(r["agents"]["logical"], {})
+        # the agent credential is refused before any attempt is recorded
+        self.assertEqual(self.rows(variant="refusal:op-hire-agent-token")[0]["census"]["records"], 0)
+        self.assertEqual(self.rows(variant="refusal:op-reallocate-no-authority")[0]["agents"]["actor"],
+                         "op-mid")
+
+    def test_operator_third_agent_control_is_flagged(self):
+        control = self.rows(variant=self.OPERATOR_CONTROL)[0]
+        self.assertEqual(control["http_status"], 200, control["detail"])
+        agents = control["agents"]
+        self.assertEqual(agents["logical"]["mail"], {"op-sib": "third"})
         self.assertGreaterEqual(agents["third_agent_mail"], 1)
         self.assertGreaterEqual(agents["third_agent_rows_written"], 1)
         self.assertTrue(agents["third_sites"])
