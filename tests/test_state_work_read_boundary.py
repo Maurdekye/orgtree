@@ -67,8 +67,11 @@ class BoundaryBinding(unittest.TestCase):
         registry = contracts.load(ROOT / 'docs/state-system/operation-contracts.json')
         result = contracts.validate(registry, contracts.inventory.scan(ROOT), ROOT)
         self.assertTrue(result['valid'], result['errors'])
-        for name in ('reads', 'conflicts', 'wire', 'instrumentation'):
+        # reads and instrumentation were specified from P02 rows (S2i); conflicts and wire stay open
+        for name in ('conflicts', 'wire'):
             self.assertEqual(registry['facets']['work-read.' + name]['status'], 'unresolved', name)
+        for name in ('reads', 'instrumentation'):
+            self.assertEqual(registry['facets']['work-read.' + name]['status'], 'specified', name)
 
     def test_the_orgtree_work_card_stays_pending_with_ruling_2(self):
         # S3 ruling 2: the card (36 actions) is the P05 work family; its selectors wait with it

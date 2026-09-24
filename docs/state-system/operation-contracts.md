@@ -120,8 +120,8 @@ diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
 Current totals are 42 contracts, 29 mapped registrations and 50 mapped
-dispatch witnesses. **592 obligations remain**: 290 registrations, 177 dispatch
-witnesses, 15 storage candidates and 110 unresolved dimension occurrences.
+dispatch witnesses. **586 obligations remain**: 290 registrations, 177 dispatch
+witnesses, 15 storage candidates and 104 unresolved dimension occurrences.
 How it got there: 600 was two more registrations than the preceding 598 because the scanner now
 recognizes `asyncio.to_thread` hand-offs; both new witnesses are pending and no
 existing witness identity, disposition or contract changed.
@@ -259,6 +259,12 @@ staffing: for the operator door the target's whole ancestor chain (a raise write
 its shortfall reaches), the new seat's parent and peers, and an above-hire's anchor and its reports; for the
 chooser the new seat's parent and live peers. `quick-staff.reads` stays open, narrowed to the
 staffing snapshot's own provider, account and effort reads, which P02's fixture patches out.
+586 is six fewer than that 592 (P01 S2i): P02's docket-read and receipt-lookup rows (S3 F4,
+v3 220e557) cover `work-read.reads`, `work-read.instrumentation`, `receipt-lookup.reads` and
+`receipt-lookup.instrumentation`, so those are specified (2 + 2 + 1 + 1). The docket reads load
+outside the document lock, so a warm read is a fresh load of all five tables, never the
+resident. A lookup's warm reads depend on the resident's state, and the only row it writes is
+the caller's own fence.
 
 Of the 43 open dimension occurrences on the sixteen legacy-family contracts, 27 (10 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the

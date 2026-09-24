@@ -68,8 +68,11 @@ class BoundaryBinding(unittest.TestCase):
         registry = contracts.load(ROOT / 'docs/state-system/operation-contracts.json')
         result = contracts.validate(registry, contracts.inventory.scan(ROOT), ROOT)
         self.assertTrue(result['valid'], result['errors'])
-        for name in ('reads', 'conflicts', 'wire', 'instrumentation'):
+        # reads and instrumentation were specified from P02 rows (S2i); conflicts and wire stay open
+        for name in ('conflicts', 'wire'):
             self.assertEqual(registry['facets']['receipt-lookup.' + name]['status'], 'unresolved', name)
+        for name in ('reads', 'instrumentation'):
+            self.assertEqual(registry['facets']['receipt-lookup.' + name]['status'], 'specified', name)
         # the agent door stays pending by precedent; only the lookup verb is selected
         [door] = [r for r in registry['entries'] if r['id'] == AGENT]
         self.assertEqual((door['disposition'], door['contracts']), ('pending', []))

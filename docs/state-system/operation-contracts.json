@@ -7496,9 +7496,10 @@
     },
     "work-read.reads": {
       "dimension": "reads",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
-        "Source read set: store.load_org(slug) OUTSIDE DOC_LOCK (the resident or a cold load), then the work records, their owners' and participants' liveness for the derived state, and each item's view (_work_view)."
+        "Source read set: store.load_org(slug) OUTSIDE DOC_LOCK (a fresh private load on every call: store._load_org serves the per-org resident only to a load made inside DOC_LOCK), then the work records, their owners' and participants' liveness for the derived state, and each item's view (_work_view).",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 f690e5e) for every class the clause names, as the operator (@user) on the desktop token: the list plain, :archived, :backlogged and :compact, and the item read plain and :compact, each cold and warm. Cold AND warm, every class reads doc, log_d, log_l, meta and nodes of the org's own store and writes nothing: these routes load outside DOC_LOCK, so a warm read is a fresh private load of the same five tables (cold 25 statements, warm 23), never the resident. No row makes an unknown contact or touches another org's store. The refusals write nothing: an unknown item (404) and legacy work identity (409), each after the same five-table read, and the agent credential on the list and on the item (401, refused before any census attempt). Not observed: the boot build identity (git rev-parse) that the first docket read computes in a process whose startup never ran; the product computes it at startup, and the probe injects it. Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -7526,10 +7527,7 @@
           "sha256": "2281cec72824b8ab48edf47655a765c5b61a8d1a02b0e1001caf98f735679df3"
         }
       ],
-      "open_questions": [
-        "Record the statement-level read set of the work-item list and item read, cold and warm.",
-        "Owner: P02. Closes with: observed per-operation contacts for the list (plain, archived, backlogged, compact) and the item read, cold and warm. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to the work-item reads."
-      ]
+      "open_questions": []
     },
     "work-read.conflicts": {
       "dimension": "conflicts",
@@ -7591,9 +7589,10 @@
     },
     "work-read.instrumentation": {
       "dimension": "instrumentation",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
-        "The access middleware labels both routes. No P02 per-operation record covers them."
+        "The access middleware labels both routes. P02's per-operation record covers them (below).",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 f690e5e): a loss-accounted per-operation record for every row, cold and warm (one census record matching the harness), except the two agent-credential refusals. Org-level locality, answering the question above: every statement of every read runs on this org's own store (statement_stores is data:org-db:own only), nothing is written, and no agent is named, told or woken. The control control:work-read-foreign-org (the identity guard also loads another org's store cold) shows foreign statements, so the classification can fire. Native negative controls are the P03 gate, not a clause of this legacy facet (S2d decision 1, reviewer ruling on 803227e). Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -7609,10 +7608,7 @@
           "sha256": "20066e07ce41fb94ce0f9a65c7669021478420beda501edad53f28b125628bb6"
         }
       ],
-      "open_questions": [
-        "Extend the P02 per-operation probe to the work-item reads.",
-        "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed, loss-accounted contact record for the item reads with org-level locality (this org's work records only). Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to the work-item reads."
-      ]
+      "open_questions": []
     },
     "receipt-lookup.authority": {
       "dimension": "authority",
@@ -7775,9 +7771,10 @@
     },
     "receipt-lookup.reads": {
       "dimension": "reads",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
-        "Source read set: under DOC_LOCK, the whole org loaded (load_org), the caller's node and generation, the custody epoch, the receipt row under (node, key) and its fingerprint subject; the in-process in-flight set; the verb's coverage class."
+        "Source read set: under DOC_LOCK, the whole org loaded (load_org), the caller's node and generation, the custody epoch, the receipt row under (node, key) and its fingerprint subject; the in-process in-flight set; the verb's coverage class.",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 f690e5e) for every answer the clause names, cold and warm, as the caller on the agent door: not_applied with a new fence, applied, conflict, and epoch-rotated (unknown, not fenced), plus a repeat lookup answered from the fence and, warm, a lookup of another agent's applied key. Cold, every answer reads doc, log_d, log_l, meta and nodes of the org's own store. Warm, the lookup is served the per-org resident under DOC_LOCK, so its store contact depends on the resident's state: the applied answer ran no statement, the repeat of a fence read only doc, log_l and meta, and the conflict and epoch-rotated answers, each following an answer that returned a receipt row, reloaded all five tables, consistent with store._on_doc_lock_release dropping a resident whose lazy log section a hold exposed. Only a new fence writes (doc and log_l, and meta cold); every other answer writes nothing. No row makes an unknown contact or touches another org's store. The refusals write nothing: halted (409), no op_key (422) and no for_tool (422); a bad token is refused 401 before any census attempt. Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -7793,10 +7790,7 @@
           "sha256": "8ce3f0eb507f05a942fbbf04e285f26d33aa886934e186cee0ac574b8b39969b"
         }
       ],
-      "open_questions": [
-        "Record the statement-level read set of each lookup answer, cold and warm.",
-        "Owner: P02. Closes with: observed per-operation contacts for the lookup answers (not_applied with a fence, applied, conflict, epoch-rotated), cold and warm. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to receipt lookup."
-      ]
+      "open_questions": []
     },
     "receipt-lookup.conflicts": {
       "dimension": "conflicts",
@@ -7858,9 +7852,10 @@
     },
     "receipt-lookup.instrumentation": {
       "dimension": "instrumentation",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
-        "The agent door records the verb before dispatch; no P02 per-operation record covers the lookup."
+        "The agent door records the verb before dispatch; P02's per-operation record covers the lookup (below).",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 f690e5e): a loss-accounted per-operation record for every row, cold and warm (one census record matching the harness), except the bad-token refusal. Agent-level locality, answering the question above: the only receipt row a lookup adds is the caller's own fence (one row in the caller's namespace on a new fence, including a caller fencing another agent's key in its OWN namespace; none otherwise), no agent's node row is written, and no agent is named, told or woken, not even the node the looked-up call names. The control control:receipt-lookup-third-agent (a lookup followed by mail to a sibling) is flagged. Native negative controls are the P03 gate, not a clause of this legacy facet (S2d decision 1, reviewer ruling on 803227e). Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -7876,10 +7871,7 @@
           "sha256": "7974229e55565e199f178feda1dd39a192ff918b999d04988a4c2280545c4b5a"
         }
       ],
-      "open_questions": [
-        "Extend the P02 per-operation probe to receipt lookup.",
-        "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed, loss-accounted contact record for the lookup with agent-level locality (the caller's own receipt namespace only). Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to receipt lookup."
-      ]
+      "open_questions": []
     }
   },
   "contracts": {

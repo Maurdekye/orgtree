@@ -835,6 +835,88 @@ class ContactFacets(unittest.TestCase):
         control = self.qs_row("control:quick-staff-third-agent", "warm")["agents"]
         self.assertEqual(control["logical"]["mail"], {"qs-kid": "third", "qs-mgr": "target"})
 
+    # -- S2i: the docket reads and the receipt lookup ---------------------------------
+    WORK_READS = (("work.item-list", "work.item-list"), ("work.item-list", "work.item-list:archived"),
+                  ("work.item-list", "work.item-list:backlogged"), ("work.item-list", "work.item-list:compact"),
+                  ("work.item-get", "work.item-get"), ("work.item-get", "work.item-get:compact"))
+
+    def test_work_reads_load_the_whole_org_fresh_and_stay_in_this_org(self):
+        for contract, variant in self.WORK_READS:
+            for condition, statements in (("cold", 25), ("warm", 23)):
+                with self.subTest(variant=variant, condition=condition):
+                    r = self.exact(contract, variant, condition)
+                    h, agents = r["harness"], r["agents"]
+                    self.assertEqual((r["http_status"], r["unknown_contacts"], r["census"]["records"]), (200, [], 1))
+                    self.assertIs(h["matches_census"], True)
+                    # outside DOC_LOCK every load is a fresh private one: warm reads the same five tables
+                    self.assertEqual((self.read(r), r["census"]["statements"]), (self.FULL, statements))
+                    self.assertEqual(set(h["statement_stores"]), {"data:org-db:own"})
+                    self.assertEqual((self.written(r), h["writes"], h["sidecars_touched"]), ([], 0, {}))
+                    self.assertEqual((agents["logical"], agents["physical_nodes"], agents["targets"]), ({}, {}, []))
+                    self.assertEqual(r["wakes"], {"send_message": 0, "mail_notify": 0})
+        refusals = {r["variant"]: r for r in self.doc["rows"]
+                    if r["contract"].startswith("work.") and r["variant"].startswith("refusal:")}
+        self.assertEqual({v: r["http_status"] for v, r in refusals.items()},
+                         {"refusal:wr-unknown-item": 404, "refusal:wr-legacy-identity": 409,
+                          "refusal:wr-list-agent-token": 401, "refusal:wr-get-agent-token": 401})
+        for variant, r in refusals.items():
+            with self.subTest(variant=variant):
+                token = variant.endswith("agent-token")
+                self.assertEqual((self.written(r), r["harness"]["writes"]), ([], 0))
+                self.assertEqual((r["census"]["records"], self.read(r)), (0, None) if token else (1, self.FULL))
+        self.assertGreater(self.foreign(self.exact("work.item-get", "control:work-read-foreign-org", "warm")), 0)
+
+    ANSWERS = {"receipt.lookup:not-applied": ("not_applied", True, None),
+               "receipt.lookup:fenced-again": ("not_applied", True, None),
+               "receipt.lookup:applied": ("applied", None, None),
+               "receipt.lookup:conflict": ("conflict", None, None),
+               "receipt.lookup:epoch-rotated": ("unknown", False, "epoch_rotated")}
+
+    def test_receipt_lookup_reads_per_answer_and_writes_only_the_callers_fence(self):
+        warm = {}
+        for variant, (state, fenced, reason) in self.ANSWERS.items():
+            for condition in ("cold", "warm"):
+                with self.subTest(variant=variant, condition=condition):
+                    r = self.exact("receipt.lookup", variant, condition)
+                    h, agents = r["harness"], r["agents"]
+                    self.assertEqual((r["http_status"], r["unknown_contacts"], r["census"]["records"]), (200, [], 1))
+                    self.assertIs(h["matches_census"], True)
+                    self.assertEqual(r["answer"], {"state": state, "fenced": fenced, "reason": reason})
+                    self.assertEqual(self.foreign(r), 0)
+                    fence = variant == "receipt.lookup:not-applied"
+                    self.assertEqual(r["receipt_namespace"], {"rl-top": 1} if fence else {})
+                    writes = ["doc", "log_l", "meta"] if condition == "cold" else ["doc", "log_l"]
+                    self.assertEqual(sorted(self.written(r)), writes if fence else [])
+                    self.assertEqual((agents["logical"], agents["physical_nodes"], agents["targets"]), ({}, {}, []))
+                    self.assertEqual(r["wakes"], {"send_message": 0, "mail_notify": 0})
+                    if condition == "cold":
+                        self.assertEqual(self.read(r), self.FULL)
+                    else:
+                        warm[variant] = self.read(r)
+        # warm, the resident's state decides: no statement for applied, a partial read for the repeat of a fence,
+        # and a full reload after an answer that returned a receipt row (the release hook drops that resident)
+        self.assertEqual(warm, {"receipt.lookup:not-applied": self.FULL,
+                                "receipt.lookup:fenced-again": ["doc", "log_l", "meta"],
+                                "receipt.lookup:applied": None,
+                                "receipt.lookup:conflict": self.FULL,
+                                "receipt.lookup:epoch-rotated": self.FULL})
+        # another agent's applied key is fenced in the CALLER's namespace, and nobody's node row is touched
+        other = self.exact("receipt.lookup", "receipt.lookup:other-agents-key", "warm")
+        self.assertEqual((other["answer"]["state"], other["receipt_namespace"], other["agents"]["physical_nodes"]),
+                         ("not_applied", {"rl-mid": 1}, {}))
+        refusals = {r["variant"]: r for r in self.doc["rows"]
+                    if r["contract"] == "receipt.lookup" and r["variant"].startswith("refusal:")}
+        self.assertEqual({v: r["http_status"] for v, r in refusals.items()},
+                         {"refusal:rl-halted": 409, "refusal:rl-no-key": 422, "refusal:rl-no-tool": 422,
+                          "refusal:rl-bad-token": 401})
+        for variant, r in refusals.items():
+            with self.subTest(variant=variant):
+                self.assertEqual((self.written(r), r["harness"]["writes"]), ([], 0))
+                self.assertIn(r.get("receipt_namespace"), ({}, None))
+                self.assertEqual(r["census"]["records"], 0 if variant == "refusal:rl-bad-token" else 1)
+        control = self.exact("receipt.lookup", "control:receipt-lookup-third-agent", "warm")["agents"]
+        self.assertEqual(control["logical"]["mail"], {"rl-sib": "third"})
+
     def test_no_token_rows_are_the_only_rows_without_a_census_record(self):
         # a loss-accounted record for every S2e row but the ones refused before any attempt
         unrecorded = {"refusal:tree-no-token", "refusal:tree-bad-kiosk-token", "refusal:inbox-no-token",
