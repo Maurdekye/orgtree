@@ -548,14 +548,22 @@ route notifies (`implied`).
   write), `migration:legacy-json` cold (migrated inside the route, with
   `os.rename` in `store.migrate_org`) and warm (no write).
 
-Observed, recorded and not fixed:
+Observed and recorded; legacy behaviour, NOT endorsed by this probe and not
+fixed here. Each is also present on released main 0008ccb (source
+inspection):
 - `refusal:human-unknown-node` looks the name up in every other org before
-  its 422 (hundreds of statements on other orgs' stores, declared).
-- `refusal:compact-no-conversation` saves the deep-reach notice to the chain
-  (`h-top`) before it refuses.
+  its 422 (hundreds of statements on other orgs' stores, declared). The
+  lookup is `api._external_candidates` over `store.list_orgs()`. It is not
+  visible to the user.
+- `refusal:compact-no-conversation`: a REFUSED `/compact` has already saved
+  the deep-reach notice to the chain (`h-top`), and on a first contact the
+  user audience. The chain is told of a command that ran nothing. This is
+  visible to the user; backlogged as
+  `a-refused-compact-still-notifies-the-superior-ch`.
 - `:reply-to-chat-event` opens four sidecar connections on every call, cold
   and warm, and the `reply_events` sidecar runs its DDL outside a
-  transaction each time (the row's one write outside a transaction).
+  transaction each time (the row's one write outside a transaction). It is
+  not visible to the user.
 - On the JSON backend a read mark saves through an unnamed temp file in
   `orgs/` that is renamed onto the org's own document. The harness classes
   the temp file `data:org-db:temp` and the rename by the store it lands on
@@ -569,7 +577,7 @@ Clauses from the Owner lines at v3 881c14c.
 |---|---|---|---|
 | `human-mail.reads` | observed per-operation contacts for the human send by class (top-level, deep, archived, notice, session command, reply target), cold and warm | covered | `mail.human-send`, `:deep`, `:archived`, `:notice`, `:session-command`, `:reply-to-chat-event`, `:reply-target`, and `:attachment` (the working-folder stats, `audit.stat`); each cold and warm; plus the refusals |
 | `human-mail.instrumentation` | an observed, loss-accounted contact record for the human send with agent-level locality (the node and its notified chain only) | partly | covered: the rows above, per-row loss zero, `agents.logical` = the node plus its chain's deep-reach notices (and the first audience grant), `control:human-send-third-agent` flagged. NOT covered: P03 native negative controls |
-| `human-mail.effects` | the observed effects of the session-command branch (immediate_command, the command delivery and the /compact background compaction), with their failure outcomes | partly (P08 owns it; P02 observes) | covered: `:session-command` counts `immediate_command` (declined) and the command delivery (`send_message`), both spies; `refusal:compact-no-conversation` shows a refused `/compact` saving the chain notice first. NOT observed: a real immediate command, a real delivery, and the `/compact` compaction thread and its failures (not started here; P08) |
+| `human-mail.effects` | the observed effects of the session-command branch (immediate_command, the command delivery and the /compact background compaction), with their failure outcomes | partly (P08 owns it; P02 observes) | covered: `:session-command` counts `immediate_command` (declined) and the command delivery (`send_message`), both spies; `refusal:compact-no-conversation` records a refused `/compact` that has already saved the chain notice (legacy behaviour, not endorsed; backlogged as `a-refused-compact-still-notifies-the-superior-ch`). NOT observed: a real immediate command, a real delivery, and the `/compact` compaction thread and its failures (not started here; P08) |
 | `inbox.reads` | observed per-operation contacts for the three routes on both store backends, cold and warm | covered | `mail.user-inbox`, `mail.user-inbox-read`, `:nothing-read`, `mail.node-inbox`, each cold and warm, on SQLite and on JSON (`json:` rows); refusals on both |
 | `inbox.writes` | observed writes on the cold and migration paths of the three routes (read_user_inbox, read_mail_tails, load_org_snapshot and the resident load) | covered | cold rows of the three routes (only a matching read mark writes); `migration:refused`, `migration:legacy-json` cold (the migration's writes, inside the route) and warm, for each route |
 | `inbox.instrumentation` | an observed, loss-accounted contact record for the three inbox routes | partly | covered: the rows above, per-row loss zero. NOT covered: P03 native negative controls |
