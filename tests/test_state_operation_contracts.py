@@ -153,11 +153,16 @@ class ContractCoverage(unittest.TestCase):
             return (selectors[i]["path"].rsplit("/", 1)[1], selectors[i]["line"])
         self.assertEqual({at(i) for i, r in rows.items() if r["disposition"] == "excluded"}, self.W8_EXCLUDED)
         self.assertEqual(len(self.W8_PENDING), 26)
+        # the ruling's condition: a client-process exclusion must cite the inventoried route it calls
+        routes = {(r["source"]["path"], r["source"]["line"]) for r in self.source["registrations"] if r["kind"] == "http"}
         seen = set()
         for i, r in rows.items():
             if at(i) in self.W8_EXCLUDED:
                 with self.subTest(site=at(i)):
                     self.assertTrue(r["reason"].startswith("Not ") and r["reason"].endswith(" P01 W8."), r["reason"])
+                    if at(i)[0] == "externtool.py" or at(i) == ("mcptool.py", 2315):
+                        self.assertTrue(any((ref["path"], line) in routes for ref in r["source_refs"]
+                                            for line in range(ref["start"], ref["end"] + 1)), r["source_refs"])
             if at(i) in self.W8_PENDING:
                 seen.add(at(i))
                 with self.subTest(site=at(i)):
