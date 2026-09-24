@@ -26,6 +26,21 @@ DIMENSIONS = ("authority", "reads", "writes", "predicates", "conflicts",
 GATES = {"runtime_census": False, "conversion_authorized": False}
 GROUPS = {"entries": "registrations", "dispatch": "dispatch_selectors",
           "storage": "connection_sites"}
+# The committed inventory's syntax_sha256 fields hash ast.dump output, whose
+# format differs between Python minor versions. On any other interpreter every
+# witness looks rebound and the registry reads as stale (measured: 22 false
+# errors under 3.10), so the CLI refuses rather than report drift that isn't
+# there. The provisioned runtime is engine/runtime/python.exe.
+REQUIRED_PYTHON = (3, 13)
+
+
+def interpreter_refusal(version):
+    if tuple(version[:2]) == REQUIRED_PYTHON:
+        return None
+    return ("state_operation_contracts requires Python %d.%d (the provisioned engine/runtime/python.exe), "
+            "not %d.%d: the inventory's syntax_sha256 hashes the interpreter's AST dump, so any other "
+            "minor version reports false source drift. Nothing was checked."
+            % (REQUIRED_PYTHON + tuple(version[:2])))
 
 
 def digest(value):
@@ -318,6 +333,10 @@ def main(argv=None):
     parser.add_argument("--require-complete", action="store_true")
     parser.add_argument("--details", action="store_true", help="include every unresolved obligation")
     args = parser.parse_args(argv)
+    refusal = interpreter_refusal(sys.version_info)
+    if refusal:
+        print(json.dumps({"valid": False, "error": refusal, "qualification": dict(GATES)}), file=sys.stderr)
+        return 4
     try:
         result = check(args.repo.resolve(), args.repo / args.contracts, args.repo / args.inventory)
         result["pending_count"] = len(result["pending"])

@@ -10,10 +10,10 @@ legacy authority and receipt facets. Reads, writes, predicates, conflicts,
 wire, effects and instrumentation remain explicitly unresolved where their
 transitive or native obligations are incomplete. The registry now has 16
 contracts, seven mapped registration sites and 31 mapped selector witnesses.
-Its 600 pending obligations are 304 registrations, 194 selectors, 15 storage
+When it landed, its 600 pending obligations were 304 registrations, 194 selectors, 15 storage
 candidates and 87 unresolved dimension occurrences; the two registrations added
 after this package landed are the newly recognized `asyncio.to_thread` sites.
-These are source and contract obligations, not operation counts or a completion
+The current total is kept in `operation-contracts.md`. These are source and contract obligations, not operation counts or a completion
 percentage.
 `runtime_census` and `conversion_authorized` remain false.
 

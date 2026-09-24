@@ -156,6 +156,24 @@ class ContractCoverage(unittest.TestCase):
         self.assertEqual(code, 3)
         self.assertFalse(json.loads(output.getvalue())["contract_coverage_complete"])
 
+    def test_cli_refuses_any_interpreter_but_the_provisioned_minor_version(self):
+        self.assertIsNone(contracts.interpreter_refusal((3, 13, 0)))
+        self.assertIn("requires Python 3.13", contracts.interpreter_refusal((3, 10, 11)))
+        self.assertIsNotNone(contracts.interpreter_refusal((3, 14, 0)))
+        # Negative control: pretend the provisioned runtime is another version.
+        # The CLI must refuse with 4 before checking anything, not report drift.
+        original = contracts.REQUIRED_PYTHON
+        contracts.REQUIRED_PYTHON = (3, 99)
+        try:
+            out, err = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                code = contracts.main(["--repo", str(ROOT), "--require-complete"])
+        finally:
+            contracts.REQUIRED_PYTHON = original
+        self.assertEqual(code, 4)
+        self.assertEqual(out.getvalue(), "")
+        self.assertIn("requires Python 3.99", json.loads(err.getvalue())["error"])
+
     def test_real_cli_works_with_the_provisioned_isolated_interpreter(self):
         result = subprocess.run([sys.executable, "-B", str(ROOT / "tools/state_operation_contracts.py"),
                                  "--repo", str(ROOT), "--require-complete"],

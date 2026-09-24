@@ -21,11 +21,18 @@ contract dimension to be resolved:
     python tools/state_operation_contracts.py --require-complete --details
 
 Exit 0 means the requested check passed, 1 means invalid or stale contracts,
-2 means malformed/unreadable input, and 3 means structurally valid **but
-incomplete** coverage. The committed registry deliberately returns 3 for the
-completion command. Both commands always report runtime_census=false and
+2 means malformed/unreadable input, 3 means structurally valid **but
+incomplete** coverage, and 4 means the wrong interpreter: nothing was checked.
+The committed registry deliberately returns 3 for the completion command.
+Both commands always report runtime_census=false and
 conversion_authorized=false, even for a complete synthetic fixture. Neither
 static source review nor a JSON edit can satisfy P02/P03 or authorize conversion.
+
+Run it with the provisioned Python 3.13 runtime (`engine/runtime/python.exe`).
+The inventory's `syntax_sha256` fields hash the interpreter's AST dump, which
+changes between Python minor versions, so any other version would report every
+witness as rebound and the registry as stale (the unguarded CLI reported 22
+false errors under 3.10). The CLI therefore refuses any version but 3.13.
 
 There is no automatic write/refresh mode. Source edits require an intentional
 inventory refresh AND contract reassessment. Regenerating the inventory alone
@@ -38,8 +45,8 @@ operation-contracts.json uses schema orgtree.state-operation-contracts/v1.
 | Part | Checked requirement |
 |---|---|
 | source_inventory_sha256 | SHA256 of canonical UTF-8 JSON for the full current inventory; sorted keys, compact separators, unescaped Unicode. Whole-module hashes invalidate helper changes, including unrecognized registrations. |
-| entries | Exactly one disposition for each of the 314 inventoried registration sites. Pending, mapped or source-backed exclusion. HTTP/WS/tool entries cannot be excluded as false positives. |
-| dispatch | Exactly one disposition for each of the 226 selector witnesses. A branch is evidence, not another operation. |
+| entries | Exactly one disposition for each of the 319 inventoried registration sites. Pending, mapped or source-backed exclusion. HTTP/WS/tool entries cannot be excluded as false positives. |
+| dispatch | Exactly one disposition for each of the 227 selector witnesses. A branch is evidence, not another operation. |
 | storage | Exactly one disposition for each of the 15 connection candidates. Unknown sockets/factories remain visible. |
 | contracts | Source-entry bindings, optional tool/action selector, explicit argument normalization and conditional variant, domain mode and all nine dimensions. |
 | facets | Source-span-bound assertions for authority, reads, writes, predicates, conflicts, wire, receipt, effects and instrumentation. An unresolved facet requires concrete open questions. |
@@ -105,18 +112,27 @@ diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
 Current totals are 16 contracts, seven mapped registrations and 31 mapped
-dispatch witnesses. **604 obligations remain**: 307 registrations, 195 dispatch
+dispatch witnesses. **610 obligations remain**: 312 registrations, 196 dispatch
 witnesses, 15 storage candidates and 87 unresolved dimension occurrences.
-That was two more registrations than the preceding 598 because the scanner now
+How it got there: 600 was two more registrations than the preceding 598 because the scanner now
 recognizes `asyncio.to_thread` hand-offs; both new witnesses are pending and no
 existing witness identity, disposition or contract changed.
-It is four more than that 600 because the P02-A1 attempt census adds three
+604 was four more than that 600 because the P02-A1 attempt census adds three
 operator HTTP routes under `/api/diagnostics/operation-census` and one
 `body.tool` dispatch branch for the agent read door. All four new witnesses are
 pending with no contracts and no source evidence, the contract count is
 unchanged at 16, and no carried witness changed its disposition, its reason or
 the contracts it binds. 141 witness identities were rebound and 521 source spans
 relocated because `api.py` grew; each carries its own proof.
+610 is six more than that 604 because two later features added surfaces that
+were inventoried and left pending, but never counted here or given a reason of
+their own: the account capacity-mark work (`80b28bf`) adds GET
+`/api/accounts/{account_id}/marks`, POST `.../marks/clear`, the
+`orgtree_account_mark` tool card and its `body.tool` branch in `agent_call`, and
+the external charter template folders (`b41dcf1`) add GET and PUT
+`/api/app-settings/charter-template-dirs`. All six now carry an explicit
+pending reason naming their origin; none gained a contract or source evidence,
+and no other witness changed.
 This is not a runtime operation count or progress percentage. See the separate
 family documents for their measurements and remaining obligations.
 

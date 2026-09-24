@@ -7351,35 +7351,35 @@
       "id": "8f634ff8cc27c48abec2d78ffc3a5517a9a68df2bed3155f571b1a9d799f619f",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "80b28bf (account capacity marks): GET /api/accounts/{account_id}/marks, the operator read of every stored capacity mark on one account. No P01 contract describes it yet; recorded pending rather than mapped, because this stage authors no contract text.",
       "source_refs": []
     },
     {
       "id": "162a9547c2ff546caa9af36a73669e3191e6ee9e6cd62905fb3b738ecae856f3",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "80b28bf (account capacity marks): POST /api/accounts/{account_id}/marks/clear, the operator compare-and-set clear of one mark in the machine account store. No P01 contract describes it yet; recorded pending rather than mapped, because this stage authors no contract text.",
       "source_refs": []
     },
     {
       "id": "fc989126c1dd6a8acb6320aad7fddee1f1439dabf75db4a75c3360d5f7ffb735",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "80b28bf (account capacity marks): the orgtree_account_mark agent tool card (inspect/clear an account's capacity mark). No P01 contract describes it yet; recorded pending rather than mapped, because this stage authors no contract text.",
       "source_refs": []
     },
     {
       "id": "91a4a24d786d64271b0db1b6498c525a1904d2af1537f10fb82f5fd711a21af6",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "b41dcf1 (external charter template folders): GET /api/app-settings/charter-template-dirs, the app-wide folder list with its read-only scan state. No P01 contract describes it yet; recorded pending rather than mapped, because this stage authors no contract text.",
       "source_refs": []
     },
     {
       "id": "23636fa7dd8695ce24bb0b04e3fe64845a8bf64a2297441f67c98aebc60a1035",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "b41dcf1 (external charter template folders): PUT /api/app-settings/charter-template-dirs, the app-wide folder-list setting write. No P01 contract describes it yet; recorded pending rather than mapped, because this stage authors no contract text.",
       "source_refs": []
     }
   ],
@@ -9281,7 +9281,7 @@
       "id": "53ef1b67a61d3612714d69ed993e7e8bd0c2135c6648b6539e25a73ce87af89e",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "80b28bf (account capacity marks): the `body.tool == 'orgtree_account_mark'` dispatch branch in agent_call, which writes the machine account store and then the org log and receipt. No P01 contract describes it yet; recorded pending rather than mapped, because this stage authors no contract text.",
       "source_refs": []
     }
   ],
