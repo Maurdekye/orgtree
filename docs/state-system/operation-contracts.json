@@ -7560,6 +7560,271 @@
         "Extend the P02 per-operation probe to the work-item reads.",
         "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed, loss-accounted contact record for the item reads with org-level locality (this org's work records only). Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to the work-item reads."
       ]
+    },
+    "receipt-lookup.authority": {
+      "dimension": "authority",
+      "status": "specified",
+      "facts": [
+        "orgtree_op_lookup is a receipt VERB on POST /api/agent, not a tool card: it needs the caller's agent token (401 otherwise) and, like every agent tool, is refused 409 while the caller is halted or the org killswitch is latched (supervisor.halt.blocked runs first, pinned for a halted caller); it is then answered by _op_lookup_call BEFORE the restart/relaunch gates and the write cycle, because a lookup performs none of those operations. A caller can only ask about its OWN keys: the row is found by (caller node, key), so asking about another agent's key finds nothing and fences that key in the caller's own namespace (pinned)."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11156,
+          "end": 11210,
+          "sha256": "8e7d0a7e261a9fad1310f80033623b5922c3c78c4645669bd0779d94d662a37f"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11290,
+          "end": 11295,
+          "sha256": "24fb1b215a1ca90da01d06ffbcec547f96015d884df313e19af49622ae40075a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11325,
+          "end": 11334,
+          "sha256": "7974229e55565e199f178feda1dd39a192ff918b999d04988a4c2280545c4b5a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11025,
+          "end": 11140,
+          "sha256": "8654d6cd1c082714a646cf729d704c57572ef55904a6abd0a6b79fa0798fd3d0"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 579,
+          "end": 599,
+          "sha256": "8ce3f0eb507f05a942fbbf04e285f26d33aa886934e186cee0ac574b8b39969b"
+        }
+      ],
+      "open_questions": []
+    },
+    "receipt-lookup.predicates": {
+      "dimension": "predicates",
+      "status": "specified",
+      "facts": [
+        "op_key is required ('a lookup needs the `op_key` it is asking about') and for_tool is required ('a lookup needs `for_tool` …'); for_args is normalised exactly as admission normalises it, so the two fingerprints of one call agree. The row under the key is classified before any claim: a different fingerprint is `conflict`; a matching applied row is `applied` (also under a rotated epoch — durable positive evidence); a fence is reported as the fence; a call with the key executing in this process is `running`; a verb that never reaches the transaction is `unknown`/unsupported_operation; under a rotated epoch an absent row is `unknown`/epoch_rotated and nothing is fenced. Otherwise the key is FENCED and the answer is `not_applied` when the verb's coverage class makes absence provable, `unknown`/pre_transaction_step when the verb also works outside the transaction. Pinned.",
+        "The agent-side client (mcptool.call_api) asks only after the answer to a keyed call was LOST, under the original key and epoch, and never reissues the call itself. A lookup REFUSED as an unknown verb (\"orgtree_op_lookup\" in the refusal) means the backend predates receipts: the client answers state unknown, reason unsupported_build (fb501a21). Pinned with the transport patched."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11025,
+          "end": 11140,
+          "sha256": "8654d6cd1c082714a646cf729d704c57572ef55904a6abd0a6b79fa0798fd3d0"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11004,
+          "end": 11022,
+          "sha256": "227b03469e09d73d2bc33775e879d3f27c27abd0f2782e897a100d369dd1d92b"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 620,
+          "end": 627,
+          "sha256": "e23c7dc645ef1cef74a939f14d2422db80522aee12a443ed0e106107a243d20c"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 681,
+          "end": 761,
+          "sha256": "262869e086c8c7cb66d0f453065bde28e73c8fcb30440904fecd6556e4dcf887"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 275,
+          "end": 277,
+          "sha256": "174508874a4e324565d5ae42594ac080c2968cd69dcea2327238c51314952e4f"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2300,
+          "end": 2442,
+          "sha256": "1fab36aeb30f5a888381f0766dab2bf73c8567339aec64f69cd83d331a7b6696"
+        }
+      ],
+      "open_questions": []
+    },
+    "receipt-lookup.writes": {
+      "dimension": "writes",
+      "status": "specified",
+      "facts": [
+        "Only a lookup that finds nothing (current epoch, receipted verb, not running) writes: one op_receipts row with outcome 'fenced' (op_receipts, op_receipts_meta) under DOC_LOCK in its own save, then witnessed. Every other answer writes nothing. The fence is what makes `not_applied` true: a delayed original under that key is refused at admission ('op_key refused (fenced) …', 422) and changes nothing. Pinned."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11025,
+          "end": 11140,
+          "sha256": "8654d6cd1c082714a646cf729d704c57572ef55904a6abd0a6b79fa0798fd3d0"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 681,
+          "end": 761,
+          "sha256": "262869e086c8c7cb66d0f453065bde28e73c8fcb30440904fecd6556e4dcf887"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 768,
+          "end": 798,
+          "sha256": "b55e14afc4ebd5b7accb29022d54e1b1495ba08716463999df3cec51d2e25d90"
+        }
+      ],
+      "open_questions": []
+    },
+    "receipt-lookup.receipt": {
+      "dimension": "receipt",
+      "status": "specified",
+      "facts": [
+        "A lookup is never itself keyed (a question must not become an operation with its own key); its durable trace is the fence row. A repeated lookup of a fenced key answers from the fence (with its `at`) and writes nothing. Pinned."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11025,
+          "end": 11140,
+          "sha256": "8654d6cd1c082714a646cf729d704c57572ef55904a6abd0a6b79fa0798fd3d0"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2300,
+          "end": 2442,
+          "sha256": "1fab36aeb30f5a888381f0766dab2bf73c8567339aec64f69cd83d331a7b6696"
+        }
+      ],
+      "open_questions": []
+    },
+    "receipt-lookup.effects": {
+      "dimension": "effects",
+      "status": "specified",
+      "facts": [
+        "A lookup drives nobody, sparks nothing and does not broadcast: it returns from agent_call before the dispatch tail that ends in hub_changed, including when it fences. Pinned with spies."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11325,
+          "end": 11334,
+          "sha256": "7974229e55565e199f178feda1dd39a192ff918b999d04988a4c2280545c4b5a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11025,
+          "end": 11140,
+          "sha256": "8654d6cd1c082714a646cf729d704c57572ef55904a6abd0a6b79fa0798fd3d0"
+        }
+      ],
+      "open_questions": []
+    },
+    "receipt-lookup.reads": {
+      "dimension": "reads",
+      "status": "unresolved",
+      "facts": [
+        "Source read set: under DOC_LOCK, the whole org loaded (load_org), the caller's node and generation, the custody epoch, the receipt row under (node, key) and its fingerprint subject; the in-process in-flight set; the verb's coverage class."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11025,
+          "end": 11140,
+          "sha256": "8654d6cd1c082714a646cf729d704c57572ef55904a6abd0a6b79fa0798fd3d0"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 579,
+          "end": 599,
+          "sha256": "8ce3f0eb507f05a942fbbf04e285f26d33aa886934e186cee0ac574b8b39969b"
+        }
+      ],
+      "open_questions": [
+        "Record the statement-level read set of each lookup answer, cold and warm.",
+        "Owner: P02. Closes with: observed per-operation contacts for the lookup answers (not_applied with a fence, applied, conflict, epoch-rotated), cold and warm. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to receipt lookup."
+      ]
+    },
+    "receipt-lookup.conflicts": {
+      "dimension": "conflicts",
+      "status": "unresolved",
+      "facts": [
+        "The classify-then-fence is one DOC_LOCK transaction, so a delayed original either committed first (and is found applied) or is refused forever after; the `running` answer covers only this process's in-flight set."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11025,
+          "end": 11140,
+          "sha256": "8654d6cd1c082714a646cf729d704c57572ef55904a6abd0a6b79fa0798fd3d0"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 681,
+          "end": 761,
+          "sha256": "262869e086c8c7cb66d0f453065bde28e73c8fcb30440904fecd6556e4dcf887"
+        }
+      ],
+      "open_questions": [
+        "Choose the native serialisation between a fencing lookup and a delayed original.",
+        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 (receipts). Closes with: the native fence-versus-original serialisation (receipt row uniqueness and admission order), qualified by a lookup racing a delayed original across processes. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source decides."
+      ]
+    },
+    "receipt-lookup.wire": {
+      "dimension": "wire",
+      "status": "unresolved",
+      "facts": [
+        "Answer shapes are fixtured in docs/state-system/receipt-lookup-boundary.json and compared by tests/test_state_receipt_lookup_boundary.py: not_applied {op_key, fenced, coverage, state, status[, at]}; applied and conflict {state, op_key, receipt, status}; unknown {state, reason, op_key, coverage, …}; the client's unsupported_build {error, state, reason}."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11025,
+          "end": 11140,
+          "sha256": "8654d6cd1c082714a646cf729d704c57572ef55904a6abd0a6b79fa0798fd3d0"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11004,
+          "end": 11022,
+          "sha256": "227b03469e09d73d2bc33775e879d3f27c27abd0f2782e897a100d369dd1d92b"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2300,
+          "end": 2442,
+          "sha256": "1fab36aeb30f5a888381f0766dab2bf73c8567339aec64f69cd83d331a7b6696"
+        }
+      ],
+      "open_questions": [
+        "Carry the fixtured receipt-lookup answers to the native/Rust door.",
+        "Owner: the native/Rust conversion, from the P03 prototype onward. Closes with: the fixtured lookup answers passing against the native and Rust builds. Not coverable at P01 from available evidence: no native or Rust build exists to run the fixtures against."
+      ]
+    },
+    "receipt-lookup.instrumentation": {
+      "dimension": "instrumentation",
+      "status": "unresolved",
+      "facts": [
+        "The agent door records the verb before dispatch; no P02 per-operation record covers the lookup."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11156,
+          "end": 11210,
+          "sha256": "8e7d0a7e261a9fad1310f80033623b5922c3c78c4645669bd0779d94d662a37f"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11325,
+          "end": 11334,
+          "sha256": "7974229e55565e199f178feda1dd39a192ff918b999d04988a4c2280545c4b5a"
+        }
+      ],
+      "open_questions": [
+        "Extend the P02 per-operation probe to receipt lookup.",
+        "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed, loss-accounted contact record for the lookup with agent-level locality (the caller's own receipt namespace only). Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to receipt lookup."
+      ]
     }
   },
   "contracts": {
@@ -9929,6 +10194,70 @@
           "sha256": "20066e07ce41fb94ce0f9a65c7669021478420beda501edad53f28b125628bb6"
         }
       ]
+    },
+    "receipt.lookup": {
+      "entry_ids": [
+        "7ed4d9f68b5237fde64e698be4f15ad9b91726dafd376a7d6e16aff49b4ab8e3"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "equals": {
+          "key": "tool",
+          "value": "orgtree_op_lookup"
+        }
+      },
+      "domain_mode": "conditional_write",
+      "dimensions": {
+        "authority": [
+          "receipt-lookup.authority"
+        ],
+        "reads": [
+          "receipt-lookup.reads"
+        ],
+        "writes": [
+          "receipt-lookup.writes"
+        ],
+        "predicates": [
+          "receipt-lookup.predicates"
+        ],
+        "conflicts": [
+          "receipt-lookup.conflicts"
+        ],
+        "wire": [
+          "receipt-lookup.wire"
+        ],
+        "receipt": [
+          "receipt-lookup.receipt"
+        ],
+        "effects": [
+          "receipt-lookup.effects"
+        ],
+        "instrumentation": [
+          "receipt-lookup.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11156,
+          "end": 11210,
+          "sha256": "8e7d0a7e261a9fad1310f80033623b5922c3c78c4645669bd0779d94d662a37f"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11325,
+          "end": 11334,
+          "sha256": "7974229e55565e199f178feda1dd39a192ff918b999d04988a4c2280545c4b5a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11025,
+          "end": 11140,
+          "sha256": "8654d6cd1c082714a646cf729d704c57572ef55904a6abd0a6b79fa0798fd3d0"
+        }
+      ]
     }
   },
   "wire_cases": [
@@ -10566,6 +10895,18 @@
       "args": {},
       "contract": "work.item-get",
       "domain_mode": "read"
+    },
+    {
+      "name": "receipt.lookup",
+      "entry_id": "7ed4d9f68b5237fde64e698be4f15ad9b91726dafd376a7d6e16aff49b4ab8e3",
+      "args": {
+        "org": "fixture",
+        "node": "fixture",
+        "tool": "orgtree_op_lookup",
+        "args": {}
+      },
+      "contract": "receipt.lookup",
+      "domain_mode": "conditional_write"
     }
   ],
   "limits": [
@@ -11671,7 +12012,7 @@
       "id": "7ed4d9f68b5237fde64e698be4f15ad9b91726dafd376a7d6e16aff49b4ab8e3",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "POST /api/agent, the agent door: every agent tool and the receipt verbs arrive here. orgtree_op_lookup is contracted (receipt.lookup, S3 decision 9); the door itself stays pending by precedent (S3 decision 1).",
       "source_refs": []
     },
     {
@@ -14592,10 +14933,19 @@
     },
     {
       "id": "fb501a21476baea2472d94198f466bd8644087c231d9946c1bd21e896fdec7f6",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "receipt.lookup"
+      ],
+      "reason": "The agent-side client's reading of a refused orgtree_op_lookup as an unsupported build. Only a lookup reaches it; the tool whose answer was lost is data (for_tool), not a caller (S3 decision 9).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2300,
+          "end": 2442,
+          "sha256": "1fab36aeb30f5a888381f0766dab2bf73c8567339aec64f69cd83d331a7b6696"
+        }
+      ]
     },
     {
       "id": "26bd3caf15bce751b332d9610a313559b7f613d648f1a88ee5385f127c267efe",
@@ -14632,7 +14982,7 @@
       "id": "e82170eca24774bc6890d3f0e5c3cec9da4280cc548c4cece0065f2d22a33104",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "opreceipts.result_slice's account_binding branch, shared by orgtree_hire, orgtree_rehire, orgtree_retool and orgtree_staff: hire and staff are contracted (staffing.*), rehire and retool are not (outside the accepted surface; coordinator ruling on S3 candidate 6), so the shared branch stays pending.",
       "source_refs": []
     },
     {

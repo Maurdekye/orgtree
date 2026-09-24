@@ -119,9 +119,9 @@ runtime probes remain unresolved. Material reads add two cards and two selectors
 diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
-Current totals are 41 contracts, 29 mapped registrations and 49 mapped
-dispatch witnesses. **631 obligations remain**: 290 registrations, 178 dispatch
-witnesses, 15 storage candidates and 148 unresolved dimension occurrences.
+Current totals are 42 contracts, 29 mapped registrations and 50 mapped
+dispatch witnesses. **634 obligations remain**: 290 registrations, 177 dispatch
+witnesses, 15 storage candidates and 152 unresolved dimension occurrences.
 How it got there: 600 was two more registrations than the preceding 598 because the scanner now
 recognizes `asyncio.to_thread` hand-offs; both new witnesses are pending and no
 existing witness identity, disposition or contract changed.
@@ -214,6 +214,9 @@ branches map back (-3) now that both of its callers are contracted.
 to `work.item-list` and `work.item-get`, whose four unresolved shared `work-read`
 facets add eight occurrences (+8). The `orgtree_work` card and its four tool
 selectors stay pending with the ruling-2 reason.
+634 is three more than that 631 (S3 candidate 7b): the client's refused-lookup branch
+is mapped (-1) to `receipt.lookup`, whose four unresolved `receipt-lookup` facets add
+four occurrences (+4). The agent door entry stays pending by precedent.
 See "P03-prototype surface" below.
 
 Of the 53 open dimension occurrences on the sixteen legacy-family contracts, 37 (17 facets) cannot be closed at P01
@@ -479,6 +482,21 @@ writes (none: a read derives the archive and never sweeps it), receipt and effec
 snapshot isolation) and wire (native/Rust). The `orgtree_work` tool card (36
 actions) and its four tool selectors stay pending with the ruling-2 reason: the full
 card is the P05 work family.
+
+Candidate 7b (receipt lookup, S3 decision 9) adds `receipt.lookup`: the
+`orgtree_op_lookup` receipt verb on POST `/api/agent`, selected with
+equals(tool, orgtree_op_lookup) while the agent door itself stays pending. It maps
+the agent-side client's reading of a refused lookup as an unsupported build
+(`mcptool.call_api`): only a lookup reaches that branch, and the tool whose answer
+was lost is data (`for_tool`), not a caller. The shared-selector guard now counts a
+tool a contract selects with equals(tool, X) as covered. Specified from source and
+pinned by `tests/test_state_receipt_lookup_boundary.py` against
+`receipt-lookup-boundary.json`: authority (the agent token; refused while halted like
+every agent tool; a caller asks only about its own keys), predicates (the
+classification, coverage classes, the rotated epoch, the client's reading), writes
+(only a missed lookup writes: the fence, which refuses a delayed original), receipt
+and effects (none). Unresolved with an owner: reads and instrumentation (P02),
+conflicts (native design) and wire (native/Rust).
 
 ## Deliberate failing controls
 

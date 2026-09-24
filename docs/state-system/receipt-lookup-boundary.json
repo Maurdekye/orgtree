@@ -1,0 +1,39 @@
+{
+  "schema": "orgtree.receipt-lookup-boundary/v1",
+  "source_contract_sha256": "3640bc58685027b4223b862a616f8c4940fd0cda4346757941bc95a14f9e97bd",
+  "qualification": {
+    "runtime_census": false,
+    "conversion_authorized": false
+  },
+  "contracts": {
+    "receipt.lookup": "POST /api/agent tool=orgtree_op_lookup"
+  },
+  "results": {
+    "not_applied": [
+      "coverage",
+      "fenced",
+      "op_key",
+      "state",
+      "status"
+    ],
+    "applied": [
+      "op_key",
+      "receipt",
+      "state",
+      "status"
+    ],
+    "client_unsupported_build": [
+      "error",
+      "reason",
+      "state"
+    ]
+  },
+  "sections": {
+    "fence": [
+      "op_receipts",
+      "op_receipts_meta"
+    ]
+  },
+  "legacy_defects": [],
+  "scope": "Legacy boundary of the orgtree_op_lookup receipt verb and the agent-side client's refused-lookup branch on disposable SQLite: authority, the classification, the fence and its refusal of a delayed original, and callbacks at their boundary. Nothing native, contact-level or concurrent is qualified."
+}

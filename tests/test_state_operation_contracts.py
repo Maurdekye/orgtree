@@ -42,10 +42,10 @@ class ContractCoverage(unittest.TestCase):
         self.assertGreater(result["summary"]["storage"]["pending"], 0)
         # THE one registry-wide tripwire (review of S3 candidate 1): every candidate
         # that maps a witness or adds a contract moves these numbers here, and only here.
-        self.assertEqual(result["contracts"], 41)
+        self.assertEqual(result["contracts"], 42)
         self.assertEqual((result["summary"]["entries"]["mapped"], result["summary"]["dispatch"]["mapped"],
-                          result["summary"]["storage"]["mapped"]), (29, 49, 0))
-        self.assertEqual(len(result["pending"]), 631)
+                          result["summary"]["storage"]["mapped"]), (29, 50, 0))
+        self.assertEqual(len(result["pending"]), 634)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
@@ -91,6 +91,22 @@ class ContractCoverage(unittest.TestCase):
     # exception; S3 decision 3 returned it to pending, so there are none.
     EARLY_MAPPED: dict[str, set[str]] = {}
 
+    @staticmethod
+    def selected_tools(contract):
+        """The tools a contract covers: its tool cards, plus a tool its `when` selects with
+        equals(tool, X) on a shared door (S3 decision 9: receipt.lookup on POST /api/agent)."""
+        tools = set(contract["tools"])
+        when = contract["when"]
+        for part in when.get("all", [when]):
+            eq = part.get("equals") if isinstance(part, dict) else None
+            if eq and eq.get("key") == "tool":
+                tools.add(eq["value"])
+        return tools
+
+    def test_a_tool_selected_by_equals_counts_only_itself(self):
+        self.assertEqual(self.selected_tools(self.document["contracts"]["receipt.lookup"]), {"orgtree_op_lookup"})
+        self.assertEqual(self.selected_tools(self.document["contracts"]["operator.hire"]), set())   # key op, not tool
+
     def uncontracted_selector_values(self, document):
         selectors = {contracts.witness_id("dispatch", r): r for r in self.source["dispatch_selectors"]}
         gaps = {}
@@ -98,7 +114,7 @@ class ContractCoverage(unittest.TestCase):
             site = selectors[row["id"]]
             if row["disposition"] != "mapped" or site["kind"] != "tool" or site["operator"] not in ("In", "Eq"):
                 continue
-            tools = {t for c in row["contracts"] for t in document["contracts"][c]["tools"]}
+            tools = {t for c in row["contracts"] for t in self.selected_tools(document["contracts"][c])}
             missing = set(site["values"]) - tools
             if missing:
                 gaps[row["id"]] = missing
