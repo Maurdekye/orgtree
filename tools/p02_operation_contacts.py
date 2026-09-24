@@ -56,6 +56,7 @@ import json
 import os
 import re
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import threading
@@ -70,6 +71,19 @@ RESERVATION_TOOLS = ("orgtree_reservation", "orgtree_resource_reservation")
 WRITE_KINDS = {"insert", "update", "delete", "replace", "ddl"}
 READ_KINDS = {"select", "with"}
 TX_KINDS = {"begin", "commit", "rollback", "savepoint", "release"}
+#: census counters that mean a contact was LOST or misattributed; every row's
+#: own delta of each must be zero
+LOSS_KEYS = ("db_unbound", "db_late", "db_unattributed", "db_hidden_unattributed",
+             "db_observe_failed", "db_self_recursion", "rejected", "dropped_stale_window",
+             "dropped_capture_off", "evicted")
+#: the closed set of contact classes an operation of the four families may
+#: make on synthetic data (``contact_classes``). Anything else is an UNKNOWN
+#: contact: a row that makes one must declare it in ``expected_unknown`` (the
+#: deliberate provocations and the negative controls), and a declared class
+#: that does not occur is reported too — the probe-level drift refusal.
+KNOWN_CATEGORIES = ("code", "descriptor", "data:org-db:own", "data:sidecar-db",
+                    "data:scratch", "data:sandbox", "data:other", "home:provider", "run:other")
+KNOWN_GROUPS = ("file_read", "file_write", "dir_list", "fs_mutation", "sqlite_connect")
 LIMITS = [
     "Statements only: no rows examined, pages, physical IO or lock wait is measured.",
     "Tables come from the harness's SQL-text map onto the stores' own sqlite_master "
@@ -92,6 +106,10 @@ LIMITS = [
     "background thread does while an operation runs is credited to it.",
     "Synthetic fixtures, one per family, one process, one machine. Not a "
     "complete coverage claim for any contract.",
+    "The unknown-contact refusal is probe-level and its known classes are broad: "
+    "data:other (the rest of the synthetic data root) and run:other (the probe root "
+    "outside data and HOME) are known, so contacts within them are not told apart "
+    "by it; the code location in audit.* does. It is not a product drift policy.",
 ]
 
 
@@ -117,6 +135,8 @@ class Collector:
         self.audit: dict[str, dict[str, int]] = {}
         self.tallies: set[int] = set()
         self.unbound_statements = 0
+        #: preview only: what the simulation's mutator changed in its clone
+        self.clone: "dict[str, Any] | None" = None
 
     def statement(self, row: dict[str, Any]) -> None:
         with self.lock:
@@ -236,6 +256,71 @@ def install_sql_observer(contacts: Any) -> Callable[[], None]:
     return restore
 
 
+_SECTION_RE = re.compile(r"^([^.\[]+)(?:\.([^.\[]+))?")
+
+
+def install_clone_observer(statepreview: Any) -> Callable[[], None]:
+    """Wrap ``statepreview._apply`` (the mutator a preview runs on its
+    isolated clone) and record, for the running operation, WHICH parts of the
+    clone the mutator changed: changed-path counts per top-level document
+    section and the node ids (of the operation's own synthetic org) whose
+    entries changed. No value is kept. The clone is not a store, so the
+    census cannot see these effects; this is the only record of them."""
+    original = statepreview._apply
+
+    def observed(org: Any, *args: Any, **kwargs: Any) -> Any:
+        target = _CURRENT
+        if target is None:
+            return original(org, *args, **kwargs)
+        before = json.loads(json.dumps(org.d, default=str))
+        try:
+            return original(org, *args, **kwargs)
+        finally:
+            after = json.loads(json.dumps(org.d, default=str))
+            nodes = _NODES.get(target.slug or "") or set()
+            sections: dict[str, int] = {}
+            touched: set[str] = set()
+            paths = statepreview._diff(before, after)
+            for change in paths:
+                m = _SECTION_RE.match(str(change.get("path") or ""))
+                section = m.group(1) if m else "?"
+                sections[section] = sections.get(section, 0) + 1
+                if section == "nodes" and m and m.group(2) in nodes:
+                    touched.add(m.group(2))
+            target.clone = {"paths": len(paths), "sections": dict(sorted(sections.items())),
+                            "nodes": sorted(touched)}
+
+    statepreview._apply = observed
+    return lambda: setattr(statepreview, "_apply", original)
+
+
+def contact_classes(row: dict[str, Any]) -> list[str]:
+    """The row's contacts as closed classes: ``<audit group>:<path category>``
+    (the code location dropped), plus ``guard:<group>/<event>`` for every
+    isolation-guard refusal. The in-process test client's loopback pair is
+    harness plumbing and is left out."""
+    out: set[str] = set()
+    for group, keys in row["audit"].items():
+        if group == "harness_event_loop":
+            continue
+        for key in keys:
+            head = key.split("@", 1)[0]
+            if group == "fs_mutation":
+                head = head.split(":", 1)[1] if ":" in head else head
+            out.add(f"{group}:{head}")
+    out.update(f"guard:{k}" for k in row["guard_refusals"])
+    return sorted(out)
+
+
+def unknown_classes(classes: list[str]) -> list[str]:
+    """The classes outside the known set (``KNOWN_GROUPS`` x
+    ``KNOWN_CATEGORIES``; a foreign org store, anything outside the synthetic
+    root, a process, a socket or a guard refusal is never known)."""
+    return sorted(c for c in classes
+                  if c.split(":", 1)[0] not in KNOWN_GROUPS
+                  or c.split(":", 1)[1] not in KNOWN_CATEGORIES)
+
+
 def install_audit_counter(root: Path, data: Path, home: Path) -> None:
     """Count file, connect, process and socket events for the running
     operation. Paths are reduced to a closed category; nothing else kept."""
@@ -258,6 +343,8 @@ def install_audit_counter(root: Path, data: Path, home: Path) -> None:
                 return "data:org-db" if own is None else                     ("data:org-db:own" if stem == own.lower() else "data:org-db:foreign")
             if rest.startswith("scratch\\"):
                 return "data:scratch"
+            if rest.startswith("sandboxes\\"):
+                return "data:sandbox"
             head = rest.split("\\", 1)[0]
             if head.endswith((".sqlite3", ".db", "-wal", "-shm", "-journal")):
                 return "data:sidecar-db"
@@ -308,7 +395,8 @@ def install_audit_counter(root: Path, data: Path, home: Path) -> None:
             elif event in ("os.mkdir", "os.remove", "os.rmdir", "os.rename", "os.replace",
                            "os.chmod", "os.utime", "shutil.rmtree", "shutil.copyfile",
                            "shutil.move", "os.symlink", "os.link", "os.truncate"):
-                target.count("fs_mutation", event + ":" + category(args[0] if args else None)
+                target.count("fs_mutation", event + ":" + category(args[0] if args else None,
+                                                                   target.slug)
                              + "@" + where())
             elif event == "sqlite3.connect":
                 target.count("sqlite_connect", category(args[0] if args else None, target.slug)
@@ -377,9 +465,10 @@ def _load_guards() -> Any:
 # ---------------------------------------------------------------------------
 
 class Probe:
-    def __init__(self, work: Path, out: Path) -> None:
+    def __init__(self, work: Path, out: Path, backend: str = "sqlite") -> None:
         self.work = work
         self.out = out
+        self.backend = backend
         self.rows: list[dict[str, Any]] = []
         self.warnings: list[str] = []
 
@@ -407,6 +496,16 @@ class Probe:
         roaming, local = self.home / "AppData" / "Roaming", self.home / "AppData" / "Local"
         roaming.mkdir(parents=True)
         local.mkdir(parents=True)
+        # provider executables: synthetic, so no provider check reads this
+        # machine's PATH. Claude "installed" (an empty file that is never run),
+        # Codex and Antigravity absent; the provider rows vary these per call
+        self.bin = self.root / "bin"
+        self.bin.mkdir()
+        (self.bin / "claude.exe").write_bytes(b"")
+        os.environ.update(ORGTREE_STORE=self.backend,
+                          ORGTREE_CLAUDE=str(self.bin / "claude.exe"),
+                          ORGTREE_CODEX=str(self.bin / "codex-absent.exe"),
+                          ORGTREE_ANTIGRAVITY=str(self.bin / "agy-absent.exe"))
         # APPDATA/LOCALAPPDATA too (review N2), so no provider lookup reads the
         # real machine; the pinned roots above were taken before this
         os.environ.update(ORGTREE_DATA=str(self.data), HOME=str(self.home),
@@ -428,19 +527,26 @@ class Probe:
         from engine.launch import load_app
         self.app, *_ = load_app()
         from fastapi.testclient import TestClient
-        from orgtree import (agentauth, api, census, census_contacts, ledger, opreceipts,
-                             reservations, store, supervisor)
-        self.m = dict(agentauth=agentauth, api=api, census=census, contacts=census_contacts,
-                      ledger=ledger, opreceipts=opreceipts, reservations=reservations,
-                      store=store, supervisor=supervisor)
+        from orgtree import (agentauth, api, appsettings, census, census_contacts, ledger,
+                             opreceipts, openrouter, providers, reservations, sandbox,
+                             statepreview, store, supervisor)
+        self.m = dict(agentauth=agentauth, api=api, appsettings=appsettings, census=census,
+                      contacts=census_contacts, ledger=ledger, opreceipts=opreceipts,
+                      openrouter=openrouter, providers=providers, reservations=reservations,
+                      sandbox=sandbox, statepreview=statepreview, store=store,
+                      supervisor=supervisor)
+        if store.STORE_BACKEND != self.backend:
+            raise RuntimeError(f"store backend is {store.STORE_BACKEND!r}, not {self.backend!r}")
         import orgtree
         self.provenance = {
             "commit": self.commit, "orgtree_file": str(Path(orgtree.__file__).resolve()),
             "orgtree_under_tree": Path(orgtree.__file__).resolve().is_relative_to(ROOT),
-            "python": sys.version.split()[0], "native_blocked": self.native_blocked}
+            "python": sys.version.split()[0], "native_blocked": self.native_blocked,
+            "store_backend": store.STORE_BACKEND}
         self.client = TestClient(self.app, raise_server_exceptions=False,
                                  client=("127.0.0.1", 43000))
         self.restore_sql = install_sql_observer(census_contacts)
+        self.restore_clone = install_clone_observer(statepreview)
         # spies: delivery is counted, never executed (as in the P01 boundary tests)
         self.wakes = {"send_message": 0, "mail_notify": 0}
 
@@ -606,19 +712,33 @@ class Probe:
     def mail_snapshot(self, slug: str) -> dict[str, Any]:
         """The org's mail-related sections, read with a plain read-only
         connection OUTSIDE any operation window: the doc blobs by key and
-        mail_log row counts per owner."""
-        path = self.data / "orgs" / f"{slug}.db"
+        mail_log row counts per owner. The org's document wherever it
+        currently lives: its database, else an interrupted migration's
+        verified candidate, else a legacy (or JSON-backend) `.json` — so an
+        operation that migrates the org compares like with like."""
+        orgs = self.data / "orgs"
         snap: dict[str, Any] = {}
         try:
-            with contextlib.closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)) as c:
-                for key in MAIL_DOC_KEYS:
-                    row = c.execute("SELECT val FROM doc WHERE key=?", (key,)).fetchone()
-                    snap[key] = json.loads(row[0]) if row else None
-                for sect in MAIL_LOG_SECTS:
-                    snap[sect] = {o: n for o, n in c.execute(
-                        "SELECT owner, COUNT(*) FROM log_d WHERE sect=? GROUP BY owner", (sect,))}
-        except (sqlite3.Error, ValueError) as exc:
-            snap["error"] = type(exc).__name__
+            for path in (orgs / f"{slug}.db", orgs / f"{slug}.db.migrating"):
+                if not path.exists():
+                    continue
+                with contextlib.closing(sqlite3.connect(path.as_uri() + "?mode=ro",
+                                                        uri=True)) as c:
+                    for key in MAIL_DOC_KEYS:
+                        row = c.execute("SELECT val FROM doc WHERE key=?", (key,)).fetchone()
+                        snap[key] = json.loads(row[0]) if row else None
+                    for sect in MAIL_LOG_SECTS:
+                        snap[sect] = {o: n for o, n in c.execute(
+                            "SELECT owner, COUNT(*) FROM log_d WHERE sect=? GROUP BY owner",
+                            (sect,))}
+                return snap
+            doc = json.loads((orgs / f"{slug}.json").read_text(encoding="utf-8"))
+            for key in MAIL_DOC_KEYS:
+                snap[key] = doc.get(key)
+            for sect in MAIL_LOG_SECTS:
+                snap[sect] = {o: len(v) for o, v in (doc.get(sect) or {}).items() if v}
+        except (sqlite3.Error, OSError, ValueError, AttributeError) as exc:
+            snap = {"error": type(exc).__name__}
         return snap
 
     @staticmethod
@@ -634,7 +754,9 @@ class Probe:
                 continue
             if isinstance(b or {}, dict) and isinstance(a or {}, dict):
                 b, a = b or {}, a or {}
-                out[key] = sorted(str(n) for n in set(b) | set(a) if b.get(n) != a.get(n))
+                changed = sorted(str(n) for n in set(b) | set(a) if b.get(n) != a.get(n))
+                if changed:
+                    out[key] = changed
             else:
                 out[key] = ["*"]
         b = {json.dumps(x, sort_keys=True) for x in (before.get("audiences") or [])}
@@ -722,10 +844,23 @@ class Probe:
             tool: str, args: dict[str, Any], *, key: "str | None" = None,
             epoch: "str | None" = None, envelope: "dict[str, Any] | None" = None,
             token: "str | None" = None, refusal: "str | None" = None,
-            patches: "list[tuple[Any, str, Any]] | None" = None) -> dict[str, Any]:
+            patches: "list[tuple[Any, str, Any]] | None" = None,
+            env: "dict[str, str | None] | None" = None,
+            expected_unknown: "tuple[str, ...]" = ()) -> dict[str, Any]:
+        """One operation. `env` is applied for this call only (None removes a
+        variable); `expected_unknown` declares the contact classes outside the
+        known set that this row provokes on purpose."""
         global _CURRENT
+        if self.backend != "sqlite":
+            variant = f"{self.backend}:{variant}"
         if condition == "cold":
             self.cold((slug,))
+        saved_env = {k: os.environ.get(k) for k in (env or {})}
+        for k, v in (env or {}).items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
         body = self.agent_body(slug, actor, tool, args, key, epoch, envelope)
         headers = {"X-Orgtree-Agent-Token": token if token is not None
                    else self.tokens.get((slug, actor), "")}
@@ -756,12 +891,29 @@ class Probe:
             self.report.route = "-"
             for obj, name, value in reversed(saved):
                 setattr(obj, name, value)
+            for k, v in saved_env.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
         after = self.census_state()
         mail1 = self.mail_snapshot(slug)
         records = [r for r in self.census_since(seq0) if not r.get("diagnostic")]
         row = self.row(contract, variant, condition, tool, args, body, status, payload,
                        records, collector, before, after, wakes0, refused0, refusal, elapsed)
         row["agents"] = self.agents(actor, args, collector, self.mail_changes(mail0, mail1))
+        row["backend"] = self.backend
+        row["env"] = sorted(env or {})
+        row["clone"] = None if collector.clone is None else dict(
+            collector.clone, nodes={n: self.role(n, actor, row["agents"]["targets"])
+                                    for n in collector.clone["nodes"]})
+        classes = contact_classes(row)
+        unknown = unknown_classes(classes)
+        row["contact_classes"] = classes
+        row["unknown_observed"] = unknown
+        row["expected_unknown"] = sorted(expected_unknown)
+        row["unknown_contacts"] = sorted(set(unknown) - set(expected_unknown))
+        row["expected_unknown_missing"] = sorted(set(expected_unknown) - set(classes))
         self.rows.append(row)
         return row
 
@@ -936,6 +1088,18 @@ class Probe:
                  "owner", tool, dict(action="release", reservation=row["id"],
                                      resource="refusal:domain", item=item, successor="cousin"),
                  refusal="422 domain refusal inside the lock")
+        # the same successor made addressable by a HELD AUDIENCE (the user
+        # grants 'owner' an audience with 'cousin'): release-notify's mail then
+        # reaches a successor that is neither a sibling nor in the sender's
+        # line (P01 contacts review f1)
+        ledger = self.m["ledger"]
+        self.mutate(s, lambda o: o.audience_grant(ledger.USER, "owner", "cousin"))
+        row = acquire(tool, "audience:successor")
+        self.run("reservation.release-notify", "audience-successor:reservation.release-notify",
+                 "warm", s, "owner", tool, dict(action="release", reservation=row["id"],
+                                     resource="audience:successor", item=item,
+                                     successor="cousin"))
+        self.mutate(s, lambda o: o.d.update(audiences=[]))
         # keyed: fresh, replay (no helper), conflict, stale epoch
         epoch = self.client.post("/api/agent", json=self.agent_body(s, "owner", opreceipts.OP_EPOCH, {}),
                                  headers={"X-Orgtree-Agent-Token": self.tokens[(s, "owner")]}).json()["epoch"]
@@ -993,7 +1157,8 @@ class Probe:
             return self.clock[0]
         self.run("reservation.list-read", "control:foreign-org-contact", "warm", s, "owner", tool,
                  dict(action="list"), refusal="negative control (not a product path)",
-                 patches=[(self.m["reservations"], "_now", foreign_now)])
+                 patches=[(self.m["reservations"], "_now", foreign_now)],
+                 expected_unknown=("sqlite_connect:data:org-db:foreign",))
         # the retained-row cap
         template = acquire(tool, "cap:template")
 
@@ -1049,6 +1214,274 @@ class Probe:
             self.run(contract, "refusal:killswitch", "warm", s, "reader", tool, {},
                      refusal="409 killswitch")
             self.mutate(s, lambda o: o.d.pop("killswitch", None))
+        self.malformed()
+
+    #: P01's legacy malformed stored-state matrix (tests/test_state_diagnostic_
+    #: boundary.py CORRUPT_NODE): one field of node 'deep' holds a malformed
+    #: value; inspected by node and for the whole org
+    CORRUPT_NODE = (
+        ("generation", "x"), ("generation", [1]), ("generation", None),
+        ("grant", "x"), ("grant", None), ("grant", -5),
+        ("model", None), ("model", 5),
+        ("scope", "bad"), ("scope.tools", "bad"), ("scope.org_visibility", 5),
+        ("state", "weird"), ("parent", "ghost"),
+        ("frozen", "bad"), ("frozen", [1]), ("pending_switch", "bad"),
+        ("last_status", "bad"), ("title", 5),
+    )
+
+    def malformed(self) -> None:
+        """diagnostic.reads: the contacts of an inspection over MALFORMED
+        stored state. Each corruption is written, inspected (the one node,
+        then the whole org), and the node restored."""
+        s = self.dslug
+        for path, value in self.CORRUPT_NODE:
+            saved: dict[str, Any] = {}
+
+            def corrupt(org: Any, path: str = path, value: Any = value) -> None:
+                node = org.node("deep")
+                saved["node"] = copy.deepcopy(dict(node))
+                *parents, leaf = path.split(".")
+                target = node
+                for part in parents:
+                    target = target[part]
+                target[leaf] = value
+
+            def restore(org: Any) -> None:
+                node = org.node("deep")
+                node.clear()
+                node.update(saved["node"])
+            # the JSON backend parses (and normalizes) the WHOLE document on
+            # load, so some corruptions make the org unloadable even for the
+            # restore; there the document's bytes are put back directly
+            doc_file = self.data / "orgs" / f"{s}.json"
+            raw = doc_file.read_bytes() if self.backend == "json" else None
+            self.mutate(s, corrupt)
+            label = f"malformed:{path}={json.dumps(value)}"
+            try:
+                self.run("diagnostic.inspect", label + ":node", "warm", s, "reader",
+                         "orgtree_state_inspect", {"node": "deep"},
+                         refusal="malformed stored state (legacy outcome recorded)")
+                self.run("diagnostic.inspect", label + ":org", "warm", s, "reader",
+                         "orgtree_state_inspect", {},
+                         refusal="malformed stored state (legacy outcome recorded)")
+            finally:
+                if raw is not None:
+                    doc_file.write_bytes(raw)
+                    self.m["store"]._invalidate_snapshot(s)
+                else:
+                    self.mutate(s, restore)
+
+    # -- sandboxed organization (material.reads / material.effects) -------------
+    def build_sandbox(self) -> None:
+        """A synthetic SANDBOXED organization (``d.sandbox.enabled``): its
+        transcript store is the sandbox home under the data root, its scratch
+        the ordinary scratch root until ``d.disk`` moves it onto the org's
+        virtual disk. Nothing here starts a container: every docker/wsl
+        process the product attempts is refused by the guards."""
+        store, ledger = self.m["store"], self.m["ledger"]
+        org = store.create_org("p02-contacts-sandbox")
+        self.sslug = str(org.d["slug"])
+        org.hire(ledger.USER, None, "haiku", 20, "boss")
+        for name in ("first", "reader", "second"):
+            org.hire(ledger.USER, "boss", "haiku", 2, name)
+        item = org.work_create(ledger.USER, "Sandbox material", "Preserve handover",
+                               owner="first")["slug"]
+        org.work_assign(ledger.USER, item, "reader")
+        org.d["mail"] = {}
+        org.d["sandbox"] = {"enabled": True, "secret": "p02-fixture"}
+        store.save_org(org)
+        for n in ("boss", "reader"):
+            self.tokens[(self.sslug, n)] = self.m["agentauth"].child_env(
+                self.sslug, n)["ORGTREE_AGENT_TOKEN"]
+        # scratch made directly (scratch_dir would try the chown at build time)
+        first = Path(store.scratch_root(self.sslug)) / "first"
+        first.mkdir(parents=True, exist_ok=True)
+        (first / "notes.txt").write_text("synthetic sandboxed material", encoding="utf-8")
+        sid = str(store.load_org(self.sslug).node("first").get("session_id") or "")
+        home = Path(self.m["sandbox"].sandbox_root(self.sslug)) / "home"
+        tdir = home / ".claude" / "projects" / "p02-fixture"
+        tdir.mkdir(parents=True, exist_ok=True)
+        if sid:
+            with open(tdir / (sid + ".jsonl"), "w", encoding="utf-8") as f:
+                for i in range(1, 5):
+                    role = "user" if i % 2 else "assistant"
+                    f.write(json.dumps({"type": role, "uuid": f"sb-{i}",
+                                        "timestamp": f"2026-09-24T09:00:{i:02d}Z",
+                                        "message": {"id": f"sb-m-{i}", "role": role,
+                                                    "content": f"sandboxed message {i}"}}) + "\n")
+        else:
+            self.warnings.append("sandbox fixture node has no session_id")
+
+    def sandboxed(self) -> None:
+        s, sandbox = self.sslug, self.m["sandbox"]
+        read = {"orgtree_read_scratch": "material.scratch",
+                "orgtree_read_transcript": "material.transcript"}
+        # host-placed sandbox: transcript from the sandbox home, scratch as usual
+        for tool, contract in read.items():
+            for condition in ("cold", "warm"):
+                self.run(contract, "sandbox:host-placed", condition, s, "reader", tool,
+                         {"node": "first", "path": "notes.txt"})
+        # material.effects: a read that mints a node's scratch directory hands it
+        # to the container user (sandbox.chown_agent -> docker exec); the guard
+        # refuses the process and the product swallows the failure by design
+        self.run("material.scratch", "sandbox:chown-new-dir", "warm", s, "boss",
+                 "orgtree_read_scratch", {"node": "second", "path": ""},
+                 refusal="sandbox chown_agent refused (best-effort by design)",
+                 expected_unknown=("guard:process/subprocess.Popen",))
+        # disk-backed placement: scratch and transcript resolve through the
+        # org's virtual disk (disk.windows_path -> `wsl -l -q`), refused here
+        self.mutate(s, lambda o: o.d.update(disk=True))
+        sandbox._disk_flag.pop(s, None)
+        try:
+            for tool, contract in read.items():
+                self.run(contract, "sandbox:on-disk", "warm", s, "reader", tool,
+                         {"node": "first", "path": "notes.txt"},
+                         refusal="disk-backed sandbox path resolution (wsl refused)",
+                         expected_unknown=("guard:process/subprocess.Popen",))
+        finally:
+            self.mutate(s, lambda o: o.d.pop("disk", None))
+            sandbox._disk_flag.pop(s, None)
+
+    # -- legacy JSON migration (diagnostic.writes/effects, preview.writes) -------
+    def legacy_org(self, slug: str, actors: tuple[str, ...], state: str) -> str:
+        """A synthetic org left in a legacy on-disk state for the SQLite
+        backend. Built as an ordinary org (so its agent tokens exist), then:
+        `json`: only `<slug>.json` (a restored pre-migration document);
+        `bad-json`: only `<slug>.json`, holding invalid JSON;
+        `interrupted`: a verified `<slug>.db.migrating` beside its
+        `<slug>.json.premigration`, no `.json` and no `.db` (a crash between
+        migrate_org's two renames)."""
+        store, ledger = self.m["store"], self.m["ledger"]
+        org = store.create_org(slug)
+        slug = str(org.d["slug"])
+        org.hire(ledger.USER, None, "haiku", 30, "boss")
+        org.hire(ledger.USER, "boss", "haiku", 8, "reader")
+        org.hire(ledger.USER, "reader", "haiku", 0, "deep")
+        org.hire(ledger.USER, "boss", "haiku", 2, "b")
+        org.node("reader")["scope"]["org_visibility"] = "full"
+        org.d["mail"] = {}
+        store.save_org(org)
+        for n in actors:
+            self.tokens[(slug, n)] = self.m["agentauth"].child_env(slug, n)["ORGTREE_AGENT_TOKEN"]
+        _NODES[slug] = {str(n) for n in store.load_org(slug).nodes}
+        orgs = self.data / "orgs"
+        db = orgs / f"{slug}.db"
+        store.export_json(slug, dest=str(orgs / f"{slug}.json.export"))
+        store._invalidate_snapshot(slug)
+        store._POOL.close_all(slug)
+        with contextlib.closing(sqlite3.connect(str(db))) as c:
+            c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        if state == "interrupted":
+            for suffix in ("-wal", "-shm"):
+                (orgs / f"{slug}.db{suffix}").unlink(missing_ok=True)
+            os.replace(db, orgs / f"{slug}.db.migrating")
+            os.replace(orgs / f"{slug}.json.export", orgs / f"{slug}.json.premigration")
+            return slug
+        store._remove_db_files(str(db))
+        os.replace(orgs / f"{slug}.json.export", orgs / f"{slug}.json")
+        if state == "bad-json":
+            (orgs / f"{slug}.json").write_text("{ not json", encoding="utf-8")
+        return slug
+
+    def migration(self) -> None:
+        """Operations that meet a legacy on-disk state and migrate it (or are
+        refused) inside the operation: the migration's writes and file
+        effects are the operation's contacts. ORGTREE_MIGRATE is set for the
+        one call that is meant to migrate; this process never claimed the
+        data root, so without it the product refuses."""
+        inspect = ("diagnostic.inspect", "orgtree_state_inspect", {})
+        preview = ("preview.agent", "orgtree_preview",
+                   {"operation": "reallocate", "args": {"node": "deep", "delta": 1}})
+        for (contract, tool, args), family in ((inspect, "diagnostic"), (preview, "preview")):
+            slug = self.legacy_org(f"p02-contacts-legacy-{family}", ("reader",), "json")
+            self.run(contract, "migration:refused", "cold", slug, "reader", tool, args,
+                     refusal="legacy .json without ORGTREE_MIGRATE: MigrationRefused",
+                     env={"ORGTREE_MIGRATE": None})
+            self.run(contract, "migration:legacy-json", "cold", slug, "reader", tool, args,
+                     env={"ORGTREE_MIGRATE": "1"})
+            self.run(contract, "migration:legacy-json", "warm", slug, "reader", tool, args)
+        slug = self.legacy_org("p02-contacts-legacy-bad", ("reader",), "bad-json")
+        self.run("diagnostic.inspect", "migration:malformed-json", "cold", slug, "reader",
+                 "orgtree_state_inspect", {}, env={"ORGTREE_MIGRATE": "1"},
+                 refusal="legacy .json that is not JSON: MigrationError")
+        slug = self.legacy_org("p02-contacts-legacy-interrupted", ("reader",), "interrupted")
+        self.run("diagnostic.inspect", "migration:interrupted", "cold", slug, "reader",
+                 "orgtree_state_inspect", {}, env={"ORGTREE_MIGRATE": None})
+
+    # -- unstubbed provider preflights (preview.effects) -------------------------
+    def reset_provider_caches(self) -> None:
+        sup, prov, orr = self.m["supervisor"], self.m["providers"], self.m["openrouter"]
+        sup._claude_install_cache = None
+        prov._status_cache = None
+        prov._antigravity_status_cache = None
+        orr.forget_key_status()
+
+    def provider(self) -> None:
+        """switch_model previews through the UNSTUBBED provider preflight, one
+        per failure mode the gate names. Every provider condition is synthetic
+        (executables, sign-in files and keys under the redirected HOME and
+        data root); what the gate attempts beyond them is refused by the
+        guards and recorded."""
+        s, appsettings, openrouter = self.pslug, self.m["appsettings"], self.m["openrouter"]
+        accounts_config = Path(os.path.expanduser("~/.claude.json"))
+        codex_dir = self.bin.joinpath(*"abcdef")        # 6 levels: the package.json
+        codex_dir.mkdir(parents=True, exist_ok=True)     # walk stays in the root
+        codex = codex_dir / "codex.exe"
+        codex.write_bytes(b"")
+        codex_home = Path(os.path.expanduser("~/.codex"))
+
+        def switch(variant: str, tier: str, refusal: str, *, account: "str | None" = None,
+                   env: "dict[str, str | None] | None" = None,
+                   expected_unknown: "tuple[str, ...]" = ()) -> None:
+            self.reset_provider_caches()
+            args: dict[str, Any] = {"node": "b", "tier": tier}
+            if account:
+                args["account"] = account
+            self.run("preview.agent", f"provider:{variant}", "cold", s, "actor",
+                     "orgtree_preview", {"operation": "switch_model", "args": args},
+                     refusal=refusal, env=env, expected_unknown=expected_unknown)
+
+        appsettings.set_provider_enabled("claude", False)
+        try:
+            switch("disabled", "sonnet", "provider turned off in app settings")
+        finally:
+            appsettings.set_provider_enabled("claude", True)
+        switch("claude-not-installed", "sonnet", "Claude CLI not installed",
+               env={"ORGTREE_CLAUDE": str(self.bin / "claude-absent.exe")})
+        switch("claude-not-signed-in", "sonnet", "Claude not signed in")
+        accounts_config.write_text(json.dumps({"oauthAccount": {
+            "accountUuid": "00000000-0000-4000-8000-000000000002",
+            "emailAddress": "fixture@example.invalid"}}), encoding="utf-8")
+        try:
+            switch("registry-unknown-account", "sonnet", "account not in the registry",
+                   account="p02-absent-account")
+        finally:
+            accounts_config.unlink()
+        switch("codex-not-installed", "luna", "Codex CLI not installed")
+        switch("codex-not-signed-in", "luna", "Codex not signed in (version probe refused)",
+               env={"ORGTREE_CODEX": str(codex)},
+               expected_unknown=("guard:process/subprocess.Popen",))
+        codex_home.mkdir(parents=True, exist_ok=True)
+        (codex_home / "auth.json").write_text(json.dumps({"OPENAI_API_KEY": "p02-fixture"}),
+                                              encoding="utf-8")
+        try:
+            switch("legacy-tier", "gpt-reserve", "legacy tier refused by the tier registry",
+                   env={"ORGTREE_CODEX": str(codex)},
+                   expected_unknown=("guard:process/subprocess.Popen",))
+        finally:
+            (codex_home / "auth.json").unlink()
+        ag_tier = sorted(self.m["providers"].ANTIGRAVITY_TIERS)[0]
+        switch("antigravity-not-installed", ag_tier, "Antigravity CLI not installed")
+        or_tier = openrouter.tier_id("anthropic/claude-sonnet-5")
+        switch("openrouter-no-key", or_tier, "no OpenRouter key")
+        openrouter.set_key("p02-fixture-key")
+        try:
+            switch("openrouter-network-refused", or_tier,
+                   "OpenRouter key check: network refused by the guards",
+                   expected_unknown=("guard:egress/urllib.Request",))
+        finally:
+            openrouter.set_key("")
+            self.reset_provider_caches()
 
     PREVIEW = {
         "reallocate": {"node": "b", "delta": 1}, "move": {"node": "leaf", "new_parent": "b"},
@@ -1148,23 +1581,37 @@ class Probe:
 
     # -- orchestration -----------------------------------------------------------
     def execute(self) -> dict[str, Any]:
+        """The whole workload on the SQLite backend; on the JSON backend
+        (``--store json``, run as a child process by ``main``) the structural
+        diagnostic family only, which is what the JSON clause names."""
         self.prepare()
+        json_backend = self.backend == "json"
         self.build()
-        for slug in (self.rslug, self.mslug, self.dslug, self.pslug):
+        if not json_backend:
+            self.build_sandbox()
+        for slug in ((self.dslug,) if json_backend else
+                     (self.rslug, self.mslug, self.dslug, self.pslug, self.sslug)):
             _NODES[slug] = {str(n) for n in self.m["store"].load_org(slug).nodes}
         self.operator("post", "/api/diagnostics/operation-census/reset")
         self.operator("post", "/api/diagnostics/operation-census", json={"enabled": True})
         w0 = self.census_state()
-        self.reservation()
-        self.material()
-        self.diagnostic()
-        self.preview()
+        if json_backend:
+            self.diagnostic()
+        else:
+            self.reservation()
+            self.material()
+            self.sandboxed()
+            self.diagnostic()
+            self.migration()
+            self.preview()
+            self.provider()
         w1 = self.census_state()
         self.load_table_catalogue()
         self.map_tables()
-        residuals = self.residuals()
+        residuals = None if json_backend else self.residuals()
         self.operator("post", "/api/diagnostics/operation-census", json={"enabled": False})
         self.restore_sql()
+        self.restore_clone()
         loss = {k: w1["counters"].get(k, 0) - w0["counters"].get(k, 0)
                 for k in ("observed", "recorded", "rejected", "dropped_stale_window",
                           "dropped_capture_off", "evicted", "db_unbound", "db_late",
@@ -1172,7 +1619,7 @@ class Probe:
                           "db_self_recursion", "skipped_self", "unclassified_action")}
         return {
             "schema": SCHEMA, "tool_version": TOOL_VERSION, "provenance": self.provenance,
-            "limits": LIMITS, "warnings": self.warnings,
+            "backend": self.backend, "limits": LIMITS, "warnings": self.warnings,
             "table_catalogue": sorted(_TABLES),
             "window": {"instance": w1.get("instance"),
                        "same_window": w0.get("window_generation") == w1.get("window_generation"),
@@ -1217,6 +1664,10 @@ def main(argv: "list[str] | None" = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     p.add_argument("--out", required=True)
     p.add_argument("--work", help="parent folder for the temporary synthetic root")
+    p.add_argument("--store", choices=("sqlite", "json"), default="sqlite",
+                   help="the primary store backend (json: the diagnostic family only)")
+    p.add_argument("--no-json-child", action="store_true",
+                   help="do not run the JSON-backend child (sqlite run only)")
     args = p.parse_args(argv)
     out = Path(args.out).resolve()
     work = Path(args.work).resolve() if args.work else out
@@ -1226,8 +1677,26 @@ def main(argv: "list[str] | None" = None) -> int:
         ig.refuse_overlap(label, str(path), protected)   # before any mkdir (review N1)
     out.mkdir(parents=True, exist_ok=True)
     work.mkdir(parents=True, exist_ok=True)
-    probe = Probe(work, out)
+    child_doc = None
+    if args.store == "sqlite" and not args.no_json_child:
+        # The store backend is fixed at import, so the JSON backend needs its
+        # own process. It is started HERE, before this process installs any
+        # guard (the guards refuse every process start); the child is itself
+        # fully guarded and writes under this run's output folder.
+        child_out = out / "json-backend"
+        proc = subprocess.run(
+            [sys.executable, "-I", "-B", str(Path(__file__).resolve()), "--store", "json",
+             "--out", str(child_out), "--work", str(work)],
+            capture_output=True, text=True, timeout=1200)
+        if proc.returncode != 0:
+            raise SystemExit(f"JSON-backend child exited {proc.returncode}: {proc.stderr[-3000:]}")
+        child_doc = json.loads((child_out / "operation-contacts.json").read_text(encoding="utf-8"))
+    probe = Probe(work, out, backend=args.store)
     doc = probe.execute()
+    if child_doc is not None:
+        doc["rows"].extend(child_doc["rows"])
+        doc["json_backend"] = {k: child_doc[k] for k in ("provenance", "warnings", "window",
+                                                         "between_operations")}
     (out / "operation-contacts.json").write_text(json.dumps(doc, indent=1, sort_keys=True),
                                                  encoding="utf-8")
     (out / "operation-contacts.md").write_text(markdown(doc), encoding="utf-8")

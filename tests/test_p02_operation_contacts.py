@@ -168,7 +168,10 @@ class OperationContacts(unittest.TestCase):
         for r in self.doc["rows"]:
             if r["census"]["records"]:
                 with self.subTest(variant=r["variant"], condition=r["condition"]):
-                    self.assertIn("handler_ms", r["census"]["profile"])
+                    # an exception that escapes the handler (a recorded 500)
+                    # leaves the request's total time but no handler time
+                    self.assertIn("handler_ms" if r["http_status"] != 500 else "total_ms",
+                                  r["census"]["profile"])
         acquire = self.rows(variant="orgtree_reservation:reservation.acquire", condition="cold")[0]
         self.assertIn("lock_wait_ms", acquire["census"]["profile"])
 
@@ -247,7 +250,10 @@ class OperationContacts(unittest.TestCase):
                 continue
             with self.subTest(variant=r["variant"], condition=r["condition"]):
                 self.assertEqual(r["agents"]["third_agent_mail"], 0)
-                self.assertEqual(r["agents"]["third_agent_rows_written"], 0)
+                # a migration transcodes the WHOLE document, every node row
+                # (test_migration_paths_write_and_fail_inside_the_operation)
+                if not (r["variant"] == "migration:legacy-json" and r["condition"] == "cold"):
+                    self.assertEqual(r["agents"]["third_agent_rows_written"], 0)
             if r["agents"]["mail_producing"]:
                 producing.add(r["contract"])
         self.assertEqual(producing, {"reservation.release-notify"})
@@ -280,9 +286,14 @@ class OperationContacts(unittest.TestCase):
                                    condition="warm")[0]["wakes"]["send_message"], 0)
 
     def test_no_guard_refusal_and_no_product_process_or_network(self):
+        """Only the rows that provoke a process or egress ON PURPOSE (and
+        declare it) meet a guard, and each of them meets exactly the declared
+        one; no row's process or socket ever gets past the guards."""
         for r in self.doc["rows"]:
             with self.subTest(variant=r["variant"], condition=r["condition"]):
-                self.assertEqual(r["guard_refusals"], {})
+                declared = {c.removeprefix("guard:") for c in r["expected_unknown"]
+                            if c.startswith("guard:")}
+                self.assertEqual(set(r["guard_refusals"]), declared)
                 self.assertNotIn("process", r["audit"])
                 self.assertNotIn("network", r["audit"])
 
@@ -310,6 +321,230 @@ class OperationContacts(unittest.TestCase):
 
     def test_markdown_lists_every_row(self):
         self.assertEqual(self.md.count("\n| "), len(self.doc["rows"]) + 1)
+
+    # -- the P01 read/effect clauses (p02-extend-the-contact-probe-to-the-p01-read-eff)
+    LOSS = ("db_unbound", "db_late", "db_unattributed", "db_hidden_unattributed",
+            "db_observe_failed", "db_self_recursion", "rejected", "dropped_stale_window",
+            "dropped_capture_off", "evicted")
+    #: rows that make an unknown-class contact ON PURPOSE, and exactly which
+    DECLARED = {
+        "control:foreign-org-contact": ["sqlite_connect:data:org-db:foreign"],
+        "sandbox:chown-new-dir": ["guard:process/subprocess.Popen"],
+        "sandbox:on-disk": ["guard:process/subprocess.Popen"],
+        "provider:codex-not-signed-in": ["guard:process/subprocess.Popen"],
+        "provider:legacy-tier": ["guard:process/subprocess.Popen"],
+        "provider:openrouter-network-refused": ["guard:egress/urllib.Request"],
+    }
+
+    def test_every_row_loses_nothing(self):
+        for r in self.doc["rows"]:
+            with self.subTest(variant=r["variant"], condition=r["condition"]):
+                deltas = r["census"]["counter_deltas"]
+                self.assertEqual({k: deltas[k] for k in self.LOSS if deltas.get(k)}, {})
+                self.assertEqual(r["harness"]["statements_unbound"], 0)
+        # the JSON child's window too (db_unattributed there, as in the SQLite
+        # window, counts statements BETWEEN operations: fixture writes)
+        window = self.doc["json_backend"]["window"]["counters"]
+        for key in self.LOSS:
+            if key != "db_unattributed":
+                self.assertEqual(window.get(key, 0), 0, key)
+
+    def test_unknown_contacts_are_refused_unless_declared(self):
+        """The probe-level drift refusal: a contact outside the closed set of
+        known classes is refused unless the row declares it, and a declared
+        one that does not occur is refused too."""
+        seen = set()
+        for r in self.doc["rows"]:
+            with self.subTest(variant=r["variant"], condition=r["condition"]):
+                self.assertEqual(r["unknown_contacts"], [])
+                self.assertEqual(r["expected_unknown_missing"], [])
+                want = self.DECLARED.get(r["variant"], [])
+                self.assertEqual(r["unknown_observed"], want)
+                self.assertEqual(r["expected_unknown"], want)
+                if want:
+                    seen.add(r["variant"])
+        self.assertEqual(seen, set(self.DECLARED))
+
+    def test_sandboxed_org_reads_come_from_the_sandbox_placement(self):
+        """material.reads: a SANDBOXED org's transcript is read from the
+        sandbox home; with disk-backed placement the path resolution itself
+        starts wsl (refused here) before any read."""
+        for condition in ("cold", "warm"):
+            with self.subTest(condition=condition):
+                t = self.rows(contract="material.transcript", variant="sandbox:host-placed",
+                              condition=condition)[0]
+                self.assertEqual(t["http_status"], 200, t["detail"])
+                self.assertIn("file_read:data:sandbox", t["contact_classes"])
+                self.assertNotIn("file_read:home:provider", t["contact_classes"])
+                sc = self.rows(contract="material.scratch", variant="sandbox:host-placed",
+                               condition=condition)[0]
+                self.assertEqual(sc["http_status"], 200, sc["detail"])
+                self.assertIn("file_read:data:scratch", sc["contact_classes"])
+        for contract in ("material.scratch", "material.transcript"):
+            with self.subTest(on_disk=contract):
+                r = self.rows(contract=contract, variant="sandbox:on-disk")[0]
+                self.assertEqual(r["http_status"], 500)
+                self.assertIn("GuardRefused", r["detail"])
+                self.assertEqual(r["guard_refusals"], {"process/subprocess.Popen": 1})
+                self.assertFalse([c for c in r["contact_classes"]
+                                  if c.endswith(("data:sandbox", "data:scratch"))])
+
+    def test_sandbox_chown_effect_is_attempted_and_its_failure_swallowed(self):
+        """material.effects: minting a node's scratch dir in a sandboxed org
+        hands it to the container user (docker exec); refused, the product
+        swallows the failure and the read still answers."""
+        r = self.rows(variant="sandbox:chown-new-dir")[0]
+        self.assertEqual(r["http_status"], 200, r["detail"])
+        self.assertEqual(r["guard_refusals"], {"process/subprocess.Popen": 1})
+        self.assertIn("fs_mutation:data:scratch", r["contact_classes"])
+
+    def test_json_backend_diagnostic_contacts(self):
+        """diagnostic.reads on the JSON store backend: a child process of the
+        probe, same checkout, reading the org's .json document."""
+        prov = self.doc["json_backend"]["provenance"]
+        self.assertEqual(prov["store_backend"], "json")
+        self.assertEqual(prov["commit"], self.doc["provenance"]["commit"])
+        self.assertTrue(prov["orgtree_under_tree"])
+        for contract in ("diagnostic.inspect", "diagnostic.capabilities"):
+            for condition in ("cold", "warm"):
+                with self.subTest(contract=contract, condition=condition):
+                    r = self.rows(variant=f"json:{contract}", condition=condition)[0]
+                    self.assertEqual(r["backend"], "json")
+                    self.assertEqual(r["http_status"], 200, r["detail"])
+                    self.assertEqual(r["census"]["records"], 1)
+                    self.assertEqual(r["census"]["statements"], 0)
+                    self.assertNotIn("primary", r["harness"]["stores"])
+            killed = self.rows(variant="json:refusal:killswitch", contract=contract)
+            self.assertEqual([r["http_status"] for r in killed], [409])
+        cold = self.rows(variant="json:diagnostic.inspect", condition="cold")[0]
+        self.assertIn("file_read:data:org-db:own", cold["contact_classes"])
+        self.assertEqual({r["backend"] for r in self.doc["rows"]
+                          if not r["variant"].startswith("json:")}, {"sqlite"})
+
+    #: P01's legacy outcomes (tests/test_state_diagnostic_boundary.py
+    #: CORRUPT_NODE): status for node=deep, status for the whole org
+    MALFORMED = {
+        'generation="x"': (500, 500), "generation=[1]": (500, 500),
+        "generation=null": (200, 200), 'grant="x"': (500, 500), "grant=null": (500, 500),
+        "grant=-5": (200, 200), "model=null": (500, 500), "model=5": (500, 500),
+        'scope="bad"': (500, 500), 'scope.tools="bad"': (500, 500),
+        "scope.org_visibility=5": (200, 200), 'state="weird"': (422, 200),
+        'parent="ghost"': (422, 200), 'frozen="bad"': (200, 200), "frozen=[1]": (200, 200),
+        'pending_switch="bad"': (200, 200), 'last_status="bad"': (200, 200),
+        "title=5": (200, 200),
+    }
+
+    def test_malformed_stored_state_contacts_on_both_backends(self):
+        for prefix in ("", "json:"):
+            for key, (one, whole) in self.MALFORMED.items():
+                with self.subTest(backend=prefix or "sqlite", corrupt=key):
+                    node = self.rows(variant=f"{prefix}malformed:{key}:node")
+                    org = self.rows(variant=f"{prefix}malformed:{key}:org")
+                    self.assertEqual([r["http_status"] for r in node], [one])
+                    self.assertEqual([r["http_status"] for r in org], [whole])
+                    for r in node + org:
+                        self.assertEqual(r["census"]["records"], 1)
+                        self.assertEqual(r["harness"]["writes"], 0)
+
+    def test_migration_paths_write_and_fail_inside_the_operation(self):
+        """diagnostic.writes/effects and preview.writes: a legacy .json met by
+        an operation is refused without ORGTREE_MIGRATE, migrated with it
+        (the migration's writes and renames are the operation's contacts),
+        refused as MigrationError when it is not JSON, and an interrupted
+        migration is finished by a rename."""
+        for contract in ("diagnostic.inspect", "preview.agent"):
+            with self.subTest(contract=contract):
+                refused = self.rows(contract=contract, variant="migration:refused")[0]
+                self.assertEqual(refused["http_status"], 500)
+                self.assertTrue(refused["detail"].startswith("MigrationRefused"))
+                self.assertEqual(refused["harness"]["writes"], 0)
+                cold = self.rows(contract=contract, variant="migration:legacy-json",
+                                 condition="cold")[0]
+                self.assertEqual(cold["http_status"], 200, cold["detail"])
+                self.assertGreater(cold["harness"]["writes"], 0)
+                # the one write outside a transaction is the candidate's schema
+                # DDL, run before migrate_org's BEGIN IMMEDIATE
+                h = cold["harness"]
+                self.assertEqual(h["writes"] - h["writes_in_transaction"],
+                                 h["stores"]["primary"]["kinds"].get("ddl"))
+                renames = cold["audit"]["fs_mutation"]
+                self.assertIn("os.rename:data:org-db:own@orgtree.store:migrate_org", renames)
+                self.assertIn("file_read:data:org-db:own", cold["contact_classes"])
+                # the transcode writes every agent's node row, and no mail
+                self.assertEqual(set(cold["agents"]["physical_nodes"]),
+                                 {"boss", "reader", "deep", "b"})
+                self.assertFalse(cold["agents"]["mail_producing"])
+                warm = self.rows(contract=contract, variant="migration:legacy-json",
+                                 condition="warm")[0]
+                self.assertEqual(warm["harness"]["writes"], 0)
+                self.assertNotIn("fs_mutation:data:org-db:own", warm["contact_classes"])
+        bad = self.rows(variant="migration:malformed-json")[0]
+        self.assertEqual(bad["http_status"], 500)
+        self.assertTrue(bad["detail"].startswith("MigrationError"))
+        self.assertEqual(bad["harness"]["writes"], 0)
+        interrupted = self.rows(variant="migration:interrupted")[0]
+        self.assertEqual(interrupted["http_status"], 200, interrupted["detail"])
+        self.assertEqual(interrupted["harness"]["writes"], 0)
+        self.assertIn("os.rename:data:org-db:own@orgtree.store:_finish_interrupted_migration",
+                      interrupted["audit"]["fs_mutation"])
+
+    def test_preview_clone_effects_are_recorded_and_the_store_is_not_written(self):
+        """preview.writes: the mutator's effects inside the simulation clone,
+        per variant; the store itself is never written by a preview."""
+        for op in PREVIEW:
+            with self.subTest(op=op):
+                warm = self.rows(variant=f"preview.{op}", condition="warm")[0]
+                self.assertEqual(warm["http_status"], 200, warm["detail"])
+                self.assertIsNotNone(warm["clone"])
+                self.assertGreater(warm["clone"]["paths"], 0)
+                self.assertIn("events", warm["clone"]["sections"])
+                self.assertEqual(warm["harness"]["writes"], 0)
+        realloc = self.rows(variant="preview.reallocate", condition="warm")[0]
+        self.assertEqual(realloc["clone"]["nodes"], {"b": "target"})
+        for r in self.doc["rows"]:
+            if r["contract"] != "preview.agent":
+                self.assertIsNone(r["clone"], r["variant"])
+
+    #: the unstubbed provider preflight, one failure mode each
+    PROVIDER = {
+        "disabled": "is turned off in App settings",
+        "claude-not-installed": "the Claude Code CLI is not installed",
+        "claude-not-signed-in": "Claude is not signed in",
+        "registry-unknown-account": "no account 'p02-absent-account' is registered",
+        "codex-not-installed": "the Codex CLI is not installed",
+        "codex-not-signed-in": "Codex is not signed in",
+        "legacy-tier": "is no longer hireable",
+        "antigravity-not-installed": "the Antigravity CLI is not installed",
+        "openrouter-no-key": "no OpenRouter API key is set",
+        "openrouter-network-refused": "openrouter.ai did not accept the stored key",
+    }
+
+    def test_provider_failure_modes_without_stubbed_preflights(self):
+        """preview.effects: each provider failure mode the gate names, with
+        the preflight UNSTUBBED; the outcome and every attempted process or
+        egress are recorded."""
+        for mode, text in self.PROVIDER.items():
+            with self.subTest(mode=mode):
+                rows = self.rows(variant=f"provider:{mode}")
+                self.assertEqual(len(rows), 1)
+                self.assertEqual(rows[0]["http_status"], 422)
+                self.assertIn(text, rows[0]["detail"])
+                self.assertEqual(rows[0]["harness"]["writes"], 0)
+
+    def test_release_notify_to_an_audience_reached_successor(self):
+        """P01 contacts review f1: a successor who is not a sibling and not
+        in the sender's line, reached through a held audience; its mail
+        reaches only that successor."""
+        r = self.rows(variant="audience-successor:reservation.release-notify")[0]
+        self.assertEqual(r["http_status"], 200, r["detail"])
+        agents = r["agents"]
+        self.assertEqual(agents["targets"], ["cousin"])
+        self.assertEqual(agents["logical"]["mail"], {"cousin": "target"})
+        self.assertEqual(agents["physical_nodes"], {"cousin": "target"})
+        self.assertEqual(agents["third_agent_mail"], 0)
+        self.assertEqual(r["wakes"]["send_message"], 1)
+        refused = self.rows(variant="refusal:unaddressable-successor")[0]
+        self.assertEqual(refused["http_status"], 422)
 
 
 if __name__ == "__main__":

@@ -72,6 +72,67 @@ for its organization. A warm row runs immediately after the cold one.
   - `control:foreign-org-contact`: the operation loads another organization's
     store. It must be classified `org-db:foreign`, and no other row may touch
     a foreign org.
+- **Sandboxed organization** (`sandbox:*`, material family): a synthetic org
+  with `d.sandbox.enabled`.
+  - `sandbox:host-placed` (scratch and transcript, cold/warm): the transcript
+    is read from the sandbox home under the data root (`data:sandbox`).
+  - `sandbox:chown-new-dir`: a read that creates a node's scratch directory
+    hands it to the container user (`sandbox.chown_agent`, `docker exec`).
+    The guard refuses the process; the product swallows the failure by
+    design and the read answers 200.
+  - `sandbox:on-disk` (scratch and transcript): with `d.disk` the path goes
+    through the org's virtual disk (`disk.windows_path`), which starts
+    `wsl -l -q`. That is refused, and the read is a 500 before any file is
+    read.
+- **JSON store backend** (`json:*` rows, `backend: "json"`): the backend is
+  fixed at import, so `main` runs ONE child copy of the probe with
+  `--store json` before this process installs any guard. The child is fully
+  guarded, runs the diagnostic family (normal, killswitch, malformed matrix),
+  and its rows are merged into this output. Its provenance is in
+  `json_backend.provenance` and must name the same commit.
+- **Malformed stored state** (`malformed:<field>=<value>:node|org`, both
+  backends): P01's legacy matrix (`CORRUPT_NODE` in
+  `tests/test_state_diagnostic_boundary.py`). One field of one node is
+  corrupted, inspected for that node and for the whole org, then restored.
+  On the JSON backend a document with a malformed `scope` cannot be loaded at
+  all, even to restore it, so there the probe restores the file's bytes.
+- **Migration paths** (`migration:*`): synthetic orgs left in a legacy
+  on-disk state, met by an operation.
+  - `refused`: `.json` only, without `ORGTREE_MIGRATE`, gives
+    `MigrationRefused` (500).
+  - `legacy-json`: the same, with `ORGTREE_MIGRATE=1` for that one call. It
+    migrates inside the operation, for both `diagnostic.inspect` and
+    `preview.agent`. The migration's statements, the renames and the
+    candidate cleanup are the row's contacts. It writes every node row, and
+    its one write outside a transaction is the candidate's schema DDL.
+  - `malformed-json`: gives `MigrationError` (500) with nothing written.
+  - `interrupted`: a verified `.db.migrating` beside `.json.premigration`,
+    finished by one rename.
+- **Preview clone effects** (`clone` on every `preview.agent` row): the
+  harness wraps `statepreview._apply`. It records how many paths the
+  mutator changed in its isolated clone, per top-level section, and which
+  nodes changed (with roles). No values are kept. The clone is not a store,
+  so this is the only record of those effects.
+- **Unstubbed provider failures** (`provider:*`, `preview.agent`
+  `switch_model`, cold): one row per failure mode the provider gate names.
+  - provider turned off;
+  - Claude not installed, or not signed in;
+  - an account not in the registry;
+  - Codex not installed;
+  - Codex not signed in: its `--version` probe is refused;
+  - the legacy tier token (`gpt-reserve`);
+  - Antigravity not installed;
+  - OpenRouter with no key;
+  - OpenRouter with a key, whose check's HTTP request is refused.
+
+  Provider executables, sign-in files and keys are synthetic, under the
+  redirected HOME and data root. `ORGTREE_CLAUDE`/`ORGTREE_CODEX`/
+  `ORGTREE_ANTIGRAVITY` point inside the root, so no provider check reads
+  this machine's PATH.
+- **Audience-reached successor** (`audience-successor:reservation.release-notify`): the
+  release successor is `cousin`, reachable only through an audience the
+  user granted to `owner`. Its mail reaches only `cousin` (P01 contacts
+  review f1).
 - **Connection sites:** every one of the inventory's 15 sites is classified as
   instrumented (7: the primary store and the six sidecar sites) or
   uninstrumented, with a reason. The tests ASSERT the basis for leaving the
@@ -86,6 +147,38 @@ for its organization. A warm row runs immediately after the cold one.
   - `unclassified_action` counts tools that have no action: `orgtree_chart` and
     `orgtree_send_notice`. `orgtree_status` does not count, because its status
     value is read as the action.
+
+## Loss accounting and unknown-contact refusal
+
+Every row's own census counter deltas show no lost or misattributed
+contact: `db_unbound`, `db_late`, `db_unattributed`, `db_hidden_unattributed`,
+`db_observe_failed`, `db_self_recursion`, `rejected`, `dropped_*` and
+`evicted` are all 0. `harness.statements_unbound` is also 0. The window's
+own `db_unattributed` counts statements made BETWEEN operations (fixture
+writes) and is not attributed to any row.
+
+Every row lists its `contact_classes`: `<group>:<path category>` with the
+code location dropped, plus `guard:<group>/<event>` for each guard refusal.
+The KNOWN classes are:
+- the file, listing, mutation and connect groups;
+- on the operation's own org store, a sidecar, the scratch or sandbox
+  trees, the rest of the synthetic data root, the provider home, the probe
+  root, and code.
+
+Anything else is unknown: a foreign org store, anything outside the
+synthetic root, a process, a socket, or a guard refusal. A row must declare
+each unknown class it provokes on purpose (`expected_unknown`).
+- `unknown_contacts` lists undeclared ones.
+- `expected_unknown_missing` lists declared ones that did not occur.
+
+The test refuses both. The declaring rows are:
+- `control:foreign-org-contact`;
+- `sandbox:chown-new-dir` and `sandbox:on-disk`;
+- `provider:codex-not-signed-in`, `provider:legacy-tier` and
+  `provider:openrouter-network-refused`.
+
+This is a probe-level drift check. It is not the product's runtime
+drift/unknown-contact refusal.
 
 ## Agent-to-agent mail locality
 
@@ -126,36 +219,48 @@ What the synthetic run shows:
 - `control:third-agent-mail` (release to `peer` whose notify step also posts
   mail to `child`) is flagged, both logically and physically.
 
-## The P01 "Closes with" clauses, clause by clause
+## Hand-off to P01: facet → clause → rows
 
-These are the closing texts on P01 S2 (origin/v3/p01-s2-c2-opus55, 7ee2fcf).
-"Met" means that rows in this output carry that evidence on synthetic data.
-Whether that is enough to move a facet is P01's decision.
+The "Closes with" clauses are the Owner lines of the unresolved facets in
+`docs/state-system/operation-contracts.json` (v3 88c1390; the nine P02-owned
+facets are unchanged at 3f91cdd). "Covered" means
+rows in this output carry that evidence on synthetic data. Whether that is
+enough to move a facet is P01's decision. Rows are named by `variant`
+(`json:` = the JSON-backend child).
 
-| Facet (occurrences) | Closing clause | Status here |
+### P02-owned clauses
+
+| Facet | Closing clause | Status | Rows |
+|---|---|---|---|
+| `contacts` | agent-level mail-locality control: release-notify's mail contacts are limited to the sender and the named successor, never self-only | covered (6721cad); specified by P01 at 88c1390 | all four `reservation.release-notify` rows (`agents.logical` = successor only); `control:third-agent-mail`. Added here (P01 review f1): `audience-successor:reservation.release-notify`, a successor reached through a held audience |
+| `material.reads` | observed reads for a SANDBOXED organization (`sandbox.on_disk`, disk-backed placement) | partly | covered: `sandbox:host-placed` (scratch and transcript, cold/warm: the transcript is read from the sandbox home, `data:sandbox`); `sandbox:on-disk` (scratch and transcript: the disk-backed path is resolved through `wsl`, which is refused, so the read fails with a 500 before any file is read). NOT observable here: the read contacts of a disk-backed org. They need a running Docker Desktop WSL distro with the org's virtual disk mounted, which this synthetic, process-refusing harness cannot provide. Owner: P02, in a probe run on a sandbox-capable environment, which needs coordinator approval because it starts real processes. Outside the probe, from reading the source and not run here: on a machine where Docker Desktop's WSL distro is running, `disk.distro()` resolves and the read proceeds, so the 500 is the guard's refusal and not a product bug. Where WSL is down, or no docker-desktop distro exists, `distro()` raises `DiskError` ("fails loud" by design). The agent read path catches only `LedgerError`, so the caller gets a 500 carrying DiskError's actionable text rather than a 4xx/503 refusal. Whether that should be a clean refusal is a product question, not decided here. |
+| `material.effects` | an observed sandbox `chown_agent` effect and its failure outcome | partly | covered: the chown ATTEMPT and its FAILURE outcome. `sandbox:chown-new-dir`: the `docker exec` chown is attempted and refused by the guard; the product swallows the failure and the read answers 200. NOT observed: a SUCCESSFUL chown, which needs a running sandbox container. Owner: P02, in the same sandbox-capable environment run as `material.reads`. |
+| `material.contacts` | production-grade contact records with drift/unknown-contact refusal | partly: probe-level only | every row: `contact_classes`, `unknown_contacts` and `expected_unknown_missing`, refused by the test. NOT observable by a synthetic probe: production-grade runtime records and a product-side drift refusal. They need product instrumentation, owned by the P02 runtime-instrumentation stage; native concurrency and negative controls are P03 |
+| `diagnostic.reads` | observed contacts on the JSON store backend and on malformed stored state | covered | `json:diagnostic.inspect`, `json:diagnostic.capabilities` (cold/warm), `json:refusal:killswitch`; `malformed:*:node` and `malformed:*:org` (18 corruptions × node/org) on BOTH backends |
+| `diagnostic.writes` | observed writes on the migration paths (legacy JSON `migrate_org`, an interrupted migration finished by `_ensure_migrated`) | covered | `migration:legacy-json` (cold: the migration's writes, renames, candidate cleanup; warm: none), `migration:interrupted` (one rename, no statement writes) |
+| `diagnostic.effects` | probes of the legacy-JSON and recovery (interrupted-migration) effects and their failure outcomes | covered | `migration:refused` (`MigrationRefused`, 500, nothing written), `migration:legacy-json`, `migration:malformed-json` (`MigrationError`, 500, nothing written), `migration:interrupted` |
+| `diagnostic.instrumentation` | an approved (reviewed) drift-aware contact/profile/loss record for both tools, plus native negative controls | partly | drift-aware record: the unknown-contact refusal above, with profile and zero per-row loss on every row. This probe-level record is reviewed with this candidate. That review approves the probe, not a product drift policy; whether it closes the clause is P01's decision. NOT observable here: native negative controls (P03, needs a native build) |
+| `preview.writes` | observed writes on the migration paths, and the full underlying mutator effects inside the simulation clone | covered | `migration:legacy-json` for `preview.agent` (cold/warm), `migration:refused`; `clone` on every `preview.<op>` warm row (paths per section, nodes and roles). The store is never written by a preview row |
+| `preview.effects` | observed outcomes of the other provider failure modes (auth, registry, network refusals), without stubbed preflights | covered | `provider:disabled`, `provider:claude-not-installed`, `provider:claude-not-signed-in`, `provider:registry-unknown-account`, `provider:codex-not-installed`, `provider:codex-not-signed-in` (version probe refused), `provider:legacy-tier`, `provider:antigravity-not-installed`, `provider:openrouter-no-key`, `provider:openrouter-network-refused` (HTTP request refused). Native and general no-network behaviour is NOT claimed; provider qualification is P08 |
+
+### Clauses on P02-mentioned facets that other stages own (no rows added)
+
+| Facet | Closing clause | Owner |
 |---|---|---|
-| `contacts` (11 reservation) | observed contact set per variant | met: tables R/W, kinds, checkouts, connects, tx, files, both aliases, cold/warm |
-| | hidden-contact negative control | met: `control:hidden-contact` |
-| | mail-locality negative control | agent-to-agent evidence (see "Agent-to-agent mail locality" below): in all four release-notify rows (both aliases, cold/warm) the mail entries that change belong ONLY to the named successor (`agents.logical`: `mail` and `mail_log` = successor, role `target`), never the sender alone and never a third agent. `control:third-agent-mail` posts mail to a third agent inside the operation and is flagged (`third_agent_mail` ≥ 1). The org-store locality control (`control:foreign-org-contact`) remains as a separate check. |
-| | receipt/log/effect contacts, loss accounting | met: keyed rows, `log_d`/`log_l` tables, wake spy counts, window counters |
-| | wait evidence | partly: document-lock wait (`profile.lock_wait_ms`); no database lock wait is measurable |
-| `wrapper-reads` (11) | observed dispatch/authentication/receipt/sidecar read set of one call, per variant | evidence (reinterpreted as ONE union per call): not split into dispatch/authentication/receipt phases. Refusal rows bound the pre-dispatch part: 401/403 = 0 statements; 409 halt = 5. |
-| `diagnostic.instrumentation` (2) | contact/profile/loss record for both tools, cache hits, hidden eager loads | met on synthetic data (cold/warm, `profile`, window loss, `hidden_steps` = 0). "approved" and "drift" are for review/P01. |
-| `diagnostic.reads` (2) | middleware, schema/pool cold-path contacts | met (whole attempt, cold rows) |
-| | JSON-backend contacts | NOT met: SQLite backend only |
-| | malformed-state contacts | NOT met |
-| `diagnostic.effects` (2) | transitive cold effects and failure outcomes | partly: cold effects (the repeated `store._orgs_dir` mkdir) and the killswitch refusal; legacy and recovery effects NOT probed |
-| `diagnostic.writes` (2) | migration, cold-schema, request-diagnostic and cache writes | met: no table written cold or warm; file writes listed per row (slow-trace emit when triggered) |
-| `material.contacts` (2) | contact records with operation identity, surfaces, modes, tx membership, waits | met on synthetic data (a cold transcript read has 24 of 28 writes inside a transaction); "production-grade" NOT claimed; waits are document-lock only |
-| `material.reads` (2) | provider/import/sandbox and cache hit/miss reads, including file reads | met for provider transcript file reads (`home:provider`), lazy imports (`file_read.code`) and cold/warm; sandbox NOT exercised (unsandboxed org) |
-| `material.effects` (2) | directory creation, sandbox chown, lazy imports, cache updates, failure outcomes | met except sandbox chown (not exercised); failures: path escape, outsider, halt |
-| `material.writes` (2) | physical writes to transcript-records, chat-window-index and reply-events per call | met (tables per sidecar, and a cold transcript read also writes the primary `doc`/`meta`/`nodes`) |
-| | native placement decision | NOT met (P04) |
-| `preview.instrumentation` (1) | contact/profile/loss coverage for every preview variant, including provider preflights | met: 13 operations cold (unstubbed) and warm |
-| `preview.reads` (1) | provider/settings/registry/cold-storage read sets per variant | met: tables and file reads per variant (e.g. switch_model reads app settings and a provider identity file) |
-| | approved bounded native simulation design | NOT met (design item) |
-| `preview.effects` (1) | provider/cache/registry/normalization failure and external-contact outcomes, without stubbed preflights | partly: the cold rows are unstubbed and show no process/network; one failure outcome (switch_model 422). Other provider failure modes NOT probed. |
-| `preview.writes` (1) | cold/migration/probe/cache writes and the full underlying mutator effects | met for writes (none to any table; file effects listed); "full mutator effects" means the simulation's clone, which the census does not see as a store |
+| `material.writes` | a native placement decision for the transcript-records, chat-window-index and reply-events writes | P04 (schema/sidecar placement). The per-call physical writes are already in the material rows |
+| `preview.reads` | an approved bounded native simulation design replacing whole-document cloning | the native conflict/predicate design, then P03/P05. The per-variant read sets are in the preview rows |
+| `preview.instrumentation` | the P03 native concurrency and failure gates for every preview variant | P03 |
+
+The other unresolved facets name no P02 clause:
+- `legacy-lock`, `material.conflicts`, `diagnostic.conflicts`,
+  `preview.predicates`, `preview.conflicts`: native conflict/predicate
+  design;
+- `wire-common`, `material.wire`, `diagnostic.wire`, `preview.wire`:
+  native/Rust conversion.
+
+At v3 3f91cdd the registry also has the S3 contracts `status.report` and
+`chart.read`. Their unresolved facets (`status.*`, `chart.*`) are the second
+phase of this work (the S3 families) and are not covered by this table.
 
 ## Limits
 
@@ -166,6 +271,10 @@ Whether that is enough to move a facet is P01's decision.
 
 - **Statements only:** no rows examined, pages, physical IO or database lock
   wait. `profile.lock_*` is the in-process document lock.
+- **Known contact classes are broad:** `data:other` (the rest of the synthetic
+  data root) and `run:other` (the probe root outside data and HOME) are
+  known classes, so the unknown-contact refusal does not tell apart contacts
+  within them. The code location in `audit.*` does.
 - **Tables** come from the harness's SQL-text map. Only names in the stores'
   own `sqlite_master` appear; anything else is `other`.
 - **SQLite's own file IO** is native and invisible to audit hooks. Its connects
