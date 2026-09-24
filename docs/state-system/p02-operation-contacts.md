@@ -260,7 +260,80 @@ The other unresolved facets name no P02 clause:
 
 At v3 3f91cdd the registry also has the S3 contracts `status.report` and
 `chart.read`. Their unresolved facets (`status.*`, `chart.*`) are the second
-phase of this work (the S3 families) and are not covered by this table.
+phase of this work (the S3 families): see "Hand-off to P01 (S3 F1)" below.
+
+## P01 S3 F1: `status.report` and `chart.read`
+
+The first two S3 contracts (v3 3f91cdd) are probed with the same keys, the
+same loss accounting and the same controls as the families above. The
+fixture follows `tests/test_state_status_chart_boundary.py`:
+- `st-chief` is top-level;
+- `st-worker` and `st-sibling` sit under it;
+- `st-deep` and a retired `st-retired` sit under `st-worker`.
+
+The ids are distinctive so that a chart's `disclosed` set cannot match
+ordinary words.
+
+- **Status** (`orgtree_status`, actor `st-worker` unless noted), EVERY row
+  cold and warm:
+  - `status.report` (the wire case: done, to the parent);
+  - `status.report:working`, `:idle`, `:unvalidated`, `:blocked-with-parent`;
+  - `:done-top-level` and `:blocked-top-level` (actor `st-chief`, no parent);
+  - `:keyed-fresh` and `:keyed-replay` (a fresh key per condition);
+  - `refusal:status-bad-value` (422) and `refusal:status-halted` (409).
+
+  A done or blocked report goes to the caller's parent. That parent is never
+  named in the arguments, so each status row declares it as an IMPLIED target
+  (`agents.targets`), read from the actor's STORED parent before the call. Such a report's mail changes belong only to the parent,
+  with one wake. Every other outcome writes only the caller's own `nodes`
+  row.
+- **Status locality control** (`control:status-third-agent-mail`): a done
+  report whose delivery step also posts mail to `st-sibling`. The control is
+  flagged as a third-agent contact.
+- **Chart** (`orgtree_chart`, actor `st-worker`):
+  - `chart.read` (the wire case), cold/warm;
+  - `chart.read:<level>` and `chart.read:<level>+archived` for self, team,
+    subtree and full, each cold/warm.
+
+  Each chart row records `disclosed`: the fixture's node ids that appear in
+  the answer. This shows the level took effect. Observed:
+  - `self` hides the sibling;
+  - the caller's superior always appears;
+  - archived rows appear only at subtree and full.
+
+  A chart read writes nothing and signals nothing, cold or warm. A warm read
+  runs no statement at all, because it is served from the cached snapshot.
+- **Chart migration path** (`chart.read`, `migration:*`): a legacy `.json`
+  org read through `cached_org`.
+  - Refused without `ORGTREE_MIGRATE`.
+  - Migrated inside the read with it. Its writes are the migration's.
+
+## Hand-off to P01 (S3 F1): facet → clause → rows
+
+Clauses from the Owner lines of the unresolved `status.*` and `chart.*`
+facets at v3 3f91cdd (unchanged at f2d71a1).
+
+| Facet | Closing clause | Status | Rows |
+|---|---|---|---|
+| `status.reads` | observed per-operation contacts for orgtree_status (each outcome: working, done/blocked with and without a parent, keyed, replay, refusals), cold and warm | covered | each cold AND warm: `status.report` (done with a parent), `:blocked-with-parent`, `:done-top-level`, `:blocked-top-level` (without a parent), `:working`, `:idle`, `:unvalidated`, `:keyed-fresh`, `:keyed-replay`, `refusal:status-bad-value`, `refusal:status-halted` (22 rows) |
+| `status.instrumentation` | an observed, loss-accounted contact record for orgtree_status (every outcome, cold and warm, both the caller's row and the parent's mail), including an agent-level locality control like the one `contacts` uses | partly | covered: the record above (every outcome, cold and warm), with the caller's row (`agents.physical_nodes` actor) and the parent's mail (`agents.logical`, implied target), plus `control:status-third-agent-mail`. NOT covered here: P03's native negative controls (a native build is needed) |
+| `chart.reads` | observed per-operation contacts for orgtree_chart at each visibility level (self, team, subtree, full), with and without archived rows, cold and warm | covered | `chart.read:{self,team,subtree,full}` and each `+archived`, cold and warm (16 rows), plus the wire case `chart.read`; `disclosed` per row |
+| `chart.writes` | observed writes on the cold and migration paths reached through cached_org (a snapshot miss falls through to load_org and _ensure_migrated) | covered | cold path: every cold `chart.read*` row (no table written). Migration path: `chart.read` `migration:refused`, and `migration:legacy-json` cold (the migration's writes) and warm (none). Whether this closes the P03 qualification half is P03's |
+| `chart.instrumentation` | an observed, loss-accounted contact record for orgtree_chart at each visibility level, cold and warm | covered (P02 half) | the 16 level rows. P03 native negative controls are a separate stage |
+
+Owned elsewhere, with no rows added:
+- `status.conflicts` and `chart.conflicts`: the native conflict/predicate
+  design, then P03, with P07 or P05;
+- `status.wire` and `chart.wire`: the native/Rust conversion.
+
+Pending, added next:
+- F1b `org.tree`, `org.node-detail` and `org.feed` (fixed at v3 f2d71a1;
+  facets `org-view.*` and `org-feed.*`);
+- F2 `mail.message` and `mail.notice` (fixed at v3 325ec75; facets
+  `agent-mail.*`).
+
+Pending as P01 fixes their ids: the rest of F2 mail, F3 funding / staffing /
+receipt replay, and F4 work-item GET routes.
 
 ## Limits
 

@@ -799,8 +799,10 @@ class Probe:
         return "third"
 
     def agents(self, actor: str, args: dict[str, Any], c: Collector,
-               changes: dict[str, list[str]]) -> dict[str, Any]:
-        targets = self.parties(actor, args)
+               changes: dict[str, list[str]], implied: "tuple[str, ...]" = ()) -> dict[str, Any]:
+        """`implied`: counterparties the operation reaches without naming them
+        in its arguments (a status report's parent), declared by the row."""
+        targets = sorted(set(self.parties(actor, args)) | set(implied))
         physical: dict[str, int] = {}
         nodes: dict[str, str] = {}
         third_rows_written = 0
@@ -846,10 +848,13 @@ class Probe:
             token: "str | None" = None, refusal: "str | None" = None,
             patches: "list[tuple[Any, str, Any]] | None" = None,
             env: "dict[str, str | None] | None" = None,
-            expected_unknown: "tuple[str, ...]" = ()) -> dict[str, Any]:
+            expected_unknown: "tuple[str, ...]" = (),
+            implied: "tuple[str, ...]" = (), disclose: bool = False) -> dict[str, Any]:
         """One operation. `env` is applied for this call only (None removes a
         variable); `expected_unknown` declares the contact classes outside the
-        known set that this row provokes on purpose."""
+        known set that this row provokes on purpose; `implied` names counterparties
+        the operation reaches without naming them (see `agents`); `disclose` records
+        which of the org's synthetic node ids appear in the answer (`disclosed`)."""
         global _CURRENT
         if self.backend != "sqlite":
             variant = f"{self.backend}:{variant}"
@@ -901,8 +906,15 @@ class Probe:
         records = [r for r in self.census_since(seq0) if not r.get("diagnostic")]
         row = self.row(contract, variant, condition, tool, args, body, status, payload,
                        records, collector, before, after, wakes0, refused0, refusal, elapsed)
-        row["agents"] = self.agents(actor, args, collector, self.mail_changes(mail0, mail1))
+        row["agents"] = self.agents(actor, args, collector, self.mail_changes(mail0, mail1),
+                                    implied)
         row["backend"] = self.backend
+        row["disclosed"] = None
+        if disclose:
+            text = json.dumps(payload) if payload is not None else ""
+            row["disclosed"] = sorted(
+                n for n in _NODES.get(slug, ())
+                if re.search(r"(?<![\w-])" + re.escape(n) + r"(?![\w-])", text))
         row["env"] = sorted(env or {})
         row["clone"] = None if collector.clone is None else dict(
             collector.clone, nodes={n: self.role(n, actor, row["agents"]["targets"])
@@ -1483,6 +1495,111 @@ class Probe:
             openrouter.set_key("")
             self.reset_provider_caches()
 
+    # -- P01 S3 F1: status.report and chart.read ---------------------------------
+    def build_status(self) -> None:
+        """tests/test_state_status_chart_boundary.py's org shape, plus an archived
+        node for the chart's include_archived rows. Node ids are distinctive
+        (`st-*`) so the chart's `disclosed` set cannot match ordinary words."""
+        store, ledger = self.m["store"], self.m["ledger"]
+        org = store.create_org("p02-contacts-status")
+        self.stslug = str(org.d["slug"])
+        org.hire(ledger.USER, None, "haiku", 10, "st-chief")
+        org.hire(ledger.USER, "st-chief", "haiku", 4, "st-worker")
+        org.hire(ledger.USER, "st-chief", "haiku", 0, "st-sibling")
+        org.hire(ledger.USER, "st-worker", "haiku", 0, "st-deep")
+        org.hire(ledger.USER, "st-worker", "haiku", 0, "st-retired")
+        org.retire(ledger.USER, "st-retired")
+        org.d["mail"], org.d["audiences"] = {}, []
+        store.save_org(org)
+        for n in ("st-chief", "st-worker", "st-sibling"):
+            self.tokens[(self.stslug, n)] = self.m["agentauth"].child_env(
+                self.stslug, n)["ORGTREE_AGENT_TOKEN"]
+
+    def status_chart(self) -> None:
+        s, opreceipts = self.stslug, self.m["opreceipts"]
+        supervisor, store = self.m["supervisor"], self.m["store"]
+
+        def status(variant: str, condition: str, args: dict[str, Any], actor: str = "st-worker",
+                   **kw: Any) -> None:
+            # the report's parent is its implied counterparty, read from the
+            # actor's STORED parent (not a literal), outside the window
+            parent = store.load_org(s).node(actor).get("parent")
+            implied = (str(parent),) if parent in _NODES.get(s, ()) else ()
+            self.run("status.report", variant, condition, s, actor, "orgtree_status", args,
+                     implied=implied, **kw)
+
+        # every outcome the clause names, cold and warm; the wire case (done
+        # to the parent) keeps its bare name
+        outcomes = [
+            ("status.report", {"status": "done", "summary": "fixture"}, "st-worker", None),
+            ("status.report:working", {"status": "working", "summary": "w"}, "st-worker", None),
+            ("status.report:idle", {"status": "idle", "summary": "i"}, "st-worker", None),
+            ("status.report:unvalidated", {"status": "weird-state", "summary": "u"},
+             "st-worker", None),
+            ("status.report:blocked-with-parent", {"status": "blocked", "summary": "b"},
+             "st-worker", None),
+            ("status.report:done-top-level", {"status": "done", "summary": "top"},
+             "st-chief", None),
+            ("status.report:blocked-top-level", {"status": "blocked", "summary": "top"},
+             "st-chief", None),
+            ("refusal:status-bad-value", {"status": ["done"], "summary": "x"}, "st-worker",
+             "non-scalar status value refused"),
+        ]
+        for variant, args, actor, refusal in outcomes:
+            for condition in ("cold", "warm"):
+                status(variant, condition, args, actor=actor, refusal=refusal)
+        epoch = self.client.post("/api/agent",
+                                 json=self.agent_body(s, "st-worker", opreceipts.OP_EPOCH, {}),
+                                 headers={"X-Orgtree-Agent-Token": self.tokens[(s, "st-worker")]}
+                                 ).json()["epoch"]
+        for condition in ("cold", "warm"):
+            key = opreceipts.mint_key()
+            status("status.report:keyed-fresh", condition, {"status": "done", "summary": "k"},
+                   key=key, epoch=epoch)
+            status("status.report:keyed-replay", condition, {"status": "done", "summary": "k"},
+                   key=key, epoch=epoch,
+                   refusal="keyed replay (answered from the receipt, no effect)")
+        self.mutate(s, lambda o: o.node("st-sibling").update(halt={"at": "fixture"}))
+        for condition in ("cold", "warm"):
+            status("refusal:status-halted", condition, {"status": "done", "summary": "x"},
+                   actor="st-sibling", refusal="409 halted")
+        self.mutate(s, lambda o: o.node("st-sibling").pop("halt", None))
+
+        # agent-level locality control: a done report whose delivery step ALSO
+        # posts mail to a third agent ('st-sibling') inside the operation
+        def notify_and_mail_third(*_a: Any, **_k: Any) -> dict[str, Any]:
+            with store.write_org(s) as org:
+                org.post_mail("st-worker", "st-sibling", "p02 control: mail to a third agent")
+                store.save_org(org)
+            return {"delivered": True}
+        status("control:status-third-agent-mail", "warm", {"status": "done", "summary": "c"},
+               refusal="negative control (not a product path)",
+               patches=[(supervisor, "send_message", notify_and_mail_third)])
+
+        # chart.read: the wire case, then every visibility level with and
+        # without archived rows, cold and warm
+        for condition in ("cold", "warm"):
+            self.run("chart.read", "chart.read", condition, s, "st-worker", "orgtree_chart", {},
+                     disclose=True)
+        for level in ("self", "team", "subtree", "full"):
+            self.mutate(s, lambda o, level=level: o.node("st-worker")["scope"].update(
+                org_visibility=level))
+            for archived in (False, True):
+                args = {"include_archived": True} if archived else {}
+                for condition in ("cold", "warm"):
+                    variant = f"chart.read:{level}" + ("+archived" if archived else "")
+                    self.run("chart.read", variant,
+                             condition, s, "st-worker", "orgtree_chart", args, disclose=True)
+        # chart.writes: a snapshot miss falls through to load_org and
+        # _ensure_migrated, so a legacy org is migrated by a chart read
+        slug = self.legacy_org("p02-contacts-legacy-chart", ("reader",), "json")
+        self.run("chart.read", "migration:refused", "cold", slug, "reader", "orgtree_chart", {},
+                 refusal="legacy .json without ORGTREE_MIGRATE: MigrationRefused",
+                 env={"ORGTREE_MIGRATE": None})
+        self.run("chart.read", "migration:legacy-json", "cold", slug, "reader", "orgtree_chart", {},
+                 env={"ORGTREE_MIGRATE": "1"})
+        self.run("chart.read", "migration:legacy-json", "warm", slug, "reader", "orgtree_chart", {})
+
     PREVIEW = {
         "reallocate": {"node": "b", "delta": 1}, "move": {"node": "leaf", "new_parent": "b"},
         "swap": {"a": "a", "b": "b"}, "swap_seats": {"a": "a", "b": "b"},
@@ -1589,8 +1706,10 @@ class Probe:
         self.build()
         if not json_backend:
             self.build_sandbox()
+            self.build_status()
         for slug in ((self.dslug,) if json_backend else
-                     (self.rslug, self.mslug, self.dslug, self.pslug, self.sslug)):
+                     (self.rslug, self.mslug, self.dslug, self.pslug, self.sslug,
+                      self.stslug)):
             _NODES[slug] = {str(n) for n in self.m["store"].load_org(slug).nodes}
         self.operator("post", "/api/diagnostics/operation-census/reset")
         self.operator("post", "/api/diagnostics/operation-census", json={"enabled": True})
@@ -1605,6 +1724,7 @@ class Probe:
             self.migration()
             self.preview()
             self.provider()
+            self.status_chart()
         w1 = self.census_state()
         self.load_table_catalogue()
         self.map_tables()

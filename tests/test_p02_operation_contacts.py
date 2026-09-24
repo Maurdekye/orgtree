@@ -33,7 +33,7 @@ PREVIEW = ("reallocate", "move", "swap", "swap_seats", "self_subjugate", "subjug
            "audience")
 CONTRACTS = {f"reservation.{v}" for v in RESERVATION} | {
     "material.scratch", "material.transcript", "diagnostic.inspect",
-    "diagnostic.capabilities", "preview.agent"}
+    "diagnostic.capabilities", "preview.agent", "status.report", "chart.read"}
 
 
 class OperationContacts(unittest.TestCase):
@@ -246,7 +246,7 @@ class OperationContacts(unittest.TestCase):
     def test_no_operation_touches_a_third_agents_mail_or_rows(self):
         producing = set()
         for r in self.doc["rows"]:
-            if r["variant"] == self.CONTROL:
+            if r["variant"] in (self.CONTROL, self.STATUS_CONTROL):
                 continue
             with self.subTest(variant=r["variant"], condition=r["condition"]):
                 self.assertEqual(r["agents"]["third_agent_mail"], 0)
@@ -256,7 +256,7 @@ class OperationContacts(unittest.TestCase):
                     self.assertEqual(r["agents"]["third_agent_rows_written"], 0)
             if r["agents"]["mail_producing"]:
                 producing.add(r["contract"])
-        self.assertEqual(producing, {"reservation.release-notify"})
+        self.assertEqual(producing, {"reservation.release-notify", "status.report"})
 
     def test_third_agent_mail_control_is_flagged(self):
         control = self.rows(variant=self.CONTROL)
@@ -452,7 +452,7 @@ class OperationContacts(unittest.TestCase):
         (the migration's writes and renames are the operation's contacts),
         refused as MigrationError when it is not JSON, and an interrupted
         migration is finished by a rename."""
-        for contract in ("diagnostic.inspect", "preview.agent"):
+        for contract in ("diagnostic.inspect", "preview.agent", "chart.read"):
             with self.subTest(contract=contract):
                 refused = self.rows(contract=contract, variant="migration:refused")[0]
                 self.assertEqual(refused["http_status"], 500)
@@ -545,6 +545,103 @@ class OperationContacts(unittest.TestCase):
         self.assertEqual(r["wakes"]["send_message"], 1)
         refused = self.rows(variant="refusal:unaddressable-successor")[0]
         self.assertEqual(refused["http_status"], 422)
+
+    # -- P01 S3 F1: status.report and chart.read (phase 2) -----------------------
+    STATUS_CONTROL = "control:status-third-agent-mail"
+    PARENT = "st-chief"
+
+    def test_status_outcomes_and_the_parent_report(self):
+        """status.reads/instrumentation: EVERY outcome the clause names (done
+        and blocked with and without a parent, working, idle, unvalidated,
+        keyed, replay, refusals), each cold AND warm, loss-accounted. With a
+        parent, done/blocked reach ONLY that parent (an implied target read
+        from the stored node) with one wake; every other outcome writes only
+        the caller's node row."""
+        both = ("cold", "warm")
+        reporting = ["status.report", "status.report:blocked-with-parent",
+                     "status.report:keyed-fresh"]
+        local = ["status.report:working", "status.report:idle", "status.report:unvalidated",
+                 "status.report:done-top-level", "status.report:blocked-top-level"]
+        for variant in reporting:
+            for condition in both:
+                with self.subTest(variant=variant, condition=condition):
+                    r = self.rows(contract="status.report", variant=variant,
+                                  condition=condition)[0]
+                    self.assertEqual(r["http_status"], 200, r["detail"])
+                    agents = r["agents"]
+                    self.assertEqual(agents["targets"], [self.PARENT])
+                    self.assertEqual(agents["logical"], {"mail": {self.PARENT: "target"},
+                                                         "mail_log": {self.PARENT: "target"}})
+                    self.assertEqual(agents["physical_nodes"],
+                                     {self.PARENT: "target", "st-worker": "actor"})
+                    self.assertEqual(r["wakes"]["send_message"], 1)
+                    self.assertTrue(r["harness"]["all_writes_in_transaction"])
+        for variant in local:
+            for condition in both:
+                with self.subTest(variant=variant, condition=condition):
+                    r = self.rows(contract="status.report", variant=variant,
+                                  condition=condition)[0]
+                    self.assertEqual(r["http_status"], 200, r["detail"])
+                    self.assertFalse(r["agents"]["mail_producing"])
+                    self.assertEqual(r["wakes"]["send_message"], 0)
+                    self.assertEqual(r["harness"]["stores"]["primary"]["tables_written"],
+                                     ["nodes"])
+                    self.assertEqual(r["harness"]["writes"], 1)
+        for r in self.rows(contract="status.report", variant="status.report:done-top-level") +                 self.rows(contract="status.report", variant="status.report:blocked-top-level"):
+            self.assertEqual(r["agents"]["targets"], [])
+        for condition in both:
+            with self.subTest(replay=condition):
+                replay = self.rows(variant="status.report:keyed-replay", condition=condition)[0]
+                self.assertEqual((replay["http_status"], replay["harness"]["writes"],
+                                  replay["wakes"]["send_message"]), (200, 0, 0))
+                self.assertFalse(replay["agents"]["mail_producing"])
+            for variant, status in (("refusal:status-bad-value", 422),
+                                    ("refusal:status-halted", 409)):
+                with self.subTest(variant=variant, condition=condition):
+                    r = self.rows(variant=variant, condition=condition)[0]
+                    self.assertEqual((r["http_status"], r["harness"]["writes"]), (status, 0))
+        self.assertEqual(len(self.rows(contract="status.report")), 23)
+
+    def test_status_third_agent_mail_control_is_flagged(self):
+        control = self.rows(variant=self.STATUS_CONTROL)[0]
+        agents = control["agents"]
+        self.assertEqual(control["http_status"], 200)
+        self.assertEqual(agents["logical"]["mail"],
+                         {self.PARENT: "target", "st-sibling": "third"})
+        self.assertGreaterEqual(agents["third_agent_mail"], 1)
+        self.assertGreaterEqual(agents["third_agent_rows_written"], 1)
+
+    #: what each visibility level disclosed, as OBSERVED (the chart always
+    #: names the caller's superior; archived rows appear from subtree up)
+    CHART = {
+        "self": ["st-chief", "st-deep", "st-worker"],
+        "team": ["st-chief", "st-deep", "st-sibling", "st-worker"],
+        "subtree": ["st-chief", "st-deep", "st-sibling", "st-worker"],
+        "full": ["st-chief", "st-deep", "st-sibling", "st-worker"],
+    }
+
+    def test_chart_contacts_at_every_visibility_level(self):
+        """chart.reads/instrumentation: each level, with and without archived
+        rows, cold and warm; a read that writes nothing and signals nothing.
+        `disclosed` proves each level took effect."""
+        for level, shown in self.CHART.items():
+            for archived in (False, True):
+                for condition in ("cold", "warm"):
+                    variant = f"chart.read:{level}" + ("+archived" if archived else "")
+                    with self.subTest(variant=variant, condition=condition):
+                        r = self.rows(variant=variant, condition=condition)[0]
+                        self.assertEqual(r["http_status"], 200, r["detail"])
+                        self.assertEqual(r["harness"]["writes"], 0)
+                        self.assertEqual(r["wakes"], {"send_message": 0, "mail_notify": 0})
+                        want = shown + (["st-retired"] if archived and level in ("subtree", "full")
+                                        else [])
+                        self.assertEqual(r["disclosed"], sorted(want))
+                        if condition == "cold":
+                            self.assertEqual(r["census"]["connects"], 1)
+                            self.assertGreater(r["census"]["statements"], 0)
+        for r in self.doc["rows"]:
+            if r["contract"] != "chart.read":
+                self.assertIsNone(r["disclosed"], r["variant"])
 
 
 if __name__ == "__main__":
