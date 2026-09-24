@@ -46,7 +46,7 @@ class ContractCoverage(unittest.TestCase):
         self.assertEqual(result["contracts"], 42)
         self.assertEqual((result["summary"]["entries"]["mapped"], result["summary"]["dispatch"]["mapped"],
                           result["summary"]["storage"]["mapped"]), (29, 51, 0))
-        self.assertEqual(len(result["pending"]), 558)
+        self.assertEqual(len(result["pending"]), 571)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
@@ -218,12 +218,17 @@ class ContractCoverage(unittest.TestCase):
                     self.assertIn("Owner: ", r["reason"])
         self.assertEqual(seen, mine)
 
+    # p01-inventory-misses-the-production-routes-mount: the launcher's router include and server task, and the
+    # guardian and service-host startup readers
+    LAUNCH_EXCLUDED = {("launch.py", 339), ("launch.py", 407), ("process_lifetime.py", 57),
+                       ("service_host.py", 465)}
+
     def test_every_excluded_witness_belongs_to_a_reviewed_triage_step(self):
         # no exclusion outside S2k (storage) and W1/W2/W3/W8 (their review records hold the source reading)
         def where(source):
             return (source["path"].rsplit("/", 1)[1], source["line"])
         groups = {"entries": ({r["site_id"]: r["source"] for r in self.source["registrations"]},
-                              self.W1_EXCLUDED | self.W2_EXCLUDED | self.W3_EXCLUDED),
+                              self.W1_EXCLUDED | self.W2_EXCLUDED | self.W3_EXCLUDED | self.LAUNCH_EXCLUDED),
                   "dispatch": ({contracts.witness_id("dispatch", r): r["source"]
                                 for r in self.source["dispatch_selectors"]}, self.W8_EXCLUDED),
                   "storage": ({contracts.witness_id("storage", r): r["source"]

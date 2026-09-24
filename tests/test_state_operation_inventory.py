@@ -288,19 +288,64 @@ def b():
         # and the orgtree_account_mark tool card.
         # 317 -> 319: GET/PUT /api/app-settings/charter-template-dirs (docket
         # add-external-agent-charter-templates-folder), both pending.
-        self.assertEqual(summary["registration_sites"], 319)
-        self.assertEqual(summary["registration_kinds"]["task"], 12)
+        # 319 -> 333: the scan covers the engine's top-level modules and engine/winservice
+        # (p01-inventory-misses-the-production-routes-mount): engine/launch.py adds 10 routes, its
+        # include_router(desktop_import.router) and the server task; process_lifetime.py and service_host.py
+        # add one worker each.
+        self.assertEqual(summary["registration_sites"], 333)
+        self.assertEqual(summary["registration_kinds"]["task"], 13)
         # 225 -> 226: P02-A1 adds one `body.tool == "orgtree_operation_census"`
         # branch in api.agent_call, routing the agent read door.
         # 226 -> 227: the same item adds the `orgtree_account_mark` branch.
         self.assertEqual(summary["dispatch_selector_sites"], 227)
-        self.assertEqual(summary["connection_sites"], 15)
+        # 15 -> 18: engine/mailhub_runtime.py's hub store migration opens three connections
+        self.assertEqual(summary["connection_sites"], 18)
         self.assertEqual([(r["source"]["path"], r["source"]["symbol"], r["target"])
                           for r in baseline["registrations"]
                           if r.get("mechanism") == "asyncio.to_thread"],
                          [("engine/backend/orgtree/api.py", "accounts_remove",
                            "account_removal.remove_account_rebinding_agents"),
                           ("engine/backend/orgtree/startup.py", "Recovery.start.run", "repair")])
+
+
+    # coordinator ruling on p01-inventory-misses-the-production-routes-mount: nothing added outside the backend
+    # package may go unseen. Any engine .py file outside the inventory's module set that has a route, a hook, a
+    # router include, a task or worker registration, or a connection site fails here.
+    NOT_SCANNED = ("engine/native/", "engine/runtime/")
+
+    def test_no_engine_module_with_sites_is_left_out_of_the_scan(self):
+        scanned = {m["path"] for m in inventory.scan(ROOT)["modules"]}
+        offenders, checked = [], 0
+        for path in sorted((ROOT / "engine").rglob("*.py")):
+            rel = path.relative_to(ROOT).as_posix()
+            if rel in scanned or any(part in inventory.SKIPPED_PARTS for part in path.parts) \
+                    or rel.startswith("engine/runtime/"):
+                continue
+            checked += 1
+            module = inventory.ModuleInventory(rel, path.read_text(encoding="utf-8-sig"))
+            module.visit(module.tree)
+            if module.registrations or module.storage:
+                offenders.append(rel)
+        self.assertEqual(offenders, [])
+        # the files left out are exactly the offline native oracle generators
+        self.assertGreater(checked, 0)
+        for rel in scanned:
+            self.assertFalse(rel.startswith(self.NOT_SCANNED), rel)
+
+    def test_the_launcher_routes_and_engine_modules_are_inventoried(self):
+        baseline = json.loads((ROOT / "docs/state-system/operation-inventory.json").read_text(encoding="utf-8"))
+        paths = [m["path"] for m in baseline["modules"]]
+        self.assertLessEqual({"engine/launch.py", "engine/mailhub_runtime.py", "engine/process_lifetime.py",
+                              "engine/service_host.py", "engine/winservice/scm.py"}, set(paths))
+        routes = sorted((r["method"], r["selectors"][0]) for r in baseline["registrations"]
+                        if r["source"]["path"] == "engine/launch.py" and r["kind"] == "http")
+        self.assertEqual(routes, [("get", "/api/desktop/hub"), ("get", "/api/desktop/identity"),
+                                  ("get", "/api/desktop/import-v1/{slug}/recovery"),
+                                  ("get", "/api/desktop/notifications"), ("get", "/api/desktop/status"),
+                                  ("post", "/api/desktop/import-v1/{slug}/resolve"),
+                                  ("post", "/api/desktop/maintenance/ack"),
+                                  ("post", "/api/desktop/maintenance/failure"), ("post", "/api/desktop/shutdown"),
+                                  ("put", "/api/desktop/hub")])
 
 
 if __name__ == "__main__":

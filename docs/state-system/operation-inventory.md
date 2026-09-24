@@ -39,11 +39,17 @@ a task site while `anyio.to_thread.run_sync` — a different call name — is no
 the second is visible only through the whole-module fingerprints.
 Its import-name resolution does not prove receiver types or exclude local
 shadowing. Arbitrary plugins, aliases and generated dispatch cannot be proven
-complete by AST matching. All Python files in `engine/backend` are therefore
+complete by AST matching. All Python files in `engine/backend`, the engine's own
+top-level modules (`engine/*.py`, including the desktop launcher `engine/launch.py`)
+and `engine/winservice` are therefore
 fingerprinted as a second check: even an unrecognized registration or a helper
 write invalidates the old snapshot. This is a prompt for source review, not a
 claim that its runtime effect was understood. Out-of-tree registrations require
-explicit inventory and runtime coverage before conversion.
+explicit inventory and runtime coverage before conversion. Not scanned:
+`engine/native/**/oracle` (offline test-vector generators the product never imports)
+and `engine/runtime` (the gitignored packaged interpreter).
+`tests/test_state_operation_inventory.py` fails if any other engine module with a route,
+hook, task, worker or connection site is left out of the scan.
 
 ## Run and review
 

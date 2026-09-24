@@ -13,22 +13,22 @@
     "exact_effect_contracts": "pending per-entry review"
   },
   "summary": {
-    "modules": 120,
-    "registration_sites": 319,
+    "modules": 129,
+    "registration_sites": 333,
     "registration_kinds": {
       "callback": 5,
       "hook": 4,
-      "http": 184,
-      "registration_call": 9,
-      "task": 12,
+      "http": 194,
+      "registration_call": 10,
+      "task": 13,
       "tool": 49,
       "tool_catalog": 1,
       "websocket": 1,
-      "worker": 54
+      "worker": 56
     },
     "unresolved_registrations": 8,
     "dispatch_selector_sites": 227,
-    "connection_sites": 15,
+    "connection_sites": 18,
     "unresolved_connect_calls": 2,
     "doc_lock_references": 249
   },
@@ -512,6 +512,42 @@
     {
       "path": "engine/backend/orgtree/workitems.py",
       "normalized_source_sha256": "db6ee516b091c9e2a5028c142f3cbc127773579561146b85af02179a33403a6c"
+    },
+    {
+      "path": "engine/__init__.py",
+      "normalized_source_sha256": "e3daa4c637ab38e2cb39d532aed5ef6ec29eb2ae7d4d927bb3c76a98d2e988ce"
+    },
+    {
+      "path": "engine/launch.py",
+      "normalized_source_sha256": "0a21eef212567eda41b81845f1f1682f6c76c412fb79b3f7e701c9b5dbab43ea"
+    },
+    {
+      "path": "engine/mailhub_runtime.py",
+      "normalized_source_sha256": "0e1109bff14e1dcf7353e63e3692fd8e109725c99ac0b7710493681b040fde05"
+    },
+    {
+      "path": "engine/process_lifetime.py",
+      "normalized_source_sha256": "0c3f1dab4831e62991aa06892165d0c0181bcf24baf20f5f4bac9cf47140e136"
+    },
+    {
+      "path": "engine/service_host.py",
+      "normalized_source_sha256": "de353aed2a7917c54dafca3445d00c94c7d47631a2de127f44e4aa411942e518"
+    },
+    {
+      "path": "engine/startup_progress.py",
+      "normalized_source_sha256": "14861135563f8f5feac593dd56ff2856962456c82e818c3a4295974e2a4ae065"
+    },
+    {
+      "path": "engine/winservice/__init__.py",
+      "normalized_source_sha256": "734e02e801aef70a058f8fbdffb605b3831584c30b00022f547352f46c121e17"
+    },
+    {
+      "path": "engine/winservice/lifecycle.py",
+      "normalized_source_sha256": "7e2087d59e21ef5c5b5c54eb5ce8187ebdc2747a1dfded758b0b2f62cc15c173"
+    },
+    {
+      "path": "engine/winservice/scm.py",
+      "normalized_source_sha256": "10b47a2235c0bb7a5c7eba70791ce4a87fee60d5a798720b8246a44f60f4da5e"
     }
   ],
   "registrations": [
@@ -6216,6 +6252,254 @@
       "mechanism": "threading.Thread",
       "target": "_keeper",
       "resolution": "expression"
+    },
+    {
+      "site_id": "3d6e25e527171899dddf10348ba480736966d4bd996443f7ba74752bf6806a16",
+      "kind": "http",
+      "source": {
+        "path": "engine/launch.py",
+        "symbol": "_install_desktop_routes.import_recovery",
+        "line": 204,
+        "end_line": 204,
+        "syntax_sha256": "a8734adaad235585d0a9921544b7844fc1a2241b8f8cca0ef967ca4dd0868523"
+      },
+      "receiver": "api_app",
+      "method": "get",
+      "selectors": [
+        "/api/desktop/import-v1/{slug}/recovery"
+      ],
+      "selector_expression": "'/api/desktop/import-v1/{slug}/recovery'",
+      "methods_expression": null,
+      "resolution": "literal"
+    },
+    {
+      "site_id": "b966c38957374ce9f049e63ec1715686886e10afdfb85c6c48627af8af8a8a13",
+      "kind": "http",
+      "source": {
+        "path": "engine/launch.py",
+        "symbol": "_install_desktop_routes.resolve_import",
+        "line": 208,
+        "end_line": 208,
+        "syntax_sha256": "f34625e7c4345dc25e4f28ecade7f61e377c8497ee297046259edf221c4a4a9f"
+      },
+      "receiver": "api_app",
+      "method": "post",
+      "selectors": [
+        "/api/desktop/import-v1/{slug}/resolve"
+      ],
+      "selector_expression": "'/api/desktop/import-v1/{slug}/resolve'",
+      "methods_expression": null,
+      "resolution": "literal"
+    },
+    {
+      "site_id": "94fa7526675acab8e163b62abba46b687cef0e1c5b8e26314a44c637dc540398",
+      "kind": "http",
+      "source": {
+        "path": "engine/launch.py",
+        "symbol": "_install_desktop_routes.desktop_status",
+        "line": 219,
+        "end_line": 219,
+        "syntax_sha256": "65c70bd145f57de55897f3d7059f463e0363adb3796ae52d7902c4248ed879fa"
+      },
+      "receiver": "api_app",
+      "method": "get",
+      "selectors": [
+        "/api/desktop/status"
+      ],
+      "selector_expression": "'/api/desktop/status'",
+      "methods_expression": null,
+      "resolution": "literal"
+    },
+    {
+      "site_id": "2119463ddd219fec4fb06842a0acf68686cb4370de81d2ef506300e767f49596",
+      "kind": "http",
+      "source": {
+        "path": "engine/launch.py",
+        "symbol": "_install_desktop_routes.acknowledge_maintenance",
+        "line": 256,
+        "end_line": 256,
+        "syntax_sha256": "069346c135eace4816b5a73a4ac97367b9d26359687ee9245d7397ed4a240800"
+      },
+      "receiver": "api_app",
+      "method": "post",
+      "selectors": [
+        "/api/desktop/maintenance/ack"
+      ],
+      "selector_expression": "'/api/desktop/maintenance/ack'",
+      "methods_expression": null,
+      "resolution": "literal"
+    },
+    {
+      "site_id": "7a7d921db41e2580bce84b64f5228acb70c345d2be6e759861fa8e25e0c22968",
+      "kind": "http",
+      "source": {
+        "path": "engine/launch.py",
+        "symbol": "_install_desktop_routes.maintenance_failure",
+        "line": 260,
+        "end_line": 260,
+        "syntax_sha256": "e2c9c3a747c50f993a4abe3b0d0a7fd6a78b148bd314a45d1ece27e08f7a1cf1"
+      },
+      "receiver": "api_app",
+      "method": "post",
+      "selectors": [
+        "/api/desktop/maintenance/failure"
+      ],
+      "selector_expression": "'/api/desktop/maintenance/failure'",
+      "methods_expression": null,
+      "resolution": "literal"
+    },
+    {
+      "site_id": "68f8c34971bd26b46340875990fcd4cfbe8e5e3deb08e163c657ba38351eb7c7",
+      "kind": "http",
+      "source": {
+        "path": "engine/launch.py",
+        "symbol": "_install_desktop_routes.desktop_shutdown",
+        "line": 264,
+        "end_line": 264,
+        "syntax_sha256": "2ff3f0dec6e888cc78da7b4c9dc11b2ee4daf31ec4fca9b49e3840f539033ec9"
+      },
+      "receiver": "api_app",
+      "method": "post",
+      "selectors": [
+        "/api/desktop/shutdown"
+      ],
+      "selector_expression": "'/api/desktop/shutdown'",
+      "methods_expression": null,
+      "resolution": "literal"
+    },
+    {
+      "site_id": "27272b2a22a3d84423412d98b90840c57f1078111a89dd5bc0f92a696d5416a5",
+      "kind": "http",
+      "source": {
+        "path": "engine/launch.py",
+        "symbol": "_install_desktop_routes.desktop_identity",
+        "line": 273,
+        "end_line": 273,
+        "syntax_sha256": "8d0f1ca5fb7678a7fd6199c4cb6b41e22b49bbbd3931084c3625620cd5b62d67"
+      },
+      "receiver": "api_app",
+      "method": "get",
+      "selectors": [
+        "/api/desktop/identity"
+      ],
+      "selector_expression": "'/api/desktop/identity'",
+      "methods_expression": null,
+      "resolution": "literal"
+    },
+    {
+      "site_id": "9cc1563b2b02292dc32bd813d309cca66f6095a75d5c0d7e1047c59586f78a96",
+      "kind": "http",
+      "source": {
+        "path": "engine/launch.py",
+        "symbol": "_install_desktop_routes.desktop_notifications",
+        "line": 286,
+        "end_line": 286,
+        "syntax_sha256": "244279a136262a6f45be3fcaad7575ecc7fb9e7f5ab3c13e32b6aa3983261386"
+      },
+      "receiver": "api_app",
+      "method": "get",
+      "selectors": [
+        "/api/desktop/notifications"
+      ],
+      "selector_expression": "'/api/desktop/notifications'",
+      "methods_expression": null,
+      "resolution": "literal"
+    },
+    {
+      "site_id": "4b7dc658335ec571fdeb6e6b47acf4b14aad2379312f9b62a3f41b60b336b74b",
+      "kind": "http",
+      "source": {
+        "path": "engine/launch.py",
+        "symbol": "_install_desktop_routes.desktop_hub",
+        "line": 291,
+        "end_line": 291,
+        "syntax_sha256": "70f9e0d78daf5d7cfdebde44517a6d48bfef0ff0254fe76c08decf2368dfed51"
+      },
+      "receiver": "api_app",
+      "method": "get",
+      "selectors": [
+        "/api/desktop/hub"
+      ],
+      "selector_expression": "'/api/desktop/hub'",
+      "methods_expression": null,
+      "resolution": "literal"
+    },
+    {
+      "site_id": "5f20332a037a274717347420a6c04e7bbe26f07ad6a97da69de45ec82a9bb8da",
+      "kind": "http",
+      "source": {
+        "path": "engine/launch.py",
+        "symbol": "_install_desktop_routes.configure_desktop_hub",
+        "line": 298,
+        "end_line": 298,
+        "syntax_sha256": "18019aba66227e470c3b052ae05b5afc4694ae9ac2fe49b091918f044a602e2c"
+      },
+      "receiver": "api_app",
+      "method": "put",
+      "selectors": [
+        "/api/desktop/hub"
+      ],
+      "selector_expression": "'/api/desktop/hub'",
+      "methods_expression": null,
+      "resolution": "literal"
+    },
+    {
+      "site_id": "e083a4306817a72a754853f6cbc93e3cfba864a92a7c5993c6d4f00397f0c59d",
+      "kind": "registration_call",
+      "source": {
+        "path": "engine/launch.py",
+        "symbol": "load_app",
+        "line": 339,
+        "end_line": 339,
+        "syntax_sha256": "7b1f35c97202b220187996081cd4b6c45282690344baf598604dcc46464ee929"
+      },
+      "mechanism": "orgtree.api.app.include_router",
+      "target": "desktop_import.router",
+      "call_expression": "api.app.include_router(desktop_import.router)",
+      "resolution": "expression"
+    },
+    {
+      "site_id": "8aee439b8ef86ef82a503531652a51bdb5f7a6ea78077fcef810659a7e230565",
+      "kind": "task",
+      "source": {
+        "path": "engine/launch.py",
+        "symbol": "main.serve",
+        "line": 407,
+        "end_line": 407,
+        "syntax_sha256": "a5451438d22930486d23e413388daaebe2515bef34338a556e7a4f078b0ec82e"
+      },
+      "mechanism": "asyncio.create_task",
+      "target": "server.serve()",
+      "call_expression": "asyncio.create_task(server.serve())",
+      "resolution": "expression"
+    },
+    {
+      "site_id": "1bc180c84dd5e8a3eeb32c84cbb6aa8d056fe6ee9b8e7ef876ec9c2aa498fe43",
+      "kind": "worker",
+      "source": {
+        "path": "engine/process_lifetime.py",
+        "symbol": "arm_process_lifetime",
+        "line": 57,
+        "end_line": 57,
+        "syntax_sha256": "d6da47d6373b897d294b92ebfe0fda248ace18e7a459bb3dfc38fcbbaf07c266"
+      },
+      "mechanism": "threading.Thread",
+      "target": "receive",
+      "resolution": "expression"
+    },
+    {
+      "site_id": "16e0d2cb316bba54470de2d35e5f97b85681f60401760cf2d76eb65452b5dbe1",
+      "kind": "worker",
+      "source": {
+        "path": "engine/service_host.py",
+        "symbol": "main",
+        "line": 465,
+        "end_line": 465,
+        "syntax_sha256": "00c5afafdc150113596d5ecced58b6eb332c72e45c292f8bd620955eaa32cc79"
+      },
+      "mechanism": "threading.Thread",
+      "target": "read_stdout",
+      "resolution": "expression"
     }
   ],
   "dispatch_selectors": [
@@ -9880,6 +10164,42 @@
       "factory": "sqlite3.connect",
       "classification": "database_factory",
       "arguments_expression": "sqlite3.connect(path, timeout=30, factory=census_contacts.sidecar('transcript_records'))"
+    },
+    {
+      "source": {
+        "path": "engine/mailhub_runtime.py",
+        "symbol": "MailhubRuntime._migrate_store",
+        "line": 184,
+        "end_line": 184,
+        "syntax_sha256": "a3347a225ff69c9fc1bde9a5b0763f63d746bad29ebaf744890e724e6d92857d"
+      },
+      "factory": "sqlite3.connect",
+      "classification": "database_factory",
+      "arguments_expression": "sqlite3.connect(dest_db, timeout=10.0)"
+    },
+    {
+      "source": {
+        "path": "engine/mailhub_runtime.py",
+        "symbol": "MailhubRuntime._migrate_store",
+        "line": 202,
+        "end_line": 203,
+        "syntax_sha256": "f8f20b958171c5a30122e8377d4dbba90aa0524981ed8320d9032b808963ed4b"
+      },
+      "factory": "sqlite3.connect",
+      "classification": "database_factory",
+      "arguments_expression": "sqlite3.connect(f'file:{source.as_posix()}?mode=ro', uri=True, timeout=10.0)"
+    },
+    {
+      "source": {
+        "path": "engine/mailhub_runtime.py",
+        "symbol": "MailhubRuntime._migrate_store",
+        "line": 205,
+        "end_line": 205,
+        "syntax_sha256": "32480e580076a738a709d7d3b54af871b5b47240cb2b149fd1407fa0a565134c"
+      },
+      "factory": "sqlite3.connect",
+      "classification": "database_factory",
+      "arguments_expression": "sqlite3.connect(dest_db, timeout=30.0)"
     }
   ],
   "doc_lock_references": [

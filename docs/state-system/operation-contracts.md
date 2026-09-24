@@ -45,9 +45,9 @@ operation-contracts.json uses schema orgtree.state-operation-contracts/v1.
 | Part | Checked requirement |
 |---|---|
 | source_inventory_sha256 | SHA256 of canonical UTF-8 JSON for the full current inventory; sorted keys, compact separators, unescaped Unicode. Whole-module hashes invalidate helper changes, including unrecognized registrations. |
-| entries | Exactly one disposition for each of the 319 inventoried registration sites. Pending, mapped or source-backed exclusion. HTTP/WS/tool entries cannot be excluded as false positives. |
+| entries | Exactly one disposition for each of the 333 inventoried registration sites. Pending, mapped or source-backed exclusion. HTTP/WS/tool entries cannot be excluded as false positives. |
 | dispatch | Exactly one disposition for each of the 227 selector witnesses. A branch is evidence, not another operation. |
-| storage | Exactly one disposition for each of the 15 connection candidates. Unknown sockets/factories remain visible. |
+| storage | Exactly one disposition for each of the 18 connection candidates. Unknown sockets/factories remain visible. |
 | contracts | Source-entry bindings, optional tool/action selector, explicit argument normalization and conditional variant, domain mode and all nine dimensions. |
 | facets | Source-span-bound assertions for authority, reads, writes, predicates, conflicts, wire, receipt, effects and instrumentation. An unresolved facet requires concrete open questions. |
 | wire_cases | Executable selector cases for every contract/entry pair; zero, multiple or wrong matches refuse. These are selector fixtures, not complete API-result fixtures. |
@@ -120,8 +120,8 @@ diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
 Current totals are 42 contracts, 29 mapped registrations and 51 mapped
-dispatch witnesses. **558 obligations remain**: 276 registrations, 169 dispatch
-witnesses, 11 storage candidates and 102 unresolved dimension occurrences.
+dispatch witnesses. **571 obligations remain**: 286 registrations, 169 dispatch
+witnesses, 14 storage candidates and 102 unresolved dimension occurrences.
 How it got there: 600 was two more registrations than the preceding 598 because the scanner now
 recognizes `asyncio.to_thread` hand-offs; both new witnesses are pending and no
 existing witness identity, disposition or contract changed.
@@ -318,6 +318,18 @@ control, and the desktop maintenance request, which the launcher installs as the
 prime restart hook). After W1-W8 no
 dispatch witness and no non-concrete registration keeps the generic reason; the remaining generic
 rows are concrete http, websocket and tool registrations.
+571 is thirteen MORE than that 558, and that rise is correct: the inventory was undercounting
+(p01-inventory-misses-the-production-routes-mount). The scan now covers the engine's own top-level
+modules and `engine/winservice`, not only `engine/backend`. That adds 17 witnesses: the ten
+production routes `engine/launch.py` mounts (the V1 import recovery read, which saves the org, and
+its resolve write; desktop status, identity, notifications and shutdown; the maintenance ack and
+failure; the mail hub read and configure), its router include and server task, one worker each in
+`process_lifetime.py` and `service_host.py`, and three mail hub store connections. Four are
+excluded (the router include, the server task and the two startup readers); thirteen stay pending
+with an owner. The launcher also installs the self-restart hook (W7's review fix), another path the
+backend-only scan could not see. `engine/native/**/oracle` (offline test-vector generators) and
+`engine/runtime` (the gitignored interpreter) are not scanned, and a test fails if any other engine
+file with a route, hook, task, worker or connection site is left out.
 
 Of the 41 open dimension occurrences on the sixteen legacy-family contracts, 25 (9 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the

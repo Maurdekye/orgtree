@@ -1,6 +1,6 @@
 {
   "schema": "orgtree.state-operation-contracts/v1",
-  "source_inventory_sha256": "c62eb9d367e0ccbdeda890a119962227c5198414f2a9d43e57eaf9cacefbcac6",
+  "source_inventory_sha256": "94b41dffbd505ea8abbb6e33d0264caf052dfaf62e1a881a10ea886f70b8caf2",
   "qualification": {
     "runtime_census": false,
     "conversion_authorized": false
@@ -13693,6 +13693,144 @@
       "contracts": [],
       "reason": "b41dcf1 (external charter template folders): PUT /api/app-settings/charter-template-dirs, the app-wide folder-list setting write. No P01 contract describes it yet; recorded pending rather than mapped, because this stage authors no contract text.",
       "source_refs": []
+    },
+    {
+      "id": "3d6e25e527171899dddf10348ba480736966d4bd996443f7ba74752bf6806a16",
+      "disposition": "pending",
+      "contracts": [],
+      "reason": "Stays pending (P01 launch.py item): GET /api/desktop/import-v1/{slug}/recovery is a production route mounted by the desktop launcher (engine/launch.py), which the backend-only scan could not see; desktop_recovery.status loads the org under DOC_LOCK, seeds its V1 import recovery rows and SAVES the org (a GET that writes). It has no contract, and an http registration is never excluded. Owner: the desktop import.",
+      "source_refs": []
+    },
+    {
+      "id": "b966c38957374ce9f049e63ec1715686886e10afdfb85c6c48627af8af8a8a13",
+      "disposition": "pending",
+      "contracts": [],
+      "reason": "Stays pending (P01 launch.py item): POST /api/desktop/import-v1/{slug}/resolve is a production route mounted by the desktop launcher (engine/launch.py), which the backend-only scan could not see; desktop_recovery.resolve_import loads and saves the org under DOC_LOCK (retry, continue or mark-handled). It has no contract, and an http registration is never excluded. Owner: the desktop import.",
+      "source_refs": []
+    },
+    {
+      "id": "94fa7526675acab8e163b62abba46b687cef0e1c5b8e26314a44c637dc540398",
+      "disposition": "pending",
+      "contracts": [],
+      "reason": "Stays pending (P01 launch.py item): GET /api/desktop/status is a production route mounted by the desktop launcher (engine/launch.py), which the backend-only scan could not see; it reads every org's live count (store.cached_list), the supervisor's turn state, the import jobs, the mail hub and the maintenance record. It has no contract, and an http registration is never excluded. Owner: the runtime (P08).",
+      "source_refs": []
+    },
+    {
+      "id": "2119463ddd219fec4fb06842a0acf68686cb4370de81d2ef506300e767f49596",
+      "disposition": "pending",
+      "contracts": [],
+      "reason": "Stays pending (P01 launch.py item): POST /api/desktop/maintenance/ack is a production route mounted by the desktop launcher (engine/launch.py), which the backend-only scan could not see; desktop_maintenance.acknowledge takes the supervisor's force hold on turns (supervisor._force_hold_take) and writes <DATA_ROOT>/desktop-maintenance.json. It has no contract, and an http registration is never excluded. Owner: desktop maintenance with the runtime (P08).",
+      "source_refs": []
+    },
+    {
+      "id": "7a7d921db41e2580bce84b64f5228acb70c345d2be6e759861fa8e25e0c22968",
+      "disposition": "pending",
+      "contracts": [],
+      "reason": "Stays pending (P01 launch.py item): POST /api/desktop/maintenance/failure is a production route mounted by the desktop launcher (engine/launch.py), which the backend-only scan could not see; desktop_maintenance.execution_failed writes the maintenance record. It has no contract, and an http registration is never excluded. Owner: desktop maintenance.",
+      "source_refs": []
+    },
+    {
+      "id": "68f8c34971bd26b46340875990fcd4cfbe8e5e3deb08e163c657ba38351eb7c7",
+      "disposition": "pending",
+      "contracts": [],
+      "reason": "Stays pending (P01 launch.py item): POST /api/desktop/shutdown is a production route mounted by the desktop launcher (engine/launch.py), which the backend-only scan could not see; it cancels the startup recovery and stops the engine, ending every running turn. It has no contract, and an http registration is never excluded. Owner: the runtime (P08).",
+      "source_refs": []
+    },
+    {
+      "id": "27272b2a22a3d84423412d98b90840c57f1078111a89dd5bc0f92a696d5416a5",
+      "disposition": "pending",
+      "contracts": [],
+      "reason": "Stays pending (P01 launch.py item): GET /api/desktop/identity is a production route mounted by the desktop launcher (engine/launch.py), which the backend-only scan could not see; it reports the process, data root and build identity. It has no contract, and an http registration is never excluded. Owner: the runtime (P08).",
+      "source_refs": []
+    },
+    {
+      "id": "9cc1563b2b02292dc32bd813d309cca66f6095a75d5c0d7e1047c59586f78a96",
+      "disposition": "pending",
+      "contracts": [],
+      "reason": "Stays pending (P01 launch.py item): GET /api/desktop/notifications is a production route mounted by the desktop launcher (engine/launch.py), which the backend-only scan could not see; desktop_notifications.notices reads the desktop notification feed. It has no contract, and an http registration is never excluded. Owner: desktop notifications.",
+      "source_refs": []
+    },
+    {
+      "id": "4b7dc658335ec571fdeb6e6b47acf4b14aad2379312f9b62a3f41b60b336b74b",
+      "disposition": "pending",
+      "contracts": [],
+      "reason": "Stays pending (P01 launch.py item): GET /api/desktop/hub is a production route mounted by the desktop launcher (engine/launch.py), which the backend-only scan could not see; it reads or configures the @net: mail hub runtime (MailhubRuntime.status or configure). It has no contract, and an http registration is never excluded. Owner: channels and mail (P07).",
+      "source_refs": []
+    },
+    {
+      "id": "5f20332a037a274717347420a6c04e7bbe26f07ad6a97da69de45ec82a9bb8da",
+      "disposition": "pending",
+      "contracts": [],
+      "reason": "Stays pending (P01 launch.py item): PUT /api/desktop/hub is a production route mounted by the desktop launcher (engine/launch.py), which the backend-only scan could not see; it reads or configures the @net: mail hub runtime (MailhubRuntime.status or configure). It has no contract, and an http registration is never excluded. Owner: channels and mail (P07).",
+      "source_refs": []
+    },
+    {
+      "id": "e083a4306817a72a754853f6cbc93e3cfba864a92a7c5993c6d4f00397f0c59d",
+      "disposition": "excluded",
+      "contracts": [],
+      "reason": "Not an operation: app.include_router(desktop_import.router) in the desktop launcher only adds the desktop import router's routes, and each of those routes is its own inventoried http registration (desktop_import.py), which carries the obligation; the same reasoning as W1's router includes. P01 launch.py item.",
+      "source_refs": [
+        {
+          "path": "engine/launch.py",
+          "start": 339,
+          "end": 339,
+          "sha256": "f059228954a93dbdd4bb681320285b849410e92d7851c5d2e14049e7ede580a5"
+        }
+      ]
+    },
+    {
+      "id": "8aee439b8ef86ef82a503531652a51bdb5f7a6ea78077fcef810659a7e230565",
+      "disposition": "excluded",
+      "contracts": [],
+      "reason": "Not an operation: the launcher's asyncio task runs uvicorn's server.serve(), which only hosts the app; every route it serves is its own inventoried registration, which carries the obligation. JUDGEMENT CALL: the server loop itself touches no org store. P01 launch.py item.",
+      "source_refs": [
+        {
+          "path": "engine/launch.py",
+          "start": 407,
+          "end": 407,
+          "sha256": "f0b65462be76c3f25d56f890134b8c3b26f297a328b857d56fff75c52e987891"
+        },
+        {
+          "path": "engine/launch.py",
+          "start": 406,
+          "end": 407,
+          "sha256": "b4d6f20d68cc3e93f6dca6adb90efa7fa9a0a20ba99b304ff32b56fb4e3d867b"
+        }
+      ]
+    },
+    {
+      "id": "1bc180c84dd5e8a3eeb32c84cbb6aa8d056fe6ee9b8e7ef876ec9c2aa498fe43",
+      "disposition": "excluded",
+      "contracts": [],
+      "reason": "Not org state: the receive thread only relays the lifetime guardian process's startup handshake lines into a local queue (arm_process_lifetime), so the engine knows the guardian that ends it with its desktop parent is armed; it reads and writes no org store or sidecar and its output never reaches node state. JUDGEMENT CALL. P01 launch.py item.",
+      "source_refs": [
+        {
+          "path": "engine/process_lifetime.py",
+          "start": 57,
+          "end": 57,
+          "sha256": "dfd2299bcb945af178bc511f0bf9232d395766ccd124ed8574d4be37ae97502f"
+        },
+        {
+          "path": "engine/process_lifetime.py",
+          "start": 50,
+          "end": 56,
+          "sha256": "0c4822da8bd328287a9da6100e35d19d894bcbed28c4d3aaa19872f3995e9a41"
+        }
+      ]
+    },
+    {
+      "id": "16e0d2cb316bba54470de2d35e5f97b85681f60401760cf2d76eb65452b5dbe1",
+      "disposition": "excluded",
+      "contracts": [],
+      "reason": "Not org state: the Windows service host's read_stdout thread only parses the child engine's startup progress and readiness lines (parse_progress, parse_ready) to decide whether the service started; it reads and writes no org store or sidecar and its output never reaches node state. JUDGEMENT CALL. P01 launch.py item.",
+      "source_refs": [
+        {
+          "path": "engine/service_host.py",
+          "start": 465,
+          "end": 465,
+          "sha256": "a4bcccf6e5dc881e570038a171a3ea138b5993299b7b30a18ea37c26cd51fba1"
+        }
+      ]
     }
   ],
   "dispatch": [
@@ -16038,6 +16176,27 @@
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 S2k): the transcript_records sidecar. P02's per-operation probe observes it under mail.human-send and material.transcript, but a shared site is mapped only once every operation reaching it has a contract (the rule for shared selectors, S3 decision 3), and the supervisor's prompt-view and journal paths and transcript_ingest, which no contract covers, reach it.",
+      "source_refs": []
+    },
+    {
+      "id": "ba9cf0329bacb548b655407bee2b85f39544cc04933b00cb60e74c8394a6c178",
+      "disposition": "pending",
+      "contracts": [],
+      "reason": "Stays pending (P01 launch.py item): the @net: mail hub store migration (MailhubRuntime._migrate_store) opens the superseded hub store read-only and the new hub store, and copies the queued messages and attachments, mail in transit to and from orgs. Owner: channels and mail (P07).",
+      "source_refs": []
+    },
+    {
+      "id": "24e86182c783dd998b5a9213e5ac2275d152d67b2a54f69bf52524dc736919d1",
+      "disposition": "pending",
+      "contracts": [],
+      "reason": "Stays pending (P01 launch.py item): the @net: mail hub store migration (MailhubRuntime._migrate_store) opens the superseded hub store read-only and the new hub store, and copies the queued messages and attachments, mail in transit to and from orgs. Owner: channels and mail (P07).",
+      "source_refs": []
+    },
+    {
+      "id": "82c85c6f550589ef8bfa5875678de05cc58e4d8912d22f1d3385a9455df8893d",
+      "disposition": "pending",
+      "contracts": [],
+      "reason": "Stays pending (P01 launch.py item): the @net: mail hub store migration (MailhubRuntime._migrate_store) opens the superseded hub store read-only and the new hub store, and copies the queued messages and attachments, mail in transit to and from orgs. Owner: channels and mail (P07).",
       "source_refs": []
     }
   ]

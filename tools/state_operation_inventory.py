@@ -262,14 +262,33 @@ class ModuleInventory(ast.NodeVisitor):
             self.lock_references.append(self.site(node))
 
 
+# Outside engine/backend (coordinator ruling on p01-inventory-misses-the-production-routes-mount, 2026-09-24):
+# the engine's own top-level modules and engine/winservice run in production too. engine/launch.py mounts routes
+# and installs hooks that a backend-only scan could not see. NOT scanned: engine/native/**/oracle (offline
+# test-vector generators, never imported by the product) and engine/runtime (the gitignored packaged interpreter).
+ENGINE_EXTRA_TREES = ("engine/winservice",)
+SKIPPED_PARTS = {"__pycache__", ".venv", "node_modules"}
+
+
+def module_paths(repo: Path) -> list[Path]:
+    """Every module the inventory scans: engine/backend first (its order is unchanged), then the engine's own
+    top-level modules, then each extra tree."""
+    backend = repo / "engine/backend"
+    paths = [p for p in sorted(backend.rglob("*.py")) if not SKIPPED_PARTS & set(p.relative_to(backend).parts)]
+    paths += sorted((repo / "engine").glob("*.py"))
+    for tree in ENGINE_EXTRA_TREES:
+        root = repo / tree
+        if root.is_dir():
+            paths += [p for p in sorted(root.rglob("*.py")) if not SKIPPED_PARTS & set(p.relative_to(root).parts)]
+    return paths
+
+
 def scan(repo: Path) -> dict:
     backend = repo / "engine/backend"
     if not backend.is_dir():
         raise ValueError("repository has no engine/backend directory")
     modules, registrations, selectors, storage, locks = [], [], [], [], []
-    for path in sorted(backend.rglob("*.py")):
-        if any(part in {"__pycache__", ".venv", "node_modules"} for part in path.relative_to(backend).parts):
-            continue
+    for path in module_paths(repo):
         # Universal newlines make a checkout's CRLF policy irrelevant.
         source = path.read_text(encoding="utf-8-sig")
         relative = path.relative_to(repo).as_posix()
