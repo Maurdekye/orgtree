@@ -575,7 +575,7 @@ Clauses from the Owner lines at v3 881c14c.
 
 | Facet | Closing clause | Status | Rows |
 |---|---|---|---|
-| `human-mail.reads` | observed per-operation contacts for the human send by class (top-level, deep, archived, notice, session command, reply target), cold and warm | covered | `mail.human-send`, `:deep`, `:archived`, `:notice`, `:session-command`, `:reply-to-chat-event`, `:reply-target`, and `:attachment` (the working-folder stats, `audit.stat`); each cold and warm; plus the refusals |
+| `human-mail.reads` | observed per-operation contacts for the human send by class (top-level, deep, archived, notice, session command, reply target), cold and warm | covered | `mail.human-send`, `:deep`, `:archived`, `:notice`, `:session-command`, `:reply-to-chat-event`, `:reply-target`, and `:attachment` (the working-folder stats, `audit.stat`); each cold and warm; plus the refusals. `:session-command` observes the DECLINED immediate path (the spy returns False); a real immediate command's reads are not observed (see `human-mail.effects`) |
 | `human-mail.instrumentation` | an observed, loss-accounted contact record for the human send with agent-level locality (the node and its notified chain only) | partly | covered: the rows above, per-row loss zero, `agents.logical` = the node plus its chain's deep-reach notices (and the first audience grant), `control:human-send-third-agent` flagged. NOT covered: P03 native negative controls |
 | `human-mail.effects` | the observed effects of the session-command branch (immediate_command, the command delivery and the /compact background compaction), with their failure outcomes | partly (P08 owns it; P02 observes) | covered: `:session-command` counts `immediate_command` (declined) and the command delivery (`send_message`), both spies; `refusal:compact-no-conversation` records a refused `/compact` that has already saved the chain notice (legacy behaviour, not endorsed; backlogged as `a-refused-compact-still-notifies-the-superior-ch`). NOT observed: a real immediate command, a real delivery, and the `/compact` compaction thread and its failures (not started here; P08) |
 | `inbox.reads` | observed per-operation contacts for the three routes on both store backends, cold and warm | covered | `mail.user-inbox`, `mail.user-inbox-read`, `:nothing-read`, `mail.node-inbox`, each cold and warm, on SQLite and on JSON (`json:` rows); refusals on both |
@@ -586,6 +586,68 @@ Owned elsewhere, with no rows added:
 - `human-mail.conflicts` and `inbox.conflicts`: the native design, then P03
   and P07;
 - `human-mail.wire` and `inbox.wire`: the native/Rust conversion.
+
+## P01 S3 F3: `credits.request`, `credits.reallocate`, `credits.decide`
+
+The fixture follows `tests/test_state_funding_boundary.py` with distinctive
+`f-*` ids:
+- `f-top` (grant 20) and `f-top2` (grant 5) are top-level;
+- `f-mid` (6) and `f-sib` (1) sit under `f-top`; `f-kid` (2) is under `f-mid`.
+
+Delivery wakes are spies, as everywhere.
+
+- **`orgtree_request_credits`** (caller `f-top`), each cold and warm: a new
+  request (`credits.request`, limit 30), `:amend` (35.2, rounded up to 36,
+  the same row) and `:withdraw` (a limit at the current grant). Also
+  `:nothing-to-request` (`f-top2` at its grant, no write) and the refusals
+  `refusal:request-no-reason`, `refusal:request-not-a-number` and
+  `refusal:request-not-top-level` (422).
+- **`orgtree_reallocate`** (caller `f-top`), each cold and warm:
+  `credits.reallocate` (`f-mid` +2), `:down` (`f-mid` -1) and `:deep`
+  (`f-kid` +1; its grant notice also reaches its parent `f-mid`, declared as
+  an implied target). Also `:zero` (only the event is written) and
+  `:fractional` (+0.3 moves a whole credit). Refusals (422): the committed
+  floor, upward, self, and a non-number delta.
+- **Keyed:** `:keyed-fresh` and `:keyed-replay` for both agent tools, cold
+  and warm.
+- **`credits.decide`** (the operator's POST `/api/orgs/{slug}/credit-requests`,
+  actor `@user`), each cold and warm. Each row decides a request its
+  requester made just before, outside the row: approve (`credits.decide`),
+  `:counter` (a different granted amount), `:deny` (`f-top2`), `:moot` (the
+  requester archived for the call) and `:dry` (a dry run). Refusals: a dry
+  run without `granted`, a bad action, the agent credential (401, no census
+  record) and an id that is not pending.
+- **Agent-level locality:**
+  - a request touches no agent but the caller;
+  - a reallocation writes only the target's notices (and its parent's, for
+    a grandchild);
+  - a decision writes only the requester's mail and `mail_log`, plus its
+    grant notice when the grant changes;
+  - moot and dry send nothing, and dry writes nothing.
+
+  The control `control:funding-third-agent` (a reallocation whose closing
+  tree broadcast also posts mail to `f-sib`) is flagged.
+
+Observed and recorded, not a defect claim: a warm raise to `f-mid` (and the
+warm zero delta) also READS the row of `f-mid`'s child `f-kid`. The row shows
+it as a physical `third` read with no write. Which product step reads it is
+not established here. The raise's own path (`_chain_acquire` on the parent)
+does not obviously explain it. Cold, the whole node table is read in one
+statement, so no per-node read shows (see Limits: agent identity comes from
+statement parameters).
+
+## Hand-off to P01 (S3 F3, funding): facet → clause → rows
+
+Clauses from the Owner lines at v3 27c8667 (unchanged since 742492d).
+
+| Facet | Closing clause | Status | Rows |
+|---|---|---|---|
+| `funding.reads` | observed per-operation contacts for the three funding operations (request new/amend/withdraw, reallocate up/down/deep, decide approve/counter/deny/moot/dry), cold and warm | covered | `credits.request`, `:amend`, `:withdraw`; `credits.reallocate`, `:down`, `:deep`; `credits.decide`, `:counter`, `:deny`, `:moot`, `:dry`; each cold and warm; plus the no-op, zero, fractional, keyed and refusal rows |
+| `funding.instrumentation` | an observed, loss-accounted contact record for the three funding operations with agent-level locality (the caller, the target and its chain only) | partly | covered: the rows above, per-row loss zero; `agents` writes only the caller (request), the target and, for a grandchild, its parent (reallocate), or the requester (decide); `control:funding-third-agent` flagged. Beyond the clause's set, a warm raise READS the target's child row (no write; the step is not identified). NOT covered: P03 native negative controls |
+
+Owned elsewhere, with no rows added:
+- `funding.conflicts`: the native balance-row design, then P03;
+- `funding.wire`: the native/Rust conversion.
 
 ## Limits
 

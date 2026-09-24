@@ -2154,6 +2154,155 @@ class Probe:
                      env=env, refusal=("legacy .json without ORGTREE_MIGRATE"
                                        if variant == "migration:refused" else None))
 
+    # -- P01 S3 F3: credits.request, credits.reallocate, credits.decide -------------
+    def build_funding(self) -> None:
+        """tests/test_state_funding_boundary.py's org (distinctive `f-*` ids)
+        plus a third agent, 'f-sib', for the locality control."""
+        store, ledger = self.m["store"], self.m["ledger"]
+        org = store.create_org("p02-contacts-funding")
+        self.fslug = str(org.d["slug"])
+        org.hire(ledger.USER, None, "haiku", 20, "f-top")
+        org.hire(ledger.USER, "f-top", "haiku", 6, "f-mid")
+        org.hire(ledger.USER, "f-mid", "haiku", 2, "f-kid")
+        org.hire(ledger.USER, "f-top", "haiku", 1, "f-sib")
+        org.hire(ledger.USER, None, "haiku", 5, "f-top2")
+        org.d["mail"], org.d["audiences"] = {}, []
+        store.save_org(org)
+        for n in ("f-top", "f-mid", "f-top2"):
+            self.tokens[(self.fslug, n)] = self.m["agentauth"].child_env(
+                self.fslug, n)["ORGTREE_AGENT_TOKEN"]
+
+    def funding(self) -> None:
+        """Every funding outcome P01's clause names, cold and warm: request
+        new/amend/withdraw, reallocate up/down/deep, decide approve/counter/
+        deny/moot/dry; plus refusals, keyed paths and a locality control."""
+        s, store, api, opreceipts = self.fslug, self.m["store"], self.m["api"], self.m["opreceipts"]
+        user, op, both = self.m["ledger"].USER, self.OPERATOR, ("cold", "warm")
+        rc, ra = "orgtree_request_credits", "orgtree_reallocate"
+
+        def agent(contract: str, variant: str, condition: str, actor: str, tool: str,
+                  args: dict[str, Any], **kw: Any) -> None:
+            self.run(contract, variant, condition, s, actor, tool, args, **kw)
+
+        # credits.request: a new request, an amendment (35.2 rounds UP to 36),
+        # a withdrawal (a limit at the current grant); the warm new request is
+        # a fresh one after the cold withdrawal
+        for condition in both:
+            for variant, limit in (("credits.request", 30), ("credits.request:amend", 35.2),
+                                   ("credits.request:withdraw", 20)):
+                agent("credits.request", variant, condition, "f-top", rc,
+                      {"new_limit": limit, "reason": "fixture"})
+        agent("credits.request", "credits.request:nothing-to-request", "warm", "f-top2", rc,
+              {"new_limit": 5, "reason": "fixture"})
+        for variant, actor, args, refusal in (
+                ("refusal:request-no-reason", "f-top2", {"new_limit": 40},
+                 "422 a reason is required"),
+                ("refusal:request-not-a-number", "f-top2", {"new_limit": "lots", "reason": "x"},
+                 "422 new_limit must be a number"),
+                ("refusal:request-not-top-level", "f-mid", {"new_limit": 40, "reason": "x"},
+                 "422 only top-level agents")):
+            agent("credits.request", variant, "warm", actor, rc, args, refusal=refusal)
+
+        # credits.reallocate: up, down and deep (a grandchild: its grant notice
+        # also reaches its parent, f-mid), cold and warm; zero and fractional
+        for condition in both:
+            agent("credits.reallocate", "credits.reallocate", condition, "f-top", ra,
+                  {"node": "f-mid", "delta": 2})
+            agent("credits.reallocate", "credits.reallocate:down", condition, "f-top", ra,
+                  {"node": "f-mid", "delta": -1})
+            agent("credits.reallocate", "credits.reallocate:deep", condition, "f-top", ra,
+                  {"node": "f-kid", "delta": 1}, implied=("f-mid",))
+        agent("credits.reallocate", "credits.reallocate:zero", "warm", "f-top", ra,
+              {"node": "f-mid", "delta": 0})
+        agent("credits.reallocate", "credits.reallocate:fractional", "warm", "f-top", ra,
+              {"node": "f-mid", "delta": 0.3})
+        for variant, actor, args, refusal in (
+                ("refusal:reallocate-committed-floor", "f-top", {"node": "f-mid", "delta": -100},
+                 "422 below the committed floor"),
+                ("refusal:reallocate-upward", "f-mid", {"node": "f-top", "delta": 1},
+                 "422 no authority over a superior"),
+                ("refusal:reallocate-self", "f-mid", {"node": "f-mid", "delta": 1},
+                 "422 no authority over itself"),
+                ("refusal:reallocate-not-a-number", "f-top", {"node": "f-mid", "delta": "x"},
+                 "422 delta must be a number")):
+            agent("credits.reallocate", variant, "warm", actor, ra, args, refusal=refusal)
+
+        # keyed fresh and replay, both agent tools, cold and warm
+        epoch = self.client.post("/api/agent",
+                                 json=self.agent_body(s, "f-top", opreceipts.OP_EPOCH, {}),
+                                 headers={"X-Orgtree-Agent-Token": self.tokens[(s, "f-top")]}
+                                 ).json()["epoch"]
+        for contract, tool, args in (("credits.reallocate", ra, {"node": "f-mid", "delta": 1}),
+                                     ("credits.request", rc, {"new_limit": 90, "reason": "k"})):
+            for condition in both:
+                key = opreceipts.mint_key()
+                agent(contract, f"{contract}:keyed-fresh", condition, "f-top", tool, args,
+                      key=key, epoch=epoch)
+                agent(contract, f"{contract}:keyed-replay", condition, "f-top", tool, args,
+                      key=key, epoch=epoch,
+                      refusal="keyed replay (answered from the receipt, no effect)")
+
+        # credits.decide (operator POST /credit-requests). Each row decides a
+        # request made just before it, OUTSIDE the row, by the requester
+        def pending(requester: str) -> str:
+            grant = int(store.load_org(s).node(requester)["grant"])
+            r = self.client.post("/api/agent", json=self.agent_body(
+                s, requester, rc, {"new_limit": grant + 2, "reason": "fixture"}),
+                headers={"X-Orgtree-Agent-Token": self.tokens[(s, requester)]})
+            if r.status_code != 200:
+                raise RuntimeError(f"fixture credit request answered {r.status_code}: {r.text[:200]}")
+            return next(str(q["id"]) for q in store.load_org(s).d.get("credit_requests") or []
+                        if q.get("node") == requester and q.get("status") == "pending")
+
+        def decide(variant: str, condition: str, requester: str, body: dict[str, Any],
+                   headers: Any = op, **kw: Any) -> None:
+            self.run("credits.decide", variant, condition, s, user, "POST credits.decide",
+                     {"node": requester, **body},
+                     call=self.http(self.client, f"/api/orgs/{s}/credit-requests", headers, body),
+                     **kw)
+
+        def archive(o: Any) -> None:
+            saved["state"] = o.node("f-top2")["state"]
+            o.node("f-top2")["state"] = "archived"
+        saved: dict[str, Any] = {}
+        for condition in both:
+            grant = int(store.load_org(s).node("f-top")["grant"])
+            decide("credits.decide", condition, "f-top",
+                   {"id": pending("f-top"), "action": "approve"})
+            decide("credits.decide:counter", condition, "f-top",
+                   {"id": pending("f-top"), "action": "approve", "granted": grant + 3})
+            decide("credits.decide:deny", condition, "f-top2",
+                   {"id": pending("f-top2"), "action": "deny"})
+            rid = pending("f-top2")
+            self.mutate(s, archive)
+            decide("credits.decide:moot", condition, "f-top2", {"id": rid, "action": "approve"})
+            self.mutate(s, lambda o: o.node("f-top2").update(state=saved["state"]))
+            decide("credits.decide:dry", condition, "f-top",
+                   {"id": pending("f-top"), "action": "approve",
+                    "granted": int(store.load_org(s).node("f-top")["grant"]) + 1, "dry": True})
+        rid = pending("f-top")
+        for variant, body, headers, refusal in (
+                ("refusal:decide-dry-without-granted", {"id": rid, "action": "approve", "dry": True},
+                 op, "422 dry run needs `granted`"),
+                ("refusal:decide-bad-action", {"id": rid, "action": "maybe"}, op,
+                 "422 action must be approve|deny"),
+                ("refusal:decide-agent-token", {"id": rid, "action": "approve"},
+                 {"X-Orgtree-Agent-Token": self.tokens[(s, "f-top")]},
+                 "401 an agent credential is refused here"),
+                ("refusal:decide-not-pending", {"id": "cr1", "action": "approve"}, op,
+                 "422 no pending credit request")):
+            decide(variant, "warm", "f-top", body, headers=headers, refusal=refusal)
+
+        # agent-level locality control: a reallocation whose closing tree
+        # broadcast (api.hub_changed) ALSO posts mail to a third agent
+        def mail_third(*_a: Any, **_k: Any) -> None:
+            with store.write_org(s) as o:
+                o.post_mail("f-top", "f-sib", "p02 control: mail to a third agent")
+                store.save_org(o)
+        agent("credits.reallocate", "control:funding-third-agent", "warm", "f-top", ra,
+              {"node": "f-mid", "delta": 1}, refusal="negative control (not a product path)",
+              patches=[(api, "hub_changed", mail_third)])
+
     # -- the r5 residuals ----------------------------------------------------
     def residuals(self) -> dict[str, Any]:
         """db_unbound and unclassified_action, reproduced: which records carry
@@ -2240,10 +2389,11 @@ class Probe:
             self.build_status()
             self.build_org_view()
             self.build_mail()
+            self.build_funding()
         self.build_human()
         for slug in ((self.dslug, self.hslug) if json_backend else
                      (self.rslug, self.mslug, self.dslug, self.pslug, self.sslug,
-                      self.stslug, self.ovslug, self.mlslug, self.hslug)):
+                      self.stslug, self.ovslug, self.mlslug, self.hslug, self.fslug)):
             _NODES[slug] = {str(n) for n in self.m["store"].load_org(slug).nodes}
         self.operator("post", "/api/diagnostics/operation-census/reset")
         self.operator("post", "/api/diagnostics/operation-census", json={"enabled": True})
@@ -2264,6 +2414,7 @@ class Probe:
             self.mail()
             self.human()
             self.inbox()
+            self.funding()
         w1 = self.census_state()
         self.load_table_catalogue()
         self.map_tables()

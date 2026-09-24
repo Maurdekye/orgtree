@@ -35,7 +35,8 @@ CONTRACTS = {f"reservation.{v}" for v in RESERVATION} | {
     "material.scratch", "material.transcript", "diagnostic.inspect",
     "diagnostic.capabilities", "preview.agent", "status.report", "chart.read",
     "org.tree", "org.node-detail", "org.feed", "mail.message", "mail.notice",
-    "mail.human-send", "mail.user-inbox", "mail.user-inbox-read", "mail.node-inbox"}
+    "mail.human-send", "mail.user-inbox", "mail.user-inbox-read", "mail.node-inbox",
+    "credits.request", "credits.reallocate", "credits.decide"}
 
 
 class OperationContacts(unittest.TestCase):
@@ -254,7 +255,7 @@ class OperationContacts(unittest.TestCase):
         producing = set()
         for r in self.doc["rows"]:
             if r["variant"] in (self.CONTROL, self.STATUS_CONTROL, self.MAIL_CONTROL,
-                                self.HUMAN_CONTROL):
+                                self.HUMAN_CONTROL, self.FUNDING_CONTROL):
                 continue
             with self.subTest(variant=r["variant"], condition=r["condition"]):
                 self.assertEqual(r["agents"]["third_agent_mail"], 0)
@@ -265,7 +266,8 @@ class OperationContacts(unittest.TestCase):
             if r["agents"]["mail_producing"]:
                 producing.add(r["contract"])
         self.assertEqual(producing, {"reservation.release-notify", "status.report",
-                                     "mail.message", "mail.notice", "mail.human-send"})
+                                     "mail.message", "mail.notice", "mail.human-send",
+                                     "credits.reallocate", "credits.decide"})
 
     def test_third_agent_mail_control_is_flagged(self):
         control = self.rows(variant=self.CONTROL)
@@ -1013,6 +1015,118 @@ class OperationContacts(unittest.TestCase):
                 warm = self.rows(contract=contract, variant="migration:legacy-json",
                                  condition="warm")[0]
                 self.assertEqual((warm["http_status"], warm["harness"]["writes"]), (200, 0))
+
+    # -- P01 S3 F3: credits.request, credits.reallocate, credits.decide -------------
+    FUNDING_CONTROL = "control:funding-third-agent"
+
+    def test_credit_requests_touch_only_the_caller(self):
+        """funding.reads/instrumentation, credits.request: new, amend and
+        withdraw, cold and warm; no other agent is read or written."""
+        for variant in ("credits.request", "credits.request:amend", "credits.request:withdraw",
+                        "credits.request:keyed-fresh"):
+            for condition in ("cold", "warm"):
+                with self.subTest(variant=variant, condition=condition):
+                    r = self.rows(contract="credits.request", variant=variant,
+                                  condition=condition)[0]
+                    self.assertEqual(r["http_status"], 200, r["detail"])
+                    self.assertEqual(r["census"]["records"], 1)
+                    self.assertGreater(r["harness"]["writes"], 0)
+                    self.assertTrue(r["harness"]["all_writes_in_transaction"])
+                    agents = r["agents"]
+                    self.assertEqual((agents["targets"], agents["logical"],
+                                      agents["physical_nodes"]), ([], {}, {}))
+                    self.assertEqual(r["wakes"], {"send_message": 0, "mail_notify": 0})
+        noop = self.rows(variant="credits.request:nothing-to-request")[0]
+        self.assertEqual((noop["http_status"], noop["harness"]["writes"]), (200, 0))
+        for variant in ("refusal:request-no-reason", "refusal:request-not-a-number",
+                        "refusal:request-not-top-level"):
+            r = self.rows(variant=variant)[0]
+            self.assertEqual((r["http_status"], r["harness"]["writes"]), (422, 0), variant)
+
+    def test_reallocation_reaches_the_target_and_its_parent_only(self):
+        """credits.reallocate up/down/deep, cold and warm: the grant notice
+        goes to the target (and, for a grandchild, its parent). Besides them
+        the only agent row touched is READ: a warm raise to f-mid reads its
+        child f-kid's row (the product step is not identified), and nothing of
+        it is written."""
+        cases = {"credits.reallocate": ["f-mid"], "credits.reallocate:down": ["f-mid"],
+                 "credits.reallocate:deep": ["f-kid", "f-mid"],
+                 "credits.reallocate:keyed-fresh": ["f-mid"]}
+        for variant, noticed in cases.items():
+            for condition in ("cold", "warm"):
+                with self.subTest(variant=variant, condition=condition):
+                    r = self.rows(contract="credits.reallocate", variant=variant,
+                                  condition=condition)[0]
+                    self.assertEqual(r["http_status"], 200, r["detail"])
+                    self.assertTrue(r["harness"]["all_writes_in_transaction"])
+                    agents = r["agents"]
+                    self.assertEqual(agents["targets"], noticed)
+                    self.assertEqual(agents["logical"], {"notices": {n: "target" for n in noticed}})
+                    third = {n for n, role in agents["physical_nodes"].items() if role == "third"}
+                    self.assertLessEqual(third, {"f-kid"})
+                    self.assertEqual((agents["third_agent_mail"],
+                                      agents["third_agent_rows_written"]), (0, 0))
+                    self.assertEqual(r["wakes"], {"send_message": 0, "mail_notify": 0})
+        self.assertEqual(self.rows(variant="credits.reallocate", condition="warm")[0]
+                         ["agents"]["physical_nodes"].get("f-kid"), "third")
+        zero = self.rows(variant="credits.reallocate:zero")[0]
+        self.assertEqual((zero["http_status"], zero["harness"]["writes"], zero["agents"]["logical"]),
+                         (200, 1, {}))                 # the 'reallocate' event only
+        frac = self.rows(variant="credits.reallocate:fractional")[0]
+        self.assertEqual(frac["agents"]["logical"], {"notices": {"f-mid": "target"}})
+        for variant in ("refusal:reallocate-committed-floor", "refusal:reallocate-upward",
+                        "refusal:reallocate-self", "refusal:reallocate-not-a-number"):
+            r = self.rows(variant=variant)[0]
+            self.assertEqual((r["http_status"], r["harness"]["writes"]), (422, 0), variant)
+        for contract in ("credits.request", "credits.reallocate"):
+            for condition in ("cold", "warm"):
+                replay = self.rows(variant=f"{contract}:keyed-replay", condition=condition)[0]
+                self.assertEqual((replay["http_status"], replay["harness"]["writes"]), (200, 0))
+
+    def test_credit_decisions_reach_only_the_requester(self):
+        """credits.decide approve/counter/deny/moot/dry, cold and warm: a
+        decision is user mail to the requester (plus the grant notice when
+        the grant changes) and one ping; moot and dry send nothing."""
+        cases = {"credits.decide": ("f-top", True, True), "credits.decide:counter": ("f-top", True, True),
+                 "credits.decide:deny": ("f-top2", True, False),
+                 "credits.decide:moot": ("f-top2", False, False),
+                 "credits.decide:dry": ("f-top", False, False)}
+        for variant, (node, mailed, granted) in cases.items():
+            for condition in ("cold", "warm"):
+                with self.subTest(variant=variant, condition=condition):
+                    r = self.rows(contract="credits.decide", variant=variant,
+                                  condition=condition)[0]
+                    self.assertEqual(r["http_status"], 200, r["detail"])
+                    self.assertEqual(r["census"]["records"], 1)
+                    agents = r["agents"]
+                    self.assertEqual(agents["targets"], [node])
+                    want = ({"mail": {node: "target"}, "mail_log": {node: "target"}}
+                            if mailed else {})
+                    if granted:
+                        want["notices"] = {node: "target"}
+                    self.assertEqual(agents["logical"], want)
+                    self.assertEqual((agents["third_agent_mail"],
+                                      agents["third_agent_rows_written"]), (0, 0))
+                    self.assertEqual(r["wakes"], {"send_message": int(mailed),
+                                                  "mail_notify": int(mailed)})
+        for condition in ("cold", "warm"):
+            dry = self.rows(variant="credits.decide:dry", condition=condition)[0]
+            self.assertEqual(dry["harness"]["writes"], 0)
+        for variant, status in (("refusal:decide-dry-without-granted", 422),
+                                ("refusal:decide-bad-action", 422),
+                                ("refusal:decide-agent-token", 401),
+                                ("refusal:decide-not-pending", 422)):
+            r = self.rows(variant=variant)[0]
+            self.assertEqual((r["http_status"], r["harness"]["writes"]), (status, 0), variant)
+        self.assertEqual(self.rows(variant="refusal:decide-agent-token")[0]["census"]["records"], 0)
+
+    def test_funding_third_agent_control_is_flagged(self):
+        control = self.rows(variant=self.FUNDING_CONTROL)[0]
+        self.assertEqual(control["http_status"], 200, control["detail"])
+        agents = control["agents"]
+        self.assertEqual(agents["logical"]["mail"], {"f-sib": "third"})
+        self.assertGreaterEqual(agents["third_agent_mail"], 1)
+        self.assertGreaterEqual(agents["third_agent_rows_written"], 1)
 
 
 if __name__ == "__main__":
