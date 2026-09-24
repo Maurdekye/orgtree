@@ -42,10 +42,10 @@ class ContractCoverage(unittest.TestCase):
         self.assertGreater(result["summary"]["storage"]["pending"], 0)
         # THE one registry-wide tripwire (review of S3 candidate 1): every candidate
         # that maps a witness or adds a contract moves these numbers here, and only here.
-        self.assertEqual(result["contracts"], 18)
+        self.assertEqual(result["contracts"], 21)
         self.assertEqual((result["summary"]["entries"]["mapped"], result["summary"]["dispatch"]["mapped"],
-                          result["summary"]["storage"]["mapped"]), (9, 33, 0))
-        self.assertEqual(len(result["pending"]), 581)
+                          result["summary"]["storage"]["mapped"]), (12, 32, 0))
+        self.assertEqual(len(result["pending"]), 592)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
@@ -87,9 +87,9 @@ class ContractCoverage(unittest.TestCase):
     # A mapped shared tool selector must not drop the obligation of a tool it admits
     # that has no contract yet (review of S3 candidate 1): every value an In/Eq
     # tool selector admits must be a tool of one of the contracts it maps to.
-    # dd72cf1a predates the rule: P02-A1 (286396e) added orgtree_operation_census
-    # to that already-mapped branch. It is named here, not silently tolerated.
-    EARLY_MAPPED = {"dd72cf1a60af5dcdb9407510b45fa58a2b3a0850b589f67ca3f6e892d3129bc3": {"orgtree_operation_census"}}
+    # dd72cf1a (widened by P02-A1 with orgtree_operation_census) was the one older
+    # exception; S3 decision 3 returned it to pending, so there are none.
+    EARLY_MAPPED: dict[str, set[str]] = {}
 
     def uncontracted_selector_values(self, document):
         selectors = {contracts.witness_id("dispatch", r): r for r in self.source["dispatch_selectors"]}

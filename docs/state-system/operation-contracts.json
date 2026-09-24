@@ -4465,6 +4465,532 @@
         "Extend the P02 per-operation probe to orgtree_chart.",
         "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed, loss-accounted contact record for orgtree_chart at each visibility level, cold and warm. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to orgtree_chart."
       ]
+    },
+    "org-view.authority": {
+      "dimension": "authority",
+      "status": "specified",
+      "facts": [
+        "The desktop engine wraps the app in engine/launch.py's TokenGate (outside the pinned backend module set, so no source span): every HTTP request needs X-Orgtree-Desktop-Token. A missing token is 401 'missing authentication; …', a wrong one 401 'invalid desktop token'. An agent credential is honoured only on POST /api/agent and the steer routes, so a VALID agent token on these GETs is refused 401 'agent credential is invalid or expired; …' — a misleading message, recorded as legacy behaviour. Pinned.",
+        "The operator token reaches every organization: there is no per-org operator scope. An unknown org is 404 (cached_org raises); a detail request for a node not in that org's tree is 404 'no such node: …'. Pinned.",
+        "Public kiosk access goes through PublicGateway, which resolves /k/<token>/… to exactly one kiosk-enabled org, 404s any other org or unknown token, applies the _public_denied matrix and marks the request public; the view then scrubs host paths, session ids and external handles (org-view.wire). Pinned with the gateway wrapped around the app directly. Only api.py's own main() starts that listener (ORGTREE_PUBLIC_PORT, policy allowing); the desktop launcher serves only the token-gated app."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1014,
+          "end": 1028,
+          "sha256": "7b1702fa298592541e08079f9134f3503a7b30a68b592a1c7d3d6dee442ab5d0"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1031,
+          "end": 1126,
+          "sha256": "ef684ae246bae2fad111b9194802462db256985a1035ecc9f6b35288305da20a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1129,
+          "end": 1179,
+          "sha256": "7c1a47b01b9ad4c9ba7c1561b082e082d9956224b2a2c8ae94ebeb5fe883a2db"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 2570,
+          "end": 2606,
+          "sha256": "25067ba0a584d22f0e063d7ae68da6bcb51403a083ed9d3686610d3c09a43901"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 2627,
+          "end": 2639,
+          "sha256": "2e4283498cb5310405385852aa76b90da43237d01a7264ec9fb0f0b36d440b22"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 2642,
+          "end": 2680,
+          "sha256": "a4d10140cb8c1e04aecb9481de4840f1de4ee03582fecb50178b89302b20a033"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3038,
+          "end": 3067,
+          "sha256": "614f1e705898907a0b64d3b59697f5c1e4c177bf192593d05bf73902ba871c59"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 15107,
+          "end": 15126,
+          "sha256": "01539cf85f36a7357ef6244a8b8ac9e31eacacefcb6bf53e1f4563affd0e70b9"
+        }
+      ],
+      "open_questions": []
+    },
+    "org-view.predicates": {
+      "dimension": "predicates",
+      "status": "specified",
+      "facts": [
+        "The tree ETag hashes the org's save seq, supervisor.tree_state_fingerprint, the limits board's fetch stamp, the primed-restart record, the per-slug patch invalidation rev and a 30-second bucket. A matching If-None-Match answers 304 with no body before any load or build. The built body is cached per (slug, public) and one build at a time runs per key.",
+        "Recorded legacy behaviour: the first build of an org whose supervisor state is cold allocates per-node state entries while annotating, which changes the fingerprint, so the ETag that first response carried is already stale. Revalidating with it returns 200 and a new tag; revalidating with the new tag returns 304. Pinned.",
+        "Archived nodes are summarised in the tree (detail false, charter_line, lineage_count, read_only, detail_rev, only the last turn) and the payload carries archived_defaults once. The detail route finds the named node in the tree, empties its children, annotates it in full and, for an archived seat only, recomputes detail_rev. Pinned."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 2558,
+          "end": 2567,
+          "sha256": "10cd0dd4e723faf1033beec72f6ad41d329b504c16f95237a12ef8c8aa141ae3"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 2570,
+          "end": 2606,
+          "sha256": "25067ba0a584d22f0e063d7ae68da6bcb51403a083ed9d3686610d3c09a43901"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 2454,
+          "end": 2488,
+          "sha256": "6149a02c8f4bf70e63ebdd0efb3f14a5174c5d12e0838cd871721e2953e38f30"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 2726,
+          "end": 2745,
+          "sha256": "fcf0c77c52632ec2606892f3896715e43c609e0dc1217c1ab2da288eade30bca"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3038,
+          "end": 3067,
+          "sha256": "614f1e705898907a0b64d3b59697f5c1e4c177bf192593d05bf73902ba871c59"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 3311,
+          "end": 3330,
+          "sha256": "71ff8151af9857a636efd74d8e8f25f0ae48f9fd843f54bb2d5bfccb159da90c"
+        }
+      ],
+      "open_questions": []
+    },
+    "org-view.reads": {
+      "dimension": "reads",
+      "status": "unresolved",
+      "facts": [
+        "Source read set: the shared cached_org snapshot (eager document; mail, asks and org_inbox materialise on first touch), Org.tree() over every node, the supervisor's per-node runtime state, the account registry rows and ambient provider paths, the limits and usage caches, kiosk config, sandbox disk usage and hub network status. Detail builds the same whole-tree projection before selecting one node."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 2642,
+          "end": 2680,
+          "sha256": "a4d10140cb8c1e04aecb9481de4840f1de4ee03582fecb50178b89302b20a033"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 2726,
+          "end": 2745,
+          "sha256": "fcf0c77c52632ec2606892f3896715e43c609e0dc1217c1ab2da288eade30bca"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3038,
+          "end": 3067,
+          "sha256": "614f1e705898907a0b64d3b59697f5c1e4c177bf192593d05bf73902ba871c59"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3130,
+          "end": 3141,
+          "sha256": "096e48cb75323d9d95a8e1c6c668ccb8deb8848c9f016e39ec696d8e32df61ca"
+        }
+      ],
+      "open_questions": [
+        "Record the statement-level and cache read set of the tree and detail builds, admin and public, cold and warm.",
+        "Owner: P02. Closes with: observed per-operation contacts for GET /api/orgs/{slug} and the node detail route, admin and public, cold and warm, with archived nodes present. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to these routes."
+      ]
+    },
+    "org-view.writes": {
+      "dimension": "writes",
+      "status": "unresolved",
+      "facts": [
+        "Neither route saves. Measured on already-migrated synthetic data: no document section changes for the tree, the detail route or the public tree. The tree cache, the per-slug invalidation rev and the supervisor state entries annotate allocates are process memory."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 2570,
+          "end": 2606,
+          "sha256": "25067ba0a584d22f0e063d7ae68da6bcb51403a083ed9d3686610d3c09a43901"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 2642,
+          "end": 2680,
+          "sha256": "a4d10140cb8c1e04aecb9481de4840f1de4ee03582fecb50178b89302b20a033"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3038,
+          "end": 3067,
+          "sha256": "614f1e705898907a0b64d3b59697f5c1e4c177bf192593d05bf73902ba871c59"
+        }
+      ],
+      "open_questions": [
+        "Inventory the cache-miss, cold-schema and migration writes reachable from the tree and detail builds.",
+        "Owner: P02, then P03 qualification. Closes with: observed writes on the cold and migration paths reached through cached_org (a snapshot miss falls through to load_org and _ensure_migrated). Not coverable at P01 from available evidence: the measurement uses already-migrated data, and the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to these routes."
+      ]
+    },
+    "org-view.conflicts": {
+      "dimension": "conflicts",
+      "status": "unresolved",
+      "facts": [
+        "The build reads the shared snapshot outside DOC_LOCK. Coherence rests on the ETag components, a per-(slug, public) build lock and guarded publication (a patch frame that invalidates during a build keeps that build out of the cache). Nothing fences a restriction against a payload already served."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 2558,
+          "end": 2567,
+          "sha256": "10cd0dd4e723faf1033beec72f6ad41d329b504c16f95237a12ef8c8aa141ae3"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 2570,
+          "end": 2606,
+          "sha256": "25067ba0a584d22f0e063d7ae68da6bcb51403a083ed9d3686610d3c09a43901"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 2642,
+          "end": 2680,
+          "sha256": "a4d10140cb8c1e04aecb9481de4840f1de4ee03582fecb50178b89302b20a033"
+        }
+      ],
+      "open_questions": [
+        "Choose the native snapshot and revision contract for the tree payload and its restriction fence.",
+        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 (native prototype, UI feed). Closes with: a native snapshot/revision contract for the tree payload (v6 CHANGE-FEED-AND-UI) with a restriction fence, qualified by concurrent writer/reader schedules. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source decides."
+      ]
+    },
+    "org-view.wire": {
+      "dimension": "wire",
+      "status": "unresolved",
+      "facts": [
+        "The admin tree's top-level field set and the archived-summary field set are fixtured in docs/state-system/org-view-boundary.json and compared by tests/test_state_org_view_boundary.py. The public tree adds public and kiosk and drops net; public rows drop session_id and external_handles, and host paths become basenames or '<path>'. The detail response is one node object (children []), scrubbed the same way when public."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 2570,
+          "end": 2606,
+          "sha256": "25067ba0a584d22f0e063d7ae68da6bcb51403a083ed9d3686610d3c09a43901"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 2454,
+          "end": 2488,
+          "sha256": "6149a02c8f4bf70e63ebdd0efb3f14a5174c5d12e0838cd871721e2953e38f30"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3130,
+          "end": 3141,
+          "sha256": "096e48cb75323d9d95a8e1c6c668ccb8deb8848c9f016e39ec696d8e32df61ca"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3144,
+          "end": 3218,
+          "sha256": "d157908b36708fc1456e9c61bc1e73570fe41baea694de61cc7336284834fad5"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3038,
+          "end": 3067,
+          "sha256": "614f1e705898907a0b64d3b59697f5c1e4c177bf192593d05bf73902ba871c59"
+        }
+      ],
+      "open_questions": [
+        "Carry the fixtured tree and detail shapes to the native/Rust routes and decide each recorded legacy defect.",
+        "Owner: the native/Rust conversion, from the P03 prototype onward. Closes with: the fixtured tree, archived-summary, public-scrub and detail shapes passing against the native and Rust builds, with the stale-first-ETag and the misleading agent-token 401 each reproduced deliberately or replaced by an approved behaviour. Not coverable at P01 from available evidence: no native or Rust build exists to run the fixtures against."
+      ]
+    },
+    "org-view.receipt": {
+      "dimension": "receipt",
+      "status": "specified",
+      "facts": [
+        "Plain HTTP GET routes: no operation-receipt admission, no key and no replay. A repeated request re-renders, or answers 304 when the ETag still matches."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 2570,
+          "end": 2606,
+          "sha256": "25067ba0a584d22f0e063d7ae68da6bcb51403a083ed9d3686610d3c09a43901"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 2627,
+          "end": 2639,
+          "sha256": "2e4283498cb5310405385852aa76b90da43237d01a7264ec9fb0f0b36d440b22"
+        }
+      ],
+      "open_questions": []
+    },
+    "org-view.effects": {
+      "dimension": "effects",
+      "status": "specified",
+      "facts": [
+        "No mail, ping, UI spark or tree broadcast (pinned with spies). Process-memory effects only: the cached body, supervisor state entries allocated by annotate, and a once-per-org console warning when a build exceeds one second. The access middleware's slow-request trace applies here as to every HTTP route."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 2570,
+          "end": 2606,
+          "sha256": "25067ba0a584d22f0e063d7ae68da6bcb51403a083ed9d3686610d3c09a43901"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 2642,
+          "end": 2680,
+          "sha256": "a4d10140cb8c1e04aecb9481de4840f1de4ee03582fecb50178b89302b20a033"
+        }
+      ],
+      "open_questions": []
+    },
+    "org-view.instrumentation": {
+      "dimension": "instrumentation",
+      "status": "unresolved",
+      "facts": [
+        "The access middleware labels the route; when profiling is bound the build records load_snapshot_ms, tree_ms and annotate_ms stages. No P02 per-operation record covers these routes."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 2642,
+          "end": 2680,
+          "sha256": "a4d10140cb8c1e04aecb9481de4840f1de4ee03582fecb50178b89302b20a033"
+        }
+      ],
+      "open_questions": [
+        "Extend the P02 per-operation probe to the tree and detail routes.",
+        "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed, loss-accounted contact record for the tree and detail routes, admin and public, cold and warm. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to these routes."
+      ]
+    },
+    "org-feed.authority": {
+      "dimension": "authority",
+      "status": "specified",
+      "facts": [
+        "TokenGate closes a websocket without the desktop token with code 4401 before the route runs (pinned). A kiosk socket arrives through PublicGateway and joins flagged public. The route itself checks no org: a token-holding socket for an organization that does not exist is accepted and joins an empty room (pinned)."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14811,
+          "end": 14819,
+          "sha256": "acc1ba7e777da981f00ea0fedf30577e01e3bee890b6258577b7105319c762d6"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1129,
+          "end": 1179,
+          "sha256": "7c1a47b01b9ad4c9ba7c1561b082e082d9956224b2a2c8ae94ebeb5fe883a2db"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1579,
+          "end": 1644,
+          "sha256": "1bc182efe3b9b0acff0085de5989e9b011c12ae376496d09c184b2e89bc81bc1"
+        }
+      ],
+      "open_questions": []
+    },
+    "org-feed.predicates": {
+      "dimension": "predicates",
+      "status": "specified",
+      "facts": [
+        "Client text is received and ignored (it only keeps the socket alive). A disconnect leaves the room; a failed send drops the socket from the room. Public sockets receive the public projection of any typed segments in a frame, admin sockets the full one. Pinned for join, ignore and leave."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14811,
+          "end": 14819,
+          "sha256": "acc1ba7e777da981f00ea0fedf30577e01e3bee890b6258577b7105319c762d6"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1579,
+          "end": 1644,
+          "sha256": "1bc182efe3b9b0acff0085de5989e9b011c12ae376496d09c184b2e89bc81bc1"
+        }
+      ],
+      "open_questions": []
+    },
+    "org-feed.reads": {
+      "dimension": "reads",
+      "status": "specified",
+      "facts": [
+        "The route reads no store or document state: it accepts, registers the socket and loops on receive. Frame content is produced elsewhere (save-driven 'changed', node events, UI mail sparks, streams)."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14811,
+          "end": 14819,
+          "sha256": "acc1ba7e777da981f00ea0fedf30577e01e3bee890b6258577b7105319c762d6"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1579,
+          "end": 1644,
+          "sha256": "1bc182efe3b9b0acff0085de5989e9b011c12ae376496d09c184b2e89bc81bc1"
+        }
+      ],
+      "open_questions": []
+    },
+    "org-feed.writes": {
+      "dimension": "writes",
+      "status": "specified",
+      "facts": [
+        "No document write: room and public-set membership are process memory. Pinned: joining and leaving change no document section."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14811,
+          "end": 14819,
+          "sha256": "acc1ba7e777da981f00ea0fedf30577e01e3bee890b6258577b7105319c762d6"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1579,
+          "end": 1644,
+          "sha256": "1bc182efe3b9b0acff0085de5989e9b011c12ae376496d09c184b2e89bc81bc1"
+        }
+      ],
+      "open_questions": []
+    },
+    "org-feed.conflicts": {
+      "dimension": "conflicts",
+      "status": "unresolved",
+      "facts": [
+        "Ordering rests on a per-slug, per-process rev counter; 'changed' is coalesced over 0.4 s; there is no durable cursor, so a client that misses frames catches up with one full tree fetch (sync_rev)."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1579,
+          "end": 1644,
+          "sha256": "1bc182efe3b9b0acff0085de5989e9b011c12ae376496d09c184b2e89bc81bc1"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1676,
+          "end": 1685,
+          "sha256": "ce7aa9adf9f644cff1e58b01b05198f9a387f70b260cd9bdc754be3f5f950956"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1692,
+          "end": 1716,
+          "sha256": "c81e191afcf422d47181890297ec15597bdd8642a3529ce2499c5befd3222caf"
+        }
+      ],
+      "open_questions": [
+        "Choose the native change-feed cursor, resnapshot and restriction-drain contract.",
+        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 (native prototype, UI feed). Closes with: the native change-feed contract (v6 CHANGE-FEED-AND-UI: cursor, resnapshot and restriction drain) qualified by reconnect and gap schedules. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source decides."
+      ]
+    },
+    "org-feed.wire": {
+      "dimension": "wire",
+      "status": "unresolved",
+      "facts": [
+        "Frame shapes are fixtured in docs/state-system/org-view-boundary.json: changed {type, org, rev}; node_event {type, org, node, event, rev, …detail}; mail {type, org, from, to} with no rev. Rev increases by one per state-bearing frame per slug. Pinned through a live test socket."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1579,
+          "end": 1644,
+          "sha256": "1bc182efe3b9b0acff0085de5989e9b011c12ae376496d09c184b2e89bc81bc1"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1676,
+          "end": 1685,
+          "sha256": "ce7aa9adf9f644cff1e58b01b05198f9a387f70b260cd9bdc754be3f5f950956"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14811,
+          "end": 14819,
+          "sha256": "acc1ba7e777da981f00ea0fedf30577e01e3bee890b6258577b7105319c762d6"
+        }
+      ],
+      "open_questions": [
+        "Carry the fixtured frame shapes and rev rule to the native/Rust feed.",
+        "Owner: the native/Rust conversion, from the P03 prototype onward. Closes with: the fixtured frame shapes and rev rule passing against the native and Rust feed. Not coverable at P01 from available evidence: no native or Rust build exists to run the fixtures against."
+      ]
+    },
+    "org-feed.receipt": {
+      "dimension": "receipt",
+      "status": "specified",
+      "facts": [
+        "A websocket subscription has no operation receipt, key or replay."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14811,
+          "end": 14819,
+          "sha256": "acc1ba7e777da981f00ea0fedf30577e01e3bee890b6258577b7105319c762d6"
+        }
+      ],
+      "open_questions": []
+    },
+    "org-feed.effects": {
+      "dimension": "effects",
+      "status": "specified",
+      "facts": [
+        "Joining accepts the socket and registers it; it sends nothing, and triggers no mail, ping or broadcast (pinned: no frame arrives until a producer sends one)."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14811,
+          "end": 14819,
+          "sha256": "acc1ba7e777da981f00ea0fedf30577e01e3bee890b6258577b7105319c762d6"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1579,
+          "end": 1644,
+          "sha256": "1bc182efe3b9b0acff0085de5989e9b011c12ae376496d09c184b2e89bc81bc1"
+        }
+      ],
+      "open_questions": []
+    },
+    "org-feed.instrumentation": {
+      "dimension": "instrumentation",
+      "status": "unresolved",
+      "facts": [
+        "No per-operation census record is made for the socket or its frames."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14811,
+          "end": 14819,
+          "sha256": "acc1ba7e777da981f00ea0fedf30577e01e3bee890b6258577b7105319c762d6"
+        }
+      ],
+      "open_questions": [
+        "Record feed subscriptions and frame fan-out in the P02 record.",
+        "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed record of feed subscriptions and frame fan-out (per slug, admin and public). Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) does not cover websocket subscriptions."
+      ]
     }
   },
   "contracts": {
@@ -5582,6 +6108,171 @@
           "sha256": "d17c837863ca975fbd15927c0b5e5c88abf4615505f161640f591ece5e480d8a"
         }
       ]
+    },
+    "org.tree": {
+      "entry_ids": [
+        "69a948197cb9753965005a28972824441f53c0e69d93ee4db23991b6fcae09b0"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "domain_mode": "read",
+      "dimensions": {
+        "authority": [
+          "org-view.authority"
+        ],
+        "reads": [
+          "org-view.reads"
+        ],
+        "writes": [
+          "org-view.writes"
+        ],
+        "predicates": [
+          "org-view.predicates"
+        ],
+        "conflicts": [
+          "org-view.conflicts"
+        ],
+        "wire": [
+          "org-view.wire"
+        ],
+        "receipt": [
+          "org-view.receipt"
+        ],
+        "effects": [
+          "org-view.effects"
+        ],
+        "instrumentation": [
+          "org-view.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 2570,
+          "end": 2606,
+          "sha256": "25067ba0a584d22f0e063d7ae68da6bcb51403a083ed9d3686610d3c09a43901"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 2642,
+          "end": 2680,
+          "sha256": "a4d10140cb8c1e04aecb9481de4840f1de4ee03582fecb50178b89302b20a033"
+        }
+      ]
+    },
+    "org.node-detail": {
+      "entry_ids": [
+        "74e15cb7fbb916f63969e12b054fcbc5cf574b113c3948e6a4022287cbd6ec61"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "domain_mode": "read",
+      "dimensions": {
+        "authority": [
+          "org-view.authority"
+        ],
+        "reads": [
+          "org-view.reads"
+        ],
+        "writes": [
+          "org-view.writes"
+        ],
+        "predicates": [
+          "org-view.predicates"
+        ],
+        "conflicts": [
+          "org-view.conflicts"
+        ],
+        "wire": [
+          "org-view.wire"
+        ],
+        "receipt": [
+          "org-view.receipt"
+        ],
+        "effects": [
+          "org-view.effects"
+        ],
+        "instrumentation": [
+          "org-view.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 2627,
+          "end": 2639,
+          "sha256": "2e4283498cb5310405385852aa76b90da43237d01a7264ec9fb0f0b36d440b22"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3038,
+          "end": 3067,
+          "sha256": "614f1e705898907a0b64d3b59697f5c1e4c177bf192593d05bf73902ba871c59"
+        }
+      ]
+    },
+    "org.feed": {
+      "entry_ids": [
+        "b61122af213f6f6bf04fea60baac9d211f915b416bd78f296985b0f00d41bd58"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "domain_mode": "read",
+      "dimensions": {
+        "authority": [
+          "org-feed.authority"
+        ],
+        "reads": [
+          "org-feed.reads"
+        ],
+        "writes": [
+          "org-feed.writes"
+        ],
+        "predicates": [
+          "org-feed.predicates"
+        ],
+        "conflicts": [
+          "org-feed.conflicts"
+        ],
+        "wire": [
+          "org-feed.wire"
+        ],
+        "receipt": [
+          "org-feed.receipt"
+        ],
+        "effects": [
+          "org-feed.effects"
+        ],
+        "instrumentation": [
+          "org-feed.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14811,
+          "end": 14819,
+          "sha256": "acc1ba7e777da981f00ea0fedf30577e01e3bee890b6258577b7105319c762d6"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1579,
+          "end": 1644,
+          "sha256": "1bc182efe3b9b0acff0085de5989e9b011c12ae376496d09c184b2e89bc81bc1"
+        }
+      ]
     }
   },
   "wire_cases": [
@@ -6015,6 +6706,27 @@
       "args": {},
       "contract": "chart.read",
       "domain_mode": "read"
+    },
+    {
+      "name": "org.tree",
+      "entry_id": "69a948197cb9753965005a28972824441f53c0e69d93ee4db23991b6fcae09b0",
+      "args": {},
+      "contract": "org.tree",
+      "domain_mode": "read"
+    },
+    {
+      "name": "org.node-detail",
+      "entry_id": "74e15cb7fbb916f63969e12b054fcbc5cf574b113c3948e6a4022287cbd6ec61",
+      "args": {},
+      "contract": "org.node-detail",
+      "domain_mode": "read"
+    },
+    {
+      "name": "org.feed",
+      "entry_id": "b61122af213f6f6bf04fea60baac9d211f915b416bd78f296985b0f00d41bd58",
+      "args": {},
+      "contract": "org.feed",
+      "domain_mode": "read"
     }
   ],
   "limits": [
@@ -6205,17 +6917,35 @@
     },
     {
       "id": "69a948197cb9753965005a28972824441f53c0e69d93ee4db23991b6fcae09b0",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "org.tree"
+      ],
+      "reason": "GET /api/orgs/{slug}: the operator tree payload (S3 F1b).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 2570,
+          "end": 2606,
+          "sha256": "25067ba0a584d22f0e063d7ae68da6bcb51403a083ed9d3686610d3c09a43901"
+        }
+      ]
     },
     {
       "id": "74e15cb7fbb916f63969e12b054fcbc5cf574b113c3948e6a4022287cbd6ec61",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "org.node-detail"
+      ],
+      "reason": "GET /api/orgs/{slug}/nodes/{nid}/detail: one node's detail (S3 F1b).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 2627,
+          "end": 2639,
+          "sha256": "2e4283498cb5310405385852aa76b90da43237d01a7264ec9fb0f0b36d440b22"
+        }
+      ]
     },
     {
       "id": "d525d9bd46b1a96f461cc12a4eecb31992a02616fc5ef0297abf465e86742fe0",
@@ -7143,10 +7873,19 @@
     },
     {
       "id": "b61122af213f6f6bf04fea60baac9d211f915b416bd78f296985b0f00d41bd58",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "org.feed"
+      ],
+      "reason": "The org websocket feed (S3 F1b).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14811,
+          "end": 14819,
+          "sha256": "acc1ba7e777da981f00ea0fedf30577e01e3bee890b6258577b7105319c762d6"
+        }
+      ]
     },
     {
       "id": "2b986061b95ecda21e923afdc057e1405b539f1d46d7a0cedffa5c2dcf80c158",
@@ -8791,21 +9530,10 @@
     },
     {
       "id": "dd72cf1a60af5dcdb9407510b45fa58a2b3a0850b589f67ca3f6e892d3129bc3",
-      "disposition": "mapped",
-      "contracts": [
-        "diagnostic.inspect",
-        "diagnostic.capabilities",
-        "preview.agent"
-      ],
-      "reason": "Source-bound preview/diagnostic branch; underlying full transition/native obligations remain pending.",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 11363,
-          "end": 11364,
-          "sha256": "7ec5f64a94317c1ed8cf283e1c20e53cf5f4b72b16a01d459e03aa1b71d61996"
-        }
-      ]
+      "disposition": "pending",
+      "contracts": [],
+      "reason": "Shared diagnostic/preview body.tool branch: diagnostic.inspect, diagnostic.capabilities and preview.agent are contracted; orgtree_operation_census (added by P02-A1, 286396e) is uncontracted, so the shared branch stays pending (S3 decision 3).",
+      "source_refs": []
     },
     {
       "id": "f35a30aa97084da5414a72081e9b20b95d8621e8d62cd86ffb7b2dbab631245f",

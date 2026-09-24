@@ -1,0 +1,168 @@
+{
+  "schema": "orgtree.org-view-boundary/v1",
+  "source_contract_sha256": "c8e1cf6bd860b00e1f91d0b48ee458f70c7f81f27892852072567f88774cabe7",
+  "qualification": {
+    "runtime_census": false,
+    "conversion_authorized": false
+  },
+  "routes": {
+    "org.tree": "/api/orgs/{slug}",
+    "org.node-detail": "/api/orgs/{slug}/nodes/{nid}/detail",
+    "org.feed": "/api/orgs/{slug}/ws"
+  },
+  "tree_fields": [
+    "account_fallback_default",
+    "api_cost_usd_total",
+    "archived_defaults",
+    "asks",
+    "asks_open",
+    "audience_requests",
+    "audiences",
+    "audit",
+    "auto_cheap_compact",
+    "auto_resume",
+    "auto_resume_compact",
+    "cascade_alloc",
+    "cascade_hire",
+    "compact_at",
+    "cost_usd_total",
+    "cost_usd_unknown",
+    "credit_requests",
+    "default_account",
+    "default_effort",
+    "default_tools",
+    "default_top_grant",
+    "default_visibility",
+    "dirs",
+    "effort_default",
+    "fable_filter_model",
+    "fable_filter_policy",
+    "fable_limit_policy",
+    "fable_lock",
+    "headless",
+    "killswitch",
+    "max_top_grant",
+    "models",
+    "name",
+    "net",
+    "org_inbox",
+    "permission_mode",
+    "prefer_reserve_default",
+    "primed_restart",
+    "roots",
+    "sandboxed",
+    "slug",
+    "spend_frozen",
+    "storage_blocked",
+    "sync_rev",
+    "tiers",
+    "urgent_unread",
+    "user_inbox_count",
+    "user_inbox_newest",
+    "watchdogs",
+    "work_items_summary",
+    "workspace"
+  ],
+  "archived_summary_fields": [
+    "account",
+    "ask",
+    "audiences_held",
+    "bearer_state",
+    "charter_line",
+    "children",
+    "compacted_unrun",
+    "context_window",
+    "cost_usd",
+    "cost_usd_unknown",
+    "detail",
+    "detail_rev",
+    "documents",
+    "documents_count",
+    "effort_effective",
+    "external_handles",
+    "free",
+    "frozen",
+    "generation",
+    "grant",
+    "halt",
+    "halt_queued",
+    "id",
+    "inflight_at",
+    "last_status",
+    "limit_locked",
+    "lineage_count",
+    "mail_pending",
+    "model_id",
+    "occupancy",
+    "occupancy_est",
+    "pending_account",
+    "pending_switch",
+    "prev_status",
+    "read_only",
+    "remote_controlled",
+    "seat",
+    "session_id",
+    "state",
+    "tier",
+    "title",
+    "turns",
+    "ui_order"
+  ],
+  "archived_summary_marker": {
+    "detail": false
+  },
+  "public": {
+    "adds": [
+      "kiosk",
+      "public"
+    ],
+    "drops": [
+      "net"
+    ],
+    "row_drops": [
+      "session_id",
+      "external_handles"
+    ]
+  },
+  "refusals": {
+    "missing": [
+      401,
+      "missing authentication; provide a desktop or live agent credential"
+    ],
+    "invalid": [
+      401,
+      "invalid desktop token"
+    ],
+    "agent_token": [
+      401,
+      "agent credential is invalid or expired; reconnect the agent session"
+    ],
+    "ws_close": 4401
+  },
+  "frames": {
+    "changed": [
+      "org",
+      "rev",
+      "type"
+    ],
+    "node_event": [
+      "event",
+      "node",
+      "org",
+      "rev",
+      "type"
+    ],
+    "mail": [
+      "from",
+      "org",
+      "to",
+      "type"
+    ]
+  },
+  "legacy_defects": [
+    "the first ETag of a cold org is stale before the client can revalidate with it",
+    "a valid agent credential on these GET routes is refused as 'invalid or expired'",
+    "the websocket route accepts a socket for an organization that does not exist"
+  ],
+  "scope": "Legacy boundary of GET /api/orgs/{slug}, the node detail route and the org websocket feed on disposable SQLite. It pins authentication and kiosk scoping, ETag revalidation, archived summaries, public scrubbing and frame shapes; it does not qualify native behaviour, contacts or conflicts."
+}

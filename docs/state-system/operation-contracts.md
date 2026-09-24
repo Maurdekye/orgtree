@@ -115,9 +115,9 @@ runtime probes remain unresolved. Material reads add two cards and two selectors
 diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
-Current totals are 18 contracts, nine mapped registrations and 33 mapped
-dispatch witnesses. **581 obligations remain**: 310 registrations, 194 dispatch
-witnesses, 15 storage candidates and 62 unresolved dimension occurrences.
+Current totals are 21 contracts, 12 mapped registrations and 32 mapped
+dispatch witnesses. **592 obligations remain**: 307 registrations, 195 dispatch
+witnesses, 15 storage candidates and 75 unresolved dimension occurrences.
 How it got there: 600 was two more registrations than the preceding 598 because the scanner now
 recognizes `asyncio.to_thread` hand-offs; both new witnesses are pending and no
 existing witness identity, disposition or contract changed.
@@ -158,6 +158,11 @@ reading plus the per-agent `nodes`/`log_d` rows.
 P03-prototype candidate maps four witnesses (two tool cards and their two exact
 dispatch branches, -4) to two new contracts, `status.report` and `chart.read`,
 whose nine facets P01 cannot close add nine unresolved dimension occurrences (+9).
+592 is eleven more than that 581 (S3 candidate 2): three routes are mapped (-3)
+to `org.tree`, `org.node-detail` and `org.feed`, whose unresolved facets add 13
+occurrences (five shared `org-view` facets on two contracts, three `org-feed`
+facets), and the shared diagnostic/preview branch `dd72cf1a` returns to pending
+(+1, S3 decision 3).
 See "P03-prototype surface" below.
 
 Of the 53 open dimension occurrences on the sixteen legacy-family contracts, 37 (17 facets) cannot be closed at P01
@@ -271,9 +276,9 @@ outside the surface) and the mail-family result ref and transcript chip
 (`orgtree_message` and `orgtree_send_notice` come with F2, which maps them). A
 shared selector is mapped only once every tool it admits has a contract;
 `tests/test_state_operation_contracts.py` enforces that for every mapped In/Eq
-tool selector. One older branch breaks the rule and is named there: `dd72cf1a`
-(the diagnostic/preview block) was mapped before P02-A1 added
-`orgtree_operation_census` to it. Specified from source and pinned by `tests/test_state_status_chart_boundary.py`
+tool selector. The one older branch that broke the rule, `dd72cf1a` (the
+diagnostic/preview block, which P02-A1 widened with `orgtree_operation_census`),
+returned to pending in candidate 2 (S3 decision 3). Specified from source and pinned by `tests/test_state_status_chart_boundary.py`
 against `status-chart-boundary.json`: authority, predicates, writes, receipt and
 effects for status; authority, predicates, receipt and effects for the chart.
 Unresolved with an owner: reads and instrumentation (P02), conflicts (native
@@ -283,6 +288,22 @@ validated server-side, reporting is case-sensitive, the summary has no length
 cap, an explicit null `include_standing_charter` omits the standing charters, and
 the chart's own default for a missing visibility is unreachable because Org
 construction backfills it as full.
+
+Candidate 2 (F1, second half) adds the operator UI's read surface: `org.tree`
+(GET `/api/orgs/{slug}`) and `org.node-detail` (GET `.../nodes/{nid}/detail`),
+which share one projection and so one set of `org-view` facets, and `org.feed`
+(the org websocket). Specified from source and pinned by
+`tests/test_state_org_view_boundary.py` against `org-view-boundary.json`:
+authority (the desktop token gate, 404s, kiosk scoping and scrubbing),
+predicates (ETag revalidation, archived summaries, detail selection), receipt and
+effects for the view; authority, predicates, reads, writes, receipt and effects
+for the feed. Unresolved with an owner: the view's reads, cold/migration writes
+and instrumentation (P02), conflicts for both (native change-feed design) and
+wire for both (native/Rust), and the feed's instrumentation (P02). Recorded legacy
+behaviour: the first ETag a cold org serves is already stale, a valid agent
+credential on these GETs is refused as "invalid or expired", and the socket
+route accepts an organization that does not exist. The kiosk listener is started
+only by api.py's own `main()`, not by the desktop launcher.
 
 ## Deliberate failing controls
 

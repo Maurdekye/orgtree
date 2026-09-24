@@ -87,7 +87,7 @@ class PreviewBinding(unittest.TestCase):
         self.assertEqual(checked['qualification'],contracts.GATES)
         self.assertEqual(set(api._AGENT_PREVIEW_OPS),set(OPS))
         # this family's own witnesses; the registry-wide totals live in test_state_operation_contracts
-        self.assertEqual(family_mapped(reg,'preview.'),(1,13))
+        self.assertEqual(family_mapped(reg,'preview.'),(1,12))   # dd72cf1a pending since S3 decision 3
         self.assertEqual({k for k in reg['contracts'] if k.startswith('preview.')},{'preview.agent'})
 
     def test_fixture_omissions_forged_gates_and_stale_binding_refuse(self):

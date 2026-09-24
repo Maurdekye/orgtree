@@ -100,7 +100,7 @@ class DiagnosticBinding(unittest.TestCase):
         self.assertFalse(result['contract_coverage_complete'])
         self.assertEqual(result['qualification'],contracts.GATES)
         # this family's own witnesses; the registry-wide totals live in test_state_operation_contracts
-        self.assertEqual(family_mapped(registry,'diagnostic.'),(2,3))
+        self.assertEqual(family_mapped(registry,'diagnostic.'),(2,2))   # dd72cf1a pending since S3 decision 3
         self.assertEqual({k for k in registry['contracts'] if k.startswith('diagnostic.')},set(TOOLS.values()))
 
     def test_omissions_private_fields_stale_binding_and_gate_forgery_refuse(self):
