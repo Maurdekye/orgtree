@@ -59,13 +59,14 @@ class ContractCoverage(unittest.TestCase):
                 self.assertIn(". Not coverable at P01 from available evidence: ", notes[0])
                 self.assertGreater(len(self.document["facets"][name]["open_questions"]), 1)
 
-    def test_contacts_stays_open_for_agent_level_mail_locality(self):
-        # S2b ruling R1 (rejected): org-store locality is not mail locality. The
-        # facet stays unresolved until an agent-level mail-locality control exists.
+    def test_contacts_is_specified_only_with_agent_level_mail_locality(self):
+        # S2b ruling R1: org-store locality is not mail locality. contacts became
+        # specified only once P02 observed agent-level mail locality (6721cad); the
+        # fact that carries it, and its org-wide-row limit, must stay.
         facet = self.document["facets"]["contacts"]
-        self.assertEqual(facet["status"], "unresolved")
-        [note] = [q for q in facet["open_questions"] if q.startswith("Owner: ")]
-        self.assertIn("agent-level mail-locality negative control", note)
+        self.assertEqual((facet["status"], facet["open_questions"]), ("specified", []))
+        self.assertTrue(any(f.startswith("Agent-level mail-locality negative control") for f in facet["facts"]))
+        self.assertTrue(any(f.startswith("Limit of that control: the legacy mail QUEUE") for f in facet["facts"]))
         self.assertEqual(self.document["facets"]["wrapper-reads"]["status"], "specified")
 
     def test_material_wire_legacy_projector_clause_is_closed(self):
@@ -130,11 +131,11 @@ class ContractCoverage(unittest.TestCase):
                      "wrong-dimension facet")
 
     def test_erased_unknown_does_not_create_specified_contract(self):
-        self.rejects(lambda d: d["facets"]["contacts"].update(status="specified"),
+        self.rejects(lambda d: d["facets"]["legacy-lock"].update(status="specified"),
                      "specified facet has open questions")
 
     def test_unknown_without_question_refuses(self):
-        self.rejects(lambda d: d["facets"]["contacts"].update(open_questions=[]),
+        self.rejects(lambda d: d["facets"]["legacy-lock"].update(open_questions=[]),
                      "unresolved facet needs a concrete question")
 
     def test_pending_entry_cannot_pretend_to_have_contract(self):

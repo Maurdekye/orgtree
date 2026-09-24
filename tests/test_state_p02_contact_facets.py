@@ -133,6 +133,38 @@ class ContactFacets(unittest.TestCase):
                 self.assertEqual((r.get("census") or {}).get("hidden_steps", 0), 0)
                 self.assertNotIn("data:org-db:foreign", self.org_db(r))
 
+    # -- agent-level mail locality (the clause S2b ruling R1 left open)
+    def test_release_notify_mail_touches_only_the_named_successor(self):
+        for alias in ALIASES:
+            for condition in ("cold", "warm"):
+                with self.subTest(alias=alias, condition=condition):
+                    agents = self.row(f"{alias}:reservation.release-notify", condition)["agents"]
+                    successor = agents["targets"]
+                    self.assertEqual(len(successor), 1)
+                    [peer] = successor
+                    self.assertNotEqual(peer, agents["actor"])
+                    self.assertTrue(agents["mail_producing"])
+                    # logical: every changed mail entry belongs to the successor, none to the
+                    # sender (so never self-only) and none to a third agent
+                    self.assertEqual(agents["logical"], {"mail": {peer: "target"}, "mail_log": {peer: "target"}})
+                    # physical: the only agent rows written are the successor's
+                    self.assertEqual(agents["physical_nodes"], {peer: "target"})
+                    self.assertTrue(all(k.endswith(":target") for k in agents["physical"]))
+                    self.assertEqual((agents["third_agent_mail"], agents["third_agent_rows_written"]), (0, 0))
+
+    def test_third_agent_mail_control_fires_and_nothing_else_touches_a_third_agent(self):
+        control = self.row("control:third-agent-mail")["agents"]
+        self.assertGreaterEqual(control["third_agent_mail"], 1)
+        self.assertGreaterEqual(control["third_agent_rows_written"], 1)
+        self.assertIn("third", set(control["logical"]["mail"].values()))
+        for r in self.reservation_rows():
+            if r["variant"] == "control:third-agent-mail" or not r.get("agents"):
+                continue
+            with self.subTest(variant=r["variant"], condition=r["condition"]):
+                self.assertEqual((r["agents"]["third_agent_mail"], r["agents"]["third_agent_rows_written"]), (0, 0))
+                # only release-notify produces mail in the reservation family
+                self.assertEqual(r["agents"]["mail_producing"], r["variant"].endswith("release-notify"))
+
     def test_loss_accounting_per_row_and_window(self):
         window = self.doc["window"]
         self.assertTrue(window["same_window"])

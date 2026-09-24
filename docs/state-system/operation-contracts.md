@@ -108,15 +108,16 @@ witnesses map to these variants. Source-backed reservation/item authority and
 legacy receipt semantics are specified. So are the release notification
 (`notify-effect`) and the public wrapper's writes (`wrapper-writes`): what each
 outcome commits, measured on the cold-read document, and the one durable
-diagnostic row. The wrapper's reads (`wrapper-reads`) are specified from P02's
-observed per-operation contacts. Agent-level mail locality (`contacts`), native
-conflicts, full malformed-input parity and runtime probes remain unresolved. Material reads add two cards and two selectors; structural
+diagnostic row. The wrapper's reads (`wrapper-reads`) and its observed contacts,
+including agent-level mail locality (`contacts`), are specified from P02's
+per-operation contacts. Native conflicts, full malformed-input parity and
+runtime probes remain unresolved. Material reads add two cards and two selectors; structural
 diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
 Current totals are 16 contracts, seven mapped registrations and 31 mapped
-dispatch witnesses. **587 obligations remain**: 312 registrations, 196 dispatch
-witnesses, 15 storage candidates and 64 unresolved dimension occurrences.
+dispatch witnesses. **576 obligations remain**: 312 registrations, 196 dispatch
+witnesses, 15 storage candidates and 53 unresolved dimension occurrences.
 How it got there: 600 was two more registrations than the preceding 598 because the scanner now
 recognizes `asyncio.to_thread` hand-offs; both new witnesses are pending and no
 existing witness identity, disposition or contract changed.
@@ -147,16 +148,22 @@ keyed rows (a reviewed ruling). `contacts` gained the same observed facts but
 stays open: the probe is table-granular, so it cannot give the agent-level
 mail-locality control that facet asks for. `tests/test_state_p02_contact_facets.py`
 re-runs the probe and asserts every observed fact.
+576 is eleven fewer than that 587 because `contacts` (used by all eleven
+reservation contracts) was specified once P02 observed agent-level mail
+locality (6721cad): release-notify's mail contacts belong only to the named
+successor, never the sender alone, and a third-agent control fires. The legacy
+mail queue is one org-wide row, so that result rests on the logical before/after
+reading plus the per-agent `nodes`/`log_d` rows.
 
-Of the 64 open dimension occurrences, 48 (18 facets) cannot be closed at P01
+Of the 53 open dimension occurrences, 37 (17 facets) cannot be closed at P01
 from the evidence that exists. Their questions need observed runtime contacts
 (P02) or a chosen and qualified native PostgreSQL design (the separately staffed
 conflict/predicate design, then P03/P05). Each such facet keeps its original
 question and adds one line naming its owner, the evidence that would close it,
 and why the available evidence does not. The P02 real-data replay
 (20260924T063643Z) does not replay these tools, so it closes none of them. The
-per-operation probe closes only `wrapper-reads`. `contacts` still lacks an
-agent-level mail-locality control. Every other P02-owned facet still has a
+per-operation probe closes `wrapper-reads` and `contacts`. Every other
+P02-owned facet still has a
 clause the probe does not meet: the JSON backend, malformed state,
 legacy/recovery and migration paths, sandbox chown, provider failure modes,
 native placement or simulation design, or native controls. The remaining 16 are the
