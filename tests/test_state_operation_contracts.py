@@ -46,7 +46,7 @@ class ContractCoverage(unittest.TestCase):
         self.assertEqual(result["contracts"], 42)
         self.assertEqual((result["summary"]["entries"]["mapped"], result["summary"]["dispatch"]["mapped"],
                           result["summary"]["storage"]["mapped"]), (29, 50, 0))
-        self.assertEqual(len(result["pending"]), 580)
+        self.assertEqual(len(result["pending"]), 563)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
@@ -107,6 +107,32 @@ class ContractCoverage(unittest.TestCase):
             with self.subTest(site=where(i)):
                 prefix = "Stays pending (P01 S2k): " if r["disposition"] == "pending" else "Not "
                 self.assertTrue(r["reason"].startswith(prefix), r["reason"][:60])
+
+    # W1-W8 (coordinator-approved plan 2026-09-24 21:57Z; the rules are decision 1 on the W1 item): map only when
+    # every operation reaching a witness has a contract, exclude only what source reading shows is not an org-state
+    # operation, otherwise stay pending with a reason that names the owner
+    W1_EXCLUDED = {("api.py", 122), ("api.py", 124), ("api.py", 14825), ("api.py", 14826), ("api.py", 14829),
+                   ("api.py", 901), ("api.py", 928), ("api.py", 1566), ("disk.py", 226), ("sandbox.py", 891),
+                   ("sandbox.py", 1031), ("sandbox.py", 1040), ("turnread.py", 44), ("antigravityrun.py", 762),
+                   ("codexrun.py", 589), ("warmpool.py", 346), ("warmpool.py", 667)}
+    W1_PENDING = {("api.py", 1394), ("antigravityrun.py", 760), ("codexrun.py", 587), ("warmpool.py", 344)}
+
+    def test_w1_plumbing_registrations_are_triaged(self):
+        registrations = {r["site_id"]: r["source"] for r in self.source["registrations"]}
+        rows = {r["id"]: r for r in self.document["entries"]}
+
+        def at(i):
+            return (registrations[i]["path"].rsplit("/", 1)[1], registrations[i]["line"])
+        excluded = {at(i) for i, r in rows.items() if r["disposition"] == "excluded"}
+        self.assertEqual(excluded, self.W1_EXCLUDED)
+        for i, r in rows.items():
+            with self.subTest(site=at(i)):
+                if at(i) in self.W1_EXCLUDED:
+                    self.assertTrue(r["reason"].startswith("Not ") and r["reason"].endswith(" P01 W1."), r["reason"])
+                if at(i) in self.W1_PENDING:
+                    self.assertEqual(r["disposition"], "pending")
+                    self.assertTrue(r["reason"].startswith("Stays pending (P01 W1): "), r["reason"][:60])
+                    self.assertIn("Owner: ", r["reason"])
 
     def test_contacts_is_specified_only_with_agent_level_mail_locality(self):
         # S2b ruling R1: org-store locality is not mail locality. contacts became

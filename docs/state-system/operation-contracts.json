@@ -10971,29 +10971,68 @@
       "id": "a0f313c34fc6d92d6c48000e0d1f6ed6bc90ad7e8786668330c96d1f7e8b70e3",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W1): the thread target _pump folds every Antigravity stdout event and hands it to the turn's on_event callback, which writes org state (the callback's own registration is witnessed separately). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "a3ec925b536e9730d922b4563c467fdc6559772d2557bd40037fcee25b1179c6",
-      "disposition": "pending",
+      "disposition": "excluded",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "reason": "Not org state: the thread target _pump_err only keeps the Antigravity CLI's last 50 stderr lines in memory (stderr_tail); it touches no store. P01 W1.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/antigravityrun.py",
+          "start": 762,
+          "end": 762,
+          "sha256": "af8455bed1b9f82dcba1d227a6e5bf2673cfe1bc98029918fafb50ff7feec38f"
+        },
+        {
+          "path": "engine/backend/orgtree/antigravityrun.py",
+          "start": 666,
+          "end": 672,
+          "sha256": "e8f6e7575413e0cda620164b8b183596340aa1b06422487dd1b1c4a57995bc7c"
+        }
+      ]
     },
     {
       "id": "2c2afa85ab428a24d8960d93c7b82ca4250fe40708ea020a31369ba3d8053e79",
-      "disposition": "pending",
+      "disposition": "excluded",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "reason": "Not an operation: app.include_router(history_router) only adds the history router's routes, and each of those routes is its own inventoried http registration (history.py), which carries the obligation. P01 W1.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 122,
+          "end": 122,
+          "sha256": "9525408ac96f26dfeeab9893c0a9adae87faafa7c16963aede7ed5fb6cb4f036"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 121,
+          "end": 121,
+          "sha256": "4122a6516d1b52d43d767317cac5b69762e15bd4c619596de96e5c019d8b9edc"
+        }
+      ]
     },
     {
       "id": "ff5faf2f587b5e681d59f99c74c36551099ee3f31e972fdbec6c78f3bcc135bd",
-      "disposition": "pending",
+      "disposition": "excluded",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "reason": "Not an operation: app.include_router(diagnostics_router) only adds the diagnostics router's routes, and each of those routes is its own inventoried http registration (diagnostics.py), which carries the obligation. P01 W1.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 124,
+          "end": 124,
+          "sha256": "8280be7b0dfa38913171f723183ffae2f5500bf776cebfca45160acb510cef2f"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 123,
+          "end": 123,
+          "sha256": "919024f82097fe7db491abebf490a3aaa111f4a880e6508760cff4988f119f19"
+        }
+      ]
     },
     {
       "id": "35d716c140baaa65b5d47d2b5a3c1d41f6a4d14a85b3d5c10411151015399649",
@@ -11067,31 +11106,70 @@
     },
     {
       "id": "eee20f26cb7d1098ad1f8c3e4a3a76498c77df5f8e75ad038422a6f17f0e1119",
-      "disposition": "pending",
+      "disposition": "excluded",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "reason": "Not an operation: the RequestValidationError handler only re-encodes FastAPI's 422 body so a lone surrogate cannot turn it into a 500; it reads and writes no state. P01 W1.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 901,
+          "end": 901,
+          "sha256": "bc695fcbe68e20f60d2800451ad23fc064e388e1820aa47edc32ed22f0d26a82"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 902,
+          "end": 925,
+          "sha256": "4cc1d9bd15d5e16f36c5776ddbe623081815142895e726055d1867a3b746cbd4"
+        }
+      ]
     },
     {
       "id": "b45d20a65f3fc4a7c724e8869c573aad330b5325f70d462a56371c5245fb3972",
-      "disposition": "pending",
+      "disposition": "excluded",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "reason": "Not an operation: the catch-all exception handler only answers an unhandled exception as a JSON 500 body (nothing swallowed, nothing logged here); it reads and writes no state. P01 W1.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 928,
+          "end": 928,
+          "sha256": "e4e23f2d2604d64ff5d0f6de94421c29b0fdaf84e4006cea9e076c1c87b7bfc4"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 929,
+          "end": 959,
+          "sha256": "8ddbef7d95294b251422482b18162c4ca0861c7fbfd6a62ab1c5c3dca24a43f8"
+        }
+      ]
     },
     {
       "id": "575c44f2884529db7ee97c56dc1c4cdc2ef56a6cf628c8759aa5e7958520aefb",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W1): the startup hook runs the deployment preflight and the accounts registry migration (registry_migration.run_startup_migration, which binds org nodes) and starts the background drivers; org state, with no contract. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "db98d9427d6404d41a26f7c0a9763deebc65dfadabb6d595412bad91bdb774b8",
-      "disposition": "pending",
+      "disposition": "excluded",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "reason": "Not org state: the shutdown hook only calls startup.recovery.cancel(), which sets two events so the startup recovery stops; the recovery's own registrations (startup.py) carry its org-state obligation. P01 W1.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1566,
+          "end": 1566,
+          "sha256": "dc588da24028bffa808afb248d03d8fb04d5dcd2ce123bd7d1e3e2b6e1174fd8"
+        },
+        {
+          "path": "engine/backend/orgtree/startup.py",
+          "start": 47,
+          "end": 52,
+          "sha256": "416fd907a78c2bb259d75e089b43fc89a49919cbeb8485342e55259b312090c0"
+        }
+      ]
     },
     {
       "id": "93106cabc9783cb56675e260e05a2f7de7308fb607a84b869fae4006ddb3cd9a",
@@ -12215,24 +12293,57 @@
     },
     {
       "id": "2b986061b95ecda21e923afdc057e1405b539f1d46d7a0cedffa5c2dcf80c158",
-      "disposition": "pending",
+      "disposition": "excluded",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "reason": "Not an operation: app.include_router(gitapi.router) only adds the git workspace router's routes, and each of those 21 routes is its own inventoried http registration (gitapi.py), which carries the obligation. P01 W1.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14825,
+          "end": 14825,
+          "sha256": "c647b4539ac38ccc03183cd81cab0cb3fe3fecea14a62dc0a925a251778641c5"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14824,
+          "end": 14824,
+          "sha256": "1b74fda26001f3ee61b176de7ebfe700412389e56f990a50710ccb8c366c1274"
+        }
+      ]
     },
     {
       "id": "a68b3552c6679471185eac3ea41427a667c759b1701a484d6d18934fbb4d76c5",
-      "disposition": "pending",
+      "disposition": "excluded",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "reason": "Not org state: the shutdown handler gitworkspace.scheduler.stop only joins the git fetch scheduler's threads (FetchScheduler.stop); it reads and writes no store. P01 W1.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14826,
+          "end": 14826,
+          "sha256": "b27e0ff1c943422c87ae092bf0fae45b2a11da2f12cb02481ef8a9861e7d3142"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 1235,
+          "end": 1237,
+          "sha256": "bfd198c1ac6ba88d0e04730206fce4d8d8f15a4ad4e4acf7b8fdefbb814ede93"
+        }
+      ]
     },
     {
       "id": "d468afd620016dbc66d284f02f4ec7062a6e7d1a65296487a0bccf03fbb92a92",
-      "disposition": "pending",
+      "disposition": "excluded",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "reason": "Not org state: app.mount('/assets', StaticFiles(...)) serves the desktop frontend's built asset files; no org store or sidecar is involved. P01 W1.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14829,
+          "end": 14830,
+          "sha256": "9937ebdd44437e99f92303c3353440c3886e6ac7f3cbb8c3d0e7740951900b25"
+        }
+      ]
     },
     {
       "id": "1c9d5a433d584e056c3f824fb0f6b609c0f9f1a8a496ac2bfd448193c89e36eb",
@@ -12252,15 +12363,28 @@
       "id": "f51d9852366567db0c53f080f9f1de792ea4159539477f0932188048f64ece91",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W1): the thread target _pump routes Codex app-server responses to their waiters and late resolvers and admits server requests (_admit), which reach the turn's org-state paths. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "be71a042ee5f08774bfec3421ecd45d2a115e07ddb25bb48218ab2ed0e294a65",
-      "disposition": "pending",
+      "disposition": "excluded",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "reason": "Not org state: the thread target _pump_err only keeps the Codex app-server's last 50 stderr lines in memory (stderr_tail); it touches no store. P01 W1.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/codexrun.py",
+          "start": 589,
+          "end": 589,
+          "sha256": "03421ec475054b3aeca28ec70da30d5a3f9132c1958d516b697428743cc00349"
+        },
+        {
+          "path": "engine/backend/orgtree/codexrun.py",
+          "start": 593,
+          "end": 599,
+          "sha256": "5abcca91d330da2953501839e071d25888af43263e0fe9ff1eebed8673125bae"
+        }
+      ]
     },
     {
       "id": "0852acebcf5f665b77408001c0f9cbea2fd41e499d077d50f64e269302f220d7",
@@ -12362,10 +12486,17 @@
     },
     {
       "id": "cd375b45d1211eea08fc2f9ae20cfd14129fc7dc24c10409a701dd3b3cb388ae",
-      "disposition": "pending",
+      "disposition": "excluded",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "reason": "Not a registration: mount(slug) mounts a sandboxed org's virtual disk inside the Docker Desktop distro; the inventory's 'mount' heuristic mistook the call for a route mount. No handler is registered here. P01 W1.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/disk.py",
+          "start": 226,
+          "end": 226,
+          "sha256": "1fd7c572b132d38abaa27da5471c15861c11fa178d477e54cd3fda89c7f4a587"
+        }
+      ]
     },
     {
       "id": "5ffae5ae831e9cbe21f004a7cddfb622f217c7e9ed0065c09536f34a468770bc",
@@ -13179,24 +13310,45 @@
     },
     {
       "id": "fc16f0ec4f28045a3f5aa058a9fe35155bd4df5fafa3d7349c96c7531788c6f4",
-      "disposition": "pending",
+      "disposition": "excluded",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "reason": "Not a registration: dsk.mount(slug) mounts a sandboxed org's virtual disk; the inventory's 'mount' heuristic mistook the call for a route mount. No handler is registered here. P01 W1.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/sandbox.py",
+          "start": 891,
+          "end": 891,
+          "sha256": "8f5b7efe93347835fdd63c26838a61be716b0a037b5f8f908248b0ef406e663c"
+        }
+      ]
     },
     {
       "id": "f4d8c124760d46c10b32ae5355715e073cdca5432caa8044c955f5423e6cdada",
-      "disposition": "pending",
+      "disposition": "excluded",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "reason": "Not a registration: dsk.mount(slug) remounts a sandboxed org's virtual disk after a resize; the inventory's 'mount' heuristic mistook the call for a route mount. No handler is registered here. P01 W1.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/sandbox.py",
+          "start": 1031,
+          "end": 1031,
+          "sha256": "5d6dacd9d8f2cbbafacc4d0a134da52f68335b1e27c656fab202e025215a7b54"
+        }
+      ]
     },
     {
       "id": "839f6c4f84bd6af95c94355c4ee9623d21366b10b4a68a57ba86d91c649c3eb1",
-      "disposition": "pending",
+      "disposition": "excluded",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "reason": "Not a registration: dsk.mount(slug) remounts a sandboxed org's virtual disk after a resize; the inventory's 'mount' heuristic mistook the call for a route mount. No handler is registered here. P01 W1.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/sandbox.py",
+          "start": 1040,
+          "end": 1040,
+          "sha256": "7aa50f886c839afdc5357ba0d7e385b767ac82e1849c7397ae78a557bb5224cb"
+        }
+      ]
     },
     {
       "id": "92a598ac7578db2ecf914a374dec9b56deb539f3dc69dc26a8c680fe46bb9157",
@@ -13459,31 +13611,70 @@
     },
     {
       "id": "22614b1debbe63ced81b2e1cf82b00720019bd07dd6a01cea3e74ab6948753e2",
-      "disposition": "pending",
+      "disposition": "excluded",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "reason": "Not a tool registration: turnread.TOOLS is a static vocabulary of the Claude CLI's built-in tool names, used only to classify turn records (every other name counts as 'other'); no orgtree tool is registered here. P01 W1.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/turnread.py",
+          "start": 44,
+          "end": 50,
+          "sha256": "16a2b7b6f9731620984a403c0320238ba701891ccac1fc30c2cef5d546b64fca"
+        }
+      ]
     },
     {
       "id": "f4b7c3c107165ccde26aa4d4fc9918db274a2ee03a06ed2f0937abbc8c6c399b",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W1): the thread target _pump_out feeds a warm process's stdout into the claiming turn's event queue (the turn writes org state) and folds the init event's MCP tool names into runtime state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "1c0e90434be518674dd8af3f281ef6229cd7c5e433772d60e40b25153792a82b",
-      "disposition": "pending",
+      "disposition": "excluded",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "reason": "Not org state: the thread target _pump_err keeps a warm process's stderr tail in memory and appends only the CLI's cache-break sentinel lines to the machine telemetry journal <ORGTREE_DATA>/journals/warm.jsonl (warmpool._journal); it touches no org store or census sidecar. P01 W1.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/warmpool.py",
+          "start": 346,
+          "end": 347,
+          "sha256": "916925f9afacb100e6762ed0beeea2a364fa953a9c27bce564f1c5319b100916"
+        },
+        {
+          "path": "engine/backend/orgtree/warmpool.py",
+          "start": 393,
+          "end": 402,
+          "sha256": "79e1aa0659040f2a6eec2d81d2d53213119157a4628059a62fabe1ee7e0d2a56"
+        },
+        {
+          "path": "engine/backend/orgtree/warmpool.py",
+          "start": 526,
+          "end": 538,
+          "sha256": "3f343a6c921dbbd642b04aa07193dfce68572dd2e897abc4e97605da819099bd"
+        }
+      ]
     },
     {
       "id": "96d6b3940a1c8cc3c45128c2521715bdad0f2abc9631c5457ca6026d48dfc6d9",
-      "disposition": "pending",
+      "disposition": "excluded",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "reason": "Not org state: the drain thread keeps a cold process's stderr tail in memory and appends only the CLI's cache-break sentinel lines to the machine telemetry journal <ORGTREE_DATA>/journals/warm.jsonl (warmpool._journal); it touches no org store or census sidecar. P01 W1.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/warmpool.py",
+          "start": 667,
+          "end": 668,
+          "sha256": "c594f86a8fe7b4ee396e5ec717914e76234ae4f47f29f455c9eec6a0a9ed5648"
+        },
+        {
+          "path": "engine/backend/orgtree/warmpool.py",
+          "start": 628,
+          "end": 669,
+          "sha256": "f5b1155d94d91cff3963c8bfa60c5695a45c4251d0e9c3bbd076aa786996c6ac"
+        }
+      ]
     },
     {
       "id": "047d2ebc8ff898c8710e5661cdbaa320d9b2273ef2852dfe5e84edd38e638a43",
@@ -15637,7 +15828,7 @@
       "id": "0e72ae7299a886a315dff352af48cc0b2e0c89c0dd4568cebca6133576d5e5a5",
       "disposition": "excluded",
       "contracts": [],
-      "reason": "Not org state: a READ-ONLY (mode=ro, or immutable=1) snapshot of the Antigravity CLI's own conversation database, the provider's store outside every org store and org sidecar, opened to reconcile a turn's provenance; the class documents that it never writes. Provider state belongs to P08, not to this storage inventory. P01 S2k.",
+      "reason": "Not org state: a READ-ONLY (mode=ro, or immutable=1) snapshot of the Antigravity CLI's own conversation database, the provider's store outside every org store and org sidecar, opened to reconcile a turn's provenance; the class documents that it never writes the database content (a mode=ro open of a live WAL database may still create or update its -shm index). Provider state belongs to P08, not to this storage inventory. P01 S2k.",
       "source_refs": [
         {
           "path": "engine/backend/orgtree/antigravity_provenance.py",
@@ -15651,7 +15842,7 @@
       "id": "714d9423b138a1c4953bd030414541040940972b5d4918c2da97cedb093a8bbf",
       "disposition": "excluded",
       "contracts": [],
-      "reason": "Not org state: a READ-ONLY (mode=ro, or immutable=1) snapshot of the Antigravity CLI's own conversation database, the provider's store outside every org store and org sidecar, opened to reconcile a turn's provenance; the class documents that it never writes. Provider state belongs to P08, not to this storage inventory. P01 S2k.",
+      "reason": "Not org state: a READ-ONLY (mode=ro, or immutable=1) snapshot of the Antigravity CLI's own conversation database, the provider's store outside every org store and org sidecar, opened to reconcile a turn's provenance; the class documents that it never writes the database content (a mode=ro open of a live WAL database may still create or update its -shm index). Provider state belongs to P08, not to this storage inventory. P01 S2k.",
       "source_refs": [
         {
           "path": "engine/backend/orgtree/antigravity_provenance.py",
