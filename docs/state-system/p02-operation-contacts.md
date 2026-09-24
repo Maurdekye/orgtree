@@ -163,9 +163,11 @@ for its organization. A warm row runs immediately after the cold one.
   release successor is `cousin`, reachable only through an audience the
   user granted to `owner`. Its mail reaches only `cousin` (P01 contacts
   review f1).
-- **Connection sites:** every one of the inventory's 15 sites is classified as
+- **Connection sites:** every one of the inventory's 18 sites is classified as
   instrumented (7: the primary store and the six sidecar sites) or
-  uninstrumented, with a reason. The tests ASSERT the basis for leaving the
+  uninstrumented, with a reason. Three of them are the hub store migration in
+  `engine/mailhub_runtime.py` (`MailhubRuntime._migrate_store`), which the
+  inventory scans since it covers the engine's top-level modules. The tests ASSERT the basis for leaving the
   uninstrumented readers alone: in every recorded row, the audited
   `sqlite3.connect` count equals the census's connects (primary plus
   sidecars), and no connect anywhere comes from `antigravity_provenance`,

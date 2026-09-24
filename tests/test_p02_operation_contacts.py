@@ -336,12 +336,19 @@ class OperationContacts(unittest.TestCase):
 
     def test_every_connection_site_is_classified_with_a_reason(self):
         sites = self.doc["connection_sites"]
-        self.assertEqual(len(sites), 15)
+        self.assertEqual(len(sites), 18)
         self.assertEqual(sum(s["status"] == "instrumented" for s in sites), 7)
         for s in sites:
             self.assertIn(s["status"], ("instrumented", "uninstrumented"))
             self.assertTrue(s["reason"])
             self.assertNotIn("NOT in census_contacts", s["reason"])
+            # a named reason, never the fallback for a file nobody described
+            self.assertNotEqual(s["reason"], "not listed by census_contacts", s["path"])
+        hub = [s for s in sites if s["path"] == "engine/mailhub_runtime.py"]
+        self.assertEqual(len(hub), 3)
+        for s in hub:
+            self.assertEqual(s["status"], "uninstrumented")
+            self.assertIn("mail hub store", s["reason"])
 
     def test_r5_residuals_are_reproduced_and_attributed(self):
         res = self.doc["residuals"]

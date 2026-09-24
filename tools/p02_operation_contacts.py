@@ -3064,6 +3064,10 @@ class Probe:
             "desktop_import.py": "desktop import of a stable-build document into a "
             "private candidate before adoption; runs only in an import job, not in "
             "the four families",
+            "mailhub_runtime.py": "one-time migration of the superseded V2 mail hub "
+            "store into the hub's own store when the hub starts (engine/mailhub_runtime.py, "
+            "outside the backend package); the hub's store, not Orgtree's, and not "
+            "reached by any of the families",
             "api.py": "UDP connect to 8.8.8.8 to discover the LAN address for a share "
             "URL; a socket, not a store; refused by the egress guard here",
             "liveness.py": "loopback TCP port probe of a provider process; a socket, "
