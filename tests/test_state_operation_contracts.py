@@ -46,7 +46,7 @@ class ContractCoverage(unittest.TestCase):
         self.assertEqual(result["contracts"], 42)
         self.assertEqual((result["summary"]["entries"]["mapped"], result["summary"]["dispatch"]["mapped"],
                           result["summary"]["storage"]["mapped"]), (29, 50, 0))
-        self.assertEqual(len(result["pending"]), 559)
+        self.assertEqual(len(result["pending"]), 560)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
@@ -184,8 +184,9 @@ class ContractCoverage(unittest.TestCase):
                     self.assertIn("Owner: ", r["reason"])
         self.assertEqual(seen, self.W8_PENDING)
 
-    W2_EXCLUDED = {("providers.py", 1434)}
-    W2_PENDING = ({("codexrun.py", n) for n in (742, 1346, 1742, 1746)}
+    # antigravity_status fills the provider-status cache the hire gate and the turn launcher read (W2 review fix)
+    W2_EXCLUDED: set[tuple[str, int]] = set()
+    W2_PENDING = ({("codexrun.py", n) for n in (742, 1346, 1742, 1746)} | {("providers.py", 1434)}
                   | {("gitworkspace.py", n) for n in (808, 809, 810, 820, 932, 933, 1230)}
                   | {("net.py", 1387), ("net.py", 1389), ("sandbox.py", 1195)}
                   | {("supervisor.py", n) for n in (192, 6417, 6567, 17379, 17493, 17803, 17949, 18885, 18999, 20259,

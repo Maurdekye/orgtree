@@ -120,7 +120,7 @@ diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
 Current totals are 42 contracts, 29 mapped registrations and 50 mapped
-dispatch witnesses. **559 obligations remain**: 276 registrations, 170 dispatch
+dispatch witnesses. **560 obligations remain**: 277 registrations, 170 dispatch
 witnesses, 11 storage candidates and 102 unresolved dimension occurrences.
 How it got there: 600 was two more registrations than the preceding 598 because the scanner now
 recognizes `asyncio.to_thread` hand-offs; both new witnesses are pending and no
@@ -293,9 +293,9 @@ control, the V1 import's recovery resolution, git push, pull and cleanup on regi
 repositories, two transcript rendering branches, and the agent door's tool naming. The
 recovery resolution's only production caller is a launcher route in `engine/launch.py`, outside
 the inventoried backend module set.
-559 is one fewer than that 560 (P01 W2): of 30 provider and machine worker registrations, source
-reading excludes only the Antigravity status probe, a cached provider status document that is never
-written into node state. The other 29 stay pending with an owner: Codex and Antigravity event
+560 stands after P01 W2: none of the 30 provider and machine worker registrations is excluded. Even
+the Antigravity status probe fills a process-wide cache that the hire gate and the turn launcher
+read (the review fix). All 30 stay pending with an owner: the status probe, Codex and Antigravity event
 callbacks and steer pumps, the cold MCP pump, warm-pool prewarm and keeper, the credential watcher and
 usage loop, the freeze-reset refresh, the sandbox warm-up, the workspace-usage walk and the git
 workspace reads and fetch (P08 or the git workspace feature), and the @net: mail hub loops (P07).

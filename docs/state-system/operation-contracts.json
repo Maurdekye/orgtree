@@ -13277,23 +13277,10 @@
     },
     {
       "id": "4e01d1c7e61b0943e6f8629c190eef7f8d19250785dd282dc8acb20de0a87d52",
-      "disposition": "excluded",
+      "disposition": "pending",
       "contracts": [],
-      "reason": "Not org state: the task probes the Antigravity CLI's login and version status and returns a cached provider status document (providers.antigravity_status), which is machine and provider state (P08). It reads and writes no org store or sidecar, and its result is never written into node state; callers such as the providers route and the staffing options only read it. JUDGEMENT CALL: it can gate a later hire choice without carrying data into the node. P01 W2.",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/providers.py",
-          "start": 1434,
-          "end": 1436,
-          "sha256": "e19209d45a797634c90ce431e7ad813116744574c585b36edb10ee596f6d5525"
-        },
-        {
-          "path": "engine/backend/orgtree/providers.py",
-          "start": 1204,
-          "end": 1229,
-          "sha256": "f4bda2841412de78f0fb0450423f6c1221f4da905f3a2b47f1ab8a580e841be5"
-        }
-      ]
+      "reason": "Stays pending (P01 W2): (review fix) the task probes the Antigravity CLI and fills the process-wide _antigravity_status_cache (60 s), which non-forced callers read: the hire gate decides from it whether an Antigravity node is created, the turn launcher takes the turn's executable path from it, the account and cache namespace is derived from it, and antigravity_limits reconciles its board from it. That is output reaching node state through a buffer it fills (rule 2 as sharpened). Owner: the runtime (P08).",
+      "source_refs": []
     },
     {
       "id": "fc16f0ec4f28045a3f5aa058a9fe35155bd4df5fafa3d7349c96c7531788c6f4",
