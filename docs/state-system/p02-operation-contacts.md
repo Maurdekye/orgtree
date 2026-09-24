@@ -17,6 +17,21 @@ network connect. The app lifespan is never started. Wakes and mail delivery
 are spies: they are counted, never delivered. `tests/test_p02_operation_contacts.py`
 runs the probe and checks its output.
 
+## Cross-org reads found (recorded, not fixed)
+
+Operations that read OTHER orgs' stores. Each is observed by the probe on
+synthetic data; none is fixed here. P01 and P05 should cite these rows.
+
+- **Every admin org tree build reads one `doc` row of EVERY other org**
+  (`orgtree.store:local_net_slugs`, which marks hub peers that are local
+  orgs), cold and warm. Rows: `org.tree` and its `migration:*` rows, as
+  declared `statement:data:org-db:foreign` statements. See the
+  `org-view.reads` row of the S3 F1b hand-off table.
+- The public kiosk gateway rebuilds its token map by reading every org
+  before any census attempt: `kiosk_token_scan`. A public request whose
+  token cache has expired carries this read, outside its census record.
+- `mail.message:bare-unknown-name` looks the name up in every org.
+
 ## Where each number comes from
 
 | Source | What it is |
@@ -403,6 +418,11 @@ or a websocket. The fixture follows `tests/test_state_org_view_boundary.py`:
 ## Hand-off to P01 (S3 F1b): facet → clause → rows
 
 Clauses from the Owner lines at v3 f2d71a1.
+
+> **Cross-org read on every admin tree build.** GET /api/orgs/{slug}
+> (admin) reads one `doc` row of EVERY other org on each build, cold and
+> warm (`orgtree.store:local_net_slugs`). Recorded, not fixed; see
+> `org-view.reads` below.
 
 | Facet | Closing clause | Status | Rows |
 |---|---|---|---|
