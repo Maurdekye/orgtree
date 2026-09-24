@@ -14898,105 +14898,105 @@
       "id": "625400a54f4e76c02479d8cb1ed8c7a448013c7b1c1132b73489c4e475c7cff4",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W8): the V1 import's recovery resolution (desktop_recovery.resolve_import: retry, continue or mark-handled), which loads and saves the org under DOC_LOCK. Its only production caller is the launcher's POST /api/desktop/import-v1/{slug}/resolve in engine/launch.py, a route OUTSIDE the inventoried backend module set. Org state, no contract. Owner: the desktop import.",
       "source_refs": []
     },
     {
       "id": "ab54ad4427483a8b1cc4a03df0d9ab3fab9583c432d2f1148f830244d7184fc9",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W8): the V1 import's recovery resolution (desktop_recovery.resolve_import: retry, continue or mark-handled), which loads and saves the org under DOC_LOCK. Its only production caller is the launcher's POST /api/desktop/import-v1/{slug}/resolve in engine/launch.py, a route OUTSIDE the inventoried backend module set. Org state, no contract. Owner: the desktop import.",
       "source_refs": []
     },
     {
       "id": "a1f1003a3a73e8eb827f6df8bb9f86e5a49a150279b953c6191451327e2311db",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W8): the V1 import's recovery resolution (desktop_recovery.resolve_import: retry, continue or mark-handled), which loads and saves the org under DOC_LOCK. Its only production caller is the launcher's POST /api/desktop/import-v1/{slug}/resolve in engine/launch.py, a route OUTSIDE the inventoried backend module set. Org state, no contract. Owner: the desktop import.",
       "source_refs": []
     },
     {
       "id": "04b325c284bee3f1b4bd056f7dd566fc1f7697b4b6c753e9335da02cec4b3669",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W8): the V1 import's recovery resolution (desktop_recovery.resolve_import: retry, continue or mark-handled), which loads and saves the org under DOC_LOCK. Its only production caller is the launcher's POST /api/desktop/import-v1/{slug}/resolve in engine/launch.py, a route OUTSIDE the inventoried backend module set. Org state, no contract. Owner: the desktop import.",
       "source_refs": []
     },
     {
       "id": "792ccffbfd3e20896d9a6dbacdcbb055633b9080329da454a574b4f7ccd70388",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W8): the V1 import's recovery resolution (desktop_recovery.resolve_import: retry, continue or mark-handled), which loads and saves the org under DOC_LOCK. Its only production caller is the launcher's POST /api/desktop/import-v1/{slug}/resolve in engine/launch.py, a route OUTSIDE the inventoried backend module set. Org state, no contract. Owner: the desktop import.",
       "source_refs": []
     },
     {
       "id": "255401ddc2ca25380dc1fa235c4c58c746fb5315d311ffabfdf223376c366eca",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W8): the V1 import's recovery resolution (desktop_recovery.resolve_import: retry, continue or mark-handled), which loads and saves the org under DOC_LOCK. Its only production caller is the launcher's POST /api/desktop/import-v1/{slug}/resolve in engine/launch.py, a route OUTSIDE the inventoried backend module set. Org state, no contract. Owner: the desktop import.",
       "source_refs": []
     },
     {
       "id": "ed2ffef3968767ed442030000064755ad4dbe16dbf03f596f3361c1352c7d831",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W8): the V1 import's recovery resolution (desktop_recovery.resolve_import: retry, continue or mark-handled), which loads and saves the org under DOC_LOCK. Its only production caller is the launcher's POST /api/desktop/import-v1/{slug}/resolve in engine/launch.py, a route OUTSIDE the inventoried backend module set. Org state, no contract. Owner: the desktop import.",
       "source_refs": []
     },
     {
       "id": "8d928ee3646b5e86683998d501d3decff687cd966bca57274307478777b69083",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W8): a branch of the EXTERNAL-chat MCP server (externtool.py, a separate client process) that forwards orgtree_list_orgs to GET /api/orgs; its output reaches org state through that backend route, so under rule 2 as sharpened (decision 2 on the W1 item) it is not excluded, and the route has no contract. Owner: external chat (P07).",
       "source_refs": []
     },
     {
       "id": "76df94351aded9ca9a8afa2a1855fb85df8523f12986a2f4f1c6e67f13835d02",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W8): a branch of the EXTERNAL-chat MCP server (externtool.py, a separate client process) that forwards orgtree_send to POST /api/extern/{peer}/send; its output reaches org state through that backend route, so under rule 2 as sharpened (decision 2 on the W1 item) it is not excluded, and the route has no contract. Owner: external chat (P07).",
       "source_refs": []
     },
     {
       "id": "2aa688b4229540177e53c2a8d0d6894ff165d86e23d8c7cb87186c6e09e1615e",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W8): a branch of the EXTERNAL-chat MCP server (externtool.py, a separate client process) that forwards orgtree_read to GET /api/extern/{peer}/messages; its output reaches org state through that backend route, so under rule 2 as sharpened (decision 2 on the W1 item) it is not excluded, and the route has no contract. Owner: external chat (P07).",
       "source_refs": []
     },
     {
       "id": "f97536ea30a7552b36edcebda10fef7af941db188134847a191cb7e67e302adc",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W8): a branch of the EXTERNAL-chat MCP server (externtool.py, a separate client process) that forwards orgtree_wait to GET /api/extern/{peer}/wait; its output reaches org state through that backend route, so under rule 2 as sharpened (decision 2 on the W1 item) it is not excluded, and the route has no contract. Owner: external chat (P07).",
       "source_refs": []
     },
     {
       "id": "58da65a18f085e5bb2a3d1fecfd1fd052d3e6951c39801e905cf1b07b8874004",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W8): the worktree-cleanup unlink of a validated reparse point, reached by the uncontracted git workspace route POST /{rid}/cleanup-unlink (gitapi.py). A registered repository or worktree may sit inside an agent's scratch root (gitworkspace.roots includes it), which is org material, so this is not clearly outside org state. Owner: the git workspace feature.",
       "source_refs": []
     },
     {
       "id": "0e8a172bf571cfa9e30d97a3fb4c99b319bd92fd1cd02555b897e453ca3a7eeb",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W8): git push or pull on a registered repository (gitworkspace.operate), reached by the uncontracted git workspace route POST /{rid}/push or /{rid}/pull (gitapi.py). A registered repository or worktree may sit inside an agent's scratch root (gitworkspace.roots includes it), which is org material, so this is not clearly outside org state. Owner: the git workspace feature.",
       "source_refs": []
     },
     {
       "id": "6aaa161906764388aebef0b520cc79ef260e73d0c4696b442e83f6aea72096c6",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W8): git push on a registered repository (gitworkspace.operate), reached by the uncontracted git workspace route POST /{rid}/push (gitapi.py). A registered repository or worktree may sit inside an agent's scratch root (gitworkspace.roots includes it), which is org material, so this is not clearly outside org state. Owner: the git workspace feature.",
       "source_refs": []
     },
     {
       "id": "9d9efff24162e08b828ce7d8b721240064138a5e14e38e62314f164bf7598bb5",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W8): git push on a registered repository (gitworkspace.operate), reached by the uncontracted git workspace route POST /{rid}/push (gitapi.py). A registered repository or worktree may sit inside an agent's scratch root (gitworkspace.roots includes it), which is org material, so this is not clearly outside org state. Owner: the git workspace feature.",
       "source_refs": []
     },
     {
@@ -15085,17 +15085,55 @@
     },
     {
       "id": "f19e20339bead23a325c0495d071e531e5c2dfddc35ffc46d878785aba7e9c42",
-      "disposition": "pending",
+      "disposition": "excluded",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "reason": "Not an operation: _desktop_relaunch_catalogue only swaps the tool card an agent is shown in the agent-side MCP server's catalogue (orgtree_self_restart becomes orgtree_self_relaunch); it calls nothing. P01 W8.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2111,
+          "end": 2111,
+          "sha256": "a0def51548c304e90d0b13313831bb48f73fd0216fbbf66521818f9d4cd407c9"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1,
+          "end": 10,
+          "sha256": "1eb471298db19afcefda1ce5433f9d005231bd963989bad176678757ab0933c4"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2104,
+          "end": 2117,
+          "sha256": "520513551db069b15b01199b4b54fe5bbfdc3754212d7cb4e62c666d0b7911cf"
+        }
+      ]
     },
     {
       "id": "9cfcf99bb75f73e2d925099e8b55ee136a3ae6842146906fd059823096188eb2",
-      "disposition": "pending",
+      "disposition": "excluded",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "reason": "Not an operation: _desktop_relaunch_catalogue only swaps the tool card an agent is shown in the agent-side MCP server's catalogue (orgtree_prime_restart becomes orgtree_prime_relaunch); it calls nothing. P01 W8.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2113,
+          "end": 2113,
+          "sha256": "5d1dccdad2eea494c3b44ef61a1426ea87b61d6b549cc8eeadb98799685dd88c"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1,
+          "end": 10,
+          "sha256": "1eb471298db19afcefda1ce5433f9d005231bd963989bad176678757ab0933c4"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2104,
+          "end": 2117,
+          "sha256": "520513551db069b15b01199b4b54fe5bbfdc3754212d7cb4e62c666d0b7911cf"
+        }
+      ]
     },
     {
       "id": "b2e49e97ad9fc65c4f529f5e1c4bf4b3f770eb24289e0cb9e19ecd2f3402ac8d",
@@ -15108,7 +15146,7 @@
       "id": "7b42a49969655dbd1e6e9d849978fa1ed9884e5ae846e3c6a039126bf5143d7c",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W8): the agent-side MCP client's orgtree_send_file branch (mcptool.call_api) mints a delivery_id and forwards the call to POST /api/agent as orgtree_send_file_once, which writes the file_deliveries sidecar and the outbox; its output reaches org state (rule 2 as sharpened), and orgtree_send_file has no contract. Owner: file delivery (orgtree_send_file).",
       "source_refs": []
     },
     {
@@ -15631,14 +15669,14 @@
       "id": "fea6ac4d65d7c5329b38755e6346a742974347424fe262bef4fe8e7f3288e9ee",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W8): a transcript rendering branch in supervisor._read_chat_source (the orgtree_present card), shared by the contracted transcript read (material.transcript) and the uncontracted desktop chat route (api.node_chat); a shared branch maps only once every operation reaching it has a contract. Owner: the desktop chat read (api.node_chat).",
       "source_refs": []
     },
     {
       "id": "e12774a4490048f01b6534c92a3b48ca6b12cfb86c970b740662119c47e525f7",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W8): a transcript rendering branch in supervisor._read_chat_source (the orgtree_send_file card), shared by the contracted transcript read (material.transcript) and the uncontracted desktop chat route (api.node_chat); a shared branch maps only once every operation reaching it has a contract. Owner: the desktop chat read (api.node_chat).",
       "source_refs": []
     },
     {
@@ -15670,91 +15708,91 @@
       "id": "bc338c6c825c4da5780b4991280ebeacaa5cad5756ba10b084afa21b90b005e0",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W8): toolwait.tool_name unwraps orgtree_op_call to the verb it carries, and at the agent door that name decides whether a call takes the managed-wait path, which journals in the tool_waits sidecar. It is shared by every POST /api/agent call, and the door stays pending by precedent (S3 decision 1). Owner: P01 (the agent door).",
       "source_refs": []
     },
     {
       "id": "335791ec3a3f8bdab9f77aa4e76e4b01d653acebb90eba0093720906fd7efc81",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W8): warmpool.process_control_status reads a node's process-control state from the org; it serves both the uncontracted process control (api.node_process) and the tree view (api._org_view, under the contracted org.tree), and a shared witness maps only once every operation reaching it has a contract. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "1ff02d40a10d05851b0e9b901b818ff9d4fdc35fcbaab70729a5ece0537726c2",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W8): warmpool.process_control_status reads a node's process-control state from the org; it serves both the uncontracted process control (api.node_process) and the tree view (api._org_view, under the contracted org.tree), and a shared witness maps only once every operation reaching it has a contract. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "17113e5dd39b4689ab72aabeb69241f1753c2f255537e375319e72c45498396e",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W8): the per-node process start/stop control, reached by the uncontracted route POST /api/orgs/{slug}/nodes/{nid}/process (api.node_process -> warmpool.process_control, which takes DOC_LOCK, loads the org and changes the node's warm-process flags). Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "b0b6ca1a7e463fa983ff4ce4c3df47a82c8fb08af1ff38dd79e4db8c6982f49c",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W8): the per-node process start/stop control, reached by the uncontracted route POST /api/orgs/{slug}/nodes/{nid}/process (api.node_process -> warmpool.process_control, which takes DOC_LOCK, loads the org and changes the node's warm-process flags). Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "540879425dfde2917f5f88b0b9290c52c8ea7498433b11a429376f9239153de5",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W8): the per-node process start/stop control, reached by the uncontracted route POST /api/orgs/{slug}/nodes/{nid}/process (api.node_process -> warmpool.process_control, which takes DOC_LOCK, loads the org and changes the node's warm-process flags). Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "b42a8f58ac389314b5633a6434b8799236fdc615c28df75c083704fd6e3cfcba",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W8): the per-node process start/stop control, reached by the uncontracted route POST /api/orgs/{slug}/nodes/{nid}/process (api.node_process -> warmpool.process_control, which takes DOC_LOCK, loads the org and changes the node's warm-process flags). Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "6d65d353edebfc954c3f4b5d53628467195b492dc448d9b99df8d30d9650222c",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W8): the per-node process start/stop control, reached by the uncontracted route POST /api/orgs/{slug}/nodes/{nid}/process (api.node_process -> warmpool.process_control, which takes DOC_LOCK, loads the org and changes the node's warm-process flags). Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "fdd65426e4c599d0f4a93f91d7895431cd40d7188d96a594a5eaa3a13364c82b",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W8): the per-node process start/stop control, reached by the uncontracted route POST /api/orgs/{slug}/nodes/{nid}/process (api.node_process -> warmpool.process_control, which takes DOC_LOCK, loads the org and changes the node's warm-process flags). Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "580a9a3ab8e4ae0d727d056529ab26d738def81bc014d4e02b1275dab273d878",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W8): the per-node process start/stop control, reached by the uncontracted route POST /api/orgs/{slug}/nodes/{nid}/process (api.node_process -> warmpool.process_control, which takes DOC_LOCK, loads the org and changes the node's warm-process flags). Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "0adb8e66346820fed50f1abb6dfb8e89f28d445154a07260a7f06fac874e6b26",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W8): the per-node process start/stop control, reached by the uncontracted route POST /api/orgs/{slug}/nodes/{nid}/process (api.node_process -> warmpool.process_control, which takes DOC_LOCK, loads the org and changes the node's warm-process flags). Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "bf90c1c0600f8115587976c71f44c7cf6f33f8efe6c6e43a64db5605ac1661dd",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W8): the per-node process start/stop control, reached by the uncontracted route POST /api/orgs/{slug}/nodes/{nid}/process (api.node_process -> warmpool.process_control, which takes DOC_LOCK, loads the org and changes the node's warm-process flags). Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "72a5c6d3a540dbc241528c5b8653636136911f194c5a3efff7f680002b95f6c2",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W8): the per-node process start/stop control, reached by the uncontracted route POST /api/orgs/{slug}/nodes/{nid}/process (api.node_process -> warmpool.process_control, which takes DOC_LOCK, loads the org and changes the node's warm-process flags). Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {

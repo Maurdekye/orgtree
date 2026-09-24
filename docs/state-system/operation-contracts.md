@@ -120,7 +120,7 @@ diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
 Current totals are 42 contracts, 29 mapped registrations and 50 mapped
-dispatch witnesses. **567 obligations remain**: 277 registrations, 177 dispatch
+dispatch witnesses. **565 obligations remain**: 277 registrations, 175 dispatch
 witnesses, 11 storage candidates and 102 unresolved dimension occurrences.
 How it got there: 600 was two more registrations than the preceding 598 because the scanner now
 recognizes `asyncio.to_thread` hand-offs; both new witnesses are pending and no
@@ -284,6 +284,14 @@ scheduler stop, four disk mount calls the scanner took for route mounts, and the
 vocabulary. Eight stay pending with an owner: the startup hook, the three stdout pumps that feed a
 turn's events, and the four stderr pumps, whose tails a failed turn reads into its failure record
 (a usage-limit failure freezes the node).
+565 is two fewer than that 567 (P01 W8): of 33 machine, client and presentation dispatch rows,
+source reading excludes only the two that swap a tool card in the agent-side MCP catalogue and
+call nothing. The other 31 stay pending with an owner: per-node process control, the V1 import's
+recovery resolution, git push, pull and cleanup on registered repositories, two transcript
+rendering branches, the agent door's tool naming, and five HTTP-client branches (externtool's
+four verbs, mcptool's file delivery) whose requests reach org state through the backend. The
+recovery resolution's only production caller is a launcher route in `engine/launch.py`, outside
+the inventoried backend module set.
 
 Of the 41 open dimension occurrences on the sixteen legacy-family contracts, 25 (9 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the
