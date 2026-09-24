@@ -120,8 +120,8 @@ diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
 Current totals are 42 contracts, 29 mapped registrations and 50 mapped
-dispatch witnesses. **612 obligations remain**: 290 registrations, 177 dispatch
-witnesses, 15 storage candidates and 130 unresolved dimension occurrences.
+dispatch witnesses. **606 obligations remain**: 290 registrations, 177 dispatch
+witnesses, 15 storage candidates and 124 unresolved dimension occurrences.
 How it got there: 600 was two more registrations than the preceding 598 because the scanner now
 recognizes `asyncio.to_thread` hand-offs; both new witnesses are pending and no
 existing witness identity, disposition or contract changed.
@@ -234,6 +234,16 @@ before any census attempt exists, so it cannot be attributed; its question is
 rewritten to that), `agent-mail.effects` (P07) and `human-mail.effects` (P08).
 `tests/test_state_p02_contact_facets.py` re-runs the probe and asserts each new fact.
 See "P03-prototype surface" below.
+606 is six fewer than that 612 (P01 S2f): P02's funding rows (v3 b78c6ca, re-observed at
+56a9c22) cover every outcome the funding Owner lines name, so `funding.reads` and
+`funding.instrumentation` are specified on all three funding contracts. The
+instrumentation facet closes under S2d decision 1. Its one out-of-set contact is not the
+operation's: a warm raise or zero delta that follows a row which changed `f-kid` re-reads
+that node row through the agent door's snapshot refresh (`api._agent_identity` ->
+`store.cached_org` -> `_assemble_snapshot`), which a reordered run (S2f artifact r1) shows
+is carried over from the previous row. S2f also corrects the `funding.reads` source fact
+(under `DOC_LOCK`, `load_org` is the resident document) and names all three automatic
+notices that withhold the reply grant (review finding f1).
 
 Of the 43 open dimension occurrences on the sixteen legacy-family contracts, 27 (10 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the

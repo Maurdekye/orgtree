@@ -533,6 +533,121 @@ class ContactFacets(unittest.TestCase):
         self.assertEqual((r["http_status"], self.read(r), self.written(r)), (404, self.FULL, []))
         self.assertEqual(self.exact("mail.node-inbox", "json:refusal:node-inbox-unknown-node", "warm")["http_status"], 404)
 
+    # -- S2f: funding ----------------------------------------------------------------
+    WARM_AGENT = ["doc", "log_l", "meta", "nodes"]
+
+    def funding_rows(self):
+        return [r for r in self.doc["rows"] if r["contract"].startswith("credits.")]
+
+    def test_funding_reads_and_writes_per_outcome(self):
+        outcomes = {"credits.request": (("credits.request", "credits.request:amend", "credits.request:withdraw"),
+                                        ["doc", "log_l"]),
+                    "credits.reallocate": (("credits.reallocate", "credits.reallocate:down",
+                                            "credits.reallocate:deep"), ["doc", "log_l", "nodes"]),
+                    "credits.decide": (("credits.decide", "credits.decide:counter", "credits.decide:deny"),
+                                       ["doc", "log_d", "log_l", "nodes"])}
+        for contract, (variants, writes) in outcomes.items():
+            for variant in variants:
+                for condition in ("cold", "warm"):
+                    with self.subTest(variant=variant, condition=condition):
+                        r = self.exact(contract, variant, condition)
+                        self.assertEqual((r["http_status"], r["unknown_contacts"]), (200, []))
+                        read = self.read(r)
+                        if condition == "cold":
+                            self.assertEqual(read, self.FULL)
+                        elif contract == "credits.decide":     # as the resident document needs
+                            self.assertTrue({"meta", "nodes"} <= set(read) <= set(self.FULL), read)
+                        else:
+                            self.assertEqual(read, self.WARM_AGENT)
+                        written = self.written(r)
+                        if contract == "credits.decide":
+                            written = [t for t in written if t != "meta"]
+                        self.assertEqual(written, writes)
+        self.assertEqual(self.written(self.exact("credits.reallocate", "credits.reallocate:zero", "warm")), ["log_l"])
+        self.assertEqual(self.written(self.exact("credits.reallocate", "credits.reallocate:fractional", "warm")),
+                         ["doc", "log_l", "nodes"])
+        self.assertEqual(self.written(self.exact("credits.request", "credits.request:nothing-to-request", "warm")), [])
+        for condition in ("cold", "warm"):
+            with self.subTest(condition=condition):
+                self.assertEqual(self.written(self.exact("credits.decide", "credits.decide:moot", condition)),
+                                 ["doc", "log_l"])
+                self.assertEqual(self.written(self.exact("credits.decide", "credits.decide:dry", condition)), [])
+                for contract in ("credits.request", "credits.reallocate"):
+                    self.assertEqual(self.written(self.exact(contract, contract + ":keyed-replay", condition)), [])
+        self.assertEqual(self.exact("credits.decide", "credits.decide:dry", "warm")["census"]["statements"], 0)
+        refusals = {r["variant"]: r for r in self.funding_rows() if r["variant"].startswith("refusal:")}
+        self.assertEqual(len(refusals), 11)
+        argument = {"refusal:request-not-a-number", "refusal:request-not-top-level", "refusal:reallocate-upward",
+                    "refusal:reallocate-self", "refusal:reallocate-not-a-number",
+                    "refusal:decide-dry-without-granted", "refusal:decide-bad-action", "refusal:decide-not-pending"}
+        for variant, r in refusals.items():
+            with self.subTest(variant=variant):
+                self.assertEqual(self.written(r), [])
+                if variant == "refusal:decide-agent-token":
+                    self.assertEqual((r["http_status"], r["census"]["records"]), (401, 0))
+                    continue
+                self.assertEqual((r["http_status"], r["census"]["records"]), (422, 1))
+                if variant in argument:
+                    self.assertEqual(r["census"]["statements"], 0)
+        self.assertEqual(self.read(refusals["refusal:request-no-reason"]), ["meta"])
+        self.assertEqual(self.read(refusals["refusal:reallocate-committed-floor"]), self.WARM_AGENT)
+        for r in self.funding_rows():
+            with self.subTest(variant=r["variant"], condition=r["condition"]):
+                self.assertEqual((r["unknown_contacts"], self.foreign(r)), ([], 0))
+                self.assertTrue(r["harness"]["all_writes_in_transaction"])
+
+    def test_funding_locality_and_the_carry_over_read(self):
+        order = self.doc["rows"]
+        carried = set()
+        for r in self.funding_rows():
+            with self.subTest(variant=r["variant"], condition=r["condition"]):
+                agents = r["agents"]
+                if r["variant"] == "refusal:decide-agent-token":
+                    self.assertIsNone(r["harness"]["matches_census"])
+                else:
+                    self.assertIs(r["harness"]["matches_census"], True)
+                    self.assertEqual(r["census"]["records"], 1)
+                if r["variant"] == "control:funding-third-agent":
+                    self.assertGreaterEqual(agents["third_agent_mail"], 1)
+                    self.assertEqual(agents["logical"]["mail"], {"f-sib": "third"})
+                    continue
+                self.assertEqual((agents["third_agent_mail"], agents["third_agent_rows_written"]), (0, 0))
+                for section, who in agents["logical"].items():
+                    for n, role in who.items():
+                        self.assertEqual(role, "target", (section, n))
+                        self.assertIn(n, agents["targets"])
+                if r["contract"] == "credits.request":
+                    self.assertEqual((agents["logical"], agents["physical_nodes"]), ({}, {}))
+                # a physical third-agent read only ever carries over a node the PREVIOUS row wrote
+                third = {n for n, role in agents["physical_nodes"].items() if role == "third"}
+                if third:
+                    carried.add((r["variant"], r["condition"]))
+                    prev = order[next(i for i, x in enumerate(order) if x is r) - 1]
+                    self.assertEqual(r["condition"], "warm")
+                    self.assertEqual(agents["third_sites"], {"nodes:read@orgtree.api:_agent_identity": len(third)})
+                    self.assertIn("nodes", self.written(prev))
+                    for n in third:
+                        self.assertEqual(prev["agents"]["physical_nodes"].get(n), "target", n)
+        self.assertEqual(carried, {("credits.reallocate", "warm"), ("credits.reallocate:zero", "warm")})
+        for variant, requester, noticed in (("credits.decide", "f-top", True), ("credits.decide:counter", "f-top", True),
+                                            ("credits.decide:deny", "f-top2", False)):
+            for condition in ("cold", "warm"):
+                with self.subTest(variant=variant, condition=condition):
+                    a = self.exact("credits.decide", variant, condition)["agents"]
+                    want = {"mail": {requester: "target"}, "mail_log": {requester: "target"}}
+                    if noticed:
+                        want["notices"] = {requester: "target"}
+                    self.assertEqual((a["logical"], a["physical_nodes"]), (want, {requester: "target"}))
+        for variant in ("credits.decide:moot", "credits.decide:dry"):
+            for condition in ("cold", "warm"):
+                self.assertEqual(self.exact("credits.decide", variant, condition)["agents"]["logical"], {})
+        for variant, noticed in (("credits.reallocate", ["f-mid"]), ("credits.reallocate:down", ["f-mid"]),
+                                 ("credits.reallocate:deep", ["f-kid", "f-mid"])):
+            for condition in ("cold", "warm"):
+                with self.subTest(variant=variant, condition=condition):
+                    a = self.exact("credits.reallocate", variant, condition)["agents"]
+                    self.assertEqual(a["logical"], {"notices": {n: "target" for n in noticed}})
+
     def test_no_token_rows_are_the_only_rows_without_a_census_record(self):
         # a loss-accounted record for every S2e row but the ones refused before any attempt
         unrecorded = {"refusal:tree-no-token", "refusal:tree-bad-kiosk-token", "refusal:inbox-no-token",

@@ -67,8 +67,11 @@ class BoundaryBinding(unittest.TestCase):
         registry = contracts.load(ROOT / 'docs/state-system/operation-contracts.json')
         result = contracts.validate(registry, contracts.inventory.scan(ROOT), ROOT)
         self.assertTrue(result['valid'], result['errors'])
-        for name in ('reads', 'conflicts', 'wire', 'instrumentation'):
+        # reads and instrumentation were specified from P02 rows (S2f); conflicts and wire stay open
+        for name in ('conflicts', 'wire'):
             self.assertEqual(registry['facets']['funding.' + name]['status'], 'unresolved', name)
+        for name in ('effects', 'reads', 'instrumentation'):
+            self.assertEqual(registry['facets']['funding.' + name]['status'], 'specified', name)
 
     def test_decision_branches_stay_pending_while_the_batch_submit_is_uncontracted(self):
         # S3 decision 5: Org.resolve_batch (the inbox batch submit) also reaches

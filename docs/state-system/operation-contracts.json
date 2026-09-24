@@ -6091,9 +6091,11 @@
     },
     "funding.reads": {
       "dimension": "reads",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
-        "Source read set: the caller and target nodes, the parent chain up to the root for a positive delta (_chain_acquire, free amounts and child grants), tier prices, the org's credit caps and headless flag, and the credit_requests list; the decision route loads the whole org under DOC_LOCK (load_org, not the resident)."
+        "Source read set: the caller and target nodes, the parent chain up to the root for a positive delta (_chain_acquire, free amounts and child grants), tier prices, the org's credit caps and headless flag, and the credit_requests list; the decision route loads the org under DOC_LOCK through load_org, which inside the lock is served the per-org resident document (store._load_org's resident fast path; a fresh parse only on a miss or a dirty repeat hand-out), not the cached_org snapshot the agent door reads.",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 56a9c22) for every outcome the clause names, cold and warm, answering both questions above: request new, :amend and :withdraw; reallocate up, :down and :deep; decide approve, :counter, :deny, :moot and :dry; plus nothing-to-request, a zero and a fractional delta, keyed fresh and replay for both agent tools, the refusals and a locality control. Cold, every outcome reads doc, log_d, log_l, meta and nodes of the org's own store. Warm, a request or a reallocation reads doc, log_l, meta and nodes; a decision reads at least meta and nodes, up to all five, as the resident document needs; a warm dry run runs no statement. No row makes an unknown contact or touches another org's store.",
+        "Writes, all inside a transaction: a request, amendment or withdrawal writes doc and log_l; a reallocation doc, log_l and nodes, and a zero delta only its log_l event; an approved, countered or denied decision doc, log_d, log_l and nodes; a moot decision doc and log_l. Nothing-to-request, a keyed replay, a dry run and every refusal write nothing. Warm, the argument refusals (a non-number, not top level, upward, self, a bad action, a dry run without granted, an id not pending) run no statement; a request without a reason reads only meta; the committed-floor refusal reads what a reallocation reads. The agent credential on the decision route is refused 401 before any census attempt. Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -6119,12 +6121,15 @@
           "start": 6137,
           "end": 6192,
           "sha256": "9ac93cd5057a651f855c093dc5f278161e0ce71ec2d3eb4271173e99576813b2"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 4111,
+          "end": 4136,
+          "sha256": "cfc5c17b7f2f1b81bc20559d6a12136c8aed4bd8ea5a8781a8f75a47caceb51c"
         }
       ],
-      "open_questions": [
-        "Record the statement-level read set of each funding outcome, cold and warm.",
-        "Owner: P02. Closes with: observed per-operation contacts for the three funding operations (request new/amend/withdraw, reallocate up/down/deep, decide approve/counter/deny/moot/dry), cold and warm. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to the funding operations."
-      ]
+      "open_questions": []
     },
     "funding.conflicts": {
       "dimension": "conflicts",
@@ -6191,9 +6196,11 @@
     },
     "funding.instrumentation": {
       "dimension": "instrumentation",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
-        "The agent door labels and classifies the two tools; the decision route is labelled by the access middleware. No P02 per-operation record covers them."
+        "The agent door labels and classifies the two tools; the decision route is labelled by the access middleware. P02's per-operation record covers all three (below).",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 56a9c22): a loss-accounted per-operation record for every funding row, cold and warm (one census record matching the harness, every write inside a transaction), except the decision route's agent-credential refusal, which is answered before any census attempt. Agent-level locality, answering the question above: a request changes no agent's mail, notices or row; a reallocation changes only the target's row and notices, and for a grandchild its parent's notices too; an approved, countered or denied decision changes only the requester's mail, mail_log and row, plus its notice when the grant changes (approve, counter); moot and dry change no agent. The control control:funding-third-agent (a reallocation that also posts mail to a sibling) is flagged, and no other funding row writes a third agent's mail or row.",
+        "One physical read falls outside that set without belonging to the operation. A warm raise or zero delta that directly follows a row which changed f-kid reads f-kid's node row (P02 records it as a third-agent read, and its third_sites names orgtree.api:_agent_identity as the first product frame). The statement is the agent door's snapshot refresh: api._agent_identity calls store.cached_org, whose _assemble_snapshot re-reads every node id the org's writers recorded in _changed_nodes since the last snapshot (the `for nid in nids` loop). A reordered run (P01 S2f artifact r1, fkid-order-33c6cf2.json) shows it appears only after a row that changed f-kid, with those frames. So under concurrent activity a warm operation's physical read set also covers node rows any earlier write in the org changed, bounded by those changes and not by the operation's own agents; logical locality is unaffected. Native negative controls are the P03 gate, not a clause of this legacy facet (S2d decision 1, reviewer ruling on 803227e). Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -6213,12 +6220,27 @@
           "start": 6137,
           "end": 6192,
           "sha256": "9ac93cd5057a651f855c093dc5f278161e0ce71ec2d3eb4271173e99576813b2"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11239,
+          "end": 11240,
+          "sha256": "1f0298746e925d8e5fe2cb053097c678f33b76be7ae841900c3e5c438aa2584d"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 4417,
+          "end": 4417,
+          "sha256": "fcb751f8993640d690210283ff0d63987b14140222fc1dc4b58177d1e9672705"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 4467,
+          "end": 4469,
+          "sha256": "165aa24b44d0e532d51a416b0fb27f5801464a9e9d87af22246f75d1f40d4860"
         }
       ],
-      "open_questions": [
-        "Extend the P02 per-operation probe to the funding operations with an agent-level locality control.",
-        "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed, loss-accounted contact record for the three funding operations with agent-level locality (the caller, the target and its chain only). Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to the funding operations."
-      ]
+      "open_questions": []
     },
     "staffing.authority": {
       "dimension": "authority",
