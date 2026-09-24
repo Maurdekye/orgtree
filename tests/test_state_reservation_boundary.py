@@ -499,6 +499,163 @@ class ReservationBoundary(unittest.TestCase):
         self.assertNotIn('marker',added)
         self.assertNotIn(self.item,added)
 
+    # -- wire-common: legacy malformed-input and shared-wrapper parity -------
+    # These pin CURRENT legacy behaviour, defects included, so a native or
+    # Rust door can be compared case by case. A pinned 500 or an accepted NaN
+    # is recorded behaviour, not an approved native contract.
+    SHA = 'must be a commit SHA: a commit reference must be a lowercase hex sha'
+    MALFORMED = [
+        # (field, value, status, detail fragment or None for success, committed)
+        ('lease_s','abc',500,"ValueError: could not convert string to float: 'abc'",False),
+        ('lease_s','nan',500,'ValueError: Invalid value NaN (not a number)',False),
+        ('lease_s',[1],500,"TypeError: float() argument must be a string or a real number, not 'list'",False),
+        ('lease_s',{'a':1},500,"TypeError: float() argument must be a string or a real number, not 'dict'",False),
+        ('lease_s','inf',422,'lease_s and stale_s must be positive and bounded',False),
+        ('lease_s','-1',422,'lease_s and stale_s must be positive and bounded',False),
+        ('lease_s','0',422,'lease_s and stale_s must be positive and bounded',False),
+        ('lease_s',1e308,422,'lease_s and stale_s must be positive and bounded',False),
+        ('lease_s',0,200,None,True),          # falsy: the default lease applies
+        ('lease_s',True,200,None,True),       # float(True) == 1.0
+        ('lease_s','1e3',200,None,True),
+        ('stale_s','abc',500,"ValueError: could not convert string to float: 'abc'",False),
+        ('stale_s',[1],500,"TypeError: float() argument must be a string or a real number, not 'list'",False),
+        ('resource',[1],200,None,True),       # stringified to '[1]'
+        ('resource',{'a':1},200,None,True),
+        ('resource',123,200,None,True),
+        ('resource','',422,'resource is required',False),
+        ('resource','x\x00y',422,'resource contains a NUL',False),
+        ('resource','r'*201,422,'resource is limited to 200 characters',False),
+        ('item',[1],422,'reservation is not visible to this collaborator',False),
+        ('item',123,422,'reservation is not visible to this collaborator',False),
+        ('item','',200,None,True),            # an item-less reservation is accepted
+        ('base',[1],422,'base '+SHA,False),
+        ('base','zz',422,'base '+SHA,False),
+        ('base','',422,'base '+SHA,False),
+        ('candidate',[1],422,'candidate must be text, not list',False),
+        ('candidate',123,422,'candidate '+SHA,False),
+        ('paths','a',422,'paths must be a list of declared path strings',False),
+        ('paths',{'a':1},422,'paths must be a list of declared path strings',False),
+        ('paths',[None],422,'paths[0] is required',False),
+        ('paths',['a']*129,422,'paths is limited to 128 entries',False),
+        ('paths',[1],200,None,True),          # stringified to '1'
+    ]
+
+    def test_malformed_acquire_arguments_pin_legacy_status_body_and_commit(self):
+        for n,(field,value,status,detail,committed) in enumerate(self.MALFORMED):
+            with self.subTest(field=field,value=repr(value)[:30]):
+                args = dict(action='acquire',resource=f'm{n}',item=self.item,candidate='a'*40,base='b'*40,
+                            paths=['x.py'],lease_s=1,stale_s=1)
+                args[field] = value
+                before = self.durable()
+                response = self.call(args)
+                self.assertEqual(response.status_code,status,response.text)
+                body = response.json()
+                if status == 500:
+                    # the unhandled-exception serializer echoes the exception text
+                    self.assertEqual(set(body),{'detail','error'})
+                    self.assertEqual(body['detail'],detail)
+                    self.assertEqual(set(body['error']),{'type','message','path','method','unhandled'})
+                    self.assertEqual((body['error']['path'],body['error']['method'],body['error']['unhandled']),('/api/agent','POST',True))
+                elif status == 422:
+                    self.assertEqual(set(body),{'detail'})
+                    self.assertIn(detail,body['detail'])
+                self.assertEqual(self.changed(before,self.durable()) == ['reservations'],committed)
+        stored = {r['resource']:r for r in self.durable()['reservations']}
+        self.assertEqual({stored[k]['resource'] for k in ('[1]',"{'a': 1}",'123')},{'[1]',"{'a': 1}",'123'})
+        self.assertEqual(stored[f'm{len(self.MALFORMED)-1}']['paths'],['1'])
+
+    def test_nan_stale_is_accepted_and_stored_as_nan(self):
+        import math
+        self.okay(self.call(dict(action='acquire',resource='nan-stale',item=self.item,candidate='a'*40,base='b'*40,
+                                 lease_s=1,stale_s='nan')))
+        row = next(r for r in self.durable()['reservations'] if r['resource']=='nan-stale')
+        self.assertTrue(math.isnan(row['stale_s']))   # a legacy defect, recorded rather than approved
+
+    def test_malformed_release_references_refuse_with_ordinary_details(self):
+        row = self.acquire(resource='held')
+        for field,value,detail in (('successor',[1],'successor is not a live collaborator'),
+                                   ('successor',{'a':1},'successor is not a live collaborator'),
+                                   ('successor',123,'successor is not a live collaborator'),
+                                   ('reservation',[1],'no such reservation'),
+                                   ('reservation',123,'no such reservation'),
+                                   ('reservation','','reservation is required')):
+            with self.subTest(field=field,value=value):
+                args = {**dict(action='release',reservation=row['id'],successor='peer'),field:value}
+                before = self.durable()
+                self.refused(self.call(args),detail)
+                self.assertEqual(self.durable(),before)
+        for value,detail in (([1],'action must be text, not list'),(5,'action must be acquire|'),(None,'action must be acquire|')):
+            with self.subTest(action=value):
+                self.refused(self.call(dict(action=value)),detail)
+
+    def test_shared_wrapper_refusals_have_these_status_codes_and_shapes(self):
+        c, good = self.client, dict(org=self.slug,node='owner',tool=TOOLS[0],args=dict(action='list'))
+        own = {'X-Orgtree-Agent-Token':self.tokens['owner']}
+        def text(response, status, detail):
+            self.assertEqual((response.status_code,response.json()),(status,{'detail':detail}))
+        def schema(response, kind, loc):
+            self.assertEqual(response.status_code,422,response.text)
+            [error] = response.json()['detail']       # FastAPI's list-shaped detail, not a string
+            self.assertEqual((error['type'],error['loc']),(kind,loc))
+        text(c.post('/api/agent',json=good),401,'missing authentication; provide a desktop or live agent credential')
+        text(c.post('/api/agent',json=good,headers={'X-Orgtree-Agent-Token':'nope'}),401,
+             'agent credential is invalid or expired; reconnect the agent session')
+        text(c.post('/api/agent',json=good,headers={'X-Orgtree-Agent-Token':self.tokens['peer']}),403,'agent credential identity mismatch')
+        text(c.post('/api/agent',json=dict(good,org='nope-org'),headers=own),403,'agent credential identity mismatch')
+        schema(self.call([1]),'dict_type',['body','args'])
+        schema(c.post('/api/agent',json={k:v for k,v in good.items() if k!='tool'},headers=own),'missing',['body','tool'])
+        schema(c.post('/api/agent',content=b'{',headers={**own,'content-type':'application/json'}),'json_invalid',['body',1])
+        with patch.object(api.supervisor.halt,'blocked',return_value='halt'):
+            text(self.call(dict(action='list')),409,'agent is halted — tools cannot execute until unhalt')
+        with patch.object(api.supervisor.halt,'blocked',return_value='killswitch'):
+            text(self.call(dict(action='list')),409,'the org killswitch is latched — tools cannot execute until the user releases it')
+        # an unknown top-level field is ignored, not refused
+        self.assertEqual(self.okay(c.post('/api/agent',json=dict(good,extra=1),headers=own)),{'reservations':[],'count':0,'stale':[]})
+
+    # The other P01 families enter through the same /api/agent door. Their wire
+    # facets (diagnostic.wire, material.wire, preview.wire) cite this matrix.
+    DOOR_TOOLS = {
+        'orgtree_state_inspect':{'node':'peer'},
+        'orgtree_capabilities':{},
+        'orgtree_read_scratch':{'node':'deep'},
+        'orgtree_read_transcript':{'node':'deep'},
+        'orgtree_preview':{'operation':'reallocate','args':{'node':'child','delta':1}},
+    }
+
+    def test_every_p01_tool_shares_the_agent_operator_and_bridge_door_shapes(self):
+        from fastapi.testclient import TestClient
+        c, op = self.client, {'X-Orgtree-Desktop-Token':'operator'}
+        bridge = TestClient(api.BridgeGateway(api.app),raise_server_exceptions=False)
+        self.addCleanup(bridge.close)
+        def detail(response):
+            return (response.status_code,response.json().get('detail'))
+        for tool,args in self.DOOR_TOOLS.items():
+            with self.subTest(tool=tool):
+                good = dict(org=self.slug,node='owner',tool=tool,args=args)
+                self.okay(self.call(args,tool=tool))
+                self.assertEqual(detail(c.post('/api/agent',json=good)),
+                                 (401,'missing authentication; provide a desktop or live agent credential'))
+                self.assertEqual(detail(c.post('/api/agent',json=good,headers={'X-Orgtree-Desktop-Token':'x'})),(401,'invalid desktop token'))
+                self.assertEqual(detail(c.post('/api/agent',json=good,headers={'X-Orgtree-Agent-Token':self.tokens['peer']})),
+                                 (403,'agent credential identity mismatch'))
+                # the desktop operator token may act as any live node, but not as the user
+                self.okay(c.post('/api/agent',json=good,headers=op))
+                self.assertEqual(detail(c.post('/api/agent',json=dict(good,node='user'),headers=op)),
+                                 (403,'authenticated seat is missing; reconnect through a live seat'))
+                response = self.call([1],tool=tool)
+                self.assertEqual((response.status_code,response.json()['detail'][0]['type']),(422,'dict_type'))
+                with patch.object(api.supervisor.halt,'blocked',return_value='halt'):
+                    self.assertEqual(detail(self.call(args,tool=tool)),(409,'agent is halted — tools cannot execute until unhalt'))
+                # BridgeGateway (started only by the standalone api.main, never by
+                # engine/launch.py): an org secret acts as ANY node of that org,
+                # with or without an agent credential; recorded, not approved.
+                with patch.object(api.bridgeauth,'resolve_org_credential',side_effect=lambda s:self.slug if s=='S' else None), \
+                     patch.object(api.sandbox,'container_auth',return_value=None):
+                    self.okay(bridge.post('/api/agent',json=good,headers={'x-orgtree-bridge':'S'}))
+                    self.assertEqual(detail(bridge.post('/api/agent',json=dict(good,org='other-org'),headers={'x-orgtree-bridge':'S'})),
+                                     (403,'bridge secret is scoped to its own org'))
+                    self.assertEqual(detail(bridge.post('/api/agent',json=good,headers={'x-orgtree-bridge':'nope'})),(403,'forbidden'))
+
     def assert_replay_skips_helper(self):
         row = self.acquire()
         key,epoch = self.fresh_key()

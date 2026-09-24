@@ -147,8 +147,18 @@ question and adds one line naming its owner, the evidence that would close it,
 and why the available evidence does not. The one P02 run available (20260924T063643Z)
 does not replay these tools, reports contacts only as whole-window totals and
 covers one connection site, so it closes none of them. The remaining 16 are the
-four wire facets: legacy parity can be fixtured now, but each also asks for
-native/Rust parity, which cannot be tested before a native build exists.
+four wire facets. Their legacy parity is now fixtured at the public door:
+- malformed-argument matrices, with the 500 serializer's exception-echo body
+- the agent/operator/bridge door matrix for every P01 tool
+- the preview per-operation matrix
+- diagnostic behaviour over corrupt stored nodes
+
+Recorded defects are kept as legacy behaviour, not approved. Examples: NaN
+`stale_s` accepted, a corrupt node failing the whole-org inspection,
+`revoke_dir` accepting any `dir`, and a bridge org secret acting as any node
+(`p05-authority-review-bridge-org-secret-acts-as-a`). Each wire facet stays open
+for its native/Rust clause. `material.wire` also keeps its legacy transcript
+projector clause, owned by `p01-transcript-projector-legacy-fixtures`.
 This is not a runtime operation count or progress percentage. See the separate
 family documents for their measurements and remaining obligations.
 

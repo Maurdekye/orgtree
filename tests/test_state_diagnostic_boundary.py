@@ -356,6 +356,65 @@ class DiagnosticBoundary(DiagnosticFixture,unittest.TestCase):
         self.assertIn('outside',self.ids())
         self.assertIn('invalid_visibility_refusal',self.spec['native_obligations'])
 
+    # Legacy malformed stored state (S2 candidate 3, diagnostic.wire). One
+    # corrupt node can fail the WHOLE-org inspection; these are recorded legacy
+    # behaviours, not an approved native fallback.
+    CORRUPT_NODE = [
+        # (field path, stored value, status for node=deep, status for the whole org, projected value or 500 type)
+        ('generation','x',500,500,'ValueError'),
+        ('generation',[1],500,500,'TypeError'),
+        ('generation',None,200,200,0),
+        ('grant','x',500,500,'TypeError'),
+        ('grant',None,500,500,'TypeError'),
+        ('grant',-5,200,200,-5),
+        ('model',None,500,500,'KeyError'),
+        ('model',5,500,500,'KeyError'),
+        ('scope','bad',500,500,'AttributeError'),
+        ('scope.tools','bad',500,500,'AttributeError'),
+        ('scope.org_visibility',5,200,200,5),
+        ('state','weird',422,200,None),     # an unknown state leaves the visible universe
+        ('parent','ghost',422,200,None),    # so does a dangling parent
+        ('frozen','bad',200,200,None),      # malformed optional maps project as null
+        ('frozen',[1],200,200,None),
+        ('pending_switch','bad',200,200,None),
+        ('last_status','bad',200,200,None),
+        ('title',5,200,200,'5'),
+    ]
+
+    def test_malformed_stored_node_fields_pin_legacy_projection_or_failure(self):
+        for path,value,one,whole,expected in self.CORRUPT_NODE:
+            with self.subTest(field=path,value=value):
+                saved = {}
+                def corrupt(org):
+                    node = org.node('deep')
+                    saved['node'] = copy.deepcopy(dict(node))
+                    *parents,leaf = path.split('.')
+                    target = node
+                    for part in parents:
+                        target = target[part]
+                    target[leaf] = value
+                self.mutate(corrupt)
+                try:
+                    response = self.call(args={'node':'deep'})
+                    self.assertEqual(response.status_code,one,response.text)
+                    self.assertEqual(self.call().status_code,whole)
+                    if one == 500:
+                        self.assertEqual(response.json()['error']['type'],expected)
+                    elif one == 422:
+                        self.refused(response,'state inspection is outside your visible scope: deep')
+                        self.assertNotIn('deep',self.ids())   # silently absent from the whole org
+                    else:
+                        row = response.json()['nodes'][0]
+                        key = path.split('.')[0]
+                        shown = row[key] if path.count('.') == 0 else row['scope']['org_visibility']
+                        self.assertEqual(shown,expected)
+                finally:
+                    def restore(org):
+                        node = org.node('deep')
+                        node.clear()
+                        node.update(saved['node'])
+                    self.mutate(restore)
+
     def test_repeated_diagnostics_use_fresh_scope_without_receipt_replay(self):
         epoch = self.okay(self.call(opreceipts.OP_EPOCH))['epoch']
         key = opreceipts.mint_key()

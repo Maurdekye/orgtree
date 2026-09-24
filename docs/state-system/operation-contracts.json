@@ -129,7 +129,7 @@
         "A keyed read commits op_receipts and op_receipts_meta only. A keyed renew also commits reservations. A keyed release with a successor commits reservations, mail, mail_log, events, lifecycle, audiences (the first grant to a deeper report), the receiver node's mail_seq, op_receipts and op_receipts_meta, then drives one ping.",
         "_op_file appends the receipt as the last mutation before save_org, so the receipt and its effect commit together or not at all. opreceipts.append advances meta.seq on every append; past CEILING it evicts down to TRIM_TO and moves meta.from_ms past the largest evicted mint time. opreceipts.custody/witness and _op_inflight change only in-process state.",
         "Before the transaction the route sets a request-profiling label, a stateprobe label and an attempt-census classification. These are in-memory. The reservation names are not MANAGED_WAIT_TOOLS, so no tool-wait sidecar row and no seat_id mint occur.",
-        "The one durable diagnostic write is the slow-request trace: when handler time reaches slowtrace.THRESHOLD_MS, the access middleware appends one row (route, method, status, timings, byte count, allowlisted profile fields) to <data>/diagnostics/slow-requests.jsonl. The row carries no tool arguments. The profile-timing sink is an in-memory deque plus stdout.",
+        "The one durable diagnostic write is the slow-request trace. When handler time reaches slowtrace.THRESHOLD_MS (ORGTREE_SLOW_TRACE_MS, default 500), the access middleware calls slowtrace.emit. If <data>/diagnostics/slow-requests.jsonl is over its size cap (ORGTREE_SLOW_TRACE_MAX_KB, default 4096), emit first renames it to a single .1 sibling, replacing and so discarding any older .1. It then appends one row: route, method, status, timings, byte count and allowlisted profile fields, with no tool arguments. emit swallows its own errors, so it never fails the request. The profile-timing sink is an in-memory deque plus stdout.",
         "Physical SQL statements, table and row fan-out, and waits behind these section changes belong to the unresolved `contacts` facet (P02). Pinned by tests/test_state_reservation_boundary.py (wrapper outcome table, slow-trace privacy, keyed read/replay/refusal and failure cases)."
       ],
       "source_refs": [
@@ -180,6 +180,12 @@
           "start": 53,
           "end": 73,
           "sha256": "e0d9e0a48fed186e0d093db5c5c64846c53442075c9e38b7a684e997b6a7f469"
+        },
+        {
+          "path": "engine/backend/orgtree/slowtrace.py",
+          "start": 40,
+          "end": 42,
+          "sha256": "9e208527aa63d8681cbb1f4ab494578520506e389fc6a2b83f311d9edf030c49"
         }
       ],
       "open_questions": []
@@ -221,7 +227,12 @@
         "Selector fixtures exercise dispatch conditions only; complete result/error/default wire fixtures remain required.",
         "reservation-boundary.json pins full fresh top-level and nested reservation field sets for all eleven variants and both aliases; public API tests compare these sets and semantic values, rather than only selecting a branch.",
         "Current canonical action normalization, finite lease defaults/bounds, path separator deduplication, absent/null distinctions, text-container refusal, privacy projections, rollback and keyed receipt shapes are executable boundary fixtures.",
-        "Scalar coercion is asymmetric: candidate is an API text key but base/resource/item/successor are helper-normalized. Equal helper meaning is not automatically equal keyed fingerprint. Full malformed numeric/container and all shared wrapper refusals remain outside this tranche."
+        "Scalar coercion is asymmetric: candidate is an API text key but base/resource/item/successor are helper-normalized. Equal helper meaning is not automatically equal keyed fingerprint.",
+        "Malformed acquire arguments are fixtured at the public door (tests/test_state_reservation_boundary.py): lease_s/stale_s go straight to float(), so non-numeric text or a container is an unhandled 500, and 'nan' lease_s is a 500 raised later. inf, negative, '0' and >MAX values refuse 422 'lease_s and stale_s must be positive and bounded'. A falsy 0 falls back to the default lease, True reads as 1.0, and '1e3' is accepted.",
+        "Recorded legacy defects, not approved native behaviour: stale_s='nan' passes the bound check and is committed as NaN; resource and path entries that are containers or numbers are stringified ('[1]', \"{'a': 1}\", '123'); an empty item acquires an item-less reservation; container or numeric item values refuse as 'reservation is not visible to this collaborator'.",
+        "Only action and candidate pass through the shared _norm_args text normalisation (a container refuses 422 '<field> must be text, not <type>'). resource/item/base/successor/reservation/paths/lease_s/stale_s reach the helper raw. Refusals that commit nothing keep the {'detail': str} shape.",
+        "An unhandled exception is serialized as HTTP 500 {'detail': '<Type>: <message>', 'error': {type, message, path, method, unhandled: true}}, echoing the exception text; nothing is committed.",
+        "Shared-wrapper refusals are fixtured. 401 'missing authentication; …' and 401 'agent credential is invalid or expired; …' come from engine/launch.py's authentication middleware, which is outside the pinned backend module set, so they carry no source span. 403 'agent credential identity mismatch' also covers an org the credential does not belong to. 409 halt and killswitch refuse before the lock. Request-schema errors are FastAPI 422 with a LIST-shaped detail ({type, loc, msg, input}) for a non-object args, a missing field or invalid JSON. Unknown top-level request fields are ignored."
       ],
       "source_refs": [
         {
@@ -247,10 +258,41 @@
           "start": 12197,
           "end": 12251,
           "sha256": "d66a2b4efa181bbe055dde8852c9ecbbf4b73f515a64ab787e631eba3b1086a8"
+        },
+        {
+          "path": "engine/backend/orgtree/reservations.py",
+          "start": 348,
+          "end": 355,
+          "sha256": "6aafbe62f5bfc4ca12d5ebcda1b6f6077665b87729403ecfdf773a602f2a5ae4"
+        },
+        {
+          "path": "engine/backend/orgtree/reservations.py",
+          "start": 48,
+          "end": 81,
+          "sha256": "68ccc948bc055d875f100838ff7120fa05dcfac8088b1859c7c75eaf57b742a3"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9775,
+          "end": 9796,
+          "sha256": "18311487a5e8baa24dd5701dace01243d0590ff50365f9d3667b1ca634ca72de"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 955,
+          "end": 964,
+          "sha256": "b01ea959c526a90814a0fca3f008c1429a23b1bfcc76e752279b779bf9eee7a9"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11205,
+          "end": 11220,
+          "sha256": "71c497cb2c5917cef875ddd4484c56b91c87c897e82158d6196d4552ce5378ef"
         }
       ],
       "open_questions": [
-        "Complete malformed numeric/container and shared-wrapper result/refusal parity beyond the reviewed boundary fixtures; carry native and Rust versions through the same cases."
+        "Carry the native and Rust versions through the same public-door cases: the eleven-variant fresh shapes, the malformed-argument matrix, the shared-wrapper refusal shapes and the keyed receipt cases. Decide each recorded legacy defect explicitly (500 bodies that echo exception text, NaN stale_s accepted, stringified containers, item-less acquire) rather than copying it.",
+        "Owner: the native/Rust conversion, from the P03 prototype onward. Closes with: the same fixtures passing against the native and Rust builds, with each legacy defect either reproduced deliberately or replaced by an approved refusal. Not coverable at P01 from available evidence: no native or Rust build of this door exists; the legacy half is fixtured in tests/test_state_reservation_boundary.py."
       ]
     },
     "receipt-common": {
@@ -1834,7 +1876,9 @@
         "The local tool adapter shapes are executable in material-read-boundary.json and tests/test_state_material_reads.py. Scratch returns dir/access/entries, file/access/content, or error/access (missing path is HTTP200); path escape and text-container errors are HTTP422 detail. OS errors are not converted to missing-path success.",
         "Transcript returns node,busy,access,occupancy,occupancy_estimated,messages. Each projected message retains only role,text,tools, truncates text to 1200 characters, defaults absent tools to [], and preserves an explicit tools:null. The outer last slice remains even when read_chat supplies extra rows.",
         "last defaults to30 for missing/null/empty, coerces through int then float-to-int, and clamps to1..80; malformed or nonfinite values return422. node/path use shared text normalization: null restores default, scalars stringify, containers refuse. The card schema is stricter than the gateway coercion.",
-        "The scratch path is stripped, leading separators removed, then realpath-resolved with a separator-anchored containment check. Its 20000/200/1200 bounds constrain returned characters or entries, not underlying IO or all nested response bytes."
+        "The scratch path is stripped, leading separators removed, then realpath-resolved with a separator-anchored containment check. Its 20000/200/1200 bounds constrain returned characters or entries, not underlying IO or all nested response bytes.",
+        "Door parity is fixtured in tests/test_state_reservation_boundary.py::test_every_p01_tool_shares_the_agent_operator_and_bridge_door_shapes for all five non-reservation P01 tools. Agent credential: 401 missing or invalid, 403 identity mismatch. The desktop operator token acts as any live node, and as node=user gets 403 'authenticated seat is missing; …'. Request-schema errors are FastAPI 422 with a list-shaped detail. Halt/killswitch is 409 before the lock. An unhandled error uses the shared 500 serializer, whose body echoes the exception text (see wire-common).",
+        "BridgeGateway: a valid org bridge secret may call /api/agent as ANY node of that org, with or without an agent credential. Another org gets 403 'bridge secret is scoped to its own org'; an unknown secret gets 403 'forbidden'. Only the standalone api.main starts BridgeGateway; the desktop launch path engine/launch.py never does. This is recorded, not approved; docket item p05-authority-review-bridge-org-secret-acts-as-a owns the decision."
       ],
       "source_refs": [
         {
@@ -1878,10 +1922,30 @@
           "start": 11483,
           "end": 11535,
           "sha256": "93f109a91b853f7adbe89e9f98640db65c3dc1a21bd25ff83d748b8ce2b22609"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11207,
+          "end": 11265,
+          "sha256": "3364dd0d8d7b27a9b16eff4385e2a0c17e3eefc0d9ad57b1411cef8111c7988e"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1226,
+          "end": 1300,
+          "sha256": "75de4e1850db22c4ff35671399dfdb3835ed6adf54e91342ba2471479ec07416"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 15106,
+          "end": 15110,
+          "sha256": "03f2e72638ca42df7768935176f0ecae3ac7031d885234169ad6000dcaecd864"
         }
       ],
       "open_questions": [
-        "Full provider/projector, middleware/operator/bridge/error serializer and Rust/native wire parity remain unqualified; selected adapter fixtures do not close those branches."
+        "Fixture the legacy transcript projector (supervisor._read_chat_source) at the public door for every row type it handles, including malformed rows. Only a synthetic local transcript is fixtured today.",
+        "Carry the native and Rust versions through the same cases: scratch shapes and bounds, transcript projection, and the door matrix.",
+        "Owner: docket item p01-transcript-projector-legacy-fixtures for the legacy projector clause (coverable at P01, split out by S2 decision 2); the native/Rust conversion, from the P03 prototype onward, for the native clause. Closes with: that item's projector fixtures, then all material fixtures passing against the native and Rust builds. Not coverable at P01 from available evidence: for the native clause, no native or Rust build of this door exists."
       ]
     },
     "material.contacts": {
@@ -2538,7 +2602,11 @@
         "The fixture pins the local structural fields and nested allowlists, role/visibility metadata, request order/duplicates, archived filtering and selected malformed argument refusals. Private account identity becomes present/missing/provider facts; charter, session, mail, transcript, directories and status summaries are omitted.",
         "nodes must be a list when supplied; each element is then stringified, empty strings removed by inspect_state, and all targets checked together. nodes takes precedence over node even when empty. node uses shared text normalization. include_archived uses shared string-aware flag semantics, not plain bool of a string.",
         "Capabilities returns actor,surface,operations,operator_only,agent_only,scope. The catalogue follows standard/frozen policy and desktop alias replacement, preserves order and has no provider availability guarantee. Topology/operator metadata cannot elevate the caller.",
-        "Allowed operational field values are projected as currently stored with selected bool/int/string coercions; this is an allowlist of fields, not recursive secret sanitization or a byte limit. Restored/malformed field types and complete middleware/error/Rust parity remain unresolved."
+        "Allowed operational field values are projected as currently stored with selected bool/int/string coercions; this is an allowlist of fields, not recursive secret sanitization or a byte limit. Restored/malformed field types and complete middleware/error/Rust parity remain unresolved.",
+        "Malformed stored node fields are fixtured in tests/test_state_diagnostic_boundary.py (test_malformed_stored_node_fields_pin_legacy_projection_or_failure). A non-integer generation, a non-numeric or null grant, a model outside the tier catalogue, or a non-dict scope/tools raises while the inspection is built, and the whole call is a 500. The same happens for an UNFILTERED inspection of the whole org, so one corrupt node denies the diagnostic to every caller whose visible set includes it.",
+        "An unknown state value or a dangling parent drops the node from the visible set (422 'state inspection is outside your visible scope' when targeted, silently absent from the whole org). A malformed frozen/pending_switch/last_status map projects as null. A null generation projects as 0; a negative grant, a non-string org_visibility and a numeric title are projected as stored.",
+        "Door parity is fixtured in tests/test_state_reservation_boundary.py::test_every_p01_tool_shares_the_agent_operator_and_bridge_door_shapes for all five non-reservation P01 tools. Agent credential: 401 missing or invalid, 403 identity mismatch. The desktop operator token acts as any live node, and as node=user gets 403 'authenticated seat is missing; …'. Request-schema errors are FastAPI 422 with a list-shaped detail. Halt/killswitch is 409 before the lock. An unhandled error uses the shared 500 serializer, whose body echoes the exception text (see wire-common).",
+        "BridgeGateway: a valid org bridge secret may call /api/agent as ANY node of that org, with or without an agent credential. Another org gets 403 'bridge secret is scoped to its own org'; an unknown secret gets 403 'forbidden'. Only the standalone api.main starts BridgeGateway; the desktop launch path engine/launch.py never does. This is recorded, not approved; docket item p05-authority-review-bridge-org-secret-acts-as-a owns the decision."
       ],
       "source_refs": [
         {
@@ -2636,10 +2704,47 @@
           "start": 374,
           "end": 376,
           "sha256": "edfd348ecf8eacfbbe8f0d6126959ec978efa9778747cf024221e7013b8becc6"
+        },
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 29,
+          "end": 54,
+          "sha256": "3b796c0ede3ecaf16c384477bd6e64cf2bef0eaa07a6279550b262d8f94d52a0"
+        },
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 55,
+          "end": 128,
+          "sha256": "626e2e6e3e997d07de7cad4884aa5f3ce9ac8d27d6075bae5607d91b0023d821"
+        },
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 129,
+          "end": 155,
+          "sha256": "e9c478b46de76ab70b4f51886d3bb9ce4f5e68ded3e0217c9cad0484bdadc9fc"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11207,
+          "end": 11265,
+          "sha256": "3364dd0d8d7b27a9b16eff4385e2a0c17e3eefc0d9ad57b1411cef8111c7988e"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1226,
+          "end": 1300,
+          "sha256": "75de4e1850db22c4ff35671399dfdb3835ed6adf54e91342ba2471479ec07416"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 15106,
+          "end": 15110,
+          "sha256": "03f2e72638ca42df7768935176f0ecae3ac7031d885234169ad6000dcaecd864"
         }
       ],
       "open_questions": [
-        "Complete schema/type/malformed-state, operator/bridge/middleware and Rust/native wire parity. Legacy broadening on corrupt visibility is not an approved native fallback."
+        "Carry the native and Rust versions through the same cases: argument schema/type refusals, the malformed stored-state matrix, and the agent/operator/bridge door matrix. Decide each legacy behaviour explicitly rather than copying it: one corrupt node failing the whole-org inspection, broadening on corrupt visibility, bridge org secrets acting as any node.",
+        "Owner: the native/Rust conversion, from the P03 prototype onward (the bridge authority decision is p05-authority-review-bridge-org-secret-acts-as-a). Closes with: these fixtures passing against the native and Rust builds, with each legacy defect reproduced deliberately or replaced by an approved refusal. Not coverable at P01 from available evidence: no native or Rust build of this door exists; the legacy half is fixtured."
       ]
     },
     "diagnostic.effects": {
@@ -3459,7 +3564,11 @@
         "The public agent default include_archived is True, evaluated with plain bool; a nonempty string such as false is truthy and explicit null is false. This intentionally records the legacy mismatch with state inspection string-aware flags and the pure helper default False.",
         "Falsy nested args become an empty object before type checking; truthy non-dicts refuse. Nested text fields use _norm_args. Unknown retool fields are ignored by its whitelist, including account after prevalidation; nested actor does not change the caller.",
         "Result sanitization removes a fixed case-insensitive set of private KEY names recursively and truncates list/tuple results to200. It is not value-sensitive redaction or a total byte limit; arbitrary strings and unlisted key names remain. Before/after node lists and diff length are not capped at200.",
-        "Selected malformed numeric inputs reach legacy 500 errors. The isolated simulation may otherwise report success without a visible diff (for example hidden charter/directory/account state). Neither result shape nor empty diff proves no hypothetical change."
+        "Selected malformed numeric inputs reach legacy 500 errors. The isolated simulation may otherwise report success without a visible diff (for example hidden charter/directory/account state). Neither result shape nor empty diff proves no hypothetical change.",
+        "Per-operation malformed arguments are fixtured in tests/test_state_preview_boundary.py (test_per_operation_malformed_arguments_pin_legacy_refusals) for reallocate, move, swap, self_subjugate, retool, retire, dissolve, revoke_dir, switch_model and audience. For each field it sends a dict, a list, an unknown name, an empty string and a number. Every node-naming field is a shared _norm_args text field: containers refuse '<field> must be text, not <type>', and other values refuse \"no such node: '<value>'\". org_visibility, tier and audience action refuse with their enum messages. A non-numeric delta is an unhandled 500. Nothing is persisted in any case.",
+        "Recorded gap: revoke_dir's dir is not a _norm_args field. It is stringified with str(args.get('dir') or ''), and Org.revoke_dir removes nothing for an unknown path, so any value (container, number, empty) returns a successful empty simulation.",
+        "Door parity is fixtured in tests/test_state_reservation_boundary.py::test_every_p01_tool_shares_the_agent_operator_and_bridge_door_shapes for all five non-reservation P01 tools. Agent credential: 401 missing or invalid, 403 identity mismatch. The desktop operator token acts as any live node, and as node=user gets 403 'authenticated seat is missing; …'. Request-schema errors are FastAPI 422 with a list-shaped detail. Halt/killswitch is 409 before the lock. An unhandled error uses the shared 500 serializer, whose body echoes the exception text (see wire-common).",
+        "BridgeGateway: a valid org bridge secret may call /api/agent as ANY node of that org, with or without an agent credential. Another org gets 403 'bridge secret is scoped to its own org'; an unknown secret gets 403 'forbidden'. Only the standalone api.main starts BridgeGateway; the desktop launch path engine/launch.py never does. This is recorded, not approved; docket item p05-authority-review-bridge-org-secret-acts-as-a owns the decision."
       ],
       "source_refs": [
         {
@@ -3491,10 +3600,41 @@
           "start": 158,
           "end": 295,
           "sha256": "d01f4177250e5e29894b5d0e8b773006d385be13be540490c4fa8f9346a43fe5"
+        },
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 263,
+          "end": 264,
+          "sha256": "6064fa7cef72ad846a216ac7f11654c2c3cdbfe39010eac64c1be87296016410"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 7296,
+          "end": 7306,
+          "sha256": "2fc918aa8f11432cf4da848c22c63fdcaefbacb9c71f3f97d52058326d700c36"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11207,
+          "end": 11265,
+          "sha256": "3364dd0d8d7b27a9b16eff4385e2a0c17e3eefc0d9ad57b1411cef8111c7988e"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1226,
+          "end": 1300,
+          "sha256": "75de4e1850db22c4ff35671399dfdb3835ed6adf54e91342ba2471479ec07416"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 15106,
+          "end": 15110,
+          "sha256": "03f2e72638ca42df7768935176f0ecae3ac7031d885234169ad6000dcaecd864"
         }
       ],
       "open_questions": [
-        "Complete all malformed-input, middleware/operator, account/session and Rust/native result parity, including bounded output and deliberate handling of current gaps."
+        "Carry the native and Rust versions through the same cases: the admitted/denied spellings, the per-operation malformed matrix, account/session and bounded-output fixtures, and the door matrix. Decide each current gap deliberately (non-numeric delta 500, unvalidated revoke_dir dir, plain-bool include_archived, key-name-only redaction) rather than copying it.",
+        "Owner: the native/Rust conversion, from the P03 prototype onward (the bridge authority decision is p05-authority-review-bridge-org-secret-acts-as-a). Closes with: these fixtures passing against the native and Rust builds, with every recorded gap either reproduced deliberately or replaced by an approved refusal. Not coverable at P01 from available evidence: no native or Rust build of this door exists; the legacy half is fixtured."
       ]
     },
     "preview.effects": {

@@ -294,6 +294,44 @@ class PreviewBoundary(PreviewFixture,unittest.TestCase):
                 self.assertEqual(response.status_code,500,response.text)
         self.assertIn('full_wire_parity',self.spec['native_obligations'])
 
+    # Legacy per-operation malformed-input parity (S2 candidate 3, preview.wire).
+    # Every node-naming field is a shared _norm_args text field; `dir` is not.
+    MALFORMED_OPS = {
+        'reallocate':{'node':'b','delta':1},'move':{'node':'leaf','new_parent':'b'},
+        'swap':{'a':'a','b':'b'},'self_subjugate':{'target':'a'},
+        'retool':{'node':'a','org_visibility':'self'},'retire':{'node':'b'},'dissolve':{'node':'a'},
+        'revoke_dir':{'node':'a','dir':'fixture-unheld'},'switch_model':{'node':'b','tier':'sonnet'},
+        'audience':{'action':'grant','from':'leaf'},
+    }
+    ENUMS = {('retool','org_visibility'):"org_visibility must be one of ('self', 'team', 'subtree', 'full')",
+             ('switch_model','tier'):'unknown tier',
+             ('audience','action'):'preview supports audience grant or revoke only'}
+
+    def test_per_operation_malformed_arguments_pin_legacy_refusals(self):
+        before = self.stored()
+        with patch.object(api,'provider_hire_gate'):
+            for op,args in self.MALFORMED_OPS.items():
+                for field in args:
+                    for label,bad in (('dict',{}),('list',[1]),('unknown','ghost'),('empty',''),('number',7)):
+                        with self.subTest(op=op,field=field,bad=label):
+                            response = self.call(op,{**args,field:bad})
+                            if field == 'dir':
+                                # recorded gap: revoke_dir's dir is never validated in the shadow
+                                self.okay(response)
+                            elif field == 'delta':
+                                if label == 'number':
+                                    self.okay(response)
+                                else:
+                                    self.assertEqual(response.status_code,500,response.text)
+                                    self.assertEqual(set(response.json()),{'detail','error'})
+                            elif label in ('dict','list'):
+                                self.refused(response,f'{field} must be text, not {type(bad).__name__}')
+                            elif (op,field) in self.ENUMS:
+                                self.refused(response,self.ENUMS[(op,field)])
+                            else:
+                                self.refused(response,"no such node: '"+str(bad)+"'")
+        self.assertEqual(self.stored(),before)
+
     def test_retool_account_checks_precede_clone_but_binding_is_not_simulated(self):
         before = self.stored()
         with patch.object(registry,'validate_selection',wraps=registry.validate_selection) as checked:

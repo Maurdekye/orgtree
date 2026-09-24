@@ -46,7 +46,7 @@ class ContractCoverage(unittest.TestCase):
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
     # evidence that would close it, and why the available evidence does not.
     # The wire facets get theirs with their legacy-parity fixtures.
-    ANNOTATION_PENDING = {"wire-common", "diagnostic.wire", "material.wire", "preview.wire"}
+    ANNOTATION_PENDING: set[str] = set()
 
     def test_every_unresolved_facet_names_its_owner_and_closing_evidence(self):
         unresolved = {k for k, f in self.document["facets"].items() if f["status"] == "unresolved"}
@@ -58,6 +58,12 @@ class ContractCoverage(unittest.TestCase):
                 self.assertIn(". Closes with: ", notes[0])
                 self.assertIn(". Not coverable at P01 from available evidence: ", notes[0])
                 self.assertGreater(len(self.document["facets"][name]["open_questions"]), 1)
+
+    def test_material_wire_names_its_legacy_projector_item(self):
+        # S2 decision 2 (option b): this one facet's legacy clause is owned by a
+        # follow-up docket item rather than being "not coverable".
+        [note] = [q for q in self.document["facets"]["material.wire"]["open_questions"] if q.startswith("Owner: ")]
+        self.assertIn("docket item p01-transcript-projector-legacy-fixtures for the legacy projector clause", note)
 
     def test_each_required_dimension_is_enforced(self):
         for dimension in contracts.DIMENSIONS:
