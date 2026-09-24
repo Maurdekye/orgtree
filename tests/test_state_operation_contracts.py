@@ -312,6 +312,26 @@ class ContractCoverage(unittest.TestCase):
                        if set(c["tools"]) == {"orgtree_reservation", "orgtree_resource_reservation"}}
         self.assertEqual((len(reservation), set(slice_row["contracts"])), (11, reservation))
 
+    W7_SYMBOLS = {"remote_control": 2, "user_audience": 3, "_desktop_relaunch_args": 1, "agent_call": 16,
+                  "request": 1, "Org.watchdog_action": 6, "Org.prime_restart_gate": 1}
+
+    def test_w7_last_dispatch_branches_name_their_owner_and_none_stays_generic(self):
+        rows = {r["id"]: r for r in self.document["dispatch"]}
+        found = {}
+        for s in self.source["dispatch_selectors"]:
+            r = rows[contracts.witness_id("dispatch", s)]
+            if r["reason"].startswith("Stays pending (P01 W7): "):
+                found[s["source"]["symbol"]] = found.get(s["source"]["symbol"], 0) + 1
+                with self.subTest(line=s["source"]["line"]):
+                    self.assertEqual(r["disposition"], "pending")
+                    self.assertIn("Owner: ", r["reason"])
+                    for value in s["values"]:
+                        self.assertIn(value, r["reason"])
+        self.assertEqual(found, self.W7_SYMBOLS)
+        # W4-W8 leave no dispatch witness with the generic reason
+        self.assertEqual([r["id"] for r in self.document["dispatch"]
+                          if r["reason"].startswith("Requires explicit source review")], [])
+
     def test_contacts_is_specified_only_with_agent_level_mail_locality(self):
         # S2b ruling R1: org-store locality is not mail locality. contacts became
         # specified only once P02 observed agent-level mail locality (6721cad); the

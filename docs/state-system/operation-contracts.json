@@ -13700,14 +13700,14 @@
       "id": "2d06c2c2caf3ee1cf8fb2d55bcc0df75fe7c3eebcefdf9806886001db3881863",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W7): the remote-control route's start branch (POST /api/orgs/{slug}/nodes/{nid}/remote-control, api.remote_control), which starts or stops a remote-control session for the node's agent session; the route has no contract. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "8e4609b6df0fc34f8cc7f0aca4faf30476d81869edbfe68dd9c58209c313e3b9",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W7): the remote-control route's stop branch (POST /api/orgs/{slug}/nodes/{nid}/remote-control, api.remote_control), which starts or stops a remote-control session for the node's agent session; the route has no contract. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
@@ -13970,28 +13970,28 @@
       "id": "834b0ee4071f2e5fbd62a69f64b6c889317114c0e879d3026aa17baaf597c681",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W7): the operator audience route's grant branch (POST /api/orgs/{slug}/audiences, api.user_audience), which changes who may address whom in the org; the route has no contract. Owner: channels and mail (P07).",
       "source_refs": []
     },
     {
       "id": "ac81945bf3dda03b44f2d53a38f571d255cc2735659b9590dfea16f0934d05d5",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W7): the operator audience route's deny branch (POST /api/orgs/{slug}/audiences, api.user_audience), which changes who may address whom in the org; the route has no contract. Owner: channels and mail (P07).",
       "source_refs": []
     },
     {
       "id": "9053fd9eabec0198983c2e4ee259f0ab407c7477c96ca31b0a316f3f58d9dbfc",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W7): the operator audience route's revoke branch (POST /api/orgs/{slug}/audiences, api.user_audience), which changes who may address whom in the org; the route has no contract. Owner: channels and mail (P07).",
       "source_refs": []
     },
     {
       "id": "273404a312f2c106f74f182bd840123a4db1c462e6991a3dcf4d1d425cd46b0d",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W7): _desktop_relaunch_args's orgtree_self_relaunch branch validates a relaunch request's options before the relaunch writes the desktop maintenance record; orgtree_self_relaunch has no contract. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
@@ -14345,14 +14345,14 @@
       "id": "bb534dede44782a03867dafcbadd8e26b87c65c9e2bca5da7be1df9309f0dc59",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_watchdog create branch (agent_call); orgtree_watchdog has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: watchdogs (orgtree_watchdog, uncontracted).",
       "source_refs": []
     },
     {
       "id": "d1823d55bdb20b4c2c98c18b588a05dbbebf1e9aa168ce92c4604d58c9f07c2a",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_watchdog list branch (agent_call); orgtree_watchdog has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: watchdogs (orgtree_watchdog, uncontracted).",
       "source_refs": []
     },
     {
@@ -14441,21 +14441,21 @@
       "id": "769e54da8999ddd0597f873c72fde6c7b93ba4113d1512ab38f9c36a7f4e23c8",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_prime_relaunch anything but arm, cancel and status branch (agent_call); orgtree_prime_relaunch has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "70240d31ff1df7a706888cdea98a26241b2bb370f20e1cfdef4567b4c9c8c032",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_prime_relaunch status branch (agent_call); orgtree_prime_relaunch has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "06b5828d8a1f9eff1d0c17e1644cf730514aec6a39de28d032b75adf1d8e0670",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_prime_relaunch cancel branch (agent_call); orgtree_prime_relaunch has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
@@ -14469,21 +14469,21 @@
       "id": "cf1a439ef09a0207053bcf28585b79204623d7a5a2f86592c368ade70078f620",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_prime_restart anything but arm, cancel and status branch (agent_call); orgtree_prime_restart has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "953b464ebd720d2064d42812fa60fd4dcddc3bca8d5c8ab78969b5a1bf36ccb0",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_prime_restart status branch (agent_call); orgtree_prime_restart has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "3461fa5f934279525316658435adf9e8e8caf39ea7775ba7e7769c31557918bf",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_prime_restart cancel branch (agent_call); orgtree_prime_restart has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
@@ -14497,21 +14497,21 @@
       "id": "e02bfe81313994ccc2c75f09775e1eb321add219e7f39943934fdc840c3befd7",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_restart_wake anything but arm, cancel and status branch (agent_call); orgtree_restart_wake has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "8bcd3a38bd8aedd21d3d2df2f915282d92f7d3ae5089a491f06b5569f5c8fdf7",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_restart_wake status branch (agent_call); orgtree_restart_wake has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "dbb8f2ff31c81be492047e2f91fef0d515d1bc0ab9a7f03c5553c8a65a5ed906",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_restart_wake cancel branch (agent_call); orgtree_restart_wake has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
@@ -14681,35 +14681,35 @@
       "id": "8da59b4b566cf3fd710ac7f55e8e376ca7b3ffeebc8a7f1af50599ab9f5955b6",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_audience request branch (agent_call); orgtree_audience has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: channels and mail (P07).",
       "source_refs": []
     },
     {
       "id": "3d05c8106a4c83fc1785e00e12e6949f21a72b33c2ad53d88a97c4ff991f6988",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_audience forward branch (agent_call); orgtree_audience has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: channels and mail (P07).",
       "source_refs": []
     },
     {
       "id": "e49ee2b733933abc6b40bd236a1a068e730fc5f6b5f44504bc0bda3e093d3fb8",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_audience grant branch (agent_call); orgtree_audience has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: channels and mail (P07).",
       "source_refs": []
     },
     {
       "id": "319734f90fd304402647ed10639aec430e391cabeb84f9598eaa32b2177316c3",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_audience deny branch (agent_call); orgtree_audience has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: channels and mail (P07).",
       "source_refs": []
     },
     {
       "id": "5566b814fb30076f31c9be21c609822168f2583d440c2fb6b19c2edc5ce42619",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_audience revoke branch (agent_call); orgtree_audience has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: channels and mail (P07).",
       "source_refs": []
     },
     {
@@ -14904,7 +14904,7 @@
       "id": "b07f7c84d90501c93280583285a1220a063a7ae2b9e396c380773f6601af4f19",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W7): desktop_maintenance.request's anything but restart and update branch refuses an unknown maintenance action before the request writes <DATA_ROOT>/desktop-maintenance.json. No production caller of request was found in the backend or engine/launch.py (only tests call it), so it is recorded rather than excluded. Owner: desktop maintenance.",
       "source_refs": []
     },
     {
@@ -15068,42 +15068,42 @@
       "id": "cbf01e78136612fd811ec608d4e8b10fca1bc5171db62ebea9de28e9ffb48478",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W7): a watchdog's pause action (Org.watchdog_action in ledger.py), which changes the armed watchdog in the org. Owner: watchdogs (orgtree_watchdog, uncontracted).",
       "source_refs": []
     },
     {
       "id": "ca0128cb1bc25e6732627cddeef5727d016c9fed404681c370a18db91facfa62",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W7): a watchdog's resume action (Org.watchdog_action in ledger.py), which changes the armed watchdog in the org. Owner: watchdogs (orgtree_watchdog, uncontracted).",
       "source_refs": []
     },
     {
       "id": "8905710915c3e872a6e74200a51d697175c6df40742f116b76d9d3d0daed03d1",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W7): a watchdog's remove action (Org.watchdog_action in ledger.py), which changes the armed watchdog in the org. Owner: watchdogs (orgtree_watchdog, uncontracted).",
       "source_refs": []
     },
     {
       "id": "e5e83816d5815452e44d4fa4011cf895275ee44aff5f735cc403c99cdc9cd54a",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W7): a watchdog's supersede action (Org.watchdog_action in ledger.py), which changes the armed watchdog in the org. Owner: watchdogs (orgtree_watchdog, uncontracted).",
       "source_refs": []
     },
     {
       "id": "39960932ccb28e9feb562b181c34be5dc73afb5436efc7e440efa8f66a3c0043",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W7): a watchdog's remove action (Org.watchdog_action in ledger.py), which changes the armed watchdog in the org. Owner: watchdogs (orgtree_watchdog, uncontracted).",
       "source_refs": []
     },
     {
       "id": "a77dd5c397df8befedcd10496e59169352b13c59dd41a7a33f000feeffbd4603",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W7): a watchdog's supersede action (Org.watchdog_action in ledger.py), which changes the armed watchdog in the org. Owner: watchdogs (orgtree_watchdog, uncontracted).",
       "source_refs": []
     },
     {
@@ -15124,7 +15124,7 @@
       "id": "2af0ce55aa8904c224dc811495bb194a2f7a51357cde6a6effe2afa54542f9a3",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W7): the prime restart gate's arm action (Org.prime_restart_gate in ledger.py), which records a pending prime restart in the org. Owner: the runtime (P08).",
       "source_refs": []
     },
     {

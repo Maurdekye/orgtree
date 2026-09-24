@@ -1,6 +1,6 @@
 {
   "schema": "orgtree.staffing-boundary/v1",
-  "source_contract_sha256": "2a0fafbfeb82008665719e9c45b55ea0272fa6fcc2733c4c7399cf52fc41f742",
+  "source_contract_sha256": "7acd66ee26e66b45f79339b3ba0af37e6a8e43309742720487abf198c2f4837b",
   "qualification": {
     "runtime_census": false,
     "conversion_authorized": false

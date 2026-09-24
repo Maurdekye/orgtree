@@ -312,6 +312,11 @@ branches (the `orgtree_work` card, P05, S3 ruling 2) and of `_attach_ref`'s pres
 the same for 26 operator-operation, preview-simulation and receipt-helper branches. One of them,
 `opreceipts.result_slice`'s reservation branch, is reached only by the 11 contracted reservation
 variants (each files an applied receipt), so under rule 1 it is mapped to them.
+W7 closes nothing: it names the owner of the last 30 generic dispatch branches (watchdog
+actions and the watchdog tool, the audience tool and route, prime restart and relaunch, remote
+control, and the desktop maintenance request, which has no production caller). After W1-W8 no
+dispatch witness and no non-concrete registration keeps the generic reason; the remaining generic
+rows are concrete http, websocket and tool registrations.
 
 Of the 41 open dimension occurrences on the sixteen legacy-family contracts, 25 (9 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the
