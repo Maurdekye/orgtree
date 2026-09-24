@@ -234,7 +234,7 @@ per-operation probe closes `wrapper-reads` and `contacts`. Every other
 P02-owned facet still has a
 clause the probe does not meet: the JSON backend, malformed state,
 legacy/recovery and migration paths, sandbox chown, provider failure modes,
-native placement or simulation design, or native controls. The remaining 16 are the
+native placement, or native controls. The remaining 16 are the
 four wire facets. Their legacy parity is now fixtured at the public door:
 - malformed-argument matrices, with the 500 serializer's exception-echo body
 - the agent/operator/bridge door matrix for every P01 tool
@@ -518,14 +518,15 @@ pins the classification (item `p01-cite-the-approved-native-conflict-predicate`)
   `preview.predicates` (sections 6.4 and 6.5, C2a, C6, D10; section 6.4 covers all ten
   transitions behind the thirteen agent preview spellings);
 - **design half answered, pending on P03 qualification**: `legacy-lock` (11),
-  `material.conflicts`, `diagnostic.conflicts`, `preview.conflicts` and
-  `funding.conflicts` (C2a pairs P2 and P7, section 6.4's reallocate row);
+  `material.conflicts`, `diagnostic.conflicts` and `preview.conflicts`;
 - **partial**: `staffing.conflicts` (the island, P2, P3, P5, P6 and the
   seat-plus-item crossing; no declared read set for hire), `operator-ops.conflicts`
   (reallocate and hire as ledger transitions; not the operator door),
-  `agent-mail.conflicts` (only the reply-grant crossing, P1) and
+  `agent-mail.conflicts` (only `orgtree_message`'s reply-grant crossing, P1),
   `receipt-lookup.conflicts` (C1's receipt-key uniqueness and replay order; not the
-  fence);
+  fence) and `funding.conflicts` (section 6.4's reallocate row, C2a pairs P2 and P7;
+  not credit-request approval's own conflict set, the filing's one-pending order, or
+  schedules for deep bubbling and a concurrent decision);
 - **not covered by r7**: `status`, `chart`, `org-view`, `org-feed`, `human-mail`,
   `inbox`, `quick-staff` and `work-read` conflicts.
 

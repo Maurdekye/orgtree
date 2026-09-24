@@ -141,10 +141,9 @@ class ContractCoverage(unittest.TestCase):
     NATIVE_R7 = "24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792"
     NATIVE_CLASSES = {
         "closed": {"preview.reads", "preview.predicates"},
-        "answered": {"legacy-lock", "material.conflicts", "diagnostic.conflicts", "preview.conflicts",
-                     "funding.conflicts"},
+        "answered": {"legacy-lock", "material.conflicts", "diagnostic.conflicts", "preview.conflicts"},
         "partial": {"staffing.conflicts", "operator-ops.conflicts", "agent-mail.conflicts",
-                    "receipt-lookup.conflicts"},
+                    "receipt-lookup.conflicts", "funding.conflicts"},
         "uncovered": {"status.conflicts", "chart.conflicts", "org-view.conflicts", "org-feed.conflicts",
                       "human-mail.conflicts", "inbox.conflicts", "quick-staff.conflicts", "work-read.conflicts"},
     }
