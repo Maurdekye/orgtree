@@ -72,10 +72,13 @@ class BoundaryBinding(unittest.TestCase):
         self.assertTrue(result['valid'], result['errors'])
         self.assertEqual(result['qualification'], contracts.GATES)
         # the status and chart facets P01 could not close carry an owner line
-        for name in ('reads', 'conflicts', 'wire', 'instrumentation'):
+        # conflicts and wire stay with the native stages; reads, instrumentation and the
+        # chart's cold/migration writes were specified from P02 rows (S2d)
+        for name in ('conflicts', 'wire'):
             for family in ('status', 'chart'):
                 self.assertEqual(registry['facets'][f'{family}.{name}']['status'], 'unresolved')
-        self.assertEqual(registry['facets']['chart.writes']['status'], 'unresolved')
+        for name in ('status.reads', 'status.instrumentation', 'chart.reads', 'chart.writes', 'chart.instrumentation'):
+            self.assertEqual(registry['facets'][name]['status'], 'specified', name)
 
     def test_stale_incomplete_or_elevated_fixture_refuses(self):
         mutations = [lambda d: d['chart']['visibility'].pop('self'),
@@ -319,6 +322,15 @@ class ChartBoundary(_Door):
                 for mark in marks['absent']:
                     self.assertNotIn(mark, text)
                 self.assertEqual('Your superior: boss' in text, level != 'self')
+
+    def test_self_visibility_still_names_the_superior_in_the_claude_md_caveat(self):
+        # recorded legacy defect (S2d correction of chart.authority): the identity prompt says the
+        # superior is not disclosed, and the live guidance in the same answer names it
+        self.edit(lambda org: org.node('worker')['scope'].update(org_visibility='self'))
+        text = self.okay(self.chart())['chart']
+        self.assertIn('its identity is not disclosed to you', text)
+        self.assertIn('as directed at your direct superior (boss) instead', text)
+        self.assertEqual(text.count('boss'), 1)
 
     def test_missing_visibility_is_backfilled_as_full_before_the_chart_reads_it(self):
         self.edit(lambda org: org.node('worker')['scope'].pop('org_visibility'))

@@ -516,6 +516,7 @@
         "Refusals and keyed paths have bounded contacts. 401 (token gate): no record, 0 statements. 403: 0 statements. The 409 halt/killswitch before the lock, the 422 unaddressable successor, the 422 retained-row cap, the 409 keyed conflict, the 422 stale epoch and a keyed replay all read but write nothing and wake nobody. A fresh keyed call writes its receipt (doc, log_l, meta) inside a transaction.",
         "Hidden-contact negative control: control:hidden-contact (a statement on a pooled connection through a plain cursor) is seen as census hidden_steps >= 1, and every other reservation row shows 0. A separate ORG-STORE control, control:foreign-org-contact, is classified org-db:foreign, and no other reservation row touches a foreign org store. That control is org-store locality only; agent-level mail locality is the next fact.",
         "Agent-level mail-locality negative control (the clause S2b ruling R1 left open). Each row's P02 `agents` block reads which agents an operation touched in two layers. Logical: the org's mail, mail_log, notices, delivering and audiences before and after the call. Physical: node ids in the statement parameters of agent-keyed rows (nodes, log_d). In all four release-notify rows (both aliases, cold and warm), every changed mail and mail_log entry, and every physically written agent row, belongs to the named successor alone (role target). The sender's own entries never change, so the contacts are never self-only, and no third agent is touched. The negative control control:third-agent-mail (a release whose notify step also posts to a third agent) is flagged both logically and physically (third_agent_mail >= 1, third_agent_rows_written >= 1). No other reservation row touches a third agent, and only release-notify produces mail.",
+        "The same holds for a successor reachable only through an audience the user granted to the sender (P02 row audience-successor:reservation.release-notify, v3 0679103, S2c finding f1): its mail and mail_log changes and its physical node row belong to that successor alone, and no third agent is touched. Asserted by tests/test_state_p02_contact_facets.py.",
         "Limit of that control: the legacy mail QUEUE, notices, delivering and audiences are each one org-wide doc row, so a queue write is physically a rewrite of that org-wide row. The agent-level result rests on the logical before/after reading of that row plus the per-agent nodes and log_d rows. Per-agent physical stores are a P04 native design question, outside this legacy facet.",
         "Loss accounting. For the window, rejected, dropped_stale_window, dropped_capture_off, evicted, db_late, db_observe_failed, db_self_recursion and db_hidden_unattributed are all 0. Each row's own counter deltas bracket its single request and contain only observed/recorded/skipped_self/unclassified_action (db_unattributed and db_late deltas 0, statements_unbound 0). The window-level db_unattributed is harness fixture work between operations, not attributed to any operation.",
         "Limits carried from P02: statements only (no rows examined, pages, physical IO or database lock wait; the document-lock wait is in each record's profile). Tables come from the harness's SQL-text map onto the stores' own sqlite_master names, so contacts are table-granular. SQLite's own file IO is native and unobserved. One synthetic fixture set, in one process. Native or PostgreSQL contacts are outside this legacy facet."
@@ -2363,11 +2364,15 @@
     },
     "diagnostic.reads": {
       "dimension": "reads",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
         "Agent authentication and halt checks use cached_org; the diagnostic branch separately calls load_org. For SQLite, _load_sqlite_org takes pooled connections and _load_lazy reads eager doc and all nodes in a short BEGIN/COMMIT snapshot before projecting. Unnamed lazy sections, if reached, can observe a later revision.",
         "Inspection reads structural/operational node fields, tier prices and child grant totals; provider_of uses static membership/prefix checks. Capabilities reads the MCP cards plus deployment profile and desktop-managed environment selectors. Ordinary capability reporting does not probe provider CLIs or network services.",
-        "The SQL fixture attaches to actual pooled acquisitions and retains only statement verbs, recognized table labels and a boolean for the known all-node SELECT. It distinguishes output size from underlying materialization without retaining SQL values."
+        "The SQL fixture attaches to actual pooled acquisitions and retains only statement verbs, recognized table labels and a boolean for the known all-node SELECT. It distinguishes output size from underlying materialization without retaining SQL values.",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (v3 0679103, synthetic), answering both questions above. Middleware and schema/pool cold-path reads on SQLite were observed earlier (b6568a1); legacy input is the migration rows (diagnostic.writes).",
+        "JSON store backend (json:* rows): inspect and capabilities answer 200 cold and warm without any SQL statement; each reads the org's own JSON document (store._read_bytes, class data:org-db:own), and the cold call also reads code files (lazy imports). The killswitch refusal answers 409 after reading the document. No row has an unknown contact.",
+        "Malformed stored state: 18 corruptions of one node field, each with that node as the named target (:node) and as a bystander in an all-visible inspection (:org), on BOTH backends (72 rows). The HTTP outcome is identical on the two backends: 500 for generation \"x\" or [1], grant \"x\" or null, model 5 or null, scope \"bad\" and scope.tools \"bad\" (either role); 422 for parent \"ghost\" and state \"weird\" only when the corrupt node is the named target (200 as a bystander); 200 for the rest. JSON rows run no statement. The whole-org 500 is the recorded diagnostic.wire defect.",
+        "Limits carried from P02: synthetic data, statements and file contacts only (no rows examined, pages or lock waits). Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -2491,17 +2496,18 @@
           "sha256": "8eeb86385ab4b17f5ef57bd1c2cf69ada99eeaac8b2409ea9303c87adc24b71a"
         }
       ],
-      "open_questions": [
-        "Complete middleware, legacy input, schema/pool cold paths, JSON backend and malformed-state contacts under P02; the synthetic SQL witness is not a full runtime census.",
-        "Owner: P02. Closes with: observed contacts on the JSON store backend and on malformed stored state. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py, v3 b6568a1; docs/state-system/p02-operation-contacts.md) covers middleware and schema/pool cold-path reads on the SQLite backend only; the JSON backend and malformed-state contacts were not probed."
-      ]
+      "open_questions": []
     },
     "diagnostic.writes": {
       "dimension": "writes",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
         "These two leaf adapters do not call save_org or mutate the document. An already-created/migrated SQLite fixture proves no domain save, DML or org-sequence change during its measured read window. Volatile caches/probe state are outside that domain assertion.",
-        "Do not turn this into a universal no-write claim: load_org calls _ensure_migrated, which can finish an interrupted migration or invoke migrate_org for legacy JSON under the existing ownership gate. Pool/schema initialization, caches and request diagnostics also require separate accounting. This package never runs a migration or startup lifecycle."
+        "Do not turn this into a universal no-write claim: load_org calls _ensure_migrated, which can finish an interrupted migration or invoke migrate_org for legacy JSON under the existing ownership gate. Pool/schema initialization, caches and request diagnostics also require separate accounting. This package never runs a migration or startup lifecycle.",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (v3 0679103), answering both questions above, on the migration paths:",
+        "migration:legacy-json (a legacy .json org under the SQLite backend with ORGTREE_MIGRATE): the cold read migrates inside the call. It reads the JSON document, writes doc, log_d, log_l, meta and nodes, renames the document aside (os.rename in migrate_org) and removes stale database files (os.remove in _remove_db_files), then answers 200. The warm repeat writes nothing.",
+        "migration:interrupted: store._finish_interrupted_migration completes a half-done migration with one rename and no statement write, then answers 200. migration:refused (no ORGTREE_MIGRATE): 500 MigrationRefused, 0 statements, nothing written. migration:malformed-json: 500 MigrationError after reading the bad document, nothing written.",
+        "Cold-schema: the only file mutation outside the org store on any cold diagnostic row is the orgs-directory os.mkdir(exist_ok) in store._orgs_dir. Request-diagnostic writes: the slow-request trace (reservation wrapper-writes) is the one durable one and fires only past its threshold, which these synthetic rows do not reach. Cache writes are process memory. Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -2565,10 +2571,7 @@
           "sha256": "8eeb86385ab4b17f5ef57bd1c2cf69ada99eeaac8b2409ea9303c87adc24b71a"
         }
       ],
-      "open_questions": [
-        "Inventory/qualify all migration, cold-schema, request-diagnostic and cache writes before native physical-contact closure; preserve restore/refusal behavior.",
-        "Owner: P02, then P03 qualification. Closes with: observed writes on the migration paths (legacy JSON migrate_org, an interrupted migration finished by _ensure_migrated). Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py, v3 b6568a1; docs/state-system/p02-operation-contacts.md) shows no table written cold or warm on already-migrated synthetic data; the migration paths were not exercised."
-      ]
+      "open_questions": []
     },
     "diagnostic.conflicts": {
       "dimension": "conflicts",
@@ -2829,10 +2832,12 @@
     },
     "diagnostic.effects": {
       "dimension": "effects",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
         "Normal diagnostic leaves do not intentionally send mail, wake/launch a process, inspect a transcript or change provider/account credentials. available_tools only evaluates deployment environment and transforms local card definitions.",
-        "Transitive storage acquisition can encounter migration/recovery guards before the nominal read. Request profiling and in-memory caching are separate effects. The measured diagnostic fixture directly blocks process launches, domain saves and transcript reads. Provider-network absence is source-inspection evidence, not a universal executable network prohibition."
+        "Transitive storage acquisition can encounter migration/recovery guards before the nominal read. Request profiling and in-memory caching are separate effects. The measured diagnostic fixture directly blocks process launches, domain saves and transcript reads. Provider-network absence is source-inspection evidence, not a universal executable network prohibition.",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (v3 0679103), answering both questions above. Failure semantics on the legacy and recovery paths: refused migration gives 500 MigrationRefused with the operator's guidance, and nothing is written; a malformed legacy document gives 500 MigrationError naming the file, and nothing is written; a legacy document with ORGTREE_MIGRATE is migrated inside the read and then served; an interrupted migration is finished by _ensure_migrated (one rename) and then served.",
+        "No diagnostic row, on either backend, cold or warm, has a process, network or provider contact, or any guard refusal. Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -2926,10 +2931,7 @@
           "sha256": "8eeb86385ab4b17f5ef57bd1c2cf69ada99eeaac8b2409ea9303c87adc24b71a"
         }
       ],
-      "open_questions": [
-        "Complete transitive cold/legacy/recovery/diagnostic effects and their failure semantics before conversion; no effect/atomicity conclusion follows solely from a read-shaped tool.",
-        "Owner: P02. Closes with: probes of the legacy-JSON and recovery (interrupted-migration) effects and their failure outcomes. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py, v3 b6568a1; docs/state-system/p02-operation-contacts.md) covers the cold orgs-dir mkdir effect and the killswitch refusal only; legacy and recovery effects were not probed."
-      ]
+      "open_questions": []
     },
     "diagnostic.instrumentation": {
       "dimension": "instrumentation",
@@ -3311,11 +3313,13 @@
     },
     "preview.writes": {
       "dimension": "writes",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
         "The leaf calls ordinary mutators on a JSON-detached Org, then drops it. Domain changes, queued model records, event logs, mail, audiences and warnings generated in that shadow are not persisted by the preview branch. Real HTTP fixtures compare whole disposable stored documents before/after successful and refused previews.",
         "During the measured reallocation-preview call, the fixture directly blocks save_org, subprocess.Popen and supervisor.read_chat. Provider admission is stubbed throughout the HTTP fixture. These are scoped assertions, not a proof about every imported helper, network path or cold/migration path.",
-        "The preceding load_org can encounter migration/recovery and the preflight adapters can touch caches/settings/registry. Consequently domain_mode=read names the source-domain intention, not a universal physically read-only SQL/filesystem transaction."
+        "The preceding load_org can encounter migration/recovery and the preflight adapters can touch caches/settings/registry. Consequently domain_mode=read names the source-domain intention, not a universal physically read-only SQL/filesystem transaction.",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (v3 0679103), answering both questions above. No preview row writes a store table, cold or warm, for any of the 13 operations. The only exception is the cold migration:legacy-json row, whose writes are the migration's own (as in diagnostic.writes) and precede the preview; its warm repeat writes nothing, and migration:refused is 500 with nothing written.",
+        "The full underlying mutator effects are recorded INSIDE the simulation clone on every warm preview row that simulates (the clone field: sections written and paths changed, and the agents it touches). For example preview.move writes events, nodes, notice_log and notices in the clone only. Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -3409,10 +3413,7 @@
           "sha256": "a1c4e8c189fcd8955c8a10f982e5b4c1e1f74c78657e758a4f03e679fd9382e4"
         }
       ],
-      "open_questions": [
-        "Inventory all transitive cold/migration/probe/cache writes and full underlying mutator effects before physical-contact or native write closure.",
-        "Owner: P02. Closes with: observed writes on the migration paths, and the full underlying mutator effects inside the simulation clone. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py, v3 b6568a1; docs/state-system/p02-operation-contacts.md) shows no table written and lists file effects per operation, but the clone is not a census-visible store and the migration paths were not exercised."
-      ]
+      "open_questions": []
     },
     "preview.predicates": {
       "dimension": "predicates",
@@ -3719,11 +3720,14 @@
     },
     "preview.effects": {
       "dimension": "effects",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
         "Shadow event/mail/audience mutations and returned drive hints are simulated data; the agent preview branch does not run the later save/wake/interrupt paths. Tests observe generated shadow mail yet prove its absence from the persisted org.",
         "Provider hire admission is deliberately re-run for switch previews and may inspect installation/auth or refresh provider evidence; supplied non-primary accounts consult the registry, and directory translation reads sandbox context. The broad tool-card no-external-effects wording is not treated as a proof that these adapters are free of all effects.",
-        "Provider-gate outcomes are deterministic seams in these tests; native provider processes/network/auth are not executed or qualified. The diagnostic reviewer correction separately distinguishes test-blocked process/save/transcript paths from source-inspected network absence."
+        "Provider-gate outcomes are deterministic seams in these tests; native provider processes/network/auth are not executed or qualified. The diagnostic reviewer correction separately distinguishes test-blocked process/save/transcript paths from source-inspected network absence.",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (v3 0679103), without stubbed preflights, answering both questions above. Ten provider failure modes (provider:* rows) all answer 422 with the refusal sentence, and none writes the store: provider disabled, Claude CLI not installed, Claude not signed in, unknown registry account, Codex CLI not installed, Codex not signed in, a legacy tier, Antigravity CLI not installed, OpenRouter without a key, and OpenRouter with the network refused.",
+        "External contacts: the Codex sign-in and legacy-tier checks start a version-probe subprocess, and the OpenRouter check makes an HTTP request; the probe's isolation guards REFUSE those (recorded as guard refusals process/subprocess.Popen and egress/urllib.Request), and the product turns the refusal into the 422. So the attempt is observed, not a successful provider round trip.",
+        "Scope of this claim: legacy refusal outcomes and attempted contacts only. No native or general no-network behaviour is claimed; provider qualification remains P08's. Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -3781,10 +3785,7 @@
           "sha256": "a1c4e8c189fcd8955c8a10f982e5b4c1e1f74c78657e758a4f03e679fd9382e4"
         }
       ],
-      "open_questions": [
-        "Finish provider/cache/registry/normalization failure and external-contact qualification; do not claim native or general no-network behavior from stubbed provider preflights.",
-        "Owner: P02, with provider qualification at P08. Closes with: observed outcomes of the other provider failure modes (auth, registry, network refusals), without stubbed preflights. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py, v3 b6568a1; docs/state-system/p02-operation-contacts.md) shows the cold rows unstubbed with no process or network contact, and one failure outcome (switch_model 422); the other provider failure modes were not probed."
-      ]
+      "open_questions": []
     },
     "preview.instrumentation": {
       "dimension": "instrumentation",
@@ -3975,9 +3976,10 @@
     },
     "status.reads": {
       "dimension": "reads",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
-        "Source read set: the door reads the cached_org snapshot for caller identity/generation/seat; the write cycle reads the resident document for the caller's node, halt and the org killswitch; a report reads the caller's parent and Org.post_mail's mailbox/addressing state for that parent; a keyed call reads the receipts sections."
+        "Source read set: the door reads the cached_org snapshot for caller identity/generation/seat; the write cycle reads the resident document for the caller's node, halt and the org killswitch; a report reads the caller's parent and Org.post_mail's mailbox/addressing state for that parent; a keyed call reads the receipts sections.",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (v3 3a2ec7b, SQLite) for every outcome, cold and warm. Cold: every outcome reads doc, log_d, log_l, meta and nodes (the cold document load) and connects once. Warm: a report that posts no mail (working, idle, an unvalidated value, done or blocked at top level) reads only meta and nodes; done or blocked with a parent, and keyed calls, read doc, log_d, log_l, meta and nodes; a keyed replay reads the same and writes nothing; the two refusals (422 container value, 409 halted) run no statement warm. Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -3999,10 +4001,7 @@
           "sha256": "62fe19b2e125f851fc01f785da90e554bc7d93336cfbcd506cd57fc8a1c9f2ea"
         }
       ],
-      "open_questions": [
-        "Record the statement-level read set of each status outcome, including the post_mail path to the parent, cold and warm.",
-        "Owner: P02. Closes with: observed per-operation contacts for orgtree_status (each outcome: working, done/blocked with and without a parent, keyed, replay, refusals), cold and warm, from the P02 probe extended to this family. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) covers the reservation, material, diagnostic and preview families only; orgtree_status was not probed."
-      ]
+      "open_questions": []
     },
     "status.conflicts": {
       "dimension": "conflicts",
@@ -4160,9 +4159,10 @@
     },
     "status.instrumentation": {
       "dimension": "instrumentation",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
-        "The door labels the request with the tool name and census.classify files its action/target shape before dispatch; stateprobe.refine names the tool. No P02 per-operation record exists for this family yet."
+        "The door labels the request with the tool name and census.classify files its action/target shape before dispatch; stateprobe.refine names the tool. No P02 per-operation record exists for this family yet.",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (v3 3a2ec7b): a loss-accounted per-operation record for every status outcome, cold and warm. The caller's own node row and the parent's mail are attributed per agent: the parent is the IMPLIED target, read from the caller's stored parent, and a done or blocked report's mail changes belong only to it. The locality control control:status-third-agent-mail (a report whose delivery also mails a sibling) is flagged as a third-agent contact, and no other status row touches a third agent. Native negative controls are the P03 gate, not a clause of this legacy facet. Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -4178,17 +4178,14 @@
           "sha256": "e3674026fecdb65bb9a03a35c82b72fdfd2c047f5129363a5acb1d1abc52987d"
         }
       ],
-      "open_questions": [
-        "Extend the P02 per-operation probe to orgtree_status, with agent-level locality for the parent report.",
-        "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed, loss-accounted contact record for orgtree_status (every outcome, cold and warm, both the caller's row and the parent's mail), including an agent-level locality control like the one `contacts` uses. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to orgtree_status."
-      ]
+      "open_questions": []
     },
     "chart.authority": {
       "dimension": "authority",
       "status": "specified",
       "facts": [
         "The same agent door authenticates and applies the halt/killswitch pre-check (409, pinned for a halted caller) before this read-shaped branch. The branch itself only resolves the caller in the cached_org snapshot; the door has already refused archived or replaced seats (403).",
-        "The operation is self-only: it renders the caller's own view and takes no target. What it discloses is decided by the caller's scope.org_visibility, read at render time: self shows only the caller's reports and hides the superior's identity; team adds peers; subtree adds the caller's whole suborganization chart; full adds the whole organization chart rooted at the user. The renderer's own default for a missing value is team, but Org construction backfills a missing visibility as full before the chart reads it, so through the door a missing value renders the full chart (pinned) and the team default is unreachable: a latent legacy inconsistency.",
+        "The operation is self-only: it renders the caller's own view and takes no target. What it discloses is decided by the caller's scope.org_visibility, read at render time: self shows only the caller's reports and its identity prompt says the superior's identity is not disclosed, yet the live guidance in the same answer names the superior ('…directed at your direct superior (<parent>) instead'), so the id IS disclosed at every level (recorded legacy defect, pinned; backlog self-visibility-agents-are-told-their-superior-i); team adds peers; subtree adds the caller's whole suborganization chart; full adds the whole organization chart rooted at the user. The renderer's own default for a missing value is team, but Org construction backfills a missing visibility as full before the chart reads it, so through the door a missing value renders the full chart (pinned) and the team default is unreachable: a latent legacy inconsistency.",
         "It is also the agent's charter read: its own charter always, and, unless include_standing_charter is falsy, its own team charter and every ancestor's team charter (the §15 cascade)."
       ],
       "source_refs": [
@@ -4274,9 +4271,10 @@
     },
     "chart.writes": {
       "dimension": "writes",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
-        "The branch never saves: it reads store.cached_org and returns a rendered string. Measured on already-migrated synthetic data, cold: no document section changes for a plain or keyed call."
+        "The branch never saves: it reads store.cached_org and returns a rendered string. Measured on already-migrated synthetic data, cold: no document section changes for a plain or keyed call.",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (v3 3a2ec7b): no chart row writes a table, cold or warm, at any level. On the migration path through cached_org, migration:refused is 500 with nothing written; migration:legacy-json cold migrates inside the read (the migration's writes, as in diagnostic.writes) and then serves the chart; its warm repeat writes nothing. Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -4292,16 +4290,15 @@
           "sha256": "de32424a2fef91a68f61fc02641ab1a546436191280e57f25610afcc9ee7c114"
         }
       ],
-      "open_questions": [
-        "Inventory the cache-miss, cold-schema and migration writes reachable from this read before native physical-contact closure.",
-        "Owner: P02, then P03 qualification. Closes with: observed writes on the cold and migration paths reached through cached_org (a snapshot miss falls through to load_org and _ensure_migrated). Not coverable at P01 from available evidence: the measurement above uses already-migrated data, and the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to orgtree_chart."
-      ]
+      "open_questions": []
     },
     "chart.reads": {
       "dimension": "reads",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
-        "Source read set: the cached_org snapshot for caller identity, scope and visibility; children, parent, ancestors and their team charters; for subtree/full every rendered node row and its status, age, grant and archive state; seat cost, grant and free credits; the org's fable_lock, the caller's open request, deployment policy and audience state."
+        "Source read set: the cached_org snapshot for caller identity, scope and visibility; children, parent, ancestors and their team charters; for subtree/full every rendered node row and its status, age, grant and archive state; seat cost, grant and free credits; the org's fable_lock, the caller's open request, deployment policy and audience state.",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (v3 3a2ec7b, SQLite) at each level (self, team, subtree, full), with and without archived rows, cold and warm. Cold: doc, log_d, log_l, meta and nodes plus one connect. Warm: no statement at all (served from the cached snapshot). Every chart row also reads provider settings files under HOME and the data root's settings.",
+        "The ids each level discloses (the `disclosed` field): self discloses the caller, its report and its superior; team, subtree and full add the sibling; archived rows appear only at subtree and full with include_archived. Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -4329,10 +4326,7 @@
           "sha256": "dbcdbb7efde85ab52bbdd74d8bfbf0ec4203d9dcfe771e711144bbde40dc1808"
         }
       ],
-      "open_questions": [
-        "Record the statement-level read set of the chart at each visibility level, cold and warm.",
-        "Owner: P02. Closes with: observed per-operation contacts for orgtree_chart at each visibility level (self, team, subtree, full), with and without archived rows, cold and warm. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to orgtree_chart."
-      ]
+      "open_questions": []
     },
     "chart.conflicts": {
       "dimension": "conflicts",
@@ -4370,7 +4364,8 @@
       "status": "unresolved",
       "facts": [
         "The result is exactly {chart: <text>}: identity_prompt's stable half, a blank line, then org_state_block's live half. The live half's header embeds the render time, so the text is not a stable value across calls. No ref is attached and the result is not a mail.",
-        "The rendered text's visibility sections and charter lines are fixtured by tests/test_state_status_chart_boundary.py (which sections appear at self, team, subtree and full; standing charters on and off)."
+        "The rendered text's visibility sections and charter lines are fixtured by tests/test_state_status_chart_boundary.py (which sections appear at self, team, subtree and full; standing charters on and off).",
+        "Recorded legacy defect: at self visibility the answer names the superior in the CLAUDE.md caveat while the identity prompt says its identity is not disclosed (pinned by tests/test_state_status_chart_boundary.py)."
       ],
       "source_refs": [
         {
@@ -4443,9 +4438,10 @@
     },
     "chart.instrumentation": {
       "dimension": "instrumentation",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
-        "The door labels the request with the tool name and census.classify files it before dispatch; stateprobe.refine names the tool. No P02 per-operation record exists for this tool yet."
+        "The door labels the request with the tool name and census.classify files it before dispatch; stateprobe.refine names the tool. No P02 per-operation record exists for this tool yet.",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (v3 3a2ec7b): a loss-accounted per-operation record for all 16 level rows and the wire case, cold and warm. Native negative controls are the P03 gate, not a clause of this legacy facet. Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -4461,10 +4457,7 @@
           "sha256": "e3674026fecdb65bb9a03a35c82b72fdfd2c047f5129363a5acb1d1abc52987d"
         }
       ],
-      "open_questions": [
-        "Extend the P02 per-operation probe to orgtree_chart.",
-        "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed, loss-accounted contact record for orgtree_chart at each visibility level, cold and warm. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to orgtree_chart."
-      ]
+      "open_questions": []
     },
     "org-view.authority": {
       "dimension": "authority",

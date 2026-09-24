@@ -116,8 +116,8 @@ diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
 Current totals are 27 contracts, 18 mapped registrations and 36 mapped
-dispatch witnesses. **612 obligations remain**: 301 registrations, 191 dispatch
-witnesses, 15 storage candidates and 105 unresolved dimension occurrences.
+dispatch witnesses. **599 obligations remain**: 301 registrations, 191 dispatch
+witnesses, 15 storage candidates and 92 unresolved dimension occurrences.
 How it got there: 600 was two more registrations than the preceding 598 because the scanner now
 recognizes `asyncio.to_thread` hand-offs; both new witnesses are pending and no
 existing witness identity, disposition or contract changed.
@@ -172,6 +172,15 @@ occurrences (+10).
 mapped (-4) to `mail.human-send`, whose five unresolved `human-mail` facets add
 five, and to `mail.user-inbox`, `mail.user-inbox-read` and `mail.node-inbox`, whose
 five unresolved shared `inbox` facets add fifteen (+20).
+599 is thirteen fewer than that 612 (P01 S2d): P02's probe (v3 0679103 and 3a2ec7b)
+now observes what thirteen occurrences' Owner lines asked for, so those facets are
+specified from its rows: `diagnostic.reads`, `diagnostic.writes` and
+`diagnostic.effects` (two contracts each), `preview.writes`, `preview.effects`,
+`status.reads`, `status.instrumentation`, `chart.reads`, `chart.writes` and
+`chart.instrumentation`. `tests/test_state_p02_contact_facets.py` re-runs the probe
+and asserts each new fact. S2d also corrects an S3 fact: at `self` visibility the
+chart does NOT hide the superior, because the CLAUDE.md caveat names it (pinned as
+legacy behaviour).
 See "P03-prototype surface" below.
 
 Of the 53 open dimension occurrences on the sixteen legacy-family contracts, 37 (17 facets) cannot be closed at P01

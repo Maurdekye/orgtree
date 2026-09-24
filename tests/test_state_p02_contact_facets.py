@@ -151,6 +151,12 @@ class ContactFacets(unittest.TestCase):
                     self.assertEqual(agents["physical_nodes"], {peer: "target"})
                     self.assertTrue(all(k.endswith(":target") for k in agents["physical"]))
                     self.assertEqual((agents["third_agent_mail"], agents["third_agent_rows_written"]), (0, 0))
+        # S2c finding f1: a successor reached only through an audience the user granted
+        agents = self.row("audience-successor:reservation.release-notify", "warm")["agents"]
+        [peer] = agents["targets"]
+        self.assertEqual(agents["logical"], {"mail": {peer: "target"}, "mail_log": {peer: "target"}})
+        self.assertEqual(agents["physical_nodes"], {peer: "target"})
+        self.assertEqual((agents["third_agent_mail"], agents["third_agent_rows_written"]), (0, 0))
 
     def test_third_agent_mail_control_fires_and_nothing_else_touches_a_third_agent(self):
         control = self.row("control:third-agent-mail")["agents"]
@@ -177,6 +183,138 @@ class ContactFacets(unittest.TestCase):
                 self.assertEqual(deltas.get("db_unattributed", 0), 0)
                 self.assertEqual(deltas.get("db_late", 0), 0)
                 self.assertEqual(r["harness"]["statements_unbound"], 0)
+
+    # -- S2d: the facets the probe now covers ----------------------------------
+    def rows_of(self, contract_prefix, variant_prefix=""):
+        return [r for r in self.doc["rows"] if r["contract"].startswith(contract_prefix)
+                and r["variant"].startswith(variant_prefix)]
+
+    def one(self, contract_prefix, variant, condition):
+        [r] = [r for r in self.doc["rows"] if r["contract"].startswith(contract_prefix)
+               and r["variant"] == variant and r["condition"] == condition]
+        return r
+
+    @staticmethod
+    def written(r):
+        return (r["harness"].get("stores") or {}).get("primary", {}).get("tables_written") or []
+
+    @staticmethod
+    def read(r):
+        return (r["harness"].get("stores") or {}).get("primary", {}).get("tables_read")
+
+    def test_diagnostic_reads_on_the_json_backend_and_over_malformed_state(self):
+        for contract in ("diagnostic.inspect", "diagnostic.capabilities"):
+            for condition in ("cold", "warm"):
+                with self.subTest(contract=contract, condition=condition):
+                    r = self.one(contract, "json:" + contract, condition)
+                    self.assertEqual((r["backend"], r["http_status"], r["census"]["statements"]), ("json", 200, 0))
+                    self.assertIn("file_read:data:org-db:own", r["contact_classes"])
+                    self.assertEqual(r["unknown_contacts"], [])
+            self.assertEqual(self.one(contract, "json:refusal:killswitch", "warm")["http_status"], 409)
+        fail500 = {'generation="x"', 'generation=[1]', 'grant="x"', 'grant=null', 'model=5', 'model=null',
+                   'scope="bad"', 'scope.tools="bad"'}
+        target422 = {'parent="ghost"', 'state="weird"'}
+        sqlite = {r["variant"][len("malformed:"):]: r for r in self.rows_of("diagnostic.inspect", "malformed:")}
+        json_rows = {r["variant"][len("json:malformed:"):]: r for r in self.rows_of("diagnostic.inspect", "json:malformed:")}
+        self.assertEqual(len(sqlite), 36)
+        self.assertEqual(set(sqlite), set(json_rows))
+        for key, r in sqlite.items():
+            corruption, role = key.rsplit(":", 1)
+            want = 500 if corruption in fail500 else 422 if (corruption in target422 and role == "node") else 200
+            with self.subTest(corruption=corruption, role=role):
+                self.assertEqual((r["http_status"], json_rows[key]["http_status"]), (want, want))
+                self.assertEqual(json_rows[key]["census"]["statements"], 0)
+                self.assertEqual(r["unknown_contacts"], [])
+
+    def test_migration_paths_write_and_fail_as_recorded(self):
+        for contract in ("diagnostic.inspect", "preview.agent", "chart.read"):
+            with self.subTest(contract=contract):
+                refused = self.one(contract, "migration:refused", "cold")
+                self.assertEqual((refused["http_status"], refused["census"]["statements"], self.written(refused)), (500, 0, []))
+                self.assertTrue(refused["detail"].startswith("MigrationRefused"))
+                cold = self.one(contract, "migration:legacy-json", "cold")
+                self.assertEqual((cold["http_status"], self.written(cold)), (200, ["doc", "log_d", "log_l", "meta", "nodes"]))
+                mut = cold["audit"]["fs_mutation"]
+                self.assertTrue(any(k.startswith("os.rename:data:org-db:own@orgtree.store:migrate_org") for k in mut))
+                self.assertEqual(self.written(self.one(contract, "migration:legacy-json", "warm")), [])
+        bad = self.one("diagnostic.inspect", "migration:malformed-json", "cold")
+        self.assertEqual((bad["http_status"], bad["census"]["statements"]), (500, 0))
+        self.assertTrue(bad["detail"].startswith("MigrationError"))
+        done = self.one("diagnostic.inspect", "migration:interrupted", "cold")
+        self.assertEqual((done["http_status"], self.written(done)), (200, []))
+        self.assertEqual({k: v for k, v in done["audit"]["fs_mutation"].items() if not k.startswith("os.mkdir")},
+                         {"os.rename:data:org-db:own@orgtree.store:_finish_interrupted_migration": 1})
+        for r in self.rows_of("diagnostic."):
+            with self.subTest(variant=r["variant"], condition=r["condition"]):
+                self.assertEqual(r["guard_refusals"], {})
+                self.assertNotIn("process", r.get("audit") or {})
+                self.assertNotIn("network", r.get("audit") or {})
+
+    def test_preview_writes_only_inside_its_clone(self):
+        for r in self.rows_of("preview.agent"):
+            if r["variant"] == "migration:legacy-json" and r["condition"] == "cold":
+                continue
+            with self.subTest(variant=r["variant"], condition=r["condition"]):
+                self.assertEqual(self.written(r), [])
+                if r["variant"].startswith("preview.") and r["condition"] == "warm":
+                    self.assertTrue(r["clone"] and r["clone"]["sections"], r["variant"])
+        move = self.one("preview.agent", "preview.move", "warm")["clone"]["sections"]
+        self.assertEqual(set(move), {"events", "nodes", "notice_log", "notices"})
+
+    def test_provider_failure_modes_refuse_422_and_their_contacts_are_guarded(self):
+        guarded = {"provider:codex-not-signed-in": {"process/subprocess.Popen": 1},
+                   "provider:legacy-tier": {"process/subprocess.Popen": 1},
+                   "provider:openrouter-network-refused": {"egress/urllib.Request": 1}}
+        rows = self.rows_of("preview.agent", "provider:")
+        self.assertEqual(len(rows), 10)
+        for r in rows:
+            with self.subTest(variant=r["variant"]):
+                self.assertEqual((r["http_status"], self.written(r)), (422, []))
+                self.assertEqual(r["guard_refusals"], guarded.get(r["variant"], {}))
+
+    def test_status_reads_per_outcome_and_its_locality_control(self):
+        full = ["doc", "log_d", "log_l", "meta", "nodes"]
+        quiet = ("status.report:working", "status.report:idle", "status.report:unvalidated",
+                 "status.report:done-top-level", "status.report:blocked-top-level")
+        for r in self.rows_of("status.report"):
+            if r["variant"].startswith("control:"):
+                continue
+            with self.subTest(variant=r["variant"], condition=r["condition"]):
+                if r["variant"].startswith("refusal:"):
+                    if r["condition"] == "warm":
+                        self.assertEqual(r["census"]["statements"], 0)
+                    continue
+                if r["condition"] == "cold":
+                    self.assertEqual((self.read(r), r["census"]["connects"]), (full, 1))
+                else:
+                    self.assertEqual(self.read(r), ["meta", "nodes"] if r["variant"] in quiet else full)
+                if r["variant"] in quiet:
+                    self.assertEqual(self.written(r), ["nodes"])
+                if r["variant"] == "status.report:keyed-replay":
+                    self.assertEqual(self.written(r), [])
+                self.assertEqual((r["agents"]["third_agent_mail"], r["agents"]["third_agent_rows_written"]), (0, 0))
+        control = self.one("status.report", "control:status-third-agent-mail", "warm")["agents"]
+        self.assertGreaterEqual(control["third_agent_mail"], 1)
+
+    def test_chart_reads_nothing_warm_writes_nothing_and_discloses_by_level(self):
+        full = ["doc", "log_d", "log_l", "meta", "nodes"]
+        base = {"st-chief", "st-deep", "st-worker"}
+        disclosed = {"self": base, "team": base | {"st-sibling"}, "subtree": base | {"st-sibling"},
+                     "full": base | {"st-sibling"}}
+        for level, ids in disclosed.items():
+            for archived in (False, True):
+                variant = f"chart.read:{level}" + ("+archived" if archived else "")
+                want = ids | ({"st-retired"} if archived and level in ("subtree", "full") else set())
+                for condition in ("cold", "warm"):
+                    with self.subTest(variant=variant, condition=condition):
+                        r = self.one("chart.read", variant, condition)
+                        self.assertEqual(set(r["disclosed"]), want)
+                        self.assertEqual(self.written(r), [])
+                        if condition == "cold":
+                            self.assertEqual(self.read(r), full)
+                        else:
+                            self.assertEqual(r["census"]["statements"], 0)
+                        self.assertIn("file_read:home:provider", r["contact_classes"])
 
 
 if __name__ == "__main__":
