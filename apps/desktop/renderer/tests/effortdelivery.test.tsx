@@ -37,6 +37,12 @@ test('an older engine without the field keeps the plain wording', () => {
     'worker thinking effort: back to the org default')
 })
 
+test('a save that leaves the level where it was says unchanged', () => {
+  assert.equal(effortChangeToast('worker', 'high',
+    { effort_delivery: { delivery: 'unchanged', effort: 'high' } }),
+  'worker thinking effort: high (unchanged)')
+})
+
 test('an unsupported level in the reply is not echoed', () => {
   assert.equal(effortChangeToast('worker', '',
     { effort_delivery: { delivery: 'next_turn', effort: 'bogus' } }),

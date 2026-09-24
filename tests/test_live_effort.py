@@ -18,8 +18,11 @@ from the turn's NEXT model call. These tests pin orgtree's side of that:
       identity check cannot see a change that was later changed back
   §5  both doors that change effort (the ⚙ scope call and orgtree_retool)
       report the delivery, only after the level is saved
-  §6  the measured CLI version is pinned, so a CLI change is a visible
-      decision rather than a silent one
+  §6  the measured CLI version equals the CLI orgtree installs
+      (`clipin.PIN`), so moving the pin forces this behaviour to be
+      re-measured rather than silently assumed
+  §7  a save that leaves the resolved level unchanged sends nothing and
+      leaves the process eligible for the warm pool
 
 Every process and ledger is a local fixture; no provider is contacted.
 """
@@ -360,10 +363,13 @@ class ApiDoorTests(LiveEffortBase):
         super().setUp()
         self.seen = []
 
-        def fake(org, nid):
-            # the level must already be SAVED when a running turn is sent it
+        def fake(org, nid, previous=None):
+            # the level must already be SAVED when a running turn is sent it,
+            # and the door must say what it resolved to BEFORE the save
             self.seen.append((nid, store.load_org(self.slug).node(nid)["scope"].get("effort")))
+            self.previous.append(previous)
             return {"delivery": "sent", "effort": org.effective_effort(nid)}
+        self.previous = []
         self.stack.enter_context(patch.object(sup, "send_live_effort", side_effect=fake))
 
     def test_the_scope_call_reports_the_delivery(self):
@@ -371,6 +377,7 @@ class ApiDoorTests(LiveEffortBase):
         out = api.node_scope(self.slug, self.nid, api.Scope(effort="xhigh"), req)
         self.assertEqual(out["effort_delivery"], {"delivery": "sent", "effort": "xhigh"})
         self.assertEqual(self.seen, [(self.nid, "xhigh")])
+        self.assertEqual(self.previous, ["high"])
 
     def test_a_scope_call_without_effort_sends_nothing(self):
         req = Request({"type": "http", "headers": []})
@@ -389,13 +396,64 @@ class ApiDoorTests(LiveEffortBase):
                                            args={"node": self.nid, "effort": "low"}), req)
         self.assertEqual(out["effort_delivery"], {"delivery": "sent", "effort": "low"})
         self.assertEqual(self.seen, [(self.nid, "low")])
+        self.assertEqual(self.previous, ["high"])
+
+
+class UnchangedLevelTests(LiveEffortBase):
+    """§7 — the REAL send_live_effort behind both doors, on a live process."""
+
+    def setUp(self):
+        super().setUp()
+        self.proc = Mock()
+        self.proc.poll.return_value = None
+        with sup._state_lock:
+            self.st["responding"], self.st["proc"] = True, self.proc
+            self.st.pop("effort_live", None)
+        self.addCleanup(lambda: self.st.update(responding=False, proc=None))
+        self.req = Request({"type": "http", "headers": []})
+
+    def test_the_scope_call_with_the_same_level_sends_nothing(self):
+        self.set_effort("max")
+        out = api.node_scope(self.slug, self.nid, api.Scope(effort="max"), self.req)
+        self.assertEqual(out["effort_delivery"], {"delivery": "unchanged", "effort": "max"})
+        self.proc.stdin.write.assert_not_called()
+        self.assertNotIn("effort_live", self.st, "an unchanged save must not cost the warm process")
+        self.assertFalse(sup._live_effort_sent(self.st, self.proc))
+
+    def test_clearing_to_a_default_that_resolves_the_same_sends_nothing(self):
+        self.set_effort("low", org_default="low")
+        out = api.node_scope(self.slug, self.nid, api.Scope(effort=""), self.req)
+        self.assertEqual(out["effort_delivery"]["delivery"], "unchanged")
+        self.proc.stdin.write.assert_not_called()
+
+    def test_retool_with_the_same_level_sends_nothing(self):
+        with store.DOC_LOCK:
+            org = store.load_org(self.slug)
+            org.hire(ledger.USER, None, "opus", 0, "boss")
+            org.node(self.nid)["parent"] = "boss"
+            org.set_scope(ledger.USER, self.nid, effort="medium")
+            store.save_org(org)
+        out = api.agent_call(api.AgentCall(org=self.slug, node="boss", tool="orgtree_retool",
+                                           args={"node": self.nid, "effort": "medium"}), self.req)
+        self.assertEqual(out["effort_delivery"], {"delivery": "unchanged", "effort": "medium"})
+        self.proc.stdin.write.assert_not_called()
+
+    def test_control_a_changed_level_is_still_sent(self):
+        self.set_effort("max")
+        out = api.node_scope(self.slug, self.nid, api.Scope(effort="low"), self.req)
+        self.assertEqual(out["effort_delivery"], {"delivery": "sent", "effort": "low"})
+        self.proc.stdin.write.assert_called_once()
+        self.assertTrue(sup._live_effort_sent(self.st, self.proc))
 
 
 class PinTests(unittest.TestCase):
     """§6"""
 
-    def test_the_measured_cli_version_is_pinned(self):
-        self.assertEqual(sup.LIVE_EFFORT_MEASURED_CLI, "2.1.280")
+    def test_the_measured_cli_is_the_cli_orgtree_installs(self):
+        # Moving clipin.PIN without re-measuring live effort on the new CLI
+        # must fail here: the behaviour is only known for the measured build.
+        from orgtree import clipin
+        self.assertEqual(sup.LIVE_EFFORT_MEASURED_CLI, clipin.PIN)
 
 
 if __name__ == "__main__":

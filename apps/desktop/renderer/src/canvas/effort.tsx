@@ -205,7 +205,8 @@ export function EffortLevelBadge({ node }: {
  *
  *  The server answers a saved effort with `effort_delivery`: `sent` means the
  *  level was written to the agent's RUNNING Claude process, `next_turn` means
- *  it applies when its next turn starts. ⚠ "SENT", NEVER "APPLIED": the CLI
+ *  it applies when its next turn starts, `unchanged` means the save left the
+ *  level where it was and nothing was sent. ⚠ "SENT", NEVER "APPLIED": the CLI
  *  acknowledges the request, which proves it was accepted, not that the turn
  *  used it — the Agent SDK documents the change as taking effect next turn.
  *  A reply without the field (an older engine) keeps the plain wording. */
@@ -220,5 +221,6 @@ export function effortChangeToast(
     : `${nodeId} thinking effort: back to the org default${level ? ` (${level})` : ''}`
   if (d?.delivery === 'sent') return `${what} — sent to the running agent`
   if (d?.delivery === 'next_turn') return `${what} — applies from its next turn`
+  if (d?.delivery === 'unchanged') return `${what} (unchanged)`
   return what
 }

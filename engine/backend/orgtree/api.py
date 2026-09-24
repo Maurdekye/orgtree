@@ -3822,6 +3822,8 @@ def node_scope(slug: str, nid: str, body: Scope,
         try:
             rc = (not pub) and (bool((org.d.get("kiosk") or {}).get("auto_raise"))
                                 or body.raise_ceiling)
+            effort_before = (org.effective_effort(nid)
+                             if body.effort is not None else None)
             result = org.set_scope(USER, nid, add_dirs=body.add_dirs, tools=body.tools,
                                    org_visibility=body.org_visibility,
                                    permission_mode=body.permission_mode,
@@ -3841,7 +3843,8 @@ def node_scope(slug: str, nid: str, body: Scope,
         store.save_org(org)
     if body.effort is not None and isinstance(result, dict):
         # the level is saved now, so a running Claude turn may be sent it
-        result["effort_delivery"] = supervisor.send_live_effort(org, nid)
+        result["effort_delivery"] = supervisor.send_live_effort(
+            org, nid, previous=effort_before)
     if pub and isinstance(result, dict):
         result.pop("bridge", None)
     # (the explicit broadcast is gone: store.save_org announces every write
@@ -11736,6 +11739,7 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
     account_unpark: str | None = None   # a node an assignment just un-parked (SH-2)
     account_thawed: str | None = None   # a node a rebind just auth-thawed (2026-09-16)
     effort_live: str | None = None      # a node whose effort a retool changed
+    effort_before: str | None = None    # …and the level it resolved to before
     drive: list[str] = []      # nodes whose turn should run after we release the lock
     stale_freeze_resumed: list[str] = []  # switch_model cleared their freeze
     unstick_resume: tuple[str, list[str], list[str]] | None = None
@@ -12495,6 +12499,8 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                         raise LedgerError(str(e)) from e
                 rdirs, dwarns = supervisor.sandbox_dirs_to_host(
                     org, a.get("add_dirs"))
+                if a.get("effort") is not None:
+                    effort_before = org.effective_effort(_rt_target)
                 result = org.set_scope(body.node, a.get("node", ""),
                                        add_dirs=rdirs,
                                        tools=a.get("tools"),
@@ -12818,7 +12824,8 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
         supervisor.drive_auth_thaw(body.org, account_thawed)
     if effort_live is not None and isinstance(result, dict):
         # the level is saved now, so a running Claude turn may be sent it
-        result["effort_delivery"] = supervisor.send_live_effort(org, effort_live)
+        result["effort_delivery"] = supervisor.send_live_effort(
+            org, effort_live, previous=effort_before)
     if unstick_resume is not None:
         _target, _texts, _views = unstick_resume
         _texts = _texts or [

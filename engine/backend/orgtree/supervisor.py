@@ -26867,12 +26867,14 @@ def interrupt_turn(slug: str, nid: str) -> dict[str, Any]:
 #: of its transcript messages), so there is nothing to send it.
 LIVE_EFFORT_TIERS: Final = frozenset({"fable", "opus", "sonnet"})
 #: The CLI version the live-effort behaviour was measured on (item
-#: support-changing-a-claude-agent-s-effort-level-m, 2026-09-24).
+#: support-changing-a-claude-agent-s-effort-level-m, 2026-09-24). A test holds
+#: it equal to `clipin.PIN`: moving the pin must re-measure this behaviour.
 LIVE_EFFORT_MEASURED_CLI: Final = "2.1.280"
 _LIVE_EFFORT_KEY = "effort_live"
 
 
-def send_live_effort(org: Org, nid: str) -> dict[str, Any]:
+def send_live_effort(org: Org, nid: str,
+                     previous: str | None = None) -> dict[str, Any]:
     """Send a changed effort level to this node's RUNNING Claude turn.
 
     ⚠ WHY THIS EXISTS. A node's effort reaches the CLI as `--effort` at spawn,
@@ -26895,10 +26897,18 @@ def send_live_effort(org: Org, nid: str) -> dict[str, Any]:
     MODEL's default (medium on Opus 5.5), not to the launch `--effort`, so a
     node cleared back to "inherit" is sent the level it now resolves to.
 
+    ⚠ AN UNCHANGED LEVEL SENDS NOTHING. `previous` is the level the node
+    resolved to before the save; when the save leaves it the same, nothing is
+    written, so the process is not marked and stays eligible for the warm
+    pool.
+
     Returns `{"delivery": "sent", "effort": level}` when the line was written
-    to a live process, else `{"delivery": "next_turn", "effort": level,
+    to a live process, `{"delivery": "unchanged", "effort": level}` when the
+    level did not change, else `{"delivery": "next_turn", "effort": level,
     "reason": ...}`. Never raises for a dead or closing process."""
     level = org.effective_effort(nid)
+    if previous is not None and previous == level:
+        return {"delivery": "unchanged", "effort": level}
 
     def _next(reason: str) -> dict[str, Any]:
         return {"delivery": "next_turn", "effort": level, "reason": reason}
