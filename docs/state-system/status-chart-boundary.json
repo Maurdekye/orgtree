@@ -1,0 +1,52 @@
+{
+  "schema": "orgtree.status-chart-boundary/v1",
+  "source_contract_sha256": "d92b2094f40c06977da23e7d48168d2725f2ed85e73412d3997daa7d0a814593",
+  "qualification": {
+    "runtime_census": false,
+    "conversion_authorized": false
+  },
+  "tools": {
+    "orgtree_status": "status.report",
+    "orgtree_chart": "chart.read"
+  },
+  "status": {
+    "reporting": ["done", "blocked"],
+    "stored_as": {"done": "idle"},
+    "activity_value": "working",
+    "default": "working",
+    "unvalidated_examples": ["", "bogus", "DONE", "Blocked", "5"],
+    "results": {
+      "plain": ["recorded"],
+      "reported": ["recorded", "reported_to", "delivered", "id", "warnings", "ref"],
+      "top_level": ["recorded", "reported_to"]
+    },
+    "top_level_reported_to": "status chip only — report your actual results to the user via orgtree_message",
+    "mail": {"kind": "status", "variant": "status.report", "prefix": {"done": "[DONE] ", "blocked": "[BLOCKED] "}},
+    "report_sections": ["events", "lifecycle", "mail", "mail_log", "nodes"],
+    "retained": ["recorded", "reported_to", "delivered"],
+    "replay": ["replayed", "op_id", "at", "tool", "outcome", "receipt", "status"]
+  },
+  "chart": {
+    "result": ["chart"],
+    "visibility": {
+      "self": {"present": ["Your reports:", "its identity is not disclosed to you"],
+               "absent": ["Your peers:", "Your superior:", "Your full suborganization:", "The full organization chart"]},
+      "team": {"present": ["Your reports:", "Your peers:", "Your superior:"],
+               "absent": ["Your full suborganization:", "The full organization chart"]},
+      "subtree": {"present": ["Your peers:", "Your full suborganization:"],
+                  "absent": ["The full organization chart"]},
+      "full": {"present": ["Your peers:", "The full organization chart (root = the user):"],
+               "absent": ["Your full suborganization:"]}
+    },
+    "false_flags": [false, null, 0, "", " false ", "0", "NO", "null", "None"],
+    "true_flags": [true, 1, "true", "yes"]
+  },
+  "legacy_defects": [
+    "status value is not validated server-side",
+    "done/blocked reporting is case-sensitive",
+    "summary has no length cap",
+    "an explicit null include_standing_charter omits the standing charters",
+    "the chart renderer defaults a missing org_visibility to team, but Org construction backfills it as full, so the team default is unreachable"
+  ],
+  "scope": "Legacy public-door boundary of orgtree_status and orgtree_chart on disposable SQLite. It pins result shapes, committed sections, callbacks and visibility sections; it does not qualify native behaviour, contacts or conflicts."
+}

@@ -40,7 +40,7 @@ class ContractCoverage(unittest.TestCase):
         self.assertFalse(result["contract_coverage_complete"])
         self.assertGreater(result["summary"]["entries"]["pending"], 0)
         self.assertGreater(result["summary"]["storage"]["pending"], 0)
-        self.assertEqual(result["contracts"], 16)
+        self.assertEqual(result["contracts"], 18)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the

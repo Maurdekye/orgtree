@@ -115,9 +115,9 @@ runtime probes remain unresolved. Material reads add two cards and two selectors
 diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
-Current totals are 16 contracts, seven mapped registrations and 31 mapped
-dispatch witnesses. **576 obligations remain**: 312 registrations, 196 dispatch
-witnesses, 15 storage candidates and 53 unresolved dimension occurrences.
+Current totals are 18 contracts, nine mapped registrations and 36 mapped
+dispatch witnesses. **578 obligations remain**: 310 registrations, 191 dispatch
+witnesses, 15 storage candidates and 62 unresolved dimension occurrences.
 How it got there: 600 was two more registrations than the preceding 598 because the scanner now
 recognizes `asyncio.to_thread` hand-offs; both new witnesses are pending and no
 existing witness identity, disposition or contract changed.
@@ -154,8 +154,13 @@ locality (6721cad): release-notify's mail contacts belong only to the named
 successor, never the sender alone, and a third-agent control fires. The legacy
 mail queue is one org-wide row, so that result rests on the logical before/after
 reading plus the per-agent `nodes`/`log_d` rows.
+578 is two MORE than that 576, and that is expected (S3 ruling 1): the first
+P03-prototype candidate maps seven witnesses (two tool cards and five dispatch
+branches, -7) to two new contracts, `status.report` and `chart.read`, whose
+nine facets P01 cannot close add nine unresolved dimension occurrences (+9).
+See "P03-prototype surface" below.
 
-Of the 53 open dimension occurrences, 37 (17 facets) cannot be closed at P01
+Of the 53 open dimension occurrences on the sixteen legacy-family contracts, 37 (17 facets) cannot be closed at P01
 from the evidence that exists. Their questions need observed runtime contacts
 (P02) or a chosen and qualified native PostgreSQL design (the separately staffed
 conflict/predicate design, then P03/P05). Each such facet keeps its original
@@ -235,6 +240,43 @@ including terminal rows. Its native conflict/admission policy has not been
 chosen or qualified. Similarly, the legacy receipt watermark is an existing
 mechanism to model, not permission to add a shared write gate to the new system.
 The packet's native per-owner custody and narrow conflicts remain required.
+
+## P03-prototype surface (S3)
+
+The narrow P03 prototype needs status, mail, receipt replay, charter read,
+funding, atomic staffing, strict read and UI feed (v6 MIGRATION-AND-QUALIFICATION,
+P03 row). At v3 `88c1390` the P01 gap census flagged 70 witnesses by keyword. The
+reviewed surface is 51 witnesses: 42 of those 70 plus 9 the keyword scan missed
+(`orgtree_send_notice` and its branch, the human-to-agent mail route, node detail,
+the `/api/agent` hire and staffing branches). 28 flagged witnesses are outside it:
+the charter TEMPLATE library and its folder settings, organization deletion,
+outside-org and EXTERN mail, inbox clear, docket evidence receipts, and docket
+attachments, deletion, acceptance, attention and reply. "Strict read" is read as
+an authoritative read of item or agent state. The item is read through the two
+work-item GET routes only (S3 ruling 2): the `orgtree_work` card must cover all 36
+actions to be mapped, so it stays pending. The shared `/api/agent` door stays
+pending until every `body.tool` branch has a contract.
+
+Contracts are added family by family: F1 status and read, F2 mail, F3 funding,
+staffing and receipt replay, F4 item read. A new contract adds nine dimension
+slots, so pending changes by minus the witnesses mapped plus the new unresolved
+occurrences, and it may rise (S3 ruling 1). Each candidate reports both numbers.
+
+Candidate 1 (F1, first half) adds `status.report` (`orgtree_status`) and
+`chart.read` (`orgtree_chart`, which is also the agent's charter read and credit
+view). It maps both cards, both exact branches, the shared read-shaped block
+(together with the two material contracts), and the shared mail-family result
+ref and transcript chip selectors (whose message and notice contracts come with
+F2). Specified from source and pinned by `tests/test_state_status_chart_boundary.py`
+against `status-chart-boundary.json`: authority, predicates, writes, receipt and
+effects for status; authority, predicates, receipt and effects for the chart.
+Unresolved with an owner: reads and instrumentation (P02), conflicts (native
+design), wire (native/Rust conversion) for both, and the chart's cold/migration
+writes (P02). Recorded legacy behaviour, not approved: the status value is not
+validated server-side, reporting is case-sensitive, the summary has no length
+cap, an explicit null `include_standing_charter` omits the standing charters, and
+the chart's own default for a missing visibility is unreachable because Org
+construction backfills it as full.
 
 ## Deliberate failing controls
 

@@ -3865,6 +3865,606 @@
         "Complete P02 actual contact/profile/loss/drift coverage and P03 native concurrency/failure gates before any conversion claim.",
         "Owner: P03 native concurrency/failure gates. Closes with: the P03 native concurrency and failure gates for every preview variant. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py, v3 b6568a1; docs/state-system/p02-operation-contacts.md) covers contact/profile/loss for all 13 preview operations cold (unstubbed preflight) and warm; the native gates need a native build."
       ]
+    },
+    "status.authority": {
+      "dimension": "authority",
+      "status": "specified",
+      "facts": [
+        "The agent HTTP door authenticates before this branch: _agent_identity refuses a credential for another org/node, a missing seat, an archived or replaced seat, a stale generation and a seat_id mismatch (all 403), reading the shared cached_org snapshot. A missing or invalid token is refused 401 by engine/launch.py's middleware, outside the pinned backend set.",
+        "Halt and killswitch refuse 409 twice: supervisor.halt.blocked before the write cycle, and again under the write cycle from the caller's own node row and the org killswitch. Pinned: a halted caller gets 409 and nothing commits.",
+        "The operation is self-only. No argument names a target: an extra `node` argument is ignored and the report is written to the caller's own node row. The only other agent it can touch is the caller's stored parent, as the recipient of a done/blocked report.",
+        "The report mail to the parent goes through Org.post_mail as kind=status from the caller; the parent is the caller's superior, so no audience grant is needed or created (pinned: audiences unchanged). A top-level caller (parent null) posts no mail."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11156,
+          "end": 11210,
+          "sha256": "8e7d0a7e261a9fad1310f80033623b5922c3c78c4645669bd0779d94d662a37f"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11213,
+          "end": 11271,
+          "sha256": "3364dd0d8d7b27a9b16eff4385e2a0c17e3eefc0d9ad57b1411cef8111c7988e"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11274,
+          "end": 11299,
+          "sha256": "e3674026fecdb65bb9a03a35c82b72fdfd2c047f5129363a5acb1d1abc52987d"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11828,
+          "end": 11845,
+          "sha256": "6f5efe7bb30fdd0330659bb4f6e7277ba1bfc99a0e1a9da1011db2ec15a72cda"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12664,
+          "end": 12713,
+          "sha256": "62fe19b2e125f851fc01f785da90e554bc7d93336cfbcd506cd57fc8a1c9f2ea"
+        }
+      ],
+      "open_questions": []
+    },
+    "status.predicates": {
+      "dimension": "predicates",
+      "status": "specified",
+      "facts": [
+        "`status` and `summary` pass through _norm_args: a container refuses 422 '<field> must be text, not <type>'; an explicit null is dropped so the defaults apply (status 'working', summary ''); a bare number becomes its text.",
+        "The status VALUE IS NOT VALIDATED server-side. The MCP card's enum (working, done, blocked, idle) is a client schema only: any other text, including '', 'bogus', '5' and 'DONE', is stored verbatim as last_status.status and answered as recorded. Recorded legacy behaviour, not approved native behaviour.",
+        "Exactly 'done' is stored as 'idle' (user ruling 2026-08-02) but answered as recorded 'done'. Exactly 'working' sets working_activity_at to the report time; every other value pops it.",
+        "Mail is posted only for exactly 'done' or 'blocked' (case-sensitive) when the caller has a parent. 'DONE' records and mails nothing.",
+        "The summary has no length cap: a 100000-character summary is stored whole on the node and, for done/blocked, in the mail body. Recorded legacy behaviour."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9751,
+          "end": 9804,
+          "sha256": "23d5bf1ea2eef2aea9ac37c4d0b2ac6badf1605ab56641750c5ce018a7f00730"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12664,
+          "end": 12713,
+          "sha256": "62fe19b2e125f851fc01f785da90e554bc7d93336cfbcd506cd57fc8a1c9f2ea"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1845,
+          "end": 1862,
+          "sha256": "cab1501e2db1435d7e05d6e55042a3a4fa179118e8f3090b09c394b8e648861e"
+        }
+      ],
+      "open_questions": []
+    },
+    "status.writes": {
+      "dimension": "writes",
+      "status": "specified",
+      "facts": [
+        "TX_POST: the call runs in the resident write cycle (store.write_org under DOC_LOCK) and ends in save_org for every accepted report. Measured with the committed document read cold (resident evicted), by outcome:",
+        "working/idle/any non-reporting value, or done/blocked from a top-level caller: only the caller's node row changes (last_status {status, summary, at}; working_activity_at set or removed).",
+        "done/blocked with a parent: the caller's node row, plus one status mail in the parent's mailbox (body '[DONE] <summary>' or '[BLOCKED] <summary>', typed ev status.report with state and summary), one mail_log row, one 'mail' event, one accepted lifecycle row (delivery mailbox), and the parent's mail_seq (and mailbox_id on its first mail). No audience row.",
+        "A keyed call adds op_receipts and op_receipts_meta in the same save. A keyed replay and every refusal (422 container, 409 halt, 403 archived) commit nothing.",
+        "This is the same wrapper as the reservation family's wrapper-writes; physical SQL statements, row fan-out and waits behind these section changes belong to status.instrumentation (P02)."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11828,
+          "end": 11845,
+          "sha256": "6f5efe7bb30fdd0330659bb4f6e7277ba1bfc99a0e1a9da1011db2ec15a72cda"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12664,
+          "end": 12713,
+          "sha256": "62fe19b2e125f851fc01f785da90e554bc7d93336cfbcd506cd57fc8a1c9f2ea"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12804,
+          "end": 12814,
+          "sha256": "db878061c038c52141342fd300ced86b4724334df70411a0ae0c5fcb1e17c4de"
+        }
+      ],
+      "open_questions": []
+    },
+    "status.reads": {
+      "dimension": "reads",
+      "status": "unresolved",
+      "facts": [
+        "Source read set: the door reads the cached_org snapshot for caller identity/generation/seat; the write cycle reads the resident document for the caller's node, halt and the org killswitch; a report reads the caller's parent and Org.post_mail's mailbox/addressing state for that parent; a keyed call reads the receipts sections."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11213,
+          "end": 11271,
+          "sha256": "3364dd0d8d7b27a9b16eff4385e2a0c17e3eefc0d9ad57b1411cef8111c7988e"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11828,
+          "end": 11845,
+          "sha256": "6f5efe7bb30fdd0330659bb4f6e7277ba1bfc99a0e1a9da1011db2ec15a72cda"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12664,
+          "end": 12713,
+          "sha256": "62fe19b2e125f851fc01f785da90e554bc7d93336cfbcd506cd57fc8a1c9f2ea"
+        }
+      ],
+      "open_questions": [
+        "Record the statement-level read set of each status outcome, including the post_mail path to the parent, cold and warm.",
+        "Owner: P02. Closes with: observed per-operation contacts for orgtree_status (each outcome: working, done/blocked with and without a parent, keyed, replay, refusals), cold and warm, from the P02 probe extended to this family. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) covers the reservation, material, diagnostic and preview families only; orgtree_status was not probed."
+      ]
+    },
+    "status.conflicts": {
+      "dimension": "conflicts",
+      "status": "unresolved",
+      "facts": [
+        "The whole report runs under DOC_LOCK in one write cycle: it serialises with every other document writer in the org, although it touches only the caller's node row and, for done/blocked, the parent's mailbox, mail_log, events and lifecycle.",
+        "The mail queue, events and lifecycle are org-wide document sections, so two reports to different parents still write the same rows in the legacy store."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11828,
+          "end": 11845,
+          "sha256": "6f5efe7bb30fdd0330659bb4f6e7277ba1bfc99a0e1a9da1011db2ec15a72cda"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12664,
+          "end": 12713,
+          "sha256": "62fe19b2e125f851fc01f785da90e554bc7d93336cfbcd506cd57fc8a1c9f2ea"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12804,
+          "end": 12814,
+          "sha256": "db878061c038c52141342fd300ced86b4724334df70411a0ae0c5fcb1e17c4de"
+        }
+      ],
+      "open_questions": [
+        "Choose the native write set and isolation for a status report without an org-wide lock.",
+        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 (native prototype) and P07 (mail). Closes with: a chosen native write set and isolation for a status report (the caller's status row plus, for done/blocked, a receiver-owned mail row), qualified by concurrent reports to the same and to different parents. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source decides."
+      ]
+    },
+    "status.wire": {
+      "dimension": "wire",
+      "status": "unresolved",
+      "facts": [
+        "Result shapes are fixtured in docs/state-system/status-chart-boundary.json and compared by tests/test_state_status_chart_boundary.py: a non-reporting status answers exactly {recorded}; done/blocked with a parent answers {recorded, reported_to, delivered, id, warnings, ref}, where ref is '@mail:<org>/node/<parent>/<id>' (added by _attach_ref from the delivery record); a top-level done/blocked answers {recorded, reported_to} with the fixed 'status chip only' text.",
+        "The transcript projector gives a successful status tool_use whose result carries id and delivered the same inline mail chip as orgtree_message and orgtree_send_notice (supervisor.py chip branch).",
+        "Recorded legacy defects, not approved native behaviour: no server-side enum check, case-sensitive reporting, and an unbounded summary (status.predicates)."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12664,
+          "end": 12713,
+          "sha256": "62fe19b2e125f851fc01f785da90e554bc7d93336cfbcd506cd57fc8a1c9f2ea"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 7619,
+          "end": 7640,
+          "sha256": "662fbbe998e5177067d2c9f5a7ccf482c29ae8a19d244a8d4c11d076596c735d"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12969,
+          "end": 12974,
+          "sha256": "fa90ac931f78a9daa11eb3026e2d4ce40f043d4f9c4938aa04bef02469e5caba"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 35376,
+          "end": 35388,
+          "sha256": "926ec49c1eaa4e512cbcd65b9db2b2cfa7cf30f42352d219f38d0f528a9401ec"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1845,
+          "end": 1862,
+          "sha256": "cab1501e2db1435d7e05d6e55042a3a4fa179118e8f3090b09c394b8e648861e"
+        }
+      ],
+      "open_questions": [
+        "Carry the fixtured status result shapes to the native/Rust door and decide each recorded legacy defect.",
+        "Owner: the native/Rust conversion, from the P03 prototype onward. Closes with: the fixtured status result shapes passing against the native and Rust builds, with the unvalidated enum, case-sensitivity and unbounded summary each either reproduced deliberately or replaced by an approved refusal. Not coverable at P01 from available evidence: no native or Rust build exists to run the fixtures against."
+      ]
+    },
+    "status.receipt": {
+      "dimension": "receipt",
+      "status": "specified",
+      "facts": [
+        "Coverage class TX_POST. A bare unkeyed call files no receipt. A keyed orgtree_op_call admits the key inside the write cycle and files an applied receipt immediately before save_org, so the report and its receipt commit together.",
+        "The retained result keeps only recorded, reported_to and delivered. A keyed replay returns the replay envelope (replayed, op_id, at, tool, outcome, receipt, status) without re-posting the report, re-driving the parent or changing any section (pinned)."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11828,
+          "end": 11845,
+          "sha256": "6f5efe7bb30fdd0330659bb4f6e7277ba1bfc99a0e1a9da1011db2ec15a72cda"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12804,
+          "end": 12814,
+          "sha256": "db878061c038c52141342fd300ced86b4724334df70411a0ae0c5fcb1e17c4de"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 193,
+          "end": 193,
+          "sha256": "a12721a7e4b2faa79fc1bdba39c599616fa871d3f599212c69baa4ba3895e555"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 310,
+          "end": 310,
+          "sha256": "ddb9e5bb41a84e1cbd4fa3762c95a82e376074953e211c44533e9c7df0f9226d"
+        }
+      ],
+      "open_questions": []
+    },
+    "status.effects": {
+      "dimension": "effects",
+      "status": "specified",
+      "facts": [
+        "done/blocked with a parent: inside the write cycle, mail_notify(org, caller, parent) - a UI-only 'mail' spark on the org websocket hub, no state - and after the save one supervisor.send_message ping to the parent (mail_ping=True, sender=caller, ping_reason null), which drives the parent's turn. Pinned with spies.",
+        "Every accepted report, including 'working', ends with hub_changed(org), the coalesced tree broadcast. No other agent is pinged and no process, provider or network action runs in the branch. A replay or refusal runs none of these (pinned).",
+        "The ping's own delivery (turn admission, steering) is the mail runtime's operation, observed here only at the send_message boundary."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12664,
+          "end": 12713,
+          "sha256": "62fe19b2e125f851fc01f785da90e554bc7d93336cfbcd506cd57fc8a1c9f2ea"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12882,
+          "end": 12890,
+          "sha256": "4df85e42ee64d2706e2ccc264d330b69e0ebdccd11e538e60598236e09c31efb"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12969,
+          "end": 12974,
+          "sha256": "fa90ac931f78a9daa11eb3026e2d4ce40f043d4f9c4938aa04bef02469e5caba"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1360,
+          "end": 1361,
+          "sha256": "541e83310b8fc3e1fe98df8c8da39f109b68f1420fce346a13866ffe7b1d95b2"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1692,
+          "end": 1704,
+          "sha256": "e4b8b17ad7095f0932bcb0c6ab0293f91bf67eb73d83e24383dfe07b4f38b24a"
+        }
+      ],
+      "open_questions": []
+    },
+    "status.instrumentation": {
+      "dimension": "instrumentation",
+      "status": "unresolved",
+      "facts": [
+        "The door labels the request with the tool name and census.classify files its action/target shape before dispatch; stateprobe.refine names the tool. No P02 per-operation record exists for this family yet."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11156,
+          "end": 11210,
+          "sha256": "8e7d0a7e261a9fad1310f80033623b5922c3c78c4645669bd0779d94d662a37f"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11274,
+          "end": 11299,
+          "sha256": "e3674026fecdb65bb9a03a35c82b72fdfd2c047f5129363a5acb1d1abc52987d"
+        }
+      ],
+      "open_questions": [
+        "Extend the P02 per-operation probe to orgtree_status, with agent-level locality for the parent report.",
+        "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed, loss-accounted contact record for orgtree_status (every outcome, cold and warm, both the caller's row and the parent's mail), including an agent-level locality control like the one `contacts` uses. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to orgtree_status."
+      ]
+    },
+    "chart.authority": {
+      "dimension": "authority",
+      "status": "specified",
+      "facts": [
+        "The same agent door authenticates and applies the halt/killswitch pre-check (409, pinned for a halted caller) before this read-shaped branch. The branch itself only resolves the caller in the cached_org snapshot; the door has already refused archived or replaced seats (403).",
+        "The operation is self-only: it renders the caller's own view and takes no target. What it discloses is decided by the caller's scope.org_visibility, read at render time: self shows only the caller's reports and hides the superior's identity; team adds peers; subtree adds the caller's whole suborganization chart; full adds the whole organization chart rooted at the user. The renderer's own default for a missing value is team, but Org construction backfills a missing visibility as full before the chart reads it, so through the door a missing value renders the full chart (pinned) and the team default is unreachable: a latent legacy inconsistency.",
+        "It is also the agent's charter read: its own charter always, and, unless include_standing_charter is falsy, its own team charter and every ancestor's team charter (the §15 cascade)."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11156,
+          "end": 11210,
+          "sha256": "8e7d0a7e261a9fad1310f80033623b5922c3c78c4645669bd0779d94d662a37f"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11213,
+          "end": 11271,
+          "sha256": "3364dd0d8d7b27a9b16eff4385e2a0c17e3eefc0d9ad57b1411cef8111c7988e"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11274,
+          "end": 11299,
+          "sha256": "e3674026fecdb65bb9a03a35c82b72fdfd2c047f5129363a5acb1d1abc52987d"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11441,
+          "end": 11484,
+          "sha256": "d17c837863ca975fbd15927c0b5e5c88abf4615505f161640f591ece5e480d8a"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 7508,
+          "end": 7615,
+          "sha256": "3a1782ce0ea669d3b1f9687fdc9b6765afa4f6b1f6f3d22c14c37f71cda9a271"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 8253,
+          "end": 8299,
+          "sha256": "dbcdbb7efde85ab52bbdd74d8bfbf0ec4203d9dcfe771e711144bbde40dc1808"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 816,
+          "end": 817,
+          "sha256": "77dcfef00fba10533d078522ba45306f70351e19e57407eeea25c66392b5324f"
+        }
+      ],
+      "open_questions": []
+    },
+    "chart.predicates": {
+      "dimension": "predicates",
+      "status": "specified",
+      "facts": [
+        "include_archived and include_standing_charter are read with _arg_flag: absent, null, '', 'false', '0', 'no', 'null' and 'none' are false. include_standing_charter defaults to TRUE only when the key is absent: an explicit null (not normalised by _norm_args) or 'false' omits the standing charters. Pinned.",
+        "Archived rows are hidden unless include_archived; a hidden count and the route to list them are appended. The tail always carries the caller's seat cost, grant and free credits; the fable-lock line, the open user request line and the restart-authority guidance depend on org, request and deployment state."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9932,
+          "end": 9942,
+          "sha256": "0ada12c9eb38cb22f164e48177a86e95e5c9aec15128aa39bb34a4e1bad9ad67"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11441,
+          "end": 11484,
+          "sha256": "d17c837863ca975fbd15927c0b5e5c88abf4615505f161640f591ece5e480d8a"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 7508,
+          "end": 7615,
+          "sha256": "3a1782ce0ea669d3b1f9687fdc9b6765afa4f6b1f6f3d22c14c37f71cda9a271"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 8253,
+          "end": 8299,
+          "sha256": "dbcdbb7efde85ab52bbdd74d8bfbf0ec4203d9dcfe771e711144bbde40dc1808"
+        }
+      ],
+      "open_questions": []
+    },
+    "chart.writes": {
+      "dimension": "writes",
+      "status": "unresolved",
+      "facts": [
+        "The branch never saves: it reads store.cached_org and returns a rendered string. Measured on already-migrated synthetic data, cold: no document section changes for a plain or keyed call."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11441,
+          "end": 11484,
+          "sha256": "d17c837863ca975fbd15927c0b5e5c88abf4615505f161640f591ece5e480d8a"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 143,
+          "end": 150,
+          "sha256": "de32424a2fef91a68f61fc02641ab1a546436191280e57f25610afcc9ee7c114"
+        }
+      ],
+      "open_questions": [
+        "Inventory the cache-miss, cold-schema and migration writes reachable from this read before native physical-contact closure.",
+        "Owner: P02, then P03 qualification. Closes with: observed writes on the cold and migration paths reached through cached_org (a snapshot miss falls through to load_org and _ensure_migrated). Not coverable at P01 from available evidence: the measurement above uses already-migrated data, and the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to orgtree_chart."
+      ]
+    },
+    "chart.reads": {
+      "dimension": "reads",
+      "status": "unresolved",
+      "facts": [
+        "Source read set: the cached_org snapshot for caller identity, scope and visibility; children, parent, ancestors and their team charters; for subtree/full every rendered node row and its status, age, grant and archive state; seat cost, grant and free credits; the org's fable_lock, the caller's open request, deployment policy and audience state."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11441,
+          "end": 11484,
+          "sha256": "d17c837863ca975fbd15927c0b5e5c88abf4615505f161640f591ece5e480d8a"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 7508,
+          "end": 7615,
+          "sha256": "3a1782ce0ea669d3b1f9687fdc9b6765afa4f6b1f6f3d22c14c37f71cda9a271"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 7485,
+          "end": 7498,
+          "sha256": "c39b1ab1d366881ece3a35f01d19de52b3441c7cc67a009ebe6fd463d4624bfc"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 8253,
+          "end": 8299,
+          "sha256": "dbcdbb7efde85ab52bbdd74d8bfbf0ec4203d9dcfe771e711144bbde40dc1808"
+        }
+      ],
+      "open_questions": [
+        "Record the statement-level read set of the chart at each visibility level, cold and warm.",
+        "Owner: P02. Closes with: observed per-operation contacts for orgtree_chart at each visibility level (self, team, subtree, full), with and without archived rows, cold and warm. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to orgtree_chart."
+      ]
+    },
+    "chart.conflicts": {
+      "dimension": "conflicts",
+      "status": "unresolved",
+      "facts": [
+        "The read runs outside DOC_LOCK on the shared snapshot, which is seq-gated and torn-proof but not fenced: identity and visibility are checked on one snapshot and the chart may be rendered from state a concurrent writer has already superseded. Nothing fences a visibility restriction against a chart already rendered."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11213,
+          "end": 11271,
+          "sha256": "3364dd0d8d7b27a9b16eff4385e2a0c17e3eefc0d9ad57b1411cef8111c7988e"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11441,
+          "end": 11484,
+          "sha256": "d17c837863ca975fbd15927c0b5e5c88abf4615505f161640f591ece5e480d8a"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 7508,
+          "end": 7615,
+          "sha256": "3a1782ce0ea669d3b1f9687fdc9b6765afa4f6b1f6f3d22c14c37f71cda9a271"
+        }
+      ],
+      "open_questions": [
+        "Specify the native snapshot/fence for the chart's visible topology and its restriction race.",
+        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 (native prototype) and P05 (state/authority conversion). Closes with: specified native read predicates for the visible topology and a disclosure fence for visibility restriction, qualified by concurrent reader/writer schedules. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source decides."
+      ]
+    },
+    "chart.wire": {
+      "dimension": "wire",
+      "status": "unresolved",
+      "facts": [
+        "The result is exactly {chart: <text>}: identity_prompt's stable half, a blank line, then org_state_block's live half. The live half's header embeds the render time, so the text is not a stable value across calls. No ref is attached and the result is not a mail.",
+        "The rendered text's visibility sections and charter lines are fixtured by tests/test_state_status_chart_boundary.py (which sections appear at self, team, subtree and full; standing charters on and off)."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11441,
+          "end": 11484,
+          "sha256": "d17c837863ca975fbd15927c0b5e5c88abf4615505f161640f591ece5e480d8a"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 7485,
+          "end": 7498,
+          "sha256": "c39b1ab1d366881ece3a35f01d19de52b3441c7cc67a009ebe6fd463d4624bfc"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 7508,
+          "end": 7615,
+          "sha256": "3a1782ce0ea669d3b1f9687fdc9b6765afa4f6b1f6f3d22c14c37f71cda9a271"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 8253,
+          "end": 8299,
+          "sha256": "dbcdbb7efde85ab52bbdd74d8bfbf0ec4203d9dcfe771e711144bbde40dc1808"
+        }
+      ],
+      "open_questions": [
+        "Carry the fixtured chart sections to the native/Rust door and resolve the missing-visibility default.",
+        "Owner: the native/Rust conversion, from the P03 prototype onward. Closes with: the fixtured chart sections passing against the native and Rust builds, with the unreachable team default for a missing visibility resolved explicitly. Not coverable at P01 from available evidence: no native or Rust build exists to run the fixtures against."
+      ]
+    },
+    "chart.receipt": {
+      "dimension": "receipt",
+      "status": "specified",
+      "facts": [
+        "Coverage class NONE: the branch returns before receipt admission. A keyed orgtree_op_call re-executes the read on every retry and records no receipt (pinned: no receipt section changes with a key). No replay policy is inferred from that omission."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11441,
+          "end": 11484,
+          "sha256": "d17c837863ca975fbd15927c0b5e5c88abf4615505f161640f591ece5e480d8a"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 143,
+          "end": 150,
+          "sha256": "de32424a2fef91a68f61fc02641ab1a546436191280e57f25610afcc9ee7c114"
+        }
+      ],
+      "open_questions": []
+    },
+    "chart.effects": {
+      "dimension": "effects",
+      "status": "specified",
+      "facts": [
+        "No mail, ping, UI spark or tree broadcast: mail_notify, supervisor.send_message and hub_changed are not called (pinned with spies). No process, provider or network action runs in the branch."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11441,
+          "end": 11484,
+          "sha256": "d17c837863ca975fbd15927c0b5e5c88abf4615505f161640f591ece5e480d8a"
+        }
+      ],
+      "open_questions": []
+    },
+    "chart.instrumentation": {
+      "dimension": "instrumentation",
+      "status": "unresolved",
+      "facts": [
+        "The door labels the request with the tool name and census.classify files it before dispatch; stateprobe.refine names the tool. No P02 per-operation record exists for this tool yet."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11156,
+          "end": 11210,
+          "sha256": "8e7d0a7e261a9fad1310f80033623b5922c3c78c4645669bd0779d94d662a37f"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11274,
+          "end": 11299,
+          "sha256": "e3674026fecdb65bb9a03a35c82b72fdfd2c047f5129363a5acb1d1abc52987d"
+        }
+      ],
+      "open_questions": [
+        "Extend the P02 per-operation probe to orgtree_chart.",
+        "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed, loss-accounted contact record for orgtree_chart at each visibility level, cold and warm. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to orgtree_chart."
+      ]
     }
   },
   "contracts": {
@@ -4868,6 +5468,120 @@
           "sha256": "d01f4177250e5e29894b5d0e8b773006d385be13be540490c4fa8f9346a43fe5"
         }
       ]
+    },
+    "status.report": {
+      "entry_ids": [
+        "23c1910cb4fd4f63f4b859a77d4f3ffdd14eca4969fd7f32cf7aa7fcec9ec8be"
+      ],
+      "tools": [
+        "orgtree_status"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "domain_mode": "write",
+      "dimensions": {
+        "authority": [
+          "status.authority"
+        ],
+        "reads": [
+          "status.reads"
+        ],
+        "writes": [
+          "status.writes"
+        ],
+        "predicates": [
+          "status.predicates"
+        ],
+        "conflicts": [
+          "status.conflicts"
+        ],
+        "wire": [
+          "status.wire"
+        ],
+        "receipt": [
+          "status.receipt"
+        ],
+        "effects": [
+          "status.effects"
+        ],
+        "instrumentation": [
+          "status.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1845,
+          "end": 1862,
+          "sha256": "cab1501e2db1435d7e05d6e55042a3a4fa179118e8f3090b09c394b8e648861e"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12664,
+          "end": 12713,
+          "sha256": "62fe19b2e125f851fc01f785da90e554bc7d93336cfbcd506cd57fc8a1c9f2ea"
+        }
+      ]
+    },
+    "chart.read": {
+      "entry_ids": [
+        "66477fa53c2334525ddd25bdd6df2af357b4e67aa319d8577792a5a7a112d8ba"
+      ],
+      "tools": [
+        "orgtree_chart"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "domain_mode": "read",
+      "dimensions": {
+        "authority": [
+          "chart.authority"
+        ],
+        "reads": [
+          "chart.reads"
+        ],
+        "writes": [
+          "chart.writes"
+        ],
+        "predicates": [
+          "chart.predicates"
+        ],
+        "conflicts": [
+          "chart.conflicts"
+        ],
+        "wire": [
+          "chart.wire"
+        ],
+        "receipt": [
+          "chart.receipt"
+        ],
+        "effects": [
+          "chart.effects"
+        ],
+        "instrumentation": [
+          "chart.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1863,
+          "end": 1887,
+          "sha256": "121c0247ed756abbd44e51c671b530cafe8491e916e4f9341643d805194044ca"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11441,
+          "end": 11484,
+          "sha256": "d17c837863ca975fbd15927c0b5e5c88abf4615505f161640f591ece5e480d8a"
+        }
+      ]
     }
   },
   "wire_cases": [
@@ -5283,6 +5997,23 @@
         "operation": "audience"
       },
       "contract": "preview.agent",
+      "domain_mode": "read"
+    },
+    {
+      "name": "status.report",
+      "entry_id": "23c1910cb4fd4f63f4b859a77d4f3ffdd14eca4969fd7f32cf7aa7fcec9ec8be",
+      "args": {
+        "status": "done",
+        "summary": "fixture"
+      },
+      "contract": "status.report",
+      "domain_mode": "write"
+    },
+    {
+      "name": "chart.read",
+      "entry_id": "66477fa53c2334525ddd25bdd6df2af357b4e67aa319d8577792a5a7a112d8ba",
+      "args": {},
+      "contract": "chart.read",
       "domain_mode": "read"
     }
   ],
@@ -7120,17 +7851,35 @@
     },
     {
       "id": "23c1910cb4fd4f63f4b859a77d4f3ffdd14eca4969fd7f32cf7aa7fcec9ec8be",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "status.report"
+      ],
+      "reason": "The orgtree_status card; the one status contract (S3 F1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1845,
+          "end": 1862,
+          "sha256": "cab1501e2db1435d7e05d6e55042a3a4fa179118e8f3090b09c394b8e648861e"
+        }
+      ]
     },
     {
       "id": "66477fa53c2334525ddd25bdd6df2af357b4e67aa319d8577792a5a7a112d8ba",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "chart.read"
+      ],
+      "reason": "The orgtree_chart card; the one chart/charter-read contract (S3 F1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1863,
+          "end": 1887,
+          "sha256": "121c0247ed756abbd44e51c671b530cafe8491e916e4f9341643d805194044ca"
+        }
+      ]
     },
     {
       "id": "5cda2cb679e314e96e0addd228e9dd6fce031223069ce0ca851f295e522b50b8",
@@ -7697,10 +8446,19 @@
     },
     {
       "id": "8f05ba355ad3a004db835b3f1cfe797713884c89f4a8273c77cb1ff82c534a1a",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "status.report"
+      ],
+      "reason": "Shared mail-family result ref; the orgtree_message and orgtree_send_notice contracts are pending (S3 F2).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 7619,
+          "end": 7640,
+          "sha256": "662fbbe998e5177067d2c9f5a7ccf482c29ae8a19d244a8d4c11d076596c735d"
+        }
+      ]
     },
     {
       "id": "536a8465f8308baacfeb51bdd4a494e41187848f0ae66d04aee76b6a71b9b119",
@@ -8099,10 +8857,21 @@
     },
     {
       "id": "c477bfda5f7697e4b93a2d52c3d9ed7287174c785c3ea0f9ecc834e0b21603dc",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "material.transcript",
+        "material.scratch",
+        "chart.read"
+      ],
+      "reason": "Shared read-shaped block; orgtree_send_file and orgtree_list_tiers remain pending.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11441,
+          "end": 11484,
+          "sha256": "d17c837863ca975fbd15927c0b5e5c88abf4615505f161640f591ece5e480d8a"
+        }
+      ]
     },
     {
       "id": "d5c7084188e88cf0324c691f4aaf8d7afb1f7d3ff569301cb950d611965fb327",
@@ -8113,10 +8882,19 @@
     },
     {
       "id": "0d98f01dcdbfd7decbc59b6dcebc7e43483fdf92f1b5e156e24217df5c265dc9",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "chart.read"
+      ],
+      "reason": "Exact orgtree_chart branch in the read-shaped block.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11441,
+          "end": 11484,
+          "sha256": "d17c837863ca975fbd15927c0b5e5c88abf4615505f161640f591ece5e480d8a"
+        }
+      ]
     },
     {
       "id": "3a4260fd740a9cf5586d98acce7ceb8dd7ebdf7a41f121aa5fc2451dae4f5e14",
@@ -8526,10 +9304,19 @@
     },
     {
       "id": "52eeebdeebab683ab10461570816239eee463a0a5e48b98454bc4bfd5bf7a007",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "status.report"
+      ],
+      "reason": "Exact orgtree_status branch in the agent write cycle.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12664,
+          "end": 12713,
+          "sha256": "62fe19b2e125f851fc01f785da90e554bc7d93336cfbcd506cd57fc8a1c9f2ea"
+        }
+      ]
     },
     {
       "id": "ef44a5e34bc0196e92f3714034e7aa98a946f01a4a33fdd71861bd2efb53ae7d",
@@ -9471,10 +10258,19 @@
     },
     {
       "id": "ca3dd0e3913d0c51908f875f0bb5961948ae65d6491bf114feb5c261114a8ef0",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "status.report"
+      ],
+      "reason": "Shared transcript mail-chip selector; the orgtree_message and orgtree_send_notice contracts are pending (S3 F2).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 35376,
+          "end": 35388,
+          "sha256": "926ec49c1eaa4e512cbcd65b9db2b2cfa7cf30f42352d219f38d0f528a9401ec"
+        }
+      ]
     },
     {
       "id": "26eaf4984123a609dedc5b5dbb514d17df5f78220287a86822a2817d5a37f928",
