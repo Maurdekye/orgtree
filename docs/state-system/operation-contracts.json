@@ -121,11 +121,15 @@
     },
     "wrapper-writes": {
       "dimension": "writes",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
-        "Both public reservation names are TX_POST for every action, including domain-read list/landing/overlap.",
-        "Original-key operation receipt/log writes must be distinguished from reservation-domain writes.",
-        "The public boundary fixtures demonstrate that a keyed domain-read call can append a receipt without changing reservations; physical storage contacts and save fanout remain for P02."
+        "Both public names are TX_POST for every action, including the domain reads list/landing/overlap. The call runs in the resident write cycle (store.write_org under DOC_LOCK), which always ends in save_org, even for a domain read. What each outcome actually commits is measured below.",
+        "Measured on disposable SQLite with the committed document read cold (resident copy evicted): an unkeyed read commits nothing; any refusal commits nothing (domain or addressing 422, keyed conflict 409, halt/killswitch 409 before the lock); a keyed replay returns before the save and commits nothing.",
+        "A keyed read commits op_receipts and op_receipts_meta only. A keyed renew also commits reservations. A keyed release with a successor commits reservations, mail, mail_log, events, lifecycle, audiences (the first grant to a deeper report), the receiver node's mail_seq, op_receipts and op_receipts_meta, then drives one ping.",
+        "_op_file appends the receipt as the last mutation before save_org, so the receipt and its effect commit together or not at all. opreceipts.append advances meta.seq on every append; past CEILING it evicts down to TRIM_TO and moves meta.from_ms past the largest evicted mint time. opreceipts.custody/witness and _op_inflight change only in-process state.",
+        "Before the transaction the route sets a request-profiling label, a stateprobe label and an attempt-census classification. These are in-memory. The reservation names are not MANAGED_WAIT_TOOLS, so no tool-wait sidecar row and no seat_id mint occur.",
+        "The one durable diagnostic write is the slow-request trace: when handler time reaches slowtrace.THRESHOLD_MS, the access middleware appends one row (route, method, status, timings, byte count, allowlisted profile fields) to <data>/diagnostics/slow-requests.jsonl. The row carries no tool arguments. The profile-timing sink is an in-memory deque plus stdout.",
+        "Physical SQL statements, table and row fan-out, and waits behind these section changes belong to the unresolved `contacts` facet (P02). Pinned by tests/test_state_reservation_boundary.py (wrapper outcome table, slow-trace privacy, keyed read/replay/refusal and failure cases)."
       ],
       "source_refs": [
         {
@@ -136,14 +140,48 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 12197,
-          "end": 12251,
-          "sha256": "d66a2b4efa181bbe055dde8852c9ecbbf4b73f515a64ab787e631eba3b1086a8"
+          "start": 11823,
+          "end": 11837,
+          "sha256": "6d6e90de70a545f4cc8f2bf9ddf48a34a218b2e4e3bd4574fe600952c66fa285"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12777,
+          "end": 12802,
+          "sha256": "badeaafc493558b6818cc8e371950d669dbb2d2c3297a49dff1f196cd188d135"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10871,
+          "end": 10883,
+          "sha256": "cc8fe267899aa8d7371f2775ba7211cc1084b0b7697617b168d575e71c5ed81d"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 768,
+          "end": 798,
+          "sha256": "b55e14afc4ebd5b7accb29022d54e1b1495ba08716463999df3cec51d2e25d90"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11151,
+          "end": 11204,
+          "sha256": "9f1090a9d9ff072f55d1325cb34025747dc325c7e88160f20f979abe5bb9aa7c"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 596,
+          "end": 604,
+          "sha256": "c4d0e42a4acd9c3698c14d9c42c63e73aed384a32d0c3dc0b8211de67ee6d80d"
+        },
+        {
+          "path": "engine/backend/orgtree/slowtrace.py",
+          "start": 53,
+          "end": 73,
+          "sha256": "e0d9e0a48fed186e0d093db5c5c64846c53442075c9e38b7a684e997b6a7f469"
         }
       ],
-      "open_questions": [
-        "Pin actual success/refusal publication, receipt and diagnostic writes in the public wrapper."
-      ]
+      "open_questions": []
     },
     "legacy-lock": {
       "dimension": "conflicts",
@@ -354,11 +392,15 @@
     },
     "notify-effect": {
       "dimension": "effects",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
-        "On first successful release with a successor, the adapter posts status mail, emits mail_notify and stages a wake unless deferred.",
-        "The mail body contains reservation ID and release receipt; retry of RELEASED returns notified:null.",
-        "Target behavior uses source Sent authority/effects and receiver-owned acceptance; it is not one atomic A-to-B transaction."
+        "Release with a successor requires the successor to be live and able to read the reservation's nonempty item; otherwise reservations.execute refuses 'successor is not a live collaborator' before any mail. An archived successor is therefore refused, so this path never reaches post_mail's deferred (non-live recipient) branch.",
+        "On a first release the api adapter calls Org.post_mail(actor, successor, body, 'status') inside the same store.write_org/DOC_LOCK cycle as the reservation transition. post_mail's addressing check (downward any depth, one hop up, sibling, or held audience) runs there, and its refusal discards the whole release, including the reservation transition.",
+        "post_mail writes into the uncommitted document: one untyped status row (from=actor, kind=status, body 'Reservation <id> was released; its release receipt is <receipt>.', relationship, message_id=id, operation_id, recv_seq with seq_origin=deposit and the mailbox identity) through deposit_mail, which also mirrors the row into mail_log and advances only the recipient node's mail_seq; one events row op=mail carrying post_mail's warnings; and one lifecycle row state=accepted, delivery=mailbox.",
+        "A reply-audience grant (grantee=successor, grantor=actor, reason '<actor> messaged directly') is appended only when the actor is a strict ancestor but not the parent of the successor, and no audience already exists. Siblings, direct reports and repeat releases add none. post_mail's warnings reach the event log, not the tool result.",
+        "mail_notify(org, actor, successor) runs before the save as a UI hint, so it fires even when the save then fails. After the save, exactly one supervisor.send_message(org, successor, ping, mail_ping=True, sender=actor, ping_reason='agent_mail') runs, and its carrier note becomes result.delivery.",
+        "The ping's delivery outcome is not observed: the receipt records post_effects expected=['drive'], observed='unknown'. A failure after the commit leaves the release, mail and grant durable, and a keyed retry replays the receipt without re-driving. A RELEASED replay returns notified:null and posts nothing.",
+        "Physical storage contacts of these writes belong to the unresolved `contacts` instrumentation facet (P02). What send_message does after it is invoked is runtime delivery (P08), outside this contract. Pinned by tests/test_state_reservation_boundary.py (release notification, reply grant, precommit/postcommit failure and addressing-refusal cases)."
       ],
       "source_refs": [
         {
@@ -372,11 +414,27 @@
           "start": 12236,
           "end": 12251,
           "sha256": "f28ee5ce1dd0ab4c7aaa41dc2bed0d2b893df3467c3a54194c650b9ab6dcc8d0"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 3547,
+          "end": 3723,
+          "sha256": "fe85f46a4c383b3b214c3caa2ea4770e723d6fca664e5aab6a35623ed6cda1bc"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 2749,
+          "end": 2779,
+          "sha256": "98261637e8d745b861e23a23821426c6d0b38d116c9ae1f7dd7e8580d8303480"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12866,
+          "end": 12890,
+          "sha256": "74fc6b99ae3af72c1d9a79714ed444e557f3a1952f4f01807335e623a412f1e4"
         }
       ],
-      "open_questions": [
-        "Close post_mail's transitive authority/reply-grant effects and staged receiver/effect contacts."
-      ]
+      "open_questions": []
     },
     "contacts": {
       "dimension": "instrumentation",

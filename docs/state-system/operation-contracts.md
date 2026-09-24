@@ -105,15 +105,17 @@ Important source behavior is retained:
 
 Within the reservation family, two registration sites and fourteen dispatch
 witnesses map to these variants. Source-backed reservation/item authority and
-legacy receipt semantics are specified; shared wrappers, physical contacts,
-native conflicts, full malformed-input parity and runtime probes remain
-unresolved. Material reads add two cards and two selectors; structural
+legacy receipt semantics are specified. So are the release notification
+(`notify-effect`) and the public wrapper's writes (`wrapper-writes`): what each
+outcome commits, measured on the cold-read document, and the one durable
+diagnostic row. Wrapper reads, physical contacts, native conflicts, full
+malformed-input parity and runtime probes remain unresolved. Material reads add two cards and two selectors; structural
 diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
 Current totals are 16 contracts, seven mapped registrations and 31 mapped
-dispatch witnesses. **610 obligations remain**: 312 registrations, 196 dispatch
-witnesses, 15 storage candidates and 87 unresolved dimension occurrences.
+dispatch witnesses. **598 obligations remain**: 312 registrations, 196 dispatch
+witnesses, 15 storage candidates and 75 unresolved dimension occurrences.
 How it got there: 600 was two more registrations than the preceding 598 because the scanner now
 recognizes `asyncio.to_thread` hand-offs; both new witnesses are pending and no
 existing witness identity, disposition or contract changed.
@@ -133,6 +135,9 @@ the external charter template folders (`b41dcf1`) add GET and PUT
 `/api/app-settings/charter-template-dirs`. All six now carry an explicit
 pending reason naming their origin; none gained a contract or source evidence,
 and no other witness changed.
+598 is twelve fewer than that 610 because two shared facets were specified:
+`notify-effect` (used by one contract) and `wrapper-writes` (used by all eleven
+reservation contracts). No witness changed; only dimension occurrences closed.
 This is not a runtime operation count or progress percentage. See the separate
 family documents for their measurements and remaining obligations.
 

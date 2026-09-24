@@ -380,6 +380,125 @@ class ReservationBoundary(unittest.TestCase):
         self.assertTrue(self.okay(self.call(args,key=key,epoch=epoch))['replayed'])
         self.drive.assert_not_called()
 
+    # -- notify-effect: the whole release notification, as committed ---------
+    def durable(self):
+        """The committed document, read cold: the resident copy is evicted so
+        nothing an abandoned cycle left in memory can answer for the store."""
+        store._invalidate_snapshot(self.slug)
+        store._POOL.close_all(self.slug)
+        return json.loads(json.dumps(store.load_org(self.slug).d))
+
+    @staticmethod
+    def changed(before, after):
+        return sorted(k for k in set(before)|set(after) if before.get(k) != after.get(k))
+
+    def test_release_notification_is_one_status_mail_log_and_lifecycle_row_then_one_ping(self):
+        row = self.acquire()
+        before = self.durable()
+        key,epoch = self.fresh_key()
+        result = self.okay(self.call(dict(action='release',reservation=row['id'],successor='deep'),key=key,epoch=epoch))
+        after = self.durable()
+        [mail] = after['mail']['deep']
+        self.assertEqual((mail['from'],mail['kind']),('owner','status'))
+        self.assertEqual(mail['body'],f"Reservation {row['id']} was released; its release receipt is {result['release_receipt']}.")
+        self.assertEqual(mail['message_id'],mail['id'])
+        self.assertEqual(mail['seq_origin'],'deposit')
+        self.assertIsInstance(mail['recv_seq'],int)
+        self.assertNotIn('ev',mail)      # an untyped legacy row, not a typed event
+        self.assertEqual(after['mail_log']['deep'][-1]['id'],mail['id'])
+        new_events = after['events'][len(before['events']):]
+        mail_events = [e for e in new_events if e['op']=='mail']
+        self.assertEqual([(e['actor'],e['detail']['to'],e['detail']['kind']) for e in mail_events],[('owner','deep','status')])
+        self.assertEqual(mail_events[0]['warnings'],['audience granted: deep may now reply to owner directly'])
+        life = [r for r in after['lifecycle'] if r['operation_id']==mail['operation_id']]
+        self.assertEqual([(r['state'],r['delivery'],r['recipient'],r['sender']) for r in life],[('accepted','mailbox','deep','owner')])
+        self.assertEqual(after['audiences'],[{'grantee':'deep','grantor':'owner','granted_at':after['audiences'][0]['granted_at'],
+                                               'reason':'owner messaged directly'}])
+        # post_mail's warnings stay in the event log; the tool result does not carry them
+        self.assertNotIn('warnings',result)
+        self.assertEqual(result['notified'],'deep')
+        self.notify.assert_called_once_with(self.slug,'owner','deep')
+        self.drive.assert_called_once()
+        args,kwargs = self.drive.call_args
+        self.assertEqual(args[:2],(self.slug,'deep'))
+        self.assertEqual((kwargs['mail_ping'],kwargs['sender'],kwargs['ping_reason']),(True,'owner','agent_mail'))
+
+    def test_reply_grant_only_for_a_deeper_report_once_and_unreadable_or_archived_successors_refuse(self):
+        for resource,successor in (('g1','peer'),('g2','deep'),('g3','deep')):
+            row = self.acquire(resource=resource)
+            self.okay(self.call(dict(action='release',reservation=row['id'],successor=successor)))
+        grants = [(a['grantee'],a['grantor']) for a in self.durable()['audiences']]
+        self.assertEqual(grants,[('deep','owner')])   # none for a sibling, one for the deeper report
+        # a direct report without item access is refused before any mail
+        row = self.acquire(resource='g4')
+        before = self.durable()
+        self.refused(self.call(dict(action='release',reservation=row['id'],successor='child')),'successor is not a live collaborator')
+        self.assertEqual(self.durable(),before)
+        # an archived successor is refused too, so release never takes post_mail's deferred branch
+        with store.write_org(self.slug) as org:
+            org.node('peer')['state'] = 'archived'
+            store.save_org(org)
+        before = self.durable()
+        self.refused(self.call(dict(action='release',reservation=row['id'],successor='peer')),'successor is not a live collaborator')
+        self.assertEqual(self.durable(),before)
+        self.assertEqual([c.args[1] for c in self.drive.call_args_list],['peer','deep','deep'])
+
+    # -- wrapper-writes: what one public call commits, by outcome -------------
+    def test_wrapper_commits_exactly_these_sections_by_outcome(self):
+        self.maxDiff = None
+        row = self.acquire(resource='wrapper')
+        receipts, meta = opreceipts.SECTION, opreceipts.META
+        cases, state = [], [self.durable()]
+        def run(name, request, code):
+            before_calls = self.drive.call_count
+            response = request()
+            self.assertEqual(response.status_code,code,response.text)
+            after = self.durable()
+            nodes = sorted((n,f) for n in after['nodes'] for f in set(after['nodes'][n])|set(state[0]['nodes'].get(n,{}))
+                           if after['nodes'][n].get(f) != state[0]['nodes'].get(n,{}).get(f))
+            cases.append((name,self.changed(state[0],after),nodes,self.drive.call_count-before_calls))
+            state[0] = after
+        run('unkeyed read', lambda: self.call(dict(action='list')), 200)
+        run('unkeyed refusal', lambda: self.call(dict(action='release',reservation=row['id'],successor='cousin')), 422)
+        key,epoch = self.fresh_key()
+        run('keyed read', lambda: self.call(dict(action='list'),key=key,epoch=epoch), 200)
+        key,epoch = self.fresh_key()
+        run('keyed refusal', lambda: self.call(dict(action='release',reservation=row['id'],successor='cousin'),key=key,epoch=epoch), 422)
+        key,epoch = self.fresh_key()
+        run('keyed renew', lambda: self.call(dict(action='renew',reservation=row['id']),key=key,epoch=epoch), 200)
+        run('keyed replay', lambda: self.call(dict(action='renew',reservation=row['id']),key=key,epoch=epoch), 200)
+        run('conflicting key', lambda: self.call(dict(action='list'),key=key,epoch=epoch), 409)
+        with patch.object(api.supervisor.halt,'blocked',return_value='halt'):
+            run('halted caller', lambda: self.call(dict(action='list')), 409)
+        key,epoch = self.fresh_key()
+        run('keyed release', lambda: self.call(dict(action='release',reservation=row['id'],successor='deep'),key=key,epoch=epoch), 200)
+        self.assertEqual(cases,[
+            ('unkeyed read',[],[],0),
+            ('unkeyed refusal',[],[],0),
+            ('keyed read',sorted([receipts,meta]),[],0),
+            ('keyed refusal',[],[],0),
+            ('keyed renew',sorted([receipts,meta,'reservations']),[],0),
+            ('keyed replay',[],[],0),
+            ('conflicting key',[],[],0),
+            ('halted caller',[],[],0),
+            # the receiver's mailbox ordinal is the only node field a release touches
+            ('keyed release',sorted(['audiences','events','lifecycle','mail','mail_log','nodes',receipts,meta,'reservations']),
+             [('deep','mail_seq')],1),
+        ])
+
+    def test_slow_request_trace_is_the_only_durable_diagnostic_and_carries_no_arguments(self):
+        from orgtree import slowtrace
+        path = Path(slowtrace.path())
+        before = path.read_text(encoding='utf-8') if path.exists() else ''
+        with patch.object(slowtrace,'THRESHOLD_MS',0.0):
+            self.okay(self.call(dict(action='acquire',resource='marker-resource-7f3',item=self.item,candidate='a'*40,
+                                     base='b'*40,paths=['marker/path-7f3.py'],lease_s=1,stale_s=1)))
+        added = path.read_text(encoding='utf-8')[len(before):]
+        rows = [json.loads(line) for line in added.splitlines()]
+        self.assertEqual([(r['route'],r['method'],r['status']) for r in rows],[('/api/agent','POST',200)])
+        self.assertNotIn('marker',added)
+        self.assertNotIn(self.item,added)
+
     def assert_replay_skips_helper(self):
         row = self.acquire()
         key,epoch = self.fresh_key()
