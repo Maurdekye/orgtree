@@ -334,19 +334,26 @@ class OperationContacts(unittest.TestCase):
             "dropped_capture_off", "evicted")
     #: rows that make an unknown-class contact ON PURPOSE, and exactly which
     DECLARED = {
-        "control:foreign-org-contact": ["sqlite_connect:data:org-db:foreign"],
         "sandbox:chown-new-dir": ["guard:process/subprocess.Popen"],
         "sandbox:on-disk": ["guard:process/subprocess.Popen"],
         "provider:codex-not-signed-in": ["guard:process/subprocess.Popen"],
         "provider:legacy-tier": ["guard:process/subprocess.Popen"],
         "provider:openrouter-network-refused": ["guard:egress/urllib.Request"],
     }
-    #: declared on the COLD row only: the foreign org's store is closed first,
-    #: so its connect is observed; warm, it is pooled and no connect happens
-    DECLARED_COLD = {
-        "mail.message:org": ["sqlite_connect:data:org-db:foreign"],
-        "mail.message:bare-unknown-name": ["sqlite_connect:data:org-db:foreign"],
-    }
+    F_CONN, F_STMT = "sqlite_connect:data:org-db:foreign", "statement:data:org-db:foreign"
+
+    def declared_for(self, r):
+        """The unknown classes a row provokes on purpose. Cross-org rows run
+        statements on another org's store (warm and cold); cold, that store
+        is closed first, so its connect shows too."""
+        variant, condition, contract = r["variant"], r["condition"], r["contract"]
+        if variant == "control:foreign-org-contact":
+            return sorted([self.F_CONN, self.F_STMT])
+        if variant in ("mail.message:org", "mail.message:bare-unknown-name"):
+            return sorted([self.F_STMT] + ([self.F_CONN] if condition == "cold" else []))
+        if contract == "org.tree" and variant in ("org.tree", "migration:legacy-json"):
+            return [self.F_STMT]      # store.local_net_slugs: a doc row of EVERY org
+        return self.DECLARED.get(variant, [])
 
     def test_every_row_loses_nothing(self):
         for r in self.doc["rows"]:
@@ -370,14 +377,14 @@ class OperationContacts(unittest.TestCase):
             with self.subTest(variant=r["variant"], condition=r["condition"]):
                 self.assertEqual(r["unknown_contacts"], [])
                 self.assertEqual(r["expected_unknown_missing"], [])
-                want = self.DECLARED.get(r["variant"], [])
-                if not want and r["condition"] == "cold":
-                    want = self.DECLARED_COLD.get(r["variant"], [])
+                want = self.declared_for(r)
                 self.assertEqual(r["unknown_observed"], want)
                 self.assertEqual(r["expected_unknown"], want)
                 if want:
                     seen.add(r["variant"])
-        self.assertEqual(seen, set(self.DECLARED) | set(self.DECLARED_COLD))
+        self.assertEqual(seen, set(self.DECLARED) | {
+            "control:foreign-org-contact", "mail.message:org", "mail.message:bare-unknown-name",
+            "org.tree", "migration:legacy-json"})
 
     def test_sandboxed_org_reads_come_from_the_sandbox_placement(self):
         """material.reads: a SANDBOXED org's transcript is read from the
@@ -807,6 +814,33 @@ class OperationContacts(unittest.TestCase):
             self.assertIn("sqlite_connect:data:org-db:foreign", cold["contact_classes"])
         bare = self.rows(variant="mail.message:bare-unknown-name", condition="warm")[0]
         self.assertGreater(bare["census"]["statements"], 100)
+        # WARM, the foreign store is pooled (no connect), yet each statement is
+        # classified by its connection's file: the cross-org reads still show
+        for variant in ("mail.message:org", "mail.message:bare-unknown-name"):
+            warm = self.rows(variant=variant, condition="warm")[0]
+            self.assertNotIn(self.F_CONN, warm["contact_classes"])
+            self.assertGreater(warm["harness"]["statement_stores"].get("data:org-db:foreign", 0), 0)
+        warm_org = self.rows(variant="mail.message:org", condition="warm")[0]
+        self.assertIn("orgtree.store:_write_doc", warm_org["harness"]["foreign_statement_sites"])
+
+    def test_statements_are_classified_by_the_store_they_ran_on(self):
+        """Every statement carries its connection's store class; no statement
+        runs on an unmapped connection, and only the declared cross-org rows
+        run any on another org's store (with the product site named)."""
+        for r in self.doc["rows"]:
+            stores = r["harness"]["statement_stores"]
+            with self.subTest(variant=r["variant"], condition=r["condition"]):
+                self.assertNotIn("unmapped", stores)
+                self.assertEqual(sum(stores.values()),
+                                 r["harness"]["statements_attributed"]
+                                 + r["harness"]["statements_unbound"])
+                foreign = stores.get("data:org-db:foreign", 0)
+                self.assertEqual(foreign > 0, self.F_STMT in self.declared_for(r))
+                self.assertEqual(sum(r["harness"]["foreign_statement_sites"].values()), foreign)
+        for condition in ("cold", "warm"):
+            tree = self.rows(contract="org.tree", variant="org.tree", condition=condition)[0]
+            self.assertEqual(set(tree["harness"]["foreign_statement_sites"]),
+                             {"orgtree.store:local_net_slugs"})
 
     def test_mail_third_agent_control_is_flagged(self):
         control = self.rows(variant=self.MAIL_CONTROL)[0]

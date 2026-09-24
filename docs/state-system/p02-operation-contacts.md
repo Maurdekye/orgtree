@@ -180,6 +180,24 @@ The test refuses both. The declaring rows are:
 This is a probe-level drift check. It is not the product's runtime
 drift/unknown-contact refusal.
 
+**Statements by store.** When an observed connection is created
+(`ObservedConnection.__init__`, which the sidecar classes inherit), the
+harness records its database file. It classifies every statement by that
+file: the operation's own org store, ANOTHER org's store, or a sidecar
+(`harness.statement_stores`). For each statement on another org's store it
+also records the product frame that ran it
+(`harness.foreign_statement_sites`, e.g. `orgtree.store:local_net_slugs`).
+Nothing extra runs on the connection. A read on an already-pooled foreign
+store is therefore visible even when no connect happens, and it is a
+contact class of its own (`statement:data:org-db:foreign`) that a row must
+declare. Rows that do so:
+- the admin `org.tree`, cold and warm, and its migration rows: every tree
+  build reads one `doc` row of EVERY other org (`store.local_net_slugs`);
+- `mail.message:org` and `:bare-unknown-name`;
+- `control:foreign-org-contact`.
+
+No statement anywhere runs on an unmapped connection.
+
 ## Agent-to-agent mail locality
 
 Each row's `agents` block says which AGENTS the operation touched. There are
@@ -388,7 +406,7 @@ Clauses from the Owner lines at v3 f2d71a1.
 
 | Facet | Closing clause | Status | Rows |
 |---|---|---|---|
-| `org-view.reads` | observed per-operation contacts for GET /api/orgs/{slug} and the node detail route, admin and public, cold and warm, with archived nodes present | covered | `org.tree`, `org.tree:public`, `org.node-detail`, `org.node-detail:archived`, `org.node-detail:public`, each cold and warm (the archived node is in every tree's `disclosed`); refusals. The gateway's token-map rebuild is in `kiosk_token_scan` (not attributable to a row) |
+| `org-view.reads` | observed per-operation contacts for GET /api/orgs/{slug} and the node detail route, admin and public, cold and warm, with archived nodes present | covered | `org.tree`, `org.tree:public`, `org.node-detail`, `org.node-detail:archived`, `org.node-detail:public`, each cold and warm (the archived node is in every tree's `disclosed`); refusals. The admin tree also reads one `doc` row of EVERY other org on each build (`store.local_net_slugs`), visible cold and warm as declared foreign statements. The gateway's token-map rebuild is in `kiosk_token_scan` (not attributable to a row), and a real public request whose token cache has expired carries it as well |
 | `org-view.writes` | observed writes on the cold and migration paths reached through cached_org | covered | cold path: every cold tree/detail row (no table written); migration: `org.tree` `migration:refused`, `migration:legacy-json` cold (the migration's writes) and warm |
 | `org-view.instrumentation` | an observed, loss-accounted contact record for the tree and detail routes, admin and public, cold and warm | partly | covered: the rows above, per-row loss zero. NOT covered: the public gateway's token-map rebuild, which the census cannot attribute to any attempt (`kiosk_token_scan`). Closing it needs product instrumentation (P02 runtime stage); P03 native controls are separate |
 | `org-feed.instrumentation` | an observed record of feed subscriptions and frame fan-out (per slug, admin and public) | covered by the harness, not by the census | `org.feed`, `org.feed:public` (cold/warm), `org.feed:fanout`, `refusal:feed-no-token`, each with `feed` (subscribers, frames per subscriber, public count). The product's census records no websocket attempt; a census record of subscriptions needs product instrumentation (P02 runtime stage) |
@@ -439,11 +457,11 @@ stubbed.
   - `:bare-unknown-name` looks the name up across every org (hundreds of
     statements, warm or cold).
 
-  Cold, the foreign store is closed first, so its connect is observed
-  (`org-db:foreign`). Warm, the foreign store is pooled, so no connect
-  happens. Those warm reads are real but carry no per-org path category:
-  the audit layer classifies connects, not statements on an open
-  connection.
+  Both conditions show the foreign statements
+  (`harness.statement_stores` / `statement:data:org-db:foreign`). Cold, the
+  foreign store is also closed first, so its connect shows too
+  (`sqlite_connect:data:org-db:foreign`). Warm, it is pooled and no connect
+  happens.
 
 ## Hand-off to P01 (S3 F2): facet → clause → rows
 

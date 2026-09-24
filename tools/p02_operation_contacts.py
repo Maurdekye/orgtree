@@ -47,6 +47,7 @@ usage: python -I -B tools/p02_operation_contacts.py --out <dir> [--work <dir>]
 from __future__ import annotations
 
 import argparse
+import collections
 import contextlib
 import copy
 import hashlib
@@ -184,13 +185,58 @@ def tables_in(sql: Any, kind: str) -> tuple[list[str], list[str]]:
     return sorted(set(names)), []
 
 
-def install_sql_observer(contacts: Any) -> Callable[[], None]:
+def store_class(path: Any, data: Path, own: "str | None") -> str:
+    """The store a connection's database file belongs to: the operation's own
+    org store, ANOTHER org's store, a sidecar under the data root, or other.
+    Only the class is kept, never the path."""
+    p = str(path or "").split("?", 1)[0].replace("/", "\\").lower()
+    if p.startswith("file:"):
+        p = p[5:]
+    p = p.lstrip("\\")
+    root = str(data).replace("/", "\\").lower().lstrip("\\")
+    if not p.startswith(root):
+        return "other"
+    rest = p[len(root):].lstrip("\\")
+    if rest.startswith("orgs\\"):
+        stem = rest[5:].split("\\", 1)[0].split(".", 1)[0]
+        return "data:org-db:own" if own and stem == own.lower() else "data:org-db:foreign"
+    return "data:sidecar-db"
+
+
+def product_frame() -> str:
+    """The innermost engine/backend/orgtree frame outside census_contacts, as
+    `orgtree.<module>:<function>` (code names only, never data)."""
+    frame = sys._getframe(2)
+    while frame is not None:
+        name = frame.f_code.co_filename.replace("\\", "/")
+        at = name.find("/engine/backend/orgtree/")
+        if at >= 0 and not name.endswith("census_contacts.py"):
+            module = name[at + 24:].removesuffix(".py").replace("/", ".")
+            return "orgtree." + module + ":" + frame.f_code.co_name
+        frame = frame.f_back
+    return "?"
+
+
+def install_sql_observer(contacts: Any, data: Path) -> Callable[[], None]:
     """Wrap ``census_contacts._run`` (a module global every observed cursor
     and connection method calls) so the harness sees each statement's SQL and
-    store label. The statement runs exactly as before."""
+    store label. The statement runs exactly as before.
+
+    Every observed connection's database file is also recorded when the
+    connection is CREATED (``ObservedConnection.__init__``, which the sidecar
+    classes inherit), so each statement is classified by the store it ran on:
+    a read on an already-pooled FOREIGN org store is visible even though no
+    connect happens. Nothing extra is executed on the connection."""
     original = contacts._run
     cursor = contacts.ObservedCursor
     original_execute, original_many = cursor.execute, cursor.executemany
+    connection = contacts.ObservedConnection
+    original_init = connection.__init__
+    paths: dict[int, str] = {}
+
+    def init(self: Any, *args: Any, **kwargs: Any) -> None:
+        original_init(self, *args, **kwargs)
+        paths[id(self)] = str(args[0] if args else kwargs.get("database", ""))
 
     def execute(self: Any, sql: str, parameters: Any = (), /) -> Any:
         _PARAMS.value = [parameters]
@@ -222,6 +268,8 @@ def install_sql_observer(contacts: Any) -> Callable[[], None]:
             return original(conn, sql, call)
         kind = contacts.kind_of(sql)
         agent_rows = agents_in(params, target.slug)
+        db = (store_class(paths[id(conn)], data, target.slug)
+              if id(conn) in paths else "unmapped")
         read, written = tables_in(sql, kind)
         tally = contacts.current()
         failed = False
@@ -245,14 +293,18 @@ def install_sql_observer(contacts: Any) -> Callable[[], None]:
                 "kind": kind, "read": read, "written": written, "failed": failed,
                 "in_transaction_after": in_tx if kind in WRITE_KINDS else None,
                 "agent_rows": agent_rows,
+                "db": db,
+                "db_at": product_frame() if db == "data:org-db:foreign" else None,
                 "tally": id(tally) if tally is not None else None})
 
     contacts._run = observed
     cursor.execute, cursor.executemany = execute, executemany
+    connection.__init__ = init
 
     def restore() -> None:
         contacts._run = original
         cursor.execute, cursor.executemany = original_execute, original_many
+        connection.__init__ = original_init
     return restore
 
 
@@ -309,6 +361,10 @@ def contact_classes(row: dict[str, Any]) -> list[str]:
                 head = head.split(":", 1)[1] if ":" in head else head
             out.add(f"{group}:{head}")
     out.update(f"guard:{k}" for k in row["guard_refusals"])
+    # a statement on another org's store (or on a connection whose file is
+    # unknown) is a contact class of its own, visible warm or cold
+    out.update(f"statement:{cls}" for cls in row["harness"].get("statement_stores", {})
+               if cls not in ("data:org-db:own", "data:sidecar-db"))
     return sorted(out)
 
 
@@ -548,7 +604,7 @@ class Probe:
             "store_backend": store.STORE_BACKEND}
         self.client = TestClient(self.app, raise_server_exceptions=False,
                                  client=("127.0.0.1", 43000))
-        self.restore_sql = install_sql_observer(census_contacts)
+        self.restore_sql = install_sql_observer(census_contacts, self.data)
         self.restore_clone = install_clone_observer(statepreview)
         # spies: delivery is counted, never executed (as in the P01 boundary tests)
         self.wakes = {"send_message": 0, "mail_notify": 0}
@@ -1031,6 +1087,13 @@ class Probe:
                 "all_writes_in_transaction": writes == writes_in_tx,
                 "transaction_statements": tx,
                 "statements_attributed": attributed, "statements_unbound": unbound,
+                # by the store each statement ran on (own org, ANOTHER org, a
+                # sidecar), from the connection's file recorded at creation
+                "statement_stores": dict(sorted(collections.Counter(
+                    s.get("db", "unmapped") for s in c.statements).items())),
+                # where the product ran each statement on ANOTHER org's store
+                "foreign_statement_sites": dict(sorted(collections.Counter(
+                    s["db_at"] for s in c.statements if s.get("db_at")).items())),
                 "distinct_tallies": len(c.tallies),
                 # None: no census record exists for this attempt (refused before
                 # the census middleware); never counted as a match
@@ -1182,7 +1245,8 @@ class Probe:
         self.run("reservation.list-read", "control:foreign-org-contact", "warm", s, "owner", tool,
                  dict(action="list"), refusal="negative control (not a product path)",
                  patches=[(self.m["reservations"], "_now", foreign_now)],
-                 expected_unknown=("sqlite_connect:data:org-db:foreign",))
+                 expected_unknown=("sqlite_connect:data:org-db:foreign",
+                                   "statement:data:org-db:foreign"))
         # the retained-row cap
         template = acquire(tool, "cap:template")
 
@@ -1741,7 +1805,10 @@ class Probe:
         # admin side, on the org before its kiosk is enabled (a kiosk-enabled
         # org's admin tree is the desktop-mode 500 P01 pinned, recorded below)
         for condition in ("cold", "warm"):
-            get("org.tree", "org.tree", condition, admin, tree, op)
+            # the admin tree reads one doc row from EVERY other org
+            # (store.local_net_slugs, marking hub peers that are local orgs)
+            get("org.tree", "org.tree", condition, admin, tree, op,
+                expected_unknown=("statement:data:org-db:foreign",))
             get("org.node-detail", "org.node-detail", condition, admin,
                 f"{tree}/nodes/ov-worker/detail", op)
             get("org.node-detail", "org.node-detail:archived", condition, admin,
@@ -1782,6 +1849,8 @@ class Probe:
                                         ("migration:legacy-json", "warm", None)):
             self.run("org.tree", variant, condition, legacy, "boss", "GET org.tree", {},
                      call=self.http(admin, f"/api/orgs/{legacy}", op), env=env,
+                     expected_unknown=(("statement:data:org-db:foreign",)
+                                       if variant == "migration:legacy-json" else ()),
                      refusal=("legacy .json without ORGTREE_MIGRATE: MigrationRefused"
                               if variant == "migration:refused" else None))
 
@@ -1839,28 +1908,32 @@ class Probe:
         # The cold deep/@org: rows are the FIRST send (grant); warm, the second.
         # Two rows reach OTHER orgs' stores: @org: delivers into the
         # destination org (supervisor.interorg_send, unstubbed), and a bare
-        # unknown name is looked up across every org. Cold, their foreign
-        # store is closed too, so the foreign connect is observed (declared)
-        foreign = ("sqlite_connect:data:org-db:foreign",)
+        # unknown name is looked up across every org. Their statements on the
+        # foreign store are declared cold AND warm; cold, the foreign store is
+        # closed too, so its connect is observed (declared on the cold row)
         cases = [
             ("mail.message", "m-mid", "m-top", {}),
             ("mail.message:deep", "m-mid", "m-deep", {}),
             ("mail.message:archived", "m-top", "m-gone", {}),
             ("mail.message:user", "m-top", "user", {}),
-            ("mail.message:org", "m-top", f"@org:{dest}", {"cold_unknown": foreign}),
+            ("mail.message:org", "m-top", f"@org:{dest}", {"cross_org": True}),
             ("mail.message:mcp", "m-top", "@mcp:peer1", {}),
             ("mail.message:bare-unknown-name", "m-mid", "nobody-here",
              {"refusal": "422 NOT DELIVERED: a bare name that is no agent here",
-              "cold_unknown": foreign}),
+              "cross_org": True}),
         ]
         for variant, actor, to, kw in cases:
             kw = dict(kw)
-            cold_unknown = kw.pop("cold_unknown", ())
+            cross_org = kw.pop("cross_org", False)
             for condition in both:
-                if condition == "cold" and cold_unknown:
-                    self.cold((dest,))
+                declared: tuple[str, ...] = ()
+                if cross_org:
+                    declared = ("statement:data:org-db:foreign",)
+                    if condition == "cold":
+                        self.cold((dest,))
+                        declared += ("sqlite_connect:data:org-db:foreign",)
                 send("mail.message", variant, condition, msg, actor, to,
-                     expected_unknown=cold_unknown if condition == "cold" else (), **kw)
+                     expected_unknown=declared, **kw)
         for variant, actor, to, kw in [
                 ("mail.notice", "m-mid", "m-sib", {}),
                 ("mail.notice:deep", "m-top", "m-kid", {}),
