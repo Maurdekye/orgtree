@@ -138,6 +138,17 @@ and no other witness changed.
 598 is twelve fewer than that 610 because two shared facets were specified:
 `notify-effect` (used by one contract) and `wrapper-writes` (used by all eleven
 reservation contracts). No witness changed; only dimension occurrences closed.
+
+Of the 75 open dimension occurrences, 59 (19 facets) cannot be closed at P01
+from the evidence that exists. Their questions need observed runtime contacts
+(P02) or a chosen and qualified native PostgreSQL design (the separately staffed
+conflict/predicate design, then P03/P05). Each such facet keeps its original
+question and adds one line naming its owner, the evidence that would close it,
+and why the available evidence does not. The one P02 run available (20260924T063643Z)
+does not replay these tools, reports contacts only as whole-window totals and
+covers one connection site, so it closes none of them. The remaining 16 are the
+four wire facets: legacy parity can be fixtured now, but each also asks for
+native/Rust parity, which cannot be tested before a native build exists.
 This is not a runtime operation count or progress percentage. See the separate
 family documents for their measurements and remaining obligations.
 

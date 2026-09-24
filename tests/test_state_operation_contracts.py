@@ -43,6 +43,22 @@ class ContractCoverage(unittest.TestCase):
         self.assertEqual(result["contracts"], 16)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
+    # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
+    # evidence that would close it, and why the available evidence does not.
+    # The wire facets get theirs with their legacy-parity fixtures.
+    ANNOTATION_PENDING = {"wire-common", "diagnostic.wire", "material.wire", "preview.wire"}
+
+    def test_every_unresolved_facet_names_its_owner_and_closing_evidence(self):
+        unresolved = {k for k, f in self.document["facets"].items() if f["status"] == "unresolved"}
+        self.assertLessEqual(self.ANNOTATION_PENDING, unresolved)
+        for name in sorted(unresolved - self.ANNOTATION_PENDING):
+            with self.subTest(facet=name):
+                notes = [q for q in self.document["facets"][name]["open_questions"] if q.startswith("Owner: ")]
+                self.assertEqual(len(notes), 1)
+                self.assertIn(". Closes with: ", notes[0])
+                self.assertIn(". Not coverable at P01 from available evidence: ", notes[0])
+                self.assertGreater(len(self.document["facets"][name]["open_questions"]), 1)
+
     def test_each_required_dimension_is_enforced(self):
         for dimension in contracts.DIMENSIONS:
             with self.subTest(dimension=dimension):

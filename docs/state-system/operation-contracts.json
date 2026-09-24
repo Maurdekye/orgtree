@@ -116,7 +116,8 @@
         }
       ],
       "open_questions": [
-        "Resolve the complete dispatch/authentication/receipt/sidecar read set against P02 contacts."
+        "Resolve the complete dispatch/authentication/receipt/sidecar read set against P02 contacts.",
+        "Owner: P02 (runtime census), with per-operation connection, statement, table and wait evidence for orgtree_reservation/orgtree_resource_reservation. Closes with: the observed dispatch/authentication/receipt/sidecar read set of one public call, per variant. Not coverable at P01 from available evidence: the only P02 evidence available (run 20260924T063643Z, item run-approved-isolated-copy-p02-replay, artifact r5) replayed 13 route classes that do not include orgtree_reservation/orgtree_resource_reservation, reports contacts only as whole-window aggregates, instruments one connection site (store.py:_open_conn) with 4 sites uninstrumented and 6 secondary stores unobserved, and did not copy transcript-records.sqlite3."
       ]
     },
     "wrapper-writes": {
@@ -206,7 +207,8 @@
         }
       ],
       "open_questions": [
-        "Choose and qualify indexed native predicates/isolation for each variant, including the retained-512-row admission cap."
+        "Choose and qualify indexed native predicates/isolation for each variant, including the retained-512-row admission cap.",
+        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 (native prototype) and P05 (state/authority conversion). Closes with: chosen indexed native predicates and isolation for each reservation variant, including the retained-512-row admission cap, qualified by native conflict tests. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source can supply."
       ]
     },
     "wire-common": {
@@ -459,7 +461,8 @@
         }
       ],
       "open_questions": [
-        "Bind actual connection/statement and callback probes with loss accounting in P02; test hidden contact and mail-locality controls."
+        "Bind actual connection/statement and callback probes with loss accounting in P02; test hidden contact and mail-locality controls.",
+        "Owner: P02 (runtime census), with per-operation connection, statement, table and wait evidence for orgtree_reservation/orgtree_resource_reservation, including its receipt/log/effect contacts and loss accounting. Closes with: an observed contact set for each reservation variant, with hidden-contact and mail-locality negative controls. Not coverable at P01 from available evidence: the only P02 evidence available (run 20260924T063643Z, item run-approved-isolated-copy-p02-replay, artifact r5) replayed 13 route classes that do not include orgtree_reservation/orgtree_resource_reservation, reports contacts only as whole-window aggregates, instruments one connection site (store.py:_open_conn) with 4 sites uninstrumented and 6 secondary stores unobserved, and did not copy transcript-records.sqlite3."
       ]
     },
     "reservation.list-read.authority": {
@@ -1542,7 +1545,8 @@
         }
       ],
       "open_questions": [
-        "Complete the transitive/provider/import/sandbox and cache-hit/miss contact census, including all file reads and document accesses, before P02 closes this facet."
+        "Complete the transitive/provider/import/sandbox and cache-hit/miss contact census, including all file reads and document accesses, before P02 closes this facet.",
+        "Owner: P02 (runtime census), with per-operation connection, statement, table and wait evidence for orgtree_read_scratch/orgtree_read_transcript. Closes with: the observed transitive provider/import/sandbox and cache-hit/miss read census, including file reads. Not coverable at P01 from available evidence: the only P02 evidence available (run 20260924T063643Z, item run-approved-isolated-copy-p02-replay, artifact r5) replayed 13 route classes that do not include orgtree_read_scratch/orgtree_read_transcript, reports contacts only as whole-window aggregates, instruments one connection site (store.py:_open_conn) with 4 sites uninstrumented and 6 secondary stores unobserved, and did not copy transcript-records.sqlite3."
       ]
     },
     "material.writes": {
@@ -1622,7 +1626,8 @@
         }
       ],
       "open_questions": [
-        "Complete physical write/effect coverage and native placement for every transitive branch; no cross-database atomicity has been established."
+        "Complete physical write/effect coverage and native placement for every transitive branch; no cross-database atomicity has been established.",
+        "Owner: P02 (runtime census), with per-operation connection, statement, table and wait evidence for orgtree_read_scratch/orgtree_read_transcript, then native placement at P04 (schema/sidecar). Closes with: observed physical writes to transcript-records, chat-window-index and reply-events per call, and a native placement decision. Not coverable at P01 from available evidence: the only P02 evidence available (run 20260924T063643Z, item run-approved-isolated-copy-p02-replay, artifact r5) replayed 13 route classes that do not include orgtree_read_scratch/orgtree_read_transcript, reports contacts only as whole-window aggregates, instruments one connection site (store.py:_open_conn) with 4 sites uninstrumented and 6 secondary stores unobserved, and did not copy transcript-records.sqlite3."
       ]
     },
     "material.conflicts": {
@@ -1738,7 +1743,8 @@
         }
       ],
       "open_questions": [
-        "Implement and qualify Effective restriction races, recycled identities, returning current-holder exclusion and bounded native predicates; retain explicit legacy/native differences rather than copying defects."
+        "Implement and qualify Effective restriction races, recycled identities, returning current-holder exclusion and bounded native predicates; retain explicit legacy/native differences rather than copying defects.",
+        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 (native prototype) and P05 (state/authority conversion). Closes with: qualified native protection against restriction races, recycled identities and returning-holder exclusion, with bounded predicates. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source can supply."
       ]
     },
     "material.effects": {
@@ -1817,7 +1823,8 @@
         }
       ],
       "open_questions": [
-        "Inventory all conditional helpers and external effects with P02 probes; retain failure/recovery outcomes rather than claiming exactly-once from these fixtures."
+        "Inventory all conditional helpers and external effects with P02 probes; retain failure/recovery outcomes rather than claiming exactly-once from these fixtures.",
+        "Owner: P02 (runtime census), with per-operation connection, statement, table and wait evidence for orgtree_read_scratch/orgtree_read_transcript. Closes with: probes of every conditional helper and external effect (directory creation, sandbox chown, lazy imports, cache updates) with failure outcomes. Not coverable at P01 from available evidence: the only P02 evidence available (run 20260924T063643Z, item run-approved-isolated-copy-p02-replay, artifact r5) replayed 13 route classes that do not include orgtree_read_scratch/orgtree_read_transcript, reports contacts only as whole-window aggregates, instruments one connection site (store.py:_open_conn) with 4 sites uninstrumented and 6 secondary stores unobserved, and did not copy transcript-records.sqlite3."
       ]
     },
     "material.wire": {
@@ -1953,7 +1960,8 @@
         }
       ],
       "open_questions": [
-        "Implement P02 complete runtime instrumentation and drift/unknown-contact refusal, then native concurrency/negative controls; fixture observations are neither a full census nor conversion authorization."
+        "Implement P02 complete runtime instrumentation and drift/unknown-contact refusal, then native concurrency/negative controls; fixture observations are neither a full census nor conversion authorization.",
+        "Owner: P02 (runtime census), with per-operation connection, statement, table and wait evidence for orgtree_read_scratch/orgtree_read_transcript. Closes with: production-grade contact records with operation identity, surfaces, modes, transaction membership and waits. Not coverable at P01 from available evidence: the only P02 evidence available (run 20260924T063643Z, item run-approved-isolated-copy-p02-replay, artifact r5) replayed 13 route classes that do not include orgtree_read_scratch/orgtree_read_transcript, reports contacts only as whole-window aggregates, instruments one connection site (store.py:_open_conn) with 4 sites uninstrumented and 6 secondary stores unobserved, and did not copy transcript-records.sqlite3."
       ]
     },
     "diagnostic.authority": {
@@ -2340,7 +2348,8 @@
         }
       ],
       "open_questions": [
-        "Complete middleware, legacy input, schema/pool cold paths, JSON backend and malformed-state contacts under P02; the synthetic SQL witness is not a full runtime census."
+        "Complete middleware, legacy input, schema/pool cold paths, JSON backend and malformed-state contacts under P02; the synthetic SQL witness is not a full runtime census.",
+        "Owner: P02 (runtime census), with per-operation connection, statement, table and wait evidence for orgtree_state_inspect/orgtree_capabilities. Closes with: observed middleware, schema/pool cold-path, JSON-backend and malformed-state contacts. Not coverable at P01 from available evidence: the only P02 evidence available (run 20260924T063643Z, item run-approved-isolated-copy-p02-replay, artifact r5) replayed 13 route classes that do not include orgtree_state_inspect/orgtree_capabilities, reports contacts only as whole-window aggregates, instruments one connection site (store.py:_open_conn) with 4 sites uninstrumented and 6 secondary stores unobserved, and did not copy transcript-records.sqlite3."
       ]
     },
     "diagnostic.writes": {
@@ -2413,7 +2422,8 @@
         }
       ],
       "open_questions": [
-        "Inventory/qualify all migration, cold-schema, request-diagnostic and cache writes before native physical-contact closure; preserve restore/refusal behavior."
+        "Inventory/qualify all migration, cold-schema, request-diagnostic and cache writes before native physical-contact closure; preserve restore/refusal behavior.",
+        "Owner: P02 (runtime census), with per-operation connection, statement, table and wait evidence for orgtree_state_inspect/orgtree_capabilities, then P03 qualification. Closes with: an observed inventory of migration, cold-schema, request-diagnostic and cache writes during these reads. Not coverable at P01 from available evidence: the only P02 evidence available (run 20260924T063643Z, item run-approved-isolated-copy-p02-replay, artifact r5) replayed 13 route classes that do not include orgtree_state_inspect/orgtree_capabilities, reports contacts only as whole-window aggregates, instruments one connection site (store.py:_open_conn) with 4 sites uninstrumented and 6 secondary stores unobserved, and did not copy transcript-records.sqlite3."
       ]
     },
     "diagnostic.conflicts": {
@@ -2517,7 +2527,8 @@
         }
       ],
       "open_questions": [
-        "Specify and qualify indexed native read predicates, exact current-disclosure consumers and generation/restriction race protection, plus disjoint-reader/writer schedules, at the native gates."
+        "Specify and qualify indexed native read predicates, exact current-disclosure consumers and generation/restriction race protection, plus disjoint-reader/writer schedules, at the native gates.",
+        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 (native prototype) and P05 (state/authority conversion). Closes with: specified native read predicates, current-disclosure consumers and generation/restriction race protection, qualified by disjoint reader/writer schedules. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source can supply."
       ]
     },
     "diagnostic.wire": {
@@ -2731,7 +2742,8 @@
         }
       ],
       "open_questions": [
-        "Complete transitive cold/legacy/recovery/diagnostic effects and their failure semantics before conversion; no effect/atomicity conclusion follows solely from a read-shaped tool."
+        "Complete transitive cold/legacy/recovery/diagnostic effects and their failure semantics before conversion; no effect/atomicity conclusion follows solely from a read-shaped tool.",
+        "Owner: P02 (runtime census), with per-operation connection, statement, table and wait evidence for orgtree_state_inspect/orgtree_capabilities. Closes with: probes of the transitive cold/legacy/recovery/diagnostic effects and their failure outcomes. Not coverable at P01 from available evidence: the only P02 evidence available (run 20260924T063643Z, item run-approved-isolated-copy-p02-replay, artifact r5) replayed 13 route classes that do not include orgtree_state_inspect/orgtree_capabilities, reports contacts only as whole-window aggregates, instruments one connection site (store.py:_open_conn) with 4 sites uninstrumented and 6 secondary stores unobserved, and did not copy transcript-records.sqlite3."
       ]
     },
     "diagnostic.instrumentation": {
@@ -2804,7 +2816,8 @@
         }
       ],
       "open_questions": [
-        "Implement the approved P02 complete contact/profile/loss/drift instrumentation and native negative controls; runtime_census and conversion_authorized remain false."
+        "Implement the approved P02 complete contact/profile/loss/drift instrumentation and native negative controls; runtime_census and conversion_authorized remain false.",
+        "Owner: P02 (runtime census), with per-operation connection, statement, table and wait evidence for orgtree_state_inspect/orgtree_capabilities. Closes with: the approved complete contact/profile/loss/drift record for both tools, including cache hits and hidden eager loads. Not coverable at P01 from available evidence: the only P02 evidence available (run 20260924T063643Z, item run-approved-isolated-copy-p02-replay, artifact r5) replayed 13 route classes that do not include orgtree_state_inspect/orgtree_capabilities, reports contacts only as whole-window aggregates, instruments one connection site (store.py:_open_conn) with 4 sites uninstrumented and 6 secondary stores unobserved, and did not copy transcript-records.sqlite3."
       ]
     },
     "preview.authority": {
@@ -3107,7 +3120,8 @@
         }
       ],
       "open_questions": [
-        "Complete transitive provider/settings/registry, cold storage and underlying ledger read sets for every preview variant; replace whole-document cloning with bounded native query/simulation semantics under the approved design."
+        "Complete transitive provider/settings/registry, cold storage and underlying ledger read sets for every preview variant; replace whole-document cloning with bounded native query/simulation semantics under the approved design.",
+        "Owner: P02 (runtime census), with per-operation connection, statement, table and wait evidence for orgtree_preview, then the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 (native prototype) and P05 (state/authority conversion). Closes with: observed transitive provider/settings/registry/cold-storage read sets per variant, and an approved bounded native simulation design. Not coverable at P01 from available evidence: the only P02 evidence available (run 20260924T063643Z, item run-approved-isolated-copy-p02-replay, artifact r5) replayed 13 route classes that do not include orgtree_preview, reports contacts only as whole-window aggregates, instruments one connection site (store.py:_open_conn) with 4 sites uninstrumented and 6 secondary stores unobserved, and did not copy transcript-records.sqlite3; and the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source can supply."
       ]
     },
     "preview.writes": {
@@ -3211,7 +3225,8 @@
         }
       ],
       "open_questions": [
-        "Inventory all transitive cold/migration/probe/cache writes and full underlying mutator effects before physical-contact or native write closure."
+        "Inventory all transitive cold/migration/probe/cache writes and full underlying mutator effects before physical-contact or native write closure.",
+        "Owner: P02 (runtime census), with per-operation connection, statement, table and wait evidence for orgtree_preview. Closes with: an observed inventory of transitive cold/migration/probe/cache writes and the full underlying mutator effects. Not coverable at P01 from available evidence: the only P02 evidence available (run 20260924T063643Z, item run-approved-isolated-copy-p02-replay, artifact r5) replayed 13 route classes that do not include orgtree_preview, reports contacts only as whole-window aggregates, instruments one connection site (store.py:_open_conn) with 4 sites uninstrumented and 6 secondary stores unobserved, and did not copy transcript-records.sqlite3."
       ]
     },
     "preview.predicates": {
@@ -3345,7 +3360,8 @@
         }
       ],
       "open_questions": [
-        "Specify the full native invariant read/write/predicate conflict sets for each underlying transition and resolve the documented preview-versus-real account/session differences before native parity acceptance."
+        "Specify the full native invariant read/write/predicate conflict sets for each underlying transition and resolve the documented preview-versus-real account/session differences before native parity acceptance.",
+        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 (native prototype) and P05 (state/authority conversion). Closes with: the native invariant read/write/predicate conflict sets for each underlying transition, and a resolution of the preview-versus-real account/session differences. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source can supply."
       ]
     },
     "preview.conflicts": {
@@ -3431,7 +3447,8 @@
         }
       ],
       "open_questions": [
-        "Define and qualify native consistent simulation reads, indexed predicates, current-output fences and independent progress without global locks."
+        "Define and qualify native consistent simulation reads, indexed predicates, current-output fences and independent progress without global locks.",
+        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 (native prototype) and P05 (state/authority conversion). Closes with: a qualified native consistent-simulation read with current-output fences and independent progress without global locks. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source can supply."
       ]
     },
     "preview.wire": {
@@ -3545,7 +3562,8 @@
         }
       ],
       "open_questions": [
-        "Finish provider/cache/registry/normalization failure and external-contact qualification; do not claim native or general no-network behavior from stubbed provider preflights."
+        "Finish provider/cache/registry/normalization failure and external-contact qualification; do not claim native or general no-network behavior from stubbed provider preflights.",
+        "Owner: P02 (runtime census), with per-operation connection, statement, table and wait evidence for orgtree_preview, with provider qualification at P08. Closes with: observed provider/cache/registry/normalization failure and external-contact outcomes, without stubbed preflights. Not coverable at P01 from available evidence: the only P02 evidence available (run 20260924T063643Z, item run-approved-isolated-copy-p02-replay, artifact r5) replayed 13 route classes that do not include orgtree_preview, reports contacts only as whole-window aggregates, instruments one connection site (store.py:_open_conn) with 4 sites uninstrumented and 6 secondary stores unobserved, and did not copy transcript-records.sqlite3."
       ]
     },
     "preview.instrumentation": {
@@ -3624,7 +3642,8 @@
         }
       ],
       "open_questions": [
-        "Complete P02 actual contact/profile/loss/drift coverage and P03 native concurrency/failure gates before any conversion claim."
+        "Complete P02 actual contact/profile/loss/drift coverage and P03 native concurrency/failure gates before any conversion claim.",
+        "Owner: P02 (runtime census), with per-operation connection, statement, table and wait evidence for orgtree_preview, then P03 native concurrency/failure gates. Closes with: complete actual contact/profile/loss/drift coverage for every preview variant, including provider preflights. Not coverable at P01 from available evidence: the only P02 evidence available (run 20260924T063643Z, item run-approved-isolated-copy-p02-replay, artifact r5) replayed 13 route classes that do not include orgtree_preview, reports contacts only as whole-window aggregates, instruments one connection site (store.py:_open_conn) with 4 sites uninstrumented and 6 secondary stores unobserved, and did not copy transcript-records.sqlite3."
       ]
     }
   },
