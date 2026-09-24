@@ -220,7 +220,8 @@
       "facts": [
         "Current document helper relies on its caller holding DOC_LOCK for load/mutate/save.",
         "Target conflict sets must preserve predicates without replacing DOC_LOCK by a mandatory global row.",
-        "Shared-resource and original integration-key conflicts differ from physical engine waits."
+        "Shared-resource and original integration-key conflicts differ from physical engine waits.",
+        "Native design r7 (docket design-the-native-conflict-predicate-and-isolati artifact r7, sha256 24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792; approved by review artifact r10, sha256 8be9323173dd1ae785f66328a8481a12bf86c7f2c816797c1c9c496c01ea895b): the design half is answered: section 3.2 to 3.6 (reservations as rows; K1 one HELD holder per resource and K2 one row per integration key as unique indexes; the shared visibility predicate; the retained-512 cap counting only active claims, D1; the eleven variants' isolation, locks and re-checks), C2a pair P1 for release-notify's reply grant, and decisions D1, D2, D3 and D12. The qualified half is scheduled at P03: Q-R1 to Q-R11, Q-C1, Q-C3, Q-C4 and Q-C7."
       ],
       "source_refs": [
         {
@@ -238,7 +239,7 @@
       ],
       "open_questions": [
         "Choose and qualify indexed native predicates/isolation for each variant, including the retained-512-row admission cap.",
-        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 (native prototype) and P05 (state/authority conversion). Closes with: chosen indexed native predicates and isolation for each reservation variant, including the retained-512-row admission cap, qualified by native conflict tests. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source can supply."
+        "Owner: P03 qualification of r7 (schedules Q-R1 to Q-R11, Q-C1, Q-C3, Q-C4, Q-C7), then P05. Closes with: chosen indexed native predicates and isolation for each reservation variant, including the retained-512-row admission cap, qualified by native conflict tests. Not coverable at P01 from available evidence: the design half is answered by r7, but the qualified half needs r7's section 8 schedules run against a native build, which does not exist yet."
       ]
     },
     "wire-common": {
@@ -1732,7 +1733,8 @@
       "facts": [
         "No org-wide DOC_LOCK spans these tools from authority to response. Cold identity mints do individually take DOC_LOCK and save; snapshot publication, transcript SQLite transactions and runtime locks have their own boundaries. Those boundaries do not make authorization plus disclosure atomic.",
         "Plain transcript calls wait on a four-reader per-event-loop limiter before executing their fresh agent identity/state checks. The legacy route recognizes the plain tool name; an OP_CALL-wrapped read uses the general worker path. Neither path grants a durable output fence.",
-        "Native conversion must use the approved narrow authorization/output protocol, current immutable identities and bounded indexed item lookups, and must prove disjoint reads/writers remain independent."
+        "Native conversion must use the approved narrow authorization/output protocol, current immutable identities and bounded indexed item lookups, and must prove disjoint reads/writers remain independent.",
+        "Native design r7 (docket design-the-native-conflict-predicate-and-isolati artifact r7, sha256 24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792; approved by review artifact r10, sha256 8be9323173dd1ae785f66328a8481a12bf86c7f2c816797c1c9c496c01ea895b): the design half is answered: section 4 and C5 (one REPEATABLE READ READ ONLY snapshot for authority, the file read outside SQL, an output claim withheld on a restriction committed before emit) with decisions D5 to D8 (D8: shared-item access ends when the item archives). The qualified half is scheduled at P03: Q-M1 to Q-M7 and Q-C6."
       ],
       "source_refs": [
         {
@@ -1840,7 +1842,7 @@
       ],
       "open_questions": [
         "Implement and qualify Effective restriction races, recycled identities, returning current-holder exclusion and bounded native predicates; retain explicit legacy/native differences rather than copying defects.",
-        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 (native prototype) and P05 (state/authority conversion). Closes with: qualified native protection against restriction races, recycled identities and returning-holder exclusion, with bounded predicates. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source can supply."
+        "Owner: P03 qualification of r7 (schedules Q-M1 to Q-M7, Q-C6). Closes with: qualified native protection against restriction races, recycled identities and returning-holder exclusion, with bounded predicates. Not coverable at P01 from available evidence: the design half is answered by r7, but the qualified half needs r7's section 8 schedules run against a native build, which does not exist yet."
       ]
     },
     "material.effects": {
@@ -2579,7 +2581,8 @@
       "facts": [
         "The ordinary diagnostic leaf loads outside DOC_LOCK and holds no single transaction from identity check through output. _load_lazy protects its eager snapshot, not the preceding authenticated-generation check or later disclosure. Cache/pool/SQLite admission may impose separate waits.",
         "A narrowed inspection still computes full visibility and free amounts. Native execution must read the actual affected topology/visibility/generation/archive/catalog/child facts with the approved output claim/fence; it must not add an org-wide visibility/version lock to replace these scans.",
-        "The legacy controlled race fixtures mutate only disposable state between defined source boundaries. They show stale-generation and restriction-during-projection windows; they are not native concurrency success tests."
+        "The legacy controlled race fixtures mutate only disposable state between defined source boundaries. They show stale-generation and restriction-during-projection windows; they are not native concurrency success tests.",
+        "Native design r7 (docket design-the-native-conflict-predicate-and-isolati artifact r7, sha256 24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792; approved by review artifact r10, sha256 8be9323173dd1ae785f66328a8481a12bf86c7f2c816797c1c9c496c01ea895b): the design half is answered: section 5 and C5 (a protected read over one snapshot with indexed visibility and funding reads and no visibility lock; capabilities read from the caller's own row with a generation-only claim) with decisions D5 and D9. The qualified half is scheduled at P03: Q-D1 to Q-D6 and Q-C6."
       ],
       "source_refs": [
         {
@@ -2675,7 +2678,7 @@
       ],
       "open_questions": [
         "Specify and qualify indexed native read predicates, exact current-disclosure consumers and generation/restriction race protection, plus disjoint-reader/writer schedules, at the native gates.",
-        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 (native prototype) and P05 (state/authority conversion). Closes with: specified native read predicates, current-disclosure consumers and generation/restriction race protection, qualified by disjoint reader/writer schedules. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source can supply."
+        "Owner: P03 qualification of r7 (schedules Q-D1 to Q-D6, Q-C6). Closes with: specified native read predicates, current-disclosure consumers and generation/restriction race protection, qualified by disjoint reader/writer schedules. Not coverable at P01 from available evidence: the design half is answered by r7, but the qualified half needs r7's section 8 schedules run against a native build, which does not exist yet."
       ]
     },
     "diagnostic.wire": {
@@ -3208,11 +3211,12 @@
     },
     "preview.reads": {
       "dimension": "reads",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
         "inspect_state projects before and after visibility over nodes and funding dependencies. isolated() JSON-serializes the entire Org document before constructing the shadow. On a LazyDoc this traverses items()/materialize_all and owner maps, so a narrow preview can read unrelated retained mail/history as well as every eager node.",
         "The source-bound fixture observes actual pooled SQLite acquisitions and selected lazy-section materialization labels on disposable, already-migrated data. It retains no SQL values or payloads. Whole-document traversal and hidden sections are source/fixture evidence, not a measured clone-byte budget or a proposed native read strategy.",
-        "The eager SQLite snapshot does not make all separately loaded lazy sections or provider/registry/runtime observations one consistent transaction. Before projection and the isolated clone are sequential reads; pending native snapshot and output-fence requirements remain."
+        "The eager SQLite snapshot does not make all separately loaded lazy sections or provider/registry/runtime observations one consistent transaction. Before projection and the isolated clone are sequential reads; pending native snapshot and output-fence requirements remain.",
+        "Native design r7 (docket design-the-native-conflict-predicate-and-isolati artifact r7, sha256 24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792; approved by review artifact r10, sha256 8be9323173dd1ae785f66328a8481a12bf86c7f2c816797c1c9c496c01ea895b): section 6.2 and C6 are the approved bounded native simulation this facet's clause asks for. Admission is as legacy (the thirteen spellings); external observations (provider availability and authentication, the credential service, sandbox path mapping) are observed first and traced, not claimed consistent with the snapshot; one REPEATABLE READ READ ONLY snapshot reads the caller's identity, generation and visibility, the before projection and the transition's declared read set (section 6.4); decide is pure; the after projection is computed in memory. No whole-document clone, and no read of mail bodies, transcripts, docket history or events. The clause asks for the approved design only, so the facet is specified; qualification (Q-P1) runs at P03 for reallocate and at P05 for the rest (D11), and completing the observed provider-preflight contacts stays with P02 and P08 (r7 section 6.6)."
       ],
       "source_refs": [
         {
@@ -3306,10 +3310,7 @@
           "sha256": "a1c4e8c189fcd8955c8a10f982e5b4c1e1f74c78657e758a4f03e679fd9382e4"
         }
       ],
-      "open_questions": [
-        "Complete transitive provider/settings/registry, cold storage and underlying ledger read sets for every preview variant; replace whole-document cloning with bounded native query/simulation semantics under the approved design.",
-        "Owner: the separately staffed native conflict/predicate design, then P03/P05. Closes with: an approved bounded native simulation design replacing whole-document cloning. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py, v3 b6568a1; docs/state-system/p02-operation-contacts.md) covers the observed tables and file reads per preview operation; the native simulation design does not exist yet."
-      ]
+      "open_questions": []
     },
     "preview.writes": {
       "dimension": "writes",
@@ -3417,11 +3418,12 @@
     },
     "preview.predicates": {
       "dimension": "predicates",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
         "The outer allowlist/actor/scope and the current target hierarchy, live state, credit holdings, capability ceilings and account/provider compatibility determine whether the shadow operation is admitted. Changes in those facts after preview can change real execution; no claim or reservation is created.",
         "Selected fixtures cover fractional grant rounding, lack of funds, cross-target authority, move-batch rollback, self-retirement with reports, scope escalation, audience actions and busy/durable-inflight switch queuing. These do not close the per-operation native invariant matrix.",
-        "Retool validates account against CURRENT model and does not call assign_account in its shadow. This differs from the landed rebind writer with its effective queued destination and account mutation. Switch simulation calls the ledger but does not finish supervisor account/session binding."
+        "Retool validates account against CURRENT model and does not call assign_account in its shadow. This differs from the landed rebind writer with its effective queued destination and account mutation. Switch simulation calls the ledger but does not finish supervisor account/session binding.",
+        "Native design r7 (docket design-the-native-conflict-predicate-and-isolati artifact r7, sha256 24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792; approved by review artifact r10, sha256 8be9323173dd1ae785f66328a8481a12bf86c7f2c816797c1c9c496c01ea895b): sections 6.4 and 6.5, C2a and C6, with decision D10, are the conflict sets and the resolution this facet's clause asks for. Section 6.4 gives the declared read set, real write set, real mechanism and real conflict partners of each transition the agent preview runs: reallocate, move and move batch, swap and swap_seats, subjugate and self_subjugate, retool and set_scope, retire, dissolve, revoke_dir, switch_model and audience, the ten transitions behind the thirteen spellings of _AGENT_PREVIEW_OPS, with its completeness rule (a predicate found in conversion outside a declared read set is a design defect). Section 6.5 resolves both preview-versus-real differences: preview runs the real decide function, so a retool with an account evaluates the effective queued destination with the frozen, busy and session-boundary rules, and a switch reports the binding and the melt. The clause asks for design only, so the facet is specified; qualification (Q-P3, Q-P6, Q-C2, Q-C3, Q-C7 to Q-C12) runs at P03 for reallocate and the C2a schedules and at P05 for the other transitions (D11)."
       ],
       "source_refs": [
         {
@@ -3543,12 +3545,15 @@
           "start": 14269,
           "end": 14461,
           "sha256": "a1c4e8c189fcd8955c8a10f982e5b4c1e1f74c78657e758a4f03e679fd9382e4"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9971,
+          "end": 9975,
+          "sha256": "2dc0cfdf76c7231b23230cd16f9b793065331664c8aa9fb12ccddb031278999d"
         }
       ],
-      "open_questions": [
-        "Specify the full native invariant read/write/predicate conflict sets for each underlying transition and resolve the documented preview-versus-real account/session differences before native parity acceptance.",
-        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 (native prototype) and P05 (state/authority conversion). Closes with: the native invariant read/write/predicate conflict sets for each underlying transition, and a resolution of the preview-versus-real account/session differences. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source can supply."
-      ]
+      "open_questions": []
     },
     "preview.conflicts": {
       "dimension": "conflicts",
@@ -3556,7 +3561,8 @@
       "facts": [
         "The agent leaf takes no DOC_LOCK around the entire simulation and owns no committed domain transaction. It must never be counted as native multi-owner atomic execution. Before/after are snapshots of a hypothetical transformation, not a lock over the affected real agents.",
         "The operator preview currently holds DOC_LOCK while loading, probing and simulating. The pending operator route and native design must replace this shared serialization with explicit scoped reads; this package adds no lock or native execution.",
-        "Current generation/disclosure fences do not extend through the whole agent output. The earlier diagnostic gaps also apply to preview projections; pure detachment alone is not authorization-race protection."
+        "Current generation/disclosure fences do not extend through the whole agent output. The earlier diagnostic gaps also apply to preview projections; pure detachment alone is not authorization-race protection.",
+        "Native design r7 (docket design-the-native-conflict-predicate-and-isolati artifact r7, sha256 24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792; approved by review artifact r10, sha256 8be9323173dd1ae785f66328a8481a12bf86c7f2c816797c1c9c496c01ea895b): the design half is answered: sections 6.2 and 6.3 and C5 (no locks, no predicate locks, no writes and no rollback; a REPEATABLE READ snapshot that takes no SIREAD locks; a current-output fence; read-worker admission separate from commands; the operator preview's DOC_LOCK removed). The qualified half is scheduled at P03 for reallocate and at P05 for the other transitions (D11): Q-P1, Q-P2, Q-P4 and Q-P5."
       ],
       "source_refs": [
         {
@@ -3634,7 +3640,7 @@
       ],
       "open_questions": [
         "Define and qualify native consistent simulation reads, indexed predicates, current-output fences and independent progress without global locks.",
-        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 (native prototype) and P05 (state/authority conversion). Closes with: a qualified native consistent-simulation read with current-output fences and independent progress without global locks. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source can supply."
+        "Owner: P03 and P05 qualification of r7 (schedules Q-P1, Q-P2, Q-P4, Q-P5; D11). Closes with: a qualified native consistent-simulation read with current-output fences and independent progress without global locks. Not coverable at P01 from available evidence: the design half is answered by r7, but the qualified half needs r7's section 8 schedules run against a native build, which does not exist yet."
       ]
     },
     "preview.wire": {
@@ -4008,7 +4014,8 @@
       "status": "unresolved",
       "facts": [
         "The whole report runs under DOC_LOCK in one write cycle: it serialises with every other document writer in the org, although it touches only the caller's node row and, for done/blocked, the parent's mailbox, mail_log, events and lifecycle.",
-        "The mail queue, events and lifecycle are org-wide document sections, so two reports to different parents still write the same rows in the legacy store."
+        "The mail queue, events and lifecycle are org-wide document sections, so two reports to different parents still write the same rows in the legacy store.",
+        "Native design r7 (docket design-the-native-conflict-predicate-and-isolati artifact r7, sha256 24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792; approved by review artifact r10, sha256 8be9323173dd1ae785f66328a8481a12bf86c7f2c816797c1c9c496c01ea895b): not covered by r7. r7 names status only as a row-layout constraint (C3 keeps busy, status and heartbeat fields off the authority-epoch row) and as unrelated background writes in Q-C1; it gives no rule for a status report's write set."
       ],
       "source_refs": [
         {
@@ -4032,7 +4039,7 @@
       ],
       "open_questions": [
         "Choose the native write set and isolation for a status report without an org-wide lock.",
-        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 (native prototype) and P07 (mail). Closes with: a chosen native write set and isolation for a status report (the caller's status row plus, for done/blocked, a receiver-owned mail row), qualified by concurrent reports to the same and to different parents. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source decides."
+        "Owner: the native conflict/predicate design extension (r7 does not cover this family; scope listed in item p01-cite-the-approved-native-conflict-predicate), then qualification at P03/P05. Closes with: a chosen native write set and isolation for a status report (the caller's status row plus, for done/blocked, a receiver-owned mail row), qualified by concurrent reports to the same and to different parents. Not coverable at P01 from available evidence: the approved design r7 does not cover this family, and no native build exists to qualify one."
       ]
     },
     "status.wire": {
@@ -4332,7 +4339,8 @@
       "dimension": "conflicts",
       "status": "unresolved",
       "facts": [
-        "The read runs outside DOC_LOCK on the shared snapshot, which is seq-gated and torn-proof but not fenced: identity and visibility are checked on one snapshot and the chart may be rendered from state a concurrent writer has already superseded. Nothing fences a visibility restriction against a chart already rendered."
+        "The read runs outside DOC_LOCK on the shared snapshot, which is seq-gated and torn-proof but not fenced: identity and visibility are checked on one snapshot and the chart may be rendered from state a concurrent writer has already superseded. Nothing fences a visibility restriction against a chart already rendered.",
+        "Native design r7 (docket design-the-native-conflict-predicate-and-isolati artifact r7, sha256 24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792; approved by review artifact r10, sha256 8be9323173dd1ae785f66328a8481a12bf86c7f2c816797c1c9c496c01ea895b): not covered by r7. r7's 'chart' is the material and diagnostic chart route (a reader who is a strict ancestor), not the chart operation; it gives no snapshot or fence rule for the chart's visible topology."
       ],
       "source_refs": [
         {
@@ -4356,7 +4364,7 @@
       ],
       "open_questions": [
         "Specify the native snapshot/fence for the chart's visible topology and its restriction race.",
-        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 (native prototype) and P05 (state/authority conversion). Closes with: specified native read predicates for the visible topology and a disclosure fence for visibility restriction, qualified by concurrent reader/writer schedules. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source decides."
+        "Owner: the native conflict/predicate design extension (r7 does not cover this family; scope listed in item p01-cite-the-approved-native-conflict-predicate), then qualification at P03/P05. Closes with: specified native read predicates for the visible topology and a disclosure fence for visibility restriction, qualified by concurrent reader/writer schedules. Not coverable at P01 from available evidence: the approved design r7 does not cover this family, and no native build exists to qualify one."
       ]
     },
     "chart.wire": {
@@ -4665,7 +4673,8 @@
       "dimension": "conflicts",
       "status": "unresolved",
       "facts": [
-        "The build reads the shared snapshot outside DOC_LOCK. Coherence rests on the ETag components, a per-(slug, public) build lock and guarded publication (a patch frame that invalidates during a build keeps that build out of the cache). Nothing fences a restriction against a payload already served."
+        "The build reads the shared snapshot outside DOC_LOCK. Coherence rests on the ETag components, a per-(slug, public) build lock and guarded publication (a patch frame that invalidates during a build keeps that build out of the cache). Nothing fences a restriction against a payload already served.",
+        "Native design r7 (docket design-the-native-conflict-predicate-and-isolati artifact r7, sha256 24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792; approved by review artifact r10, sha256 8be9323173dd1ae785f66328a8481a12bf86c7f2c816797c1c9c496c01ea895b): not covered by r7. It gives no snapshot or revision rule for the tree payload; the UI feed appears only in v6's P03 slice list (D11)."
       ],
       "source_refs": [
         {
@@ -4689,7 +4698,7 @@
       ],
       "open_questions": [
         "Choose the native snapshot and revision contract for the tree payload and its restriction fence.",
-        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 (native prototype, UI feed). Closes with: a native snapshot/revision contract for the tree payload (v6 CHANGE-FEED-AND-UI) with a restriction fence, qualified by concurrent writer/reader schedules. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source decides."
+        "Owner: the native conflict/predicate design extension (r7 does not cover this family; scope listed in item p01-cite-the-approved-native-conflict-predicate), then qualification at P03/P05. Closes with: a native snapshot/revision contract for the tree payload (v6 CHANGE-FEED-AND-UI) with a restriction fence, qualified by concurrent writer/reader schedules. Not coverable at P01 from available evidence: the approved design r7 does not cover this family, and no native build exists to qualify one."
       ]
     },
     "org-view.wire": {
@@ -4896,7 +4905,8 @@
       "dimension": "conflicts",
       "status": "unresolved",
       "facts": [
-        "Ordering rests on a per-slug, per-process rev counter; 'changed' is coalesced over 0.4 s; there is no durable cursor, so a client that misses frames catches up with one full tree fetch (sync_rev)."
+        "Ordering rests on a per-slug, per-process rev counter; 'changed' is coalesced over 0.4 s; there is no durable cursor, so a client that misses frames catches up with one full tree fetch (sync_rev).",
+        "Native design r7 (docket design-the-native-conflict-predicate-and-isolati artifact r7, sha256 24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792; approved by review artifact r10, sha256 8be9323173dd1ae785f66328a8481a12bf86c7f2c816797c1c9c496c01ea895b): not covered by r7. It gives no change-feed cursor, resnapshot or restriction-drain rule; the change feed appears only as something preview does not publish to (section 6.3)."
       ],
       "source_refs": [
         {
@@ -4920,7 +4930,7 @@
       ],
       "open_questions": [
         "Choose the native change-feed cursor, resnapshot and restriction-drain contract.",
-        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 (native prototype, UI feed). Closes with: the native change-feed contract (v6 CHANGE-FEED-AND-UI: cursor, resnapshot and restriction drain) qualified by reconnect and gap schedules. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source decides."
+        "Owner: the native conflict/predicate design extension (r7 does not cover this family; scope listed in item p01-cite-the-approved-native-conflict-predicate), then qualification at P03/P05. Closes with: the native change-feed contract (v6 CHANGE-FEED-AND-UI: cursor, resnapshot and restriction drain) qualified by reconnect and gap schedules. Not coverable at P01 from available evidence: the approved design r7 does not cover this family, and no native build exists to qualify one."
       ]
     },
     "org-feed.wire": {
@@ -5279,7 +5289,8 @@
       "dimension": "conflicts",
       "status": "unresolved",
       "facts": [
-        "The whole send runs under DOC_LOCK in one write cycle, and the mail queue, mail_log, events, lifecycle, audiences and org_inbox are org-wide document sections, so two sends to different recipients write the same rows in the legacy store."
+        "The whole send runs under DOC_LOCK in one write cycle, and the mail queue, mail_log, events, lifecycle, audiences and org_inbox are org-wide document sections, so two sends to different recipients write the same rows in the legacy store.",
+        "Native design r7 (docket design-the-native-conflict-predicate-and-isolati artifact r7, sha256 24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792; approved by review artifact r10, sha256 8be9323173dd1ae785f66328a8481a12bf86c7f2c816797c1c9c496c01ea895b): the design half is answered in part: only the implicit reply grant a mail send creates is covered, as a C2a pair P1 outside writer (the grantee's authority-epoch row is bumped on every audience insert or delete and island moves share-lock it), with the audience grant row's unique key (section 6.4 audience row). Not covered by r7: the native source and receiver transactions for a send, its deposit, dedupe and order, which r7 leaves to v6 MAIL-STAGES-AND-AUTHORITY. Qualification of the covered part is scheduled at P03: Q-C7 (b)."
       ],
       "source_refs": [
         {
@@ -5297,7 +5308,7 @@
       ],
       "open_questions": [
         "Choose the native source and receiver transactions for agent mail and its audience grants.",
-        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 (native prototype) and P07 (mail). Closes with: the native source/receiver split of v6 MAIL-STAGES-AND-AUTHORITY (authority effects in the source transaction; receiver-owned deposit, dedupe and order), qualified by concurrent sends to the same and different recipients and by grant races. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source decides."
+        "Owner: the native conflict/predicate design extension for what r7 does not cover (the send's source and receiver transactions; scope listed in item p01-cite-the-approved-native-conflict-predicate), then P03 qualification (Q-C7). Closes with: the native source/receiver split of v6 MAIL-STAGES-AND-AUTHORITY (authority effects in the source transaction; receiver-owned deposit, dedupe and order), qualified by concurrent sends to the same and different recipients and by grant races. Not coverable at P01 from available evidence: r7 covers only the reply-grant crossing, and no native build exists to qualify it."
       ]
     },
     "agent-mail.wire": {
@@ -5527,7 +5538,8 @@
       "dimension": "conflicts",
       "status": "unresolved",
       "facts": [
-        "The mail branch runs in one write cycle under DOC_LOCK; the session-command branch takes its own write cycle for the deep-reach effects and then drives the process outside it."
+        "The mail branch runs in one write cycle under DOC_LOCK; the session-command branch takes its own write cycle for the deep-reach effects and then drives the process outside it.",
+        "Native design r7 (docket design-the-native-conflict-predicate-and-isolati artifact r7, sha256 24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792; approved by review artifact r10, sha256 8be9323173dd1ae785f66328a8481a12bf86c7f2c816797c1c9c496c01ea895b): not covered by r7. It gives no rule for a human send, its Sent row or its deep-reach grant and notices."
       ],
       "source_refs": [
         {
@@ -5539,7 +5551,7 @@
       ],
       "open_questions": [
         "Choose the native transactions for a human send, its Sent row and its deep-reach effects.",
-        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 and P07. Closes with: the v6 MAIL-STAGES human-to-agent variant (human Sent row and receiver-owned deposit in separate transactions, deep-reach grant and notices) qualified by concurrent sends. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source decides."
+        "Owner: the native conflict/predicate design extension (r7 does not cover this family; scope listed in item p01-cite-the-approved-native-conflict-predicate), then qualification at P03/P05. Closes with: the v6 MAIL-STAGES human-to-agent variant (human Sent row and receiver-owned deposit in separate transactions, deep-reach grant and notices) qualified by concurrent sends. Not coverable at P01 from available evidence: the approved design r7 does not cover this family, and no native build exists to qualify one."
       ]
     },
     "human-mail.wire": {
@@ -5783,7 +5795,8 @@
       "dimension": "conflicts",
       "status": "unresolved",
       "facts": [
-        "The GETs read outside DOC_LOCK; the read mark runs in one write cycle over the org-wide user_inbox and user_mail_log sections."
+        "The GETs read outside DOC_LOCK; the read mark runs in one write cycle over the org-wide user_inbox and user_mail_log sections.",
+        "Native design r7 (docket design-the-native-conflict-predicate-and-isolati artifact r7, sha256 24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792; approved by review artifact r10, sha256 8be9323173dd1ae785f66328a8481a12bf86c7f2c816797c1c9c496c01ea895b): not covered by r7. It gives no rule for the inbox read-state rows or predicates; an inbox appears only as the successor's inbox row inside release-notify (section 3.5.10) and as the org-inbox EXTERN rule in the audience row (section 6.4)."
       ],
       "source_refs": [
         {
@@ -5807,7 +5820,7 @@
       ],
       "open_questions": [
         "Choose the native read-state rows and predicates for the inbox routes.",
-        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 and P07. Closes with: the v6 human read state (receiver-owned read rows) and inbox read predicates, qualified by concurrent reads and marks. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source decides."
+        "Owner: the native conflict/predicate design extension (r7 does not cover this family; scope listed in item p01-cite-the-approved-native-conflict-predicate), then qualification at P03/P05. Closes with: the v6 human read state (receiver-owned read rows) and inbox read predicates, qualified by concurrent reads and marks. Not coverable at P01 from available evidence: the approved design r7 does not cover this family, and no native build exists to qualify one."
       ]
     },
     "inbox.wire": {
@@ -6124,7 +6137,8 @@
       "dimension": "conflicts",
       "status": "unresolved",
       "facts": [
-        "Each operation runs in one document write cycle under DOC_LOCK (the decision route takes DOC_LOCK itself around load_org and save_org); grants, the parent chain's free amounts and credit_requests are org-document state, so every funding change serialises with every other writer."
+        "Each operation runs in one document write cycle under DOC_LOCK (the decision route takes DOC_LOCK itself around load_org and save_org); grants, the parent chain's free amounts and credit_requests are org-document state, so every funding change serialises with every other writer.",
+        "Native design r7 (docket design-the-native-conflict-predicate-and-isolati artifact r7, sha256 24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792; approved by review artifact r10, sha256 8be9323173dd1ae785f66328a8481a12bf86c7f2c816797c1c9c496c01ea895b): the design half is answered: C2a pair P2 (the payer's capacity row holds committed child obligations in unpriced terms, the sum of child grants and child seat counts per tier; every obligation writer updates it; island writers take it FOR UPDATE before computing free and outside writers take it FOR UPDATE first; the catalog version row is share-locked and prices apply at read), section 6.4's reallocate row and its funding requirement, and C2a pair P7 for a credit-request filing (the asker's authority-epoch row is bumped, so a retire or dissolve either moots it or makes it refuse). Credit-request approval is covered as a P2 outside writer; it has no conflict-set row of its own. The qualified half is scheduled at P03: Q-C8 and Q-C12 (b)."
       ],
       "source_refs": [
         {
@@ -6148,7 +6162,7 @@
       ],
       "open_questions": [
         "Choose the native balance-row locking and conservation checks for request, reallocate and decide.",
-        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 and P05 (funding). Closes with: the v6 credit grant/spend rule (lock the actual issuer/child balance rows in canonical order, exact arithmetic and conservation, no org-wide credit counter) qualified by the last-credit race, deep bubbling and a concurrent decision. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source decides."
+        "Owner: P03 qualification of r7 (schedules Q-C8, Q-C12). Closes with: the v6 credit grant/spend rule (lock the actual issuer/child balance rows in canonical order, exact arithmetic and conservation, no org-wide credit counter) qualified by the last-credit race, deep bubbling and a concurrent decision. Not coverable at P01 from available evidence: the design half is answered by r7, but the qualified half needs r7's section 8 schedules run against a native build, which does not exist yet."
       ]
     },
     "funding.wire": {
@@ -6537,7 +6551,8 @@
       "dimension": "conflicts",
       "status": "unresolved",
       "facts": [
-        "Each call runs in one document write cycle under DOC_LOCK, except the rehire-mode rename (its own lock, before) and the provider/harness reads (before the lock); the seat, the chain's credits and the item are org-document state, so staffing serialises with every other writer."
+        "Each call runs in one document write cycle under DOC_LOCK, except the rehire-mode rename (its own lock, before) and the provider/harness reads (before the lock); the seat, the chain's credits and the item are org-document state, so staffing serialises with every other writer.",
+        "Native design r7 (docket design-the-native-conflict-predicate-and-isolati artifact r7, sha256 24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792; approved by review artifact r10, sha256 8be9323173dd1ae785f66328a8481a12bf86c7f2c816797c1c9c496c01ea895b): the design half is answered in part: hire (atomic staffing) and rehire are members of the SERIALIZABLE island (C2a), on its side of P2 (the payer's capacity row taken FOR UPDATE before computing free), P3 (the initial scope derived under the containment rule), P5 (membership, caps and lineage) and P6 (org control rows share-locked); the seat-plus-item write against docket writers is checked safe (C2a, reviewer note RN7: both write the item's head row). Not covered by r7: a declared read set for hire (section 6.4 has no hire row). Qualification of the covered part is scheduled at P03: Q-C8, Q-C10 and Q-C11 (e)."
       ],
       "source_refs": [
         {
@@ -6561,7 +6576,7 @@
       ],
       "open_questions": [
         "Choose the native locking and atomicity for seat creation, chain credits and the seat-plus-item write.",
-        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 and P05 (staffing). Closes with: native row-level rules for seat creation, chain credit acquisition and the atomic seat-plus-item write, qualified by concurrent hires against one chain and a staff racing an item update. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source decides."
+        "Owner: the native conflict/predicate design extension for what r7 does not cover (a declared read set for hire; scope listed in item p01-cite-the-approved-native-conflict-predicate), then P03 qualification (Q-C8, Q-C10, Q-C11). Closes with: native row-level rules for seat creation, chain credit acquisition and the atomic seat-plus-item write, qualified by concurrent hires against one chain and a staff racing an item update. Not coverable at P01 from available evidence: r7 answers the island membership, funding, containment and seat-plus-item crossings but gives hire no declared read set, and no native build exists to qualify any of it."
       ]
     },
     "staffing.wire": {
@@ -6875,7 +6890,8 @@
       "dimension": "conflicts",
       "status": "unresolved",
       "facts": [
-        "Each operation is one whole-document write cycle under DOC_LOCK (load_org, mutate, save_org), so it serialises with every other writer; the harness read happens before the lock."
+        "Each operation is one whole-document write cycle under DOC_LOCK (load_org, mutate, save_org), so it serialises with every other writer; the harness read happens before the lock.",
+        "Native design r7 (docket design-the-native-conflict-predicate-and-isolati artifact r7, sha256 24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792; approved by review artifact r10, sha256 8be9323173dd1ae785f66328a8481a12bf86c7f2c816797c1c9c496c01ea895b): the design half is answered in part, for the ledger transitions this door runs: reallocate by section 6.4's reallocate row and C2a pair P2, and hire by its island membership (C2a P2, P3, P5, P6) as for staffing. Not covered by r7: the operator door itself (section 6.4 defers the operator registration's other operations until it is contracted), a declared read set for hire, and the rule that an agent named as actor gets that agent's authority. Qualification of the covered part is scheduled at P03: Q-C8."
       ],
       "source_refs": [
         {
@@ -6893,7 +6909,7 @@
       ],
       "open_questions": [
         "Choose the native locking for operator seat creation and grant moves.",
-        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 and P05 (staffing, funding). Closes with: native row-level rules for an operator seat creation and grant move, qualified by an operator hire racing an agent hire on one chain and an operator reallocation racing an agent one. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source decides."
+        "Owner: the native conflict/predicate design extension for what r7 does not cover (the operator door, a declared read set for hire; scope listed in item p01-cite-the-approved-native-conflict-predicate), then P03 qualification (Q-C8). Closes with: native row-level rules for an operator seat creation and grant move, qualified by an operator hire racing an agent hire on one chain and an operator reallocation racing an agent one. Not coverable at P01 from available evidence: r7 covers the reallocate and hire transitions but not the operator door, and no native build exists to qualify either."
       ]
     },
     "operator-ops.wire": {
@@ -7202,7 +7218,8 @@
       "dimension": "conflicts",
       "status": "unresolved",
       "facts": [
-        "The commit is one load/mutate/save under DOC_LOCK with the snapshot read before it; the undo is a second DOC_LOCK cycle guarded by the item rev and the receipt, so it never clobbers a later writer. The reads take DOC_LOCK only to load."
+        "The commit is one load/mutate/save under DOC_LOCK with the snapshot read before it; the undo is a second DOC_LOCK cycle guarded by the item rev and the receipt, so it never clobbers a later writer. The reads take DOC_LOCK only to load.",
+        "Native design r7 (docket design-the-native-conflict-predicate-and-isolati artifact r7, sha256 24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792; approved by review artifact r10, sha256 8be9323173dd1ae785f66328a8481a12bf86c7f2c816797c1c9c496c01ea895b): not covered by r7. It gives no rule for the quick-staff commit, its request-id receipt or its compensating undo; the seat the commit creates is a hire, so that part inherits staffing's partial coverage (C2a island)."
       ],
       "source_refs": [
         {
@@ -7220,7 +7237,7 @@
       ],
       "open_questions": [
         "Choose the native atomicity for the quick-staff commit, its receipt and its compensating undo.",
-        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 and P05 (staffing). Closes with: native rules for the ticket-plus-seat commit, the request-id receipt and the compensating undo, qualified by a commit racing an item update and an undo racing a later writer. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source decides."
+        "Owner: the native conflict/predicate design extension (r7 does not cover this family; scope listed in item p01-cite-the-approved-native-conflict-predicate), then qualification at P03/P05. Closes with: native rules for the ticket-plus-seat commit, the request-id receipt and the compensating undo, qualified by a commit racing an item update and an undo racing a later writer. Not coverable at P01 from available evidence: the approved design r7 does not cover this family, and no native build exists to qualify one."
       ]
     },
     "quick-staff.wire": {
@@ -7484,7 +7501,8 @@
       "dimension": "conflicts",
       "status": "unresolved",
       "facts": [
-        "The reads take no lock: they see whichever committed document the resident or a cold load holds, so a read racing a docket write answers the state before or after it, never a mix within one document."
+        "The reads take no lock: they see whichever committed document the resident or a cold load holds, so a read racing a docket write answers the state before or after it, never a mix within one document.",
+        "Native design r7 (docket design-the-native-conflict-predicate-and-isolati artifact r7, sha256 24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792; approved by review artifact r10, sha256 8be9323173dd1ae785f66328a8481a12bf86c7f2c816797c1c9c496c01ea895b): not covered by r7. C3 anchors an agent's authority to read a work item on the item's head row, and C5 covers the material item route, but r7 gives no snapshot rule for the operator's strict item reads."
       ],
       "source_refs": [
         {
@@ -7502,7 +7520,7 @@
       ],
       "open_questions": [
         "Choose the native snapshot isolation for the strict item reads.",
-        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 (strict read). Closes with: the native snapshot isolation for the item reads, qualified by a read racing a docket write. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source decides."
+        "Owner: the native conflict/predicate design extension (r7 does not cover this family; scope listed in item p01-cite-the-approved-native-conflict-predicate), then qualification at P03/P05. Closes with: the native snapshot isolation for the item reads, qualified by a read racing a docket write. Not coverable at P01 from available evidence: the approved design r7 does not cover this family, and no native build exists to qualify one."
       ]
     },
     "work-read.wire": {
@@ -7749,7 +7767,8 @@
       "dimension": "conflicts",
       "status": "unresolved",
       "facts": [
-        "The classify-then-fence is one DOC_LOCK transaction, so a delayed original either committed first (and is found applied) or is refused forever after; the `running` answer covers only this process's in-flight set."
+        "The classify-then-fence is one DOC_LOCK transaction, so a delayed original either committed first (and is found applied) or is refused forever after; the `running` answer covers only this process's in-flight set.",
+        "Native design r7 (docket design-the-native-conflict-predicate-and-isolati artifact r7, sha256 24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792; approved by review artifact r10, sha256 8be9323173dd1ae785f66328a8481a12bf86c7f2c816797c1c9c496c01ea895b): the design half is answered in part: C1 fixes original-key receipt lookup before any new-execution predicate, the original-operation receipt key on the 23505 retry allowlist, and same-key lookup to resolve a commit whose outcome is unknown (qualified by Q-C4). Not covered by r7: the lookup's own fence row and its serialisation against a delayed original; r7 section 9 leaves receipt classification to receipt-common and P06."
       ],
       "source_refs": [
         {
@@ -7767,7 +7786,7 @@
       ],
       "open_questions": [
         "Choose the native serialisation between a fencing lookup and a delayed original.",
-        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 (receipts). Closes with: the native fence-versus-original serialisation (receipt row uniqueness and admission order), qualified by a lookup racing a delayed original across processes. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source decides."
+        "Owner: the native conflict/predicate design extension for what r7 does not cover (the lookup's fence; scope listed in item p01-cite-the-approved-native-conflict-predicate), then P03 qualification (Q-C4). Closes with: the native fence-versus-original serialisation (receipt row uniqueness and admission order), qualified by a lookup racing a delayed original across processes. Not coverable at P01 from available evidence: r7 fixes receipt-key uniqueness and replay-before-predicates but not the lookup's fence, and no native build exists to qualify either."
       ]
     },
     "receipt-lookup.wire": {

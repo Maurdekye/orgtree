@@ -45,7 +45,7 @@ class ContractCoverage(unittest.TestCase):
         self.assertEqual(result["contracts"], 42)
         self.assertEqual((result["summary"]["entries"]["mapped"], result["summary"]["dispatch"]["mapped"],
                           result["summary"]["storage"]["mapped"]), (29, 50, 0))
-        self.assertEqual(len(result["pending"]), 634)
+        self.assertEqual(len(result["pending"]), 632)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
@@ -132,6 +132,60 @@ class ContractCoverage(unittest.TestCase):
                    source_refs=document["contracts"]["chart.read"]["source_refs"][1:])
         self.assertTrue(self.validate(document)["valid"])     # the validator alone does not see it
         self.assertIn(row["id"], self.uncontracted_selector_values(document))
+
+    # The approved native conflict/predicate design (docket
+    # design-the-native-conflict-predicate-and-isolati, artifact r7) is cited on every facet the
+    # design owned, one "Native design r7" fact each: answered (still pending on its P03 schedules),
+    # closed (its clause asked for design only), partial, or not covered (item
+    # p01-cite-the-approved-native-conflict-predicate).
+    NATIVE_R7 = "24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792"
+    NATIVE_CLASSES = {
+        "closed": {"preview.reads", "preview.predicates"},
+        "answered": {"legacy-lock", "material.conflicts", "diagnostic.conflicts", "preview.conflicts",
+                     "funding.conflicts"},
+        "partial": {"staffing.conflicts", "operator-ops.conflicts", "agent-mail.conflicts",
+                    "receipt-lookup.conflicts"},
+        "uncovered": {"status.conflicts", "chart.conflicts", "org-view.conflicts", "org-feed.conflicts",
+                      "human-mail.conflicts", "inbox.conflicts", "quick-staff.conflicts", "work-read.conflicts"},
+    }
+
+    def native_citation_gaps(self, document):
+        gaps = {}
+        for cls, names in self.NATIVE_CLASSES.items():
+            for name in names:
+                facet = document["facets"][name]
+                cites = [f for f in facet["facts"] if f.startswith("Native design r7 (")]
+                ok = len(cites) == 1 and self.NATIVE_R7 in cites[0]
+                if ok and cls == "closed":
+                    ok = facet["status"] == "specified" and facet["open_questions"] == []
+                elif ok:
+                    ok = facet["status"] == "unresolved"
+                    uncovered = "not covered by r7" in cites[0]
+                    ok = ok and (uncovered if cls == "uncovered" else not uncovered)
+                    if cls in ("partial", "uncovered"):
+                        ok = ok and any(q.startswith("Owner: the native conflict/predicate design extension")
+                                        for q in facet["open_questions"])
+                    if cls == "answered":
+                        ok = ok and any(q.startswith("Owner: P03") for q in facet["open_questions"])
+                if not ok:
+                    gaps[name] = cls
+        return gaps
+
+    def test_every_native_design_facet_cites_r7(self):
+        self.assertEqual(self.native_citation_gaps(self.document), {})
+        # no facet is still owned by the design without a citation
+        still = {n for n, f in self.document["facets"].items()
+                 if any(q.startswith("Owner: the separately staffed native conflict") for q in f["open_questions"])}
+        self.assertEqual(still, set())
+
+    def test_a_missing_or_wrong_citation_is_caught(self):
+        for name, edit in (("legacy-lock", lambda f: f["facts"].pop()),
+                           ("status.conflicts", lambda f: f["facts"].__setitem__(-1, f["facts"][-1].replace("not covered by r7", "covered"))),
+                           ("preview.reads", lambda f: f.update(status="unresolved"))):
+            with self.subTest(facet=name):
+                document = copy.deepcopy(self.document)
+                edit(document["facets"][name])
+                self.assertIn(name, self.native_citation_gaps(document))
 
     # The same rule one level down (S3 decision 5; review of S3 candidate 6): a
     # witness inside a helper that more than one entry point calls is mapped only

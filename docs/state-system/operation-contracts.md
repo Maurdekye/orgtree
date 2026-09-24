@@ -120,8 +120,8 @@ diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
 Current totals are 42 contracts, 29 mapped registrations and 50 mapped
-dispatch witnesses. **634 obligations remain**: 290 registrations, 177 dispatch
-witnesses, 15 storage candidates and 152 unresolved dimension occurrences.
+dispatch witnesses. **632 obligations remain**: 290 registrations, 177 dispatch
+witnesses, 15 storage candidates and 150 unresolved dimension occurrences.
 How it got there: 600 was two more registrations than the preceding 598 because the scanner now
 recognizes `asyncio.to_thread` hand-offs; both new witnesses are pending and no
 existing witness identity, disposition or contract changed.
@@ -217,12 +217,16 @@ selectors stay pending with the ruling-2 reason.
 634 is three more than that 631 (S3 candidate 7b): the client's refused-lookup branch
 is mapped (-1) to `receipt.lookup`, whose four unresolved `receipt-lookup` facets add
 four occurrences (+4). The agent door entry stays pending by precedent.
+632 is two fewer than that 634 (the native-design citation): `preview.reads` and
+`preview.predicates` become specified (-2), because their "Closes with" clauses ask
+only for the approved design, which r7 now is. See "Native conflict/predicate design" below.
 See "P03-prototype surface" below.
 
-Of the 53 open dimension occurrences on the sixteen legacy-family contracts, 37 (17 facets) cannot be closed at P01
-from the evidence that exists. Their questions need observed runtime contacts
-(P02) or a chosen and qualified native PostgreSQL design (the separately staffed
-conflict/predicate design, then P03/P05). Each such facet keeps its original
+Of the 43 open dimension occurrences on the sixteen legacy-family contracts, 27 (10 facets) cannot be closed at P01
+from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the
+native-design citation; those figures were already stale after S2d, which left 45
+and 29 (12 facets).) Their questions need observed runtime contacts (P02) or the
+qualification of the approved native design r7 at P03/P05. Each such facet keeps its original
 question and adds one line naming its owner, the evidence that would close it,
 and why the available evidence does not. The P02 real-data replay
 (20260924T063643Z) does not replay these tools, so it closes none of them. The
@@ -497,6 +501,35 @@ classification, coverage classes, the rotated epoch, the client's reading), writ
 (only a missed lookup writes: the fence, which refuses a delayed original), receipt
 and effects (none). Unresolved with an owner: reads and instrumentation (P02),
 conflicts (native design) and wire (native/Rust).
+
+## Native conflict/predicate design
+
+The separately staffed native conflict, predicate and isolation design is approved:
+docket `design-the-native-conflict-predicate-and-isolati`, artifact r7, sha256
+`24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792` (revision 3),
+approved by review artifact r10, sha256
+`8be9323173dd1ae785f66328a8481a12bf86c7f2c816797c1c9c496c01ea895b`. It was written
+for the 18 pre-S3 dimensions. Every facet the design owned now carries one
+"Native design r7" fact with that sha, and `tests/test_state_operation_contracts.py`
+pins the classification (item `p01-cite-the-approved-native-conflict-predicate`):
+
+- **closed** (the clause asks for the approved design only, so the facet is specified;
+  its qualification still runs at P03/P05): `preview.reads` (r7 section 6.2, C6) and
+  `preview.predicates` (sections 6.4 and 6.5, C2a, C6, D10; section 6.4 covers all ten
+  transitions behind the thirteen agent preview spellings);
+- **design half answered, pending on P03 qualification**: `legacy-lock` (11),
+  `material.conflicts`, `diagnostic.conflicts`, `preview.conflicts` and
+  `funding.conflicts` (C2a pairs P2 and P7, section 6.4's reallocate row);
+- **partial**: `staffing.conflicts` (the island, P2, P3, P5, P6 and the
+  seat-plus-item crossing; no declared read set for hire), `operator-ops.conflicts`
+  (reallocate and hire as ledger transitions; not the operator door),
+  `agent-mail.conflicts` (only the reply-grant crossing, P1) and
+  `receipt-lookup.conflicts` (C1's receipt-key uniqueness and replay order; not the
+  fence);
+- **not covered by r7**: `status`, `chart`, `org-view`, `org-feed`, `human-mail`,
+  `inbox`, `quick-staff` and `work-read` conflicts.
+
+The partial and uncovered facets name the design extension as their owner.
 
 ## Deliberate failing controls
 
