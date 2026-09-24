@@ -1556,8 +1556,9 @@ export interface ProviderInfo {
   reserve_reason?: string | null
   /** "openai" only: how far the resolved Codex CLI has drifted from what is
    *  available. Nothing in this repo ever refreshes the pin, and OpenAI gates
-   *  rollout models on the CLI version — a stale pin HIDES a live tier and
-   *  the old refusal message blamed the account for it. OMITTED on an old
+   *  rollout models on the CLI version — a stale pin once HID Astra and the
+   *  old refusal message blamed the account for it (Astra is always offered
+   *  since 2026-09-24; the pin still limits what a turn can run). OMITTED on an old
    *  backend and on every other provider. */
   cli_version?: CodexCliVersion
 }

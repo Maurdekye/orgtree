@@ -81,8 +81,14 @@ _CODEX_LETTER: Final[dict[str, str]] = {
 #: views derive from them so there is exactly one copy to drift. User ruling
 #: 2026-09-22 sets Sol to 2 and Luna to 0.1 credits across model versions;
 #: Terra stays 2 and the legacy reserve tier stays 0.2.
-_CODEX_ALWAYS_TIER_NAMES: Final = ("gpt-reserve", "luna", "terra", "sol")
-_CODEX_TIER_NAMES: Final = _CODEX_ALWAYS_TIER_NAMES + ("astra",)
+#: Astra is ALWAYS offered (user 2026-09-24: "can you make astra a given? not
+#: only conditionally present"). It used to be offered only when the live
+#: `model/list` inventory named `gpt-6-astra`, and a stale CLI pin hid it that
+#: way on 2026-09-04. An account that really cannot run it now fails the TURN
+#: with the provider's own error, like every other Codex tier.
+_CODEX_ALWAYS_TIER_NAMES: Final = ("gpt-reserve", "luna", "terra", "sol",
+                                   "astra")
+_CODEX_TIER_NAMES: Final = _CODEX_ALWAYS_TIER_NAMES
 # Context limits were not supplied with the GPT-6 release/pricing ruling.
 # Keep using observed CLI context instead of inheriting GPT-5.6's ceiling.
 CODEX_UNPINNED_CONTEXT_TIERS: Final = frozenset({"sol", "luna"})
@@ -98,9 +104,11 @@ LEGACY_CODEX_TIERS: Final = frozenset({"gpt-reserve"})
 _CODEX_HIREABLE_TIER_NAMES: Final = tuple(
     t for t in _CODEX_ALWAYS_TIER_NAMES if t not in LEGACY_CODEX_TIERS)
 #: Known Codex tiers whose metadata may exist in the ledger while their offer
-#: is controlled by the signed-in account's live model inventory. New rollout
-#: tiers belong here; stable tiers do not. The model id itself lives only in
-#: ledger.MODELS, so an upstream rename is a one-line data correction.
+#: is controlled by the signed-in account's live model inventory. EMPTY since
+#: 2026-09-24, when Astra became always-offered; the seam stays so a future
+#: rollout tier can be added to `_CODEX_TIER_NAMES` without joining the
+#: always-offered set. The model id itself lives only in ledger.MODELS, so an
+#: upstream rename is a one-line data correction.
 CONDITIONAL_CODEX_TIERS: Final = frozenset(
     set(_CODEX_TIER_NAMES) - set(_CODEX_ALWAYS_TIER_NAMES))
 #: float, not int: this is THE table the codex fractions live in.
@@ -413,10 +421,10 @@ def codex_tiers(available_models: set[str] | frozenset[str] | None = None
                 ) -> list[TierInfo]:
     """Codex tier rows safe to OFFER for one account-inventory snapshot.
 
-    Stable tiers are part of the established lane. Conditional rollout tiers
-    appear only when their exact pinned model id is in a successfully fetched
-    full inventory. ``None`` therefore means no evidence and fails closed for
-    those rows; it is never an optimistic default.
+    Every hireable tier (Astra included) is offered whatever the inventory
+    says. Only a tier in `CONDITIONAL_CODEX_TIERS` — none today — would need
+    its exact pinned model id in a successfully fetched full inventory, and
+    for such a tier ``None`` means no evidence and fails closed.
     """
     # HIREABLE rows only: a legacy token (gpt-reserve) is on the axis for the
     # nodes that already wear it, never in the offer
@@ -575,8 +583,10 @@ def codex_status(force: bool = False) -> dict[str, Any]:
 # REPORTING CLIENT VERSION, measured on this host 2026-09-04: the pinned CLI
 # 0.150.1 (installed Aug 28) returned 9 model ids and the newer 0.153.0 on PATH
 # returned the same 9 PLUS `gpt-6-astra` — same account, same auth, same code.
-# So a stale pin makes a live tier invisible, and the failure presents as "your
-# account does not have it", which is a lie about the wrong subsystem.
+# While Astra was offered only from that list, a stale pin made a live tier
+# invisible, and the failure presented as "your account does not have it",
+# which was a lie about the wrong subsystem. Astra no longer depends on the
+# list (2026-09-24), but the pin still decides which models a turn can reach.
 #
 # This does NOT auto-upgrade. Swapping the CLI underneath running agents is its
 # own hazard; the job here is to make the drift VISIBLE and let a person act.
@@ -827,6 +837,10 @@ def conditional_codex_availability(
         tier: str, *, force: bool = False,
         status: dict[str, Any] | None = None) -> dict[str, Any]:
     """Availability of one conditional Codex tier from exact live membership.
+
+    No tier is conditional today (see `CONDITIONAL_CODEX_TIERS`), so every
+    current tier answers ``not-conditional``. Astra went through here until
+    2026-09-24.
 
     ⚠ THE `model-missing` MESSAGE USED TO BLAME THE ACCOUNT: "the signed-in
     Codex account does not offer model 'gpt-6-astra'". On 2026-09-04 that was
@@ -1481,15 +1495,15 @@ def providers_payload(claude_status: dict[str, Any], force: bool = False,
             # name; tier words luna/terra/sol carry everywhere else.
             "label": PROVIDER_LABEL["openai"],
             "cli": "Codex CLI",
-            # Stable rows are always described; rollout rows require exact
-            # membership in the full account-scoped model list. The picker is
-            # convenience only — provider_hire_gate re-queries before mutate.
+            # Every hireable row (Astra included) is always described; only a
+            # CONDITIONAL_CODEX_TIERS row — none today — would need exact
+            # membership in the full account-scoped model list.
             "tiers": codex_tiers(codex_models),
             "status": codex,
             # ⚠ the pin never self-refreshes (see codex_cli_version_status) and
-            # a stale CLI silently HIDES rollout tiers, so the drift belongs on
-            # the panel beside the tiers it suppresses — not only in the
-            # refusal message of whoever trips over it later. Carries `path`
+            # a stale CLI is not offered newer models, so the drift belongs on
+            # the panel beside the tiers it affects — not only in the error
+            # of whoever trips over it later. Carries `path`
             # and `source`: the backend's build is not necessarily the build a
             # differently-rooted process would run.
             "cli_version": codex_cli_version_status(codex),

@@ -70,8 +70,10 @@ export const MODEL_VERSIONS: Record<string, string[]> =
  *  Sol to 2 and Luna to 0.1 credits, across supported model versions.
  *  The legacy reserve tier stays 0.2; fractions remain real seat costs.
  *  The hire surfaces use this family list when the Codex CLI is
- *  available. */
-export const CODEX_ALWAYS_TIERS = ['luna', 'terra', 'sol']
+ *  available. Astra joined it on 2026-09-24 (user: "can you make astra a
+ *  given? not only conditionally present") — it no longer waits for the
+ *  account's live model list. Mirrors providers._CODEX_ALWAYS_TIER_NAMES. */
+export const CODEX_ALWAYS_TIERS = ['luna', 'terra', 'sol', 'astra']
 /** LEGACY Codex tokens (user ruling 2026-09-04, audit item 12): known to the
  *  axis so a node that already wears one keeps its letter, colour, seat and
  *  provider class — but NEVER offered by any hire or switch surface
@@ -81,13 +83,11 @@ export const CODEX_ALWAYS_TIERS = ['luna', 'terra', 'sol']
  *  (`TreeNode.codex_route`) says which one a turn actually ran on. Mirrors
  *  providers.LEGACY_CODEX_TIERS. */
 export const LEGACY_CODEX_TIERS = ['gpt-reserve']
-/** All KNOWN Codex tiers — legacy tokens (for the nodes wearing them), the
- *  stable hireable family, and rollout tiers whose metadata is installed
- *  before their account access exists. A rollout tier is never offered merely
- *  because it is in this list; `codexTierOffer` requires it in the backend's
- *  live account-scoped tier rows. */
-export const CODEX_TIERS = [...LEGACY_CODEX_TIERS, ...CODEX_ALWAYS_TIERS,
-  'astra']
+/** All KNOWN Codex tiers — legacy tokens (for the nodes wearing them) and
+ *  the always-offered hireable family. A future rollout tier would be listed
+ *  here but not in `CODEX_ALWAYS_TIERS`; `codexTierOffer` would then require
+ *  it in the backend's live account-scoped tier rows. None exists today. */
+export const CODEX_TIERS = [...LEGACY_CODEX_TIERS, ...CODEX_ALWAYS_TIERS]
 export const CODEX_TIER_LETTER: Record<string, string> = {
   'gpt-reserve': 'R', luna: 'L', terra: 'T', sol: 'S', astra: 'A' }
 export const CODEX_TIER_SEAT: Record<string, number> = {
@@ -481,11 +481,10 @@ export const hireOf = (p: ProviderInfo | null | undefined): HireState | null =>
  *  offered — 'hide', unconditionally, whatever the payload says: it is not a
  *  tier any more, and the ruling that removed it ("dont just grey out the
  *  reserve token. remove it entirely", 2026-09-02) already wanted it gone
- *  rather than greyed. Stable tiers preserve the established family
- *  behavior. Any known tier outside that stable set is a conditional
- *  rollout and fails closed unless the backend's fresh account inventory put
- *  it in the provider's tier rows. Missing payload is therefore NOT enough
- *  to light Astra, even though it remains optimistic for the stable family. */
+ *  rather than greyed. Always-offered tiers (Astra included, since
+ *  2026-09-24) follow the family verdict. A known tier outside that set
+ *  would be a conditional rollout and fail closed unless the backend's fresh
+ *  account inventory put it in the provider's tier rows; none exists today. */
 export const codexTierOffer = (
   h: HireState | null | undefined, tier: string,
 ): FamilyOffer => {

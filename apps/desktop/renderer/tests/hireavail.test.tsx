@@ -18,7 +18,7 @@ import { installFetch, FakeServer, mountView } from './harness'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
-import { codexTierOffer, familyOffer, LEGACY_CODEX_TIERS } from '../src/canvas/shared'
+import { CODEX_ALWAYS_TIERS, codexTierOffer, familyOffer, LEGACY_CODEX_TIERS } from '../src/canvas/shared'
 import type { HireState } from '../src/canvas/shared'
 
 const noop = () => {}
@@ -88,16 +88,27 @@ test('…and never takes luna with it — the leg that must hold', () => {
 
 // --------------------------------------------------------- §2 the surfaces
 
-test('conditional Codex tiers fail closed while stable tiers keep compatibility', () => {
-  assert.equal(codexTierOffer(null, 'astra'), 'hide',
-    'an unresolved provider payload must never light a rollout tier')
-  assert.equal(codexTierOffer(null, 'sol'), 'offer',
-    'the established family keeps its older-backend compatibility behavior')
+// Astra is ALWAYS offered (user 2026-09-24: "can you make astra a given? not
+// only conditionally present"). It used to hide unless the provider payload's
+// tier rows named it; now it takes the family verdict exactly like sol.
+test('Astra follows the Codex family verdict whatever the tier rows say', () => {
+  assert.ok(CODEX_ALWAYS_TIERS.includes('astra'), 'astra is in the always set')
+  const cases: [HireState | null, string][] = [
+    [null, 'no payload yet'],
+    [{ enabled: true, installed: true, reason: null }, 'no tier rows'],
+    [{ enabled: true, installed: true, reason: null, offeredTiers: [] },
+      'empty tier rows'],
+    [{ enabled: true, installed: true, reason: null, offeredTiers: ['sol'] },
+      'tier rows without astra'],
+    [{ enabled: false, installed: true, reason: 'not signed in' }, 'signed out'],
+    [{ enabled: false, installed: false, reason: 'not installed' }, 'absent'],
+  ]
+  for (const [h, why] of cases) {
+    assert.equal(codexTierOffer(h, 'astra'), codexTierOffer(h, 'sol'), why)
+  }
+  assert.equal(codexTierOffer(null, 'astra'), 'offer')
   assert.equal(codexTierOffer(
     { enabled: true, installed: true, reason: null, offeredTiers: ['sol'] },
-    'astra'), 'hide')
-  assert.equal(codexTierOffer(
-    { enabled: true, installed: true, reason: null, offeredTiers: ['astra'] },
     'astra'), 'offer')
 })
 
@@ -184,24 +195,25 @@ surfaceTest('THE REPORT: codex set up, claude not — only codex tokens appear',
     }
   })
 
-surfaceTest('Astra token stays absent until the provider payload offers it',
+surfaceTest('Astra token is offered even when the provider payload omits it',
   async (mount) => {
-    const dark = await mount({ claudeHire: ABSENT,
-      codexHire: state({ enabled: true, installed: true,
-        offeredTiers: [...CODEX] }), antigravityHire: ABSENT })
-    assert.equal(tokens(dark, '.hsof')[ASTRA], undefined)
-
-    const lit = await mount({ claudeHire: ABSENT,
-      codexHire: state({ enabled: true, installed: true,
-        offeredTiers: [...CODEX, ASTRA] }), antigravityHire: ABSENT })
+    const { act } = await import('react')
     // Enough Codex tiers can trigger the far-zoom compact tray; open it
     // (when it rendered) before checking the actual token rather than
     // mistaking the tray for a missing offer. With the legacy reserve
     // token gone (item 12) four Codex tiers may fit without a tray.
-    const { act } = await import('react')
-    const expand = lit.querySelector<HTMLButtonElement>('.hsof:not(.side) .hire-expand')
-    if (expand) await act(async () => expand.click())
-    assert.equal(tokens(lit, '.hsof:not(.side)')[ASTRA], false)
+    const openTray = async (el: HTMLElement) => {
+      const expand = el.querySelector<HTMLButtonElement>('.hsof:not(.side) .hire-expand')
+      if (expand) await act(async () => expand.click())
+    }
+    for (const offeredTiers of [[...CODEX], [], undefined]) {
+      const el = await mount({ claudeHire: ABSENT,
+        codexHire: state({ enabled: true, installed: true, offeredTiers }),
+        antigravityHire: ABSENT })
+      await openTray(el)
+      assert.equal(tokens(el, '.hsof:not(.side)')[ASTRA], false,
+        `astra must be a live chip with tier rows ${JSON.stringify(offeredTiers)}`)
+    }
   })
 
 surfaceTest('gpt-reserve is REMOVED from the chips whatever the family says '
@@ -228,14 +240,14 @@ surfaceTest('gpt-reserve is REMOVED from the chips whatever the family says '
 })
 
 surfaceTest('…but a Codex family that is itself unavailable still shows its '
-  + 'three live tiers, disabled — the ruling removes a token, not a harness',
+  + 'four live tiers, disabled — the ruling removes a token, not a harness',
   async (mount) => {
     const el = await mount({
       claudeHire: ABSENT, antigravityHire: ABSENT,
       codexHire: state({ installed: true, reason: 'not signed in — run x' }),
     })
     const got = tokens(el, '.hsof')
-    for (const t of CODEX) {
+    for (const t of [...CODEX, ASTRA]) {
       assert.equal(got[t], true, `${t} stays visible-but-disabled here`)
     }
     assert.equal(got['gpt-reserve'], undefined, 'the legacy token is absent here too')
