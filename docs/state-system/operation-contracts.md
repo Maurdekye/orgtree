@@ -120,7 +120,7 @@ diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
 Current totals are 42 contracts, 29 mapped registrations and 50 mapped
-dispatch witnesses. **563 obligations remain**: 273 registrations, 177 dispatch
+dispatch witnesses. **567 obligations remain**: 277 registrations, 177 dispatch
 witnesses, 11 storage candidates and 102 unresolved dimension occurrences.
 How it got there: 600 was two more registrations than the preceding 598 because the scanner now
 recognizes `asyncio.to_thread` hand-offs; both new witnesses are pending and no
@@ -276,13 +276,14 @@ LAN-address socket, the liveness port probe, and the two read-only opens of the 
 own conversation database. None is mapped. The org store and every sidecar the probe observes are
 shared with uncontracted operations, so under the shared-selector rule they stay pending, and
 every pending candidate now says why.
-563 is seventeen fewer than that 580 (P01 W1, the first step of the coordinator-approved witness
+567 is thirteen fewer than that 580 (P01 W1, the first step of the coordinator-approved witness
 triage W1-W8, whose rules are decision 1 on its item): of 21 plumbing registrations, source reading
-excludes 17 that are not org-state operations: three router includes whose routes are inventoried
+excludes 13 that are not org-state operations: three router includes whose routes are inventoried
 on their own, the static asset mount, two exception handlers, the shutdown hook and the git
-scheduler stop, four disk mount calls the scanner took for route mounts, the CLI tool-name
-vocabulary, and four stderr pumps. Four stay pending with an owner: the startup hook and the three
-stdout pumps that feed a turn's events.
+scheduler stop, four disk mount calls the scanner took for route mounts, and the CLI tool-name
+vocabulary. Eight stay pending with an owner: the startup hook, the three stdout pumps that feed a
+turn's events, and the four stderr pumps, whose tails a failed turn reads into its failure record
+(a usage-limit failure freezes the node).
 
 Of the 41 open dimension occurrences on the sixteen legacy-family contracts, 25 (9 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the

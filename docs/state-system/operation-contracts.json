@@ -10976,23 +10976,10 @@
     },
     {
       "id": "a3ec925b536e9730d922b4563c467fdc6559772d2557bd40037fcee25b1179c6",
-      "disposition": "excluded",
+      "disposition": "pending",
       "contracts": [],
-      "reason": "Not org state: the thread target _pump_err only keeps the Antigravity CLI's last 50 stderr lines in memory (stderr_tail); it touches no store. P01 W1.",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/antigravityrun.py",
-          "start": 762,
-          "end": 762,
-          "sha256": "af8455bed1b9f82dcba1d227a6e5bf2673cfe1bc98029918fafb50ff7feec38f"
-        },
-        {
-          "path": "engine/backend/orgtree/antigravityrun.py",
-          "start": 666,
-          "end": 672,
-          "sha256": "e8f6e7575413e0cda620164b8b183596340aa1b06422487dd1b1c4a57995bc7c"
-        }
-      ]
+      "reason": "Stays pending (P01 W1): (review fix) the thread keeps the Antigravity CLI's stderr tail, which the turn's failure path reads (supervisor's Antigravity leg and AntigravityTurn._fail_early) into the failure it records. That is org state reached through a buffer the pump feeds (rule 2 of the W1 decision). Owner: the runtime (P08).",
+      "source_refs": []
     },
     {
       "id": "2c2afa85ab428a24d8960d93c7b82ca4250fe40708ea020a31369ba3d8053e79",
@@ -12368,23 +12355,10 @@
     },
     {
       "id": "be71a042ee5f08774bfec3421ecd45d2a115e07ddb25bb48218ab2ed0e294a65",
-      "disposition": "excluded",
+      "disposition": "pending",
       "contracts": [],
-      "reason": "Not org state: the thread target _pump_err only keeps the Codex app-server's last 50 stderr lines in memory (stderr_tail); it touches no store. P01 W1.",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/codexrun.py",
-          "start": 589,
-          "end": 589,
-          "sha256": "03421ec475054b3aeca28ec70da30d5a3f9132c1958d516b697428743cc00349"
-        },
-        {
-          "path": "engine/backend/orgtree/codexrun.py",
-          "start": 593,
-          "end": 599,
-          "sha256": "5abcca91d330da2953501839e071d25888af43263e0fe9ff1eebed8673125bae"
-        }
-      ]
+      "reason": "Stays pending (P01 W1): (review fix) the thread keeps the Codex app-server's stderr tail, which becomes the failure blob of a failed turn (supervisor.py: blob = detail or tail); a usage-limit blob makes freeze_provider_limit freeze the node. That is org state reached through a buffer the pump feeds (rule 2 of the W1 decision). Owner: the runtime (P08).",
+      "source_refs": []
     },
     {
       "id": "0852acebcf5f665b77408001c0f9cbea2fd41e499d077d50f64e269302f220d7",
@@ -13632,49 +13606,17 @@
     },
     {
       "id": "1c0e90434be518674dd8af3f281ef6229cd7c5e433772d60e40b25153792a82b",
-      "disposition": "excluded",
+      "disposition": "pending",
       "contracts": [],
-      "reason": "Not org state: the thread target _pump_err keeps a warm process's stderr tail in memory and appends only the CLI's cache-break sentinel lines to the machine telemetry journal <ORGTREE_DATA>/journals/warm.jsonl (warmpool._journal); it touches no org store or census sidecar. P01 W1.",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/warmpool.py",
-          "start": 346,
-          "end": 347,
-          "sha256": "916925f9afacb100e6762ed0beeea2a364fa953a9c27bce564f1c5319b100916"
-        },
-        {
-          "path": "engine/backend/orgtree/warmpool.py",
-          "start": 393,
-          "end": 402,
-          "sha256": "79e1aa0659040f2a6eec2d81d2d53213119157a4628059a62fabe1ee7e0d2a56"
-        },
-        {
-          "path": "engine/backend/orgtree/warmpool.py",
-          "start": 526,
-          "end": 538,
-          "sha256": "3f343a6c921dbbd642b04aa07193dfce68572dd2e897abc4e97605da819099bd"
-        }
-      ]
+      "reason": "Stays pending (P01 W1): (review fix) the thread keeps a warm Claude process's stderr tail, which the turn reads on failure (err_text) into the failure record and its limit classification; the cache-break journal line alone would not have disqualified it. That is org state reached through a buffer the pump feeds (rule 2 of the W1 decision). Owner: the runtime (P08).",
+      "source_refs": []
     },
     {
       "id": "96d6b3940a1c8cc3c45128c2521715bdad0f2abc9631c5457ca6026d48dfc6d9",
-      "disposition": "excluded",
+      "disposition": "pending",
       "contracts": [],
-      "reason": "Not org state: the drain thread keeps a cold process's stderr tail in memory and appends only the CLI's cache-break sentinel lines to the machine telemetry journal <ORGTREE_DATA>/journals/warm.jsonl (warmpool._journal); it touches no org store or census sidecar. P01 W1.",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/warmpool.py",
-          "start": 667,
-          "end": 668,
-          "sha256": "c594f86a8fe7b4ee396e5ec717914e76234ae4f47f29f455c9eec6a0a9ed5648"
-        },
-        {
-          "path": "engine/backend/orgtree/warmpool.py",
-          "start": 628,
-          "end": 669,
-          "sha256": "f5b1155d94d91cff3963c8bfa60c5695a45c4251d0e9c3bbd076aa786996c6ac"
-        }
-      ]
+      "reason": "Stays pending (P01 W1): (review fix) the thread keeps a cold Claude process's stderr tail, which the turn reads on failure (cold_stderr.text) into the failure record and its limit classification; the cache-break journal line alone would not have disqualified it. That is org state reached through a buffer the pump feeds (rule 2 of the W1 decision). Owner: the runtime (P08).",
+      "source_refs": []
     },
     {
       "id": "047d2ebc8ff898c8710e5661cdbaa320d9b2273ef2852dfe5e84edd38e638a43",

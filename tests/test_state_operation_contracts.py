@@ -46,7 +46,7 @@ class ContractCoverage(unittest.TestCase):
         self.assertEqual(result["contracts"], 42)
         self.assertEqual((result["summary"]["entries"]["mapped"], result["summary"]["dispatch"]["mapped"],
                           result["summary"]["storage"]["mapped"]), (29, 50, 0))
-        self.assertEqual(len(result["pending"]), 563)
+        self.assertEqual(len(result["pending"]), 567)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
@@ -113,9 +113,10 @@ class ContractCoverage(unittest.TestCase):
     # operation, otherwise stay pending with a reason that names the owner
     W1_EXCLUDED = {("api.py", 122), ("api.py", 124), ("api.py", 14825), ("api.py", 14826), ("api.py", 14829),
                    ("api.py", 901), ("api.py", 928), ("api.py", 1566), ("disk.py", 226), ("sandbox.py", 891),
-                   ("sandbox.py", 1031), ("sandbox.py", 1040), ("turnread.py", 44), ("antigravityrun.py", 762),
-                   ("codexrun.py", 589), ("warmpool.py", 346), ("warmpool.py", 667)}
-    W1_PENDING = {("api.py", 1394), ("antigravityrun.py", 760), ("codexrun.py", 587), ("warmpool.py", 344)}
+                   ("sandbox.py", 1031), ("sandbox.py", 1040), ("turnread.py", 44)}
+    # the 4 stderr pumps feed the failure path, which can freeze a node (W1 review fix)
+    W1_PENDING = {("api.py", 1394), ("antigravityrun.py", 760), ("codexrun.py", 587), ("warmpool.py", 344),
+                  ("antigravityrun.py", 762), ("codexrun.py", 589), ("warmpool.py", 346), ("warmpool.py", 667)}
 
     def test_w1_plumbing_registrations_are_triaged(self):
         registrations = {r["site_id"]: r["source"] for r in self.source["registrations"]}
