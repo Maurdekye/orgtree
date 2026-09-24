@@ -301,6 +301,33 @@ class AgentMailBoundary(unittest.TestCase):
         result, changed, grants, _, _ = self.send(N, 'kid', 'top')
         self.assertEqual((changed, grants), (spec['sections']['agent_with_grant'], [('kid', 'top')]))
 
+    def test_only_three_automatic_notices_withhold_the_reply_grant(self):
+        """agent-mail.conflicts: an explicit send keeps the implicit reply grant. The only calls that
+        pass anything but True for grant_reply_audience are the docket's assignment and participation
+        notices and quick staffing's notice to the previous assignee; post_event forwards its own
+        parameter (S2e review f1). A new withholding caller fails here."""
+        import ast
+        found = set()
+
+        def walk(path, node, scope):
+            for child in ast.iter_child_nodes(node):
+                inner = scope
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    inner = scope + (child.name,)
+                if isinstance(child, ast.Call):
+                    for kw in child.keywords:
+                        if kw.arg == 'grant_reply_audience' and not (
+                                isinstance(kw.value, ast.Constant) and kw.value.value is True):
+                            found.add((path.name, '.'.join(inner), ast.unparse(kw.value)))
+                walk(path, child, inner)
+
+        for path in sorted((ROOT / 'engine' / 'backend' / 'orgtree').glob('*.py')):
+            walk(path, ast.parse(path.read_text(encoding='utf-8')), ())
+        self.assertEqual(found, {('api.py', 'quick_staff_select', 'False'),
+                                 ('ledger.py', 'Org._work_assign_core', 'False'),
+                                 ('ledger.py', 'Org._work_participation_notices', 'False'),
+                                 ('ledger.py', 'Org.post_event', 'grant_reply_audience')})
+
     # -- receipts and the door --------------------------------------------
     def test_keyed_sends_file_their_receipt_and_replay_without_effects(self):
         spec = self.spec

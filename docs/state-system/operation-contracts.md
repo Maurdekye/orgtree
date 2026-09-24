@@ -552,8 +552,9 @@ schedules `preview.predicates` carried (Q-P3, Q-P6, Q-C2, Q-C9) and Q-C5, which 
 runs over every operation it designs, are carried on `preview.conflicts`, whose
 "Closes with" now requires them. `tests/test_state_operation_contracts.py` pins it.
 S2e also retracts a sentence the citation's review round added: an explicit
-`orgtree_send_notice` keeps the reply grant (only the ledger's automatic notices do
-not), so r7's P1 covers `mail.notice` as it covers `mail.message`.
+`orgtree_send_notice` keeps the reply grant (only three automatic notices do not:
+the docket's assignment and participation notices and quick staffing's notice to
+the previous assignee; S2f, on review finding f1), so r7's P1 covers `mail.notice` as it covers `mail.message`.
 
 ## Deliberate failing controls
 
