@@ -1,0 +1,115 @@
+{
+  "schema": "orgtree.human-mail-boundary/v1",
+  "source_contract_sha256": "05c77a37e161585b7f0909045be880bb050e581146577130a81bde6e2032f392",
+  "qualification": {
+    "runtime_census": false,
+    "conversion_authorized": false
+  },
+  "routes": {
+    "mail.human-send": "POST /api/orgs/{slug}/nodes/{nid}/message",
+    "mail.user-inbox": "GET /api/orgs/{slug}/inbox",
+    "mail.user-inbox-read": "POST /api/orgs/{slug}/inbox/read",
+    "mail.node-inbox": "GET /api/orgs/{slug}/nodes/{nid}/inbox"
+  },
+  "carrier": [
+    "delivered",
+    "queued"
+  ],
+  "results": {
+    "mail": [
+      "delivery",
+      "ev",
+      "id",
+      "operation_id",
+      "ref"
+    ],
+    "notice_adds": [
+      "accepted",
+      "notice"
+    ],
+    "deferred": [
+      "accepted",
+      "deferred",
+      "delivery",
+      "ev",
+      "id",
+      "notice",
+      "operation_id",
+      "queued",
+      "ref",
+      "warnings"
+    ],
+    "inbox": [
+      "delivered",
+      "pending",
+      "sent"
+    ],
+    "read": [
+      "read"
+    ],
+    "pending_row": [
+      "at",
+      "body",
+      "from",
+      "id",
+      "kind",
+      "message_id",
+      "operation_id",
+      "ref"
+    ]
+  },
+  "sections": {
+    "top": [
+      "events",
+      "lifecycle",
+      "mail",
+      "mail_log",
+      "nodes",
+      "user_outbox"
+    ],
+    "deep_first": [
+      "audiences",
+      "events",
+      "lifecycle",
+      "mail",
+      "mail_log",
+      "nodes",
+      "notice_log",
+      "notices",
+      "user_outbox"
+    ],
+    "deep": [
+      "events",
+      "lifecycle",
+      "mail",
+      "mail_log",
+      "nodes",
+      "notice_log",
+      "notices",
+      "user_outbox"
+    ],
+    "command_first": [
+      "audiences",
+      "notice_log",
+      "notices"
+    ],
+    "read": [
+      "user_inbox",
+      "user_mail_log"
+    ]
+  },
+  "ping": {
+    "mail": {
+      "ping_reason": "user_mail"
+    },
+    "notice": {
+      "wake": false,
+      "ping_reason": "notice"
+    }
+  },
+  "legacy_defects": [
+    "POST /inbox/read broadcasts a tree change even when it read nothing",
+    "client_op is not an idempotency key: a repeated request posts again"
+  ],
+  "scope": "Legacy boundary of the human send and the three inbox routes at the operator door on disposable SQLite. Pins refusals, the session-command split, deep-reach effects, committed sections and callbacks at their boundary; /compact's background compaction, the kiosk path and the JSON backend are not exercised."
+}

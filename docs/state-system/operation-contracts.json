@@ -5369,6 +5369,521 @@
         "Extend the P02 per-operation probe to both mail tools with an agent-level locality control.",
         "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed, loss-accounted contact record for both mail tools by recipient class, with agent-level locality (only the sender and the named recipient touched). Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to the mail tools."
       ]
+    },
+    "human-mail.authority": {
+      "dimension": "authority",
+      "status": "specified",
+      "facts": [
+        "The desktop engine's TokenGate (engine/launch.py, outside the pinned module set, so no span) requires X-Orgtree-Desktop-Token; an agent credential is honoured only on POST /api/agent and the steer routes, so a valid agent token here is refused 401 'agent credential is invalid or expired; …' (pinned). The operator acts as the user (@user) and reaches ANY node of the org: Org.post_mail applies §7.2 addressing only when the sender is not the user or the system. Pinned for a deep node.",
+        "§7.4 direct user contact (Org.user_deep_reach): addressing a node that has a superior notifies every non-user ancestor with a context.deep_reach notice and grants the node a user audience if it holds none. It runs for mail AND for a session command, and also when the recipient is archived. A top-level node gets neither. Pinned.",
+        "The public kiosk gateway does not freeze this route (it is not in _public_denied), so a kiosk visitor can send too, with a public receipt projection; that path is read from source only (the desktop launcher does not start the public listener)."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5501,
+          "end": 5773,
+          "sha256": "a959d38900fe9b35081719dcfda658ce985fb8926de2e71d995d53d784429cdd"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4361,
+          "end": 4385,
+          "sha256": "4d34e5bce96e3311ba8a9ec8a53b2c528c4aaa90045767e44b7baeda6dac7507"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 3516,
+          "end": 3723,
+          "sha256": "288b5ed6ce5eebce5180f6fd7e09fed816475ed64149519c60c4f4cd1aaa62e1"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1031,
+          "end": 1126,
+          "sha256": "ef684ae246bae2fad111b9194802462db256985a1035ecc9f6b35288305da20a"
+        }
+      ],
+      "open_questions": []
+    },
+    "human-mail.predicates": {
+      "dimension": "predicates",
+      "status": "specified",
+      "facts": [
+        "Refusals before anything records: a text that is empty after strip (422 'empty message'); both target and reply_to (422); a client_op longer than 128 characters (422 'client_op is N characters and the limit is 128'); an unknown node (422 'NOT DELIVERED — …'). Pinned.",
+        "SESSION COMMAND: a text whose first token matches /[A-Za-z?][\\w-]* (e.g. '/model sonnet') is not mail. A non-live node refuses 409; a live one gets the deep-reach effects, then supervisor.immediate_command, else supervisor.send_message(..., command=True). A first token with inner slashes ('/e/Libraries/x.md please') is ordinary mail. Pinned. '/compact' additionally refuses a halted, frozen, remote-controlled, bearer, empty or just-compacted node and otherwise starts a background thread running supervisor.manual_compact (read from source, not exercised).",
+        "notice=true makes the mail kind 'notice' (never for the user or an outside address). Attachments are paths inside the recipient's working folder; at most ATTACHMENT_MAX (10) are taken, and a missing or excess one is recorded on the row as attachments_missing and returned as a warning. An archived recipient is deferred: stored, not pinged. Pinned."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5501,
+          "end": 5773,
+          "sha256": "a959d38900fe9b35081719dcfda658ce985fb8926de2e71d995d53d784429cdd"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4361,
+          "end": 4385,
+          "sha256": "4d34e5bce96e3311ba8a9ec8a53b2c528c4aaa90045767e44b7baeda6dac7507"
+        }
+      ],
+      "open_questions": []
+    },
+    "human-mail.writes": {
+      "dimension": "writes",
+      "status": "specified",
+      "facts": [
+        "Measured with the committed document read cold. Mail to a top-level live node: one typed row (ev ordinary.message or ordinary.notice, from @user, relationship USER, client_op when given) in the node's box, one mail_log row, one 'mail' event, one accepted lifecycle row, the node's mail_seq/mailbox_id, and one user_outbox (Sent) copy. To a non-top node additionally: context.deep_reach notices and notice_log rows for the chain, and one audiences row the first time. A session command writes only the deep-reach notices (and the first audience grant) — no mail, no Sent copy. Every refusal writes nothing. Pinned."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5501,
+          "end": 5773,
+          "sha256": "a959d38900fe9b35081719dcfda658ce985fb8926de2e71d995d53d784429cdd"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4361,
+          "end": 4385,
+          "sha256": "4d34e5bce96e3311ba8a9ec8a53b2c528c4aaa90045767e44b7baeda6dac7507"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 3516,
+          "end": 3723,
+          "sha256": "288b5ed6ce5eebce5180f6fd7e09fed816475ed64149519c60c4f4cd1aaa62e1"
+        }
+      ],
+      "open_questions": []
+    },
+    "human-mail.receipt": {
+      "dimension": "receipt",
+      "status": "specified",
+      "facts": [
+        "Not an operation-receipt route: there is no key, admission or replay. client_op is stored verbatim on the mail row so the sender can recognise its own durable copy; nothing reads it back and it is not an idempotency key, so a repeated request posts again. Pinned."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5501,
+          "end": 5773,
+          "sha256": "a959d38900fe9b35081719dcfda658ce985fb8926de2e71d995d53d784429cdd"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5477,
+          "end": 5498,
+          "sha256": "6451fe7733efa4f24b8d485fde8b77aabdfd2d96aacdadf37f190fe723492e9f"
+        }
+      ],
+      "open_questions": []
+    },
+    "human-mail.effects": {
+      "dimension": "effects",
+      "status": "unresolved",
+      "facts": [
+        "Observed at the callback boundary with spies: after the save, mail sparks mail_notify(org, @user, node) and pings the node once through supervisor.send_message (mail_ping, ping_reason 'user_mail'); a notice steers once with wake=False and ping_reason 'notice'; a deferred recipient is sparked but not pinged; a session command calls supervisor.immediate_command and then send_message(..., command=True). In production every save also schedules the coalesced tree broadcast through store.on_save (wired at startup; the test harness does not start it)."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5501,
+          "end": 5773,
+          "sha256": "a959d38900fe9b35081719dcfda658ce985fb8926de2e71d995d53d784429cdd"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1478,
+          "end": 1478,
+          "sha256": "e7078f6578da8a33023fef27cd7332804c800cd46e45ebe90cf3c64a50b271a5"
+        }
+      ],
+      "open_questions": [
+        "Observe the session-command effects, including the /compact background compaction and its failures.",
+        "Owner: P08 (runtime/providers), with P02 observing. Closes with: the observed effects of the session-command branch (immediate_command, the command delivery and the /compact background compaction), with their failure outcomes. Not coverable at P01 from available evidence: those supervisor calls are spied at this boundary and /compact starts a real compaction thread that the synthetic harness does not run; the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to this route."
+      ]
+    },
+    "human-mail.reads": {
+      "dimension": "reads",
+      "status": "unresolved",
+      "facts": [
+        "Source read set: the resident document for the node, its ancestors and audiences, the user outbox, and (for reply targets) the node's chat events through supervisor.resolve_chat_event; attachments stat the recipient's working folder."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5501,
+          "end": 5773,
+          "sha256": "a959d38900fe9b35081719dcfda658ce985fb8926de2e71d995d53d784429cdd"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4361,
+          "end": 4385,
+          "sha256": "4d34e5bce96e3311ba8a9ec8a53b2c528c4aaa90045767e44b7baeda6dac7507"
+        }
+      ],
+      "open_questions": [
+        "Record the statement-level read set of each human-send class.",
+        "Owner: P02. Closes with: observed per-operation contacts for the human send by class (top-level, deep, archived, notice, session command, reply target), cold and warm. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to this route."
+      ]
+    },
+    "human-mail.conflicts": {
+      "dimension": "conflicts",
+      "status": "unresolved",
+      "facts": [
+        "The mail branch runs in one write cycle under DOC_LOCK; the session-command branch takes its own write cycle for the deep-reach effects and then drives the process outside it."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5501,
+          "end": 5773,
+          "sha256": "a959d38900fe9b35081719dcfda658ce985fb8926de2e71d995d53d784429cdd"
+        }
+      ],
+      "open_questions": [
+        "Choose the native transactions for a human send, its Sent row and its deep-reach effects.",
+        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 and P07. Closes with: the v6 MAIL-STAGES human-to-agent variant (human Sent row and receiver-owned deposit in separate transactions, deep-reach grant and notices) qualified by concurrent sends. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source decides."
+      ]
+    },
+    "human-mail.wire": {
+      "dimension": "wire",
+      "status": "unresolved",
+      "facts": [
+        "Result shapes are fixtured in docs/state-system/human-mail-boundary.json and compared by tests/test_state_human_mail_boundary.py: delivered mail returns the carrier's answer plus delivery, id, ref, operation_id and ev; a notice adds accepted and notice; a deferred send returns {accepted, deferred, queued 0, notice, delivery, …receipt}; a session command returns the carrier's answer."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5501,
+          "end": 5773,
+          "sha256": "a959d38900fe9b35081719dcfda658ce985fb8926de2e71d995d53d784429cdd"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5477,
+          "end": 5498,
+          "sha256": "6451fe7733efa4f24b8d485fde8b77aabdfd2d96aacdadf37f190fe723492e9f"
+        }
+      ],
+      "open_questions": [
+        "Carry the fixtured human-send shapes to the native/Rust route.",
+        "Owner: the native/Rust conversion, from the P03 prototype onward. Closes with: the fixtured human-send shapes passing against the native and Rust builds. Not coverable at P01 from available evidence: no native or Rust build exists to run the fixtures against."
+      ]
+    },
+    "human-mail.instrumentation": {
+      "dimension": "instrumentation",
+      "status": "unresolved",
+      "facts": [
+        "The access middleware labels the route; no census action classification and no P02 per-operation record exist for it."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5501,
+          "end": 5773,
+          "sha256": "a959d38900fe9b35081719dcfda658ce985fb8926de2e71d995d53d784429cdd"
+        }
+      ],
+      "open_questions": [
+        "Extend the P02 per-operation probe to the human send with an agent-level locality control.",
+        "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed, loss-accounted contact record for the human send with agent-level locality (the node and its notified chain only). Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to this route."
+      ]
+    },
+    "inbox.authority": {
+      "dimension": "authority",
+      "status": "specified",
+      "facts": [
+        "The desktop engine's TokenGate (engine/launch.py, outside the pinned module set, so no span) requires X-Orgtree-Desktop-Token; an agent credential is honoured only on POST /api/agent and the steer routes, so a valid agent token here is refused 401 'agent credential is invalid or expired; …' (pinned). The operator reaches every org's user inbox and every node's inbox; an unknown org or node is 404. Pinned.",
+        "The public kiosk gateway does not freeze these routes; rows are then projected with public=True (_mail_refs/_sent_refs). Read from source only (the desktop launcher does not start the public listener)."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8891,
+          "end": 8905,
+          "sha256": "a2011a757577b3d9111e0956a4742c361e8a5bd3088e823bd9066216c46defcf"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8907,
+          "end": 8934,
+          "sha256": "acf4ac14d76d16b65f2d0d871d2a6cde9227a7a031238f7730f7da0ee0124e56"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14132,
+          "end": 14188,
+          "sha256": "2dd7f7830f4b88630c5318c3d31a36f7eab4c80028c636787d514c34c24a8e28"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 7548,
+          "end": 7580,
+          "sha256": "00ec45dc487d235d68b96756c65a249d8a20ee47d0bdaadcdd31bfbbaee17ae6"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1031,
+          "end": 1126,
+          "sha256": "ef684ae246bae2fad111b9194802462db256985a1035ecc9f6b35288305da20a"
+        }
+      ],
+      "open_questions": []
+    },
+    "inbox.predicates": {
+      "dimension": "predicates",
+      "status": "specified",
+      "facts": [
+        "GET /inbox returns {pending, delivered, sent}: the user inbox, the user mail log and the user outbox, each row carrying its ref. POST /inbox/read takes {ids}: every user_inbox row whose id is listed moves to user_mail_log, which is re-sorted by 'at'; unknown ids are ignored and the answer is {read: n}. GET nodes/{nid}/inbox returns {pending, delivered, sent}: pending is the node's box plus mail in flight to it, delivered its mail log minus rows already pending (matched on at/from/body), last 50, and sent the mail it sent, last 50 (on SQLite from bounded tails). Pinned on SQLite."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8891,
+          "end": 8905,
+          "sha256": "a2011a757577b3d9111e0956a4742c361e8a5bd3088e823bd9066216c46defcf"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8907,
+          "end": 8934,
+          "sha256": "acf4ac14d76d16b65f2d0d871d2a6cde9227a7a031238f7730f7da0ee0124e56"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14132,
+          "end": 14188,
+          "sha256": "2dd7f7830f4b88630c5318c3d31a36f7eab4c80028c636787d514c34c24a8e28"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 3770,
+          "end": 3827,
+          "sha256": "fff038c90a0ef3b7522a5096b2cf580aff44ae07e2dbac74a26949553e048270"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 3954,
+          "end": 4029,
+          "sha256": "f92fe4ae8c2b76145b6eba335f7aeb5ed3f4aa94baeaaddfd8aedf719de2a5dc"
+        }
+      ],
+      "open_questions": []
+    },
+    "inbox.writes": {
+      "dimension": "writes",
+      "status": "unresolved",
+      "facts": [
+        "POST /inbox/read saves only when a listed id matched: user_inbox and user_mail_log change, nothing else. The two GETs never save. Measured on already-migrated synthetic data."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8907,
+          "end": 8934,
+          "sha256": "acf4ac14d76d16b65f2d0d871d2a6cde9227a7a031238f7730f7da0ee0124e56"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8891,
+          "end": 8905,
+          "sha256": "a2011a757577b3d9111e0956a4742c361e8a5bd3088e823bd9066216c46defcf"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14132,
+          "end": 14188,
+          "sha256": "2dd7f7830f4b88630c5318c3d31a36f7eab4c80028c636787d514c34c24a8e28"
+        }
+      ],
+      "open_questions": [
+        "Inventory the cold and migration writes reachable from the inbox routes.",
+        "Owner: P02, then P03 qualification. Closes with: observed writes on the cold and migration paths of the three routes (read_user_inbox, read_mail_tails, load_org_snapshot and the resident load). Not coverable at P01 from available evidence: the measurement uses already-migrated data, and the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to these routes."
+      ]
+    },
+    "inbox.receipt": {
+      "dimension": "receipt",
+      "status": "specified",
+      "facts": [
+        "Plain HTTP routes: no operation receipt, key or replay. Marking read is idempotent by content (a second call for the same ids reads 0)."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8907,
+          "end": 8934,
+          "sha256": "acf4ac14d76d16b65f2d0d871d2a6cde9227a7a031238f7730f7da0ee0124e56"
+        }
+      ],
+      "open_questions": []
+    },
+    "inbox.effects": {
+      "dimension": "effects",
+      "status": "specified",
+      "facts": [
+        "POST /inbox/read calls hub_changed(org) on EVERY call, including one that read nothing (recorded legacy behaviour; pinned). The GETs call no callback. No mail, ping or spark is sent by any of the three."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8907,
+          "end": 8934,
+          "sha256": "acf4ac14d76d16b65f2d0d871d2a6cde9227a7a031238f7730f7da0ee0124e56"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8891,
+          "end": 8905,
+          "sha256": "a2011a757577b3d9111e0956a4742c361e8a5bd3088e823bd9066216c46defcf"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14132,
+          "end": 14188,
+          "sha256": "2dd7f7830f4b88630c5318c3d31a36f7eab4c80028c636787d514c34c24a8e28"
+        }
+      ],
+      "open_questions": []
+    },
+    "inbox.reads": {
+      "dimension": "reads",
+      "status": "unresolved",
+      "facts": [
+        "Source read set: on SQLite, store.read_user_inbox and store.read_mail_tails read bounded rows directly; otherwise load_org_snapshot with mail_log and user_mail_log; the node inbox also reads the in-flight delivering set."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8891,
+          "end": 8905,
+          "sha256": "a2011a757577b3d9111e0956a4742c361e8a5bd3088e823bd9066216c46defcf"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14132,
+          "end": 14188,
+          "sha256": "2dd7f7830f4b88630c5318c3d31a36f7eab4c80028c636787d514c34c24a8e28"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 3770,
+          "end": 3827,
+          "sha256": "fff038c90a0ef3b7522a5096b2cf580aff44ae07e2dbac74a26949553e048270"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 3954,
+          "end": 4029,
+          "sha256": "f92fe4ae8c2b76145b6eba335f7aeb5ed3f4aa94baeaaddfd8aedf719de2a5dc"
+        }
+      ],
+      "open_questions": [
+        "Record the read set of the three inbox routes on both backends.",
+        "Owner: P02. Closes with: observed per-operation contacts for the three routes on both store backends, cold and warm. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to these routes."
+      ]
+    },
+    "inbox.conflicts": {
+      "dimension": "conflicts",
+      "status": "unresolved",
+      "facts": [
+        "The GETs read outside DOC_LOCK; the read mark runs in one write cycle over the org-wide user_inbox and user_mail_log sections."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8891,
+          "end": 8905,
+          "sha256": "a2011a757577b3d9111e0956a4742c361e8a5bd3088e823bd9066216c46defcf"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8907,
+          "end": 8934,
+          "sha256": "acf4ac14d76d16b65f2d0d871d2a6cde9227a7a031238f7730f7da0ee0124e56"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14132,
+          "end": 14188,
+          "sha256": "2dd7f7830f4b88630c5318c3d31a36f7eab4c80028c636787d514c34c24a8e28"
+        }
+      ],
+      "open_questions": [
+        "Choose the native read-state rows and predicates for the inbox routes.",
+        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 and P07. Closes with: the v6 human read state (receiver-owned read rows) and inbox read predicates, qualified by concurrent reads and marks. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source decides."
+      ]
+    },
+    "inbox.wire": {
+      "dimension": "wire",
+      "status": "unresolved",
+      "facts": [
+        "The {pending, delivered, sent} envelopes and the pending-row field set are fixtured in docs/state-system/human-mail-boundary.json; the read answer is {read: n}."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8891,
+          "end": 8905,
+          "sha256": "a2011a757577b3d9111e0956a4742c361e8a5bd3088e823bd9066216c46defcf"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8907,
+          "end": 8934,
+          "sha256": "acf4ac14d76d16b65f2d0d871d2a6cde9227a7a031238f7730f7da0ee0124e56"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14132,
+          "end": 14188,
+          "sha256": "2dd7f7830f4b88630c5318c3d31a36f7eab4c80028c636787d514c34c24a8e28"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 7548,
+          "end": 7580,
+          "sha256": "00ec45dc487d235d68b96756c65a249d8a20ee47d0bdaadcdd31bfbbaee17ae6"
+        }
+      ],
+      "open_questions": [
+        "Carry the fixtured inbox envelopes to the native/Rust routes.",
+        "Owner: the native/Rust conversion, from the P03 prototype onward. Closes with: the fixtured inbox envelopes passing against the native and Rust builds, with the always-broadcast read mark reproduced deliberately or replaced. Not coverable at P01 from available evidence: no native or Rust build exists to run the fixtures against."
+      ]
+    },
+    "inbox.instrumentation": {
+      "dimension": "instrumentation",
+      "status": "unresolved",
+      "facts": [
+        "The access middleware labels each route; no P02 per-operation record covers them."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8891,
+          "end": 8905,
+          "sha256": "a2011a757577b3d9111e0956a4742c361e8a5bd3088e823bd9066216c46defcf"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8907,
+          "end": 8934,
+          "sha256": "acf4ac14d76d16b65f2d0d871d2a6cde9227a7a031238f7730f7da0ee0124e56"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14132,
+          "end": 14188,
+          "sha256": "2dd7f7830f4b88630c5318c3d31a36f7eab4c80028c636787d514c34c24a8e28"
+        }
+      ],
+      "open_questions": [
+        "Extend the P02 per-operation probe to the inbox routes.",
+        "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed, loss-accounted contact record for the three inbox routes. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to these routes."
+      ]
     }
   },
   "contracts": {
@@ -6765,6 +7280,202 @@
           "sha256": "a62bf1f230bd9b7206a944325e530cdd470e44407bda0824a77c9b856db0ecc5"
         }
       ]
+    },
+    "mail.human-send": {
+      "entry_ids": [
+        "fd7b053b6db5e7715796fc2b3aeb4a7ffbd925c6747c4537e731831371738346"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "domain_mode": "write",
+      "dimensions": {
+        "authority": [
+          "human-mail.authority"
+        ],
+        "reads": [
+          "human-mail.reads"
+        ],
+        "writes": [
+          "human-mail.writes"
+        ],
+        "predicates": [
+          "human-mail.predicates"
+        ],
+        "conflicts": [
+          "human-mail.conflicts"
+        ],
+        "wire": [
+          "human-mail.wire"
+        ],
+        "receipt": [
+          "human-mail.receipt"
+        ],
+        "effects": [
+          "human-mail.effects"
+        ],
+        "instrumentation": [
+          "human-mail.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5501,
+          "end": 5773,
+          "sha256": "a959d38900fe9b35081719dcfda658ce985fb8926de2e71d995d53d784429cdd"
+        }
+      ]
+    },
+    "mail.user-inbox": {
+      "entry_ids": [
+        "011a6cc53d0e1347ff006736506c05c2088b8f2859a84cfc14f468b5d58da3a9"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "domain_mode": "read",
+      "dimensions": {
+        "authority": [
+          "inbox.authority"
+        ],
+        "reads": [
+          "inbox.reads"
+        ],
+        "writes": [
+          "inbox.writes"
+        ],
+        "predicates": [
+          "inbox.predicates"
+        ],
+        "conflicts": [
+          "inbox.conflicts"
+        ],
+        "wire": [
+          "inbox.wire"
+        ],
+        "receipt": [
+          "inbox.receipt"
+        ],
+        "effects": [
+          "inbox.effects"
+        ],
+        "instrumentation": [
+          "inbox.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8891,
+          "end": 8905,
+          "sha256": "a2011a757577b3d9111e0956a4742c361e8a5bd3088e823bd9066216c46defcf"
+        }
+      ]
+    },
+    "mail.user-inbox-read": {
+      "entry_ids": [
+        "293f5410de0056e34d84616823de052b53ba5e2c47ff6ce6d6b6e0e2f64c0268"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "domain_mode": "conditional_write",
+      "dimensions": {
+        "authority": [
+          "inbox.authority"
+        ],
+        "reads": [
+          "inbox.reads"
+        ],
+        "writes": [
+          "inbox.writes"
+        ],
+        "predicates": [
+          "inbox.predicates"
+        ],
+        "conflicts": [
+          "inbox.conflicts"
+        ],
+        "wire": [
+          "inbox.wire"
+        ],
+        "receipt": [
+          "inbox.receipt"
+        ],
+        "effects": [
+          "inbox.effects"
+        ],
+        "instrumentation": [
+          "inbox.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8907,
+          "end": 8934,
+          "sha256": "acf4ac14d76d16b65f2d0d871d2a6cde9227a7a031238f7730f7da0ee0124e56"
+        }
+      ]
+    },
+    "mail.node-inbox": {
+      "entry_ids": [
+        "c2c5a5761683001f9db1d733c7bdc986b766ab85ce24fe09bddb532b4183f58f"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "domain_mode": "read",
+      "dimensions": {
+        "authority": [
+          "inbox.authority"
+        ],
+        "reads": [
+          "inbox.reads"
+        ],
+        "writes": [
+          "inbox.writes"
+        ],
+        "predicates": [
+          "inbox.predicates"
+        ],
+        "conflicts": [
+          "inbox.conflicts"
+        ],
+        "wire": [
+          "inbox.wire"
+        ],
+        "receipt": [
+          "inbox.receipt"
+        ],
+        "effects": [
+          "inbox.effects"
+        ],
+        "instrumentation": [
+          "inbox.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14132,
+          "end": 14188,
+          "sha256": "2dd7f7830f4b88630c5318c3d31a36f7eab4c80028c636787d514c34c24a8e28"
+        }
+      ]
     }
   },
   "wire_cases": [
@@ -7239,6 +7950,34 @@
       },
       "contract": "mail.notice",
       "domain_mode": "write"
+    },
+    {
+      "name": "mail.human-send",
+      "entry_id": "fd7b053b6db5e7715796fc2b3aeb4a7ffbd925c6747c4537e731831371738346",
+      "args": {},
+      "contract": "mail.human-send",
+      "domain_mode": "write"
+    },
+    {
+      "name": "mail.user-inbox",
+      "entry_id": "011a6cc53d0e1347ff006736506c05c2088b8f2859a84cfc14f468b5d58da3a9",
+      "args": {},
+      "contract": "mail.user-inbox",
+      "domain_mode": "read"
+    },
+    {
+      "name": "mail.user-inbox-read",
+      "entry_id": "293f5410de0056e34d84616823de052b53ba5e2c47ff6ce6d6b6e0e2f64c0268",
+      "args": {},
+      "contract": "mail.user-inbox-read",
+      "domain_mode": "conditional_write"
+    },
+    {
+      "name": "mail.node-inbox",
+      "entry_id": "c2c5a5761683001f9db1d733c7bdc986b766ab85ce24fe09bddb532b4183f58f",
+      "args": {},
+      "contract": "mail.node-inbox",
+      "domain_mode": "read"
     }
   ],
   "limits": [
@@ -7797,10 +8536,19 @@
     },
     {
       "id": "fd7b053b6db5e7715796fc2b3aeb4a7ffbd925c6747c4537e731831371738346",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "mail.human-send"
+      ],
+      "reason": "POST /api/orgs/{slug}/nodes/{nid}/message: the human send (S3 F2).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5501,
+          "end": 5773,
+          "sha256": "a959d38900fe9b35081719dcfda658ce985fb8926de2e71d995d53d784429cdd"
+        }
+      ]
     },
     {
       "id": "32155a2809f0b17a73856a906ff97dddde05726d04ea6f8f8adddcc14b227d92",
@@ -8112,17 +8860,35 @@
     },
     {
       "id": "011a6cc53d0e1347ff006736506c05c2088b8f2859a84cfc14f468b5d58da3a9",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "mail.user-inbox"
+      ],
+      "reason": "GET /api/orgs/{slug}/inbox: the user's mailbox (S3 F2).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8891,
+          "end": 8905,
+          "sha256": "a2011a757577b3d9111e0956a4742c361e8a5bd3088e823bd9066216c46defcf"
+        }
+      ]
     },
     {
       "id": "293f5410de0056e34d84616823de052b53ba5e2c47ff6ce6d6b6e0e2f64c0268",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "mail.user-inbox-read"
+      ],
+      "reason": "POST /api/orgs/{slug}/inbox/read: mark user mail read (S3 F2).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8907,
+          "end": 8934,
+          "sha256": "acf4ac14d76d16b65f2d0d871d2a6cde9227a7a031238f7730f7da0ee0124e56"
+        }
+      ]
     },
     {
       "id": "46c77bf435c85a0bb093411b6306c78471b042fe923133c71f0a0f64eaff35e6",
@@ -8364,10 +9130,19 @@
     },
     {
       "id": "c2c5a5761683001f9db1d733c7bdc986b766ab85ce24fe09bddb532b4183f58f",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "mail.node-inbox"
+      ],
+      "reason": "GET /api/orgs/{slug}/nodes/{nid}/inbox: a node's mailbox (S3 F2).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14132,
+          "end": 14188,
+          "sha256": "2dd7f7830f4b88630c5318c3d31a36f7eab4c80028c636787d514c34c24a8e28"
+        }
+      ]
     },
     {
       "id": "bbe594a2e1136b8f818e908e7ab6486e613adaba49434a4c9c662156db6864eb",

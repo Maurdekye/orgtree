@@ -115,9 +115,9 @@ runtime probes remain unresolved. Material reads add two cards and two selectors
 diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
-Current totals are 23 contracts, 14 mapped registrations and 36 mapped
-dispatch witnesses. **596 obligations remain**: 305 registrations, 191 dispatch
-witnesses, 15 storage candidates and 85 unresolved dimension occurrences.
+Current totals are 27 contracts, 18 mapped registrations and 36 mapped
+dispatch witnesses. **612 obligations remain**: 301 registrations, 191 dispatch
+witnesses, 15 storage candidates and 105 unresolved dimension occurrences.
 How it got there: 600 was two more registrations than the preceding 598 because the scanner now
 recognizes `asyncio.to_thread` hand-offs; both new witnesses are pending and no
 existing witness identity, disposition or contract changed.
@@ -168,6 +168,10 @@ the two mail cards, their two exact branches, and the two shared mail-family
 selectors that candidate 1 had to leave pending — to `mail.message` and
 `mail.notice`, whose five unresolved shared `agent-mail` facets add ten
 occurrences (+10).
+612 is sixteen more than that 596 (S3 candidate 4): four operator routes are
+mapped (-4) to `mail.human-send`, whose five unresolved `human-mail` facets add
+five, and to `mail.user-inbox`, `mail.user-inbox-read` and `mail.node-inbox`, whose
+five unresolved shared `inbox` facets add fifteen (+20).
 See "P03-prototype surface" below.
 
 Of the 53 open dimension occurrences on the sixteen legacy-family contracts, 37 (17 facets) cannot be closed at P01
@@ -328,6 +332,20 @@ and receipt. Unresolved with an owner: effects (P07: the destination-org write o
 instrumentation (P02), conflicts (native design) and wire (native/Rust). Recorded
 legacy behaviour: empty bodies are delivered, any `kind` but `notice` is accepted,
 and an agent may message itself, which drives its own turn.
+
+Candidate 4 (F2, the human side) adds `mail.human-send` (POST
+`.../nodes/{nid}/message`) and the three inbox routes, `mail.user-inbox`,
+`mail.user-inbox-read` and `mail.node-inbox`, which share one set of `inbox`
+facets. Specified from source and pinned by `tests/test_state_human_mail_boundary.py`
+against `human-mail-boundary.json`: for the send, authority (the operator acts as
+the user and reaches any node; §7.4 deep reach), predicates (refusals, the
+session-command split, notices, attachments, archived recipients), writes and
+receipt (client_op is not an idempotency key); for the inbox routes, authority,
+predicates, receipt and effects. Unresolved with an owner: the send's effects
+(P08: the session-command branch and /compact's background compaction), reads and
+instrumentation (P02) for both, the inbox cold/migration writes (P02), conflicts
+(native design) and wire (native/Rust). Recorded legacy behaviour: marking user
+mail read broadcasts a tree change even when nothing was read.
 
 ## Deliberate failing controls
 
