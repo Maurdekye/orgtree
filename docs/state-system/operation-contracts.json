@@ -1932,7 +1932,17 @@
         "last defaults to30 for missing/null/empty, coerces through int then float-to-int, and clamps to1..80; malformed or nonfinite values return422. node/path use shared text normalization: null restores default, scalars stringify, containers refuse. The card schema is stricter than the gateway coercion.",
         "The scratch path is stripped, leading separators removed, then realpath-resolved with a separator-anchored containment check. Its 20000/200/1200 bounds constrain returned characters or entries, not underlying IO or all nested response bytes.",
         "Door parity is fixtured in tests/test_state_reservation_boundary.py::test_every_p01_tool_shares_the_agent_operator_and_bridge_door_shapes for all five non-reservation P01 tools. Agent credential: 401 missing or invalid, 403 identity mismatch. The desktop operator token acts as any live node, and as node=user gets 403 'authenticated seat is missing; …'. Request-schema errors are FastAPI 422 with a list-shaped detail. Halt/killswitch is 409 before the lock. An unhandled error uses the shared 500 serializer, whose body echoes the exception text (see wire-common).",
-        "BridgeGateway: a valid org bridge secret may call /api/agent as ANY node of that org, with or without an agent credential. Another org gets 403 'bridge secret is scoped to its own org'; an unknown secret gets 403 'forbidden'. Only the standalone api.main starts BridgeGateway; the desktop launch path engine/launch.py never does. This is recorded, not approved; docket item p05-authority-review-bridge-org-secret-acts-as-a owns the decision."
+        "BridgeGateway: a valid org bridge secret may call /api/agent as ANY node of that org, with or without an agent credential. Another org gets 403 'bridge secret is scoped to its own org'; an unknown secret gets 403 'forbidden'. Only the standalone api.main starts BridgeGateway; the desktop launch path engine/launch.py never does. This is recorded, not approved; docket item p05-authority-review-bridge-org-secret-acts-as-a owns the decision.",
+        "The legacy transcript projector (supervisor._read_chat_source, through chat_window.read_window and supervisor.read_chat) is fixtured at the public orgtree_read_transcript door, one fresh org per row type, in tests/test_state_material_reads.py (TranscriptProjector). An agent receives only role, text (cut to 1200 characters) and tools; every other projected field (thinking, codexPlan, cmd_out, summary, segments, native ids) never reaches it.",
+        "Rows that project to nothing: unparseable lines, JSON that is not an object, isSidechain/isMeta records, system subtypes other than compact_boundary/api_error/local_command, record types other than user/assistant/system/codex_plan_updated, a non-object message, isVisibleInTranscriptOnly, 'No response requested.', a compact summary (attached to its boundary, invisible to agents), pure tool_result plumbing, and an empty transcript.",
+        "Rows that project to text: assistant string content and joined non-blank text blocks; user string content or its first text block (an image block beside it is dropped, and an image-only prompt projects nothing); a slash-command echo as '/<name> <args>'; a compact boundary as '— context compacted —' with ' · N.Nk tokens' when preTokens is numeric; api_error as '⚠ API error — ' plus 300 characters; a <synthetic> model or isApiErrorMessage as '⚠ ' plus 300 characters, speaking as system.",
+        "Rows that project to EMPTY text because their payload is invisible to agents: codex_plan_updated (assistant); thinking with or without text, including Codex journal thinking (signature 'codex') (assistant; two thinking records of one message merge into one row); local_command output and old-CLI <local-command-stdout> (system); and an assistant record with no content.",
+        "Tool chips reach the agent whole: name, arg, id, and, once its tool_result arrives, result (first 60 lines, capped at 2000 characters), result_lines, truncated, error, images, TodoWrite glyphs, diff from structuredPatch, task totals, and file/mail/work/presentation links recognised from both bare and mcp__orgtree__-prefixed names. Every chip also carries reply-target fields (event_id 'reply_…', reply_quote and, with a result, result_event_id/result_reply_quote).",
+        "Merged rows: steered_log entries appear as user rows and steer misses as '— <text> —' system rows, turn_error_log entries as '⚠ <text>' system rows, all interleaved by timestamp; a preserving bearer's oracle exchanges follow as user/assistant pairs.",
+        "Recorded legacy disclosure: a user event carrying orgtree's own envelope ([ORG STATE …]) with no prompt-view sidecar row is rendered RAW to the reader (D-229 fail-open, since the adapter reads with hold_back=False), so a reader sees the author's machine envelope. With a view row, only its visible text is shown. A machine-only view hides the row, UNLESS the view's segments carry a human-visible wake card (a state/drive segment whose event variant is human-visible, for example reminder.working_checkup), which keeps an empty-text user row.",
+        "Recorded legacy defects: a content list holding a non-object block (AttributeError) or non-iterable content such as a number (TypeError) fails the WHOLE read with the shared 500 serializer, although record-level and message-level malformations are skipped.",
+        "Legacy records with no provider id (no uuid, no message.id) are all projected. Byte-identical twins stay two rows, and each row's tool chips carry distinct reply event_ids (no aliasing of one reply target).",
+        "Codex/Antigravity journal shapes: the P08b provider-echo marker (top-level orgtree_origin on a tool_result record) is ignored by the projector, so the chip gets its result and links as usual. A late tool result journaled by supervisor._late_tool_result under an id no tool_use carries (codex-late-N) matches no chip and projects nothing."
       ],
       "source_refs": [
         {
@@ -1994,12 +2004,29 @@
           "start": 15122,
           "end": 15126,
           "sha256": "03f2e72638ca42df7768935176f0ecae3ac7031d885234169ad6000dcaecd864"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 34998,
+          "end": 35633,
+          "sha256": "aea89a1ee9d03979c7779247e1960c1e519dc10e78e7ba612fada6d9199464f5"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 2867,
+          "end": 2898,
+          "sha256": "389dcefdde5388dc4ae41e1ae9122d2b0e9859910564d8d922ba31c2fd21c372"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11515,
+          "end": 11520,
+          "sha256": "7f451c8b0a8c50ed377813103d729ef44628abebeec0a29bf95c60a338024f3c"
         }
       ],
       "open_questions": [
-        "Fixture the legacy transcript projector (supervisor._read_chat_source) at the public door for every row type it handles, including malformed rows. Only a synthetic local transcript is fixtured today.",
-        "Carry the native and Rust versions through the same cases: scratch shapes and bounds, transcript projection, and the door matrix.",
-        "Owner: docket item p01-transcript-projector-legacy-fixtures for the legacy projector clause (coverable at P01, split out by S2 decision 2); the native/Rust conversion, from the P03 prototype onward, for the native clause. Closes with: that item's projector fixtures, then all material fixtures passing against the native and Rust builds. Not coverable at P01 from available evidence: for the native clause, no native or Rust build of this door exists."
+        "Carry the native and Rust versions through the same cases: scratch shapes and bounds, the transcript projector's row-type matrix, and the door matrix. Decide each recorded legacy behaviour deliberately rather than copying it: raw envelope disclosure when no prompt view exists, and a malformed content block failing the whole read.",
+        "Owner: the native/Rust conversion, from the P03 prototype onward. Closes with: the scratch, projector and door fixtures passing against the native and Rust builds, with each recorded legacy behaviour reproduced deliberately or replaced by an approved rule. Not coverable at P01 from available evidence: no native or Rust build of this door exists; the legacy half, including the transcript projector (p01-transcript-projector-legacy-fixtures), is fixtured."
       ]
     },
     "material.contacts": {

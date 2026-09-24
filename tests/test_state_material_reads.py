@@ -547,6 +547,227 @@ class QueuedMaterialRead(MaterialFixture,unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(entered,['boss']*4,'refused waiter must never project the protected target')
 
 
+# -- legacy transcript projector at the public door (p01-transcript-projector-legacy-fixtures)
+# Each case writes one provider transcript for `first` and reads it through the
+# real orgtree_read_transcript door, which returns only role, text (<=1200) and
+# tools. Legacy defects are pinned as recorded behaviour, never as approved.
+_TS = '2026-09-10T12:00:{:02d}Z'
+def _a(i, content, **extra):
+    row = {'type':'assistant','uuid':f'a{i}','timestamp':_TS.format(i),
+           'message':{'id':f'm{i}','role':'assistant','content':content}}
+    row.update(extra)
+    return row
+def _u(i, content, **extra):
+    row = {'type':'user','uuid':f'u{i}','timestamp':_TS.format(i),'message':{'role':'user','content':content}}
+    row.update(extra)
+    return row
+def _s(i, subtype, **extra):
+    row = {'type':'system','subtype':subtype,'uuid':f's{i}','timestamp':_TS.format(i)}
+    row.update(extra)
+    return row
+def _use(name, arg, tid='t1'):
+    return {'type':'tool_use','id':tid,'name':name,'input':arg}
+def _res(body, tid='t1', **extra):
+    return {'type':'tool_result','tool_use_id':tid,'content':body,**extra}
+def _think(sig):
+    return [{'type':'thinking','thinking':'','signature':sig}]
+_NOID_TEXT = {'type':'assistant','timestamp':_TS.format(1),'message':{'role':'assistant','content':'same'}}
+_NOID_TOOL = {'type':'assistant','timestamp':_TS.format(1),
+              'message':{'role':'assistant','content':[{'type':'tool_use','id':'t1','name':'Bash','input':{'command':'ls'}}]}}
+# P08b: the Codex app-server's echo of a manual-inbox call carries a top-level origin marker
+_ECHO = {'type':'user','timestamp':_TS.format(2),'orgtree_origin':{'kind':'provider_echo','runtime':'codex_app_server'},
+         'message':{'role':'user','content':[{'type':'tool_result','tool_use_id':'c1',
+                                              'content':json.dumps({'id':'abc','delivered':'boss'}),'is_error':False}]}}
+# supervisor._late_tool_result: journaled to the turn with an id no tool_use carries
+_LATE = {'type':'user','timestamp':_TS.format(2),'message':{'role':'user','content':[{'type':'tool_result','tool_use_id':'codex-late-7',
+         'content':'[late tool result — the turn ended before the tool returned]\nout','is_error':True}]}}
+_ENVELOPE = ('[ORG STATE — current as of 2026-09-10T12:00:00Z]\nprivate org state line\n'
+             '[END ORG STATE]\n\nhuman words')
+
+# name -> (transcript lines, expected). expected is ('500', exception type) or a
+# list of (role, text, [tool chip subset]); a chip subset lists only the keys it pins.
+PROJECTOR_CASES = {
+    'plain_assistant':([_a(1,'hello')],[('assistant','hello',[])]),
+    'text_blocks_join_and_drop_blank':([_a(1,[{'type':'text','text':'one'},{'type':'text','text':'  '},{'type':'text','text':'two'}])],
+                                       [('assistant','one\n\ntwo',[])]),
+    'text_cut_to_1200':([_a(1,'x'*1500)],[('assistant','x'*1200,[])]),
+    'unparseable_and_non_record_lines_skipped':(['{not json','null','42','[1,2]','"s"',_a(1,'kept')],[('assistant','kept',[])]),
+    'sidechain_and_meta_skipped':([_a(1,'side',isSidechain=True),_a(2,'meta',isMeta=True),_a(3,'kept')],[('assistant','kept',[])]),
+    'codex_plan_is_an_empty_assistant_row':([{'type':'codex_plan_updated','uuid':'p1','timestamp':_TS.format(1),
+                                              'plan':[{'step':'a','status':'done'}],'threadId':'t','turnId':'u'}],
+                                            [('assistant','',[])]),
+    'compact_boundary_and_summary':([_s(1,'compact_boundary',compactMetadata={'preTokens':12345}),
+                                     _u(2,'summary text',isCompactSummary=True),_a(3,'after')],
+                                    [('system','— context compacted — · 12.3k tokens',[]),('assistant','after',[])]),
+    'compact_boundary_malformed_metadata':([_s(1,'compact_boundary',compactMetadata='bad')],
+                                           [('system','— context compacted —',[])]),
+    'api_error_cut_to_300':([_s(1,'api_error',error='E'*400)],[('system','⚠ API error — '+'E'*300,[])]),
+    'local_command_output_is_an_empty_system_row':([_s(1,'local_command',content='<local-command-stdout>ctx</local-command-stdout>'),
+                                                    _s(2,'local_command',content='')],[('system','',[])]),
+    'other_system_subtypes_and_types_skipped':([_s(1,'informational'),{'type':'summary','summary':'s'},{'type':'progress'},_a(2,'kept')],
+                                              [('assistant','kept',[])]),
+    'non_mapping_message_skipped':([{'type':'assistant','uuid':'x','message':'str'},_a(2,'kept')],[('assistant','kept',[])]),
+    'visible_in_transcript_only_skipped':([_u(1,'vis',isVisibleInTranscriptOnly=True),_a(2,'kept')],[('assistant','kept',[])]),
+    'slash_command_echo':([_u(1,'<command-name>/context</command-name><command-args> full </command-args>')],[('user','/context full',[])]),
+    'old_cli_command_stdout':([_u(1,'<local-command-stdout>old out</local-command-stdout>')],[('system','',[])]),
+    'no_response_requested_skipped':([_u(1,'No response requested.'),_a(2,'kept')],[('assistant','kept',[])]),
+    'synthetic_model_speaks_as_system':([_a(1,'synthetic words',message={'id':'m1','role':'assistant','model':'<synthetic>','content':'synthetic words'})],
+                                        [('system','⚠ synthetic words',[])]),
+    'api_error_message_speaks_as_system':([_a(1,[{'type':'text','text':'rate limited'}],isApiErrorMessage=True)],[('system','⚠ rate limited',[])]),
+    'user_text_and_text_block':([_u(1,'hi there'),_u(2,[{'type':'text','text':'block prompt'}])],[('user','hi there',[]),('user','block prompt',[])]),
+    'thinking_with_text_is_an_empty_row':([_a(1,[{'type':'thinking','thinking':'deep thought'}])],[('assistant','',[])]),
+    'sealed_thinking_is_an_empty_row':([_a(1,_think('sig'))],[('assistant','',[])]),
+    'two_thinking_records_of_one_message_merge':([_a(1,_think('a'),message={'id':'mm','role':'assistant','content':_think('a')}),
+                                                  _a(2,_think('b'),message={'id':'mm','role':'assistant','content':_think('b')})],
+                                                 [('assistant','',[])]),
+    'tool_use_and_result':([_a(1,[_use('Bash',{'command':'ls -la'})]),_u(2,[_res('line1\nline2')])],
+                           [('assistant','',[{'name':'Bash','arg':'ls -la','id':'t1','result':'line1\nline2','result_lines':2,'truncated':False}])]),
+    'tool_error':([_a(1,[_use('Bash',{'command':'false'})]),_u(2,[_res('boom happened',is_error=True)])],
+                  [('assistant','',[{'name':'Bash','error':'boom happened','result':'boom happened'}])]),
+    'tool_result_cut_to_60_lines':([_a(1,[_use('Read',{'file_path':'/a/b.py'})]),_u(2,[_res('\n'.join(f'l{i}' for i in range(80)))])],
+                                   [('assistant','',[{'name':'Read','arg':'/a/b.py','result_lines':80,'truncated':True,
+                                                      'result':'\n'.join(f'l{i}' for i in range(60))}])]),
+    'tool_result_images_counted':([_a(1,[_use('Read',{'file_path':'/a.png'})]),_u(2,[_res([{'type':'image','source':{}},{'type':'text','text':'img'}])])],
+                                  [('assistant','',[{'name':'Read','images':1,'result':'img'}])]),
+    'todowrite_glyphs':([_a(1,[_use('TodoWrite',{'todos':[{'content':'a','status':'completed'},{'content':'b','status':'pending'}]})])],
+                        [('assistant','',[{'name':'TodoWrite','result':'☑ a\n☐ b','result_lines':2}])]),
+    'structured_patch_diff':([_a(1,[_use('Edit',{'file_path':'/a.py'})]),
+                              _u(2,[_res('ok')],toolUseResult={'structuredPatch':[{'oldStart':3,'lines':['-a','+b','+c']}]})],
+                             [('assistant','',[{'name':'Edit','diff':{'plus':2,'minus':1,'lines':['@@ 3','-a','+b','+c']}}])]),
+    'subagent_task_totals':([_a(1,[_use('Task',{'description':'sub'})]),
+                             _u(2,[_res('done')],toolUseResult={'totalDurationMs':1500,'totalToolUseCount':3,'totalTokens':900})],
+                            [('assistant','',[{'name':'Task','task':{'tools':3,'ms':1500,'tokens':900}}])]),
+    'send_file_card_from_bare_name':([_a(1,[_use('orgtree_send_file',{'path':'f.txt'})]),
+                                      _u(2,[_res(json.dumps({'sent':{'path':'outbox/f.txt','name':'f.txt'}}))])],
+                                     [('assistant','',[{'name':'orgtree_send_file','file':{'path':'outbox/f.txt','name':'f.txt'}}])]),
+    'mail_link_from_prefixed_name':([_a(1,[_use('mcp__orgtree__orgtree_message',{'to':'boss'})]),
+                                     _u(2,[_res(json.dumps({'id':'abc','delivered':'boss'}))])],
+                                    [('assistant','',[{'name':'mcp__orgtree__orgtree_message','mail':{'id':'abc','to':'boss'}}])]),
+    'work_link_from_record_result':([_a(1,[_use('orgtree_work',{'action':'get'})]),_u(2,[_res(json.dumps({'item':{'slug':'the-item'}}))])],
+                                    [('assistant','',[{'name':'orgtree_work','work':{'slug':'the-item'}}])]),
+    'presentation_card':([_a(1,[_use('orgtree_present',{'title':'T'})]),
+                          _u(2,[_res(json.dumps({'presented':'p1','title':'Doc','format':'html'}))])],
+                         [('assistant','',[{'name':'orgtree_present','presentation':{'id':'p1','title':'Doc','format':'html'}}])]),
+    'text_and_tool_in_one_message':([_a(1,[{'type':'text','text':'running'},_use('Bash',{'command':'echo'})])],
+                                    [('assistant','running',[{'name':'Bash','arg':'echo','id':'t1'}])]),
+    'missing_content_is_an_empty_row':([{'type':'assistant','uuid':'a1','timestamp':_TS.format(1),'message':{'id':'m1'}}],
+                                       [('assistant','',[])]),
+    'empty_transcript':([],[]),
+    # user prompts with image blocks: the text block is the prompt; an image-only prompt shows nothing
+    'user_image_and_text':([_u(1,[{'type':'image','source':{}},{'type':'text','text':'look'}])],[('user','look',[])]),
+    'user_image_only_projects_nothing':([_u(1,[{'type':'image','source':{}}]),_a(2,'kept')],[('assistant','kept',[])]),
+    # legacy records with no provider id (no uuid, no message.id): byte-identical twins stay two rows
+    'no_provider_id_text_twins':([_NOID_TEXT,_NOID_TEXT],[('assistant','same',[]),('assistant','same',[])]),
+    'no_provider_id_tool_twins':([_NOID_TOOL,_NOID_TOOL],[('assistant','',[{'name':'Bash','arg':'ls','id':'t1'}]),
+                                                           ('assistant','',[{'name':'Bash','arg':'ls','id':'t1'}])]),
+    # Codex/Antigravity journal shapes
+    'codex_provider_echo_marker_is_ignored':([_a(1,[_use('orgtree_message',{'to':'boss'},tid='c1')]),_ECHO],
+                                             [('assistant','',[{'name':'orgtree_message','mail':{'id':'abc','to':'boss'}}])]),
+    'codex_think_is_an_empty_row':([{'type':'assistant','timestamp':_TS.format(1),'uuid':'th1',
+                                     'message':{'id':'codex-think-1','role':'assistant','model':'gpt-5',
+                                                'content':[{'type':'thinking','thinking':'codex body','signature':'codex'}]}}],
+                                   [('assistant','',[])]),
+    'codex_late_tool_result_without_its_call_projects_nothing':([_a(1,'before'),_LATE],[('assistant','before',[])]),
+    'tool_result_cut_to_2000_characters':([_a(1,[_use('Read',{'file_path':'/big'})]),_u(2,[_res('\n'.join('y'*299 for _ in range(10)))])],
+                                          [('assistant','',[{'name':'Read','result_lines':10,'truncated':True,
+                                                             'result':'\n'.join('y'*299 for _ in range(10))[:2000]}])]),
+    # recorded legacy defects: a malformed record fails the whole read
+    'non_mapping_content_block_is_a_500':([_a(1,['bare string block'])],('500','AttributeError')),
+    'non_iterable_content_is_a_500':([_a(1,42)],('500','TypeError')),
+}
+
+
+class TranscriptProjector(MaterialFixture,unittest.TestCase):
+    def read(self, name, rows):
+        path = Path(_temp.name)/f'{self.slug}-{name}.jsonl'
+        path.write_text(''.join((r if isinstance(r,str) else json.dumps(r))+'\n' for r in rows),encoding='utf-8')
+        with patch.object(supervisor,'transcript_path_for_node',return_value=str(path)):
+            return self.call(TRANSCRIPT,args={'last':80})
+
+    def check(self, name):
+        rows, expected = PROJECTOR_CASES[name]
+        response = self.read(name,rows)
+        if isinstance(expected,tuple):
+            self.assertEqual(response.status_code,500,response.text)
+            self.assertEqual(response.json()['error']['type'],expected[1])
+            return
+        msgs = self.okay(response)['messages']
+        self.assertEqual([(m['role'],m['text']) for m in msgs],[(r,t) for r,t,_ in expected])
+        for m,(_,_,chips) in zip(msgs,expected):
+            self.assertEqual(set(m),{'role','text','tools'})     # nothing else reaches an agent
+            self.assertEqual(len(m['tools']),len(chips))
+            for got,want in zip(m['tools'],chips):
+                self.assertEqual({k:got.get(k) for k in want},want)
+                # the reply-target identity every chip carries on the way out,
+                # plus a second one for its result once the result has arrived
+                self.assertTrue(got['event_id'].startswith('reply_'))
+                self.assertIn('reply_quote',got)
+                if 'result' in got:
+                    self.assertTrue(got['result_event_id'].startswith('reply_'))
+                    self.assertIn('result_reply_quote',got)
+        # rows with no provider id never alias one reply target
+        ids = [c['event_id'] for m in msgs for c in m['tools']]
+        self.assertEqual(len(ids),len(set(ids)))
+
+    def test_envelope_prompt_without_view_is_shown_raw_to_the_reader(self):
+        # recorded legacy disclosure: D-229 fails open, so a reader sees the
+        # author's raw [ORG STATE] envelope when no prompt-view row exists
+        msgs = self.okay(self.read('envelope_raw',[_u(1,_ENVELOPE)]))['messages']
+        self.assertEqual(msgs,[{'role':'user','text':_ENVELOPE,'tools':[]}])
+
+    def write_view(self, session, visible, segments=None):
+        import hashlib
+        self.mutate(lambda o:o.node('first').update(session_id=session))
+        path = supervisor._prompt_view_path(self.slug,session)
+        os.makedirs(os.path.dirname(path),exist_ok=True)
+        row = {'sha256':hashlib.sha256(_ENVELOPE.encode()).hexdigest(),'visible':visible,
+               'at':_TS.format(1),'chars':len(_ENVELOPE)}
+        if segments is not None:
+            row['segments'] = segments
+        with open(path,'w',encoding='utf-8') as f:
+            f.write(json.dumps(row)+'\n')
+
+    def test_envelope_prompt_with_view_shows_only_the_human_words(self):
+        self.write_view('fixture-session-a','human words')
+        self.assertEqual(self.okay(self.read('envelope_view',[_u(1,_ENVELOPE)]))['messages'],
+                         [{'role':'user','text':'human words','tools':[]}])
+
+    def test_machine_only_view_hides_the_prompt(self):
+        self.write_view('fixture-session-b','')
+        self.assertEqual(self.okay(self.read('envelope_machine',[_u(1,_ENVELOPE),_a(2,'reply')]))['messages'],
+                         [{'role':'assistant','text':'reply','tools':[]}])
+
+    def test_machine_only_view_with_a_visible_wake_card_keeps_an_empty_row(self):
+        # the wake-card exception: an automatic wake has no human text, but its
+        # composition carries a reminder the desk draws, so the row survives empty
+        self.write_view('fixture-session-c','',segments=[{'kind':'drive','event':{'variant':'reminder.working_checkup'}}])
+        self.assertEqual(self.okay(self.read('envelope_wake',[_u(1,_ENVELOPE)]))['messages'],
+                         [{'role':'user','text':'','tools':[]}])
+
+    def test_steered_turn_error_and_fold_rows_interleave_by_time(self):
+        def change(o):
+            o.d.setdefault('steered_log',{})['first'] = [
+                {'at':_TS.format(2),'text':'steered mail body','level':'recorded'},
+                {'at':_TS.format(4),'fold':True,'text':'missed the window'}]
+            o.d.setdefault('turn_error_log',{})['first'] = [{'at':_TS.format(3),'text':'CLI died'}]
+        self.mutate(change)
+        msgs = self.okay(self.read('merged',[_a(1,'one'),_a(5,'five')]))['messages']
+        self.assertEqual([(m['role'],m['text']) for m in msgs],
+                         [('assistant','one'),('user','steered mail body'),('system','⚠ CLI died'),
+                          ('system','— missed the window —'),('assistant','five')])
+
+    def test_preserving_bearer_oracle_exchanges_follow_the_transcript(self):
+        self.mutate(lambda o:o.node('first').update(
+            bearer_state='preserving',oracle_exchanges=[{'q':'oracle question','a':'oracle answer','at':_TS.format(9)}]))
+        msgs = self.okay(self.read('oracle',[_a(1,'one')]))['messages']
+        self.assertEqual([(m['role'],m['text']) for m in msgs],
+                         [('assistant','one'),('user','oracle question'),('assistant','oracle answer')])
+
+
+for _name in PROJECTOR_CASES:
+    setattr(TranscriptProjector,f'test_projects_{_name}',lambda self,_n=_name:self.check(_n))
+
+
 def tearDownModule():
     store._POOL.close_all('p01-material-cleanup')
     _temp.cleanup()

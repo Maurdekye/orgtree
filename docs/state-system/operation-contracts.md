@@ -170,8 +170,12 @@ Recorded defects are kept as legacy behaviour, not approved. Examples: NaN
 `stale_s` accepted, a corrupt node failing the whole-org inspection,
 `revoke_dir` accepting any `dir`, and a bridge org secret acting as any node
 (`p05-authority-review-bridge-org-secret-acts-as-a`). Each wire facet stays open
-for its native/Rust clause. `material.wire` also keeps its legacy transcript
-projector clause, owned by `p01-transcript-projector-legacy-fixtures`.
+for its native/Rust clause. `material.wire`'s legacy transcript projector is
+fixtured too (`p01-transcript-projector-legacy-fixtures`): every row type
+`supervisor._read_chat_source` handles, as an agent sees it through
+`orgtree_read_transcript`. Two findings are recorded: an envelope prompt with no
+prompt-view row reaches the reader raw, and a malformed content block fails
+the whole read with a 500.
 This is not a runtime operation count or progress percentage. See the separate
 family documents for their measurements and remaining obligations.
 

@@ -68,11 +68,15 @@ class ContractCoverage(unittest.TestCase):
         self.assertIn("agent-level mail-locality negative control", note)
         self.assertEqual(self.document["facets"]["wrapper-reads"]["status"], "specified")
 
-    def test_material_wire_names_its_legacy_projector_item(self):
-        # S2 decision 2 (option b): this one facet's legacy clause is owned by a
-        # follow-up docket item rather than being "not coverable".
-        [note] = [q for q in self.document["facets"]["material.wire"]["open_questions"] if q.startswith("Owner: ")]
-        self.assertIn("docket item p01-transcript-projector-legacy-fixtures for the legacy projector clause", note)
+    def test_material_wire_legacy_projector_clause_is_closed(self):
+        # S2 decision 2 (option b) split the legacy projector clause out to
+        # p01-transcript-projector-legacy-fixtures; that item fixtured it, so only
+        # the native/Rust clause may remain open on material.wire.
+        questions = self.document["facets"]["material.wire"]["open_questions"]
+        self.assertFalse([q for q in questions if q.startswith("Fixture the legacy transcript projector")])
+        [note] = [q for q in questions if q.startswith("Owner: ")]
+        self.assertTrue(note.startswith("Owner: the native/Rust conversion"), note)
+        self.assertIn("including the transcript projector (p01-transcript-projector-legacy-fixtures), is fixtured", note)
 
     def test_each_required_dimension_is_enforced(self):
         for dimension in contracts.DIMENSIONS:
