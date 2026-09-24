@@ -34,7 +34,7 @@ PREVIEW = ("reallocate", "move", "swap", "swap_seats", "self_subjugate", "subjug
 CONTRACTS = {f"reservation.{v}" for v in RESERVATION} | {
     "material.scratch", "material.transcript", "diagnostic.inspect",
     "diagnostic.capabilities", "preview.agent", "status.report", "chart.read",
-    "org.tree", "org.node-detail", "org.feed"}
+    "org.tree", "org.node-detail", "org.feed", "mail.message", "mail.notice"}
 
 
 class OperationContacts(unittest.TestCase):
@@ -154,7 +154,11 @@ class OperationContacts(unittest.TestCase):
                             for k in control[0]["audit"].get("sqlite_connect", {})),
                         control[0]["audit"])
         for r in self.doc["rows"]:
-            if r["variant"] == "control:foreign-org-contact":
+            if "sqlite_connect:data:org-db:foreign" in r["expected_unknown"]:
+                # declared cross-org rows (the control, @org: delivery, the
+                # bare-name lookup): they must SHOW the foreign contact
+                self.assertTrue(any(k.startswith("data:org-db:foreign")
+                                    for k in r["audit"].get("sqlite_connect", {})), r["variant"])
                 continue
             for group, keys in r["audit"].items():
                 with self.subTest(variant=r["variant"], condition=r["condition"], group=group):
@@ -247,7 +251,7 @@ class OperationContacts(unittest.TestCase):
     def test_no_operation_touches_a_third_agents_mail_or_rows(self):
         producing = set()
         for r in self.doc["rows"]:
-            if r["variant"] in (self.CONTROL, self.STATUS_CONTROL):
+            if r["variant"] in (self.CONTROL, self.STATUS_CONTROL, self.MAIL_CONTROL):
                 continue
             with self.subTest(variant=r["variant"], condition=r["condition"]):
                 self.assertEqual(r["agents"]["third_agent_mail"], 0)
@@ -257,7 +261,8 @@ class OperationContacts(unittest.TestCase):
                     self.assertEqual(r["agents"]["third_agent_rows_written"], 0)
             if r["agents"]["mail_producing"]:
                 producing.add(r["contract"])
-        self.assertEqual(producing, {"reservation.release-notify", "status.report"})
+        self.assertEqual(producing, {"reservation.release-notify", "status.report",
+                                     "mail.message", "mail.notice"})
 
     def test_third_agent_mail_control_is_flagged(self):
         control = self.rows(variant=self.CONTROL)
@@ -336,6 +341,12 @@ class OperationContacts(unittest.TestCase):
         "provider:legacy-tier": ["guard:process/subprocess.Popen"],
         "provider:openrouter-network-refused": ["guard:egress/urllib.Request"],
     }
+    #: declared on the COLD row only: the foreign org's store is closed first,
+    #: so its connect is observed; warm, it is pooled and no connect happens
+    DECLARED_COLD = {
+        "mail.message:org": ["sqlite_connect:data:org-db:foreign"],
+        "mail.message:bare-unknown-name": ["sqlite_connect:data:org-db:foreign"],
+    }
 
     def test_every_row_loses_nothing(self):
         for r in self.doc["rows"]:
@@ -360,11 +371,13 @@ class OperationContacts(unittest.TestCase):
                 self.assertEqual(r["unknown_contacts"], [])
                 self.assertEqual(r["expected_unknown_missing"], [])
                 want = self.DECLARED.get(r["variant"], [])
+                if not want and r["condition"] == "cold":
+                    want = self.DECLARED_COLD.get(r["variant"], [])
                 self.assertEqual(r["unknown_observed"], want)
                 self.assertEqual(r["expected_unknown"], want)
                 if want:
                     seen.add(r["variant"])
-        self.assertEqual(seen, set(self.DECLARED))
+        self.assertEqual(seen, set(self.DECLARED) | set(self.DECLARED_COLD))
 
     def test_sandboxed_org_reads_come_from_the_sandbox_placement(self):
         """material.reads: a SANDBOXED org's transcript is read from the
@@ -727,6 +740,80 @@ class OperationContacts(unittest.TestCase):
         self.assertEqual(scan["recorded_delta"], 0)
         self.assertEqual(scan["kiosk_orgs_mapped"], 1)
         self.assertGreater(scan["orgs_listed"], 1)
+
+
+    # -- P01 S3 F2: mail.message, mail.notice ---------------------------------------
+    MAIL_CONTROL = "control:mail-third-agent"
+
+    def test_mail_by_recipient_class_reaches_only_the_named_recipient(self):
+        """agent-mail.reads/instrumentation: both mail tools by recipient class,
+        cold and warm, loss-accounted, with agent-level locality: only the
+        sender and the named recipient are touched."""
+        in_org = {"mail.message": ("mail.message", "m-top"),
+                  "mail.message:deep": ("mail.message", "m-deep"),
+                  "mail.message:archived": ("mail.message", "m-gone"),
+                  "mail.notice": ("mail.notice", "m-sib"),
+                  "mail.notice:deep": ("mail.notice", "m-kid"),
+                  "mail.notice:archived": ("mail.notice", "m-gone")}
+        for variant, (contract, to) in in_org.items():
+            for condition in ("cold", "warm"):
+                with self.subTest(variant=variant, condition=condition):
+                    r = self.rows(contract=contract, variant=variant, condition=condition)[0]
+                    self.assertEqual(r["http_status"], 200, r["detail"])
+                    agents = r["agents"]
+                    self.assertEqual(agents["targets"], [to])
+                    self.assertEqual({k: v for k, v in agents["logical"].items()
+                                      if k in ("mail", "mail_log")},
+                                     {"mail": {to: "target"}, "mail_log": {to: "target"}})
+                    roles = {role for sect in agents["logical"].values() for role in sect.values()}
+                    self.assertLessEqual(roles, {"actor", "target"})
+                    self.assertEqual((agents["third_agent_mail"],
+                                      agents["third_agent_rows_written"]), (0, 0))
+        # the first send down past a direct report grants a reply audience
+        for variant, pair in (("mail.message:deep", {"m-deep": "target", "m-mid": "actor"}),
+                              ("mail.notice:deep", {"m-kid": "target", "m-top": "actor"})):
+            cold = self.rows(variant=variant, condition="cold")[0]
+            warm = self.rows(variant=variant, condition="warm")[0]
+            self.assertEqual(cold["agents"]["logical"].get("audiences"), pair)
+            self.assertNotIn("audiences", warm["agents"]["logical"])
+        for variant in ("mail.message:user", "mail.message:org", "mail.message:mcp"):
+            for condition in ("cold", "warm"):
+                with self.subTest(variant=variant, condition=condition):
+                    r = self.rows(variant=variant, condition=condition)[0]
+                    self.assertEqual(r["http_status"], 200, r["detail"])
+                    self.assertNotIn("mail", r["agents"]["logical"])
+                    self.assertEqual(r["agents"]["third_agent_mail"], 0)
+        refusals = {"mail.message:bare-unknown-name": 422, "refusal:notice-to-org": 422,
+                    "refusal:notice-to-user": 422, "refusal:mail-halted": 409}
+        for variant, status in refusals.items():
+            for r in self.rows(variant=variant):
+                with self.subTest(variant=variant, condition=r["condition"]):
+                    self.assertEqual((r["http_status"], r["harness"]["writes"]), (status, 0))
+        for contract in ("mail.message", "mail.notice"):
+            for condition in ("cold", "warm"):
+                replay = self.rows(variant=f"{contract}:keyed-replay", condition=condition)[0]
+                self.assertEqual((replay["http_status"], replay["harness"]["writes"],
+                                  replay["wakes"]["send_message"]), (200, 0, 0))
+
+    def test_cross_org_mail_contacts_are_observed_and_declared(self):
+        """agent-mail.effects (P02 observing): @org: mail writes into ANOTHER
+        org's store (interorg_send, unstubbed) and a bare unknown name is
+        looked up across every org; cold, each shows the foreign store."""
+        org = self.rows(variant="mail.message:org", condition="cold")[0]
+        self.assertEqual(org["agents"]["logical"].get("audiences"),
+                         {"@extern": "user-or-org", "m-top": "actor"})
+        for variant in ("mail.message:org", "mail.message:bare-unknown-name"):
+            cold = self.rows(variant=variant, condition="cold")[0]
+            self.assertIn("sqlite_connect:data:org-db:foreign", cold["contact_classes"])
+        bare = self.rows(variant="mail.message:bare-unknown-name", condition="warm")[0]
+        self.assertGreater(bare["census"]["statements"], 100)
+
+    def test_mail_third_agent_control_is_flagged(self):
+        control = self.rows(variant=self.MAIL_CONTROL)[0]
+        self.assertEqual(control["http_status"], 200, control["detail"])
+        agents = control["agents"]
+        self.assertEqual(agents["logical"]["mail"], {"m-top": "target", "m-sib": "third"})
+        self.assertGreaterEqual(agents["third_agent_mail"], 1)
 
 
 if __name__ == "__main__":

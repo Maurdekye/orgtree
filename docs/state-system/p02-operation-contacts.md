@@ -326,10 +326,11 @@ Owned elsewhere, with no rows added:
   design, then P03, with P07 or P05;
 - `status.wire` and `chart.wire`: the native/Rust conversion.
 
-F1b follows below. Pending, added next: F2 `mail.message` and `mail.notice`
-(fixed at v3 325ec75; facets `agent-mail.*`). Pending as P01 fixes their ids:
-the rest of F2 mail, F3 funding / staffing / receipt replay, and F4 work-item
-GET routes.
+F1b and F2 (`mail.message`, `mail.notice`) follow below. Still pending:
+- the human send and inbox routes (P01 S3 C4) and the credits contracts
+  (S3 C5), both on v3 since 9bbeed4;
+- F3 staffing and receipt replay, and F4 work-item GET routes, as P01 fixes
+  their ids.
 
 ## P01 S3 F1b: `org.tree`, `org.node-detail`, `org.feed`
 
@@ -359,8 +360,13 @@ or a websocket. The fixture follows `tests/test_state_org_view_boundary.py`:
     unattributable (`statements_unbound` equals `statements`, census
     `db_unattributed` grows), no census record, and every org store is read
     to map one kiosk org.
-  - The public rows run with the map warm, so they carry only their own
-    request's contacts and per-row loss stays zero.
+  - The public rows (tree, detail and feed) run with the map PINNED fresh:
+    its cache timestamp is set far ahead, so the real lookup answers from
+    the built map however long a row takes. They therefore carry only their
+    own request's contacts, independent of the 5-second cache, and per-row
+    loss stays zero.
+  - In the product, any public request that arrives after the cache has
+    expired carries this every-org read as well, outside its census record.
   - This is a census coverage gap for P02 runtime instrumentation and a
     cross-org read for the native design; it is not fixed here.
 - **Feed** (`org.feed`, a websocket): `org.feed` (admin) and `org.feed:public`,
@@ -391,6 +397,67 @@ Owned elsewhere, with no rows added:
 - `org-view.conflicts` and `org-feed.conflicts`: the native design, then P03;
 - `org-view.wire` and `org-feed.wire`: the native/Rust conversion. The
   desktop-mode kiosk 500 is recorded above, for them to decide.
+
+## P01 S3 F2: `mail.message`, `mail.notice`
+
+The fixture follows `tests/test_state_agent_mail_boundary.py` with
+distinctive `m-*` ids:
+- `m-top` is top-level;
+- `m-mid` and `m-sib` sit under it;
+- `m-kid` is under `m-mid`, `m-deep` under `m-kid`, `m-cousin` under
+  `m-sib`;
+- `m-gone` is retired;
+- a second org receives `@org:` mail.
+
+Delivery wakes are spies, as everywhere; `supervisor.interorg_send` is NOT
+stubbed.
+
+- **`orgtree_message` by recipient class**, each cold and warm:
+  - `mail.message` (the wire case: `m-mid` to its superior `m-top`);
+  - `:deep` (`m-mid` to `m-deep`, below its direct report; the cold row is
+    the first send and grants `m-deep` a reply audience, the warm row does
+    not);
+  - `:archived` (`m-gone`, deferred);
+  - `:user` (from the top);
+  - `:org` (`@org:<dest>`; the cold row is the org's first outside send and
+    auto-grants `m-top` the org-inbox audience);
+  - `:mcp` (`@mcp:peer1`, filed);
+  - `:bare-unknown-name` (`nobody-here`, 422 NOT DELIVERED).
+- **`orgtree_send_notice`**, each cold and warm: `mail.notice` (`m-mid` to
+  its peer `m-sib`), `:deep` (`m-top` to `m-kid`, with its grant cold) and
+  `:archived`. Refusals: `refusal:notice-to-org` and
+  `refusal:notice-to-user` (422).
+- **Keyed:** `:keyed-fresh` and `:keyed-replay` for both tools, cold and
+  warm. **Halted:** `refusal:mail-halted` (409).
+- **Agent-level locality:** every in-org send changes only the named
+  recipient's mail and `mail_log` (`agents.logical`), plus, on a first deep
+  send, the audience grant between the sender and that recipient. The
+  control `control:mail-third-agent` (a send whose delivery also posts to
+  `m-sib`) is flagged.
+- **Cross-org contacts** (declared on the cold rows):
+  - `:org` writes into the DESTINATION org's store;
+  - `:bare-unknown-name` looks the name up across every org (hundreds of
+    statements, warm or cold).
+
+  Cold, the foreign store is closed first, so its connect is observed
+  (`org-db:foreign`). Warm, the foreign store is pooled, so no connect
+  happens. Those warm reads are real but carry no per-org path category:
+  the audit layer classifies connects, not statements on an open
+  connection.
+
+## Hand-off to P01 (S3 F2): facet → clause → rows
+
+Clauses from the Owner lines at v3 325ec75.
+
+| Facet | Closing clause | Status | Rows |
+|---|---|---|---|
+| `agent-mail.reads` | observed per-operation contacts for orgtree_message and orgtree_send_notice by recipient class (agent, deep agent, archived, user, @org:, @mcp:, a bare unknown name that scans other orgs), cold and warm | covered | `mail.message`, `:deep`, `:archived`, `:user`, `:org`, `:mcp`, `:bare-unknown-name`; `mail.notice`, `:deep`, `:archived`; each cold and warm; plus the notice refusals, keyed and halted rows |
+| `agent-mail.instrumentation` | an observed, loss-accounted contact record for both mail tools by recipient class, with agent-level locality (only the sender and the named recipient touched) | partly | covered: the record above, per-row loss zero, `agents.logical` = the named recipient only (plus the first-deep-send grant between sender and recipient), `control:mail-third-agent` flagged. NOT covered: P03 native negative controls |
+| `agent-mail.effects` | observed cross-org effects of interorg_send on the destination org's document and of the @net: spool drain and hub delivery, with their failure outcomes | partly (P07 owns it; P02 observes) | covered: `mail.message:org`. interorg_send runs unstubbed and its write into the destination org's store is observed cold (foreign connect). NOT observed: the destination document's changed sections (the harness snapshots the sender's org only), the @net: spool drain and hub delivery (network, refused here; P07), and interorg_send's failure outcomes |
+
+Owned elsewhere, with no rows added:
+- `agent-mail.conflicts`: the native design, then P03 and P07;
+- `agent-mail.wire`: the native/Rust conversion.
 
 ## Limits
 

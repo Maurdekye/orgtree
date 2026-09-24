@@ -1753,21 +1753,23 @@ class Probe:
 
         # public side: enable the kiosk, then measure the gateway's token-map
         # rebuild ON ITS OWN. It runs in the ASGI wrapper before the app, so
-        # before any census attempt exists, and reads every org's document;
-        # the public rows below run with the map warm so they carry only
-        # their own request's contacts
+        # before any census attempt exists, and reads every org's document.
+        # The public rows below run with the map PINNED fresh (its timestamp
+        # set far ahead, so the real lookup answers from the built map however
+        # long a row takes): they carry only their own request's contacts,
+        # independent of the 5 s cache. In the product, any public request
+        # made after the cache expired carries the every-org read as well.
         def kiosk_on(o: Any) -> None:
             o.d["kiosk"] = {"enabled": True, "token": self.KIOSK,
                             "max_scope": o.default_kiosk_ceiling()}
         self.mutate(s, kiosk_on)
         self.kiosk_scan = self.measure_kiosk_scan()
+        api = self.m["api"]
+        api._token_cache["at"] = time.time() + 1e9     # pinned until the feed rows end
         for condition in ("cold", "warm"):
-            self.m["api"]._kiosk_token_map()
             get("org.tree", "org.tree:public", condition, public, kiosk + tree)
-            self.m["api"]._kiosk_token_map()
             get("org.node-detail", "org.node-detail:public", condition, public,
                 f"{kiosk}{tree}/nodes/ov-worker/detail")
-        self.m["api"]._kiosk_token_map()
         get("org.tree", "refusal:tree-bad-kiosk-token", "warm", public,
             f"/k/nopenopenope/api/orgs/{s}", refusal="404 unknown kiosk token")
         get("org.tree", "refusal:tree-admin-on-kiosk-org", "warm", admin, tree, op,
@@ -1797,6 +1799,106 @@ class Probe:
         self.run("org.feed", "refusal:feed-no-token", "warm", s, "ov-boss", "WS org.feed", {},
                  call=self.feed([("admin", admin, ws, {})], 0),
                  refusal="socket without the desktop token closed")
+        self.m["api"]._token_cache["at"] = 0.0          # unpin the kiosk token map
+
+    # -- P01 S3 F2: mail.message, mail.notice ---------------------------------------
+    def build_mail(self) -> None:
+        """tests/test_state_agent_mail_boundary.py's org (distinctive `m-*`
+        ids) and a second, destination org for @org: mail."""
+        store, ledger = self.m["store"], self.m["ledger"]
+        org = store.create_org("p02-contacts-mail")
+        self.mlslug = str(org.d["slug"])
+        org.hire(ledger.USER, None, "haiku", 10, "m-top")
+        org.hire(ledger.USER, "m-top", "haiku", 6, "m-mid")
+        org.hire(ledger.USER, "m-top", "haiku", 0, "m-sib")
+        org.hire(ledger.USER, "m-mid", "haiku", 2, "m-kid")
+        org.hire(ledger.USER, "m-kid", "haiku", 0, "m-deep")
+        org.hire(ledger.USER, "m-sib", "haiku", 0, "m-cousin")
+        org.hire(ledger.USER, "m-top", "haiku", 0, "m-gone")
+        org.retire(ledger.USER, "m-gone")
+        org.d["mail"], org.d["audiences"] = {}, []
+        store.save_org(org)
+        for n in ("m-top", "m-mid", "m-sib"):
+            self.tokens[(self.mlslug, n)] = self.m["agentauth"].child_env(
+                self.mlslug, n)["ORGTREE_AGENT_TOKEN"]
+        self.mldest = str(store.create_org("p02-contacts-mail-dest").d["slug"])
+
+    def mail(self) -> None:
+        s, dest, opreceipts = self.mlslug, self.mldest, self.m["opreceipts"]
+        supervisor, store = self.m["supervisor"], self.m["store"]
+        msg, note = "orgtree_message", "orgtree_send_notice"
+
+        def send(contract: str, variant: str, condition: str, tool: str, actor: str, to: str,
+                 **kw: Any) -> None:
+            extra = kw.pop("extra", {})
+            self.run(contract, variant, condition, s, actor, tool,
+                     dict(to=to, body="fixture", **extra), **kw)
+
+        both = ("cold", "warm")
+        # mail.message by recipient class (P01 agent-mail.reads), cold and warm.
+        # The cold deep/@org: rows are the FIRST send (grant); warm, the second.
+        # Two rows reach OTHER orgs' stores: @org: delivers into the
+        # destination org (supervisor.interorg_send, unstubbed), and a bare
+        # unknown name is looked up across every org. Cold, their foreign
+        # store is closed too, so the foreign connect is observed (declared)
+        foreign = ("sqlite_connect:data:org-db:foreign",)
+        cases = [
+            ("mail.message", "m-mid", "m-top", {}),
+            ("mail.message:deep", "m-mid", "m-deep", {}),
+            ("mail.message:archived", "m-top", "m-gone", {}),
+            ("mail.message:user", "m-top", "user", {}),
+            ("mail.message:org", "m-top", f"@org:{dest}", {"cold_unknown": foreign}),
+            ("mail.message:mcp", "m-top", "@mcp:peer1", {}),
+            ("mail.message:bare-unknown-name", "m-mid", "nobody-here",
+             {"refusal": "422 NOT DELIVERED: a bare name that is no agent here",
+              "cold_unknown": foreign}),
+        ]
+        for variant, actor, to, kw in cases:
+            kw = dict(kw)
+            cold_unknown = kw.pop("cold_unknown", ())
+            for condition in both:
+                if condition == "cold" and cold_unknown:
+                    self.cold((dest,))
+                send("mail.message", variant, condition, msg, actor, to,
+                     expected_unknown=cold_unknown if condition == "cold" else (), **kw)
+        for variant, actor, to, kw in [
+                ("mail.notice", "m-mid", "m-sib", {}),
+                ("mail.notice:deep", "m-top", "m-kid", {}),
+                ("mail.notice:archived", "m-top", "m-gone", {})]:
+            for condition in both:
+                send("mail.notice", variant, condition, note, actor, to, **kw)
+        send("mail.notice", "refusal:notice-to-org", "warm", note, "m-top", f"@org:{dest}",
+             refusal="422 notices are for agents in this org")
+        send("mail.notice", "refusal:notice-to-user", "warm", note, "m-top", "user",
+             refusal="422 notices are for agents in this org")
+        epoch = self.client.post("/api/agent",
+                                 json=self.agent_body(s, "m-mid", opreceipts.OP_EPOCH, {}),
+                                 headers={"X-Orgtree-Agent-Token": self.tokens[(s, "m-mid")]}
+                                 ).json()["epoch"]
+        for contract, tool, to in (("mail.message", msg, "m-top"), ("mail.notice", note, "m-sib")):
+            for condition in both:
+                key = opreceipts.mint_key()
+                send(contract, f"{contract}:keyed-fresh", condition, tool, "m-mid", to,
+                     key=key, epoch=epoch)
+                send(contract, f"{contract}:keyed-replay", condition, tool, "m-mid", to,
+                     key=key, epoch=epoch,
+                     refusal="keyed replay (answered from the receipt, no effect)")
+        self.mutate(s, lambda o: o.node("m-sib").update(halt={"at": "fixture"}))
+        send("mail.message", "refusal:mail-halted", "warm", msg, "m-sib", "m-top",
+             refusal="409 halted")
+        self.mutate(s, lambda o: o.node("m-sib").pop("halt", None))
+
+        # agent-level locality control: a send to the addressed recipient
+        # whose delivery step ALSO posts mail to a third agent ('m-sib', from
+        # 'm-top', which may address it)
+        def notify_and_mail_third(*_a: Any, **_k: Any) -> dict[str, Any]:
+            with store.write_org(s) as org:
+                org.post_mail("m-top", "m-sib", "p02 control: mail to a third agent")
+                store.save_org(org)
+            return {"delivered": True}
+        send("mail.message", "control:mail-third-agent", "warm", msg, "m-mid", "m-top",
+             refusal="negative control (not a product path)",
+             patches=[(supervisor, "send_message", notify_and_mail_third)])
 
     # -- the r5 residuals ----------------------------------------------------
     def residuals(self) -> dict[str, Any]:
@@ -1882,9 +1984,10 @@ class Probe:
             self.build_sandbox()
             self.build_status()
             self.build_org_view()
+            self.build_mail()
         for slug in ((self.dslug,) if json_backend else
                      (self.rslug, self.mslug, self.dslug, self.pslug, self.sslug,
-                      self.stslug, self.ovslug)):
+                      self.stslug, self.ovslug, self.mlslug)):
             _NODES[slug] = {str(n) for n in self.m["store"].load_org(slug).nodes}
         self.operator("post", "/api/diagnostics/operation-census/reset")
         self.operator("post", "/api/diagnostics/operation-census", json={"enabled": True})
@@ -1901,6 +2004,7 @@ class Probe:
             self.provider()
             self.status_chart()
             self.org_view()
+            self.mail()
         w1 = self.census_state()
         self.load_table_catalogue()
         self.map_tables()
