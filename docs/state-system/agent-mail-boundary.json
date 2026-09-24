@@ -1,0 +1,39 @@
+{
+  "schema": "orgtree.agent-mail-boundary/v1",
+  "source_contract_sha256": "05126ac2274264832a1b6ae36da13e7f2aad8459db4b10c1f775b807495815ed",
+  "qualification": {
+    "runtime_census": false,
+    "conversion_authorized": false
+  },
+  "tools": {
+    "orgtree_message": "mail.message",
+    "orgtree_send_notice": "mail.notice"
+  },
+  "results": {
+    "agent": ["deferred", "delivered", "delivery", "id", "operation_id", "recipient_state", "ref", "warnings"],
+    "user": ["delivered", "id", "operation_id", "ref", "warnings"],
+    "org": ["delivered", "id", "ref", "warnings"],
+    "mcp": ["delivered", "filed", "id", "status", "warnings"],
+    "replay": ["at", "op_id", "outcome", "receipt", "replayed", "status", "tool"]
+  },
+  "sections": {
+    "agent": ["events", "lifecycle", "mail", "mail_log", "nodes"],
+    "agent_with_grant": ["audiences", "events", "lifecycle", "mail", "mail_log", "nodes"],
+    "user": ["events", "lifecycle", "user_inbox"],
+    "org_first": ["audiences", "events", "org_inbox"],
+    "org": ["events", "org_inbox"],
+    "mcp": ["events", "org_inbox"],
+    "net": ["events", "net_spool", "org_inbox"]
+  },
+  "retained": ["deferred", "delivered", "id"],
+  "ping": {
+    "orgtree_message": {"wake": true, "ping_reason": "agent_mail"},
+    "orgtree_send_notice": {"wake": false, "ping_reason": "notice"}
+  },
+  "legacy_defects": [
+    "an empty, whitespace-only or missing body is accepted and delivered",
+    "any kind text except 'notice' is accepted verbatim",
+    "a self-send is accepted and drives the sender itself"
+  ],
+  "scope": "Legacy public-door boundary of orgtree_message and orgtree_send_notice on disposable SQLite: addressing, recipient classes, committed sections, callbacks at their boundary and keyed receipts. The cross-org write of interorg_send and the @net: drain are spied, not exercised; nothing native, contact-level or concurrent is qualified."
+}

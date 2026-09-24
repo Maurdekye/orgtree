@@ -115,9 +115,9 @@ runtime probes remain unresolved. Material reads add two cards and two selectors
 diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
-Current totals are 21 contracts, 12 mapped registrations and 32 mapped
-dispatch witnesses. **592 obligations remain**: 307 registrations, 195 dispatch
-witnesses, 15 storage candidates and 75 unresolved dimension occurrences.
+Current totals are 23 contracts, 14 mapped registrations and 36 mapped
+dispatch witnesses. **596 obligations remain**: 305 registrations, 191 dispatch
+witnesses, 15 storage candidates and 85 unresolved dimension occurrences.
 How it got there: 600 was two more registrations than the preceding 598 because the scanner now
 recognizes `asyncio.to_thread` hand-offs; both new witnesses are pending and no
 existing witness identity, disposition or contract changed.
@@ -163,6 +163,11 @@ to `org.tree`, `org.node-detail` and `org.feed`, whose unresolved facets add 13
 occurrences (five shared `org-view` facets on two contracts, three `org-feed`
 facets), and the shared diagnostic/preview branch `dd72cf1a` returns to pending
 (+1, S3 decision 3).
+596 is four more than that 592 (S3 candidate 3): six witnesses are mapped (-6) —
+the two mail cards, their two exact branches, and the two shared mail-family
+selectors that candidate 1 had to leave pending — to `mail.message` and
+`mail.notice`, whose five unresolved shared `agent-mail` facets add ten
+occurrences (+10).
 See "P03-prototype surface" below.
 
 Of the 53 open dimension occurrences on the sixteen legacy-family contracts, 37 (17 facets) cannot be closed at P01
@@ -308,6 +313,21 @@ warm-process eligibility check catches only `RuntimeError`, but the desktop
 policy raises `ValueError`) while the public view still serves. A kiosk config
 without a ceiling also mints a fresh ceiling notice on every cold load. The kiosk
 listener is started only by api.py's own `main()`, not by the desktop launcher.
+
+Candidate 3 (F2, agent mail) adds `mail.message` (`orgtree_message`) and
+`mail.notice` (`orgtree_send_notice`), which share one set of `agent-mail`
+facets because both go through `Org.post_mail`. With both contracted, every tool
+the shared mail-family result ref and transcript chip admit has a contract, so
+those two selectors are mapped too. Specified from source and pinned by
+`tests/test_state_agent_mail_boundary.py` against `agent-mail-boundary.json`:
+authority (§7.2 addressing, the §7.3 reply grant, user and outside-party rules),
+predicates (recipient resolution, kind, urgency, attachments, archived and
+unknown recipients), writes by recipient class (agent, user, @org:, @mcp:, @net:)
+and receipt. Unresolved with an owner: effects (P07: the destination-org write of
+`interorg_send` and the @net: drain are spied, not exercised), reads and
+instrumentation (P02), conflicts (native design) and wire (native/Rust). Recorded
+legacy behaviour: empty bodies are delivered, any `kind` but `notice` is accepted,
+and an agent may message itself, which drives its own turn.
 
 ## Deliberate failing controls
 

@@ -5017,6 +5017,358 @@
         "Record feed subscriptions and frame fan-out in the P02 record.",
         "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed record of feed subscriptions and frame fan-out (per slug, admin and public). Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) does not cover websocket subscriptions."
       ]
+    },
+    "agent-mail.authority": {
+      "dimension": "authority",
+      "status": "specified",
+      "facts": [
+        "The agent door authenticates the caller (401/403) and refuses halt and killswitch (409) before the write cycle, as for every agent tool. Pinned for a halted sender.",
+        "Addressing (§7.2, Org.post_mail) for an in-org agent recipient: the sender may reach any descendant, its parent (one hop up), a sibling (same parent), or anyone whose audience it holds. Everything else is refused 422 '<sender> may not address <to> — …'. Pinned: a cousin and a grandparent are refused; a reply from a deep report succeeds once the sender holds the audience its superior's mail granted. A node may address itself: the sibling clause is trivially true for sender == target (recorded, D-165).",
+        "§7.3: mail or a notice from an ancestor to a NON-child descendant that does not already hold the reverse audience grants the recipient an audience to reply to the sender directly (an 'audiences' row and the warning 'audience granted: <to> may now reply to <sender> directly'). Pinned for both tools; a second send grants nothing.",
+        "The user: only a top-level agent, or a holder of a user audience, may message 'user'; others are refused 422. orgtree_send_notice refuses the user and every outside address.",
+        "Outside parties (@org:, @mcp:, @net:, orgtree_message only): only agents; never from a sealed kiosk (read from source, not exercised); the sender must hold the ORG-INBOX (EXTERN) audience or an exact held external handle. A top-level sender without it is auto-granted it by the send (with multi-holder off, every previous holder is revoked — read from source, not exercised); anyone else is refused 422. Addressing the org's own slug or own network identity is refused. The @ext: form is retired and refuses. Pinned for @org: (top auto-grant, deep refused, self refused), @mcp: and @ext:."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11213,
+          "end": 11271,
+          "sha256": "3364dd0d8d7b27a9b16eff4385e2a0c17e3eefc0d9ad57b1411cef8111c7988e"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11828,
+          "end": 11845,
+          "sha256": "6f5efe7bb30fdd0330659bb4f6e7277ba1bfc99a0e1a9da1011db2ec15a72cda"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 2108,
+          "end": 2145,
+          "sha256": "dfb1ad2a53bfea26ee13072a6714a369f864048de2f9530507e75aa6b20c0772"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 3355,
+          "end": 3435,
+          "sha256": "84599483335e66c238cb360878e0c92315f5d36976ec5f12c3e8048272933bbf"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 3436,
+          "end": 3514,
+          "sha256": "09792c3691cde36af2d8c1eb10f6e29ccc6cfbf26d0a26cab5f44e892adc773b"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 3516,
+          "end": 3723,
+          "sha256": "288b5ed6ce5eebce5180f6fd7e09fed816475ed64149519c60c4f4cd1aaa62e1"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12026,
+          "end": 12052,
+          "sha256": "a62bf1f230bd9b7206a944325e530cdd470e44407bda0824a77c9b856db0ecc5"
+        }
+      ],
+      "open_questions": []
+    },
+    "agent-mail.predicates": {
+      "dimension": "predicates",
+      "status": "specified",
+      "facts": [
+        "Arguments pass _norm_args (a container 'to' or 'body' refuses 422 '<field> must be text, not <type>'). The recipient is resolved ONCE before anything records: 'user' is the user unless an agent is named user; a bare name that is no node here resolves to the one matching local org (@org:) or polling peer (@mcp:), else a hub peer (@net:), and an ambiguous name refuses. An unmatched name refuses 422 'NOT DELIVERED — there is no agent named …' and queues nothing. Pinned for an unknown name and for a bare local-org name.",
+        "orgtree_message: kind defaults to 'message' and any other text is accepted verbatim, except 'notice', which refuses (only orgtree_send_notice mints it). urgent is only for the user and needs a nonblank urgent_reason; a reason without urgent refuses. Attachments go only to the user or @net: (at most 10; @net: files must lie inside the sender's scratch space and be at most 25 MB); for an agent they refuse. Pinned.",
+        "Recorded legacy behaviour: an empty, whitespace-only or missing body is accepted, stored and delivered (and drives the recipient). A self-send is accepted and drives the sender itself.",
+        "A recipient that is archived receives the mail deferred (stored, recipient_state archived, no drive) with a warning that nothing reads it until a rehire; an unrecoverable recipient refuses. @net: refuses without an enabled hub or when the name is not on a connected hub's roster."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9751,
+          "end": 9804,
+          "sha256": "23d5bf1ea2eef2aea9ac37c4d0b2ac6badf1605ab56641750c5ce018a7f00730"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11846,
+          "end": 12025,
+          "sha256": "fa6a642206e10d233d75a289292e4c35117c8bdeb071f307d60cbd446f415562"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12026,
+          "end": 12052,
+          "sha256": "a62bf1f230bd9b7206a944325e530cdd470e44407bda0824a77c9b856db0ecc5"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 2108,
+          "end": 2145,
+          "sha256": "dfb1ad2a53bfea26ee13072a6714a369f864048de2f9530507e75aa6b20c0772"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 3261,
+          "end": 3354,
+          "sha256": "3c1be51414f81b07f7c696f1fca4da3ebf0646c3e6b1c4bd6daf433fba080966"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 3516,
+          "end": 3723,
+          "sha256": "288b5ed6ce5eebce5180f6fd7e09fed816475ed64149519c60c4f4cd1aaa62e1"
+        }
+      ],
+      "open_questions": []
+    },
+    "agent-mail.writes": {
+      "dimension": "writes",
+      "status": "specified",
+      "facts": [
+        "TX_POST, in the resident write cycle ending in save_org. Measured with the committed document read cold, by recipient class:",
+        "an agent (live or archived): one mail row in the recipient's box (from, kind, body, relationship, message_id, operation_id, recv_seq), one mail_log row, one 'mail' event, one accepted lifecycle row (delivery mailbox) and the recipient's mail_seq/mailbox_id; plus one audiences row when §7.3 grants one.",
+        "the user: one user_inbox row (with urgent and urgent_reason when urgent), one 'mail' event and one accepted lifecycle row (delivery user_inbox).",
+        "an outside party: one org_inbox row {id, dir out, peer, body, at, by}, one 'mail' event, plus the EXTERN audience row when auto-granted, plus for @net: the hub spool entry, in the same save.",
+        "A keyed call adds op_receipts and op_receipts_meta in the same save. A keyed replay and every refusal commit nothing. Pinned for each class."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11828,
+          "end": 11845,
+          "sha256": "6f5efe7bb30fdd0330659bb4f6e7277ba1bfc99a0e1a9da1011db2ec15a72cda"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 3355,
+          "end": 3435,
+          "sha256": "84599483335e66c238cb360878e0c92315f5d36976ec5f12c3e8048272933bbf"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 3436,
+          "end": 3514,
+          "sha256": "09792c3691cde36af2d8c1eb10f6e29ccc6cfbf26d0a26cab5f44e892adc773b"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 3516,
+          "end": 3723,
+          "sha256": "288b5ed6ce5eebce5180f6fd7e09fed816475ed64149519c60c4f4cd1aaa62e1"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12804,
+          "end": 12814,
+          "sha256": "db878061c038c52141342fd300ced86b4724334df70411a0ae0c5fcb1e17c4de"
+        }
+      ],
+      "open_questions": []
+    },
+    "agent-mail.receipt": {
+      "dimension": "receipt",
+      "status": "specified",
+      "facts": [
+        "Coverage class TX_POST for both tools. A keyed orgtree_op_call admits the key inside the write cycle and files an applied receipt immediately before save, so the mail and its receipt commit together. The retained result keeps only delivered, deferred and id. A keyed replay returns the replay envelope without posting again, pinging, sparking or broadcasting. Pinned for both tools."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11828,
+          "end": 11845,
+          "sha256": "6f5efe7bb30fdd0330659bb4f6e7277ba1bfc99a0e1a9da1011db2ec15a72cda"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12804,
+          "end": 12814,
+          "sha256": "db878061c038c52141342fd300ced86b4724334df70411a0ae0c5fcb1e17c4de"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 185,
+          "end": 186,
+          "sha256": "10fa9c460e931ac0043818e8960966b5d3eff26cd39731f305c119b9640551cf"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 286,
+          "end": 293,
+          "sha256": "8896ae5f7b2a162ebd8f1cd6d388b622e26527266bd24b4ce31204d50e5b8e02"
+        }
+      ],
+      "open_questions": []
+    },
+    "agent-mail.effects": {
+      "dimension": "effects",
+      "status": "unresolved",
+      "facts": [
+        "Observed at the callback boundary with spies: an in-org message sparks mail_notify(org, sender, recipient) inside the write cycle and, after the save, pings the recipient once through supervisor.send_message (wake default, mail_ping, ping_reason 'agent_mail'); a notice sparks the same and then steers once with wake=False and ping_reason 'notice'; a deferred (archived) recipient is sparked but never pinged. Mail to the user sparks '@user' and pings nobody. Every accepted send ends with hub_changed.",
+        "Outside parties: @org: sparks 'org_inbox' and, after the save, calls supervisor.interorg_send(this org, destination org, body), which writes into the DESTINATION org's own inbox; @mcp: only files the org-inbox row (the peer pulls it) and answers delivered false with a status sentence; @net: stages the spool entry in the same save and then calls net.kick to wake the sender daemon."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11846,
+          "end": 12025,
+          "sha256": "fa6a642206e10d233d75a289292e4c35117c8bdeb071f307d60cbd446f415562"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12026,
+          "end": 12052,
+          "sha256": "a62bf1f230bd9b7206a944325e530cdd470e44407bda0824a77c9b856db0ecc5"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12882,
+          "end": 12906,
+          "sha256": "74fc6b99ae3af72c1d9a79714ed444e557f3a1952f4f01807335e623a412f1e4"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12927,
+          "end": 12941,
+          "sha256": "eb6d20bce3049a09910ce753117862bd8ea271e1492fd6d7085fdeafa5a7a4db"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12956,
+          "end": 12974,
+          "sha256": "a28ef2326a4f20ffa7c8a2b1b9c8c26da60c7ce2fbdcfc045a2a4cb47f04fe49"
+        }
+      ],
+      "open_questions": [
+        "Observe the destination-org write of @org: mail and the @net: spool drain and delivery, with failure outcomes.",
+        "Owner: P07 (channels/mail), with P02 observing. Closes with: observed cross-org effects of interorg_send on the destination org's document and of the @net: spool drain and hub delivery, with their failure outcomes. Not coverable at P01 from available evidence: those callees are spied at this boundary (interorg_send, net.kick); what they then write in another org or send over the hub was not exercised, and the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to the mail tools."
+      ]
+    },
+    "agent-mail.reads": {
+      "dimension": "reads",
+      "status": "unresolved",
+      "facts": [
+        "Source read set: caller identity (cached snapshot) and the resident document (caller node, halt, killswitch, recipient node and parent chain, audiences, EXTERN holders, org_inbox peers). A bare name that is not a node here is resolved by external_candidates, which lists every local org and reads each one's document to skip sealed kiosks, and by the net roster cache."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11828,
+          "end": 11845,
+          "sha256": "6f5efe7bb30fdd0330659bb4f6e7277ba1bfc99a0e1a9da1011db2ec15a72cda"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 2108,
+          "end": 2145,
+          "sha256": "dfb1ad2a53bfea26ee13072a6714a369f864048de2f9530507e75aa6b20c0772"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 3355,
+          "end": 3435,
+          "sha256": "84599483335e66c238cb360878e0c92315f5d36976ec5f12c3e8048272933bbf"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 3516,
+          "end": 3723,
+          "sha256": "288b5ed6ce5eebce5180f6fd7e09fed816475ed64149519c60c4f4cd1aaa62e1"
+        }
+      ],
+      "open_questions": [
+        "Record the statement-level read set of each recipient class, including the cross-org scan behind bare-name resolution.",
+        "Owner: P02. Closes with: observed per-operation contacts for orgtree_message and orgtree_send_notice by recipient class (agent, deep agent, archived, user, @org:, @mcp:, a bare unknown name that scans other orgs), cold and warm. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to the mail tools."
+      ]
+    },
+    "agent-mail.conflicts": {
+      "dimension": "conflicts",
+      "status": "unresolved",
+      "facts": [
+        "The whole send runs under DOC_LOCK in one write cycle, and the mail queue, mail_log, events, lifecycle, audiences and org_inbox are org-wide document sections, so two sends to different recipients write the same rows in the legacy store."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11828,
+          "end": 11845,
+          "sha256": "6f5efe7bb30fdd0330659bb4f6e7277ba1bfc99a0e1a9da1011db2ec15a72cda"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 3516,
+          "end": 3723,
+          "sha256": "288b5ed6ce5eebce5180f6fd7e09fed816475ed64149519c60c4f4cd1aaa62e1"
+        }
+      ],
+      "open_questions": [
+        "Choose the native source and receiver transactions for agent mail and its audience grants.",
+        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 (native prototype) and P07 (mail). Closes with: the native source/receiver split of v6 MAIL-STAGES-AND-AUTHORITY (authority effects in the source transaction; receiver-owned deposit, dedupe and order), qualified by concurrent sends to the same and different recipients and by grant races. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source decides."
+      ]
+    },
+    "agent-mail.wire": {
+      "dimension": "wire",
+      "status": "unresolved",
+      "facts": [
+        "Result shapes are fixtured in docs/state-system/agent-mail-boundary.json and compared by tests/test_state_agent_mail_boundary.py: agent recipient {delivered, id, deferred, recipient_state, operation_id, warnings, delivery, ref}; user {delivered 'user_inbox', id, operation_id, warnings, ref}; @org: {delivered, id, warnings, ref}; @mcp: {delivered false, filed, id, status, warnings} and no ref, because nothing was delivered. ref is '@mail:<org>/node/<to>/<id>', '@mail:<org>/user/<id>' or '@mail:<org>/org/<id>'.",
+        "Recorded legacy behaviour: empty bodies are accepted; any kind text but 'notice' is accepted; self-send is accepted and drives the sender."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11846,
+          "end": 12025,
+          "sha256": "fa6a642206e10d233d75a289292e4c35117c8bdeb071f307d60cbd446f415562"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12026,
+          "end": 12052,
+          "sha256": "a62bf1f230bd9b7206a944325e530cdd470e44407bda0824a77c9b856db0ecc5"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 7619,
+          "end": 7640,
+          "sha256": "662fbbe998e5177067d2c9f5a7ccf482c29ae8a19d244a8d4c11d076596c735d"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 35376,
+          "end": 35388,
+          "sha256": "926ec49c1eaa4e512cbcd65b9db2b2cfa7cf30f42352d219f38d0f528a9401ec"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 3516,
+          "end": 3723,
+          "sha256": "288b5ed6ce5eebce5180f6fd7e09fed816475ed64149519c60c4f4cd1aaa62e1"
+        }
+      ],
+      "open_questions": [
+        "Carry the fixtured mail result shapes to the native/Rust door and decide each recorded legacy behaviour.",
+        "Owner: the native/Rust conversion, from the P03 prototype onward. Closes with: the fixtured result shapes per recipient class passing against the native and Rust builds, with each recorded legacy behaviour reproduced deliberately or replaced by an approved refusal. Not coverable at P01 from available evidence: no native or Rust build exists to run the fixtures against."
+      ]
+    },
+    "agent-mail.instrumentation": {
+      "dimension": "instrumentation",
+      "status": "unresolved",
+      "facts": [
+        "The door labels the request with the tool name and census.classify files its action/target shape before dispatch; stateprobe.refine names the tool. No P02 per-operation record exists for these tools yet."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11828,
+          "end": 11845,
+          "sha256": "6f5efe7bb30fdd0330659bb4f6e7277ba1bfc99a0e1a9da1011db2ec15a72cda"
+        }
+      ],
+      "open_questions": [
+        "Extend the P02 per-operation probe to both mail tools with an agent-level locality control.",
+        "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed, loss-accounted contact record for both mail tools by recipient class, with agent-level locality (only the sender and the named recipient touched). Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to the mail tools."
+      ]
     }
   },
   "contracts": {
@@ -6299,6 +6651,120 @@
           "sha256": "1bc182efe3b9b0acff0085de5989e9b011c12ae376496d09c184b2e89bc81bc1"
         }
       ]
+    },
+    "mail.message": {
+      "entry_ids": [
+        "c5e063b50c8206e893c5ff480b9e5d7593ffa66ec6aeada1ea93252a28745188"
+      ],
+      "tools": [
+        "orgtree_message"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "domain_mode": "write",
+      "dimensions": {
+        "authority": [
+          "agent-mail.authority"
+        ],
+        "reads": [
+          "agent-mail.reads"
+        ],
+        "writes": [
+          "agent-mail.writes"
+        ],
+        "predicates": [
+          "agent-mail.predicates"
+        ],
+        "conflicts": [
+          "agent-mail.conflicts"
+        ],
+        "wire": [
+          "agent-mail.wire"
+        ],
+        "receipt": [
+          "agent-mail.receipt"
+        ],
+        "effects": [
+          "agent-mail.effects"
+        ],
+        "instrumentation": [
+          "agent-mail.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 183,
+          "end": 233,
+          "sha256": "b1cfe53de02fe32c5d4272cd7eb27706ad4cc14eb705f12676291d722b05fe02"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11846,
+          "end": 12025,
+          "sha256": "fa6a642206e10d233d75a289292e4c35117c8bdeb071f307d60cbd446f415562"
+        }
+      ]
+    },
+    "mail.notice": {
+      "entry_ids": [
+        "213ca561ce61697f00a47c7341b03b7f05a933d87e16b82749167925480b759b"
+      ],
+      "tools": [
+        "orgtree_send_notice"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "domain_mode": "write",
+      "dimensions": {
+        "authority": [
+          "agent-mail.authority"
+        ],
+        "reads": [
+          "agent-mail.reads"
+        ],
+        "writes": [
+          "agent-mail.writes"
+        ],
+        "predicates": [
+          "agent-mail.predicates"
+        ],
+        "conflicts": [
+          "agent-mail.conflicts"
+        ],
+        "wire": [
+          "agent-mail.wire"
+        ],
+        "receipt": [
+          "agent-mail.receipt"
+        ],
+        "effects": [
+          "agent-mail.effects"
+        ],
+        "instrumentation": [
+          "agent-mail.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 234,
+          "end": 252,
+          "sha256": "3ed9f9bd80f459a940306501914ebde4655929b94b2377ab2e6b3e2bc5737636"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12026,
+          "end": 12052,
+          "sha256": "a62bf1f230bd9b7206a944325e530cdd470e44407bda0824a77c9b856db0ecc5"
+        }
+      ]
     }
   },
   "wire_cases": [
@@ -6753,6 +7219,26 @@
       "args": {},
       "contract": "org.feed",
       "domain_mode": "read"
+    },
+    {
+      "name": "mail.message",
+      "entry_id": "c5e063b50c8206e893c5ff480b9e5d7593ffa66ec6aeada1ea93252a28745188",
+      "args": {
+        "to": "top",
+        "body": "fixture"
+      },
+      "contract": "mail.message",
+      "domain_mode": "write"
+    },
+    {
+      "name": "mail.notice",
+      "entry_id": "213ca561ce61697f00a47c7341b03b7f05a933d87e16b82749167925480b759b",
+      "args": {
+        "to": "sib",
+        "body": "fixture"
+      },
+      "contract": "mail.notice",
+      "domain_mode": "write"
     }
   ],
   "limits": [
@@ -8328,17 +8814,35 @@
     },
     {
       "id": "c5e063b50c8206e893c5ff480b9e5d7593ffa66ec6aeada1ea93252a28745188",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "mail.message"
+      ],
+      "reason": "The orgtree_message card (S3 F2).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 183,
+          "end": 233,
+          "sha256": "b1cfe53de02fe32c5d4272cd7eb27706ad4cc14eb705f12676291d722b05fe02"
+        }
+      ]
     },
     {
       "id": "213ca561ce61697f00a47c7341b03b7f05a933d87e16b82749167925480b759b",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "mail.notice"
+      ],
+      "reason": "The orgtree_send_notice card (S3 F2).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 234,
+          "end": 252,
+          "sha256": "3ed9f9bd80f459a940306501914ebde4655929b94b2377ab2e6b3e2bc5737636"
+        }
+      ]
     },
     {
       "id": "dad8cca65df6d60e98f9c239e4e271a7eeb740a651830688a016157bd66ab169",
@@ -9211,10 +9715,21 @@
     },
     {
       "id": "8f05ba355ad3a004db835b3f1cfe797713884c89f4a8273c77cb1ff82c534a1a",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Shared mail-family result ref: status.report is contracted; orgtree_message and orgtree_send_notice are pending S3 F2, which maps this branch when they land.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "mail.message",
+        "mail.notice",
+        "status.report"
+      ],
+      "reason": "Shared mail-family result ref: every tool it admits (orgtree_message, orgtree_send_notice, orgtree_status) is now contracted.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 7619,
+          "end": 7640,
+          "sha256": "662fbbe998e5177067d2c9f5a7ccf482c29ae8a19d244a8d4c11d076596c735d"
+        }
+      ]
     },
     {
       "id": "536a8465f8308baacfeb51bdd4a494e41187848f0ae66d04aee76b6a71b9b119",
@@ -9725,17 +10240,35 @@
     },
     {
       "id": "8f55f2dcaa52633fdfb94396fbb2d4e61f406a0a1fe39d7b66be5704943ed163",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "mail.message"
+      ],
+      "reason": "Exact orgtree_message branch in the agent write cycle.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11846,
+          "end": 12025,
+          "sha256": "fa6a642206e10d233d75a289292e4c35117c8bdeb071f307d60cbd446f415562"
+        }
+      ]
     },
     {
       "id": "ab51bfefdf24548b7d67e6c89d8824f8687422ba4cd97567734bcfd43974f2c6",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "mail.notice"
+      ],
+      "reason": "Exact orgtree_send_notice branch in the agent write cycle.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12026,
+          "end": 12052,
+          "sha256": "a62bf1f230bd9b7206a944325e530cdd470e44407bda0824a77c9b856db0ecc5"
+        }
+      ]
     },
     {
       "id": "80beb4053e54331ba950f841378685d020c21a0ad8551db3059d5424585815de",
@@ -10992,10 +11525,21 @@
     },
     {
       "id": "ca3dd0e3913d0c51908f875f0bb5961948ae65d6491bf114feb5c261114a8ef0",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Shared transcript mail-chip selector: status.report is contracted; orgtree_message and orgtree_send_notice are pending S3 F2, which maps this branch when they land.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "mail.message",
+        "mail.notice",
+        "status.report"
+      ],
+      "reason": "Shared transcript mail-chip selector: every tool it admits (orgtree_message, orgtree_send_notice, orgtree_status) is now contracted.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 35376,
+          "end": 35388,
+          "sha256": "926ec49c1eaa4e512cbcd65b9db2b2cfa7cf30f42352d219f38d0f528a9401ec"
+        }
+      ]
     },
     {
       "id": "26eaf4984123a609dedc5b5dbb514d17df5f78220287a86822a2817d5a37f928",
