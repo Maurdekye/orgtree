@@ -1,6 +1,6 @@
 {
   "schema": "orgtree.state-operation-contracts/v1",
-  "source_inventory_sha256": "b5f6529daa603376b506c6866f92cc7c9fe6a9af168378ec9c67c2c297c75139",
+  "source_inventory_sha256": "5bc3fcf8fbb97b02eabd7064b7e5a2801948beaba48a0dcfa99802bc9d881dbd",
   "qualification": {
     "runtime_census": false,
     "conversion_authorized": false
@@ -21,8 +21,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 12197,
-          "end": 12251,
+          "start": 12205,
+          "end": 12259,
           "sha256": "d66a2b4efa181bbe055dde8852c9ecbbf4b73f515a64ab787e631eba3b1086a8"
         },
         {
@@ -104,8 +104,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 12197,
-          "end": 12251,
+          "start": 12205,
+          "end": 12259,
           "sha256": "d66a2b4efa181bbe055dde8852c9ecbbf4b73f515a64ab787e631eba3b1086a8"
         },
         {
@@ -141,20 +141,20 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11823,
-          "end": 11837,
+          "start": 11831,
+          "end": 11845,
           "sha256": "6d6e90de70a545f4cc8f2bf9ddf48a34a218b2e4e3bd4574fe600952c66fa285"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 12777,
-          "end": 12802,
+          "start": 12789,
+          "end": 12814,
           "sha256": "badeaafc493558b6818cc8e371950d669dbb2d2c3297a49dff1f196cd188d135"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 10871,
-          "end": 10883,
+          "start": 10877,
+          "end": 10889,
           "sha256": "cc8fe267899aa8d7371f2775ba7211cc1084b0b7697617b168d575e71c5ed81d"
         },
         {
@@ -165,8 +165,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11151,
-          "end": 11204,
+          "start": 11157,
+          "end": 11210,
           "sha256": "9f1090a9d9ff072f55d1325cb34025747dc325c7e88160f20f979abe5bb9aa7c"
         },
         {
@@ -255,8 +255,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 12197,
-          "end": 12251,
+          "start": 12205,
+          "end": 12259,
           "sha256": "d66a2b4efa181bbe055dde8852c9ecbbf4b73f515a64ab787e631eba3b1086a8"
         },
         {
@@ -273,8 +273,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9775,
-          "end": 9796,
+          "start": 9781,
+          "end": 9802,
           "sha256": "18311487a5e8baa24dd5701dace01243d0590ff50365f9d3667b1ca634ca72de"
         },
         {
@@ -285,8 +285,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11205,
-          "end": 11220,
+          "start": 11211,
+          "end": 11226,
           "sha256": "71c497cb2c5917cef875ddd4484c56b91c87c897e82158d6196d4552ce5378ef"
         }
       ],
@@ -362,50 +362,50 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9775,
-          "end": 9798,
+          "start": 9781,
+          "end": 9804,
           "sha256": "114f6530ccf48f0b2e4e78d6445246aef29e1f2a8b87eb1786e7248c9e6081e8"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 10780,
-          "end": 10885,
+          "start": 10786,
+          "end": 10891,
           "sha256": "928eab402f7dd1604d228875f3cf9d33b1699e72deaebf6d1d14165e01c0cb83"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 10932,
-          "end": 10995,
+          "start": 10938,
+          "end": 11001,
           "sha256": "ad5d186c5a0805f3d3664618b628f5bf1f3bbdc3491e4ff37245e46954051983"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 10998,
-          "end": 11136,
+          "start": 11004,
+          "end": 11142,
           "sha256": "20595b4d53ff998fc7deea5ac32f9239b217c223f4f58c361a0bc4cd1fece64d"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11268,
-          "end": 11309,
+          "start": 11274,
+          "end": 11315,
           "sha256": "241559d72bcbd2cfd87e1f60b8698a0c5f836242eb59ec90c7f46664f8ab526f"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11822,
-          "end": 11839,
+          "start": 11830,
+          "end": 11847,
           "sha256": "d3a3b3cff9d448f415aa1759b5d924681c998eb2bd6916966cceea27b9f8591f"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 12776,
-          "end": 12804,
+          "start": 12788,
+          "end": 12816,
           "sha256": "194f856bb6237d66cb34d1a3b779d1e2b80c0f118e1ca270d58332e7ca11c43d"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 12866,
-          "end": 12891,
+          "start": 12882,
+          "end": 12907,
           "sha256": "a503c893250f99036c7c15802739121a4064210932e65670f0d487341fac052f"
         }
       ],
@@ -427,8 +427,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 12197,
-          "end": 12251,
+          "start": 12205,
+          "end": 12259,
           "sha256": "d66a2b4efa181bbe055dde8852c9ecbbf4b73f515a64ab787e631eba3b1086a8"
         }
       ],
@@ -455,8 +455,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 12236,
-          "end": 12251,
+          "start": 12244,
+          "end": 12259,
           "sha256": "f28ee5ce1dd0ab4c7aaa41dc2bed0d2b893df3467c3a54194c650b9ab6dcc8d0"
         },
         {
@@ -473,8 +473,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 12866,
-          "end": 12890,
+          "start": 12882,
+          "end": 12906,
           "sha256": "74fc6b99ae3af72c1d9a79714ed444e557f3a1952f4f01807335e623a412f1e4"
         }
       ],
@@ -491,8 +491,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 12197,
-          "end": 12251,
+          "start": 12205,
+          "end": 12259,
           "sha256": "d66a2b4efa181bbe055dde8852c9ecbbf4b73f515a64ab787e631eba3b1086a8"
         },
         {
@@ -1365,14 +1365,14 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9824,
-          "end": 9866,
+          "start": 9830,
+          "end": 9872,
           "sha256": "4e84976c256a5cab7b04b29656199d5e89fa9c18cd7dca56291b321771bfc6f1"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11207,
-          "end": 11265,
+          "start": 11213,
+          "end": 11271,
           "sha256": "3364dd0d8d7b27a9b16eff4385e2a0c17e3eefc0d9ad57b1411cef8111c7988e"
         },
         {
@@ -1413,14 +1413,14 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9824,
-          "end": 9866,
+          "start": 9830,
+          "end": 9872,
           "sha256": "4e84976c256a5cab7b04b29656199d5e89fa9c18cd7dca56291b321771bfc6f1"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11207,
-          "end": 11265,
+          "start": 11213,
+          "end": 11271,
           "sha256": "3364dd0d8d7b27a9b16eff4385e2a0c17e3eefc0d9ad57b1411cef8111c7988e"
         },
         {
@@ -1461,26 +1461,26 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9725,
-          "end": 9798,
+          "start": 9731,
+          "end": 9804,
           "sha256": "36dd4dfcac3ea3084cb606455db449a9b9cf6da1b8f66457c77f86e2d7b2f067"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9869,
-          "end": 9891,
+          "start": 9875,
+          "end": 9897,
           "sha256": "3fe44c1bb6452af1885de2407c5e0ba5a7bf5b45513891f3ef1329a019451f70"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 10932,
-          "end": 10995,
+          "start": 10938,
+          "end": 11001,
           "sha256": "ad5d186c5a0805f3d3664618b628f5bf1f3bbdc3491e4ff37245e46954051983"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11138,
-          "end": 11298,
+          "start": 11144,
+          "end": 11304,
           "sha256": "44158f092e48d5f084ccb36f319182875f5bb5e889e71a779d80a17860aabd3c"
         },
         {
@@ -1497,14 +1497,14 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11026,
-          "end": 11136,
+          "start": 11032,
+          "end": 11142,
           "sha256": "53e1cb9657b429c67fc83d7beba1dbb5eccce8684eaea78fe67c3356caa914f6"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11483,
-          "end": 11535,
+          "start": 11489,
+          "end": 11541,
           "sha256": "93f109a91b853f7adbe89e9f98640db65c3dc1a21bd25ff83d748b8ce2b22609"
         }
       ],
@@ -1521,8 +1521,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11435,
-          "end": 11535,
+          "start": 11441,
+          "end": 11541,
           "sha256": "ef521f971cc95102c694d561369420c368c9a08bcaa547cc55e19b8a0d70467a"
         },
         {
@@ -1602,8 +1602,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11435,
-          "end": 11535,
+          "start": 11441,
+          "end": 11541,
           "sha256": "ef521f971cc95102c694d561369420c368c9a08bcaa547cc55e19b8a0d70467a"
         },
         {
@@ -1683,8 +1683,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11435,
-          "end": 11535,
+          "start": 11441,
+          "end": 11541,
           "sha256": "ef521f971cc95102c694d561369420c368c9a08bcaa547cc55e19b8a0d70467a"
         },
         {
@@ -1749,26 +1749,26 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9725,
-          "end": 9798,
+          "start": 9731,
+          "end": 9804,
           "sha256": "36dd4dfcac3ea3084cb606455db449a9b9cf6da1b8f66457c77f86e2d7b2f067"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9869,
-          "end": 9891,
+          "start": 9875,
+          "end": 9897,
           "sha256": "3fe44c1bb6452af1885de2407c5e0ba5a7bf5b45513891f3ef1329a019451f70"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 10932,
-          "end": 10995,
+          "start": 10938,
+          "end": 11001,
           "sha256": "ad5d186c5a0805f3d3664618b628f5bf1f3bbdc3491e4ff37245e46954051983"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11138,
-          "end": 11298,
+          "start": 11144,
+          "end": 11304,
           "sha256": "44158f092e48d5f084ccb36f319182875f5bb5e889e71a779d80a17860aabd3c"
         },
         {
@@ -1799,8 +1799,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11435,
-          "end": 11535,
+          "start": 11441,
+          "end": 11541,
           "sha256": "ef521f971cc95102c694d561369420c368c9a08bcaa547cc55e19b8a0d70467a"
         },
         {
@@ -1883,26 +1883,26 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9725,
-          "end": 9798,
+          "start": 9731,
+          "end": 9804,
           "sha256": "36dd4dfcac3ea3084cb606455db449a9b9cf6da1b8f66457c77f86e2d7b2f067"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9869,
-          "end": 9891,
+          "start": 9875,
+          "end": 9897,
           "sha256": "3fe44c1bb6452af1885de2407c5e0ba5a7bf5b45513891f3ef1329a019451f70"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 10932,
-          "end": 10995,
+          "start": 10938,
+          "end": 11001,
           "sha256": "ad5d186c5a0805f3d3664618b628f5bf1f3bbdc3491e4ff37245e46954051983"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11138,
-          "end": 11298,
+          "start": 11144,
+          "end": 11304,
           "sha256": "44158f092e48d5f084ccb36f319182875f5bb5e889e71a779d80a17860aabd3c"
         },
         {
@@ -1919,14 +1919,14 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11483,
-          "end": 11535,
+          "start": 11489,
+          "end": 11541,
           "sha256": "93f109a91b853f7adbe89e9f98640db65c3dc1a21bd25ff83d748b8ce2b22609"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11207,
-          "end": 11265,
+          "start": 11213,
+          "end": 11271,
           "sha256": "3364dd0d8d7b27a9b16eff4385e2a0c17e3eefc0d9ad57b1411cef8111c7988e"
         },
         {
@@ -1937,8 +1937,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 15106,
-          "end": 15110,
+          "start": 15122,
+          "end": 15126,
           "sha256": "03f2e72638ca42df7768935176f0ecae3ac7031d885234169ad6000dcaecd864"
         }
       ],
@@ -1958,8 +1958,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11435,
-          "end": 11535,
+          "start": 11441,
+          "end": 11541,
           "sha256": "ef521f971cc95102c694d561369420c368c9a08bcaa547cc55e19b8a0d70467a"
         },
         {
@@ -2047,20 +2047,20 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9775,
-          "end": 9798,
+          "start": 9781,
+          "end": 9804,
           "sha256": "114f6530ccf48f0b2e4e78d6445246aef29e1f2a8b87eb1786e7248c9e6081e8"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9926,
-          "end": 9936,
+          "start": 9932,
+          "end": 9942,
           "sha256": "0ada12c9eb38cb22f164e48177a86e95e5c9aec15128aa39bb34a4e1bad9ad67"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11207,
-          "end": 11298,
+          "start": 11213,
+          "end": 11304,
           "sha256": "5b01f3fe3a0301e6c1a6f6f5da5db9f281402f0a5148e8a4bf55585eeca5ed60"
         },
         {
@@ -2071,8 +2071,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11357,
-          "end": 11377,
+          "start": 11363,
+          "end": 11383,
           "sha256": "96ebef469684f5d6ae030a3854194cb8e18e1618aa92f5cd5d95f3048ee5e693"
         },
         {
@@ -2107,8 +2107,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9965,
-          "end": 9997,
+          "start": 9971,
+          "end": 10003,
           "sha256": "9cace8b45da75d9cc385abbbd51506d6ba3195681315557f273547fac9769e5d"
         },
         {
@@ -2149,8 +2149,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11357,
-          "end": 11377,
+          "start": 11363,
+          "end": 11383,
           "sha256": "96ebef469684f5d6ae030a3854194cb8e18e1618aa92f5cd5d95f3048ee5e693"
         },
         {
@@ -2220,14 +2220,14 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 10932,
-          "end": 10995,
+          "start": 10938,
+          "end": 11001,
           "sha256": "ad5d186c5a0805f3d3664618b628f5bf1f3bbdc3491e4ff37245e46954051983"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11026,
-          "end": 11136,
+          "start": 11032,
+          "end": 11142,
           "sha256": "53e1cb9657b429c67fc83d7beba1dbb5eccce8684eaea78fe67c3356caa914f6"
         },
         {
@@ -2244,8 +2244,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11357,
-          "end": 11377,
+          "start": 11363,
+          "end": 11383,
           "sha256": "96ebef469684f5d6ae030a3854194cb8e18e1618aa92f5cd5d95f3048ee5e693"
         },
         {
@@ -2298,20 +2298,20 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9775,
-          "end": 9798,
+          "start": 9781,
+          "end": 9804,
           "sha256": "114f6530ccf48f0b2e4e78d6445246aef29e1f2a8b87eb1786e7248c9e6081e8"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9926,
-          "end": 9936,
+          "start": 9932,
+          "end": 9942,
           "sha256": "0ada12c9eb38cb22f164e48177a86e95e5c9aec15128aa39bb34a4e1bad9ad67"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11207,
-          "end": 11298,
+          "start": 11213,
+          "end": 11304,
           "sha256": "5b01f3fe3a0301e6c1a6f6f5da5db9f281402f0a5148e8a4bf55585eeca5ed60"
         },
         {
@@ -2322,8 +2322,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11357,
-          "end": 11377,
+          "start": 11363,
+          "end": 11383,
           "sha256": "96ebef469684f5d6ae030a3854194cb8e18e1618aa92f5cd5d95f3048ee5e693"
         },
         {
@@ -2358,8 +2358,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9965,
-          "end": 9997,
+          "start": 9971,
+          "end": 10003,
           "sha256": "9cace8b45da75d9cc385abbbd51506d6ba3195681315557f273547fac9769e5d"
         },
         {
@@ -2426,8 +2426,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11357,
-          "end": 11377,
+          "start": 11363,
+          "end": 11383,
           "sha256": "96ebef469684f5d6ae030a3854194cb8e18e1618aa92f5cd5d95f3048ee5e693"
         },
         {
@@ -2507,20 +2507,20 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9775,
-          "end": 9798,
+          "start": 9781,
+          "end": 9804,
           "sha256": "114f6530ccf48f0b2e4e78d6445246aef29e1f2a8b87eb1786e7248c9e6081e8"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9926,
-          "end": 9936,
+          "start": 9932,
+          "end": 9942,
           "sha256": "0ada12c9eb38cb22f164e48177a86e95e5c9aec15128aa39bb34a4e1bad9ad67"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11207,
-          "end": 11298,
+          "start": 11213,
+          "end": 11304,
           "sha256": "5b01f3fe3a0301e6c1a6f6f5da5db9f281402f0a5148e8a4bf55585eeca5ed60"
         },
         {
@@ -2531,8 +2531,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11357,
-          "end": 11377,
+          "start": 11363,
+          "end": 11383,
           "sha256": "96ebef469684f5d6ae030a3854194cb8e18e1618aa92f5cd5d95f3048ee5e693"
         },
         {
@@ -2617,20 +2617,20 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9775,
-          "end": 9798,
+          "start": 9781,
+          "end": 9804,
           "sha256": "114f6530ccf48f0b2e4e78d6445246aef29e1f2a8b87eb1786e7248c9e6081e8"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9926,
-          "end": 9936,
+          "start": 9932,
+          "end": 9942,
           "sha256": "0ada12c9eb38cb22f164e48177a86e95e5c9aec15128aa39bb34a4e1bad9ad67"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11207,
-          "end": 11298,
+          "start": 11213,
+          "end": 11304,
           "sha256": "5b01f3fe3a0301e6c1a6f6f5da5db9f281402f0a5148e8a4bf55585eeca5ed60"
         },
         {
@@ -2641,8 +2641,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11357,
-          "end": 11377,
+          "start": 11363,
+          "end": 11383,
           "sha256": "96ebef469684f5d6ae030a3854194cb8e18e1618aa92f5cd5d95f3048ee5e693"
         },
         {
@@ -2677,8 +2677,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9965,
-          "end": 9997,
+          "start": 9971,
+          "end": 10003,
           "sha256": "9cace8b45da75d9cc385abbbd51506d6ba3195681315557f273547fac9769e5d"
         },
         {
@@ -2725,8 +2725,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11207,
-          "end": 11265,
+          "start": 11213,
+          "end": 11271,
           "sha256": "3364dd0d8d7b27a9b16eff4385e2a0c17e3eefc0d9ad57b1411cef8111c7988e"
         },
         {
@@ -2737,8 +2737,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 15106,
-          "end": 15110,
+          "start": 15122,
+          "end": 15126,
           "sha256": "03f2e72638ca42df7768935176f0ecae3ac7031d885234169ad6000dcaecd864"
         }
       ],
@@ -2757,8 +2757,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11357,
-          "end": 11377,
+          "start": 11363,
+          "end": 11383,
           "sha256": "96ebef469684f5d6ae030a3854194cb8e18e1618aa92f5cd5d95f3048ee5e693"
         },
         {
@@ -2793,8 +2793,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9965,
-          "end": 9997,
+          "start": 9971,
+          "end": 10003,
           "sha256": "9cace8b45da75d9cc385abbbd51506d6ba3195681315557f273547fac9769e5d"
         },
         {
@@ -2861,8 +2861,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11357,
-          "end": 11377,
+          "start": 11363,
+          "end": 11383,
           "sha256": "96ebef469684f5d6ae030a3854194cb8e18e1618aa92f5cd5d95f3048ee5e693"
         },
         {
@@ -2938,26 +2938,26 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9775,
-          "end": 9798,
+          "start": 9781,
+          "end": 9804,
           "sha256": "114f6530ccf48f0b2e4e78d6445246aef29e1f2a8b87eb1786e7248c9e6081e8"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9965,
-          "end": 9970,
+          "start": 9971,
+          "end": 9976,
           "sha256": "efc514c65b779ec7735cc6818d3fb872af41e3d81349a6494cb598aeeb6086c1"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11207,
-          "end": 11298,
+          "start": 11213,
+          "end": 11304,
           "sha256": "5b01f3fe3a0301e6c1a6f6f5da5db9f281402f0a5148e8a4bf55585eeca5ed60"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11357,
-          "end": 11433,
+          "start": 11363,
+          "end": 11439,
           "sha256": "ecbdb8786689f3408fd547e1a74cd22f77b54820da645c399aef34270f23dfef"
         },
         {
@@ -3046,20 +3046,20 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 34277,
-          "end": 34310,
+          "start": 34393,
+          "end": 34426,
           "sha256": "3432755af3bbb402340a60d92c5d73ce3e4501c6264dd99bd84647e773f6a2af"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 14253,
-          "end": 14445,
+          "start": 14269,
+          "end": 14461,
           "sha256": "a1c4e8c189fcd8955c8a10f982e5b4c1e1f74c78657e758a4f03e679fd9382e4"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 14449,
-          "end": 14496,
+          "start": 14465,
+          "end": 14512,
           "sha256": "e6c804499f98f1eed5c81542b32942dac2b2ad5db28f2a494b58f9af85784e50"
         }
       ],
@@ -3075,38 +3075,38 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9775,
-          "end": 9798,
+          "start": 9781,
+          "end": 9804,
           "sha256": "114f6530ccf48f0b2e4e78d6445246aef29e1f2a8b87eb1786e7248c9e6081e8"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9965,
-          "end": 9970,
+          "start": 9971,
+          "end": 9976,
           "sha256": "efc514c65b779ec7735cc6818d3fb872af41e3d81349a6494cb598aeeb6086c1"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11207,
-          "end": 11298,
+          "start": 11213,
+          "end": 11304,
           "sha256": "5b01f3fe3a0301e6c1a6f6f5da5db9f281402f0a5148e8a4bf55585eeca5ed60"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11357,
-          "end": 11433,
+          "start": 11363,
+          "end": 11439,
           "sha256": "ecbdb8786689f3408fd547e1a74cd22f77b54820da645c399aef34270f23dfef"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 10932,
-          "end": 10995,
+          "start": 10938,
+          "end": 11001,
           "sha256": "ad5d186c5a0805f3d3664618b628f5bf1f3bbdc3491e4ff37245e46954051983"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11026,
-          "end": 11136,
+          "start": 11032,
+          "end": 11142,
           "sha256": "53e1cb9657b429c67fc83d7beba1dbb5eccce8684eaea78fe67c3356caa914f6"
         },
         {
@@ -3135,26 +3135,26 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9775,
-          "end": 9798,
+          "start": 9781,
+          "end": 9804,
           "sha256": "114f6530ccf48f0b2e4e78d6445246aef29e1f2a8b87eb1786e7248c9e6081e8"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9965,
-          "end": 9970,
+          "start": 9971,
+          "end": 9976,
           "sha256": "efc514c65b779ec7735cc6818d3fb872af41e3d81349a6494cb598aeeb6086c1"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11207,
-          "end": 11298,
+          "start": 11213,
+          "end": 11304,
           "sha256": "5b01f3fe3a0301e6c1a6f6f5da5db9f281402f0a5148e8a4bf55585eeca5ed60"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11357,
-          "end": 11433,
+          "start": 11363,
+          "end": 11439,
           "sha256": "ecbdb8786689f3408fd547e1a74cd22f77b54820da645c399aef34270f23dfef"
         },
         {
@@ -3213,14 +3213,14 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 34277,
-          "end": 34310,
+          "start": 34393,
+          "end": 34426,
           "sha256": "3432755af3bbb402340a60d92c5d73ce3e4501c6264dd99bd84647e773f6a2af"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 14253,
-          "end": 14445,
+          "start": 14269,
+          "end": 14461,
           "sha256": "a1c4e8c189fcd8955c8a10f982e5b4c1e1f74c78657e758a4f03e679fd9382e4"
         }
       ],
@@ -3240,26 +3240,26 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9775,
-          "end": 9798,
+          "start": 9781,
+          "end": 9804,
           "sha256": "114f6530ccf48f0b2e4e78d6445246aef29e1f2a8b87eb1786e7248c9e6081e8"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9965,
-          "end": 9970,
+          "start": 9971,
+          "end": 9976,
           "sha256": "efc514c65b779ec7735cc6818d3fb872af41e3d81349a6494cb598aeeb6086c1"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11207,
-          "end": 11298,
+          "start": 11213,
+          "end": 11304,
           "sha256": "5b01f3fe3a0301e6c1a6f6f5da5db9f281402f0a5148e8a4bf55585eeca5ed60"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11357,
-          "end": 11433,
+          "start": 11363,
+          "end": 11439,
           "sha256": "ecbdb8786689f3408fd547e1a74cd22f77b54820da645c399aef34270f23dfef"
         },
         {
@@ -3318,14 +3318,14 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 34277,
-          "end": 34310,
+          "start": 34393,
+          "end": 34426,
           "sha256": "3432755af3bbb402340a60d92c5d73ce3e4501c6264dd99bd84647e773f6a2af"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 14253,
-          "end": 14445,
+          "start": 14269,
+          "end": 14461,
           "sha256": "a1c4e8c189fcd8955c8a10f982e5b4c1e1f74c78657e758a4f03e679fd9382e4"
         }
       ],
@@ -3345,26 +3345,26 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9775,
-          "end": 9798,
+          "start": 9781,
+          "end": 9804,
           "sha256": "114f6530ccf48f0b2e4e78d6445246aef29e1f2a8b87eb1786e7248c9e6081e8"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9965,
-          "end": 9970,
+          "start": 9971,
+          "end": 9976,
           "sha256": "efc514c65b779ec7735cc6818d3fb872af41e3d81349a6494cb598aeeb6086c1"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11207,
-          "end": 11298,
+          "start": 11213,
+          "end": 11304,
           "sha256": "5b01f3fe3a0301e6c1a6f6f5da5db9f281402f0a5148e8a4bf55585eeca5ed60"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11357,
-          "end": 11433,
+          "start": 11363,
+          "end": 11439,
           "sha256": "ecbdb8786689f3408fd547e1a74cd22f77b54820da645c399aef34270f23dfef"
         },
         {
@@ -3453,14 +3453,14 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 34277,
-          "end": 34310,
+          "start": 34393,
+          "end": 34426,
           "sha256": "3432755af3bbb402340a60d92c5d73ce3e4501c6264dd99bd84647e773f6a2af"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 14253,
-          "end": 14445,
+          "start": 14269,
+          "end": 14461,
           "sha256": "a1c4e8c189fcd8955c8a10f982e5b4c1e1f74c78657e758a4f03e679fd9382e4"
         }
       ],
@@ -3480,26 +3480,26 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9775,
-          "end": 9798,
+          "start": 9781,
+          "end": 9804,
           "sha256": "114f6530ccf48f0b2e4e78d6445246aef29e1f2a8b87eb1786e7248c9e6081e8"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9965,
-          "end": 9970,
+          "start": 9971,
+          "end": 9976,
           "sha256": "efc514c65b779ec7735cc6818d3fb872af41e3d81349a6494cb598aeeb6086c1"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11207,
-          "end": 11298,
+          "start": 11213,
+          "end": 11304,
           "sha256": "5b01f3fe3a0301e6c1a6f6f5da5db9f281402f0a5148e8a4bf55585eeca5ed60"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11357,
-          "end": 11433,
+          "start": 11363,
+          "end": 11439,
           "sha256": "ecbdb8786689f3408fd547e1a74cd22f77b54820da645c399aef34270f23dfef"
         },
         {
@@ -3546,8 +3546,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 14449,
-          "end": 14496,
+          "start": 14465,
+          "end": 14512,
           "sha256": "e6c804499f98f1eed5c81542b32942dac2b2ad5db28f2a494b58f9af85784e50"
         }
       ],
@@ -3573,26 +3573,26 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9775,
-          "end": 9798,
+          "start": 9781,
+          "end": 9804,
           "sha256": "114f6530ccf48f0b2e4e78d6445246aef29e1f2a8b87eb1786e7248c9e6081e8"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9965,
-          "end": 9970,
+          "start": 9971,
+          "end": 9976,
           "sha256": "efc514c65b779ec7735cc6818d3fb872af41e3d81349a6494cb598aeeb6086c1"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11207,
-          "end": 11298,
+          "start": 11213,
+          "end": 11304,
           "sha256": "5b01f3fe3a0301e6c1a6f6f5da5db9f281402f0a5148e8a4bf55585eeca5ed60"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11357,
-          "end": 11433,
+          "start": 11363,
+          "end": 11439,
           "sha256": "ecbdb8786689f3408fd547e1a74cd22f77b54820da645c399aef34270f23dfef"
         },
         {
@@ -3615,8 +3615,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11207,
-          "end": 11265,
+          "start": 11213,
+          "end": 11271,
           "sha256": "3364dd0d8d7b27a9b16eff4385e2a0c17e3eefc0d9ad57b1411cef8111c7988e"
         },
         {
@@ -3627,8 +3627,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 15106,
-          "end": 15110,
+          "start": 15122,
+          "end": 15126,
           "sha256": "03f2e72638ca42df7768935176f0ecae3ac7031d885234169ad6000dcaecd864"
         }
       ],
@@ -3648,26 +3648,26 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9775,
-          "end": 9798,
+          "start": 9781,
+          "end": 9804,
           "sha256": "114f6530ccf48f0b2e4e78d6445246aef29e1f2a8b87eb1786e7248c9e6081e8"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9965,
-          "end": 9970,
+          "start": 9971,
+          "end": 9976,
           "sha256": "efc514c65b779ec7735cc6818d3fb872af41e3d81349a6494cb598aeeb6086c1"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11207,
-          "end": 11298,
+          "start": 11213,
+          "end": 11304,
           "sha256": "5b01f3fe3a0301e6c1a6f6f5da5db9f281402f0a5148e8a4bf55585eeca5ed60"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11357,
-          "end": 11433,
+          "start": 11363,
+          "end": 11439,
           "sha256": "ecbdb8786689f3408fd547e1a74cd22f77b54820da645c399aef34270f23dfef"
         },
         {
@@ -3690,14 +3690,14 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 34277,
-          "end": 34310,
+          "start": 34393,
+          "end": 34426,
           "sha256": "3432755af3bbb402340a60d92c5d73ce3e4501c6264dd99bd84647e773f6a2af"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 14253,
-          "end": 14445,
+          "start": 14269,
+          "end": 14461,
           "sha256": "a1c4e8c189fcd8955c8a10f982e5b4c1e1f74c78657e758a4f03e679fd9382e4"
         }
       ],
@@ -3716,26 +3716,26 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9775,
-          "end": 9798,
+          "start": 9781,
+          "end": 9804,
           "sha256": "114f6530ccf48f0b2e4e78d6445246aef29e1f2a8b87eb1786e7248c9e6081e8"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9965,
-          "end": 9970,
+          "start": 9971,
+          "end": 9976,
           "sha256": "efc514c65b779ec7735cc6818d3fb872af41e3d81349a6494cb598aeeb6086c1"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11207,
-          "end": 11298,
+          "start": 11213,
+          "end": 11304,
           "sha256": "5b01f3fe3a0301e6c1a6f6f5da5db9f281402f0a5148e8a4bf55585eeca5ed60"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11357,
-          "end": 11433,
+          "start": 11363,
+          "end": 11439,
           "sha256": "ecbdb8786689f3408fd547e1a74cd22f77b54820da645c399aef34270f23dfef"
         },
         {
@@ -3849,8 +3849,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 12197,
-          "end": 12251,
+          "start": 12205,
+          "end": 12259,
           "sha256": "d66a2b4efa181bbe055dde8852c9ecbbf4b73f515a64ab787e631eba3b1086a8"
         }
       ]
@@ -3914,8 +3914,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 12197,
-          "end": 12251,
+          "start": 12205,
+          "end": 12259,
           "sha256": "d66a2b4efa181bbe055dde8852c9ecbbf4b73f515a64ab787e631eba3b1086a8"
         }
       ]
@@ -3976,8 +3976,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 12197,
-          "end": 12251,
+          "start": 12205,
+          "end": 12259,
           "sha256": "d66a2b4efa181bbe055dde8852c9ecbbf4b73f515a64ab787e631eba3b1086a8"
         }
       ]
@@ -4038,8 +4038,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 12197,
-          "end": 12251,
+          "start": 12205,
+          "end": 12259,
           "sha256": "d66a2b4efa181bbe055dde8852c9ecbbf4b73f515a64ab787e631eba3b1086a8"
         }
       ]
@@ -4100,8 +4100,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 12197,
-          "end": 12251,
+          "start": 12205,
+          "end": 12259,
           "sha256": "d66a2b4efa181bbe055dde8852c9ecbbf4b73f515a64ab787e631eba3b1086a8"
         }
       ]
@@ -4162,8 +4162,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 12197,
-          "end": 12251,
+          "start": 12205,
+          "end": 12259,
           "sha256": "d66a2b4efa181bbe055dde8852c9ecbbf4b73f515a64ab787e631eba3b1086a8"
         }
       ]
@@ -4224,8 +4224,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 12197,
-          "end": 12251,
+          "start": 12205,
+          "end": 12259,
           "sha256": "d66a2b4efa181bbe055dde8852c9ecbbf4b73f515a64ab787e631eba3b1086a8"
         }
       ]
@@ -4286,8 +4286,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 12197,
-          "end": 12251,
+          "start": 12205,
+          "end": 12259,
           "sha256": "d66a2b4efa181bbe055dde8852c9ecbbf4b73f515a64ab787e631eba3b1086a8"
         }
       ]
@@ -4350,8 +4350,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 12197,
-          "end": 12251,
+          "start": 12205,
+          "end": 12259,
           "sha256": "d66a2b4efa181bbe055dde8852c9ecbbf4b73f515a64ab787e631eba3b1086a8"
         }
       ]
@@ -4412,8 +4412,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 12197,
-          "end": 12251,
+          "start": 12205,
+          "end": 12259,
           "sha256": "d66a2b4efa181bbe055dde8852c9ecbbf4b73f515a64ab787e631eba3b1086a8"
         }
       ]
@@ -4474,8 +4474,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 12197,
-          "end": 12251,
+          "start": 12205,
+          "end": 12259,
           "sha256": "d66a2b4efa181bbe055dde8852c9ecbbf4b73f515a64ab787e631eba3b1086a8"
         }
       ]
@@ -4531,8 +4531,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11435,
-          "end": 11535,
+          "start": 11441,
+          "end": 11541,
           "sha256": "ef521f971cc95102c694d561369420c368c9a08bcaa547cc55e19b8a0d70467a"
         }
       ]
@@ -4588,8 +4588,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11435,
-          "end": 11535,
+          "start": 11441,
+          "end": 11541,
           "sha256": "ef521f971cc95102c694d561369420c368c9a08bcaa547cc55e19b8a0d70467a"
         }
       ]
@@ -4645,8 +4645,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11357,
-          "end": 11377,
+          "start": 11363,
+          "end": 11383,
           "sha256": "96ebef469684f5d6ae030a3854194cb8e18e1618aa92f5cd5d95f3048ee5e693"
         }
       ]
@@ -4702,8 +4702,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11357,
-          "end": 11377,
+          "start": 11363,
+          "end": 11383,
           "sha256": "96ebef469684f5d6ae030a3854194cb8e18e1618aa92f5cd5d95f3048ee5e693"
         }
       ]
@@ -4759,26 +4759,26 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9775,
-          "end": 9798,
+          "start": 9781,
+          "end": 9804,
           "sha256": "114f6530ccf48f0b2e4e78d6445246aef29e1f2a8b87eb1786e7248c9e6081e8"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9965,
-          "end": 9970,
+          "start": 9971,
+          "end": 9976,
           "sha256": "efc514c65b779ec7735cc6818d3fb872af41e3d81349a6494cb598aeeb6086c1"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11207,
-          "end": 11298,
+          "start": 11213,
+          "end": 11304,
           "sha256": "5b01f3fe3a0301e6c1a6f6f5da5db9f281402f0a5148e8a4bf55585eeca5ed60"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11357,
-          "end": 11433,
+          "start": 11363,
+          "end": 11439,
           "sha256": "ecbdb8786689f3408fd547e1a74cd22f77b54820da645c399aef34270f23dfef"
         },
         {
@@ -6861,8 +6861,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 12197,
-          "end": 12251,
+          "start": 12205,
+          "end": 12259,
           "sha256": "d66a2b4efa181bbe055dde8852c9ecbbf4b73f515a64ab787e631eba3b1086a8"
         },
         {
@@ -6893,8 +6893,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 12197,
-          "end": 12251,
+          "start": 12205,
+          "end": 12259,
           "sha256": "d66a2b4efa181bbe055dde8852c9ecbbf4b73f515a64ab787e631eba3b1086a8"
         },
         {
@@ -7068,8 +7068,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11357,
-          "end": 11377,
+          "start": 11363,
+          "end": 11383,
           "sha256": "96ebef469684f5d6ae030a3854194cb8e18e1618aa92f5cd5d95f3048ee5e693"
         }
       ]
@@ -7090,8 +7090,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11357,
-          "end": 11377,
+          "start": 11363,
+          "end": 11383,
           "sha256": "96ebef469684f5d6ae030a3854194cb8e18e1618aa92f5cd5d95f3048ee5e693"
         }
       ]
@@ -7112,26 +7112,26 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9775,
-          "end": 9798,
+          "start": 9781,
+          "end": 9804,
           "sha256": "114f6530ccf48f0b2e4e78d6445246aef29e1f2a8b87eb1786e7248c9e6081e8"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9965,
-          "end": 9970,
+          "start": 9971,
+          "end": 9976,
           "sha256": "efc514c65b779ec7735cc6818d3fb872af41e3d81349a6494cb598aeeb6086c1"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11207,
-          "end": 11298,
+          "start": 11213,
+          "end": 11304,
           "sha256": "5b01f3fe3a0301e6c1a6f6f5da5db9f281402f0a5148e8a4bf55585eeca5ed60"
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11357,
-          "end": 11433,
+          "start": 11363,
+          "end": 11439,
           "sha256": "ecbdb8786689f3408fd547e1a74cd22f77b54820da645c399aef34270f23dfef"
         },
         {
@@ -7158,8 +7158,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11435,
-          "end": 11535,
+          "start": 11441,
+          "end": 11541,
           "sha256": "ef521f971cc95102c694d561369420c368c9a08bcaa547cc55e19b8a0d70467a"
         }
       ]
@@ -7180,8 +7180,8 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11435,
-          "end": 11535,
+          "start": 11441,
+          "end": 11541,
           "sha256": "ef521f971cc95102c694d561369420c368c9a08bcaa547cc55e19b8a0d70467a"
         }
       ]
@@ -7602,322 +7602,322 @@
   ],
   "dispatch": [
     {
-      "id": "c03641330459b05c17b0fa4378b2002edc1baf1dd1b77ecf6257686019ac7789",
+      "id": "2d06c2c2caf3ee1cf8fb2d55bcc0df75fe7c3eebcefdf9806886001db3881863",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "2e43cf30ab18aaad6cbab13f80053f2e6afa0f7cf848bf8b44008c17cea475d5",
+      "id": "8e4609b6df0fc34f8cc7f0aca4faf30476d81869edbfe68dd9c58209c313e3b9",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "051ca4994577cb48181eeed8903ab85c70691e3e9d378098bb4981f29599eee2",
+      "id": "8f05ba355ad3a004db835b3f1cfe797713884c89f4a8273c77cb1ff82c534a1a",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "a8eebddb95aa3c632b75247ac2100fe85fc2b4e92b9af46ddb3c2fb95755a903",
+      "id": "536a8465f8308baacfeb51bdd4a494e41187848f0ae66d04aee76b6a71b9b119",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "35cf24111ccf5dd3af4649bb607c004b3cf625817be02f01508f83fe53aabb8c",
+      "id": "11a94f315be0750bcadc28f78da486b3bb42ea521719d24f828da1e9b1a2fda0",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "c4a34b4f30d0c3531c61e00adbbbddc1737a8b3843c1ccff6eee39b4479294f5",
+      "id": "8d08ecd764dbacd286f16b975b12cef76a80a0b51aeb839d13376dc469836448",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "db17c5990169345d70e9fd4a09e8aa7f0c770535143d021b32ec8de99d1d8a41",
+      "id": "69ed610420468507c67a16350af3ac99f786dbbb9417dbf2f6d5acb3df0f810e",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "2d5f3d928d2a65730ebb8ee86cdfdae34b52f77e901615e088f9041838fd7dba",
+      "id": "b029163c599de51c0d9a3fea3642b6d969c07b1d1dfbbd41c9c5e7518f0d68fc",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "cb01eec2dcd2e6c3c57f2ac8efaf5991c21b6a588bd913dd06a3421c259cb80f",
+      "id": "fbd30bbd5c07590b86bddd736e3b81e06befeba59bfb79f268e35ec7f95ea245",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "5ab66a8c1f4cc36c77ee32eceda8cfa3a3118d21c31a5c51695c29cf89d5e2ff",
+      "id": "22ba2713d7d736e71ddf10fe0fd1de5ba5a5ae5761d81b56aeca4f86d1d04c55",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "b6f58c7bc647044486e931b97439475307ccd5fb40ec34cdc2d08606fdd474d0",
+      "id": "412cc02742c43429dcb32dd61eb6488c2aa55943616ae598d299a2328c1ccc54",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "3bf4e863f02472d93788289ed40cd0e1462aeedd4f046e985d69d126a100f79c",
+      "id": "6c3a64ed2aba73350eeb163faba20d8696859360eca7158bfed0c04a7eb2ff3b",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "0078ef5234598bbd3c967872e8636160476b04eafc612d9e11538940db2e672f",
+      "id": "113b9bc78f4e52aa9b1e51277d53ab194c61b8d5765b667764f9d363ebb0013f",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "85231c9cb43e7296236a808d45271ae860b598ac8f4142119ab54a5c2e22abef",
+      "id": "ca53a6f5ab65db338b734c370686ce536f9e90765623a442b88476a8b098bb14",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "50ae508ec1b438d097a2768e5ef1ec06f1af5091dc2bc0bfc389549ec9489d31",
+      "id": "b392c583e10b557ee89db5b31370147304703a12fa7618c59d5c0d6cd9bfdfa3",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "28ed1791e6fc76bf46342f61db0da9fc5bb7dedaa9a36a866ae2190da76251af",
+      "id": "1511cfe3b1449b74afe72705c00ef359ae7e7251cbf81946b4230cd5fe8201ce",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "1e2a75186057e091fadb252d1f23582dcff4db6d507d305738359c9b30ca8f69",
+      "id": "9527e6e5d17717a990e4d07d4d35d211e1cb8021fcc79c3e803a21725beb9cd5",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "a9c459f07614bb43b7eb9599aeca69505f35fd9b2a86c6495117307cd46549b5",
+      "id": "98b95ff8fe410ba69245b90d37df546019c8f6c7c3805242a4cbf8e23085a227",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "a4e7d1b2e1cf6735ecae1c51bb9307b4cc8f0d336fed4e15d9234459109d3a04",
+      "id": "b6ff1e0d2525b620b14ff8f3e29fbbf11239f5f4c632b9689af70c770675127c",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "02267ef4e9e39979f046fb0356fb7669ad33be32d91fe142e180e998f6fbdcad",
+      "id": "be8291225f0e68b1b9bda137e168826a2381a9a2eacd06f91e00a722b0a97368",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "8cfd49d1490d028e2ef89b046283745abf5f4e78dc3a7b6bee045b23f2a31aa3",
+      "id": "0ef708f20ebd60ea1de5f2c6fe9d9079994ef7d558a3acf28602f9df8197faa9",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "f803a4797038f7e5f9f12095e9be5fede8419806a85e7235e46d33f7145d9219",
+      "id": "db8c02772124308896913d9213b6df52838c4580e7c9138232ce0ba90f199a55",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "5a19fa0348ab282b07a90e7886e9114738ae3044e38b5840f235f36dda6e970d",
+      "id": "073ea6faf876c5e0bc767744d97826823bfce5299f1e05201cfec91ae824f025",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "4ee03c297e458b15aceec985758eede74d7de69fc94a9747f1d2a1fe295974e2",
+      "id": "3597754907b815c987962cba3eb26ebd68f3e47b2042870ef40f68e4f9e1e52a",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "489e8501cf7b1526780c65cde4b2c7edc74c03c0b6bba01b5312f065bedf7068",
+      "id": "6ac647be37ebf954ff678237fc2d49f15078dc8c64501883cfb2df07a1627a0f",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "fca1c341765b2a733604de3d2dab5e1a13dbb602eb1d9c324c25ebe895316504",
+      "id": "ee7c816b5e25c81a3d644feeee341e12e15418e387ac85e0090b31ff5b001c26",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "36c8373dce09fa646f9c8798acbadad8ffb33acbe41a34fdc1653a51dd5c45fe",
+      "id": "5185ebc43b601e9e862f6703e152877381ff804828bcf482aa55e4f42d84232e",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "b3ba33f5b73caba42630fed9e338de6b81279eb37e2ce05d29326fdcd939d361",
+      "id": "f3d24589238d4fdd169d63969d290dc575029ee7ed269803a523af9da5ccf079",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "426b40b368636ce8098b8a842c6d4faa756bf27af7f9da5bd5da8758877efe4f",
+      "id": "6c575db1e046d9eaa0dc3b4c57cff5d7c3c2b6e78a4a5ac44fef0f55e929bf7c",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "b63237ecdc76ad8355f7389de8d002844958439b70026cdbac12efa33eef0577",
+      "id": "009181cb4662549db97eb442085d0dda57a64a88a3142aeb16eacc2e9136ff28",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "77d8ec88668f29f073d7a7a6d0aaa7366dc99b9593361055d1940a777fad778f",
+      "id": "668a9db8d9962cd5704f3b210fe9e6abac1a3e8c90734751133e577dc0339d71",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "ebad0b58a89b11037c63569f4aa9c50aa161a678c9d5d2bac5d6e355bc6762ba",
+      "id": "c72e82cc4521af3a1428d71f1dcb56a984ba2ec505c31ccc1dafa9ddbe4db395",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "7dc632646d9b4ff6a8ee3cc7b830b84e0a7866fa59113190361ca3dce9f155e3",
+      "id": "ca73b7fc11e937b866edf5fdff880257e4ff3b799bb0af8a484b2b94d9168dad",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "6eb1df8343d7a65db303f72c664e25cad4377fc8cd3e8b88b17267178224629d",
+      "id": "a3a8f4f958ae2adc8e4edf741d1d3dc333b9025fb071aecb757b43e36182a986",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "cd871c6984e565da6f9f14bed7667d545370994d433f721d8472d2ec3bbf93d3",
+      "id": "7cb1ae2db492f3ada87213464b79ccef587e7f73bd604af495cff4a696cb33a5",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "98300605f35749f8cd6f8841b021e97f4403786e976f6181c0267b2a63b8628c",
+      "id": "8aeef2f466503b42604c313afc286b8259c853e9121e25ceb5b1df8ef2186922",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "1f41246110599c955196f19ec02c650d95cc52b81b0ee1577075a1fc3f382e0c",
+      "id": "386e8072aad9d4de367f06d7c9aabd2b0541108a7cee7cd61110f128dd72e21c",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "4957bb940d8609002373b57e6daef447167bf5abffd61863aa9a36de0d5ab062",
+      "id": "834b0ee4071f2e5fbd62a69f64b6c889317114c0e879d3026aa17baaf597c681",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "5bc1ae92b6400e0e440bc7b810f86abeb68e0ccc1ca5ece4e5a5e743a8a9cb3c",
+      "id": "ac81945bf3dda03b44f2d53a38f571d255cc2735659b9590dfea16f0934d05d5",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "dd772ef2a7739822b70da07af50f064acb045161ddebed88ee532d22d19877a8",
+      "id": "9053fd9eabec0198983c2e4ee259f0ab407c7477c96ca31b0a316f3f58d9dbfc",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "d2a028a8a14a38824c7738c5e190f3918925e4ac77cd84b93c5527c877e14036",
+      "id": "273404a312f2c106f74f182bd840123a4db1c462e6991a3dcf4d1d425cd46b0d",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "c431a3a32fd0b0340ef8d9ba97cf2e243f0c138c4fde33449f9c913f894db448",
+      "id": "a129adb0711aa3c86eb0b63e4d4d692096f31bdd292b121329b41164de71967b",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "a25d2d2321627c888ef9119da119c9ecbee47680e9c39676994f88ad8c492718",
+      "id": "41f825929d1206f2eb579e0aad6037380a11ef5ac273e42cfde30211a42d8d88",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "a2da61ea4c74eaa5b14d58d24d5190cfdc7d061d04cec17723b72cccab9c516b",
+      "id": "f2c32b21411c4d5538cff9d28796fa7916b7fbc5754bb8ab6114228d6ff323eb",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "612d17172b356eaea3d5cd1fff6f968ba5d546c18cc4c1d4fb729e6f5058d434",
+      "id": "225cd500a3ad4324c5222fd51ef5d08525004ad94c6871a23a8351955430cf25",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "d72126425f1a0a6037c551c8a5ae6a4497f06a42c79c4cf4156f86880015a2f2",
+      "id": "6f92baec27e561d9e9498a8ad7bdf46f6eff521b5e58588bc240a3f99fc4fc91",
       "disposition": "mapped",
       "contracts": [
         "material.transcript"
@@ -7926,42 +7926,42 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11201,
-          "end": 11201,
+          "start": 11207,
+          "end": 11207,
           "sha256": "c4a03f1f8c7c350a6d43f650c6b581dc2b46dc270374cd532eb5754b3adfea49"
         }
       ]
     },
     {
-      "id": "6312709ba23e0ab3bfb88850a85bcd6dcf7878e596c814d81bdde27d036016ea",
+      "id": "d868e5b607b8a09b86e070a661865fbc0986b7241767d21de6348a4e3736a8b9",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "85f906108fee8ec69d384645738188fd9e15eee1660aee5e800911c9b69adf11",
+      "id": "2762466942ae61416c27816812fe1c2645f0bcd89c5e7488679230991f1aa3fd",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "0517ba3de7c14f3556d686b08d5a23ecfe89c5d636073906a724e59d938b13df",
+      "id": "cd162cb13bb17e9f48d5a776dc2abefcd7909372271c19d543793523028c0929",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "0995100acb62f6b005f6d18a4d366412cf80a53f789b94fb7637dd6496d3ea80",
+      "id": "e108fcd300df9a85955f7bcc61cf57e710b19c92712517cb5ab0ea43f27c8efc",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "16ff3f7d19b63fd48b240b5cf3d347b13a0fa07633c643bd2821b6fe73bfae94",
+      "id": "dd72cf1a60af5dcdb9407510b45fa58a2b3a0850b589f67ca3f6e892d3129bc3",
       "disposition": "mapped",
       "contracts": [
         "diagnostic.inspect",
@@ -7972,14 +7972,14 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11357,
-          "end": 11358,
+          "start": 11363,
+          "end": 11364,
           "sha256": "7ec5f64a94317c1ed8cf283e1c20e53cf5f4b72b16a01d459e03aa1b71d61996"
         }
       ]
     },
     {
-      "id": "c0c9b9297b5cf07113f081ffa9603dbdf109b333996184c314713968e4147a7f",
+      "id": "f35a30aa97084da5414a72081e9b20b95d8621e8d62cd86ffb7b2dbab631245f",
       "disposition": "mapped",
       "contracts": [
         "diagnostic.inspect"
@@ -7988,14 +7988,14 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11366,
-          "end": 11366,
+          "start": 11372,
+          "end": 11372,
           "sha256": "b8b76add9198dd99469647dda3211bd74a5545daaf92f41540d351f6ed91f4dd"
         }
       ]
     },
     {
-      "id": "3c6e821460f492b941f73eb7d9f5e3f4dfb4579c44142f6e13d41f48d0ac9e1b",
+      "id": "2d9e87d0fb2470c3c818dbd82999b20c76a270de6e34b951fc3b3fd6a35e7195",
       "disposition": "mapped",
       "contracts": [
         "diagnostic.capabilities"
@@ -8004,49 +8004,49 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11376,
-          "end": 11376,
+          "start": 11382,
+          "end": 11382,
           "sha256": "0c9c3eae0a93ab240923a4dce6e20c0e232607c3a0cb580ac27a97c3bcfb1fd1"
         }
       ]
     },
     {
-      "id": "9f7cad6ff64616ff248fe0d064e6a2d05902d61b6a6c0a5a5376f8152e18da75",
+      "id": "9cc09ec35ab98b9fc19d85de44f8505d94dfc38e366632f2a8c17360bb8b900d",
       "disposition": "pending",
       "contracts": [],
       "reason": "P02-A1: the new `body.tool == 'orgtree_operation_census'` dispatch branch in agent_call, which routes the agent read door to _census_agent_payload. No P01 contract describes it yet; recorded pending rather than mapped, because this stage authors no contract text.",
       "source_refs": []
     },
     {
-      "id": "3c86dfec70d786265c068c1f54280533e2f197f3727c29adacc87249b3b3a155",
+      "id": "c477bfda5f7697e4b93a2d52c3d9ed7287174c785c3ea0f9ecc834e0b21603dc",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "36bb5a4606de14b8a88fd841da99f4d3d02d15be234a77b5d780c351f803c4be",
+      "id": "d5c7084188e88cf0324c691f4aaf8d7afb1f7d3ff569301cb950d611965fb327",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "f01e361c70ce0e090985a59642e4d3a36a33f16ec9a5b3d0b7d0857160501f1e",
+      "id": "0d98f01dcdbfd7decbc59b6dcebc7e43483fdf92f1b5e156e24217df5c265dc9",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "087890d0727ed902f70cf6d06e00fa58c5b169fef3383891cf7236a51bbb276a",
+      "id": "3a4260fd740a9cf5586d98acce7ceb8dd7ebdf7a41f121aa5fc2451dae4f5e14",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "95298d1f8a98bdeb6cfc72f77d75737fdca4d33c3c369c41e3abc359a3029ce3",
+      "id": "d076e1efee9b63f8d7d7b5bc8c92d4a0980943b6d1f51aba2af787debf2c3c46",
       "disposition": "mapped",
       "contracts": [
         "material.transcript"
@@ -8055,147 +8055,147 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 11483,
-          "end": 11483,
+          "start": 11489,
+          "end": 11489,
           "sha256": "b7a7b604ba351f9290e34a3ddfbb2a79eb0d1b63b9632439c8ac1fe146bb4a21"
         }
       ]
     },
     {
-      "id": "4da68135a39dc0706a1243056d08a735852a6842b41f1fc2c9f80c09f15c078b",
+      "id": "d9892c9e7ed8dca929e73d88080055806cca166ff2697b47501253894080178c",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "b5d6f2c621769f7afeadd95b6d979a35de2741d37cd53381c92202201e12910e",
+      "id": "5a64d06c2be2a9c430a60111cbcf5bf99646c2a2c0493b40631997a3ead18a9a",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "4bce137d4a4b235f2459621a117feccf2fd73a21bf55ce0490d90767e2279be9",
+      "id": "f476037f0c3b7c786de2095b7caad4bf576a05e3a24a8b872b6a3a80f6a1ed4e",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "cfa368f7cf8597d5ad4b2507717fa43320c538cc35cc7c2dce71fe2e14bc2b40",
+      "id": "d41aa8fb12334cff2b7aee9db4718621606a94308cce29c4b71d775db1fe8aa4",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "a52ae60f7075169b6069d8bf796e15e9224cb81ec7240e3a220d7d093bc39ff3",
+      "id": "7682f18af98472e7cf0c949b95e8908352e9352d6cd54205cf3027c93d099655",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "9b0bfa7150dad20ed6f2d31eecf0cd0e679888ea9ab59ca3ac017fcbc0e218a0",
+      "id": "d1b6558d0f42f587be004b7684930d1a8c8313173b2d36a7c3b8d7e84baa568d",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "d7b18e2bf925173ed4320ad41d7d51a555584aac783a572963b1082bf6787a88",
+      "id": "9518992b70440acede921d8437b1407cf654dca5e903fbc8e2b2b5d3abd0ee65",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "799c4e3edf0f1911d33d68ca3373f56a7739e9b91a963cb979ae73a522cc1f0f",
+      "id": "c37496b1268f1bd9f0e9fd1b410c9c1f62ae2d2d7d76fbfb8e14e5b3a17da8a5",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "d18c5dc376ef2f838193012f59517c00432b37c9355aab31c656dfb3774ca0a3",
+      "id": "3e10672008b8f43a28dab9a14c15399265d29b3692b05e6a7816259822f5a1ca",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "8b42bb33235521567ff00b19e5f8bd4563da269e5ce2d4cb8597cf7f66453eef",
+      "id": "0bcf6e96525556c1e6dedca709719176058448f11d261828dc9237a2d4478562",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "a5880317a3fc09825e3f1f17dc4397b825ceebd082ff5011e2f6b2dee643102b",
+      "id": "8f55f2dcaa52633fdfb94396fbb2d4e61f406a0a1fe39d7b66be5704943ed163",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "a26cf7414d8ef3bd620330423ee3147238ee3b5669c0879cf9fdd61763419748",
+      "id": "ab51bfefdf24548b7d67e6c89d8824f8687422ba4cd97567734bcfd43974f2c6",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "6964ca3cfcbfb5669e183f5f94ed2af0b22608f1009f7194deb2b1bfc1d99129",
+      "id": "80beb4053e54331ba950f841378685d020c21a0ad8551db3059d5424585815de",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "3e99d8872eecf1b22cb6c7b8c11aa599cf3cee4a27deadd0623cdc058fccd938",
+      "id": "9f616d574e3d3f1e9f13ea03a6107e55aa3494c2385c71dca143efeaaf9ffdff",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "cc9e58fdf12a3dcd159021a00f10b5c707638d2d5f88c376014942e3ae5c975a",
+      "id": "bb534dede44782a03867dafcbadd8e26b87c65c9e2bca5da7be1df9309f0dc59",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "1b5999542eb537d71a80ca0bda21a625b28969a53079891cfaeb4a393896aa85",
+      "id": "d1823d55bdb20b4c2c98c18b588a05dbbebf1e9aa168ce92c4604d58c9f07c2a",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "ac54959924536f13534f0e148e391f3972e79964d43d1ba52fba56bbfb679229",
+      "id": "2ab88ef1adc26e015ca02db3255992af2efa136a89cc534afe2a80414cb2abb8",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "d45218368d3e969b246ef68831173c857938b7262523395dfcf68f008aaeabd5",
+      "id": "69e034a6ebd862d6315b7d1ee387649dc904204fcee4b41dd7c2b0c1b46da0a3",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "47a1f5759a07dea85690fab0b028dcaa6c51e840c30fdfaafbb0f1b17e89893a",
+      "id": "830e3c0edc27e3dadf4def3ed9452b98622c43a38d450f1c386f09cb1a379dd2",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "283ad8551aa1a5f39061c24b3c9ef654e48719855f890ac3b47513e4395653d2",
+      "id": "69db021e536a784d2e8aa5ac52f4c5c2a5bd3975de76655324bcc4f488d1d70e",
       "disposition": "mapped",
       "contracts": [
         "reservation.list-read",
@@ -8214,441 +8214,441 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 12197,
-          "end": 12251,
+          "start": 12205,
+          "end": 12259,
           "sha256": "d66a2b4efa181bbe055dde8852c9ecbbf4b73f515a64ab787e631eba3b1086a8"
         }
       ]
     },
     {
-      "id": "094f04fd7b79851156c965f6ba1a68dace50122c99b69572c2018ea2c60c1f4e",
+      "id": "0abb82d2cd01ee1f9adb8992fe73ea8b8d90840e65039505c3ddb016219886c1",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "93115bda26ae02358d1f00679feff93fe7bb280b74c91e4a44bb6453af67188d",
+      "id": "04c9ab3044870c36cba0f56a9eecb2df6b01c540492bdaa15c8bc5db34bb9333",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "5ba18e1c46a4b254ee05f5cd69e797d3a22c115488ff285cd1606667a81ea517",
+      "id": "78bcf7d6e1d896289ac81dd76e82c9e19de38372978553721bc065e7bb1a929a",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "52c84363d8174532d3aa51834fe82624416a85461e8c93e0d657a9b3c84cf929",
+      "id": "7260ec6dfe6db59567f38a37ceb69e607e07e41eba9c4e3ebb8820939faa6a0c",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "0aa9e0de5caf5be253178c5729cf7af0b8abdc522c82c5d944d85896ec5903a2",
+      "id": "610bbe31f73f5199355498d73747cdb4cd0026eaa76af7cfe79f4eb6418255f3",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "db1717b6e12687e7b70d077b2e4528c458119bd95e9e441ed76399493a2ca60e",
+      "id": "769e54da8999ddd0597f873c72fde6c7b93ba4113d1512ab38f9c36a7f4e23c8",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "5c42af57c95f7fcdceeb3dcd2aa9e805c5106048eccf0ac869a43269d839f888",
+      "id": "70240d31ff1df7a706888cdea98a26241b2bb370f20e1cfdef4567b4c9c8c032",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "e7b949b5b0ff23677951827eabece624597ae478ce56869bc9d04c7c5021ba5a",
+      "id": "06b5828d8a1f9eff1d0c17e1644cf730514aec6a39de28d032b75adf1d8e0670",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "b03af26b436967c6fbc979d515f6f12bf35aa4df250b3ebd22ff5c18eb067731",
+      "id": "6d6142e4adf54ad77e92975fb0678862ea22848d7cbb25700faa714cdde86aed",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "3bcbb0ed93e9af6b9e6a0f9a229c65603f4583555bd7788d61bd0caef8176edd",
+      "id": "cf1a439ef09a0207053bcf28585b79204623d7a5a2f86592c368ade70078f620",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "663a28a5dd7b9af07c15f0284697fe1d607415f4946f8adabf07211f35133d2f",
+      "id": "953b464ebd720d2064d42812fa60fd4dcddc3bca8d5c8ab78969b5a1bf36ccb0",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "36f8e76f8c3570a22bde2bd1e60991f16ab181384624ccf6bb2ad04eac0b3dec",
+      "id": "3461fa5f934279525316658435adf9e8e8caf39ea7775ba7e7769c31557918bf",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "7a47f14fef654de49e79def27f76fb4bd8b8b663cf24eb5b945094438257c7c4",
+      "id": "93a0645c57f856037785145b1024c1ac311b7c4156be99311dabe30ecff443c4",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "84bb12a8b49a0bd05ebf0e7422a37d9543d78a82b36997de70746835e6b4174a",
+      "id": "e02bfe81313994ccc2c75f09775e1eb321add219e7f39943934fdc840c3befd7",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "dbaad9c53b981dd9df02551d9ffeac20f6ff893d4a8c89792c9b6ddb8fea7be4",
+      "id": "8bcd3a38bd8aedd21d3d2df2f915282d92f7d3ae5089a491f06b5569f5c8fdf7",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "7e3b3d6fa2b095a55443ba06a5bc29a7d7d0907641d80d3831a34dff7f33e4d7",
+      "id": "dbb8f2ff31c81be492047e2f91fef0d515d1bc0ab9a7f03c5553c8a65a5ed906",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "c2abfe993a703ec62845d4fa1a14df9153b4831c605ea0b1b7291422450db0ef",
+      "id": "6d9eacaf8d2f4500e9e71a8489ce935e11a9597c5f8b97fe45d3100d9a4c972c",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "91912a356dbe5d26c10c65eb20343a90b8807896c4412589e2aed4d532be4cb6",
+      "id": "40ec444d8e18b87bbb5f804249df23e2a8587f5fdbba1bb11c161477da5d7b41",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "655ed1bcb202d13e92341c0a83173727e586040ed8eb0e4f72cfe0945f863c2a",
+      "id": "0f898376168522ddf7f796e562f01e02280dbe47037219a47ac2e01d88a62a7c",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "4eec3e60725637c1e419d95f7413a162cff88f3ee1dcd11bb0245fa1ab454ebd",
+      "id": "f4f632240b55eb9656d0b144438c0c279b8895a251a787c259bebb6a266a2e01",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "90fe6f5feedd1d7fe42bb699ebe91b97fcf875f41275cb54665f2c8a1a7f900d",
+      "id": "b6594ff1d5dccebdbd80e33d8d45b1d5bdc8b7eb2f56f1621daeec060314344d",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "6ef85745c0df7d3abfe235b2db0c5f9e6dd0b231dc973ecf8c3f3e532f772962",
+      "id": "7f063efa365761bb48024f68f79c6c3428a86c5125e7a393cf34b774cdd40e4d",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "9d770a165285f464c337ad031df639c3fec011255ba6362202e1afc92014f335",
+      "id": "92c865a2f9734f758fc334eed64e7f771453ab1d4945d98cb30e710ec83b987b",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "4b6a70b715eb15ba5862a12be1e04925ef5ef66b4836b63468a937523be64e6e",
+      "id": "c18d45ff655681388fdcce74612292e0e8dd2c5425cd2df16e1be6ea7e0c3d18",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "9f9815dc11b4f685fc006cd53a458519bb3bb7edb5f5c09c5d81d0c1ba779db4",
+      "id": "097c8ea95c8d62a8d05a385379ada1f008c02dc19d5a553198fabe910b6389ca",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "a648959ae87249709a9895c3ea7992f710d851f04f2628813e6ced1fad5fa839",
+      "id": "3d8d2c7e5a4cb07ac6bb1ead402fad6a8d3e703bb43355caf3493adec32d7d80",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "f1d1fc63409abbbdd2654c96d865c67e94fea51e9aed8435cb314203c92f7bc0",
+      "id": "fad8b1859385498a83fb7c275cbd94e6a1150d4a188e732335fb97c1f9b60f0e",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "a44b9751874ad728b18c4086f9e9c44d6c1a9025b5d05c2ef825534b66e5580f",
+      "id": "cce18177d6274405c9210886d7d6e17f4550256898aac21b3e275a1b401a3449",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "3e2f1d8172b55a44fe349225c8bec3882921f97008301feaa20e0362a81bfe6f",
+      "id": "380cf712778106a6f2aa34a97da1ab3e8b6ec91445c711053b91361b8fd31eb4",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "a57139caeea51c4f975796713426f78958774432a67426fb6b4886cc1b245c9f",
+      "id": "2578ad2cf6c173ed1bb834859c561150742eb2d8630eec9e54102895faac3d32",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "19d84c5bd6ba6d06f98bc4a132f765afa27d6dccca0a8f2e806f19da9e49fc6d",
+      "id": "f799f0ddf2995a7449107cf928518e46788c5f65c1956a53bb11602dba8eede7",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "9a2762f67ccea546c09bcb21e31431bbdf9c8b50c24c5b933c9592e1abcfe8f5",
+      "id": "5e7aa359995706871993600d83408f923a15b360714fa37165e0ee4fee249ee5",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "c390bab581c8287c3dfc7f5407363fac6b7a9373602e15301424a00ec6adc8f3",
+      "id": "52eeebdeebab683ab10461570816239eee463a0a5e48b98454bc4bfd5bf7a007",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "c2e7e225437c161b6edf05421fea45f5133b11ffbc9a88863dc7f8dabfa83258",
+      "id": "ef44a5e34bc0196e92f3714034e7aa98a946f01a4a33fdd71861bd2efb53ae7d",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "e805dbc5035ad004f9c01c906575695bbb48246ff55e6d880d9c951608fd5e4a",
+      "id": "8da59b4b566cf3fd710ac7f55e8e376ca7b3ffeebc8a7f1af50599ab9f5955b6",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "b3f75f3c0ee7115a6692e4c066980805dc6365eb3d94ea436c4562c435dcce25",
+      "id": "3d05c8106a4c83fc1785e00e12e6949f21a72b33c2ad53d88a97c4ff991f6988",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "f4d4c652279e4babc8a7eb73113676f0becb8895ce1111fc822276e9ffe47caf",
+      "id": "e49ee2b733933abc6b40bd236a1a068e730fc5f6b5f44504bc0bda3e093d3fb8",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "7590782e1de08a21a3dd23fcd7de02da30ab5cb9fe3e00634b7b6c4031b82535",
+      "id": "319734f90fd304402647ed10639aec430e391cabeb84f9598eaa32b2177316c3",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "f3b930edb8f1acb53e7044db3b0c3ceba522a47a312545ad70c02b5a8870a1ad",
+      "id": "5566b814fb30076f31c9be21c609822168f2583d440c2fb6b19c2edc5ce42619",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "eb855f66a44ca34beda5dac780be0c2f7d305bd2b1012c960fa6376b87baa8d3",
+      "id": "36cf02780b96c7092990a89da241de9b3e433baf9b42000fc7734f7e3bb8a8a1",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "5d5f47bb34fd32f29bd89bc57a8bd8c0c50131e8a5f0cbd53d62c9f184c4de31",
+      "id": "6f22c3af56661dc8ea2b0a6ea3f645a3b07119b771efae3cad69c72c19615aa1",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "8bd66a419690dc8b88605288de08085a92bce02d4335272ced32540b4a8774de",
+      "id": "5023cdbfc8eaa13c41065cb2cd8e15cb1ed382b59891d0c5726440f8bfec14e6",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "93c91f379bf6354a5f0939b7a467a47303262400ce712a3e7b7b6ea807277f28",
+      "id": "a3b59ae683f581e5498d4ad7bdae004fd0aa18e50fbdc8d61d4262eb01863fae",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "cbbee67bf908c6609079dae365202b99e719cd93a60bbac0b74a392dbb71ece7",
+      "id": "a9a577ed105a04cb90a432934373ff1c374faebd70d6c4c38c0a16ddfdde5d11",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "f396f1f2a8be703e57a2bfb38d111f1070d7bf6f991a242d981673ff19af10b5",
+      "id": "6da13d1d9f5cc6631527a25c577c300cb4ccfd9ae2f7d99b6cbb2e1b5017131e",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "2e410458af93d9810c7896066d1fc4dcfd99fed6a64adcd8b163e6f2810618cc",
+      "id": "e5019a836aa33163ffe1b50b3dfcb3f802098c208f8adfa90fdabc2cb965a268",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "fc46e302044d8d7466bb88a233f2712229ea4bf3d72adf1fbe300c23193df53c",
+      "id": "7f54e43038e80f8401b044a8e294e3222be3bc9416072a0218851a1921db075d",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "b94c33092546c255b28d3658de8b7bbe93485bafdbe7d2d262862af2a1528a5d",
+      "id": "4fc178c11e8a669e97e92330464d73f73dc50a4e275706c6fd9ecfc76446ccf5",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "e1a83ea7958298562243b95ca0f5ba3a492f96b24dbe5bd98d34bf919a2cc402",
+      "id": "5f1a8bab50cdb912618e380361f4d5876fe7e3201542c07abe7538380873eb0a",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "a60be6a8d1903fc4c6f085ab2045097c1a3c93b62ed4f565eae3eb994073b7b4",
+      "id": "3bd5ecdfa6b95a5da9dadcceb21809f108ad0368f0234cf325c1f088f88d428b",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "fdc2654d6f7e11a3553abf99f6c43ad2fae03d6a0e6bcd2917cff2b488a4b086",
+      "id": "3f92a09a2251f2ea1bb7f2b288f0f747f65cd4629b66924658feeddabdf3f0a4",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "e77cab1043df3722183024c27321a8da3c95e545335462739d3a81eed1fad345",
+      "id": "35b3fa2af5310cd6c8564dab07d3f7b2130875f8022e5d5f4cd407046897327d",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "fd5d401381a8364d804321508253faf39a68aee6fafed71bfe208fa2613a28a0",
+      "id": "5cfd72a333956086e401dc039ac5c9838b3f0a964229301b06de780cc0ccf9be",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "b1357887724599df366fb76fc2b606931d50cefd795505878235bb49412168d2",
+      "id": "8351f85e420ce097437802ac97aea088018bbc976b0758368f6f3845e938e4fb",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "20ede577eb2abd81d9771d94e5ab0baa3e541ded15e961c7658b4e9792601b94",
+      "id": "ff2db95246db4d3e33fe74883b7a5a9ee86e86416c9c7537a1183542a4c33cf8",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "5a72212e0dad27b3958c715a2ec2bad2532c7ced819c41d8078ad70b17879662",
+      "id": "2ff7dc9311b4d03896f17c7589ec37facb16e4e8c739008b65eb535b50a70483",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "2f5561692a006692cd40534cabbada8d2480dcb0f26161e7c7401dfac517ad3b",
+      "id": "682c530f50b1896dc75327c4b117b774d08ea2a9fe88109529222c29a3f163ad",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "9e6ba780363b6545fe991f7915e1b6c24d0c286b1649197dedf8e6f1c6cdd867",
+      "id": "e510048dad524e64160ad12bf0e20adece934f33fa0d139f0176f16ddb6c67e1",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "6ccd538b042085f3677a2c0594b5030d1512e82c0306bfe55f7db1e096a07bbe",
+      "id": "4ffdbb90ab03288c0c9e66817bfa0f6efaf6c174c6516fae27c8f60ca136c5ed",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "c8fcd34a39a2a5d0553bb4adbbc5c17971b5f9bd1fac2f9a44743aaf14bd15f6",
+      "id": "08094805714f1f9aed6330add717ee8fd3eb35a3c2eba486c52b552950426418",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "468442a3f103e6bd3b9cd58620250b1ef4cfb3709af20c1205dc3d7ed406e10b",
+      "id": "9741730ce355d6cbb0ed0d7b31b792a44dd73f69cc426103826766e8364df7d7",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "56234607dc7a896f965dd0d6f33e448185b6156f92916f0e82594b9561c573a5",
+      "id": "b9b2d0e9dac4bf30bfee0b8d0a930cc88a14d5a98d37c42dc1ddafc5a5a54832",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
@@ -9376,28 +9376,28 @@
       ]
     },
     {
-      "id": "93f0e98e35944de39ccc31eb69ef85efd2442cd3b097d43619fe10246a737060",
+      "id": "fea6ac4d65d7c5329b38755e6346a742974347424fe262bef4fe8e7f3288e9ee",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "f815a53ecab559460edfea58f37ceef348581c01ba3e6679882153012e3aaee5",
+      "id": "e12774a4490048f01b6534c92a3b48ca6b12cfb86c970b740662119c47e525f7",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "58c6121f36983cf93e4ac50af674da519421372ddd0108b3a24fc192b8e8c3d8",
+      "id": "ca3dd0e3913d0c51908f875f0bb5961948ae65d6491bf114feb5c261114a8ef0",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
     },
     {
-      "id": "bb1ca25785316724128d361665dc44bb548bc4b588b3edaa6dd404776fe8282e",
+      "id": "26eaf4984123a609dedc5b5dbb514d17df5f78220287a86822a2817d5a37f928",
       "disposition": "pending",
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
@@ -9495,7 +9495,7 @@
       "source_refs": []
     },
     {
-      "id": "53ef1b67a61d3612714d69ed993e7e8bd0c2135c6648b6539e25a73ce87af89e",
+      "id": "1a92f1064a007be12ab7b57b2f974e92ba48a15b3749e66530d8be2976b1f550",
       "disposition": "pending",
       "contracts": [],
       "reason": "80b28bf (account capacity marks): the `body.tool == 'orgtree_account_mark'` dispatch branch in agent_call, which writes the machine account store and then the org log and receipt. No P01 contract describes it yet; recorded pending rather than mapped, because this stage authors no contract text.",
