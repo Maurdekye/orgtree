@@ -565,7 +565,14 @@ def assert_probe_imports(root: Path) -> dict[str, str]:
     `__file__` is exactly this tree's (tools/assert_repo_import.py's rule:
     only the imported module's `__file__` settles it). The refusal names the
     path that was actually loaded; it is raised before any row exists, so a
-    refused run writes no output."""
+    refused run writes no output. It must run BEFORE the app loads: once
+    `engine.launch` is imported, whatever code answered has already run, so a
+    late check refuses too."""
+    if "engine.launch" in sys.modules:
+        raise ProbeProvenanceError(
+            f"{PROVENANCE_REFUSED}: the import check ran after the app was loaded "
+            f"(engine.launch from {getattr(sys.modules['engine.launch'], '__file__', None)}); "
+            f"it must run before any code under test does. No rows were produced.")
     loaded: dict[str, str] = {}
     for name, want in expected_imports(root).items():
         try:

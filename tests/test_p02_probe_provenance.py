@@ -9,10 +9,12 @@ probe would measure that instead. Here the tool is copied to a root WITHOUT an
 engine, so the fallback (or an ImportError) is what answers, and the run must
 refuse, name the path it actually loaded, and write no output: through the
 JSON-backend child (the child refuses, the parent stops) and in the main
-process.
+process. The check must also come BEFORE the app loads, so a check that finds
+the app already loaded refuses too.
 """
 from __future__ import annotations
 
+import importlib.util
 import os
 from pathlib import Path
 import re
@@ -20,7 +22,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
+from unittest import mock
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
@@ -88,6 +92,36 @@ class WrongRootRefuses(unittest.TestCase):
         proc, out = self.run_probe("main", "--no-json-child")
         self.assert_refused(proc, out)
         self.assertNotIn("JSON-backend child exited", proc.stderr)
+
+
+class LateCheckRefuses(unittest.TestCase):
+    """The check is only worth anything BEFORE the app loads: by then whatever
+    code answered the import has already run. A check that finds the app
+    already loaded refuses instead of passing."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "p02_operation_contacts_late_check", ROOT / "tools" / "p02_operation_contacts.py")
+        cls.tool = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.tool)
+
+    def test_this_tree_passes_before_the_app_loads(self):
+        with mock.patch.dict(sys.modules):
+            sys.modules.pop("engine.launch", None)
+            loaded = self.tool.assert_probe_imports(ROOT)
+        self.assertEqual(sorted(loaded), ["engine", "orgtree"])
+        for name, want in self.tool.expected_imports(ROOT).items():
+            self.assertEqual(_norm(loaded[name]), _norm(str(want)))
+
+    def test_a_check_after_the_app_loaded_refuses(self):
+        late = types.ModuleType("engine.launch")
+        late.__file__ = str(ROOT / "engine" / "launch.py")
+        with mock.patch.dict(sys.modules, {"engine.launch": late}):
+            with self.assertRaises(self.tool.ProbeProvenanceError) as caught:
+                self.tool.assert_probe_imports(ROOT)
+        self.assertIn(REFUSED, str(caught.exception))
+        self.assertIn("after the app was loaded", str(caught.exception))
 
 
 if __name__ == "__main__":
