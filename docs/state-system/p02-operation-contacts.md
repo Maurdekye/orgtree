@@ -87,6 +87,45 @@ for its organization. A warm row runs immediately after the cold one.
     `orgtree_send_notice`. `orgtree_status` does not count, because its status
     value is read as the action.
 
+## Agent-to-agent mail locality
+
+Each row's `agents` block says which AGENTS the operation touched. There are
+two layers, because of how the store keeps mail:
+
+- **Physical (`agents.physical`, `agents.physical_nodes`):** node ids that appear
+  in the parameters of the operation's own statements, by table, read/write and
+  role. Per-agent rows exist only in `nodes` (one row per node) and `log_d`
+  (per-owner log rows such as `mail_log`). The mail QUEUE (`mail`), `notices`,
+  `delivering` and `audiences` are each ONE `doc` row for the whole
+  organization, so a queue write is physically a rewrite of that org-wide row.
+  No per-agent row separates one recipient's queue from another's.
+- **Logical (`agents.logical`):** the org's `mail`, `notices`, `delivering`,
+  `audiences` and `mail_log` are read before and after the operation, outside
+  the operation window. Each changed entry is listed by the agent it belongs
+  to: the recipient key of a queue, the grantee/grantor of a grant, or the
+  owner of a `mail_log` row.
+
+Each agent gets a role:
+- `actor`: the caller;
+- `target`: a counterparty named in the arguments (`successor`, `to`, `node`,
+  `target`, `a`, `b`, `from`, `new_parent`, `grantee`, also inside preview's
+  inner `args`);
+- `user-or-org`;
+- `third`: anyone else.
+
+`third_agent_mail` counts logical mail changes that belong to a third agent.
+`third_agent_rows_written` counts physical writes to a third agent's rows.
+`mail_producing` is true when any mail section changed.
+
+What the synthetic run shows:
+- Among the four families, only `reservation.release-notify` produces mail.
+- Its mail changes (the queue and `mail_log`) belong only to the named
+  successor. The sender's own entries do not change, so the contacts are
+  never self-only.
+- No other row touches a third agent's mail or writes a third agent's rows.
+- `control:third-agent-mail` (release to `peer` whose notify step also posts
+  mail to `child`) is flagged, both logically and physically.
+
 ## The P01 "Closes with" clauses, clause by clause
 
 These are the closing texts on P01 S2 (origin/v3/p01-s2-c2-opus55, 7ee2fcf).
@@ -97,7 +136,7 @@ Whether that is enough to move a facet is P01's decision.
 |---|---|---|
 | `contacts` (11 reservation) | observed contact set per variant | met: tables R/W, kinds, checkouts, connects, tx, files, both aliases, cold/warm |
 | | hidden-contact negative control | met: `control:hidden-contact` |
-| | mail-locality negative control | evidence (reinterpreted as ORG-STORE locality): release-notify's mail write lands in its own org store (`org-db:own`), and `control:foreign-org-contact` proves `foreign` fires. Not a mail-routing locality test. |
+| | mail-locality negative control | agent-to-agent evidence (see "Agent-to-agent mail locality" below): in all four release-notify rows (both aliases, cold/warm) the mail entries that change belong ONLY to the named successor (`agents.logical`: `mail` and `mail_log` = successor, role `target`), never the sender alone and never a third agent. `control:third-agent-mail` posts mail to a third agent inside the operation and is flagged (`third_agent_mail` ≥ 1). The org-store locality control (`control:foreign-org-contact`) remains as a separate check. |
 | | receipt/log/effect contacts, loss accounting | met: keyed rows, `log_d`/`log_l` tables, wake spy counts, window counters |
 | | wait evidence | partly: document-lock wait (`profile.lock_wait_ms`); no database lock wait is measurable |
 | `wrapper-reads` (11) | observed dispatch/authentication/receipt/sidecar read set of one call, per variant | evidence (reinterpreted as ONE union per call): not split into dispatch/authentication/receipt phases. Refusal rows bound the pre-dispatch part: 401/403 = 0 statements; 409 halt = 5. |
@@ -119,6 +158,11 @@ Whether that is enough to move a facet is P01's decision.
 | `preview.writes` (1) | cold/migration/probe/cache writes and the full underlying mutator effects | met for writes (none to any table; file effects listed); "full mutator effects" means the simulation's clone, which the census does not see as a store |
 
 ## Limits
+
+- **Agent identity** is read from statement parameters (node ids of the
+  operation's own org) and from before/after snapshots of the mail sections.
+  A node id carried only inside a JSON value, such as the org-wide mail blob,
+  is seen through the logical snapshot, not the physical parameters.
 
 - **Statements only:** no rows examined, pages, physical IO or database lock
   wait. `profile.lock_*` is the in-process document lock.

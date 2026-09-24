@@ -129,6 +129,17 @@ class Collector:
 
 
 _CURRENT: "Collector | None" = None
+#: node ids per synthetic org, for mapping statement parameters to agents
+_NODES: dict[str, set[str]] = {}
+#: the parameters of the statement about to run, handed from the cursor
+#: wrapper to the `_run` wrapper on the same thread
+_PARAMS = threading.local()
+#: sections whose change is agent-to-agent mail traffic (the doc blobs are one
+#: row per org; mail_log is one log_d row per owner and entry)
+MAIL_DOC_KEYS = ("mail", "notices", "delivering", "audiences")
+MAIL_LOG_SECTS = ("mail_log",)
+#: argument names that name the OTHER party of an operation
+TARGET_ARGS = ("successor", "to", "node", "target", "a", "b", "from", "new_parent", "grantee")
 _BETWEEN = Collector("between-operations")
 _TABLES: set[str] = set()
 
@@ -158,12 +169,39 @@ def install_sql_observer(contacts: Any) -> Callable[[], None]:
     and connection method calls) so the harness sees each statement's SQL and
     store label. The statement runs exactly as before."""
     original = contacts._run
+    cursor = contacts.ObservedCursor
+    original_execute, original_many = cursor.execute, cursor.executemany
+
+    def execute(self: Any, sql: str, parameters: Any = (), /) -> Any:
+        _PARAMS.value = [parameters]
+        return original_execute(self, sql, parameters)
+
+    def executemany(self: Any, sql: str, seq_of_parameters: Any, /) -> Any:
+        rows = list(seq_of_parameters)
+        _PARAMS.value = rows
+        return original_many(self, sql, rows)
+
+    def agents_in(params: Any, slug: "str | None") -> list[list[str]]:
+        """Node ids among the parameters, per parameter row. Only ids of the
+        operation's own synthetic org are recognised; nothing else is kept."""
+        nodes = _NODES.get(slug or "") or set()
+        out = []
+        for row in params or ():
+            values = row.values() if isinstance(row, dict) else \
+                (row if isinstance(row, (list, tuple)) else ())
+            ids = [v for v in values if isinstance(v, str) and v in nodes]
+            if ids:
+                out.append(ids)
+        return out
 
     def observed(conn: Any, sql: Any, call: Callable[[], Any]) -> Any:
+        params = getattr(_PARAMS, "value", None)
+        _PARAMS.value = None
         target = _CURRENT
         if target is None or not contacts._capture_on():
             return original(conn, sql, call)
         kind = contacts.kind_of(sql)
+        agent_rows = agents_in(params, target.slug)
         read, written = tables_in(sql, kind)
         tally = contacts.current()
         failed = False
@@ -186,10 +224,16 @@ def install_sql_observer(contacts: Any) -> Callable[[], None]:
                 "store": getattr(conn, "_census_label", None) or "primary",
                 "kind": kind, "read": read, "written": written, "failed": failed,
                 "in_transaction_after": in_tx if kind in WRITE_KINDS else None,
+                "agent_rows": agent_rows,
                 "tally": id(tally) if tally is not None else None})
 
     contacts._run = observed
-    return lambda: setattr(contacts, "_run", original)
+    cursor.execute, cursor.executemany = execute, executemany
+
+    def restore() -> None:
+        contacts._run = original
+        cursor.execute, cursor.executemany = original_execute, original_many
+    return restore
 
 
 def install_audit_counter(root: Path, data: Path, home: Path) -> None:
@@ -558,6 +602,110 @@ class Probe:
             store._invalidate_snapshot(slug)
             store._POOL.close_all(slug)
 
+    # -- agent-to-agent mail locality -------------------------------------------
+    def mail_snapshot(self, slug: str) -> dict[str, Any]:
+        """The org's mail-related sections, read with a plain read-only
+        connection OUTSIDE any operation window: the doc blobs by key and
+        mail_log row counts per owner."""
+        path = self.data / "orgs" / f"{slug}.db"
+        snap: dict[str, Any] = {}
+        try:
+            with contextlib.closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)) as c:
+                for key in MAIL_DOC_KEYS:
+                    row = c.execute("SELECT val FROM doc WHERE key=?", (key,)).fetchone()
+                    snap[key] = json.loads(row[0]) if row else None
+                for sect in MAIL_LOG_SECTS:
+                    snap[sect] = {o: n for o, n in c.execute(
+                        "SELECT owner, COUNT(*) FROM log_d WHERE sect=? GROUP BY owner", (sect,))}
+        except (sqlite3.Error, ValueError) as exc:
+            snap["error"] = type(exc).__name__
+        return snap
+
+    @staticmethod
+    def mail_changes(before: dict[str, Any], after: dict[str, Any]) -> dict[str, list[str]]:
+        """Which agents' entries each mail section changed by: for the
+        per-agent dict blobs the keys whose value changed, for audiences the
+        grantee/grantor of every added or removed grant, for mail_log the
+        owners whose row count moved."""
+        out: dict[str, list[str]] = {}
+        for key in ("mail", "notices", "delivering"):
+            b, a = before.get(key), after.get(key)
+            if b == a:
+                continue
+            if isinstance(b or {}, dict) and isinstance(a or {}, dict):
+                b, a = b or {}, a or {}
+                out[key] = sorted(str(n) for n in set(b) | set(a) if b.get(n) != a.get(n))
+            else:
+                out[key] = ["*"]
+        b = {json.dumps(x, sort_keys=True) for x in (before.get("audiences") or [])}
+        a = {json.dumps(x, sort_keys=True) for x in (after.get("audiences") or [])}
+        named = set()
+        for grant in (json.loads(x) for x in b ^ a):
+            for field in ("grantee", "grantor"):
+                if isinstance(grant, dict) and isinstance(grant.get(field), str):
+                    named.add(grant[field])
+        if named:
+            out["audiences"] = sorted(named)
+        for sect in MAIL_LOG_SECTS:
+            b, a = before.get(sect) or {}, after.get(sect) or {}
+            moved = sorted(str(o) for o in set(b) | set(a) if b.get(o) != a.get(o))
+            if moved:
+                out[sect] = moved
+        return out
+
+    @staticmethod
+    def parties(actor: str, args: dict[str, Any]) -> list[str]:
+        """The operation's named counterparties: TARGET_ARGS values, also one
+        level down (preview's inner `args`)."""
+        found = []
+        inner = args.get("args") if isinstance(args.get("args"), dict) else {}
+        for scope in (args, inner):
+            for name in TARGET_ARGS:
+                value = scope.get(name)
+                if isinstance(value, str) and value and value != actor:
+                    found.append(value)
+        return sorted(set(found))
+
+    @staticmethod
+    def role(node: str, actor: str, targets: list[str]) -> str:
+        if node == actor:
+            return "actor"
+        if node in targets:
+            return "target"
+        if node == "USER" or node.startswith("@") or node == "*":
+            return "user-or-org"
+        return "third"
+
+    def agents(self, actor: str, args: dict[str, Any], c: Collector,
+               changes: dict[str, list[str]]) -> dict[str, Any]:
+        targets = self.parties(actor, args)
+        physical: dict[str, int] = {}
+        nodes: dict[str, str] = {}
+        third_rows_written = 0
+        for st in c.statements:
+            table = (st["written"] or st["read"] or ["other"])[0]
+            rw = "write" if st["kind"] in WRITE_KINDS else "read"
+            for ids in st.get("agent_rows") or []:
+                for nid in ids:
+                    r = self.role(nid, actor, targets)
+                    nodes[nid] = r
+                    key = f"{table}:{rw}:{r}"
+                    physical[key] = physical.get(key, 0) + 1
+                    if r == "third" and rw == "write":
+                        third_rows_written += 1
+        logical = {sect: {nid: self.role(nid, actor, targets) for nid in ids}
+                   for sect, ids in changes.items()}
+        return {
+            "actor": actor, "targets": targets,
+            "physical": dict(sorted(physical.items())),
+            "physical_nodes": dict(sorted(nodes.items())),
+            "logical": logical,
+            "mail_producing": bool(changes),
+            "third_agent_mail": sum(1 for sect in logical.values()
+                                    for r in sect.values() if r == "third"),
+            "third_agent_rows_written": third_rows_written,
+        }
+
     # -- one operation ---------------------------------------------------------
     def agent_body(self, slug: str, actor: str, tool: str, args: dict[str, Any],
                    key: "str | None" = None, epoch: "str | None" = None,
@@ -581,6 +729,7 @@ class Probe:
         body = self.agent_body(slug, actor, tool, args, key, epoch, envelope)
         headers = {"X-Orgtree-Agent-Token": token if token is not None
                    else self.tokens.get((slug, actor), "")}
+        mail0 = self.mail_snapshot(slug)
         before = self.census_state()
         seq0 = before.get("newest_seq") or 0
         wakes0 = dict(self.wakes)
@@ -608,9 +757,11 @@ class Probe:
             for obj, name, value in reversed(saved):
                 setattr(obj, name, value)
         after = self.census_state()
+        mail1 = self.mail_snapshot(slug)
         records = [r for r in self.census_since(seq0) if not r.get("diagnostic")]
         row = self.row(contract, variant, condition, tool, args, body, status, payload,
                        records, collector, before, after, wakes0, refused0, refusal, elapsed)
+        row["agents"] = self.agents(actor, args, collector, self.mail_changes(mail0, mail1))
         self.rows.append(row)
         return row
 
@@ -801,6 +952,23 @@ class Probe:
         opreceipts.forget_custody(str(self.m["store"].DATA_ROOT), s)
         self.run("reservation.list-read", "refusal:stale-epoch", "warm", s, "owner", tool,
                  dict(action="list"), key=stale_key, epoch=epoch, refusal="stale_epoch")
+        # negative control: a release to the addressed successor ('peer') whose
+        # notify step ALSO posts mail to a third agent ('child') inside the
+        # operation; the agent-locality observation must flag 'child' as third
+        store = self.m["store"]
+        supervisor = self.m["supervisor"]
+        third = acquire(tool, "control:third-agent")
+
+        def notify_and_mail_third(*_a: Any, **_k: Any) -> dict[str, Any]:
+            with store.write_org(s) as org:
+                org.post_mail("owner", "child", "p02 control: mail to a third agent")
+                store.save_org(org)
+            return {"delivered": True}
+        self.run("reservation.release-notify", "control:third-agent-mail", "warm", s, "owner",
+                 tool, dict(action="release", reservation=third["id"],
+                            resource="control:third-agent", item=item, successor="peer"),
+                 refusal="negative control (not a product path)",
+                 patches=[(supervisor, "send_message", notify_and_mail_third)])
         # negative control: one statement through a plain sqlite3.Cursor on a
         # pooled connection, inside the operation — outside every observed
         # method, so ONLY the census's trace callback can see it (hidden_steps)
@@ -982,6 +1150,8 @@ class Probe:
     def execute(self) -> dict[str, Any]:
         self.prepare()
         self.build()
+        for slug in (self.rslug, self.mslug, self.dslug, self.pslug):
+            _NODES[slug] = {str(n) for n in self.m["store"].load_org(slug).nodes}
         self.operator("post", "/api/diagnostics/operation-census/reset")
         self.operator("post", "/api/diagnostics/operation-census", json={"enabled": True})
         w0 = self.census_state()

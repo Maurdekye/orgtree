@@ -209,6 +209,60 @@ class OperationContacts(unittest.TestCase):
         acquire = self.rows(variant="orgtree_reservation:reservation.acquire", condition="cold")[0]
         self.assertIs(acquire["harness"]["stores"]["primary"]["autocommit"], True)
 
+    # -- agent-to-agent mail locality (p02-observe-agent-to-agent-mail-locality-in-the)
+    CONTROL = "control:third-agent-mail"
+
+    def test_every_row_records_which_agents_it_touched(self):
+        for r in self.doc["rows"]:
+            with self.subTest(variant=r["variant"], condition=r["condition"]):
+                agents = r["agents"]
+                self.assertTrue(agents["actor"])
+                for key in ("targets", "physical", "physical_nodes", "logical",
+                            "mail_producing", "third_agent_mail", "third_agent_rows_written"):
+                    self.assertIn(key, agents)
+
+    def test_release_notify_mail_reaches_only_the_named_successor(self):
+        """P01 `contacts`: release-notify's mail contacts are limited to the
+        sender and the named successor, and never self-only."""
+        for alias in ALIASES:
+            for condition in ("cold", "warm"):
+                with self.subTest(alias=alias, condition=condition):
+                    r = self.rows(variant=f"{alias}:reservation.release-notify",
+                                  condition=condition)[0]
+                    agents = r["agents"]
+                    self.assertTrue(agents["mail_producing"])
+                    self.assertEqual(agents["targets"], ["peer"])
+                    self.assertEqual(agents["logical"]["mail"], {"peer": "target"})
+                    roles = {role for sect in agents["logical"].values() for role in sect.values()}
+                    self.assertLessEqual(roles, {"actor", "target"})
+                    self.assertIn("target", roles, "never self-only")
+                    self.assertEqual(agents["physical_nodes"].get("peer"), "target")
+                    self.assertEqual(agents["third_agent_mail"], 0)
+                    self.assertEqual(agents["third_agent_rows_written"], 0)
+
+    def test_no_operation_touches_a_third_agents_mail_or_rows(self):
+        producing = set()
+        for r in self.doc["rows"]:
+            if r["variant"] == self.CONTROL:
+                continue
+            with self.subTest(variant=r["variant"], condition=r["condition"]):
+                self.assertEqual(r["agents"]["third_agent_mail"], 0)
+                self.assertEqual(r["agents"]["third_agent_rows_written"], 0)
+            if r["agents"]["mail_producing"]:
+                producing.add(r["contract"])
+        self.assertEqual(producing, {"reservation.release-notify"})
+
+    def test_third_agent_mail_control_is_flagged(self):
+        control = self.rows(variant=self.CONTROL)
+        self.assertEqual(len(control), 1)
+        agents = control[0]["agents"]
+        self.assertEqual(control[0]["http_status"], 200)
+        self.assertGreaterEqual(agents["third_agent_mail"], 1)
+        self.assertEqual(agents["logical"]["mail"].get("child"), "third")
+        self.assertEqual(agents["logical"]["mail"].get("peer"), "target")
+        self.assertGreaterEqual(agents["third_agent_rows_written"], 1)
+        self.assertEqual(agents["physical_nodes"].get("child"), "third")
+
     def test_window_loses_nothing(self):
         window = self.doc["window"]
         self.assertTrue(window["same_window"])
