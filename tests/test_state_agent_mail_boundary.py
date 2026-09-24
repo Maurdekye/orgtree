@@ -276,7 +276,8 @@ class AgentMailBoundary(unittest.TestCase):
             store.save_org(org)
         with patch.object(api.net, 'probe_peer', return_value=True):
             result, changed, _, _, after = self.send(M, '@net:peer9', 'top')
-        self.assertEqual(changed, self.spec['sections']['net'])
+        # the org's first outside send: the top-level sender is auto-granted the org-inbox audience too
+        self.assertEqual(changed, self.spec['sections']['net_first'])
         [entry] = after['net_spool']['h1']
         self.assertEqual(after['org_inbox'][-1]['peer'], '@net:peer9')
         self.assertEqual(result['delivered'], '@net:peer9')

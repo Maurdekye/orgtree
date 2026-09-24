@@ -23,7 +23,7 @@
     "org_first": ["audiences", "events", "org_inbox"],
     "org": ["events", "org_inbox"],
     "mcp": ["events", "org_inbox"],
-    "net": ["events", "net_spool", "org_inbox"]
+    "net_first": ["audiences", "events", "net_spool", "org_inbox"]
   },
   "retained": ["deferred", "delivered", "id"],
   "ping": {
