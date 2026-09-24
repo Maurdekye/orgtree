@@ -79,9 +79,9 @@ class PreviewBinding(unittest.TestCase):
         self.assertFalse(checked['contract_coverage_complete'])
         self.assertEqual(checked['qualification'],contracts.GATES)
         self.assertEqual(set(api._AGENT_PREVIEW_OPS),set(OPS))
-        self.assertEqual(checked['summary']['entries']['mapped'],7)
-        self.assertEqual(checked['summary']['dispatch']['mapped'],31)
-        self.assertEqual(checked['contracts'],16)
+        self.assertEqual(checked['summary']['entries']['mapped'],9)
+        self.assertEqual(checked['summary']['dispatch']['mapped'],36)
+        self.assertEqual(checked['contracts'],18)
 
     def test_fixture_omissions_forged_gates_and_stale_binding_refuse(self):
         for change in [lambda d:d['admitted'].pop(),lambda d:d['denied'].remove('delete'),

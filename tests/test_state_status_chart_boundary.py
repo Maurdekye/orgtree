@@ -217,7 +217,7 @@ class StatusBoundary(_Door):
                 [event] = after['events'][len(before['events']):]
                 self.assertEqual((event['op'], event['actor'], event['detail']['to'], event['detail']['kind']),
                                  ('mail', 'worker', 'boss', 'status'))
-                [life] = after['lifecycle'][len(before['lifecycle']):]
+                [life] = after['lifecycle'][len(before.get('lifecycle', [])):]
                 self.assertEqual((life['state'], life['delivery'], life['recipient'], life['sender']),
                                  ('accepted', 'mailbox', 'boss', 'worker'))
                 self.assertEqual(after['audiences'], [])       # the superior needs no grant
