@@ -6625,6 +6625,326 @@
         "Extend the P02 per-operation probe to hire and staff with an agent-level locality control.",
         "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed, loss-accounted contact record for hire and staff with agent-level locality (the caller, the destination chain, the new seat and a moved item's previous owner only). Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to the staffing operations."
       ]
+    },
+    "operator-ops.authority": {
+      "dimension": "authority",
+      "status": "specified",
+      "facts": [
+        "POST /api/orgs/{slug}/ops is an operator route behind the desktop TokenGate (engine/launch.py, outside the pinned set): an agent credential is refused 401 (pinned). The operator acts as `actor`, which defaults to the user; naming an agent as `actor` makes the ledger apply THAT agent's authority and rules — an agent-actor hire needs the no-defaults fields and an agent-actor reallocation is downward-only (pinned). Kiosk visitors reach the same handler through the public gateway (not pinned here), where the ceiling bridge is stripped and raise_ceiling is not honoured.",
+        "operator.hire: the user hires at the top level (no `parent`) or under any live parent; `above` inserts the new seat above an existing report of `parent` ('insert-superior: <x> does not report to <p>' otherwise), with check_placement's rules. The provider gate runs first (machine state, patched off by the boundary tests). operator.reallocate: the user may move any node's grant, drawn up the parent chain as for credits.reallocate; a top-level target is bounded by the top-level grant cap."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14465,
+          "end": 14582,
+          "sha256": "1867b9de1eaf72536652d371b2f4eed2e48750069cdf6b27b9b907d5e0338a83"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14216,
+          "end": 14271,
+          "sha256": "72f16458176740c7f23c15f067f101581badac7a6eafdda39b51333688a0200b"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14597,
+          "end": 14693,
+          "sha256": "c846670f4d35ccca6738007b3ae867617aceec82f60126947172cdf39e50060a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14745,
+          "end": 14748,
+          "sha256": "682a7b4fbebbb7e705cef5039b03280bb7dd19d437b1fe30dfc4095c79e97893"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4499,
+          "end": 4750,
+          "sha256": "63221b2bb4e204f319365db3d58bf5fa52f3c9676a5fb3b5f645f9265166b29c"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 6883,
+          "end": 6942,
+          "sha256": "af55adad83b154b4c42829b008eef8e057da34e6cea89d6663a3178b940fdb8c"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 6168,
+          "end": 6199,
+          "sha256": "fe96a0a33eeee5405eca38ef0df005e12729b642a91d7d5c76610b4b5cd24588"
+        }
+      ],
+      "open_questions": []
+    },
+    "operator-ops.predicates": {
+      "dimension": "predicates",
+      "status": "specified",
+      "facts": [
+        "operator.hire: tier and name are required ('hire needs tier and name'); `preview` is refused for hire (\"preview does not support operator operation 'hire'\", 422, nothing written — the selector admits it and the refusal is part of this contract). A user hire takes defaults for omitted scope (the org's at the top level, the parent's below) and clamps explicit scope to the parent leniently, with warnings; with `above`, any add_dirs, tools, org_visibility or permission_mode sent are replaced by the anchor's and a warning names them (result scope_from_anchor). effort, prefer_reserve and account_fallback are applied with the hire in the same save; the ledger's own hire predicates (known tier, whole grant, credits on the chain, depth and child caps) apply. A repeated hire with the same name seats a second agent under a suffixed id. Pinned.",
+        "operator.reallocate: delta is required ('reallocate needs delta') and is a float on the wire; the resulting grant is rounded up to a whole credit (+0.5 moves a whole credit); Org.reallocate's rules apply as for credits.reallocate ('<node> has only N unused; the rest is committed'). `preview: true` is a DIFFERENT, read-only operation (statepreview.preview answers {operation, applied: false, …} and writes nothing): the selector excludes it with all[equals(op, reallocate), not(truthy_text(preview))]. Pinned."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14216,
+          "end": 14271,
+          "sha256": "72f16458176740c7f23c15f067f101581badac7a6eafdda39b51333688a0200b"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14467,
+          "end": 14510,
+          "sha256": "226509a28e1f7880f87974e136317ac9eb9ab3a4c811192a7a0560f89d5bbfb0"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14597,
+          "end": 14693,
+          "sha256": "c846670f4d35ccca6738007b3ae867617aceec82f60126947172cdf39e50060a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14745,
+          "end": 14748,
+          "sha256": "682a7b4fbebbb7e705cef5039b03280bb7dd19d437b1fe30dfc4095c79e97893"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4499,
+          "end": 4750,
+          "sha256": "63221b2bb4e204f319365db3d58bf5fa52f3c9676a5fb3b5f645f9265166b29c"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4752,
+          "end": 4884,
+          "sha256": "ad1d8b46c4b9657c577282a81206c6abd83c0405b038476ab770696e4e4afc49"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 6168,
+          "end": 6199,
+          "sha256": "fe96a0a33eeee5405eca38ef0df005e12729b642a91d7d5c76610b4b5cd24588"
+        }
+      ],
+      "open_questions": []
+    },
+    "operator-ops.writes": {
+      "dimension": "writes",
+      "status": "specified",
+      "facts": [
+        "Measured with the committed document read cold. operator.hire writes the new node, a hire event and lifecycle.hired notices (nodes, events, notices, notice_log — the acting user is never the parent, so the parent is always told); `above` re-parents the anchor under the new seat in the same save. operator.reallocate writes the target's grant (and inflated grants up the chain) with its event and grant_changed notices (nodes, events, notices, notice_log). One load/mutate/save under DOC_LOCK; a refusal writes nothing. Pinned."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14585,
+          "end": 14596,
+          "sha256": "c34723e0dd4d036b64883bb013cf49be21444ef6df058fa698d3776da01dfe7a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14597,
+          "end": 14693,
+          "sha256": "c846670f4d35ccca6738007b3ae867617aceec82f60126947172cdf39e50060a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14745,
+          "end": 14748,
+          "sha256": "682a7b4fbebbb7e705cef5039b03280bb7dd19d437b1fe30dfc4095c79e97893"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14797,
+          "end": 14808,
+          "sha256": "a6b9da4a256b1b38f22ca42456c969fa8a2353f76589ef9c50ee42e2177f5102"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4499,
+          "end": 4750,
+          "sha256": "63221b2bb4e204f319365db3d58bf5fa52f3c9676a5fb3b5f645f9265166b29c"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 6944,
+          "end": 7104,
+          "sha256": "c29669354e19e9d77696dfd2ce3a9ce9970e7caea65fe168f4a81d7706af67e6"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 6168,
+          "end": 6199,
+          "sha256": "fe96a0a33eeee5405eca38ef0df005e12729b642a91d7d5c76610b4b5cd24588"
+        }
+      ],
+      "open_questions": []
+    },
+    "operator-ops.receipt": {
+      "dimension": "receipt",
+      "status": "specified",
+      "facts": [
+        "The operator ops door files no operation receipt and takes no op key: a lost response cannot be replayed, and a retried hire creates another seat (pinned: the second seat gets a suffixed id)."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14465,
+          "end": 14582,
+          "sha256": "1867b9de1eaf72536652d371b2f4eed2e48750069cdf6b27b9b907d5e0338a83"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14585,
+          "end": 14596,
+          "sha256": "c34723e0dd4d036b64883bb013cf49be21444ef6df058fa698d3776da01dfe7a"
+        }
+      ],
+      "open_questions": []
+    },
+    "operator-ops.effects": {
+      "dimension": "effects",
+      "status": "specified",
+      "facts": [
+        "Both operations end with one hub_changed and drive nobody: an operator hire has no kickoff (org_op drives only a rehire's waiting mail), and nothing sparks mail_notify. The preview variant broadcasts nothing. Pinned with spies."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14465,
+          "end": 14582,
+          "sha256": "1867b9de1eaf72536652d371b2f4eed2e48750069cdf6b27b9b907d5e0338a83"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14797,
+          "end": 14808,
+          "sha256": "a6b9da4a256b1b38f22ca42456c969fa8a2353f76589ef9c50ee42e2177f5102"
+        }
+      ],
+      "open_questions": []
+    },
+    "operator-ops.reads": {
+      "dimension": "reads",
+      "status": "unresolved",
+      "facts": [
+        "Source read set: the whole org document loaded under DOC_LOCK (load_org, not the resident), the parent chain's free amounts and grants, tier prices and ceilings, the org's scope defaults and the anchor's scope for `above`; the harness choice for an OpenRouter tier is a provider read made before DOC_LOCK (new_hire_harness)."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14465,
+          "end": 14582,
+          "sha256": "1867b9de1eaf72536652d371b2f4eed2e48750069cdf6b27b9b907d5e0338a83"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14585,
+          "end": 14596,
+          "sha256": "c34723e0dd4d036b64883bb013cf49be21444ef6df058fa698d3776da01dfe7a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14597,
+          "end": 14693,
+          "sha256": "c846670f4d35ccca6738007b3ae867617aceec82f60126947172cdf39e50060a"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4499,
+          "end": 4750,
+          "sha256": "63221b2bb4e204f319365db3d58bf5fa52f3c9676a5fb3b5f645f9265166b29c"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4752,
+          "end": 4884,
+          "sha256": "ad1d8b46c4b9657c577282a81206c6abd83c0405b038476ab770696e4e4afc49"
+        }
+      ],
+      "open_questions": [
+        "Record the statement-level read set of operator hire and reallocate, cold and warm.",
+        "Owner: P02. Closes with: observed per-operation contacts for operator hire (top level, under a parent, above) and reallocate (up, down, top level), cold and warm. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to the operator ops door."
+      ]
+    },
+    "operator-ops.conflicts": {
+      "dimension": "conflicts",
+      "status": "unresolved",
+      "facts": [
+        "Each operation is one whole-document write cycle under DOC_LOCK (load_org, mutate, save_org), so it serialises with every other writer; the harness read happens before the lock."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14465,
+          "end": 14582,
+          "sha256": "1867b9de1eaf72536652d371b2f4eed2e48750069cdf6b27b9b907d5e0338a83"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14585,
+          "end": 14596,
+          "sha256": "c34723e0dd4d036b64883bb013cf49be21444ef6df058fa698d3776da01dfe7a"
+        }
+      ],
+      "open_questions": [
+        "Choose the native locking for operator seat creation and grant moves.",
+        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 and P05 (staffing, funding). Closes with: native row-level rules for an operator seat creation and grant move, qualified by an operator hire racing an agent hire on one chain and an operator reallocation racing an agent one. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source decides."
+      ]
+    },
+    "operator-ops.wire": {
+      "dimension": "wire",
+      "status": "unresolved",
+      "facts": [
+        "Result shapes are fixtured in docs/state-system/operator-ops-boundary.json and compared by tests/test_state_operator_ops_boundary.py: hire {node, warnings} plus inserted_above, reports_to, grant, spliced (and scope_from_anchor) for `above`; reallocate {grant, warnings}; the refused preview+hire and the preview reallocate {operation, applied, result, before, …}."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14597,
+          "end": 14693,
+          "sha256": "c846670f4d35ccca6738007b3ae867617aceec82f60126947172cdf39e50060a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14745,
+          "end": 14748,
+          "sha256": "682a7b4fbebbb7e705cef5039b03280bb7dd19d437b1fe30dfc4095c79e97893"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14467,
+          "end": 14510,
+          "sha256": "226509a28e1f7880f87974e136317ac9eb9ab3a4c811192a7a0560f89d5bbfb0"
+        }
+      ],
+      "open_questions": [
+        "Carry the fixtured operator ops shapes to the native/Rust door.",
+        "Owner: the native/Rust conversion, from the P03 prototype onward. Closes with: the fixtured operator shapes passing against the native and Rust builds. Not coverable at P01 from available evidence: no native or Rust build exists to run the fixtures against."
+      ]
+    },
+    "operator-ops.instrumentation": {
+      "dimension": "instrumentation",
+      "status": "unresolved",
+      "facts": [
+        "The access middleware labels the route; nothing identifies the op beyond the body. No P02 per-operation record covers it."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14465,
+          "end": 14582,
+          "sha256": "1867b9de1eaf72536652d371b2f4eed2e48750069cdf6b27b9b907d5e0338a83"
+        }
+      ],
+      "open_questions": [
+        "Extend the P02 per-operation probe to operator hire and reallocate.",
+        "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed, loss-accounted contact record for operator hire and reallocate with agent-level locality (the target, its chain and the new seat's parent and peers only). Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to the operator ops door."
+      ]
     }
   },
   "contracts": {
@@ -8575,6 +8895,131 @@
           "sha256": "c05dda630c5c9b3551574a6b61ab384de8d7c86945b4e73996387244ddd844aa"
         }
       ]
+    },
+    "operator.hire": {
+      "entry_ids": [
+        "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "equals": {
+          "key": "op",
+          "value": "hire"
+        }
+      },
+      "domain_mode": "write",
+      "dimensions": {
+        "authority": [
+          "operator-ops.authority"
+        ],
+        "reads": [
+          "operator-ops.reads"
+        ],
+        "writes": [
+          "operator-ops.writes"
+        ],
+        "predicates": [
+          "operator-ops.predicates"
+        ],
+        "conflicts": [
+          "operator-ops.conflicts"
+        ],
+        "wire": [
+          "operator-ops.wire"
+        ],
+        "receipt": [
+          "operator-ops.receipt"
+        ],
+        "effects": [
+          "operator-ops.effects"
+        ],
+        "instrumentation": [
+          "operator-ops.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14465,
+          "end": 14582,
+          "sha256": "1867b9de1eaf72536652d371b2f4eed2e48750069cdf6b27b9b907d5e0338a83"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14597,
+          "end": 14693,
+          "sha256": "c846670f4d35ccca6738007b3ae867617aceec82f60126947172cdf39e50060a"
+        }
+      ]
+    },
+    "operator.reallocate": {
+      "entry_ids": [
+        "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "all": [
+          {
+            "equals": {
+              "key": "op",
+              "value": "reallocate"
+            }
+          },
+          {
+            "not": {
+              "truthy_text": "preview"
+            }
+          }
+        ]
+      },
+      "domain_mode": "write",
+      "dimensions": {
+        "authority": [
+          "operator-ops.authority"
+        ],
+        "reads": [
+          "operator-ops.reads"
+        ],
+        "writes": [
+          "operator-ops.writes"
+        ],
+        "predicates": [
+          "operator-ops.predicates"
+        ],
+        "conflicts": [
+          "operator-ops.conflicts"
+        ],
+        "wire": [
+          "operator-ops.wire"
+        ],
+        "receipt": [
+          "operator-ops.receipt"
+        ],
+        "effects": [
+          "operator-ops.effects"
+        ],
+        "instrumentation": [
+          "operator-ops.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14465,
+          "end": 14582,
+          "sha256": "1867b9de1eaf72536652d371b2f4eed2e48750069cdf6b27b9b907d5e0338a83"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14745,
+          "end": 14748,
+          "sha256": "682a7b4fbebbb7e705cef5039b03280bb7dd19d437b1fe30dfc4095c79e97893"
+        }
+      ]
     }
   },
   "wire_cases": [
@@ -9142,6 +9587,28 @@
         "grant": 0
       },
       "contract": "staffing.staff-update",
+      "domain_mode": "write"
+    },
+    {
+      "name": "operator.hire",
+      "entry_id": "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5",
+      "args": {
+        "op": "hire",
+        "tier": "haiku",
+        "name": "fixture"
+      },
+      "contract": "operator.hire",
+      "domain_mode": "write"
+    },
+    {
+      "name": "operator.reallocate",
+      "entry_id": "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5",
+      "args": {
+        "op": "reallocate",
+        "node": "fixture",
+        "delta": 1
+      },
+      "contract": "operator.reallocate",
       "domain_mode": "write"
     }
   ],
@@ -10329,7 +10796,7 @@
       "id": "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Operator ops route: `op` hire and reallocate are contracted (operator.hire, operator.reallocate, S3 candidate 6b); rename, retire, rescind, cheap_compact, rehire, dissolve, delete, switch_model, promote, demote, move, reseed, revoke_dir and every preview are uncontracted, so the route stays pending.",
       "source_refs": []
     },
     {
@@ -12722,10 +13189,19 @@
     },
     {
       "id": "7f54e43038e80f8401b044a8e294e3222be3bc9416072a0218851a1921db075d",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "operator.hire"
+      ],
+      "reason": "org_op's pre-lock hire branch (the harness choice). (S3 candidate 6b)",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14545,
+          "end": 14554,
+          "sha256": "5514130a0bb59a75f11e5bb6cbc3dc05b756f3a95d0910388bf7efef1d314a61"
+        }
+      ]
     },
     {
       "id": "4fc178c11e8a669e97e92330464d73f73dc50a4e275706c6fd9ecfc76446ccf5",
@@ -12736,10 +13212,19 @@
     },
     {
       "id": "5f1a8bab50cdb912618e380361f4d5876fe7e3201542c07abe7538380873eb0a",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "operator.hire"
+      ],
+      "reason": "_org_op_locked's hire branch. (S3 candidate 6b)",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14597,
+          "end": 14693,
+          "sha256": "c846670f4d35ccca6738007b3ae867617aceec82f60126947172cdf39e50060a"
+        }
+      ]
     },
     {
       "id": "3bd5ecdfa6b95a5da9dadcceb21809f108ad0368f0234cf325c1f088f88d428b",
@@ -12785,10 +13270,19 @@
     },
     {
       "id": "2ff7dc9311b4d03896f17c7589ec37facb16e4e8c739008b65eb535b50a70483",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "operator.reallocate"
+      ],
+      "reason": "_org_op_locked's reallocate branch (never reached with preview). (S3 candidate 6b)",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14745,
+          "end": 14748,
+          "sha256": "682a7b4fbebbb7e705cef5039b03280bb7dd19d437b1fe30dfc4095c79e97893"
+        }
+      ]
     },
     {
       "id": "682c530f50b1896dc75327c4b117b774d08ea2a9fe88109529222c29a3f163ad",

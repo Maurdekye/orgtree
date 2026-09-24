@@ -58,7 +58,11 @@ backend module set. Source witness IDs for dispatch/storage are SHA256 of
 canonical JSON [group, inventory_row]; registration entries retain the
 inventory's site_id. They identify source evidence, not runtime operation IDs.
 
-The small condition language supports always, not, non_null_any and truthy_text.
+The small condition language supports always, not, non_null_any, truthy_text,
+equals (exact equality of one named argument with one text value) and all (a
+conjunction of at least two conditions, every part evaluated). equals and all
+were added for the operator ops door, which dispatches on `op` and treats
+`preview` as a separate read (S3 decision 7).
 It never evaluates code. Action normalization is explicit contract data:
 identity, str_or_empty, or str_or_empty_strip_lower. A null action means no
 action restriction. Other entry families may need additional reviewed selector
@@ -115,9 +119,9 @@ runtime probes remain unresolved. Material reads add two cards and two selectors
 diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
-Current totals are 33 contracts, 23 mapped registrations and 43 mapped
-dispatch witnesses. **611 obligations remain**: 296 registrations, 184 dispatch
-witnesses, 15 storage candidates and 116 unresolved dimension occurrences.
+Current totals are 35 contracts, 23 mapped registrations and 46 mapped
+dispatch witnesses. **616 obligations remain**: 296 registrations, 181 dispatch
+witnesses, 15 storage candidates and 124 unresolved dimension occurrences.
 How it got there: 600 was two more registrations than the preceding 598 because the scanner now
 recognizes `asyncio.to_thread` hand-offs; both new witnesses are pending and no
 existing witness identity, disposition or contract changed.
@@ -196,6 +200,11 @@ pending (+2, S3 decision 5), because the uncontracted inbox batch submit
 (`Org.resolve_batch`) reaches them too. The three `_staff_call` action branches
 stay pending for the same reason: the uncontracted quick-staff route calls
 `_staff_call` as the user.
+616 is five more than that 611 (S3 candidate 6b): three witnesses are mapped (-3) —
+`org_op`'s hire harness branch and `_org_op_locked`'s hire and reallocate branches —
+to `operator.hire` and `operator.reallocate`, whose four unresolved shared
+`operator-ops` facets add eight occurrences (+8). The ops route entry itself stays
+pending: its other operations are uncontracted.
 See "P03-prototype surface" below.
 
 Of the 53 open dimension occurrences on the sixteen legacy-family contracts, 37 (17 facets) cannot be closed at P01
@@ -414,6 +423,21 @@ later refusal leaves it renamed; and an inserted superior's seat is paid out of 
 anchor's own grant. The operator `org_op` hire and reallocate branches switch on
 `op`, which the selector DSL cannot express either; they follow in their own
 candidate.
+
+Candidate 6b (F3b, operator ops) adds `operator.hire` and `operator.reallocate` on
+POST `/api/orgs/{slug}/ops`, sharing one set of `operator-ops` facets, and the two
+selector operators they need (S3 decision 7): `equals`, because the route
+dispatches on `op`, and `all`, because `preview: true` turns a reallocate into a
+separate read-only simulation that the write contract must not claim. Hire selects
+on `op` alone, and its preview is a refusal the contract states. Specified from
+source and pinned by `tests/test_state_operator_ops_boundary.py` against
+`operator-ops-boundary.json`, with the provider gate patched off: authority (the
+desktop token gate, the user as default actor, an agent named as actor gets that
+agent's rules), predicates (required fields, user defaults and lenient clamps, the
+anchor's scope for `above`, delta required and rounded up), writes, receipt (none:
+a retried hire seats a second agent) and effects (one broadcast, no drive).
+Unresolved with an owner: reads and instrumentation (P02), conflicts (native
+design) and wire (native/Rust).
 
 ## Deliberate failing controls
 

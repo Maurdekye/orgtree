@@ -87,6 +87,21 @@ def condition_matches(condition, args):
             raise ValueError("truthy_text requires a key")
         # Exact reservation selector semantics, not a generic wire validator.
         return bool(str(args.get(key) or "").strip())
+    if "equals" in condition:
+        # Exact equality of ONE named argument with one text value, as a string
+        # field compares it (the operator ops door dispatches on `op`, S3 decision 7).
+        spec = condition["equals"]
+        if not isinstance(spec, dict) or set(spec) != {"key", "value"} \
+                or not isinstance(spec["key"], str) or not spec["key"] or not isinstance(spec["value"], str):
+            raise ValueError("equals requires {key, value}: a nonblank key and a text value")
+        return args.get(spec["key"]) == spec["value"]
+    if "all" in condition:
+        parts = condition["all"]
+        if not isinstance(parts, list) or len(parts) < 2:
+            raise ValueError("all requires a list of at least two conditions")
+        # every part is evaluated, never short-circuited, so a malformed later
+        # part cannot hide behind an earlier false one
+        return all([condition_matches(part, args) for part in parts])
     raise ValueError("unknown condition operator")
 
 

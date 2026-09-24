@@ -1,0 +1,58 @@
+{
+  "schema": "orgtree.operator-ops-boundary/v1",
+  "source_contract_sha256": "1897aa6338625007723882dbc030f1b25eab8c4c148b707a5cd59849505bacc6",
+  "qualification": {
+    "runtime_census": false,
+    "conversion_authorized": false
+  },
+  "contracts": {
+    "operator.hire": "POST /api/orgs/{slug}/ops op=hire",
+    "operator.reallocate": "POST /api/orgs/{slug}/ops op=reallocate (not preview)"
+  },
+  "results": {
+    "hire": [
+      "node",
+      "warnings"
+    ],
+    "hire_above": [
+      "grant",
+      "inserted_above",
+      "node",
+      "reports_to",
+      "scope_from_anchor",
+      "spliced",
+      "warnings"
+    ],
+    "reallocate": [
+      "grant",
+      "warnings"
+    ],
+    "preview": [
+      "after",
+      "applied",
+      "before",
+      "changes",
+      "operation",
+      "result"
+    ]
+  },
+  "sections": {
+    "hire": [
+      "events",
+      "nodes",
+      "notice_log",
+      "notices"
+    ],
+    "reallocate": [
+      "events",
+      "nodes",
+      "notice_log",
+      "notices"
+    ]
+  },
+  "legacy_defects": [
+    "the operator ops door takes no operation key, so a retried hire seats a second agent under a suffixed id",
+    "a fractional operator reallocation delta rounds the resulting grant up to a whole credit"
+  ],
+  "scope": "Legacy boundary of the operator ops door's hire and reallocate on disposable SQLite: authority, predicates, committed sections and callbacks at their boundary. The provider gate is patched off (machine state); kiosk visitors are not exercised. Nothing native, contact-level or concurrent is qualified."
+}

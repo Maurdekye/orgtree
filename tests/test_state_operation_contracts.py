@@ -42,10 +42,10 @@ class ContractCoverage(unittest.TestCase):
         self.assertGreater(result["summary"]["storage"]["pending"], 0)
         # THE one registry-wide tripwire (review of S3 candidate 1): every candidate
         # that maps a witness or adds a contract moves these numbers here, and only here.
-        self.assertEqual(result["contracts"], 33)
+        self.assertEqual(result["contracts"], 35)
         self.assertEqual((result["summary"]["entries"]["mapped"], result["summary"]["dispatch"]["mapped"],
-                          result["summary"]["storage"]["mapped"]), (23, 43, 0))
-        self.assertEqual(len(result["pending"]), 611)
+                          result["summary"]["storage"]["mapped"]), (23, 46, 0))
+        self.assertEqual(len(result["pending"]), 616)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
@@ -261,6 +261,36 @@ class ContractCoverage(unittest.TestCase):
         def edit(d):
             d["wire_cases"] = [r for r in d["wire_cases"] if r["entry_id"] != alias]
         self.rejects(edit, "contract/entry pairs missing")
+
+    def test_equals_and_all_select_exactly(self):
+        # S3 decision 7: exact equality of one named argument, and a conjunction
+        eq = {"equals": {"key": "op", "value": "hire"}}
+        self.assertTrue(contracts.condition_matches(eq, {"op": "hire"}))
+        for args in ({}, {"op": "Hire"}, {"op": " hire"}, {"op": None}, {"other": "hire"}):
+            with self.subTest(args=args):
+                self.assertFalse(contracts.condition_matches(eq, args))
+        both = {"all": [{"equals": {"key": "op", "value": "reallocate"}},
+                        {"not": {"truthy_text": "preview"}}]}
+        self.assertTrue(contracts.condition_matches(both, {"op": "reallocate"}))
+        self.assertTrue(contracts.condition_matches(both, {"op": "reallocate", "preview": False}))
+        self.assertFalse(contracts.condition_matches(both, {"op": "reallocate", "preview": True}))
+        self.assertFalse(contracts.condition_matches(both, {"op": "hire"}))
+
+    def test_malformed_equals_and_all_refuse(self):
+        for bad in ({"equals": {"key": "op"}}, {"equals": {"key": "", "value": "x"}},
+                    {"equals": {"key": "op", "value": 1}}, {"equals": {"key": "op", "value": "x", "extra": 1}},
+                    {"equals": "op=hire"}, {"all": []}, {"all": [{"always": True}]}, {"all": {"always": True}},
+                    # a malformed LATER part refuses even behind a false first part
+                    {"all": [{"equals": {"key": "op", "value": "x"}}, {"eval": "1"}]}):
+            with self.subTest(condition=bad):
+                with self.assertRaises(ValueError):
+                    contracts.condition_matches(bad, {})
+
+    def test_malformed_equals_in_the_registry_refuses(self):
+        self.rejects(lambda d: d["contracts"]["reservation.acquire"].update(when={"equals": {"key": "op"}}),
+                     "equals requires")
+        self.rejects(lambda d: d["contracts"]["reservation.acquire"].update(when={"all": [{"always": True}]}),
+                     "all requires")
 
     def test_conditions_are_data_not_python_code(self):
         self.rejects(lambda d: d["contracts"]["reservation.acquire"].update(when={"eval": "raise SystemExit"}),
