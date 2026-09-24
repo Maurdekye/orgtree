@@ -764,10 +764,14 @@ class ContactFacets(unittest.TestCase):
         # the widened set: every live top-level seat for a top-level hire; the anchor's reports for an above-hire;
         # a raise writes the ancestors its shortfall reaches (here up to the grandparent, not the top-level seat,
         # which is still in the set); a reduction writes only the target
-        top = self.exact("operator.hire", "operator.hire", "warm")["agents"]["logical"]["notices"]
-        self.assertEqual(set(top), {"oh-top-cold", "op-top", "op-top2"})
-        above = self.exact("operator.hire", "operator.hire:above", "cold")["agents"]["logical"]["notices"]
-        self.assertLessEqual({"op-mid", "op-kid", "oh-under-cold", "op-top", "op-sib"}, set(above))
+        def notices(variant, condition="cold"):
+            return set(self.exact("operator.hire", variant, condition)["agents"]["logical"]["notices"])
+        # exactly: the parent (report) and its other live children (peer); an above-hire also tells the anchor,
+        # the anchor's reports and the new seat itself
+        self.assertEqual(notices("operator.hire", "warm"), {"oh-top-cold", "op-top", "op-top2"})
+        self.assertEqual(notices("operator.hire:under"), {"op-mid", "op-kid"})
+        self.assertEqual(notices("operator.hire:above"),
+                         {"oh-above-cold", "op-top", "op-sib", "op-mid", "op-kid", "oh-under-cold"})
         for condition in ("cold", "warm"):
             up = self.exact("operator.reallocate", "operator.reallocate", condition)["agents"]
             self.assertEqual(set(up["physical_written"]), {"op-mid", "oh-above-warm", "oh-above-cold"})
@@ -821,9 +825,13 @@ class ContactFacets(unittest.TestCase):
                     self.assertEqual(r["wakes"], {"send_message": 1, "mail_notify": sparks})
         for variant in ("quick-staff.options", "quick-staff.preview"):
             self.assertEqual(self.read(self.qs_row(variant, "cold")), self.FULL)
-        # the widened set: an immediate commit also tells the new seat's parent and live peers
-        self.assertIn("qs-kid", self.qs_row("quick-staff.select:under-assignee", "cold")["agents"]["logical"]["notices"])
-        self.assertIn("qs-other", self.qs_row("quick-staff.select:top-level", "cold")["agents"]["logical"]["notices"])
+        # the widened set, exactly: an immediate commit also tells the new seat's parent and live peers (under the
+        # assignee its other report; at the top level every live top-level seat); a request commit tells nobody
+        def notices(variant):
+            return set(self.qs_row(variant, "cold")["agents"]["logical"].get("notices", {}))
+        self.assertEqual(notices("quick-staff.select"), set())
+        self.assertEqual(notices("quick-staff.select:under-assignee"), {"qs-mgr", "qs-kid", "qs-under-cold"})
+        self.assertEqual(notices("quick-staff.select:top-level"), {"qs-mgr", "qs-other", "qs-top-cold"})
         control = self.qs_row("control:quick-staff-third-agent", "warm")["agents"]
         self.assertEqual(control["logical"]["mail"], {"qs-kid": "third", "qs-mgr": "target"})
 
