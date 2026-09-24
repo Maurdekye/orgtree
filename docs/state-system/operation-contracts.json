@@ -5877,6 +5877,341 @@
         "Extend the P02 per-operation probe to the inbox routes.",
         "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed, loss-accounted contact record for the three inbox routes. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to these routes."
       ]
+    },
+    "funding.authority": {
+      "dimension": "authority",
+      "status": "specified",
+      "facts": [
+        "orgtree_request_credits and orgtree_reallocate come through the agent door (401/403, halt and killswitch 409, as for every agent tool); the decision route is an operator route behind the desktop TokenGate (engine/launch.py, outside the pinned set), so an agent credential is refused 401 there (pinned). ",
+        "credits.request: only a top-level agent, or a holder of a user audience, may ask the user for credits; others are refused 422 'only top-level agents (or holders of a user audience) may ask the user for credits directly …'. A headless org refuses every request. Pinned for a deep agent.",
+        "credits.reallocate: the caller needs downward authority over the target (Org._require_authority: a strict ancestor), so reallocating oneself or one's superior is refused 422 '<actor> has no authority over <node> — authority is downward only (§7.1)'; the target must be live. A positive delta is drawn up the parent chain (_chain_acquire, cascading when cascade_alloc is on); a top-level target is bounded by the top-level grant cap. Pinned.",
+        "credits.decide: the operator decides as the user; any pending request of the org can be approved, counter-offered (any legal amount, including a reduction down to the committed floor) or denied."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12053,
+          "end": 12055,
+          "sha256": "bd4e2e9ce17f17063ca3649ca9865e463aa1ce822aca6f7a9e3c4fb34d695a09"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12617,
+          "end": 12618,
+          "sha256": "6124bbec8a4deec324951938ee97fc395f653cad6d886bae1b188b7c9164bdb8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6137,
+          "end": 6192,
+          "sha256": "9ac93cd5057a651f855c093dc5f278161e0ce71ec2d3eb4271173e99576813b2"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 8074,
+          "end": 8135,
+          "sha256": "c71cc2898f1349a89163c267ec315e54f7b183208bb479f4c251cb08e2033df4"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 6168,
+          "end": 6199,
+          "sha256": "fe96a0a33eeee5405eca38ef0df005e12729b642a91d7d5c76610b4b5cd24588"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 9615,
+          "end": 9677,
+          "sha256": "b41348a749ab6627367487d032de5632be5e8f804ab5575cd8cbd08d228ed27f"
+        }
+      ],
+      "open_questions": []
+    },
+    "funding.predicates": {
+      "dimension": "predicates",
+      "status": "specified",
+      "facts": [
+        "credits.request: new_limit is the requested TOTAL, parsed as a number and rounded up to a whole credit ('new_limit must be a number …' otherwise); a limit at or below the current grant withdraws a pending request (or reports nothing to request) without error; a reason is required; zero headroom refuses outright; a second request AMENDS the pending one (rev + 1) rather than adding another. Request ids are 'cr' plus the count of stored requests plus one. Pinned.",
+        "credits.reallocate: delta is parsed with _arg_num ('delta must be a number (got …)' otherwise); the resulting grant is rounded UP to a whole credit, so a fractional delta can move a whole credit (+0.3 on 7 gives 8); a negative delta cannot exceed the target's unused credits ('<node> has only N unused; the rest is committed'); a zero delta is accepted as a no-op. Pinned.",
+        "credits.decide: only a pending request is decidable ('no pending credit request …' otherwise, including a second decision); action must be approve or deny; approving a request whose agent is no longer live marks it moot and changes no grant; dry=true previews a granted amount without writing and needs granted. Pinned."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12053,
+          "end": 12055,
+          "sha256": "bd4e2e9ce17f17063ca3649ca9865e463aa1ce822aca6f7a9e3c4fb34d695a09"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12617,
+          "end": 12618,
+          "sha256": "6124bbec8a4deec324951938ee97fc395f653cad6d886bae1b188b7c9164bdb8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6137,
+          "end": 6192,
+          "sha256": "9ac93cd5057a651f855c093dc5f278161e0ce71ec2d3eb4271173e99576813b2"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 8074,
+          "end": 8135,
+          "sha256": "c71cc2898f1349a89163c267ec315e54f7b183208bb479f4c251cb08e2033df4"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 6168,
+          "end": 6199,
+          "sha256": "fe96a0a33eeee5405eca38ef0df005e12729b642a91d7d5c76610b4b5cd24588"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 9615,
+          "end": 9677,
+          "sha256": "b41348a749ab6627367487d032de5632be5e8f804ab5575cd8cbd08d228ed27f"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 9683,
+          "end": 9714,
+          "sha256": "bedfc1f4bb6de6ba3a216f8d0a61e765ccb449dbb962e62ce86b3b53c79ce1d2"
+        }
+      ],
+      "open_questions": []
+    },
+    "funding.writes": {
+      "dimension": "writes",
+      "status": "specified",
+      "facts": [
+        "Measured with the committed document read cold. credits.request: credit_requests and one event (a new or amended request, or a withdrawal); a no-op answer writes nothing. credits.reallocate: the target's grant (nodes), grant_changed notices to the target and its parent (notices, notice_log), and a 'reallocate' event; a zero delta writes only the event. credits.decide: the request row (status, granted, notice, answer_mail) and events, plus for approve/counter the grant change and its notices, plus the decision mail to the agent (mail, mail_log, lifecycle, the agent's mail_seq, and a user_outbox copy); a moot approve writes only the request row and an event. Refusals write nothing. A keyed agent call adds op_receipts and op_receipts_meta in the same save. Pinned."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11828,
+          "end": 11845,
+          "sha256": "6f5efe7bb30fdd0330659bb4f6e7277ba1bfc99a0e1a9da1011db2ec15a72cda"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6137,
+          "end": 6192,
+          "sha256": "9ac93cd5057a651f855c093dc5f278161e0ce71ec2d3eb4271173e99576813b2"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 8074,
+          "end": 8135,
+          "sha256": "c71cc2898f1349a89163c267ec315e54f7b183208bb479f4c251cb08e2033df4"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 6168,
+          "end": 6199,
+          "sha256": "fe96a0a33eeee5405eca38ef0df005e12729b642a91d7d5c76610b4b5cd24588"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 9615,
+          "end": 9677,
+          "sha256": "b41348a749ab6627367487d032de5632be5e8f804ab5575cd8cbd08d228ed27f"
+        }
+      ],
+      "open_questions": []
+    },
+    "funding.receipt": {
+      "dimension": "receipt",
+      "status": "specified",
+      "facts": [
+        "orgtree_request_credits is TX_POST and orgtree_reallocate TX: a keyed call files an applied receipt in the same save and a replay returns the replay envelope with no second change. The retained result keys do not match the results: request_credits retains (id, routed, deferred), which its result never carries, so its receipt keeps NOTHING of the request (recorded legacy defect); reallocate retains (node, delta, grant) and keeps only grant. The decision route has no operation receipt. Pinned."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11828,
+          "end": 11845,
+          "sha256": "6f5efe7bb30fdd0330659bb4f6e7277ba1bfc99a0e1a9da1011db2ec15a72cda"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 197,
+          "end": 212,
+          "sha256": "bf652512a18b6cc27ad50766f9ca2c346df7039bf1812ff10deb7ee861adbf5a"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 308,
+          "end": 320,
+          "sha256": "645c6cba5ea5e83f9e5c547e17c0d2220584c7ee444641ea1e00607c0742b313"
+        }
+      ],
+      "open_questions": []
+    },
+    "funding.effects": {
+      "dimension": "effects",
+      "status": "specified",
+      "facts": [
+        "The two agent tools ping nobody and spark nothing; like every accepted agent call they end with hub_changed. A decision that produces a notice posts it as user mail to a live agent, then sparks mail_notify(org, @user, agent) and pings the agent once (supervisor.send_message, mail_ping, ping_reason 'credit_decision'); a moot decision sends nothing. The decision route always ends with hub_changed. Pinned with spies."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12053,
+          "end": 12055,
+          "sha256": "bd4e2e9ce17f17063ca3649ca9865e463aa1ce822aca6f7a9e3c4fb34d695a09"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12617,
+          "end": 12618,
+          "sha256": "6124bbec8a4deec324951938ee97fc395f653cad6d886bae1b188b7c9164bdb8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6137,
+          "end": 6192,
+          "sha256": "9ac93cd5057a651f855c093dc5f278161e0ce71ec2d3eb4271173e99576813b2"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12969,
+          "end": 12974,
+          "sha256": "fa90ac931f78a9daa11eb3026e2d4ce40f043d4f9c4938aa04bef02469e5caba"
+        }
+      ],
+      "open_questions": []
+    },
+    "funding.reads": {
+      "dimension": "reads",
+      "status": "unresolved",
+      "facts": [
+        "Source read set: the caller and target nodes, the parent chain up to the root for a positive delta (_chain_acquire, free amounts and child grants), tier prices, the org's credit caps and headless flag, and the credit_requests list; the decision route loads the whole org under DOC_LOCK (load_org, not the resident)."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 8074,
+          "end": 8135,
+          "sha256": "c71cc2898f1349a89163c267ec315e54f7b183208bb479f4c251cb08e2033df4"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 6168,
+          "end": 6199,
+          "sha256": "fe96a0a33eeee5405eca38ef0df005e12729b642a91d7d5c76610b4b5cd24588"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 9615,
+          "end": 9677,
+          "sha256": "b41348a749ab6627367487d032de5632be5e8f804ab5575cd8cbd08d228ed27f"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6137,
+          "end": 6192,
+          "sha256": "9ac93cd5057a651f855c093dc5f278161e0ce71ec2d3eb4271173e99576813b2"
+        }
+      ],
+      "open_questions": [
+        "Record the statement-level read set of each funding outcome, cold and warm.",
+        "Owner: P02. Closes with: observed per-operation contacts for the three funding operations (request new/amend/withdraw, reallocate up/down/deep, decide approve/counter/deny/moot/dry), cold and warm. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to the funding operations."
+      ]
+    },
+    "funding.conflicts": {
+      "dimension": "conflicts",
+      "status": "unresolved",
+      "facts": [
+        "Each operation runs in one document write cycle under DOC_LOCK (the decision route takes DOC_LOCK itself around load_org and save_org); grants, the parent chain's free amounts and credit_requests are org-document state, so every funding change serialises with every other writer."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11828,
+          "end": 11845,
+          "sha256": "6f5efe7bb30fdd0330659bb4f6e7277ba1bfc99a0e1a9da1011db2ec15a72cda"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6137,
+          "end": 6192,
+          "sha256": "9ac93cd5057a651f855c093dc5f278161e0ce71ec2d3eb4271173e99576813b2"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 6168,
+          "end": 6199,
+          "sha256": "fe96a0a33eeee5405eca38ef0df005e12729b642a91d7d5c76610b4b5cd24588"
+        }
+      ],
+      "open_questions": [
+        "Choose the native balance-row locking and conservation checks for request, reallocate and decide.",
+        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 and P05 (funding). Closes with: the v6 credit grant/spend rule (lock the actual issuer/child balance rows in canonical order, exact arithmetic and conservation, no org-wide credit counter) qualified by the last-credit race, deep bubbling and a concurrent decision. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source decides."
+      ]
+    },
+    "funding.wire": {
+      "dimension": "wire",
+      "status": "unresolved",
+      "facts": [
+        "Result shapes are fixtured in docs/state-system/funding-boundary.json and compared by tests/test_state_funding_boundary.py: request {requested, increase, status} (or {status} for a no-op or withdrawal); reallocate {grant, warnings}; decide returns the request row without its ev (status answered/denied/moot, granted, notice, warnings when approved); dry run {ok, warnings}."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12053,
+          "end": 12055,
+          "sha256": "bd4e2e9ce17f17063ca3649ca9865e463aa1ce822aca6f7a9e3c4fb34d695a09"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12617,
+          "end": 12618,
+          "sha256": "6124bbec8a4deec324951938ee97fc395f653cad6d886bae1b188b7c9164bdb8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6137,
+          "end": 6192,
+          "sha256": "9ac93cd5057a651f855c093dc5f278161e0ce71ec2d3eb4271173e99576813b2"
+        }
+      ],
+      "open_questions": [
+        "Carry the fixtured funding shapes and rounding rules to the native/Rust door.",
+        "Owner: the native/Rust conversion, from the P03 prototype onward. Closes with: the fixtured funding shapes passing against the native and Rust builds, with the rounding rules and the empty request receipt reproduced deliberately or replaced. Not coverable at P01 from available evidence: no native or Rust build exists to run the fixtures against."
+      ]
+    },
+    "funding.instrumentation": {
+      "dimension": "instrumentation",
+      "status": "unresolved",
+      "facts": [
+        "The agent door labels and classifies the two tools; the decision route is labelled by the access middleware. No P02 per-operation record covers them."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12053,
+          "end": 12055,
+          "sha256": "bd4e2e9ce17f17063ca3649ca9865e463aa1ce822aca6f7a9e3c4fb34d695a09"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12617,
+          "end": 12618,
+          "sha256": "6124bbec8a4deec324951938ee97fc395f653cad6d886bae1b188b7c9164bdb8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6137,
+          "end": 6192,
+          "sha256": "9ac93cd5057a651f855c093dc5f278161e0ce71ec2d3eb4271173e99576813b2"
+        }
+      ],
+      "open_questions": [
+        "Extend the P02 per-operation probe to the funding operations with an agent-level locality control.",
+        "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed, loss-accounted contact record for the three funding operations with agent-level locality (the caller, the target and its chain only). Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to the funding operations."
+      ]
     }
   },
   "contracts": {
@@ -7469,6 +7804,169 @@
           "sha256": "2dd7f7830f4b88630c5318c3d31a36f7eab4c80028c636787d514c34c24a8e28"
         }
       ]
+    },
+    "credits.request": {
+      "entry_ids": [
+        "874075909d0f79e32921d46b2abd52c30c7076194d4c6fc443b57c0af364b97d"
+      ],
+      "tools": [
+        "orgtree_request_credits"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "domain_mode": "conditional_write",
+      "dimensions": {
+        "authority": [
+          "funding.authority"
+        ],
+        "reads": [
+          "funding.reads"
+        ],
+        "writes": [
+          "funding.writes"
+        ],
+        "predicates": [
+          "funding.predicates"
+        ],
+        "conflicts": [
+          "funding.conflicts"
+        ],
+        "wire": [
+          "funding.wire"
+        ],
+        "receipt": [
+          "funding.receipt"
+        ],
+        "effects": [
+          "funding.effects"
+        ],
+        "instrumentation": [
+          "funding.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 958,
+          "end": 979,
+          "sha256": "40399f936aaa5af2e6d99411103b3904714c43637e57017dd6b5e030c09c4859"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12053,
+          "end": 12055,
+          "sha256": "bd4e2e9ce17f17063ca3649ca9865e463aa1ce822aca6f7a9e3c4fb34d695a09"
+        }
+      ]
+    },
+    "credits.reallocate": {
+      "entry_ids": [
+        "18cf453dedf74bfbbc129e8436f08498ec4ac5e09a4e16bdbb68a44d8b55961c"
+      ],
+      "tools": [
+        "orgtree_reallocate"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "domain_mode": "write",
+      "dimensions": {
+        "authority": [
+          "funding.authority"
+        ],
+        "reads": [
+          "funding.reads"
+        ],
+        "writes": [
+          "funding.writes"
+        ],
+        "predicates": [
+          "funding.predicates"
+        ],
+        "conflicts": [
+          "funding.conflicts"
+        ],
+        "wire": [
+          "funding.wire"
+        ],
+        "receipt": [
+          "funding.receipt"
+        ],
+        "effects": [
+          "funding.effects"
+        ],
+        "instrumentation": [
+          "funding.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1837,
+          "end": 1844,
+          "sha256": "9b1ad586486b7b8994a2f8a86c59c15d44f4fd11f093249759fb31756857a0eb"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12617,
+          "end": 12618,
+          "sha256": "6124bbec8a4deec324951938ee97fc395f653cad6d886bae1b188b7c9164bdb8"
+        }
+      ]
+    },
+    "credits.decide": {
+      "entry_ids": [
+        "a1dca24432d9b810d711a3afc1c2bbde140876c0f16b6286bc8012207b20e7ed"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "domain_mode": "conditional_write",
+      "dimensions": {
+        "authority": [
+          "funding.authority"
+        ],
+        "reads": [
+          "funding.reads"
+        ],
+        "writes": [
+          "funding.writes"
+        ],
+        "predicates": [
+          "funding.predicates"
+        ],
+        "conflicts": [
+          "funding.conflicts"
+        ],
+        "wire": [
+          "funding.wire"
+        ],
+        "receipt": [
+          "funding.receipt"
+        ],
+        "effects": [
+          "funding.effects"
+        ],
+        "instrumentation": [
+          "funding.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6137,
+          "end": 6192,
+          "sha256": "9ac93cd5057a651f855c093dc5f278161e0ce71ec2d3eb4271173e99576813b2"
+        }
+      ]
     }
   },
   "wire_cases": [
@@ -7971,6 +8469,33 @@
       "args": {},
       "contract": "mail.node-inbox",
       "domain_mode": "read"
+    },
+    {
+      "name": "credits.request",
+      "entry_id": "874075909d0f79e32921d46b2abd52c30c7076194d4c6fc443b57c0af364b97d",
+      "args": {
+        "new_limit": 30,
+        "reason": "fixture"
+      },
+      "contract": "credits.request",
+      "domain_mode": "conditional_write"
+    },
+    {
+      "name": "credits.reallocate",
+      "entry_id": "18cf453dedf74bfbbc129e8436f08498ec4ac5e09a4e16bdbb68a44d8b55961c",
+      "args": {
+        "node": "mid",
+        "delta": 1
+      },
+      "contract": "credits.reallocate",
+      "domain_mode": "write"
+    },
+    {
+      "name": "credits.decide",
+      "entry_id": "a1dca24432d9b810d711a3afc1c2bbde140876c0f16b6286bc8012207b20e7ed",
+      "args": {},
+      "contract": "credits.decide",
+      "domain_mode": "conditional_write"
     }
   ],
   "limits": [
@@ -8657,10 +9182,19 @@
     },
     {
       "id": "a1dca24432d9b810d711a3afc1c2bbde140876c0f16b6286bc8012207b20e7ed",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "credits.decide"
+      ],
+      "reason": "POST /api/orgs/{slug}/credit-requests: the user's credit decision (S3 F3).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6137,
+          "end": 6192,
+          "sha256": "9ac93cd5057a651f855c093dc5f278161e0ce71ec2d3eb4271173e99576813b2"
+        }
+      ]
     },
     {
       "id": "7bf986a1c7352a126a73e18480353a9d514bbbb491ca08805330f77a9d00d86a",
@@ -9677,10 +10211,19 @@
     },
     {
       "id": "874075909d0f79e32921d46b2abd52c30c7076194d4c6fc443b57c0af364b97d",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "credits.request"
+      ],
+      "reason": "The orgtree_request_credits card (S3 F3).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 958,
+          "end": 979,
+          "sha256": "40399f936aaa5af2e6d99411103b3904714c43637e57017dd6b5e030c09c4859"
+        }
+      ]
     },
     {
       "id": "e84b4b2469255eadf6da2112a8f46ba909b591f3a321fad9f3993478bce9340d",
@@ -9881,10 +10424,19 @@
     },
     {
       "id": "18cf453dedf74bfbbc129e8436f08498ec4ac5e09a4e16bdbb68a44d8b55961c",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "credits.reallocate"
+      ],
+      "reason": "The orgtree_reallocate card (S3 F3).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1837,
+          "end": 1844,
+          "sha256": "9b1ad586486b7b8994a2f8a86c59c15d44f4fd11f093249759fb31756857a0eb"
+        }
+      ]
     },
     {
       "id": "23c1910cb4fd4f63f4b859a77d4f3ffdd14eca4969fd7f32cf7aa7fcec9ec8be",
@@ -11040,10 +11592,19 @@
     },
     {
       "id": "80beb4053e54331ba950f841378685d020c21a0ad8551db3059d5424585815de",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "credits.request"
+      ],
+      "reason": "Exact orgtree_request_credits branch in the agent write cycle.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12053,
+          "end": 12055,
+          "sha256": "bd4e2e9ce17f17063ca3649ca9865e463aa1ce822aca6f7a9e3c4fb34d695a09"
+        }
+      ]
     },
     {
       "id": "9f616d574e3d3f1e9f13ea03a6107e55aa3494c2385c71dca143efeaaf9ffdff",
@@ -11325,10 +11886,19 @@
     },
     {
       "id": "f799f0ddf2995a7449107cf928518e46788c5f65c1956a53bb11602dba8eede7",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "credits.reallocate"
+      ],
+      "reason": "Exact orgtree_reallocate branch in the agent write cycle.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12617,
+          "end": 12618,
+          "sha256": "6124bbec8a4deec324951938ee97fc395f653cad6d886bae1b188b7c9164bdb8"
+        }
+      ]
     },
     {
       "id": "5e7aa359995706871993600d83408f923a15b360714fa37165e0ee4fee249ee5",
@@ -11712,17 +12282,35 @@
     },
     {
       "id": "b62b2f4544ee420c67682f4c15fa65b6d5fe249dc68782ad145f6305d5dfb99a",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "credits.decide"
+      ],
+      "reason": "credit_request_action's action check (approve|deny), reached only from the decision route.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 9615,
+          "end": 9677,
+          "sha256": "b41348a749ab6627367487d032de5632be5e8f804ab5575cd8cbd08d228ed27f"
+        }
+      ]
     },
     {
       "id": "c590e76e7e2d20205c8ddb783eaad204ce29bacca1fd2b1f987e0740ad819537",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "credits.decide"
+      ],
+      "reason": "credit_request_action's approve branch, reached only from the decision route.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 9615,
+          "end": 9677,
+          "sha256": "b41348a749ab6627367487d032de5632be5e8f804ab5575cd8cbd08d228ed27f"
+        }
+      ]
     },
     {
       "id": "2af0ce55aa8904c224dc811495bb194a2f7a51357cde6a6effe2afa54542f9a3",

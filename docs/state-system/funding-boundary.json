@@ -1,0 +1,85 @@
+{
+  "schema": "orgtree.funding-boundary/v1",
+  "source_contract_sha256": "bb069e9e60ccb30d14c8f422c9d44a3291d3b3a3fe58bafb3ba699e5b6dd20c0",
+  "qualification": {
+    "runtime_census": false,
+    "conversion_authorized": false
+  },
+  "contracts": {
+    "credits.request": "orgtree_request_credits",
+    "credits.reallocate": "orgtree_reallocate",
+    "credits.decide": "POST /api/orgs/{slug}/credit-requests"
+  },
+  "results": {
+    "request": [
+      "increase",
+      "requested",
+      "status"
+    ],
+    "request_noop": [
+      "status"
+    ],
+    "reallocate": [
+      "grant",
+      "warnings"
+    ],
+    "dry": [
+      "ok",
+      "warnings"
+    ]
+  },
+  "sections": {
+    "request": [
+      "credit_requests",
+      "events"
+    ],
+    "reallocate": [
+      "events",
+      "nodes",
+      "notice_log",
+      "notices"
+    ],
+    "reallocate_zero": [
+      "events"
+    ],
+    "decide_grant": [
+      "credit_requests",
+      "events",
+      "lifecycle",
+      "mail",
+      "mail_log",
+      "nodes",
+      "notice_log",
+      "notices",
+      "user_outbox"
+    ],
+    "decide_deny": [
+      "credit_requests",
+      "events",
+      "lifecycle",
+      "mail",
+      "mail_log",
+      "nodes",
+      "user_outbox"
+    ],
+    "decide_moot": [
+      "credit_requests",
+      "events"
+    ]
+  },
+  "retained": {
+    "orgtree_request_credits": [],
+    "orgtree_reallocate": [
+      "grant"
+    ]
+  },
+  "ping": {
+    "ping_reason": "credit_decision"
+  },
+  "legacy_defects": [
+    "a keyed orgtree_request_credits receipt retains nothing: its retained keys (id, routed, deferred) are not in its result",
+    "a fractional reallocation delta rounds the resulting grant up to a whole credit",
+    "a zero reallocation delta is accepted and still logs an event"
+  ],
+  "scope": "Legacy boundary of orgtree_request_credits, orgtree_reallocate and the credit-request decision route on disposable SQLite: authority, predicates, committed sections, receipts and callbacks at their boundary. Nothing native, contact-level or concurrent is qualified."
+}

@@ -115,9 +115,9 @@ runtime probes remain unresolved. Material reads add two cards and two selectors
 diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
-Current totals are 27 contracts, 18 mapped registrations and 36 mapped
-dispatch witnesses. **599 obligations remain**: 301 registrations, 191 dispatch
-witnesses, 15 storage candidates and 92 unresolved dimension occurrences.
+Current totals are 30 contracts, 21 mapped registrations and 40 mapped
+dispatch witnesses. **604 obligations remain**: 298 registrations, 187 dispatch
+witnesses, 15 storage candidates and 104 unresolved dimension occurrences.
 How it got there: 600 was two more registrations than the preceding 598 because the scanner now
 recognizes `asyncio.to_thread` hand-offs; both new witnesses are pending and no
 existing witness identity, disposition or contract changed.
@@ -181,6 +181,11 @@ specified from its rows: `diagnostic.reads`, `diagnostic.writes` and
 and asserts each new fact. S2d also corrects an S3 fact: at `self` visibility the
 chart does NOT hide the superior, because the CLAUDE.md caveat names it (pinned as
 legacy behaviour).
+604 is five more than that 599 (S3 candidate 5): seven witnesses are mapped (-7) —
+the request-credits and reallocate cards and branches, the credit-decision route
+and its two ledger action branches — to `credits.request`, `credits.reallocate`
+and `credits.decide`, whose four unresolved shared `funding` facets add twelve
+occurrences (+12).
 See "P03-prototype surface" below.
 
 Of the 53 open dimension occurrences on the sixteen legacy-family contracts, 37 (17 facets) cannot be closed at P01
@@ -355,6 +360,20 @@ predicates, receipt and effects. Unresolved with an owner: the send's effects
 instrumentation (P02) for both, the inbox cold/migration writes (P02), conflicts
 (native design) and wire (native/Rust). Recorded legacy behaviour: marking user
 mail read broadcasts a tree change even when nothing was read.
+
+Candidate 5 (F3, funding) adds `credits.request` (`orgtree_request_credits`),
+`credits.reallocate` (`orgtree_reallocate`) and `credits.decide` (POST
+`/api/orgs/{slug}/credit-requests`), sharing one set of `funding` facets. Specified
+from source and pinned by `tests/test_state_funding_boundary.py` against
+`funding-boundary.json`: authority (top-level-only requests, downward-only
+reallocation, the operator decides as the user), predicates (whole-credit rounding,
+amend and withdraw, the committed floor, pending-only decisions, moot and dry run),
+writes, receipt and effects (a decision is user mail plus one ping). Unresolved with
+an owner: reads and instrumentation (P02), conflicts (native balance-row design) and
+wire (native/Rust). Recorded legacy behaviour: a keyed credit request's receipt
+retains nothing of the request, a fractional delta moves a whole credit, and a zero
+delta still logs an event. The operator `org_op` reallocate branch goes with the
+staffing candidate, which contracts `org_op`.
 
 ## Deliberate failing controls
 
