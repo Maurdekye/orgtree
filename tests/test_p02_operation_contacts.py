@@ -34,7 +34,8 @@ PREVIEW = ("reallocate", "move", "swap", "swap_seats", "self_subjugate", "subjug
 CONTRACTS = {f"reservation.{v}" for v in RESERVATION} | {
     "material.scratch", "material.transcript", "diagnostic.inspect",
     "diagnostic.capabilities", "preview.agent", "status.report", "chart.read",
-    "org.tree", "org.node-detail", "org.feed", "mail.message", "mail.notice"}
+    "org.tree", "org.node-detail", "org.feed", "mail.message", "mail.notice",
+    "mail.human-send", "mail.user-inbox", "mail.user-inbox-read", "mail.node-inbox"}
 
 
 class OperationContacts(unittest.TestCase):
@@ -201,7 +202,8 @@ class OperationContacts(unittest.TestCase):
 
     def test_nothing_outside_the_synthetic_root_and_the_code_is_read(self):
         for r in self.doc["rows"]:
-            for group in ("file_read", "file_write", "dir_list", "sqlite_connect", "fs_mutation"):
+            for group in ("file_read", "file_write", "dir_list", "sqlite_connect", "fs_mutation",
+                          "stat"):
                 with self.subTest(variant=r["variant"], condition=r["condition"], group=group):
                     self.assertFalse([k for k in r["audit"].get(group, {})
                                       if "outside" in k.split("@", 1)[0]])
@@ -251,7 +253,8 @@ class OperationContacts(unittest.TestCase):
     def test_no_operation_touches_a_third_agents_mail_or_rows(self):
         producing = set()
         for r in self.doc["rows"]:
-            if r["variant"] in (self.CONTROL, self.STATUS_CONTROL, self.MAIL_CONTROL):
+            if r["variant"] in (self.CONTROL, self.STATUS_CONTROL, self.MAIL_CONTROL,
+                                self.HUMAN_CONTROL):
                 continue
             with self.subTest(variant=r["variant"], condition=r["condition"]):
                 self.assertEqual(r["agents"]["third_agent_mail"], 0)
@@ -262,7 +265,7 @@ class OperationContacts(unittest.TestCase):
             if r["agents"]["mail_producing"]:
                 producing.add(r["contract"])
         self.assertEqual(producing, {"reservation.release-notify", "status.report",
-                                     "mail.message", "mail.notice"})
+                                     "mail.message", "mail.notice", "mail.human-send"})
 
     def test_third_agent_mail_control_is_flagged(self):
         control = self.rows(variant=self.CONTROL)
@@ -351,6 +354,8 @@ class OperationContacts(unittest.TestCase):
             return sorted([self.F_CONN, self.F_STMT])
         if variant in ("mail.message:org", "mail.message:bare-unknown-name"):
             return sorted([self.F_STMT] + ([self.F_CONN] if condition == "cold" else []))
+        if variant == "refusal:human-unknown-node":
+            return [self.F_STMT]      # the name is looked up in EVERY other org
         if contract == "org.tree" and variant in ("org.tree", "migration:legacy-json"):
             return [self.F_STMT]      # store.local_net_slugs: a doc row of EVERY org
         return self.DECLARED.get(variant, [])
@@ -384,7 +389,7 @@ class OperationContacts(unittest.TestCase):
                     seen.add(r["variant"])
         self.assertEqual(seen, set(self.DECLARED) | {
             "control:foreign-org-contact", "mail.message:org", "mail.message:bare-unknown-name",
-            "org.tree", "migration:legacy-json"})
+            "org.tree", "migration:legacy-json", "refusal:human-unknown-node"})
 
     def test_sandboxed_org_reads_come_from_the_sandbox_placement(self):
         """material.reads: a SANDBOXED org's transcript is read from the
@@ -848,6 +853,166 @@ class OperationContacts(unittest.TestCase):
         agents = control["agents"]
         self.assertEqual(agents["logical"]["mail"], {"m-top": "target", "m-sib": "third"})
         self.assertGreaterEqual(agents["third_agent_mail"], 1)
+
+    # -- P01 S3 F2, the human side: mail.human-send and the inbox routes -------------
+    HUMAN_CONTROL = "control:human-send-third-agent"
+    #: class -> (node, its notified superior chain)
+    HUMAN = {"mail.human-send": ("h-top", []),
+             "mail.human-send:deep": ("h-deep", ["h-mid", "h-top"]),
+             "mail.human-send:archived": ("h-gone", ["h-top"]),
+             "mail.human-send:notice": ("h-mid", ["h-top"]),
+             "mail.human-send:session-command": ("h-mid", ["h-top"]),
+             "mail.human-send:attachment": ("h-top", []),
+             "mail.human-send:reply-to-chat-event": ("h-top", []),
+             "mail.human-send:reply-target": ("h-top", [])}
+
+    def test_human_send_by_class_reaches_only_the_node_and_its_chain(self):
+        """human-mail.reads/instrumentation: the operator's send by class, cold
+        and warm, loss-accounted, with agent-level locality: only the node
+        (mail) and its superior chain (deep-reach notices) are touched."""
+        for variant, (node, chain) in self.HUMAN.items():
+            for condition in ("cold", "warm"):
+                with self.subTest(variant=variant, condition=condition):
+                    r = self.rows(contract="mail.human-send", variant=variant,
+                                  condition=condition)[0]
+                    self.assertEqual(r["http_status"], 200, r["detail"])
+                    self.assertEqual(r["census"]["records"], 1)
+                    agents = r["agents"]
+                    self.assertEqual(agents["actor"], "@user")
+                    self.assertEqual(agents["targets"], sorted([node] + chain))
+                    logical = agents["logical"]
+                    command = variant.endswith("session-command")
+                    self.assertEqual(logical.get("mail"), None if command else {node: "target"})
+                    self.assertEqual(logical.get("notices", {}),
+                                     {n: "target" for n in chain})
+                    roles = {role for sect in logical.values() for role in sect.values()}
+                    self.assertLessEqual(roles, {"actor", "target"})
+                    self.assertEqual((agents["third_agent_mail"],
+                                      agents["third_agent_rows_written"]), (0, 0))
+                    if not variant.endswith("chat-event"):      # its sidecar DDL, below
+                        self.assertTrue(r["harness"]["all_writes_in_transaction"])
+                    wakes = r["wakes"]
+                    self.assertEqual(r["immediate_command"], int(command))
+                    self.assertEqual(wakes["mail_notify"], int(not command))
+                    # an archived recipient is deferred: sparked, never pinged
+                    self.assertEqual(wakes["send_message"], int(not variant.endswith("archived")))
+        # the first contact with a non-top node grants a user audience; warm, none
+        for variant in ("mail.human-send:deep", "mail.human-send:archived",
+                        "mail.human-send:notice"):
+            node = self.HUMAN[variant][0]
+            cold = self.rows(variant=variant, condition="cold")[0]
+            warm = self.rows(variant=variant, condition="warm")[0]
+            self.assertEqual(cold["agents"]["logical"].get("audiences"),
+                             {node: "target", "@user": "actor"})
+            self.assertNotIn("audiences", warm["agents"]["logical"])
+        # the reply forms: a chat event is resolved through the chat sidecars
+        for condition in ("cold", "warm"):
+            chat = self.rows(variant="mail.human-send:reply-to-chat-event", condition=condition)[0]
+            self.assertGreater(chat["harness"]["statement_stores"].get("data:sidecar-db", 0), 0)
+            typed = self.rows(variant="mail.human-send:reply-target", condition=condition)[0]
+            self.assertNotIn("data:sidecar-db", typed["harness"]["statement_stores"])
+            # the chat-event reply reaches four sidecar connections, and the
+            # reply_events sidecar re-runs its DDL outside a transaction per call
+            h = chat["harness"]
+            ddl = h["stores"]["reply_events"]["kinds"].get("ddl", 0)
+            self.assertEqual(ddl, 1)
+            self.assertEqual(h["writes"] - h["writes_in_transaction"], ddl)
+            self.assertEqual(chat["census"]["connects"] + sum(
+                (v.get("connects") or 0) for v in chat["census"]["secondary"].values()),
+                5 if condition == "cold" else 4)
+            # the attachment check stats h-top's working folder: two isfile
+            # (one per attachment), one getsize (the file that exists)
+            att = self.rows(variant="mail.human-send:attachment", condition=condition)[0]
+            self.assertEqual(att["audit"].get("stat"),
+                             {"data:scratch@orgtree.api:node_message": 3})
+        for r in self.doc["rows"]:
+            if r["variant"] != "mail.human-send:attachment":
+                self.assertNotIn("stat", r["audit"], r["variant"])
+
+    def test_human_send_refusals_and_the_every_org_name_lookup(self):
+        refusals = {"refusal:human-empty": 422, "refusal:human-target-and-reply": 422,
+                    "refusal:human-unknown-node": 422, "refusal:human-command-archived": 409}
+        for variant, status in refusals.items():
+            with self.subTest(variant=variant):
+                r = self.rows(contract="mail.human-send", variant=variant)[0]
+                self.assertEqual((r["http_status"], r["harness"]["writes"]), (status, 0))
+                self.assertEqual(sum(r["wakes"].values()), 0)
+        unknown = self.rows(variant="refusal:human-unknown-node")[0]
+        self.assertGreater(unknown["harness"]["statement_stores"]["data:org-db:foreign"], 100)
+        # /compact with no conversation is refused before any compaction starts,
+        # but only after the deep-reach notice to the chain is saved
+        compact = self.rows(variant="refusal:compact-no-conversation")[0]
+        self.assertEqual(compact["http_status"], 422)
+        self.assertIn("no conversation yet", compact["detail"])
+        self.assertEqual(compact["agents"]["logical"], {"notices": {"h-top": "target"}})
+        self.assertEqual((sum(compact["wakes"].values()), compact["immediate_command"]), (0, 0))
+        # the immediate path is reached by the session-command rows only
+        self.assertEqual({r["variant"] for r in self.doc["rows"] if r["immediate_command"]},
+                         {"mail.human-send:session-command"})
+
+    def test_human_send_third_agent_control_is_flagged(self):
+        control = self.rows(variant=self.HUMAN_CONTROL)[0]
+        self.assertEqual(control["http_status"], 200, control["detail"])
+        agents = control["agents"]
+        self.assertEqual(agents["logical"]["mail"], {"h-mid": "target", "h-sib": "third"})
+        self.assertGreaterEqual(agents["third_agent_mail"], 1)
+        self.assertGreaterEqual(agents["third_agent_rows_written"], 1)
+
+    INBOX = {"mail.user-inbox": ("mail.user-inbox", False),
+             "mail.user-inbox-read": ("mail.user-inbox-read", True),
+             "mail.user-inbox-read:nothing-read": ("mail.user-inbox-read", False),
+             "mail.node-inbox": ("mail.node-inbox", False)}
+
+    def test_inbox_routes_on_both_backends_cold_and_warm(self):
+        """inbox.reads/instrumentation: the three routes on both store backends,
+        cold and warm, loss-accounted; only a read mark that matched writes,
+        and it writes the org's own store (on JSON through a temp file renamed
+        onto the org's own document)."""
+        for prefix in ("", "json:"):
+            for variant, (contract, writes) in self.INBOX.items():
+                for condition in ("cold", "warm"):
+                    with self.subTest(backend=prefix or "sqlite", variant=variant,
+                                      condition=condition):
+                        r = self.rows(contract=contract, variant=prefix + variant,
+                                      condition=condition)[0]
+                        self.assertEqual(r["http_status"], 200, r["detail"])
+                        self.assertEqual(r["census"]["records"], 1)
+                        self.assertEqual(sum(r["wakes"].values()), 0)
+                        self.assertFalse(r["agents"]["mail_producing"])
+                        if prefix:
+                            self.assertEqual(r["census"]["statements"], 0)
+                            wrote = [k for k in r["audit"].get("fs_mutation", {})
+                                     if k.startswith("os.rename:")]
+                            self.assertEqual(bool(wrote), writes)
+                            for k in wrote:
+                                self.assertTrue(k.startswith("os.rename:data:org-db:own@"), k)
+                        else:
+                            self.assertEqual(r["harness"]["writes"] > 0, writes)
+                            self.assertTrue(r["harness"]["all_writes_in_transaction"])
+            for variant, status in (("refusal:inbox-no-token", 401),
+                                    ("refusal:node-inbox-unknown-node", 404)):
+                with self.subTest(backend=prefix or "sqlite", refusal=variant):
+                    r = self.rows(variant=prefix + variant)[0]
+                    self.assertEqual((r["http_status"], r["harness"]["writes"]), (status, 0))
+        self.assertEqual(self.rows(variant="refusal:inbox-no-token")[0]["census"]["records"], 0)
+
+    def test_inbox_migration_paths_write_inside_the_route(self):
+        """inbox.writes: a legacy .json org met by each route is refused
+        without ORGTREE_MIGRATE and migrated with it, inside the route."""
+        for contract in ("mail.user-inbox", "mail.user-inbox-read", "mail.node-inbox"):
+            with self.subTest(contract=contract):
+                refused = self.rows(contract=contract, variant="migration:refused")[0]
+                self.assertEqual((refused["http_status"], refused["harness"]["writes"]), (500, 0))
+                self.assertTrue(refused["detail"].startswith("MigrationRefused"))
+                cold = self.rows(contract=contract, variant="migration:legacy-json",
+                                 condition="cold")[0]
+                self.assertEqual(cold["http_status"], 200, cold["detail"])
+                self.assertGreater(cold["harness"]["writes"], 0)
+                self.assertIn("os.rename:data:org-db:own@orgtree.store:migrate_org",
+                              cold["audit"]["fs_mutation"])
+                warm = self.rows(contract=contract, variant="migration:legacy-json",
+                                 condition="warm")[0]
+                self.assertEqual((warm["http_status"], warm["harness"]["writes"]), (200, 0))
 
 
 if __name__ == "__main__":

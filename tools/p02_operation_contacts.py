@@ -82,9 +82,10 @@ LOSS_KEYS = ("db_unbound", "db_late", "db_unattributed", "db_hidden_unattributed
 #: contact: a row that makes one must declare it in ``expected_unknown`` (the
 #: deliberate provocations and the negative controls), and a declared class
 #: that does not occur is reported too — the probe-level drift refusal.
-KNOWN_CATEGORIES = ("code", "descriptor", "data:org-db:own", "data:sidecar-db",
-                    "data:scratch", "data:sandbox", "data:other", "home:provider", "run:other")
-KNOWN_GROUPS = ("file_read", "file_write", "dir_list", "fs_mutation", "sqlite_connect")
+KNOWN_CATEGORIES = ("code", "descriptor", "data:org-db:own", "data:org-db:temp",
+                    "data:sidecar-db", "data:scratch", "data:sandbox", "data:other",
+                    "home:provider", "run:other")
+KNOWN_GROUPS = ("file_read", "file_write", "dir_list", "fs_mutation", "sqlite_connect", "stat")
 LIMITS = [
     "Statements only: no rows examined, pages, physical IO or lock wait is measured.",
     "Tables come from the harness's SQL-text map onto the stores' own sqlite_master "
@@ -163,6 +164,8 @@ MAIL_LOG_SECTS = ("mail_log",)
 TARGET_ARGS = ("successor", "to", "node", "target", "a", "b", "from", "new_parent", "grantee")
 _BETWEEN = Collector("between-operations")
 _TABLES: set[str] = set()
+#: (category, where) of the installed audit counter, for `Probe.observe_stats`
+_AUDIT: Any = None
 
 
 def tables_in(sql: Any, kind: str) -> tuple[list[str], list[str]]:
@@ -394,8 +397,14 @@ def install_audit_counter(root: Path, data: Path, home: Path) -> None:
         if p.startswith(data_s):
             rest = p[len(data_s):].lstrip("\\")
             if rest.startswith("orgs\\"):
+                name = rest[5:].split("\\", 1)[0]
+                if re.fullmatch(r"tmp[a-z0-9_]+\.tmp", name):
+                    # an unnamed tempfile.mkstemp file (the JSON store's save):
+                    # it names no org; the rename that lands it names the
+                    # destination (see the fs_mutation branch of the hook)
+                    return "data:org-db:temp"
                 # org-store locality: the operation's own org, or another one
-                stem = rest[5:].split("\\", 1)[0].split(".", 1)[0]
+                stem = name.split(".", 1)[0]
                 if own is None:
                     return "data:org-db"
                 return "data:org-db:own" if stem == own.lower() else "data:org-db:foreign"
@@ -454,9 +463,12 @@ def install_audit_counter(root: Path, data: Path, home: Path) -> None:
             elif event in ("os.mkdir", "os.remove", "os.rmdir", "os.rename", "os.replace",
                            "os.chmod", "os.utime", "shutil.rmtree", "shutil.copyfile",
                            "shutil.move", "os.symlink", "os.link", "os.truncate"):
-                target.count("fs_mutation", event + ":" + category(args[0] if args else None,
-                                                                   target.slug)
-                             + "@" + where())
+                cat = category(args[0] if args else None, target.slug)
+                if cat == "data:org-db:temp" and event == "os.rename" and len(args) > 1:
+                    # a temp file renamed into place (os.replace audits as
+                    # os.rename): classified by the store it lands on
+                    cat = category(args[1], target.slug)
+                target.count("fs_mutation", event + ":" + cat + "@" + where())
             elif event == "sqlite3.connect":
                 target.count("sqlite_connect", category(args[0] if args else None, target.slug)
                              + "@" + where())
@@ -474,6 +486,8 @@ def install_audit_counter(root: Path, data: Path, home: Path) -> None:
         except Exception:                                       # noqa: BLE001
             target.count("audit_error", event)
 
+    global _AUDIT
+    _AUDIT = (category, where)
     sys.addaudithook(hook)
 
 
@@ -608,6 +622,7 @@ class Probe:
         self.restore_clone = install_clone_observer(statepreview)
         # spies: delivery is counted, never executed (as in the P01 boundary tests)
         self.wakes = {"send_message": 0, "mail_notify": 0}
+        self.immediate = [0]     # its own row field: `wakes` keeps P01's two keys
 
         def send_message(*_a: Any, **_k: Any) -> dict[str, Any]:
             self.wakes["send_message"] += 1
@@ -616,7 +631,15 @@ class Probe:
         def mail_notify(*_a: Any, **_k: Any) -> None:
             self.wakes["mail_notify"] += 1
 
+        def immediate_command(*_a: Any, **_k: Any) -> bool:
+            # a human session command's immediate path (a throwaway session
+            # fork in the product): counted, never run, and declined so the
+            # route takes its command delivery (send_message, spied)
+            self.immediate[0] += 1
+            return False
+
         supervisor.send_message = send_message
+        supervisor.immediate_command = immediate_command
         supervisor.delivery_note = lambda *_a, **_k: "fixture carrier accepted; read unknown"
         api.mail_notify = mail_notify
         self.clock = [100.0]
@@ -936,6 +959,7 @@ class Probe:
         before = self.census_state()
         seq0 = before.get("newest_seq") or 0
         wakes0 = dict(self.wakes)
+        immediate0 = self.immediate[0]
         refused0 = dict(self.report.refused)
         collector = Collector(f"{contract}/{variant}/{condition}", slug)
         saved = []
@@ -975,6 +999,7 @@ class Probe:
         row["agents"] = self.agents(actor, args, collector, self.mail_changes(mail0, mail1),
                                     implied)
         row["backend"] = self.backend
+        row["immediate_command"] = self.immediate[0] - immediate0
         row["disclosed"] = None
         if disclose:
             text = json.dumps(payload) if payload is not None else ""
@@ -1748,10 +1773,31 @@ class Probe:
         }
 
     @staticmethod
-    def http(client: Any, path: str, headers: "dict[str, str] | None" = None
-             ) -> Callable[[], tuple[int, Any]]:
+    def observe_stats() -> "list[tuple[Any, str, Any]]":
+        """Row patches that count os.path.isfile / os.path.getsize calls as
+        `stat` contacts (path category and product frame, like the audit
+        hook). A stat raises no audit event, so without them a human send's
+        attachment check would be invisible; applied to the attachment rows
+        only."""
+        category, where = _AUDIT
+
+        def wrap(fn: Callable[..., Any]) -> Callable[..., Any]:
+            def observed(path: Any, *a: Any, **k: Any) -> Any:
+                target = _CURRENT or _BETWEEN
+                target.count("stat", category(path, target.slug) + "@" + where())
+                return fn(path, *a, **k)
+            return observed
+        return [(os.path, name, wrap(getattr(os.path, name))) for name in ("isfile", "getsize")]
+
+    @staticmethod
+    def http(client: Any, path: str, headers: "dict[str, str] | None" = None,
+             body: Any = None) -> Callable[[], tuple[int, Any]]:
+        """A GET, or a POST of `body` when one is given."""
         def call() -> tuple[int, Any]:
-            resp = client.get(path, headers=headers or {})
+            if body is None:
+                resp = client.get(path, headers=headers or {})
+            else:
+                resp = client.post(path, json=body, headers=headers or {})
             try:
                 payload = resp.json()
             except ValueError:
@@ -1973,6 +2019,141 @@ class Probe:
              refusal="negative control (not a product path)",
              patches=[(supervisor, "send_message", notify_and_mail_third)])
 
+    # -- P01 S3 F2, the human side: mail.human-send and the three inbox routes -----
+    def build_human(self) -> None:
+        """tests/test_state_human_mail_boundary.py's org (distinctive `h-*`
+        ids) plus a third agent ('h-sib'), a staged attachment in h-top's
+        working folder, four user-inbox rows from h-top and one mail h-top
+        sent to its report."""
+        store, ledger, supervisor = self.m["store"], self.m["ledger"], self.m["supervisor"]
+        org = store.create_org("p02-contacts-human")
+        self.hslug = str(org.d["slug"])
+        org.hire(ledger.USER, None, "haiku", 10, "h-top")
+        org.hire(ledger.USER, "h-top", "haiku", 6, "h-mid")
+        org.hire(ledger.USER, "h-mid", "haiku", 0, "h-deep")
+        org.hire(ledger.USER, "h-top", "haiku", 0, "h-sib")
+        org.hire(ledger.USER, "h-top", "haiku", 0, "h-gone")
+        org.retire(ledger.USER, "h-gone")
+        org.d["mail"], org.d["audiences"] = {}, []
+        for i in range(4):
+            org.post_mail("h-top", "user", f"report {i} for you")
+        org.post_mail("h-top", "h-mid", "to my report")
+        store.save_org(org)
+        base = Path(supervisor.scratch_dir(self.hslug, "h-top"))
+        (base / "brief.txt").write_text("synthetic attachment", encoding="utf-8")
+        self.user_mail = [str(m["id"]) for m in store.read_user_inbox(self.hslug)["pending"]]
+
+    def human(self) -> None:
+        """mail.human-send by class (top-level, deep, archived, notice, session
+        command, attachment, both reply forms), cold and warm, as the operator
+        (@user). `implied`: the superior chain a deep-reach notice reaches."""
+        s, store, supervisor = self.hslug, self.m["store"], self.m["supervisor"]
+        user, op, both = self.m["ledger"].USER, self.OPERATOR, ("cold", "warm")
+
+        def send(variant: str, condition: str, nid: str, body: dict[str, Any],
+                 **kw: Any) -> None:
+            self.run("mail.human-send", variant, condition, s, user, "POST mail.human-send",
+                     {"to": nid}, call=self.http(self.client,
+                                                 f"/api/orgs/{s}/nodes/{nid}/message", op, body),
+                     **kw)
+
+        text = {"text": "fixture"}
+        cases = [
+            ("mail.human-send", "h-top", text, ()),
+            ("mail.human-send:deep", "h-deep", text, ("h-mid", "h-top")),
+            ("mail.human-send:archived", "h-gone", text, ("h-top",)),
+            ("mail.human-send:notice", "h-mid", {"text": "fyi", "notice": True}, ("h-top",)),
+            ("mail.human-send:session-command", "h-mid", {"text": "/model sonnet"}, ("h-top",)),
+            ("mail.human-send:attachment", "h-top",
+             {"text": "see file", "attachments": ["brief.txt", "nope.txt"]}, ()),
+        ]
+        for variant, nid, body, implied in cases:
+            for condition in both:
+                send(variant, condition, nid, body, implied=implied,
+                     patches=(self.observe_stats() if variant.endswith("attachment") else None))
+        # the two reply forms: a chat event of h-top's (its mailbox row, through
+        # supervisor.resolve_chat_event) and a typed target (a user-inbox mail)
+        org = store.load_org(s)
+        mid = str(org.d["mail"]["h-top"][-1]["id"])
+        ref = {"org": s, "agent": "h-top", "eventId": f"mail:{s}:h-top:{mid}",
+               "generation": int(org.node("h-top").get("generation") or 0)}
+        target = {"kind": "mail", "org": s, "box": "user", "id": self.user_mail[-1]}
+        for condition in both:
+            send("mail.human-send:reply-to-chat-event", condition, "h-top",
+                 {"text": "re", "reply_to": {"source_event_ref": ref}})
+            send("mail.human-send:reply-target", condition, "h-top",
+                 {"text": "re", "target": target})
+        for variant, nid, body, refusal in (
+                ("refusal:human-empty", "h-top", {"text": "   "}, "422 empty message"),
+                ("refusal:human-target-and-reply", "h-top",
+                 {"text": "x", "target": {"kind": "mail"}, "reply_to": {}},
+                 "422 send one of target, reply_to"),
+                ("refusal:human-unknown-node", "nobody", text, "422 NOT DELIVERED"),
+                ("refusal:human-command-archived", "h-gone", {"text": "/model sonnet"},
+                 "409 a session command runs nothing on an archived node")):
+            # a name that is no node here is looked up in EVERY other org
+            # before the refusal (as for an agent's bare unknown name)
+            send(variant, "warm", nid, body, refusal=refusal,
+                 expected_unknown=(("statement:data:org-db:foreign",)
+                                   if variant == "refusal:human-unknown-node" else ()))
+        # /compact on a node with no conversation: refused BEFORE any
+        # compaction thread starts (P08 owns the compaction itself), but only
+        # after the deep-reach notice to the chain is saved
+        send("refusal:compact-no-conversation", "warm", "h-mid", {"text": "/compact"},
+             implied=("h-top",), refusal="422 no conversation yet (no compaction started)")
+
+        # agent-level locality control: a human send whose delivery step ALSO
+        # posts mail to a third agent ('h-sib', from 'h-top')
+        def notify_and_mail_third(*_a: Any, **_k: Any) -> dict[str, Any]:
+            with store.write_org(s) as o:
+                o.post_mail("h-top", "h-sib", "p02 control: mail to a third agent")
+                store.save_org(o)
+            return {"delivered": True}
+        send("control:human-send-third-agent", "warm", "h-mid", text, implied=("h-top",),
+             refusal="negative control (not a product path)",
+             patches=[(supervisor, "send_message", notify_and_mail_third)])
+
+    def inbox(self) -> None:
+        """The three inbox routes, cold and warm, on either backend; on SQLite
+        also their migration paths (a legacy .json org met by the route)."""
+        s, user, op = self.hslug, self.m["ledger"].USER, self.OPERATOR
+
+        def call(contract: str, variant: str, condition: str, path: str,
+                 body: Any = None, slug: "str | None" = None, headers: Any = op,
+                 **kw: Any) -> None:
+            method = "GET" if body is None else "POST"
+            self.run(contract, variant, condition, slug or s, user, f"{method} {contract}", {},
+                     call=self.http(self.client, path, headers, body), **kw)
+
+        for i, condition in enumerate(("cold", "warm")):
+            call("mail.user-inbox", "mail.user-inbox", condition, f"/api/orgs/{s}/inbox")
+            call("mail.user-inbox-read", "mail.user-inbox-read", condition,
+                 f"/api/orgs/{s}/inbox/read", {"ids": [self.user_mail[i]]})
+            call("mail.user-inbox-read", "mail.user-inbox-read:nothing-read", condition,
+                 f"/api/orgs/{s}/inbox/read", {"ids": ["nope"]})
+            call("mail.node-inbox", "mail.node-inbox", condition,
+                 f"/api/orgs/{s}/nodes/h-top/inbox")
+        call("mail.user-inbox", "refusal:inbox-no-token", "warm", f"/api/orgs/{s}/inbox",
+             headers={}, refusal="401 without the desktop token")
+        call("mail.node-inbox", "refusal:node-inbox-unknown-node", "warm",
+             f"/api/orgs/{s}/nodes/nobody/inbox", refusal="404 unknown node")
+        if self.backend != "sqlite":
+            return
+        # inbox.writes: a legacy .json org met by each route (one org per
+        # route, since the first migrating call converts it)
+        for contract, short, path, body in (
+                ("mail.user-inbox", "userinbox", "/api/orgs/{}/inbox", None),
+                ("mail.user-inbox-read", "inboxread", "/api/orgs/{}/inbox/read", {"ids": ["nope"]}),
+                ("mail.node-inbox", "nodeinbox", "/api/orgs/{}/nodes/boss/inbox", None)):
+            legacy = self.legacy_org(f"p02-contacts-legacy-{short}", (), "json")
+            for variant, condition, env in (
+                    ("migration:refused", "cold", {"ORGTREE_MIGRATE": None}),
+                    ("migration:legacy-json", "cold", {"ORGTREE_MIGRATE": "1"}),
+                    ("migration:legacy-json", "warm", None)):
+                call(contract, variant, condition, path.format(legacy), body, slug=legacy,
+                     env=env, refusal=("legacy .json without ORGTREE_MIGRATE"
+                                       if variant == "migration:refused" else None))
+
     # -- the r5 residuals ----------------------------------------------------
     def residuals(self) -> dict[str, Any]:
         """db_unbound and unclassified_action, reproduced: which records carry
@@ -2049,7 +2230,8 @@ class Probe:
     def execute(self) -> dict[str, Any]:
         """The whole workload on the SQLite backend; on the JSON backend
         (``--store json``, run as a child process by ``main``) the structural
-        diagnostic family only, which is what the JSON clause names."""
+        diagnostic family and the three inbox routes, the families whose P01
+        clauses name the JSON backend."""
         self.prepare()
         json_backend = self.backend == "json"
         self.build()
@@ -2058,15 +2240,17 @@ class Probe:
             self.build_status()
             self.build_org_view()
             self.build_mail()
-        for slug in ((self.dslug,) if json_backend else
+        self.build_human()
+        for slug in ((self.dslug, self.hslug) if json_backend else
                      (self.rslug, self.mslug, self.dslug, self.pslug, self.sslug,
-                      self.stslug, self.ovslug, self.mlslug)):
+                      self.stslug, self.ovslug, self.mlslug, self.hslug)):
             _NODES[slug] = {str(n) for n in self.m["store"].load_org(slug).nodes}
         self.operator("post", "/api/diagnostics/operation-census/reset")
         self.operator("post", "/api/diagnostics/operation-census", json={"enabled": True})
         w0 = self.census_state()
         if json_backend:
             self.diagnostic()
+            self.inbox()
         else:
             self.reservation()
             self.material()
@@ -2078,6 +2262,8 @@ class Probe:
             self.status_chart()
             self.org_view()
             self.mail()
+            self.human()
+            self.inbox()
         w1 = self.census_state()
         self.load_table_catalogue()
         self.map_tables()
@@ -2139,7 +2325,7 @@ def main(argv: "list[str] | None" = None) -> int:
     p.add_argument("--out", required=True)
     p.add_argument("--work", help="parent folder for the temporary synthetic root")
     p.add_argument("--store", choices=("sqlite", "json"), default="sqlite",
-                   help="the primary store backend (json: the diagnostic family only)")
+                   help="the primary store backend (json: diagnostic and inbox rows only)")
     p.add_argument("--no-json-child", action="store_true",
                    help="do not run the JSON-backend child (sqlite run only)")
     args = p.parse_args(argv)

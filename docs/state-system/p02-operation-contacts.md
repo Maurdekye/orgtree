@@ -31,6 +31,8 @@ synthetic data; none is fixed here. P01 and P05 should cite these rows.
   before any census attempt: `kiosk_token_scan`. A public request whose
   token cache has expired carries this read, outside its census record.
 - `mail.message:bare-unknown-name` looks the name up in every org.
+- A human send to a name that is no node here does the same before its 422
+  (`mail.human-send` `refusal:human-unknown-node`).
 
 ## Where each number comes from
 
@@ -39,12 +41,14 @@ synthetic data; none is fixed here. P01 and P05 should cite these rows.
 | `census.*` | The product's own census record for the attempt (`census.py`, `census_contacts.py`, unchanged). It gives statement kinds, checkouts, connects, engine and hidden steps, the per-sidecar breakdown, and the record's `profile` numbers (handler/total ms, document-lock acquire/wait/hold, load/mutate/save ms). |
 | `harness.*` | A wrapper around `census_contacts._run`, in the probe process only. From each observed statement's SQL it keeps only table names, mapped onto the stores' own `sqlite_master` names (anything else is `other`). It also records the store label and `in_transaction` after each write. Its statement count must equal the census's for the same attempt (`matches_census`). |
 | `audit.*` | An audit hook that counts file opens, listings and mutations, every `sqlite3.connect` (including sites the census does not instrument), process starts and socket calls. Each count is attributed to the running operation, with a code location (`orgtree.<module>:<function>`) and a closed path category. Org stores are split into `own` and `foreign`. |
+| `audit.stat` | On the `mail.human-send:attachment` rows only: `os.path.isfile` / `os.path.getsize` calls, wrapped for that row because a stat raises no audit event. Same category and code location as the audit hook. |
 | `guard_refusals` | `isolation_guards` refusals, attributed the same way. |
 | `wakes` | Spy counts for `supervisor.send_message` and `api.mail_notify`. |
+| `immediate_command` | Spy count for `supervisor.immediate_command` (a human session command's immediate path; declined, so the command takes its `send_message` delivery). |
 
 ## Row key
 
-Each row is keyed by `contract` (one of the 16 ids in
+Each row is keyed by `contract` (a contract id in
 `operation-contracts.json`) + `variant` + `condition` (`cold` or `warm`).
 - Contract variants use the `wire_cases` name, e.g.
   `orgtree_reservation:reservation.acquire` or `preview.reallocate`.
@@ -497,6 +501,84 @@ Owned elsewhere, with no rows added:
 - `agent-mail.conflicts`: the native design, then P03 and P07;
 - `agent-mail.wire`: the native/Rust conversion.
 
+## P01 S3 F2, the human side: `mail.human-send` and the three inbox routes
+
+The fixture follows `tests/test_state_human_mail_boundary.py` with
+distinctive `h-*` ids:
+- `h-top` is top-level; `h-mid` and `h-sib` sit under it; `h-deep` is under
+  `h-mid`; `h-gone` is retired;
+- `h-top` has four mails waiting in the user inbox and has sent one mail to
+  `h-mid`; a file `brief.txt` is staged in its working folder.
+
+The operator is the actor (`@user`, the desktop token). Each row's
+`agents.targets` is the addressed node plus its superior chain, which the
+route notifies (`implied`).
+
+- **`mail.human-send`** (POST `.../nodes/{nid}/message`) by class, each cold
+  and warm:
+  - `mail.human-send` (to top-level `h-top`);
+  - `:deep` (`h-deep`: mail to it, deep-reach notices to `h-mid` and
+    `h-top`, and on the cold row the first user-audience grant);
+  - `:archived` (`h-gone`: deferred, sparked but not pinged);
+  - `:notice` (`h-mid`, `notice: true`);
+  - `:session-command` (`h-mid`, `/model sonnet`: no mail; the deep-reach
+    notice; `immediate_command` counted, then the command delivery);
+  - `:attachment` (`h-top`, one staged file and one missing);
+  - `:reply-to-chat-event` (a `reply_to` naming a mailbox event of `h-top`,
+    resolved through `supervisor.resolve_chat_event`);
+  - `:reply-target` (a typed `target`: a user-inbox mail from `h-top`).
+- **Refusals** (warm): `refusal:human-empty`,
+  `refusal:human-target-and-reply`, `refusal:human-unknown-node` (422) and
+  `refusal:human-command-archived` (409) write nothing.
+  `refusal:compact-no-conversation` (`/compact` on a node with no
+  conversation) is refused 422 before any compaction starts.
+- **Agent-level locality:** each send changes only the node's mail and
+  `mail_log`, the chain's notices and, on a first contact, the node's user
+  audience. The control `control:human-send-third-agent` (a send whose
+  delivery also posts to `h-sib`) is flagged.
+- **Inbox routes**, each cold and warm, on BOTH store backends (the JSON
+  rows come from the JSON-backend child and carry the `json:` prefix):
+  `mail.user-inbox` (GET `/inbox`), `mail.user-inbox-read` (POST
+  `/inbox/read` with one pending id) and `:nothing-read` (an unknown id),
+  `mail.node-inbox` (GET `nodes/h-top/inbox`). Refusals:
+  `refusal:inbox-no-token` (401, no census record) and
+  `refusal:node-inbox-unknown-node` (404).
+- **Inbox migration paths** (SQLite): for each route, a legacy `.json` org
+  met by the route: `migration:refused` (cold, 500 MigrationRefused, no
+  write), `migration:legacy-json` cold (migrated inside the route, with
+  `os.rename` in `store.migrate_org`) and warm (no write).
+
+Observed, recorded and not fixed:
+- `refusal:human-unknown-node` looks the name up in every other org before
+  its 422 (hundreds of statements on other orgs' stores, declared).
+- `refusal:compact-no-conversation` saves the deep-reach notice to the chain
+  (`h-top`) before it refuses.
+- `:reply-to-chat-event` opens four sidecar connections on every call, cold
+  and warm, and the `reply_events` sidecar runs its DDL outside a
+  transaction each time (the row's one write outside a transaction).
+- On the JSON backend a read mark saves through an unnamed temp file in
+  `orgs/` that is renamed onto the org's own document. The harness classes
+  the temp file `data:org-db:temp` and the rename by the store it lands on
+  (`os.rename:data:org-db:own`).
+
+## Hand-off to P01 (S3 F2, human side): facet → clause → rows
+
+Clauses from the Owner lines at v3 881c14c.
+
+| Facet | Closing clause | Status | Rows |
+|---|---|---|---|
+| `human-mail.reads` | observed per-operation contacts for the human send by class (top-level, deep, archived, notice, session command, reply target), cold and warm | covered | `mail.human-send`, `:deep`, `:archived`, `:notice`, `:session-command`, `:reply-to-chat-event`, `:reply-target`, and `:attachment` (the working-folder stats, `audit.stat`); each cold and warm; plus the refusals |
+| `human-mail.instrumentation` | an observed, loss-accounted contact record for the human send with agent-level locality (the node and its notified chain only) | partly | covered: the rows above, per-row loss zero, `agents.logical` = the node plus its chain's deep-reach notices (and the first audience grant), `control:human-send-third-agent` flagged. NOT covered: P03 native negative controls |
+| `human-mail.effects` | the observed effects of the session-command branch (immediate_command, the command delivery and the /compact background compaction), with their failure outcomes | partly (P08 owns it; P02 observes) | covered: `:session-command` counts `immediate_command` (declined) and the command delivery (`send_message`), both spies; `refusal:compact-no-conversation` shows a refused `/compact` saving the chain notice first. NOT observed: a real immediate command, a real delivery, and the `/compact` compaction thread and its failures (not started here; P08) |
+| `inbox.reads` | observed per-operation contacts for the three routes on both store backends, cold and warm | covered | `mail.user-inbox`, `mail.user-inbox-read`, `:nothing-read`, `mail.node-inbox`, each cold and warm, on SQLite and on JSON (`json:` rows); refusals on both |
+| `inbox.writes` | observed writes on the cold and migration paths of the three routes (read_user_inbox, read_mail_tails, load_org_snapshot and the resident load) | covered | cold rows of the three routes (only a matching read mark writes); `migration:refused`, `migration:legacy-json` cold (the migration's writes, inside the route) and warm, for each route |
+| `inbox.instrumentation` | an observed, loss-accounted contact record for the three inbox routes | partly | covered: the rows above, per-row loss zero. NOT covered: P03 native negative controls |
+
+Owned elsewhere, with no rows added:
+- `human-mail.conflicts` and `inbox.conflicts`: the native design, then P03
+  and P07;
+- `human-mail.wire` and `inbox.wire`: the native/Rust conversion.
+
 ## Limits
 
 - **Agent identity** is read from statement parameters (node ids of the
@@ -514,6 +596,13 @@ Owned elsewhere, with no rows added:
   own `sqlite_master` appear; anything else is `other`.
 - **SQLite's own file IO** is native and invisible to audit hooks. Its connects
   are not.
+- **Stats** (`os.stat`, `os.path.isfile`, `exists`, `getsize`, `realpath`)
+  raise no audit event. Only the attachment rows wrap `isfile` and `getsize`
+  (`audit.stat`); every other row's stats are unobserved.
+- **Unnamed temp files in `orgs/`** (`tmp*.tmp`) are the known class
+  `data:org-db:temp`; they name no org. The rename that lands one is
+  classified by its destination, so a temp file renamed onto another org's
+  store would still show as `data:org-db:foreign`.
 - **Process starts and network connects** are refused, not executed. A refused
   attempt would appear under `guard_refusals` and `audit.process`/`audit.network`.
 - `audit.harness_event_loop` is the in-process test client's loopback
