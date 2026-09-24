@@ -1,6 +1,6 @@
 {
   "schema": "orgtree.reservation-boundary/v1",
-  "source_contract_sha256": "bb069e9e60ccb30d14c8f422c9d44a3291d3b3a3fe58bafb3ba699e5b6dd20c0",
+  "source_contract_sha256": "38d86e09fe5db0853c271f4be3f3fa3a544d19415e85ba2d5b0f0d057a55d147",
   "qualification": {
     "runtime_census": false,
     "conversion_authorized": false

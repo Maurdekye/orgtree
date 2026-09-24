@@ -6212,6 +6212,419 @@
         "Extend the P02 per-operation probe to the funding operations with an agent-level locality control.",
         "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed, loss-accounted contact record for the three funding operations with agent-level locality (the caller, the target and its chain only). Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to the funding operations."
       ]
+    },
+    "staffing.authority": {
+      "dimension": "authority",
+      "status": "specified",
+      "facts": [
+        "orgtree_hire and orgtree_staff come through the agent door (401/403, halt and killswitch 409, as for every agent tool). The provider gate (provider_hire_gate: the tier's provider must be enabled, installed and signed in; kiosks hold out Codex, Antigravity and OpenRouter) runs first for a hire and is a machine-state check outside the pinned set: the boundary tests patch it off and say so. ",
+        "Hire destination: `target` (or its older spelling `parent`), defaulting to the caller, must be the caller or a live descendant (check_placement: '\"<t>\" is outside your subtree …'); only the user hires at the top level; hire_type='superior' inserts the seat above a seat in the caller's subtree (above a top-level seat only the user may). Pinned.",
+        "The new seat's scope is clamped strictly to its parent's for an agent caller: folders, every tool switch and visibility cannot exceed the parent's, and permission_mode/effort/team_charter go through set_scope, which caps permission_mode at the caller's own. Audiences use orgtree_audience's vocabulary and rules ('user' only for a top-level caller, the caller's own id, a live peer, or the caller's direct superior); a target the caller could not grant refuses the whole call. Pinned for 'user' from a non-top-level caller and for the caller's own id.",
+        "orgtree_staff inherits the seat authority unchanged (_hire_seat or _rehire_seat) and the docket authority of work_create/work_update; in rehire mode the caller needs authority over the archived node (Org.rehire: a strict ancestor, or the node's own bearer successor). An account named with `account` is validated by registry.validate_selection."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1151,
+          "end": 1307,
+          "sha256": "053d8a4398e6423dbf4af2639fd66f1d4ed6e466c7cfdcf6c8bce7ef512858fc"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1500,
+          "end": 1618,
+          "sha256": "e96555baa12d26523882002b281fe006ac33c39f2a0bc27d91bf1d05e191372d"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10233,
+          "end": 10371,
+          "sha256": "98d8ab7edcc41c2e087aee9969933451c77ec73dbe309d1c186f20bb9440c904"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10388,
+          "end": 10505,
+          "sha256": "7dbe2655596e9e4f9c51b0ae04d3d02d9c9a3e82ea9c61bd8313936f52da6c84"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10008,
+          "end": 10196,
+          "sha256": "13db47c0990a0a908fe6105bbed6a9e8c6098107f28092785daee88f820971db"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10549,
+          "end": 10706,
+          "sha256": "c05dda630c5c9b3551574a6b61ab384de8d7c86945b4e73996387244ddd844aa"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4499,
+          "end": 4750,
+          "sha256": "63221b2bb4e204f319365db3d58bf5fa52f3c9676a5fb3b5f645f9265166b29c"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 6883,
+          "end": 6942,
+          "sha256": "af55adad83b154b4c42829b008eef8e057da34e6cea89d6663a3178b940fdb8c"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4082,
+          "end": 4163,
+          "sha256": "edf2cebcac60324d91cb1bd547f7b2251fff6f2c4a0191c7691f14f19c727ec7"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 5330,
+          "end": 5588,
+          "sha256": "4efcfb5f9298374d0a3a146d96d9b8eb47235e5be894a4d940f2f7d95272af7e"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14274,
+          "end": 14462,
+          "sha256": "3ec3cd49134e05203d840f26b0877ae7979b4d75064689e05ffb523d005f29bf"
+        }
+      ],
+      "open_questions": []
+    },
+    "staffing.predicates": {
+      "dimension": "predicates",
+      "status": "specified",
+      "facts": [
+        "Hire: an ordinary (subordinate) hire has no defaults — add_dirs, tools (every switch) and org_visibility are required at the door and a charter by the ledger; hire_type='superior' refuses those three and permission_mode instead (it takes the anchor's). The tier must be known ('unknown tier …' lists the known ones); grant must be a non-negative whole number; seat + grant must be free on the chain from the destination up to the caller (_chain_acquire, bubbling when cascade_hire is on), else 'not enough free credits on the chain …'; max depth and max children refuse; audiences entries must be text; kickoff_kind 'notice' is refused. Every refusal is checked before the first mutation or discarded with the unsaved document. Pinned.",
+        "Staff: action is create or update ('orgtree_staff writes the docket with action …' otherwise); update needs slug; an OMITTED action is inferred (update when slug is given, else create) — the selector DSL cannot express that inference, so the registry's selector cases name the action; staff_mode is hire or rehire and must agree with `node` (a node means rehire); the docket half's own validation applies (a create needs a title). Staffing in rehire mode a node that is already LIVE is not refused: Org.rehire answers 'already live — nothing to do' and the item is still created and assigned (recorded legacy behaviour). Pinned."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1151,
+          "end": 1307,
+          "sha256": "053d8a4398e6423dbf4af2639fd66f1d4ed6e466c7cfdcf6c8bce7ef512858fc"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1500,
+          "end": 1618,
+          "sha256": "e96555baa12d26523882002b281fe006ac33c39f2a0bc27d91bf1d05e191372d"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10233,
+          "end": 10371,
+          "sha256": "98d8ab7edcc41c2e087aee9969933451c77ec73dbe309d1c186f20bb9440c904"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10008,
+          "end": 10196,
+          "sha256": "13db47c0990a0a908fe6105bbed6a9e8c6098107f28092785daee88f820971db"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10508,
+          "end": 10546,
+          "sha256": "359382ace31e60d794c842d84d492aba89c74a5713282432b04a772a44623f55"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10549,
+          "end": 10706,
+          "sha256": "c05dda630c5c9b3551574a6b61ab384de8d7c86945b4e73996387244ddd844aa"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4499,
+          "end": 4750,
+          "sha256": "63221b2bb4e204f319365db3d58bf5fa52f3c9676a5fb3b5f645f9265166b29c"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4752,
+          "end": 4884,
+          "sha256": "ad1d8b46c4b9657c577282a81206c6abd83c0405b038476ab770696e4e4afc49"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 5330,
+          "end": 5588,
+          "sha256": "4efcfb5f9298374d0a3a146d96d9b8eb47235e5be894a4d940f2f7d95272af7e"
+        }
+      ],
+      "open_questions": []
+    },
+    "staffing.writes": {
+      "dimension": "writes",
+      "status": "specified",
+      "facts": [
+        "Measured with the committed document read cold. A hire writes the new node (nodes) and a hire event; lifecycle.hired notices go to the parent and the new seat's peers other than the caller (notices, notice_log); a kickoff adds the kickoff mail (mail, mail_log, lifecycle); audiences write audiences and the grant's own mail; work_item writes work_items and the assignment mail. A superior insertion re-parents the anchor under the new seat, which reports to the anchor's old parent; the inserted seat's own cost is paid out of the anchor's grant (anchor 6 -> 5, inserted seat 6), budget-neutral above. Pinned.",
+        "Staff writes the seat as above, then the item in the SAME save (work_items plus the assignment mail to the seat); an update that moves an item also tells its previous owner with an @system notice; a staffing with no stored summary gets one generated boundary line (result staffing_boundary). A refusal anywhere writes nothing, EXCEPT staff in rehire mode with a `name`: the rename runs before the transaction (supervisor.rename_node takes the lock itself and moves folders), so a later refusal leaves the node renamed and still archived, and the refusal says so. A keyed call adds op_receipts and op_receipts_meta in the same save. Pinned."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11828,
+          "end": 11845,
+          "sha256": "6f5efe7bb30fdd0330659bb4f6e7277ba1bfc99a0e1a9da1011db2ec15a72cda"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11774,
+          "end": 11796,
+          "sha256": "4d21332b60d09e6ccb37fd0f468772585d8747393acd488fa4fdfd4e30f42906"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12760,
+          "end": 12808,
+          "sha256": "e3a47cbda885d0252a4188aaa26d877098eae3d6d4dc09e5475ac91ba6de5105"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10233,
+          "end": 10371,
+          "sha256": "98d8ab7edcc41c2e087aee9969933451c77ec73dbe309d1c186f20bb9440c904"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10388,
+          "end": 10505,
+          "sha256": "7dbe2655596e9e4f9c51b0ae04d3d02d9c9a3e82ea9c61bd8313936f52da6c84"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10008,
+          "end": 10196,
+          "sha256": "13db47c0990a0a908fe6105bbed6a9e8c6098107f28092785daee88f820971db"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10549,
+          "end": 10706,
+          "sha256": "c05dda630c5c9b3551574a6b61ab384de8d7c86945b4e73996387244ddd844aa"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4499,
+          "end": 4750,
+          "sha256": "63221b2bb4e204f319365db3d58bf5fa52f3c9676a5fb3b5f645f9265166b29c"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 6944,
+          "end": 7104,
+          "sha256": "c29669354e19e9d77696dfd2ce3a9ce9970e7caea65fe168f4a81d7706af67e6"
+        }
+      ],
+      "open_questions": []
+    },
+    "staffing.receipt": {
+      "dimension": "receipt",
+      "status": "specified",
+      "facts": [
+        "orgtree_hire and orgtree_staff are TX_POST; staff in rehire mode is PRE when it carries a name (the rename moves folders before any transaction) and TX_POST without one (opreceipts.coverage). A keyed call files an applied receipt in the same save; a replay returns the replay envelope and changes nothing. Retained result keys: hire keeps node, started and account (its allowlisted name, tier and grant are not in the result); staff keeps node, started, item, created or updated, assigned_to and account. The account_binding slice (result_slice, shared with rehire and retool) is not specified here. Pinned."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11828,
+          "end": 11845,
+          "sha256": "6f5efe7bb30fdd0330659bb4f6e7277ba1bfc99a0e1a9da1011db2ec15a72cda"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 184,
+          "end": 191,
+          "sha256": "6cdf6582b76e099f821f48c6ea490207284808dbef467e76eae691b1477cfaf5"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 250,
+          "end": 266,
+          "sha256": "b9b20a475c2dae24bba05a930465c9ce50bd546f96f8c576a1bcacd6996635e0"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 294,
+          "end": 317,
+          "sha256": "0251ae1c6835cf2ed01181434fdfd14305c6523455b0ab8cdf9befaaee3f3437"
+        }
+      ],
+      "open_questions": []
+    },
+    "staffing.effects": {
+      "dimension": "effects",
+      "status": "specified",
+      "facts": [
+        "A started seat is driven exactly ONCE after the save (supervisor.send_message, mail_ping, no ping_reason), whatever started it: a kickoff, a work_item or staff assignment, a rehire with waiting mail, or an audience grant that wakes the grantee. Without one of those nothing is driven and the result says the seat is IDLE. Each kickoff and each assignment sparks mail_notify(org, caller, seat), so staff with a kickoff sparks twice and posts two request mails. Every accepted call ends with one hub_changed. Recorded legacy behaviour: a hire started only by an audience grant is told 'its first turn starts on your kickoff' although no kickoff was sent. Pinned with spies."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10008,
+          "end": 10196,
+          "sha256": "13db47c0990a0a908fe6105bbed6a9e8c6098107f28092785daee88f820971db"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10549,
+          "end": 10706,
+          "sha256": "c05dda630c5c9b3551574a6b61ab384de8d7c86945b4e73996387244ddd844aa"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12882,
+          "end": 12890,
+          "sha256": "4df85e42ee64d2706e2ccc264d330b69e0ebdccd11e538e60598236e09c31efb"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12969,
+          "end": 12974,
+          "sha256": "fa90ac931f78a9daa11eb3026e2d4ce40f043d4f9c4938aa04bef02469e5caba"
+        }
+      ],
+      "open_questions": []
+    },
+    "staffing.reads": {
+      "dimension": "reads",
+      "status": "unresolved",
+      "facts": [
+        "Source read set: the caller, the destination and its chain up to the caller (free amounts, grants, scopes, depth and child counts), tier prices and the tier ceiling, the org's defaults (visibility, tools, account, cascade_hire), the audience table, and for staff the work items; the harness choice for an OpenRouter tier is a provider read made before DOC_LOCK (new_hire_harness)."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10233,
+          "end": 10371,
+          "sha256": "98d8ab7edcc41c2e087aee9969933451c77ec73dbe309d1c186f20bb9440c904"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10199,
+          "end": 10230,
+          "sha256": "a4aead52a9f6c3856bf2644e5fafd8edc9982ad21291dd7d2592949c07ff05c2"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4499,
+          "end": 4750,
+          "sha256": "63221b2bb4e204f319365db3d58bf5fa52f3c9676a5fb3b5f645f9265166b29c"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4752,
+          "end": 4884,
+          "sha256": "ad1d8b46c4b9657c577282a81206c6abd83c0405b038476ab770696e4e4afc49"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10549,
+          "end": 10706,
+          "sha256": "c05dda630c5c9b3551574a6b61ab384de8d7c86945b4e73996387244ddd844aa"
+        }
+      ],
+      "open_questions": [
+        "Record the statement-level read set of each staffing outcome, cold and warm.",
+        "Owner: P02. Closes with: observed per-operation contacts for hire (plain, kickoff, target, superior, audiences, work_item) and staff (create, update, rehire mode), cold and warm. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to the staffing operations."
+      ]
+    },
+    "staffing.conflicts": {
+      "dimension": "conflicts",
+      "status": "unresolved",
+      "facts": [
+        "Each call runs in one document write cycle under DOC_LOCK, except the rehire-mode rename (its own lock, before) and the provider/harness reads (before the lock); the seat, the chain's credits and the item are org-document state, so staffing serialises with every other writer."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11828,
+          "end": 11845,
+          "sha256": "6f5efe7bb30fdd0330659bb4f6e7277ba1bfc99a0e1a9da1011db2ec15a72cda"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11774,
+          "end": 11796,
+          "sha256": "4d21332b60d09e6ccb37fd0f468772585d8747393acd488fa4fdfd4e30f42906"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11819,
+          "end": 11827,
+          "sha256": "251d29589a242fa704e85009658dbb31a236d94474593d6005a94d8c233bff4e"
+        }
+      ],
+      "open_questions": [
+        "Choose the native locking and atomicity for seat creation, chain credits and the seat-plus-item write.",
+        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 and P05 (staffing). Closes with: native row-level rules for seat creation, chain credit acquisition and the atomic seat-plus-item write, qualified by concurrent hires against one chain and a staff racing an item update. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source decides."
+      ]
+    },
+    "staffing.wire": {
+      "dimension": "wire",
+      "status": "unresolved",
+      "facts": [
+        "Result shapes are fixtured in docs/state-system/staffing-boundary.json and compared by tests/test_state_staffing_boundary.py: hire {node, warnings, started, next_step, account} plus applied / inserted_above, reports_to, grant / assigned_item when used; staff adds item, ref, assigned_to and created or updated (and staffing_boundary); staff in rehire mode carries cost and no account."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10233,
+          "end": 10371,
+          "sha256": "98d8ab7edcc41c2e087aee9969933451c77ec73dbe309d1c186f20bb9440c904"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10388,
+          "end": 10505,
+          "sha256": "7dbe2655596e9e4f9c51b0ae04d3d02d9c9a3e82ea9c61bd8313936f52da6c84"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10549,
+          "end": 10706,
+          "sha256": "c05dda630c5c9b3551574a6b61ab384de8d7c86945b4e73996387244ddd844aa"
+        }
+      ],
+      "open_questions": [
+        "Carry the fixtured staffing shapes to the native/Rust door.",
+        "Owner: the native/Rust conversion, from the P03 prototype onward. Closes with: the fixtured staffing shapes passing against the native and Rust builds, with the next_step wording and the rehire-mode shape reproduced deliberately or replaced. Not coverable at P01 from available evidence: no native or Rust build exists to run the fixtures against."
+      ]
+    },
+    "staffing.instrumentation": {
+      "dimension": "instrumentation",
+      "status": "unresolved",
+      "facts": [
+        "The agent door labels and classifies both tools; the seat's first turn is a supervisor drive after the save. No P02 per-operation record covers them."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12413,
+          "end": 12415,
+          "sha256": "d744bf7f6fba7b7e2317ca045f2c9545d708e07b8c4d1ae2548e369a803eea4c"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12539,
+          "end": 12543,
+          "sha256": "5da3c196d5abbd6eb34f289a4619f972df805a3a141ad11ea0cdf3901968e74b"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12882,
+          "end": 12890,
+          "sha256": "4df85e42ee64d2706e2ccc264d330b69e0ebdccd11e538e60598236e09c31efb"
+        }
+      ],
+      "open_questions": [
+        "Extend the P02 per-operation probe to hire and staff with an agent-level locality control.",
+        "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed, loss-accounted contact record for hire and staff with agent-level locality (the caller, the destination chain, the new seat and a moved item's previous owner only). Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to the staffing operations."
+      ]
     }
   },
   "contracts": {
@@ -7967,6 +8380,201 @@
           "sha256": "9ac93cd5057a651f855c093dc5f278161e0ce71ec2d3eb4271173e99576813b2"
         }
       ]
+    },
+    "staffing.hire": {
+      "entry_ids": [
+        "cd474205d4794700dc5ebdff2e05a3d6d1790273a5ffaa74b8237f5641facff1"
+      ],
+      "tools": [
+        "orgtree_hire"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "domain_mode": "write",
+      "dimensions": {
+        "authority": [
+          "staffing.authority"
+        ],
+        "reads": [
+          "staffing.reads"
+        ],
+        "writes": [
+          "staffing.writes"
+        ],
+        "predicates": [
+          "staffing.predicates"
+        ],
+        "conflicts": [
+          "staffing.conflicts"
+        ],
+        "wire": [
+          "staffing.wire"
+        ],
+        "receipt": [
+          "staffing.receipt"
+        ],
+        "effects": [
+          "staffing.effects"
+        ],
+        "instrumentation": [
+          "staffing.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1151,
+          "end": 1307,
+          "sha256": "053d8a4398e6423dbf4af2639fd66f1d4ed6e466c7cfdcf6c8bce7ef512858fc"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12413,
+          "end": 12415,
+          "sha256": "d744bf7f6fba7b7e2317ca045f2c9545d708e07b8c4d1ae2548e369a803eea4c"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10233,
+          "end": 10371,
+          "sha256": "98d8ab7edcc41c2e087aee9969933451c77ec73dbe309d1c186f20bb9440c904"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10008,
+          "end": 10196,
+          "sha256": "13db47c0990a0a908fe6105bbed6a9e8c6098107f28092785daee88f820971db"
+        }
+      ]
+    },
+    "staffing.staff-create": {
+      "entry_ids": [
+        "b77b25e891a35aac05166f56195b7a125fc7cb1017e50709c00ffd4dafd8d69c"
+      ],
+      "tools": [
+        "orgtree_staff"
+      ],
+      "action": "create",
+      "action_normalization": "str_or_empty_strip_lower",
+      "when": {
+        "always": true
+      },
+      "domain_mode": "write",
+      "dimensions": {
+        "authority": [
+          "staffing.authority"
+        ],
+        "reads": [
+          "staffing.reads"
+        ],
+        "writes": [
+          "staffing.writes"
+        ],
+        "predicates": [
+          "staffing.predicates"
+        ],
+        "conflicts": [
+          "staffing.conflicts"
+        ],
+        "wire": [
+          "staffing.wire"
+        ],
+        "receipt": [
+          "staffing.receipt"
+        ],
+        "effects": [
+          "staffing.effects"
+        ],
+        "instrumentation": [
+          "staffing.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1500,
+          "end": 1618,
+          "sha256": "e96555baa12d26523882002b281fe006ac33c39f2a0bc27d91bf1d05e191372d"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12539,
+          "end": 12543,
+          "sha256": "5da3c196d5abbd6eb34f289a4619f972df805a3a141ad11ea0cdf3901968e74b"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10549,
+          "end": 10706,
+          "sha256": "c05dda630c5c9b3551574a6b61ab384de8d7c86945b4e73996387244ddd844aa"
+        }
+      ]
+    },
+    "staffing.staff-update": {
+      "entry_ids": [
+        "b77b25e891a35aac05166f56195b7a125fc7cb1017e50709c00ffd4dafd8d69c"
+      ],
+      "tools": [
+        "orgtree_staff"
+      ],
+      "action": "update",
+      "action_normalization": "str_or_empty_strip_lower",
+      "when": {
+        "always": true
+      },
+      "domain_mode": "write",
+      "dimensions": {
+        "authority": [
+          "staffing.authority"
+        ],
+        "reads": [
+          "staffing.reads"
+        ],
+        "writes": [
+          "staffing.writes"
+        ],
+        "predicates": [
+          "staffing.predicates"
+        ],
+        "conflicts": [
+          "staffing.conflicts"
+        ],
+        "wire": [
+          "staffing.wire"
+        ],
+        "receipt": [
+          "staffing.receipt"
+        ],
+        "effects": [
+          "staffing.effects"
+        ],
+        "instrumentation": [
+          "staffing.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1500,
+          "end": 1618,
+          "sha256": "e96555baa12d26523882002b281fe006ac33c39f2a0bc27d91bf1d05e191372d"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12539,
+          "end": 12543,
+          "sha256": "5da3c196d5abbd6eb34f289a4619f972df805a3a141ad11ea0cdf3901968e74b"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10549,
+          "end": 10706,
+          "sha256": "c05dda630c5c9b3551574a6b61ab384de8d7c86945b4e73996387244ddd844aa"
+        }
+      ]
     }
   },
   "wire_cases": [
@@ -8496,6 +9104,45 @@
       "args": {},
       "contract": "credits.decide",
       "domain_mode": "conditional_write"
+    },
+    {
+      "name": "staffing.hire",
+      "entry_id": "cd474205d4794700dc5ebdff2e05a3d6d1790273a5ffaa74b8237f5641facff1",
+      "args": {
+        "name": "fixture",
+        "tier": "haiku",
+        "grant": 0,
+        "charter": "fixture"
+      },
+      "contract": "staffing.hire",
+      "domain_mode": "write"
+    },
+    {
+      "name": "staffing.staff-create",
+      "entry_id": "b77b25e891a35aac05166f56195b7a125fc7cb1017e50709c00ffd4dafd8d69c",
+      "args": {
+        "action": "create",
+        "title": "fixture",
+        "objective": "fixture",
+        "name": "fixture",
+        "tier": "haiku",
+        "grant": 0
+      },
+      "contract": "staffing.staff-create",
+      "domain_mode": "write"
+    },
+    {
+      "name": "staffing.staff-update",
+      "entry_id": "b77b25e891a35aac05166f56195b7a125fc7cb1017e50709c00ffd4dafd8d69c",
+      "args": {
+        "action": "update",
+        "slug": "fixture",
+        "name": "fixture",
+        "tier": "haiku",
+        "grant": 0
+      },
+      "contract": "staffing.staff-update",
+      "domain_mode": "write"
     }
   ],
   "limits": [
@@ -10305,10 +10952,19 @@
     },
     {
       "id": "cd474205d4794700dc5ebdff2e05a3d6d1790273a5ffaa74b8237f5641facff1",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "staffing.hire"
+      ],
+      "reason": "The orgtree_hire card (S3 F3b).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1151,
+          "end": 1307,
+          "sha256": "053d8a4398e6423dbf4af2639fd66f1d4ed6e466c7cfdcf6c8bce7ef512858fc"
+        }
+      ]
     },
     {
       "id": "eaec0b8b7860e34dac3c71daa0b8d8dc4ec214a432cd02abc257ca30a75560f4",
@@ -10340,10 +10996,20 @@
     },
     {
       "id": "b77b25e891a35aac05166f56195b7a125fc7cb1017e50709c00ffd4dafd8d69c",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "staffing.staff-create",
+        "staffing.staff-update"
+      ],
+      "reason": "The orgtree_staff card; its two actions (create, update) each have a contract (S3 F3b).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1500,
+          "end": 1618,
+          "sha256": "e96555baa12d26523882002b281fe006ac33c39f2a0bc27d91bf1d05e191372d"
+        }
+      ]
     },
     {
       "id": "d1f730585781c6ee6d63735daf79e9f43d3febdaf2413ad426dead8b8d8dffc4",
@@ -11319,24 +11985,52 @@
     },
     {
       "id": "a129adb0711aa3c86eb0b63e4d4d692096f31bdd292b121329b41164de71967b",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "staffing.staff-create",
+        "staffing.staff-update"
+      ],
+      "reason": "_staff_call's action check (create|update).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10549,
+          "end": 10706,
+          "sha256": "c05dda630c5c9b3551574a6b61ab384de8d7c86945b4e73996387244ddd844aa"
+        }
+      ]
     },
     {
       "id": "41f825929d1206f2eb579e0aad6037380a11ef5ac273e42cfde30211a42d8d88",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "staffing.staff-update"
+      ],
+      "reason": "_staff_call's update-needs-slug branch.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10549,
+          "end": 10706,
+          "sha256": "c05dda630c5c9b3551574a6b61ab384de8d7c86945b4e73996387244ddd844aa"
+        }
+      ]
     },
     {
       "id": "f2c32b21411c4d5538cff9d28796fa7916b7fbc5754bb8ab6114228d6ff323eb",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "staffing.staff-create"
+      ],
+      "reason": "_staff_call's create branch (work_create).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10549,
+          "end": 10706,
+          "sha256": "c05dda630c5c9b3551574a6b61ab384de8d7c86945b4e73996387244ddd844aa"
+        }
+      ]
     },
     {
       "id": "225cd500a3ad4324c5222fd51ef5d08525004ad94c6871a23a8351955430cf25",
@@ -11532,10 +12226,20 @@
     },
     {
       "id": "9518992b70440acede921d8437b1407cf654dca5e903fbc8e2b2b5d3abd0ee65",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "staffing.staff-create",
+        "staffing.staff-update"
+      ],
+      "reason": "The staff half of the pre-lock rename selector (rehire mode with a name); the orgtree_rehire half is its own witness and stays pending.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11774,
+          "end": 11796,
+          "sha256": "4d21332b60d09e6ccb37fd0f468772585d8747393acd488fa4fdfd4e30f42906"
+        }
+      ]
     },
     {
       "id": "c37496b1268f1bd9f0e9fd1b410c9c1f62ae2d2d7d76fbfb8e14e5b3a17da8a5",
@@ -11553,10 +12257,21 @@
     },
     {
       "id": "0bcf6e96525556c1e6dedca709719176058448f11d261828dc9237a2d4478562",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "staffing.hire",
+        "staffing.staff-create",
+        "staffing.staff-update"
+      ],
+      "reason": "Shared pre-lock harness choice; both tools it admits (orgtree_hire, orgtree_staff) are contracted.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11819,
+          "end": 11827,
+          "sha256": "251d29589a242fa704e85009658dbb31a236d94474593d6005a94d8c233bff4e"
+        }
+      ]
     },
     {
       "id": "8f55f2dcaa52633fdfb94396fbb2d4e61f406a0a1fe39d7b66be5704943ed163",
@@ -11802,10 +12517,19 @@
     },
     {
       "id": "0f898376168522ddf7f796e562f01e02280dbe47037219a47ac2e01d88a62a7c",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "staffing.hire"
+      ],
+      "reason": "Exact orgtree_hire branch in the agent write cycle.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12413,
+          "end": 12415,
+          "sha256": "d744bf7f6fba7b7e2317ca045f2c9545d708e07b8c4d1ae2548e369a803eea4c"
+        }
+      ]
     },
     {
       "id": "f4f632240b55eb9656d0b144438c0c279b8895a251a787c259bebb6a266a2e01",
@@ -11844,10 +12568,20 @@
     },
     {
       "id": "097c8ea95c8d62a8d05a385379ada1f008c02dc19d5a553198fabe910b6389ca",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "staffing.staff-create",
+        "staffing.staff-update"
+      ],
+      "reason": "Exact orgtree_staff branch in the agent write cycle.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12539,
+          "end": 12543,
+          "sha256": "5da3c196d5abbd6eb34f289a4619f972df805a3a141ad11ea0cdf3901968e74b"
+        }
+      ]
     },
     {
       "id": "3d8d2c7e5a4cb07ac6bb1ead402fad6a8d3e703bb43355caf3493adec32d7d80",
@@ -12282,35 +13016,17 @@
     },
     {
       "id": "b62b2f4544ee420c67682f4c15fa65b6d5fe249dc68782ad145f6305d5dfb99a",
-      "disposition": "mapped",
-      "contracts": [
-        "credits.decide"
-      ],
-      "reason": "credit_request_action's action check (approve|deny), reached only from the decision route.",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/ledger.py",
-          "start": 9615,
-          "end": 9677,
-          "sha256": "b41348a749ab6627367487d032de5632be5e8f804ab5575cd8cbd08d228ed27f"
-        }
-      ]
+      "disposition": "pending",
+      "contracts": [],
+      "reason": "credit_request_action's action check (approve|deny): credits.decide (POST /api/orgs/{slug}/credit-requests) is contracted, but the inbox batch submit (POST /api/orgs/{slug}/nodes/{nid}/batch, Org.resolve_batch) reaches it too and is uncontracted, so it stays pending until that entry is contracted (S3 decision 5).",
+      "source_refs": []
     },
     {
       "id": "c590e76e7e2d20205c8ddb783eaad204ce29bacca1fd2b1f987e0740ad819537",
-      "disposition": "mapped",
-      "contracts": [
-        "credits.decide"
-      ],
-      "reason": "credit_request_action's approve branch, reached only from the decision route.",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/ledger.py",
-          "start": 9615,
-          "end": 9677,
-          "sha256": "b41348a749ab6627367487d032de5632be5e8f804ab5575cd8cbd08d228ed27f"
-        }
-      ]
+      "disposition": "pending",
+      "contracts": [],
+      "reason": "credit_request_action's approve branch: credits.decide (POST /api/orgs/{slug}/credit-requests) is contracted, but the inbox batch submit (POST /api/orgs/{slug}/nodes/{nid}/batch, Org.resolve_batch) reaches it too and is uncontracted, so it stays pending until that entry is contracted (S3 decision 5).",
+      "source_refs": []
     },
     {
       "id": "2af0ce55aa8904c224dc811495bb194a2f7a51357cde6a6effe2afa54542f9a3",
@@ -12377,10 +13093,20 @@
     },
     {
       "id": "26bd3caf15bce751b332d9610a313559b7f613d648f1a88ee5385f127c267efe",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "staffing.staff-create",
+        "staffing.staff-update"
+      ],
+      "reason": "opreceipts.coverage's staff rehire-mode branch (PRE with a name, TX_POST without).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 250,
+          "end": 266,
+          "sha256": "b9b20a475c2dae24bba05a930465c9ce50bd546f96f8c576a1bcacd6996635e0"
+        }
+      ]
     },
     {
       "id": "0e067aac866fa734e990a896947545dd030837fad7389b9358c1d49bb4781b83",

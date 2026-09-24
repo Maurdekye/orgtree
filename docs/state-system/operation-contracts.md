@@ -115,9 +115,9 @@ runtime probes remain unresolved. Material reads add two cards and two selectors
 diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
-Current totals are 30 contracts, 21 mapped registrations and 40 mapped
-dispatch witnesses. **604 obligations remain**: 298 registrations, 187 dispatch
-witnesses, 15 storage candidates and 104 unresolved dimension occurrences.
+Current totals are 33 contracts, 23 mapped registrations and 46 mapped
+dispatch witnesses. **608 obligations remain**: 296 registrations, 181 dispatch
+witnesses, 15 storage candidates and 116 unresolved dimension occurrences.
 How it got there: 600 was two more registrations than the preceding 598 because the scanner now
 recognizes `asyncio.to_thread` hand-offs; both new witnesses are pending and no
 existing witness identity, disposition or contract changed.
@@ -186,6 +186,14 @@ the request-credits and reallocate cards and branches, the credit-decision route
 and its two ledger action branches — to `credits.request`, `credits.reallocate`
 and `credits.decide`, whose four unresolved shared `funding` facets add twelve
 occurrences (+12).
+608 is four more than that 604 (S3 candidate 6): ten witnesses are mapped (-10) —
+the hire and staff cards and branches, the shared hire|staff harness selector, the
+staff half of the rehire-rename selector, three `_staff_call` action branches and
+the staff receipt-coverage branch — to `staffing.hire`, `staffing.staff-create` and
+`staffing.staff-update`, whose four unresolved shared `staffing` facets add twelve
+occurrences (+12); and candidate 5's two `credit_request_action` branches return to
+pending (+2, S3 decision 5), because the uncontracted inbox batch submit
+(`Org.resolve_batch`) reaches them too.
 See "P03-prototype surface" below.
 
 Of the 53 open dimension occurrences on the sixteen legacy-family contracts, 37 (17 facets) cannot be closed at P01
@@ -374,6 +382,32 @@ wire (native/Rust). Recorded legacy behaviour: a keyed credit request's receipt
 retains nothing of the request, a fractional delta moves a whole credit, and a zero
 delta still logs an event. The operator `org_op` reallocate branch goes with the
 staffing candidate, which contracts `org_op`.
+Correction (S3 decision 5): candidate 5 mapped the two `credit_request_action`
+branches (approve, and the approve|deny check) saying they were reached only from
+the decision route. The inbox batch submit (`Org.resolve_batch`) reaches them too,
+and it is uncontracted, so candidate 6 returns both to pending with that reason.
+
+Candidate 6 (F3b, agent-door staffing) adds `staffing.hire` (`orgtree_hire`) and
+`staffing.staff-create` / `staffing.staff-update` (`orgtree_staff`, one contract per
+card action), sharing one set of `staffing` facets. Staff's rehire mode (a `node`)
+is specified inside the staff contracts; `orgtree_rehire` itself is outside the
+accepted surface and stays pending, and so does the account-binding receipt branch
+it shares. Specified from source and pinned by `tests/test_state_staffing_boundary.py`
+against `staffing-boundary.json`, with the provider gate patched off as machine
+state: authority (destination inside the caller's subtree, strict scope clamp,
+audience rules, rehire authority), predicates (no defaults, superior mode, credits on
+the chain, staff action and mode), writes (seat and item in one save, a superior
+insertion), receipt (TX_POST, or PRE for a named rehire-mode staff) and effects (one
+drive per started seat). Unresolved with an owner: reads and instrumentation (P02),
+conflicts (native design) and wire (native/Rust). The tool infers an omitted staff
+action, which the selector DSL cannot express, so the selector cases name it.
+Recorded legacy behaviour: a hire started only by an audience grant is told its turn
+starts on a kickoff it never sent; rehire-mode staffing of a live agent is not
+refused; a named rehire-mode staffing renames the node before the transaction, so a
+later refusal leaves it renamed; and an inserted superior's seat is paid out of the
+anchor's own grant. The operator `org_op` hire and reallocate branches switch on
+`op`, which the selector DSL cannot express either; they follow in their own
+candidate.
 
 ## Deliberate failing controls
 

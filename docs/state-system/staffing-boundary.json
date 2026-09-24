@@ -1,0 +1,131 @@
+{
+  "schema": "orgtree.staffing-boundary/v1",
+  "source_contract_sha256": "38d86e09fe5db0853c271f4be3f3fa3a544d19415e85ba2d5b0f0d057a55d147",
+  "qualification": {
+    "runtime_census": false,
+    "conversion_authorized": false
+  },
+  "contracts": {
+    "staffing.hire": "orgtree_hire",
+    "staffing.staff-create": "orgtree_staff action=create",
+    "staffing.staff-update": "orgtree_staff action=update"
+  },
+  "results": {
+    "hire": [
+      "account",
+      "next_step",
+      "node",
+      "started",
+      "warnings"
+    ],
+    "hire_kickoff": [
+      "account",
+      "applied",
+      "next_step",
+      "node",
+      "started",
+      "warnings"
+    ],
+    "hire_superior": [
+      "account",
+      "grant",
+      "inserted_above",
+      "next_step",
+      "node",
+      "reports_to",
+      "started",
+      "warnings"
+    ],
+    "staff_create": [
+      "account",
+      "assigned_to",
+      "created",
+      "item",
+      "next_step",
+      "node",
+      "ref",
+      "started",
+      "warnings"
+    ],
+    "staff_update": [
+      "account",
+      "assigned_to",
+      "item",
+      "next_step",
+      "node",
+      "ref",
+      "staffing_boundary",
+      "started",
+      "updated",
+      "warnings"
+    ],
+    "staff_rehire": [
+      "assigned_to",
+      "cost",
+      "created",
+      "item",
+      "next_step",
+      "node",
+      "ref",
+      "started",
+      "warnings"
+    ]
+  },
+  "sections": {
+    "hire_self": [
+      "events",
+      "nodes"
+    ],
+    "hire_target": [
+      "events",
+      "nodes",
+      "notice_log",
+      "notices"
+    ],
+    "hire_kickoff": [
+      "events",
+      "lifecycle",
+      "mail",
+      "mail_log",
+      "nodes"
+    ],
+    "staff": [
+      "events",
+      "lifecycle",
+      "mail",
+      "mail_log",
+      "nodes",
+      "notice_log",
+      "notices",
+      "work_items"
+    ]
+  },
+  "retained": {
+    "orgtree_hire": [
+      "account",
+      "node",
+      "started"
+    ],
+    "orgtree_staff": [
+      "account",
+      "assigned_to",
+      "created",
+      "item",
+      "node",
+      "started"
+    ]
+  },
+  "coverage": {
+    "hire": "transaction+post",
+    "staff": "transaction+post",
+    "staff_rehire": "transaction+post",
+    "staff_rehire_named": "pre_transaction"
+  },
+  "legacy_defects": [
+    "a hire started only by an audience grant is told its first turn starts on the kickoff it never sent",
+    "orgtree_staff in rehire mode on an agent that is already live is not refused: the item is created and assigned",
+    "a rehire-mode orgtree_staff with a name renames the archived node before the transaction, so a later refusal leaves it renamed",
+    "a superior insertion pays the inserted seat out of the anchor's own grant"
+  ],
+  "scope": "Legacy boundary of orgtree_hire and orgtree_staff through the agent door on disposable SQLite: authority, predicates, committed sections, receipts and callbacks at their boundary. The provider gate is patched off (machine state). Nothing native, contact-level or concurrent is qualified."
+}
