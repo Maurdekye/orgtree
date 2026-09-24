@@ -5546,7 +5546,7 @@
       "facts": [
         "The mail branch runs in one write cycle under DOC_LOCK; the session-command branch takes its own write cycle for the deep-reach effects and then drives the process outside it.",
         "Native design r7 (docket design-the-native-conflict-predicate-and-isolati artifact r7, sha256 24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792; approved by review artifact r10, sha256 8be9323173dd1ae785f66328a8481a12bf86c7f2c816797c1c9c496c01ea895b): not covered by r7. It gives no rule for a human send, its Sent row or its deep-reach grant and notices.",
-        "Native design extension r3 (docket extend-the-native-conflict-and-predicate-design artifact r8, sha256 f5ee496781b4c2464a3ee723e9a740f5330bb61f516f9279e2e38a3c655af99c; approved by review artifact r11, sha256 4f94e78ccec0ba8a942e277e0c73f5d298f184c0dfb61d2e25cb73ce50c30b8d): the design half is answered: section 4.6 and E1 with the operator as source (the Sent row, the deep-reach notices and the first-contact user audience in the source transaction; every refusal before any write; the refused /compact no longer notifies, except for the busy race after commit, which legacy has too), decisions E-D2, E-D4 (client_op, when present, becomes the send's original operation key: a repeat with the same content replays, one with different content is refused; legacy's defect is that it is not a key) and E-D5. The qualified half is scheduled at P03 (E-D18): Q-HM1 to Q-HM4."
+        "Native design extension r3 (docket extend-the-native-conflict-and-predicate-design artifact r8, sha256 f5ee496781b4c2464a3ee723e9a740f5330bb61f516f9279e2e38a3c655af99c; approved by review artifact r11, sha256 4f94e78ccec0ba8a942e277e0c73f5d298f184c0dfb61d2e25cb73ce50c30b8d): the design half is answered: section 4.6 and E1 with the operator as source (the Sent row, the deep-reach notices and the first-contact user audience in the source transaction; every refusal before any write; the refused /compact no longer notifies, except for the busy race after commit, which legacy has too), decisions E-D2, E-D4 (chosen: client_op, when present, becomes the send's original operation key: a repeat with the same content replays, one with different content is refused; legacy's defect is that it is not a key) and E-D5. The qualified half is scheduled at P03 (E-D18): Q-HM1 to Q-HM4."
       ],
       "source_refs": [
         {
@@ -6881,9 +6881,11 @@
     },
     "operator-ops.reads": {
       "dimension": "reads",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
-        "Source read set: the whole org document loaded under DOC_LOCK (load_org, not the resident), the parent chain's free amounts and grants, tier prices and ceilings, the org's scope defaults and the anchor's scope for `above`; the harness choice for an OpenRouter tier is a provider read made before DOC_LOCK (new_hire_harness)."
+        "Source read set: the org loaded under DOC_LOCK through load_org, which inside the lock is served the per-org resident document (store._load_org's resident fast path; a fresh parse only on a miss or a dirty repeat hand-out), the parent chain's free amounts and grants, tier prices and ceilings, the org's scope defaults and the anchor's scope for `above`; the harness choice for an OpenRouter tier is a provider read made before DOC_LOCK (new_hire_harness).",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 ebad321) for every class the clause names, cold and warm, answering both questions above, as the operator (@user) on the desktop token: hire at the top level, under a parent (:under) and above an anchor (:above); reallocate up, :down and :top-level; plus a fractional delta, the refusals and a locality control. Cold, every class reads doc, log_d, log_l, meta and nodes of the org's own store; warm, only meta and nodes. No row makes an unknown contact or touches another org's store. Not exercised: the OpenRouter harness choice (new_hire_harness, a provider read), because the fixture hires haiku and the provider gate is stubbed, and the kiosk visitor path to this door; the clause names neither.",
+        "The refusals write nothing to the org's store: a hire with no name, an unknown tier, an above-hire whose anchor does not report to the named parent, a reallocation with no delta, one below the committed floor, and a named agent actor with no authority over its superior (422); the agent credential is refused 401 before any census attempt. Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -6917,10 +6919,7 @@
           "sha256": "ad1d8b46c4b9657c577282a81206c6abd83c0405b038476ab770696e4e4afc49"
         }
       ],
-      "open_questions": [
-        "Record the statement-level read set of operator hire and reallocate, cold and warm.",
-        "Owner: P02. Closes with: observed per-operation contacts for operator hire (top level, under a parent, above) and reallocate (up, down, top level), cold and warm. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to the operator ops door."
-      ]
+      "open_questions": []
     },
     "operator-ops.conflicts": {
       "dimension": "conflicts",
@@ -6928,7 +6927,7 @@
       "facts": [
         "Each operation is one whole-document write cycle under DOC_LOCK (load_org, mutate, save_org), so it serialises with every other writer; the harness read happens before the lock.",
         "Native design r7 (docket design-the-native-conflict-predicate-and-isolati artifact r7, sha256 24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792; approved by review artifact r10, sha256 8be9323173dd1ae785f66328a8481a12bf86c7f2c816797c1c9c496c01ea895b): the design half is answered in part, for the ledger transitions this door runs: reallocate by section 6.4's reallocate row and C2a pair P2, and hire by its island membership (C2a P2, P3, P5, P6) as for staffing. Not covered by r7: the operator door itself (section 6.4 defers only the operator-only preview operations, rescind, delete and reseed, until the operator registration is contracted, and gives the door no rule), a declared read set for hire, and the rule that an agent named as actor gets that agent's authority. Qualification of the covered part is scheduled at P03: Q-C8.",
-        "Native design extension r3 (docket extend-the-native-conflict-and-predicate-design artifact r8, sha256 f5ee496781b4c2464a3ee723e9a740f5330bb61f516f9279e2e38a3c655af99c; approved by review artifact r11, sha256 4f94e78ccec0ba8a942e277e0c73f5d298f184c0dfb61d2e25cb73ce50c30b8d): the design half is answered: section 4.9 with E4 and E5 (the door runs each family's own transaction; an agent named as actor is an acting-as identity whose rows are anchored; an optional operation key would stop a retried hire from duplicating the seat, E-D9), with section 4.8's declared read set for hire and, in a kiosk organization, E8's kiosk pool row, taken FOR UPDATE and locked last by every hire or reallocation through this door that changes the top level, deep user acquires included (E-D17 (b) amends r7's reallocate row). The qualified half is scheduled at P03 (E-D18): Q-OP1 to Q-OP4 and r7's Q-C8."
+        "Native design extension r3 (docket extend-the-native-conflict-and-predicate-design artifact r8, sha256 f5ee496781b4c2464a3ee723e9a740f5330bb61f516f9279e2e38a3c655af99c; approved by review artifact r11, sha256 4f94e78ccec0ba8a942e277e0c73f5d298f184c0dfb61d2e25cb73ce50c30b8d): the design half is answered: section 4.9 with E4 and E5 (the door runs each family's own transaction; an agent named as actor is an acting-as identity whose rows are anchored; an optional operation key (chosen, E-D9) stops a retried hire from duplicating the seat once the operator UI sends one), with section 4.8's declared read set for hire and, in a kiosk organization, E8's kiosk pool row, taken FOR UPDATE and locked last by every hire or reallocation through this door that changes the top level, deep user acquires included (E-D17 (b) amends r7's reallocate row). The qualified half is scheduled at P03 (E-D18): Q-OP1 to Q-OP4 and r7's Q-C8."
       ],
       "source_refs": [
         {
@@ -6982,9 +6981,10 @@
     },
     "operator-ops.instrumentation": {
       "dimension": "instrumentation",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
-        "The access middleware labels the route; nothing identifies the op beyond the body. No P02 per-operation record covers it."
+        "The access middleware labels the route; nothing identifies the op beyond the body. P02's per-operation record covers it (below).",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 ebad321): a loss-accounted per-operation record for every row, cold and warm (one census record matching the harness), except the agent-credential refusal. Agent-level locality, answering the question above against a WIDENED set: the target and its WHOLE ancestor chain (a raise's shortfall bubbles up the chain through ledger._chain_acquire and writes the row of every ancestor it reaches, as far as the top level when the lower hops lack the free credits; in the probe it stopped at the grandparent, below the top-level seat; a reduction writes only the target's row),the new seat's parent and that parent's other live children (a top-level hire tells every live top-level seat, its peers under the user), and for an above-hire the anchor and the anchor's reports. The widening follows the user ruling recorded at ledger.hire's notices (\"every affected agent is told, WHOEVER acted\"; relayed by the coordinator as the 2026-09-07 ruling), as for staffing.instrumentation (S2g), and the coordinator's ruling of 2026-09-24 16:14Z that this door and the chooser widen the same way. Logically only notices change, each to a member of that set; the door drives nobody and sparks nothing. The control control:operator-third-agent (a reallocation that also posts mail to a sibling) is flagged, and no other row writes a third agent's mail or row. Native negative controls are the P03 gate, not a clause of this legacy facet (S2d decision 1, reviewer ruling on 803227e). Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -6994,10 +6994,7 @@
           "sha256": "1867b9de1eaf72536652d371b2f4eed2e48750069cdf6b27b9b907d5e0338a83"
         }
       ],
-      "open_questions": [
-        "Extend the P02 per-operation probe to operator hire and reallocate.",
-        "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed, loss-accounted contact record for operator hire and reallocate with agent-level locality (the target, its chain and the new seat's parent and peers only). Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to the operator ops door."
-      ]
+      "open_questions": []
     },
     "quick-staff.authority": {
       "dimension": "authority",
@@ -7206,7 +7203,8 @@
       "dimension": "reads",
       "status": "unresolved",
       "facts": [
-        "Source read set: the staffcache snapshot (read OUTSIDE DOC_LOCK), then under DOC_LOCK the whole org loaded (load_org), the ticket and its owner's liveness, the org's tiers, ceilings and scope defaults, and for the immediate modes a trial hire per tier over the eager sections (HireProbe); the commit's harness choice is a provider read before the lock."
+        "Source read set: the staffcache snapshot (read OUTSIDE DOC_LOCK), then under DOC_LOCK the whole org loaded (load_org), the ticket and its owner's liveness, the org's tiers, ceilings and scope defaults, and for the immediate modes a trial hire per tier over the eager sections (HireProbe); the commit's harness choice is a provider read before the lock.",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 ebad321): staffing-options and its refresh, the preview in each mode (request, under the assignee, top level) and the commit in each mode with its replay, cold and warm, plus the refusals. Cold, the options read and the previews read doc, log_d, log_l, meta and nodes of the org's own store; warm, every read and replay runs no statement at all (the org is the resident document, although these routes call load_org under DOC_LOCK); the refresh never touches an org store. A replay is answered from the ticket's receipt with no write, no mail and no wake. The refusals write nothing (a stale selection, an effort without a model, an account in request mode, an immediate mode without a model, a preview of a ticket no longer backlogged); the agent credential is refused 401 before any census attempt. NOT observed: the staffing snapshot's own reads. P02's fixture fixes provider discovery (api._providers_payload), stubs the provider gate, account reasons and advertised efforts, and recomputes the snapshot on every read, so the snapshot's provider, account and effort contacts, and a cached (warm) snapshot, are outside what the rows observe. Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -7247,8 +7245,8 @@
         }
       ],
       "open_questions": [
-        "Record the statement-level read set of staffing-options, the quick-staff preview and each commit mode, cold and warm.",
-        "Owner: P02. Closes with: observed per-operation contacts for staffing-options (cold and warm), the preview in each mode and the commit in each mode, including the replay. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to the staffing chooser."
+        "Observe the staffing snapshot's own reads (provider discovery, account reasons, advertised efforts), computed and cached.",
+        "Owner: P02 for the staffing snapshot's own contacts, with P08 (runtime/providers) for the provider and account state they read. Closes with: observed per-operation contacts for staffing-options (cold and warm), the preview in each mode and the commit in each mode, including the replay, and including the staffing snapshot's own provider, account and effort reads, computed and cached. Not coverable at P01 from available evidence: P02 observes every route's and mode's contacts on the org store, but its fixture patches the snapshot's machine-state reads out, so they are unobserved."
       ]
     },
     "quick-staff.conflicts": {
@@ -7317,9 +7315,10 @@
     },
     "quick-staff.instrumentation": {
       "dimension": "instrumentation",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
-        "The access middleware labels the four routes; the commit's kickoff is a supervisor drive with ping_reason quick_staff. No P02 per-operation record covers them."
+        "The access middleware labels the four routes; the commit's kickoff is a supervisor drive with ping_reason quick_staff. P02's per-operation record covers them (below).",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 ebad321): a loss-accounted per-operation record for every chooser row, cold and warm (one census record matching the harness), except the two agent-credential refusals. Agent-level locality, answering the question above against a WIDENED set: the assignee, the new seat and the ticket, plus, for an immediate commit, the new seat's parent and live peers (under the assignee its other reports; at the top level every live top-level seat), the hire's fan-out. The widening follows the user ruling recorded at ledger.hire's notices (\"every affected agent is told, WHOEVER acted\"; relayed by the coordinator as the 2026-09-07 ruling), as for staffing.instrumentation (S2g), and the coordinator's ruling of 2026-09-24 16:14Z that this door and the chooser widen the same way. The options read, its refresh, the previews and a replay write nothing and tell nobody; a commit writes only the assignee's row and, in an immediate mode, the new seat's, and its mail reaches only the assignee and the new seat. A request commit drives the assignee once and sparks once; an immediate commit drives the new seat once and sparks twice. The control control:quick-staff-third-agent (a request-mode commit that also mails the assignee's report) is flagged, and no other row writes a third agent's mail or row. Native negative controls are the P03 gate, not a clause of this legacy facet (S2d decision 1, reviewer ruling on 803227e). Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -7341,10 +7340,7 @@
           "sha256": "5b3bf024c615f1bfcdd527e0a05c79acb0a368148c0e7d577933ed8bd3c0b5b7"
         }
       ],
-      "open_questions": [
-        "Extend the P02 per-operation probe to the staffing chooser.",
-        "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed, loss-accounted contact record for the chooser with agent-level locality (the assignee, the new seat and the ticket only). Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to the staffing chooser."
-      ]
+      "open_questions": []
     },
     "work-read.authority": {
       "dimension": "authority",

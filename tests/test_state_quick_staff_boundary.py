@@ -74,8 +74,11 @@ class BoundaryBinding(unittest.TestCase):
         registry = contracts.load(ROOT / 'docs/state-system/operation-contracts.json')
         result = contracts.validate(registry, contracts.inventory.scan(ROOT), ROOT)
         self.assertTrue(result['valid'], result['errors'])
-        for name in ('reads', 'conflicts', 'wire', 'instrumentation'):
+        # instrumentation was specified from P02 rows (S2h); reads stays open on the staffing snapshot's own
+        # reads, which P02's fixture patches out; conflicts and wire stay open
+        for name in ('reads', 'conflicts', 'wire'):
             self.assertEqual(registry['facets']['quick-staff.' + name]['status'], 'unresolved', name)
+        self.assertEqual(registry['facets']['quick-staff.instrumentation']['status'], 'specified')
         # both callers of _staff_call are contracted now, so its create branch maps back
         # to the one contract that takes it (quick staff always sends action update)
         rows = {r['id'][:8]: r for r in registry['dispatch']}

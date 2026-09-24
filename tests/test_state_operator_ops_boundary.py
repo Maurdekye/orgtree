@@ -74,8 +74,11 @@ class BoundaryBinding(unittest.TestCase):
         registry = contracts.load(ROOT / 'docs/state-system/operation-contracts.json')
         result = contracts.validate(registry, contracts.inventory.scan(ROOT), ROOT)
         self.assertTrue(result['valid'], result['errors'])
-        for name in ('reads', 'conflicts', 'wire', 'instrumentation'):
+        # reads and instrumentation were specified from P02 rows (S2h); conflicts and wire stay open
+        for name in ('conflicts', 'wire'):
             self.assertEqual(registry['facets']['operator-ops.' + name]['status'], 'unresolved', name)
+        for name in ('reads', 'instrumentation'):
+            self.assertEqual(registry['facets']['operator-ops.' + name]['status'], 'specified', name)
         # the route stays pending: its other ops are uncontracted
         row = ops_entry(registry)
         self.assertEqual((row['disposition'], row['contracts']), ('pending', []))

@@ -120,8 +120,8 @@ diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
 Current totals are 42 contracts, 29 mapped registrations and 50 mapped
-dispatch witnesses. **600 obligations remain**: 290 registrations, 177 dispatch
-witnesses, 15 storage candidates and 118 unresolved dimension occurrences.
+dispatch witnesses. **592 obligations remain**: 290 registrations, 177 dispatch
+witnesses, 15 storage candidates and 110 unresolved dimension occurrences.
 How it got there: 600 was two more registrations than the preceding 598 because the scanner now
 recognizes `asyncio.to_thread` hand-offs; both new witnesses are pending and no
 existing witness identity, disposition or contract changed.
@@ -252,6 +252,13 @@ anchor and its reports), following the user ruling recorded at `ledger.hire`'s n
 coordinator's ruling that it is not a defect. Its warm third-agent reads are the same snapshot
 carry-over S2f settled.
 The citation of the approved design extension r3 (below) changes no status, so the 600 stands.
+592 is eight fewer than that 600 (P01 S2h): P02's operator-ops and chooser rows (v3 845b2c7 and
+b4a702b) cover `operator-ops.reads` and both families' instrumentation, so those are specified
+(2 + 2 + 4). Both locality sets are widened to the intended hire fan-out, as S2g did for
+staffing: for the operator door the target's whole ancestor chain (a raise writes each ancestor
+its shortfall reaches), the new seat's parent and peers, and an above-hire's anchor and its reports; for the
+chooser the new seat's parent and live peers. `quick-staff.reads` stays open, narrowed to the
+staffing snapshot's own provider, account and effort reads, which P02's fixture patches out.
 
 Of the 43 open dimension occurrences on the sixteen legacy-family contracts, 27 (10 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the
@@ -594,7 +601,13 @@ which stays specified, and on `preview.conflicts`, which carries the new schedul
 kiosk pool E8 joins every top-level holding write, and pair P8 orders a mail receive against
 its mailbox's rehire, delete and fold (Q-E1, on `agent-mail.conflicts`).
 `tests/test_state_operation_contracts.py` checks every citation and keeps all 50 r3 schedules
-anchored in an open facet.
+anchored in an open facet, each on its own facet (a per-facet map of section 9.1's Evidence
+column), and requires r3's extensions of r7's Q-C3 (on `agent-mail.conflicts`) and Q-C5 (on
+`preview.conflicts`) to stay named in an open owner line. One departure is recorded rather than
+claimed: in a kiosk organization r3 keeps an organization-wide kiosk pool row (E8), which
+`funding.conflicts`' clause ("no org-wide credit counter") excludes; the coordinator accepted it
+as a departure from v6 scoped to kiosk organizations (E-D15; decision 2 of item
+`p01-cite-the-approved-native-design-extension-r3`).
 
 ## Deliberate failing controls
 

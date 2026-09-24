@@ -740,6 +740,93 @@ class ContactFacets(unittest.TestCase):
         self.assertEqual(logical("staffing.hire:kickoff", "mail"), {"hs-kickoff-cold"})
         self.assertEqual(logical("staffing.staff-update", "mail"), {"s-mid", "ss-update-cold"})
 
+    # -- S2h: the operator ops door and the staffing chooser ----------------------------
+    OPERATOR_CLASSES = ("operator.hire", "operator.hire:under", "operator.hire:above",
+                        "operator.reallocate", "operator.reallocate:down", "operator.reallocate:top-level")
+
+    def contract_rows(self, *prefixes):
+        return [r for r in self.doc["rows"] if r["contract"].startswith(prefixes)]
+
+    def test_operator_ops_reads_and_the_widened_locality(self):
+        for variant in self.OPERATOR_CLASSES:
+            for condition in ("cold", "warm"):
+                with self.subTest(variant=variant, condition=condition):
+                    r = self.exact(variant.split(":")[0], variant, condition)
+                    self.assertEqual((r["http_status"], r["unknown_contacts"], self.foreign(r)), (200, [], 0))
+                    self.assertEqual(r["census"]["records"], 1)
+                    self.assertEqual(self.read(r), self.FULL if condition == "cold" else ["meta", "nodes"])
+                    agents = r["agents"]
+                    self.assertEqual(agents["actor"], "@user")
+                    self.assertEqual(set(agents["logical"]), {"notices"})
+                    self.assertEqual({role for who in agents["logical"].values() for role in who.values()}, {"target"})
+                    self.assertEqual((agents["third_agent_mail"], agents["third_agent_rows_written"]), (0, 0))
+                    self.assertEqual(r["wakes"], {"send_message": 0, "mail_notify": 0})
+        # the widened set: every live top-level seat for a top-level hire; the anchor's reports for an above-hire;
+        # a raise writes the ancestors its shortfall reaches (here up to the grandparent, not the top-level seat,
+        # which is still in the set); a reduction writes only the target
+        top = self.exact("operator.hire", "operator.hire", "warm")["agents"]["logical"]["notices"]
+        self.assertEqual(set(top), {"oh-top-cold", "op-top", "op-top2"})
+        above = self.exact("operator.hire", "operator.hire:above", "cold")["agents"]["logical"]["notices"]
+        self.assertLessEqual({"op-mid", "op-kid", "oh-under-cold", "op-top", "op-sib"}, set(above))
+        for condition in ("cold", "warm"):
+            up = self.exact("operator.reallocate", "operator.reallocate", condition)["agents"]
+            self.assertEqual(set(up["physical_written"]), {"op-mid", "oh-above-warm", "oh-above-cold"})
+            self.assertIn("op-top", up["targets"])
+            down = self.exact("operator.reallocate", "operator.reallocate:down", condition)["agents"]
+            self.assertEqual((down["physical_written"], set(down["physical_nodes"])), (["op-mid"], {"op-mid"}))
+        refusals = {r["variant"]: r for r in self.contract_rows("operator.") if r["variant"].startswith("refusal:")}
+        self.assertEqual(set(refusals), {"refusal:op-hire-no-name", "refusal:op-hire-unknown-tier",
+                                         "refusal:op-hire-above-not-a-report", "refusal:op-hire-agent-token",
+                                         "refusal:op-reallocate-no-delta", "refusal:op-reallocate-committed-floor",
+                                         "refusal:op-reallocate-no-authority"})
+        for variant, r in refusals.items():
+            with self.subTest(variant=variant):
+                self.assertEqual((self.written(r), r["harness"]["writes"], r["agents"]["logical"]), ([], 0, {}))
+                self.assertEqual(r["census"]["records"], 0 if variant == "refusal:op-hire-agent-token" else 1)
+        control = self.exact("operator.reallocate", "control:operator-third-agent", "warm")["agents"]
+        self.assertEqual(control["logical"]["mail"], {"op-sib": "third"})
+
+    QS_READS = ("quick-staff.options", "quick-staff.options-refresh", "quick-staff.preview",
+                "quick-staff.preview:under-assignee", "quick-staff.preview:top-level",
+                "quick-staff.select:replay", "quick-staff.select:under-assignee:replay",
+                "quick-staff.select:top-level:replay")
+    QS_SELECT = {"quick-staff.select": (None, 1), "quick-staff.select:under-assignee": ("qs-under", 2),
+                 "quick-staff.select:top-level": ("qs-top", 2)}
+
+    def qs_row(self, variant, condition):
+        [r] = [r for r in self.contract_rows("quick-staff.") if r["variant"] == variant and r["condition"] == condition]
+        return r
+
+    def test_quick_staff_reads_writes_and_the_widened_locality(self):
+        for condition in ("cold", "warm"):
+            for variant in self.QS_READS:
+                with self.subTest(variant=variant, condition=condition):
+                    r = self.qs_row(variant, condition)
+                    self.assertEqual((r["http_status"], r["unknown_contacts"], self.foreign(r)), (200, [], 0))
+                    self.assertEqual((r["census"]["records"], self.written(r), r["harness"]["writes"]), (1, [], 0))
+                    self.assertEqual((r["agents"]["logical"], r["agents"]["physical_written"]), ({}, []))
+                    self.assertEqual(r["wakes"], {"send_message": 0, "mail_notify": 0})
+                    if condition == "warm" or variant == "quick-staff.options-refresh":
+                        self.assertEqual(r["census"]["statements"], 0)      # the resident document; no store
+            for variant, (stem, sparks) in self.QS_SELECT.items():
+                with self.subTest(variant=variant, condition=condition):
+                    r = self.qs_row(variant, condition)
+                    agents = r["agents"]
+                    seat = {f"{stem}-{condition}"} if stem else set()
+                    self.assertEqual((r["http_status"], r["unknown_contacts"]), (200, []))
+                    self.assertEqual(set(agents["physical_written"]), {"qs-mgr"} | seat)
+                    self.assertEqual(set(agents["logical"]["mail"]), {"qs-mgr"} | seat)
+                    self.assertEqual({role for who in agents["logical"].values() for role in who.values()}, {"target"})
+                    self.assertEqual((agents["third_agent_mail"], agents["third_agent_rows_written"]), (0, 0))
+                    self.assertEqual(r["wakes"], {"send_message": 1, "mail_notify": sparks})
+        for variant in ("quick-staff.options", "quick-staff.preview"):
+            self.assertEqual(self.read(self.qs_row(variant, "cold")), self.FULL)
+        # the widened set: an immediate commit also tells the new seat's parent and live peers
+        self.assertIn("qs-kid", self.qs_row("quick-staff.select:under-assignee", "cold")["agents"]["logical"]["notices"])
+        self.assertIn("qs-other", self.qs_row("quick-staff.select:top-level", "cold")["agents"]["logical"]["notices"])
+        control = self.qs_row("control:quick-staff-third-agent", "warm")["agents"]
+        self.assertEqual(control["logical"]["mail"], {"qs-kid": "third", "qs-mgr": "target"})
+
     def test_no_token_rows_are_the_only_rows_without_a_census_record(self):
         # a loss-accounted record for every S2e row but the ones refused before any attempt
         unrecorded = {"refusal:tree-no-token", "refusal:tree-bad-kiosk-token", "refusal:inbox-no-token",
