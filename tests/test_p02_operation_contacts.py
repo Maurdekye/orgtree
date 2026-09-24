@@ -36,7 +36,8 @@ CONTRACTS = {f"reservation.{v}" for v in RESERVATION} | {
     "diagnostic.capabilities", "preview.agent", "status.report", "chart.read",
     "org.tree", "org.node-detail", "org.feed", "mail.message", "mail.notice",
     "mail.human-send", "mail.user-inbox", "mail.user-inbox-read", "mail.node-inbox",
-    "credits.request", "credits.reallocate", "credits.decide"}
+    "credits.request", "credits.reallocate", "credits.decide",
+    "staffing.hire", "staffing.staff-create", "staffing.staff-update"}
 
 
 class OperationContacts(unittest.TestCase):
@@ -229,8 +230,14 @@ class OperationContacts(unittest.TestCase):
                 agents = r["agents"]
                 self.assertTrue(agents["actor"])
                 for key in ("targets", "physical", "physical_nodes", "logical",
-                            "mail_producing", "third_agent_mail", "third_agent_rows_written"):
+                            "mail_producing", "third_agent_mail", "third_agent_rows_written",
+                            "third_sites"):
                     self.assertIn(key, agents)
+                # every physical touch of a third agent's row names its product step
+                self.assertEqual(sum(agents["third_sites"].values()),
+                                 sum(n for k, n in agents["physical"].items()
+                                     if k.endswith(":third")))
+                self.assertFalse([s for s in agents["third_sites"] if s.endswith("@?")])
 
     def test_release_notify_mail_reaches_only_the_named_successor(self):
         """P01 `contacts`: release-notify's mail contacts are limited to the
@@ -255,7 +262,8 @@ class OperationContacts(unittest.TestCase):
         producing = set()
         for r in self.doc["rows"]:
             if r["variant"] in (self.CONTROL, self.STATUS_CONTROL, self.MAIL_CONTROL,
-                                self.HUMAN_CONTROL, self.FUNDING_CONTROL):
+                                self.HUMAN_CONTROL, self.FUNDING_CONTROL,
+                                self.STAFFING_CONTROL):
                 continue
             with self.subTest(variant=r["variant"], condition=r["condition"]):
                 self.assertEqual(r["agents"]["third_agent_mail"], 0)
@@ -267,7 +275,8 @@ class OperationContacts(unittest.TestCase):
                 producing.add(r["contract"])
         self.assertEqual(producing, {"reservation.release-notify", "status.report",
                                      "mail.message", "mail.notice", "mail.human-send",
-                                     "credits.reallocate", "credits.decide"})
+                                     "credits.reallocate", "credits.decide", "staffing.hire",
+                                     "staffing.staff-create", "staffing.staff-update"})
 
     def test_third_agent_mail_control_is_flagged(self):
         control = self.rows(variant=self.CONTROL)
@@ -1047,8 +1056,8 @@ class OperationContacts(unittest.TestCase):
         """credits.reallocate up/down/deep, cold and warm: the grant notice
         goes to the target (and, for a grandchild, its parent). Besides them
         the only agent row touched is READ: a warm raise to f-mid reads its
-        child f-kid's row (the product step is not identified), and nothing of
-        it is written."""
+        child f-kid's row (in the agent door's identity check, per
+        third_sites), and nothing of it is written."""
         cases = {"credits.reallocate": ["f-mid"], "credits.reallocate:down": ["f-mid"],
                  "credits.reallocate:deep": ["f-kid", "f-mid"],
                  "credits.reallocate:keyed-fresh": ["f-mid"]}
@@ -1067,8 +1076,10 @@ class OperationContacts(unittest.TestCase):
                     self.assertEqual((agents["third_agent_mail"],
                                       agents["third_agent_rows_written"]), (0, 0))
                     self.assertEqual(r["wakes"], {"send_message": 0, "mail_notify": 0})
-        self.assertEqual(self.rows(variant="credits.reallocate", condition="warm")[0]
-                         ["agents"]["physical_nodes"].get("f-kid"), "third")
+        raise_warm = self.rows(variant="credits.reallocate", condition="warm")[0]["agents"]
+        self.assertEqual(raise_warm["physical_nodes"].get("f-kid"), "third")
+        # the product step behind that read is recorded (review N1 on b78c6ca)
+        self.assertEqual(raise_warm["third_sites"], {"nodes:read@orgtree.api:_agent_identity": 1})
         zero = self.rows(variant="credits.reallocate:zero")[0]
         self.assertEqual((zero["http_status"], zero["harness"]["writes"], zero["agents"]["logical"]),
                          (200, 1, {}))                 # the 'reallocate' event only
@@ -1119,6 +1130,88 @@ class OperationContacts(unittest.TestCase):
             r = self.rows(variant=variant)[0]
             self.assertEqual((r["http_status"], r["harness"]["writes"]), (status, 0), variant)
         self.assertEqual(self.rows(variant="refusal:decide-agent-token")[0]["census"]["records"], 0)
+
+    # -- P01 S3 F3b: staffing.hire, staffing.staff-create, staffing.staff-update ---
+    STAFFING_CONTROL = "control:staffing-third-agent"
+    #: variant -> (contract, new or rehired seat stem, started, sparked)
+    STAFFING = {"staffing.hire": ("staffing.hire", "hs-plain", False, False),
+                "staffing.hire:kickoff": ("staffing.hire", "hs-kickoff", True, True),
+                "staffing.hire:target": ("staffing.hire", "hs-target", False, False),
+                "staffing.hire:superior": ("staffing.hire", "hs-superior", False, False),
+                "staffing.hire:audiences": ("staffing.hire", "hs-audiences", True, False),
+                "staffing.hire:work-item": ("staffing.hire", "hs-work-item", True, True),
+                "staffing.staff-create": ("staffing.staff-create", "ss-create", True, True),
+                "staffing.staff-update": ("staffing.staff-update", "ss-update", True, True),
+                "staffing.staff-create:rehire": ("staffing.staff-create", "s-gone", True, True)}
+
+    def test_staffing_by_class_reaches_only_the_declared_set(self):
+        """staffing.reads/instrumentation: hire by class and staff by mode,
+        cold and warm, loss-accounted. Locality: nothing outside the caller,
+        the destination chain, the new seat, a moved item's previous owner
+        AND the new seat's parent and peers (a hire tells every peer:
+        ledger.hire lifecycle.hired, not named by P01's clause) is written."""
+        for variant, (contract, stem, started, sparked) in self.STAFFING.items():
+            for condition in ("cold", "warm"):
+                with self.subTest(variant=variant, condition=condition):
+                    r = self.rows(contract=contract, variant=variant, condition=condition)[0]
+                    self.assertEqual(r["http_status"], 200, r["detail"])
+                    self.assertEqual(r["census"]["records"], 1)
+                    agents = r["agents"]
+                    self.assertIn(f"{stem}-{condition}", agents["targets"])
+                    roles = {role for sect in agents["logical"].values() for role in sect.values()}
+                    self.assertLessEqual(roles, {"actor", "target"})
+                    self.assertEqual((agents["third_agent_mail"],
+                                      agents["third_agent_rows_written"]), (0, 0))
+                    self.assertEqual(r["wakes"], {"send_message": int(started),
+                                                  "mail_notify": int(sparked)})
+        # the peer fan-out: warm, s-mid's earlier reports are told of the new peer
+        warm = self.rows(variant="staffing.hire", condition="warm")[0]["agents"]["logical"]
+        self.assertIn("hs-plain-cold", warm["notices"])
+        # a superior insertion also tells the anchor's own reports
+        sup = self.rows(variant="staffing.hire:superior", condition="warm")[0]["agents"]["logical"]
+        self.assertIn("hs-plain-cold", sup["notices"])
+        # staff update tells the item's previous owner
+        for condition in ("cold", "warm"):
+            upd = self.rows(variant="staffing.staff-update", condition=condition)[0]
+            self.assertEqual(upd["agents"]["logical"]["mail"].get("s-mid"), "target")
+        def primary_written(r):
+            return r["harness"]["stores"].get("primary", {}).get("tables_written", [])
+        for variant in ("refusal:hire-outside-subtree", "refusal:hire-no-credits",
+                        "refusal:hire-unknown-tier", "refusal:staff-bad-action",
+                        "refusal:staff-no-title"):
+            r = self.rows(variant=variant)[0]
+            self.assertEqual((r["http_status"], primary_written(r)), (422, []), variant)
+        for contract in ("staffing.hire", "staffing.staff-create"):
+            for condition in ("cold", "warm"):
+                fresh = self.rows(variant=f"{contract}:keyed-fresh", condition=condition)[0]
+                replay = self.rows(variant=f"{contract}:keyed-replay", condition=condition)[0]
+                self.assertEqual(fresh["http_status"], 200, fresh["detail"])
+                self.assertEqual((replay["http_status"], primary_written(replay),
+                                  sum(replay["wakes"].values())), (200, [], 0))
+
+    def test_staffing_calls_journal_in_the_tool_waits_sidecar(self):
+        """hire and staff are managed-wait tools (mcptool.MANAGED_WAIT_TOOLS):
+        EVERY call, refused or replayed too, journals in the tool_waits
+        sidecar, re-running its DDL outside a transaction. No other row
+        touches that sidecar."""
+        for r in self.doc["rows"]:
+            with self.subTest(variant=r["variant"], condition=r["condition"]):
+                staffing = r["contract"].startswith("staffing.")
+                self.assertEqual("tool_waits" in r["harness"]["sidecars_touched"], staffing)
+                if staffing:
+                    self.assertEqual(r["harness"]["sidecars_touched"], {"tool_waits": "write"})
+                    tw = r["harness"]["stores"]["tool_waits"]
+                    self.assertEqual(tw["kinds"].get("ddl"), 8)
+                    self.assertEqual(set(tw["tables_written"]), {"dead_letters", "operations"})
+
+    def test_staffing_third_agent_control_is_flagged(self):
+        control = self.rows(variant=self.STAFFING_CONTROL)[0]
+        self.assertEqual(control["http_status"], 200, control["detail"])
+        agents = control["agents"]
+        self.assertEqual(agents["logical"]["mail"], {"s-sib": "third", "hs-control-warm": "target"})
+        self.assertGreaterEqual(agents["third_agent_mail"], 1)
+        self.assertGreaterEqual(agents["third_agent_rows_written"], 1)
+        self.assertTrue(agents["third_sites"])
 
     def test_funding_third_agent_control_is_flagged(self):
         control = self.rows(variant=self.FUNDING_CONTROL)[0]

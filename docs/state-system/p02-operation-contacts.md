@@ -630,11 +630,15 @@ Delivery wakes are spies, as everywhere.
 
 Observed and recorded, not a defect claim: a warm raise to `f-mid` (and the
 warm zero delta) also READS the row of `f-mid`'s child `f-kid`. The row shows
-it as a physical `third` read with no write. Which product step reads it is
-not established here. The raise's own path (`_chain_acquire` on the parent)
-does not obviously explain it. Cold, the whole node table is read in one
-statement, so no per-node read shows (see Limits: agent identity comes from
-statement parameters).
+it as a physical `third` read with no write. Since `agents.third_sites` was
+added (with S3 F3b below), the product step is observed:
+`nodes:read@orgtree.api:_agent_identity`. That is the agent door's identity
+check reading through `store.cached_org` (the shared snapshot), before any
+ledger work, not the reallocation itself. A plausible explanation, NOT
+verified: the snapshot refresh re-reads rows the previous operation changed
+(the preceding `:deep` row changed `f-kid`). Cold, the whole node table is
+read in one statement, so no per-node read shows (see Limits: agent identity
+comes from statement parameters).
 
 ## Hand-off to P01 (S3 F3, funding): facet → clause → rows
 
@@ -643,16 +647,84 @@ Clauses from the Owner lines at v3 27c8667 (unchanged since 742492d).
 | Facet | Closing clause | Status | Rows |
 |---|---|---|---|
 | `funding.reads` | observed per-operation contacts for the three funding operations (request new/amend/withdraw, reallocate up/down/deep, decide approve/counter/deny/moot/dry), cold and warm | covered | `credits.request`, `:amend`, `:withdraw`; `credits.reallocate`, `:down`, `:deep`; `credits.decide`, `:counter`, `:deny`, `:moot`, `:dry`; each cold and warm; plus the no-op, zero, fractional, keyed and refusal rows |
-| `funding.instrumentation` | an observed, loss-accounted contact record for the three funding operations with agent-level locality (the caller, the target and its chain only) | partly | covered: the rows above, per-row loss zero; `agents` writes only the caller (request), the target and, for a grandchild, its parent (reallocate), or the requester (decide); `control:funding-third-agent` flagged. Beyond the clause's set, a warm raise READS the target's child row (no write; the step is not identified). NOT covered: P03 native negative controls |
+| `funding.instrumentation` | an observed, loss-accounted contact record for the three funding operations with agent-level locality (the caller, the target and its chain only) | partly | covered: the rows above, per-row loss zero; `agents` writes only the caller (request), the target and, for a grandchild, its parent (reallocate), or the requester (decide); `control:funding-third-agent` flagged. Beyond the clause's set, a warm raise READS the target's child row (no write), in the agent door's identity check (`api._agent_identity`, `third_sites`). NOT covered: P03 native negative controls |
 
 Owned elsewhere, with no rows added:
 - `funding.conflicts`: the native balance-row design, then P03;
 - `funding.wire`: the native/Rust conversion.
 
+## P01 S3 F3b: `staffing.hire`, `staffing.staff-create`, `staffing.staff-update`
+
+The fixture follows `tests/test_state_staffing_boundary.py` with distinctive
+`s-*` ids:
+- `s-top` (grant 200) and `s-top2` are top-level;
+- `s-mid` (60) and `s-sib` (the third agent) sit under `s-top`;
+- `s-gone-cold` and `s-gone-warm` are archived, one for each rehire row.
+
+The provider hire gate is stubbed (`api.provider_hire_gate`), as in the P01
+test; the first-turn drive is the `send_message` spy. Every new seat's name
+is known in advance and registered as a fixture node, so its rows are
+recognised.
+
+- **`orgtree_hire`** by class, each cold and warm:
+  - `staffing.hire` (plain: `s-mid` hires under itself, idle);
+  - `:kickoff` (started, one request mail);
+  - `:target` (`s-top` hires under `s-mid`);
+  - `:superior` (inserted above `s-mid`);
+  - `:audiences` (`audiences: ["s-mid"]`, started);
+  - `:work-item` (assigns a backlogged item, started).
+- **`orgtree_staff`**, each cold and warm: `staffing.staff-create`,
+  `staffing.staff-update` (hands `s-mid`'s item to a new seat) and
+  `staffing.staff-create:rehire` (restores an archived seat).
+- **Refusals** (422, no primary write): outside the subtree, not enough
+  credits, unknown tier, a bad staff action, and a missing title (the seat
+  goes with the unsaved document).
+- **Keyed:** `:keyed-fresh` and `:keyed-replay` for hire and staff, cold
+  and warm.
+- **Agent-level locality:** each row's `agents.targets` is the new (or
+  rehired) seat, the destination, a moved item's previous owner, AND the new
+  seat's parent and live peers. Nothing outside that set is written. The
+  control `control:staffing-third-agent` (a kickoff hire whose first-turn
+  drive also mails `s-sib`) is flagged.
+
+Observed and recorded; legacy behaviour, NOT endorsed, not fixed:
+- **A hire tells every peer.** `ledger.hire` sends `lifecycle.hired`
+  notices to the new seat's parent (relation `report`) and to EVERY live
+  child of that parent (relation `peer`). A superior insertion also tells the
+  anchor's own reports (relation `child`; ledger.py around line 7088). P01's
+  staffing locality set ("the caller, the destination chain, the new seat and
+  a moved item's previous owner only") does not name the peers or the
+  anchor's reports. The rows declare them, and the fan-out grows with the
+  number of peers.
+- **Every hire and staff call journals in the `tool_waits` sidecar.** Hire
+  and staff are managed-wait tools (`mcptool.MANAGED_WAIT_TOOLS`,
+  `toolwait.invoke`). Each call, refused or replayed too, opens four
+  `tool_waits` connections, runs its eight DDL statements outside a
+  transaction, and writes `operations` and `dead_letters`. No other row
+  touches that sidecar.
+- Some cold hire and staff rows also wrote a slow-trace file
+  (`orgtree.slowtrace:emit`, `data:other`). It depends on timing: it
+  appears when a call is slow.
+
+## Hand-off to P01 (S3 F3b, staffing): facet → clause → rows
+
+Clauses from the Owner lines at v3 b84131f (unchanged from b78c6ca).
+
+| Facet | Closing clause | Status | Rows |
+|---|---|---|---|
+| `staffing.reads` | observed per-operation contacts for hire (plain, kickoff, target, superior, audiences, work_item) and staff (create, update, rehire mode), cold and warm | covered | `staffing.hire`, `:kickoff`, `:target`, `:superior`, `:audiences`, `:work-item`; `staffing.staff-create`, `staffing.staff-update`, `staffing.staff-create:rehire`; each cold and warm; plus the refusal and keyed rows. The OpenRouter harness choice (`new_hire_harness`, a provider read) is not exercised: the fixture uses `haiku`, and the provider gate is stubbed |
+| `staffing.instrumentation` | an observed, loss-accounted contact record for hire and staff with agent-level locality (the caller, the destination chain, the new seat and a moved item's previous owner only) | partly | covered: the rows above, per-row loss zero; `control:staffing-third-agent` flagged. The observed locality is WIDER than the clause: a hire also writes notices to the new seat's parent and every peer, and a superior insertion to the anchor's reports (declared, see above). P01 should widen the set or treat the fan-out as a defect. NOT covered: P03 native negative controls |
+
+Owned elsewhere, with no rows added:
+- `staffing.conflicts`: the native design, then P03;
+- `staffing.wire`: the native/Rust conversion.
+
 ## Limits
 
 - **Agent identity** is read from statement parameters (node ids of the
   operation's own org) and from before/after snapshots of the mail sections.
+  Each statement that names a node id also records the first product frame
+  outside the store layer (`agents.third_sites` for the third-agent ones).
   A node id carried only inside a JSON value, such as the org-wide mail blob,
   is seen through the logical snapshot, not the physical parameters.
 

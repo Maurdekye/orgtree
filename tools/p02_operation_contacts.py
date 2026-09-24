@@ -220,6 +220,21 @@ def product_frame() -> str:
     return "?"
 
 
+def caller_frame() -> str:
+    """Like `product_frame`, but the innermost frame outside the store layer
+    too (census_contacts.py, store.py): the product STEP that asked for the
+    rows (a ledger or api function), not the loader that fetched them."""
+    frame = sys._getframe(2)
+    while frame is not None:
+        name = frame.f_code.co_filename.replace("\\", "/")
+        at = name.find("/engine/backend/orgtree/")
+        if at >= 0 and not name.endswith(("census_contacts.py", "/store.py")):
+            module = name[at + 24:].removesuffix(".py").replace("/", ".")
+            return "orgtree." + module + ":" + frame.f_code.co_name
+        frame = frame.f_back
+    return "?"
+
+
 def install_sql_observer(contacts: Any, data: Path) -> Callable[[], None]:
     """Wrap ``census_contacts._run`` (a module global every observed cursor
     and connection method calls) so the harness sees each statement's SQL and
@@ -296,6 +311,9 @@ def install_sql_observer(contacts: Any, data: Path) -> Callable[[], None]:
                 "kind": kind, "read": read, "written": written, "failed": failed,
                 "in_transaction_after": in_tx if kind in WRITE_KINDS else None,
                 "agent_rows": agent_rows,
+                # where the product ran a statement naming node ids, so a
+                # third agent's row is attributed to a product step
+                "agent_at": caller_frame() if agent_rows else None,
                 "db": db,
                 "db_at": product_frame() if db == "data:org-db:foreign" else None,
                 "tally": id(tally) if tally is not None else None})
@@ -887,6 +905,7 @@ class Probe:
         targets = sorted(set(self.parties(actor, args)) | set(implied))
         physical: dict[str, int] = {}
         nodes: dict[str, str] = {}
+        third_sites: dict[str, int] = {}
         third_rows_written = 0
         for st in c.statements:
             table = (st["written"] or st["read"] or ["other"])[0]
@@ -897,8 +916,11 @@ class Probe:
                     nodes[nid] = r
                     key = f"{table}:{rw}:{r}"
                     physical[key] = physical.get(key, 0) + 1
-                    if r == "third" and rw == "write":
-                        third_rows_written += 1
+                    if r == "third":
+                        site = f"{table}:{rw}@{st.get('agent_at') or '?'}"
+                        third_sites[site] = third_sites.get(site, 0) + 1
+                        if rw == "write":
+                            third_rows_written += 1
         logical = {sect: {nid: self.role(nid, actor, targets) for nid in ids}
                    for sect, ids in changes.items()}
         return {
@@ -910,6 +932,8 @@ class Probe:
             "third_agent_mail": sum(1 for sect in logical.values()
                                     for r in sect.values() if r == "third"),
             "third_agent_rows_written": third_rows_written,
+            # the product step behind each physical touch of a third agent's row
+            "third_sites": dict(sorted(third_sites.items())),
         }
 
     # -- one operation ---------------------------------------------------------
@@ -2303,6 +2327,147 @@ class Probe:
               {"node": "f-mid", "delta": 1}, refusal="negative control (not a product path)",
               patches=[(api, "hub_changed", mail_third)])
 
+    # -- P01 S3 F3b: staffing.hire, staffing.staff-create, staffing.staff-update ---
+    NO_TOOLS = {"bash": False, "web": False, "edit": False, "subagents": False, "mcp": []}
+    SCOPE = {"add_dirs": [], "tools": NO_TOOLS, "org_visibility": "team", "charter": "fixture"}
+
+    def build_staffing(self) -> None:
+        """tests/test_state_staffing_boundary.py's org (distinctive `s-*` ids):
+        s-top and s-top2 top-level, s-mid and s-sib (the third agent) under
+        s-top, and two archived seats for the rehire mode."""
+        store, ledger = self.m["store"], self.m["ledger"]
+        org = store.create_org("p02-contacts-staffing")
+        self.stfslug = str(org.d["slug"])
+        org.hire(ledger.USER, None, "haiku", 200, "s-top", add_dirs=[], tools={}, charter="fixture")
+        org.hire("s-top", "s-top", "haiku", 60, "s-mid", **self.SCOPE)
+        org.hire("s-top", "s-top", "haiku", 0, "s-sib", **self.SCOPE)
+        org.hire(ledger.USER, None, "haiku", 5, "s-top2", add_dirs=[], tools={}, charter="fixture")
+        for gone in ("s-gone-cold", "s-gone-warm"):
+            org.hire("s-top", "s-top", "haiku", 0, gone, **self.SCOPE)
+            org.retire("s-top", gone)
+        org.d["mail"], org.d["audiences"] = {}, []
+        store.save_org(org)
+        for n in ("s-top", "s-mid", "s-top2"):
+            self.tokens[(self.stfslug, n)] = self.m["agentauth"].child_env(
+                self.stfslug, n)["ORGTREE_AGENT_TOKEN"]
+
+    def staffing(self) -> None:
+        """hire by class (plain, kickoff, target, superior, audiences,
+        work_item) and staff by mode (create, update, rehire), cold and warm.
+        The new seats' names are known up front and registered as fixture
+        nodes, so their rows are recognised; `implied` names the new seat,
+        the destination chain and a moved item's previous owner."""
+        s, store, api, opreceipts = self.stfslug, self.m["store"], self.m["api"], self.m["opreceipts"]
+        supervisor = self.m["supervisor"]
+        hi, st, both = "orgtree_hire", "orgtree_staff", ("cold", "warm")
+        gate = [(api, "provider_hire_gate", lambda *_a, **_k: None)]
+        classes = ("plain", "kickoff", "target", "superior", "audiences", "work-item",
+                   "keyed", "control")
+        _NODES[s] |= {f"hs-{c}-{cond}" for c in classes for cond in both} | {
+            f"ss-{m}-{cond}" for m in ("create", "update", "keyed") for cond in both}
+
+        def run(contract: str, variant: str, condition: str, actor: str, tool: str,
+                args: dict[str, Any], **kw: Any) -> None:
+            kw["patches"] = gate + list(kw.pop("patches", None) or [])
+            self.run(contract, variant, condition, s, actor, tool, args, **kw)
+
+        def item(owner: str, status: str = "open") -> str:
+            r = self.client.post("/api/agent", json=self.agent_body(s, "s-top", "orgtree_work", dict(
+                action="create", title="Fixture item", objective="Problem. Fix.", owner=owner,
+                status=status)), headers={"X-Orgtree-Agent-Token": self.tokens[(s, "s-top")]})
+            if r.status_code != 200:
+                raise RuntimeError(f"fixture work item answered {r.status_code}: {r.text[:200]}")
+            return str(r.json()["created"])
+
+        def told(parent: str, *extra: str) -> tuple[str, ...]:
+            """The declared counterparties: the new seat(s)/moved-item owner in
+            `extra`, its parent and the parent's live children. A hire tells
+            the new seat's parent and EVERY peer (ledger.hire, lifecycle.hired
+            relations report/peer), which P01's staffing clause does not name;
+            they are read from the stored org before the row."""
+            org = store.load_org(s)
+            peers = {k for k, v in org.nodes.items()
+                     if v.get("parent") == parent and v.get("state") != "archived"}
+            return tuple(sorted(peers | {parent} | set(extra)))
+
+        seat = {"tier": "haiku", "grant": 0, **self.SCOPE}
+        for cond in both:
+            run("staffing.hire", "staffing.hire", cond, "s-mid", hi,
+                {"name": f"hs-plain-{cond}", **seat}, implied=told("s-mid", f"hs-plain-{cond}"))
+            run("staffing.hire", "staffing.hire:kickoff", cond, "s-mid", hi,
+                {"name": f"hs-kickoff-{cond}", "kickoff": "go", **seat},
+                implied=told("s-mid", f"hs-kickoff-{cond}"))
+            run("staffing.hire", "staffing.hire:target", cond, "s-top", hi,
+                {"name": f"hs-target-{cond}", "target": "s-mid", **seat},
+                implied=told("s-mid", f"hs-target-{cond}"))
+            # inserted ABOVE s-mid, under s-mid's current superior; the anchor's
+            # own reports are told too (their chain changes)
+            above = str(store.load_org(s).node("s-mid")["parent"])
+            run("staffing.hire", "staffing.hire:superior", cond, "s-top", hi,
+                {"name": f"hs-superior-{cond}", "tier": "haiku", "grant": 0, "target": "s-mid",
+                 "hire_type": "superior", "charter": "fixture"},
+                implied=tuple(sorted(set(told(above, f"hs-superior-{cond}"))
+                                     | set(told("s-mid")))))
+            run("staffing.hire", "staffing.hire:audiences", cond, "s-mid", hi,
+                {"name": f"hs-audiences-{cond}", "audiences": ["s-mid"], **seat},
+                implied=told("s-mid", f"hs-audiences-{cond}"))
+            wid = item("s-top", status="backlogged")
+            run("staffing.hire", "staffing.hire:work-item", cond, "s-top", hi,
+                {"name": f"hs-work-item-{cond}", "work_item": wid, **seat},
+                implied=told("s-top", f"hs-work-item-{cond}"))
+            run("staffing.staff-create", "staffing.staff-create", cond, "s-top", st,
+                {"title": "Staffed", "objective": "Problem. Fix.", "name": f"ss-create-{cond}",
+                 **seat}, implied=told("s-top", f"ss-create-{cond}"))
+            wid = item("s-mid")
+            run("staffing.staff-update", "staffing.staff-update", cond, "s-top", st,
+                {"action": "update", "slug": wid, "name": f"ss-update-{cond}", **seat},
+                implied=told("s-top", f"ss-update-{cond}", "s-mid"))
+            run("staffing.staff-create", "staffing.staff-create:rehire", cond, "s-top", st,
+                {"node": f"s-gone-{cond}", "title": "Back", "objective": "Problem. Fix."},
+                implied=told("s-top"))
+        for contract, variant, actor, tool, args, refusal in (
+                ("staffing.hire", "refusal:hire-outside-subtree", "s-top", hi,
+                 {"name": "x", "target": "s-top2", **seat}, "422 outside your subtree"),
+                ("staffing.hire", "refusal:hire-no-credits", "s-mid", hi,
+                 {"name": "x", **seat, "grant": 500}, "422 not enough free credits on the chain"),
+                ("staffing.hire", "refusal:hire-unknown-tier", "s-mid", hi,
+                 {"name": "x", **seat, "tier": "nope"}, "422 unknown tier"),
+                ("staffing.staff-create", "refusal:staff-bad-action", "s-top", st,
+                 {"action": "delete", "name": "x", **seat}, "422 action must be create or update"),
+                ("staffing.staff-create", "refusal:staff-no-title", "s-top", st,
+                 {"title": "", "objective": "", "name": "x", **seat},
+                 "422 a work item needs a title (the seat goes with the unsaved document)")):
+            run(contract, variant, "warm", actor, tool, args, refusal=refusal)
+        epoch = self.client.post("/api/agent",
+                                 json=self.agent_body(s, "s-top", opreceipts.OP_EPOCH, {}),
+                                 headers={"X-Orgtree-Agent-Token": self.tokens[(s, "s-top")]}
+                                 ).json()["epoch"]
+        for contract, tool, name, extra in (
+                ("staffing.hire", hi, "hs-keyed", {}),
+                ("staffing.staff-create", st, "ss-keyed", {"title": "Keyed", "objective": "P. F."})):
+            for cond in both:
+                key = opreceipts.mint_key()
+                args = {"name": f"{name}-{cond}", **seat, **extra}
+                implied = told("s-top", f"{name}-{cond}")
+                run(contract, f"{contract}:keyed-fresh", cond, "s-top", tool, args, key=key,
+                    epoch=epoch, implied=implied)
+                run(contract, f"{contract}:keyed-replay", cond, "s-top", tool, args, key=key,
+                    epoch=epoch, implied=implied,
+                    refusal="keyed replay (answered from the receipt, no effect)")
+
+        # agent-level locality control: a kickoff hire whose first-turn drive
+        # ALSO posts mail to a third agent ('s-sib', from 's-top')
+        def drive_and_mail_third(*_a: Any, **_k: Any) -> dict[str, Any]:
+            with store.write_org(s) as o:
+                o.post_mail("s-top", "s-sib", "p02 control: mail to a third agent")
+                store.save_org(o)
+            return {"delivered": True}
+        run("staffing.hire", "control:staffing-third-agent", "warm", "s-mid", hi,
+            {"name": "hs-control-warm", "kickoff": "go", **seat},
+            implied=told("s-mid", "hs-control-warm"),
+            refusal="negative control (not a product path)",
+            patches=[(supervisor, "send_message", drive_and_mail_third)])
+
     # -- the r5 residuals ----------------------------------------------------
     def residuals(self) -> dict[str, Any]:
         """db_unbound and unclassified_action, reproduced: which records carry
@@ -2390,10 +2555,12 @@ class Probe:
             self.build_org_view()
             self.build_mail()
             self.build_funding()
+            self.build_staffing()
         self.build_human()
         for slug in ((self.dslug, self.hslug) if json_backend else
                      (self.rslug, self.mslug, self.dslug, self.pslug, self.sslug,
-                      self.stslug, self.ovslug, self.mlslug, self.hslug, self.fslug)):
+                      self.stslug, self.ovslug, self.mlslug, self.hslug, self.fslug,
+                      self.stfslug)):
             _NODES[slug] = {str(n) for n in self.m["store"].load_org(slug).nodes}
         self.operator("post", "/api/diagnostics/operation-census/reset")
         self.operator("post", "/api/diagnostics/operation-census", json={"enabled": True})
@@ -2415,6 +2582,7 @@ class Probe:
             self.human()
             self.inbox()
             self.funding()
+            self.staffing()
         w1 = self.census_state()
         self.load_table_catalogue()
         self.map_tables()
