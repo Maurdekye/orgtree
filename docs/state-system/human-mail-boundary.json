@@ -1,6 +1,6 @@
 {
   "schema": "orgtree.human-mail-boundary/v1",
-  "source_contract_sha256": "5354802bebd2356507c49dd7d2ac8ef33693e6a516e0e6a9b9b1b121e68ec90a",
+  "source_contract_sha256": "19faec842d1e67acad28bbad8271481ac879b04061bc2a26d1747b6b6c5c949a",
   "qualification": {
     "runtime_census": false,
     "conversion_authorized": false

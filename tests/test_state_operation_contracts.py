@@ -224,6 +224,21 @@ class ContractCoverage(unittest.TestCase):
                     | {f"Q-OP{n}" for n in range(1, 5)} | {f"Q-QS{n}" for n in range(1, 5)}
                     | {f"Q-RL{n}" for n in range(1, 4)} | {f"Q-S{n}" for n in range(1, 4)}
                     | {f"Q-ST{n}" for n in range(1, 8)} | {f"Q-V{n}" for n in range(1, 4)} | {"Q-W1", "Q-W2"})
+    # each facet's own schedules (r3 section 9.1 "Evidence", plus the r7 ones it carried), so a schedule moved
+    # to the wrong facet fails (review of 2ee0ddb, N5)
+    R3_FACET_SCHEDULES = {
+        "status.conflicts": "Q-S1 Q-S2 Q-S3", "chart.conflicts": "Q-CH1 Q-CH2",
+        "org-view.conflicts": "Q-V1 Q-V2 Q-V3", "org-feed.conflicts": "Q-F1 Q-F2 Q-F3",
+        "agent-mail.conflicts": "Q-AM1 Q-AM2 Q-AM3 Q-AM4 Q-AM5 Q-E1 Q-C7 Q-C3",
+        "human-mail.conflicts": "Q-HM1 Q-HM2 Q-HM3 Q-HM4", "inbox.conflicts": "Q-IB1 Q-IB2 Q-IB3",
+        "staffing.conflicts": "Q-ST1 Q-ST2 Q-ST3 Q-ST4 Q-ST5 Q-ST6 Q-ST7 Q-C8 Q-C10 Q-C11",
+        "operator-ops.conflicts": "Q-OP1 Q-OP2 Q-OP3 Q-OP4 Q-C8", "quick-staff.conflicts": "Q-QS1 Q-QS2 Q-QS3 Q-QS4",
+        "work-read.conflicts": "Q-W1 Q-W2", "receipt-lookup.conflicts": "Q-RL1 Q-RL2 Q-RL3 Q-C4",
+        "funding.conflicts": "Q-FD1 Q-FD2 Q-FD3 Q-FD4 Q-FD5 Q-C8 Q-C12", "preview.conflicts": "Q-E2 Q-C5",
+    }
+    # r3 section 7.1 extends two r7 schedules; each extension is named in an open owner line (review F3)
+    R3_EXTENSIONS = {"agent-mail.conflicts": "Q-C3 as r3 section 7.1 extends it",
+                     "preview.conflicts": "extend Q-C5 to every r3 operation"}
 
     def r3_citation_gaps(self, document):
         gaps = set()
@@ -238,6 +253,12 @@ class ContractCoverage(unittest.TestCase):
         for name in ("preview.conflicts", "preview.predicates"):     # r3's amendments to r7 (E-D17)
             if not any(f.startswith("Native design extension r3 (") and self.NATIVE_R3 in f
                        for f in document["facets"][name]["facts"]):
+                gaps.add(name)
+        for name, ids in self.R3_FACET_SCHEDULES.items():
+            if set(ids.split()) - self.anchored_schedules({"facets": {name: document["facets"][name]}}):
+                gaps.add(name)
+        for name, phrase in self.R3_EXTENSIONS.items():
+            if not any(q.startswith("Owner: ") and phrase in q for q in document["facets"][name]["open_questions"]):
                 gaps.add(name)
         return gaps
 
@@ -257,6 +278,18 @@ class ContractCoverage(unittest.TestCase):
         facet = document["facets"]["funding.conflicts"]
         facet["open_questions"] = [q.replace("Q-FD1 to Q-FD5", "Q-FD1 to Q-FD4") for q in facet["open_questions"]]
         self.assertEqual(self.R3_SCHEDULES - self.anchored_schedules(document), {"Q-FD5"})
+        # a schedule moved to another facet still counts as anchored, but not on its own facet (N5)
+        document = copy.deepcopy(self.document)
+        funding, status = document["facets"]["funding.conflicts"], document["facets"]["status.conflicts"]
+        funding["open_questions"] = [q.replace("Q-FD1 to Q-FD5", "Q-FD2 to Q-FD5") for q in funding["open_questions"]]
+        status["open_questions"] = [q.replace("Q-S1 to Q-S3", "Q-S1 to Q-S3, Q-FD1") for q in status["open_questions"]]
+        self.assertEqual(self.R3_SCHEDULES - self.anchored_schedules(document), set())
+        self.assertEqual(self.r3_citation_gaps(document), {"funding.conflicts"})
+        # the Q-C3 extension dropped from the only owner line that carries it (F3)
+        document = copy.deepcopy(self.document)
+        mail = document["facets"]["agent-mail.conflicts"]
+        mail["open_questions"] = [q.replace("Q-C3 as r3 section 7.1 extends it", "Q-C3") for q in mail["open_questions"]]
+        self.assertEqual(self.r3_citation_gaps(document), {"agent-mail.conflicts"})
 
     def test_a_missing_or_wrong_citation_is_caught(self):
         for name, edit in (("legacy-lock", lambda f: f["facts"].pop()),
