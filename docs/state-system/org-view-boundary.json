@@ -1,6 +1,6 @@
 {
   "schema": "orgtree.org-view-boundary/v1",
-  "source_contract_sha256": "c8e1cf6bd860b00e1f91d0b48ee458f70c7f81f27892852072567f88774cabe7",
+  "source_contract_sha256": "5113ef7f3c3d8427447f19d1e19f432d18e46da96d6630567917af99fa7b970c",
   "qualification": {
     "runtime_census": false,
     "conversion_authorized": false
@@ -137,7 +137,11 @@
       401,
       "agent credential is invalid or expired; reconnect the agent session"
     ],
-    "ws_close": 4401
+    "ws_close": 4401,
+    "desktop_kiosk": [
+      500,
+      "ValueError: Not available in desktop MVP: kiosk"
+    ]
   },
   "frames": {
     "changed": [
@@ -162,7 +166,8 @@
   "legacy_defects": [
     "the first ETag of a cold org is stale before the client can revalidate with it",
     "a valid agent credential on these GET routes is refused as 'invalid or expired'",
-    "the websocket route accepts a socket for an organization that does not exist"
+    "the websocket route accepts a socket for an organization that does not exist",
+    "in desktop-managed mode an org document carrying kiosk makes the admin tree and node detail answer 500 (ValueError escapes a RuntimeError-only gate)"
   ],
   "scope": "Legacy boundary of GET /api/orgs/{slug}, the node detail route and the org websocket feed on disposable SQLite. It pins authentication and kiosk scoping, ETag revalidation, archived summaries, public scrubbing and frame shapes; it does not qualify native behaviour, contacts or conflicts."
 }

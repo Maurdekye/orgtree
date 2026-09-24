@@ -301,9 +301,13 @@ for the feed. Unresolved with an owner: the view's reads, cold/migration writes
 and instrumentation (P02), conflicts for both (native change-feed design) and
 wire for both (native/Rust), and the feed's instrumentation (P02). Recorded legacy
 behaviour: the first ETag a cold org serves is already stale, a valid agent
-credential on these GETs is refused as "invalid or expired", and the socket
-route accepts an organization that does not exist. The kiosk listener is started
-only by api.py's own `main()`, not by the desktop launcher.
+credential on these GETs is refused as "invalid or expired", the socket route
+accepts an organization that does not exist, and in desktop-managed mode an org
+document carrying `kiosk` makes the admin tree and node detail answer 500 (the
+warm-process eligibility check catches only `RuntimeError`, but the desktop
+policy raises `ValueError`) while the public view still serves. A kiosk config
+without a ceiling also mints a fresh ceiling notice on every cold load. The kiosk
+listener is started only by api.py's own `main()`, not by the desktop launcher.
 
 ## Deliberate failing controls
 

@@ -4532,7 +4532,8 @@
       "facts": [
         "The tree ETag hashes the org's save seq, supervisor.tree_state_fingerprint, the limits board's fetch stamp, the primed-restart record, the per-slug patch invalidation rev and a 30-second bucket. A matching If-None-Match answers 304 with no body before any load or build. The built body is cached per (slug, public) and one build at a time runs per key.",
         "Recorded legacy behaviour: the first build of an org whose supervisor state is cold allocates per-node state entries while annotating, which changes the fingerprint, so the ETag that first response carried is already stale. Revalidating with it returns 200 and a new tag; revalidating with the new tag returns 304. Pinned.",
-        "Archived nodes are summarised in the tree (detail false, charter_line, lineage_count, read_only, detail_rev, only the last turn) and the payload carries archived_defaults once. The detail route finds the named node in the tree, empties its children, annotates it in full and, for an archived seat only, recomputes detail_rev. Pinned."
+        "Archived nodes are summarised in the tree (detail false, charter_line, lineage_count, read_only, detail_rev, only the last turn) and the payload carries archived_defaults once. The detail route finds the named node in the tree, empties its children, annotates it in full and, for an archived seat only, recomputes detail_rev. Pinned.",
+        "Recorded legacy defect, desktop-managed mode with warming enabled: annotating a live node asks warmpool.process_control_status for its control state, whose eligibility check runs the deployment gate and catches only RuntimeError. desktop_policy.validate raises ValueError for an org document carrying kiosk (or sandbox, or disk_mb), so such an org's admin tree and node detail answer 500 'ValueError: Not available in desktop MVP: kiosk'. The public view returns before that check and answers 200. Pinned."
       ],
       "source_refs": [
         {
@@ -4570,6 +4571,24 @@
           "start": 3311,
           "end": 3330,
           "sha256": "71ff8151af9857a636efd74d8e8f25f0ae48f9fd843f54bb2d5bfccb159da90c"
+        },
+        {
+          "path": "engine/backend/orgtree/warmpool.py",
+          "start": 1337,
+          "end": 1392,
+          "sha256": "3dbb045fb21c9ca64ae075b40123943ce715d597252de1b841ab54a93a0ec26d"
+        },
+        {
+          "path": "engine/backend/orgtree/warmpool.py",
+          "start": 1247,
+          "end": 1250,
+          "sha256": "8c465246dd02dc145ffec5ff0a0bebaec84304489e710f2e5ae6a842c29fda8e"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_policy.py",
+          "start": 9,
+          "end": 16,
+          "sha256": "f1ae0dc9c5d2ca855496c5540206c77f82865a78ed29e92a6876859b76f12543"
         }
       ],
       "open_questions": []
@@ -4615,7 +4634,8 @@
       "dimension": "writes",
       "status": "unresolved",
       "facts": [
-        "Neither route saves. Measured on already-migrated synthetic data: no document section changes for the tree, the detail route or the public tree. The tree cache, the per-slug invalidation rev and the supervisor state entries annotate allocates are process memory."
+        "Neither route saves. Measured on already-migrated synthetic data: no document section changes for the tree, the detail route or the public tree. The tree cache, the per-slug invalidation rev and the supervisor state entries annotate allocates are process memory.",
+        "Observed load-time migration: a cold load of a kiosk org whose config has no max_scope backfills the ceiling in memory and mints a fresh access.kiosk_ceiling notice into the user's mail log (a new id on every load; observed across two consecutive cold reads with no request between them). The view itself never saves it; what a later write cycle persists was not measured."
       ],
       "source_refs": [
         {
@@ -4635,6 +4655,12 @@
           "start": 3038,
           "end": 3067,
           "sha256": "614f1e705898907a0b64d3b59697f5c1e4c177bf192593d05bf73902ba871c59"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 888,
+          "end": 925,
+          "sha256": "cd3daea7e6197e23e26aeb95f8739ef9171d2e5585d935ca933a55f9441f9ba5"
         }
       ],
       "open_questions": [
@@ -4713,7 +4739,7 @@
       ],
       "open_questions": [
         "Carry the fixtured tree and detail shapes to the native/Rust routes and decide each recorded legacy defect.",
-        "Owner: the native/Rust conversion, from the P03 prototype onward. Closes with: the fixtured tree, archived-summary, public-scrub and detail shapes passing against the native and Rust builds, with the stale-first-ETag and the misleading agent-token 401 each reproduced deliberately or replaced by an approved behaviour. Not coverable at P01 from available evidence: no native or Rust build exists to run the fixtures against."
+        "Owner: the native/Rust conversion, from the P03 prototype onward. Closes with: the fixtured tree, archived-summary, public-scrub and detail shapes passing against the native and Rust builds, with the stale-first-ETag, the misleading agent-token 401 and the desktop-mode kiosk 500 each reproduced deliberately or replaced by an approved behaviour. Not coverable at P01 from available evidence: no native or Rust build exists to run the fixtures against."
       ]
     },
     "org-view.receipt": {

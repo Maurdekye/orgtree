@@ -126,9 +126,12 @@ class _Org(unittest.TestCase):
         self.notify.assert_not_called()
         self.hub_changed.assert_not_called()
 
-    def enable_kiosk(self):
+    def enable_kiosk(self, ceiling=True):
+        # with a ceiling, so a cold load does not backfill one (see the backfill test)
         with store.write_org(self.slug) as org:
             org.d['kiosk'] = {'enabled': True, 'token': KIOSK}
+            if ceiling:
+                org.d['kiosk']['max_scope'] = org.default_kiosk_ceiling()
             store.save_org(org)
         api._token_cache['at'] = 0.0
         public = TestClient(api.PublicGateway(api.app), raise_server_exceptions=False)
@@ -167,10 +170,12 @@ class OrgViewBoundary(_Org):
         self.assertEqual(self.get(f"/api/orgs/{other.d['slug']}/nodes/worker/detail").status_code, 404)
 
     def test_kiosk_gateway_serves_only_its_own_org_and_scrubs(self):
+        # the admin tree is read BEFORE the kiosk exists: in desktop-managed mode an org
+        # carrying kiosk cannot render its admin tree at all (next test)
+        admin = self.get(f'/api/orgs/{self.slug}').json()
         public = self.enable_kiosk()
         other = store.create_org(f'p01-org-view-kother-{self.seq}')
         self.addCleanup(self.cleanup_org, str(other.d['slug']))
-        admin = self.get(f'/api/orgs/{self.slug}').json()
         r = public.get(f'/k/{KIOSK}/api/orgs/{self.slug}')
         self.assertEqual(r.status_code, 200)
         tree = r.json()
@@ -185,6 +190,15 @@ class OrgViewBoundary(_Org):
             self.assertNotIn(field, detail)
         self.assertEqual(public.get(f"/k/{KIOSK}/api/orgs/{other.d['slug']}").status_code, 404)
         self.assertEqual(public.get(f'/k/nopenopenope/api/orgs/{self.slug}').status_code, 404)
+
+    def test_desktop_mode_kiosk_org_admin_views_fail_500_while_public_views_serve(self):
+        status, detail = self.spec['refusals']['desktop_kiosk']
+        public = self.enable_kiosk()
+        for path in (f'/api/orgs/{self.slug}', f'/api/orgs/{self.slug}/nodes/worker/detail'):
+            with self.subTest(path=path):
+                r = self.get(path)
+                self.assertEqual((r.status_code, r.json()['detail'], r.json()['error']['unhandled']), (status, detail, True))
+                self.assertEqual(public.get(f'/k/{KIOSK}{path}').status_code, 200)
 
     # -- predicates -------------------------------------------------------
     def test_first_etag_of_a_cold_org_is_stale_then_revalidation_answers_304(self):
@@ -216,14 +230,25 @@ class OrgViewBoundary(_Org):
 
     # -- writes / effects ---------------------------------------------------
     def test_tree_detail_and_public_views_commit_and_signal_nothing(self):
+        before = self.durable()
+        for path in (f'/api/orgs/{self.slug}', f'/api/orgs/{self.slug}/nodes/worker/detail',
+                     f'/api/orgs/{self.slug}/nodes/gone/detail'):
+            self.assertEqual(self.get(path).status_code, 200)
+        self.assertEqual(self.durable(), before)
         public = self.enable_kiosk()
         before = self.durable()
-        self.get(f'/api/orgs/{self.slug}')
-        self.get(f'/api/orgs/{self.slug}/nodes/worker/detail')
-        self.get(f'/api/orgs/{self.slug}/nodes/gone/detail')
-        public.get(f'/k/{KIOSK}/api/orgs/{self.slug}')
+        for path in (f'/api/orgs/{self.slug}', f'/api/orgs/{self.slug}/nodes/worker/detail'):
+            self.assertEqual(public.get(f'/k/{KIOSK}{path}').status_code, 200)
         self.assertEqual(self.durable(), before)
         self.quiet()
+
+    def test_a_kiosk_without_a_ceiling_mints_a_fresh_notice_on_every_cold_load(self):
+        self.enable_kiosk(ceiling=False)
+        first, second = self.durable(), self.durable()      # no request in between
+        self.assertEqual(sorted(k for k in set(first) | set(second) if first.get(k) != second.get(k)), ['user_mail_log'])
+        [a] = [m for m in first['user_mail_log'] if (m.get('ev') or {}).get('variant') == 'access.kiosk_ceiling']
+        [b] = [m for m in second['user_mail_log'] if (m.get('ev') or {}).get('variant') == 'access.kiosk_ceiling']
+        self.assertNotEqual(a['id'], b['id'])
 
 
 class OrgFeedBoundary(_Org):
