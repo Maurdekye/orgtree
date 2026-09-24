@@ -15269,10 +15269,35 @@
     },
     {
       "id": "61f97ed29330fd84842ee5f49cbe7e55cc8c3697beceba87333bb7375efaf9fa",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W6): opreceipts.result_slice's reservation branch keeps the reservation result fields in the receipt a keyed orgtree_reservation or orgtree_resource_reservation call writes. MAPPING CANDIDATE: every operation reaching this branch is a contracted reservation variant, so rule 1 would allow mapping it; that is left to the coordinator's ruling. Owner: P01 (the reservation contracts).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "reservation.acquire",
+        "reservation.invalidate",
+        "reservation.land",
+        "reservation.landing",
+        "reservation.list-read",
+        "reservation.list-scope",
+        "reservation.overlap",
+        "reservation.recover",
+        "reservation.release",
+        "reservation.release-notify",
+        "reservation.renew"
+      ],
+      "reason": "Mapped (P01 W6, rule 1; coordinator 23:04Z): opreceipts.result_slice is called only by opreceipts.row for an APPLIED receipt, and this branch runs only when the tool is orgtree_reservation or orgtree_resource_reservation. Every action of both tools is one of the 11 contracted reservation variants, and each is TX_POST in the receipt classifier, so each files the receipt whose result fields this branch keeps. Every operation reaching the branch has a contract.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 387,
+          "end": 429,
+          "sha256": "3dc325736be8c641909396fd5ab66e636a8606c141a3e7e25e7d4ab74dcc42b9"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 801,
+          "end": 818,
+          "sha256": "02f13262b44b9cc5b8d5dad69493874b8920e8411b33a8d0e95bb58e771ce66c"
+        }
+      ]
     },
     {
       "id": "e82170eca24774bc6890d3f0e5c3cec9da4280cc548c4cece0065f2d22a33104",
