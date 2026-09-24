@@ -340,7 +340,9 @@ def install_audit_counter(root: Path, data: Path, home: Path) -> None:
             if rest.startswith("orgs\\"):
                 # org-store locality: the operation's own org, or another one
                 stem = rest[5:].split("\\", 1)[0].split(".", 1)[0]
-                return "data:org-db" if own is None else                     ("data:org-db:own" if stem == own.lower() else "data:org-db:foreign")
+                if own is None:
+                    return "data:org-db"
+                return "data:org-db:own" if stem == own.lower() else "data:org-db:foreign"
             if rest.startswith("scratch\\"):
                 return "data:scratch"
             if rest.startswith("sandboxes\\"):
@@ -368,7 +370,8 @@ def install_audit_counter(root: Path, data: Path, home: Path) -> None:
             name = frame.f_code.co_filename.replace("\\", "/")
             at = name.find("/engine/backend/orgtree/")
             if at >= 0:
-                return "orgtree." + name[at + 24:].removesuffix(".py").replace("/", ".") +                     ":" + frame.f_code.co_name
+                module = name[at + 24:].removesuffix(".py").replace("/", ".")
+                return "orgtree." + module + ":" + frame.f_code.co_name
             if fallback is None and not name.endswith(("p02_operation_contacts.py",
                                                         "isolation_guards.py")):
                 fallback = name.rsplit("/", 1)[-1].removesuffix(".py") + ":" + frame.f_code.co_name
@@ -849,12 +852,16 @@ class Probe:
             patches: "list[tuple[Any, str, Any]] | None" = None,
             env: "dict[str, str | None] | None" = None,
             expected_unknown: "tuple[str, ...]" = (),
-            implied: "tuple[str, ...]" = (), disclose: bool = False) -> dict[str, Any]:
+            implied: "tuple[str, ...]" = (), disclose: bool = False,
+            call: "Callable[[], tuple[int, Any]] | None" = None) -> dict[str, Any]:
         """One operation. `env` is applied for this call only (None removes a
         variable); `expected_unknown` declares the contact classes outside the
         known set that this row provokes on purpose; `implied` names counterparties
         the operation reaches without naming them (see `agents`); `disclose` records
-        which of the org's synthetic node ids appear in the answer (`disclosed`)."""
+        which of the org's synthetic node ids appear in the answer (`disclosed`).
+        `call` replaces the agent door for routes that are not `/api/agent` (an
+        HTTP GET, a websocket): it returns (status, payload) and runs inside
+        the same window, census baseline and collector."""
         global _CURRENT
         if self.backend != "sqlite":
             variant = f"{self.backend}:{variant}"
@@ -884,12 +891,15 @@ class Probe:
         _CURRENT = collector
         t0 = time.perf_counter()
         try:
-            resp = self.client.post("/api/agent", json=body, headers=headers)
-            status = resp.status_code
-            try:
-                payload = resp.json()
-            except ValueError:
-                payload = None
+            if call is not None:
+                status, payload = call()
+            else:
+                resp = self.client.post("/api/agent", json=body, headers=headers)
+                status = resp.status_code
+                try:
+                    payload = resp.json()
+                except ValueError:
+                    payload = None
         finally:
             elapsed = (time.perf_counter() - t0) * 1000.0
             _CURRENT = None
@@ -915,6 +925,8 @@ class Probe:
             row["disclosed"] = sorted(
                 n for n in _NODES.get(slug, ())
                 if re.search(r"(?<![\w-])" + re.escape(n) + r"(?![\w-])", text))
+        row["feed"] = (payload.get("feed") if call is not None and isinstance(payload, dict)
+                       else None)
         row["env"] = sorted(env or {})
         row["clone"] = None if collector.clone is None else dict(
             collector.clone, nodes={n: self.role(n, actor, row["agents"]["targets"])
@@ -1624,6 +1636,168 @@ class Probe:
             self.run("preview.agent", f"preview.{op}", "warm", s, "actor", "orgtree_preview",
                      outer, patches=[(api, "provider_hire_gate", lambda *_a, **_k: None)])
 
+    # -- P01 S3 F1b: org.tree, org.node-detail, org.feed --------------------------
+    KIOSK = "p02kioskTOKEN77"
+    OPERATOR = {"X-Orgtree-Desktop-Token": "operator"}
+
+    def build_org_view(self) -> None:
+        """tests/test_state_org_view_boundary.py's org (with an archived
+        node), kiosk-enabled so the public side exists. Distinctive `ov-*`
+        ids, so `disclosed` cannot match ordinary words."""
+        store, ledger, api = self.m["store"], self.m["ledger"], self.m["api"]
+        org = store.create_org("p02-contacts-orgview")
+        self.ovslug = str(org.d["slug"])
+        org.hire(ledger.USER, None, "haiku", 10, "ov-boss")
+        org.hire(ledger.USER, "ov-boss", "haiku", 4, "ov-worker")
+        org.hire(ledger.USER, "ov-boss", "haiku", 0, "ov-gone")
+        org.retire(ledger.USER, "ov-gone")
+        store.save_org(org)
+        from fastapi.testclient import TestClient
+        self.public = TestClient(api.PublicGateway(api.app), raise_server_exceptions=False,
+                                 client=("127.0.0.1", 43001))
+
+    def measure_kiosk_scan(self) -> dict[str, Any]:
+        """The public gateway's kiosk token-map rebuild (api._kiosk_token_map,
+        cache forced stale), measured OUTSIDE any operation row because no
+        census attempt exists when it runs: its statements, how many of them
+        the census could not attribute, its connects, and the orgs it read."""
+        global _CURRENT
+        api = self.m["api"]
+        api._token_cache["at"] = 0.0
+        collector = Collector("kiosk-token-scan", self.ovslug)
+        before = self.census_state()
+        _CURRENT = collector
+        try:
+            mapped = api._kiosk_token_map()
+        finally:
+            _CURRENT = None
+        after = self.census_state()
+        c0, c1 = before.get("counters", {}), after.get("counters", {})
+        return {
+            "statements": len(collector.statements),
+            "statements_unbound": sum(1 for st in collector.statements if st["tally"] is None),
+            "db_unattributed_delta": c1.get("db_unattributed", 0) - c0.get("db_unattributed", 0),
+            "recorded_delta": c1.get("recorded", 0) - c0.get("recorded", 0),
+            "sqlite_connect": sum(collector.audit.get("sqlite_connect", {}).values()),
+            "orgs_listed": len(list(self.data.joinpath("orgs").glob("*.db"))),
+            "kiosk_orgs_mapped": len(mapped),
+        }
+
+    @staticmethod
+    def http(client: Any, path: str, headers: "dict[str, str] | None" = None
+             ) -> Callable[[], tuple[int, Any]]:
+        def call() -> tuple[int, Any]:
+            resp = client.get(path, headers=headers or {})
+            try:
+                payload = resp.json()
+            except ValueError:
+                payload = None
+            return resp.status_code, payload
+        return call
+
+    def feed(self, subscribers: "list[tuple[str, Any, str, dict[str, str]]]", frames: int
+             ) -> Callable[[], tuple[int, Any]]:
+        """Open one websocket per subscriber (label, client, path, headers),
+        publish `frames` 'changed' broadcasts through the hub, and return how
+        many frames each subscriber received and whether the hub holds it as
+        public. A refused socket answers its close code."""
+        api = self.m["api"]
+        slug = self.ovslug
+
+        def call() -> tuple[int, Any]:
+            from starlette.websockets import WebSocketDisconnect
+            try:
+                return connected()
+            except WebSocketDisconnect as exc:
+                return exc.code, {"feed": {"refused": True, "close_code": exc.code}}
+
+        def connected() -> tuple[int, Any]:
+            with contextlib.ExitStack() as stack:
+                sockets = []
+                for label, client, path, headers in subscribers:
+                    sockets.append((label, stack.enter_context(
+                        client.websocket_connect(path, headers=headers))))
+                room = set(api.hub.rooms.get(slug) or ())
+                got = {label: 0 for label, _ in sockets}
+                for _ in range(frames):
+                    sockets[0][1].portal.call(api.hub.changed, slug)
+                    for label, ws in sockets:
+                        if ws.receive_json().get("type") == "changed":
+                            got[label] += 1
+                return 101, {"feed": {"subscribers": len(room), "frames": got,
+                                      "public_in_room": len(room & api.hub.public)}}
+        return call
+
+    def org_view(self) -> None:
+        s, op = self.ovslug, self.OPERATOR
+        admin, public = self.client, self.public
+        tree, kiosk = f"/api/orgs/{s}", f"/k/{self.KIOSK}"
+
+        def get(contract: str, variant: str, condition: str, client: Any, path: str,
+                headers: "dict[str, str] | None" = None, **kw: Any) -> None:
+            self.run(contract, variant, condition, s, "ov-boss", f"GET {contract}", {},
+                     call=self.http(client, path, headers), disclose=True, **kw)
+
+        # admin side, on the org before its kiosk is enabled (a kiosk-enabled
+        # org's admin tree is the desktop-mode 500 P01 pinned, recorded below)
+        for condition in ("cold", "warm"):
+            get("org.tree", "org.tree", condition, admin, tree, op)
+            get("org.node-detail", "org.node-detail", condition, admin,
+                f"{tree}/nodes/ov-worker/detail", op)
+            get("org.node-detail", "org.node-detail:archived", condition, admin,
+                f"{tree}/nodes/ov-gone/detail", op)
+        get("org.tree", "refusal:tree-no-token", "warm", admin, tree, {},
+            refusal="401 without the desktop token")
+        get("org.node-detail", "refusal:detail-unknown-node", "warm", admin,
+            f"{tree}/nodes/nobody/detail", op, refusal="404 unknown node")
+
+        # public side: enable the kiosk, then measure the gateway's token-map
+        # rebuild ON ITS OWN. It runs in the ASGI wrapper before the app, so
+        # before any census attempt exists, and reads every org's document;
+        # the public rows below run with the map warm so they carry only
+        # their own request's contacts
+        def kiosk_on(o: Any) -> None:
+            o.d["kiosk"] = {"enabled": True, "token": self.KIOSK,
+                            "max_scope": o.default_kiosk_ceiling()}
+        self.mutate(s, kiosk_on)
+        self.kiosk_scan = self.measure_kiosk_scan()
+        for condition in ("cold", "warm"):
+            self.m["api"]._kiosk_token_map()
+            get("org.tree", "org.tree:public", condition, public, kiosk + tree)
+            self.m["api"]._kiosk_token_map()
+            get("org.node-detail", "org.node-detail:public", condition, public,
+                f"{kiosk}{tree}/nodes/ov-worker/detail")
+        self.m["api"]._kiosk_token_map()
+        get("org.tree", "refusal:tree-bad-kiosk-token", "warm", public,
+            f"/k/nopenopenope/api/orgs/{s}", refusal="404 unknown kiosk token")
+        get("org.tree", "refusal:tree-admin-on-kiosk-org", "warm", admin, tree, op,
+            refusal="desktop-mode 500 on a kiosk-enabled org (legacy defect pinned by P01)")
+        # org-view.writes: a snapshot miss falls through cached_org to
+        # load_org and _ensure_migrated, so a legacy org migrates in a GET
+        legacy = self.legacy_org("p02-contacts-legacy-orgview", (), "json")
+        for variant, condition, env in (("migration:refused", "cold", {"ORGTREE_MIGRATE": None}),
+                                        ("migration:legacy-json", "cold", {"ORGTREE_MIGRATE": "1"}),
+                                        ("migration:legacy-json", "warm", None)):
+            self.run("org.tree", variant, condition, legacy, "boss", "GET org.tree", {},
+                     call=self.http(admin, f"/api/orgs/{legacy}", op), env=env,
+                     refusal=("legacy .json without ORGTREE_MIGRATE: MigrationRefused"
+                              if variant == "migration:refused" else None))
+
+        # org.feed: subscriptions and the frame fan-out, admin and public
+        ws = f"{tree}/ws"
+        adm = ("admin", admin, ws, op)
+        pub = ("public", public, kiosk + ws, {})
+        for condition in ("cold", "warm"):
+            self.run("org.feed", "org.feed", condition, s, "ov-boss", "WS org.feed", {},
+                     call=self.feed([adm], 1))
+            self.run("org.feed", "org.feed:public", condition, s, "ov-boss", "WS org.feed", {},
+                     call=self.feed([pub], 1))
+        self.run("org.feed", "org.feed:fanout", "warm", s, "ov-boss", "WS org.feed", {},
+                 call=self.feed([adm, pub], 2))
+        self.run("org.feed", "refusal:feed-no-token", "warm", s, "ov-boss", "WS org.feed", {},
+                 call=self.feed([("admin", admin, ws, {})], 0),
+                 refusal="socket without the desktop token closed")
+
     # -- the r5 residuals ----------------------------------------------------
     def residuals(self) -> dict[str, Any]:
         """db_unbound and unclassified_action, reproduced: which records carry
@@ -1707,9 +1881,10 @@ class Probe:
         if not json_backend:
             self.build_sandbox()
             self.build_status()
+            self.build_org_view()
         for slug in ((self.dslug,) if json_backend else
                      (self.rslug, self.mslug, self.dslug, self.pslug, self.sslug,
-                      self.stslug)):
+                      self.stslug, self.ovslug)):
             _NODES[slug] = {str(n) for n in self.m["store"].load_org(slug).nodes}
         self.operator("post", "/api/diagnostics/operation-census/reset")
         self.operator("post", "/api/diagnostics/operation-census", json={"enabled": True})
@@ -1725,6 +1900,7 @@ class Probe:
             self.preview()
             self.provider()
             self.status_chart()
+            self.org_view()
         w1 = self.census_state()
         self.load_table_catalogue()
         self.map_tables()
@@ -1745,6 +1921,7 @@ class Probe:
                        "same_window": w0.get("window_generation") == w1.get("window_generation"),
                        "counters": loss},
             "between_operations": {k: dict(v) for k, v in _BETWEEN.audit.items()},
+            "kiosk_token_scan": getattr(self, "kiosk_scan", None),
             "connection_sites": self.connection_sites(),
             "residuals": residuals,
             "rows": self.rows,

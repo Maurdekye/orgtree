@@ -33,7 +33,8 @@ PREVIEW = ("reallocate", "move", "swap", "swap_seats", "self_subjugate", "subjug
            "audience")
 CONTRACTS = {f"reservation.{v}" for v in RESERVATION} | {
     "material.scratch", "material.transcript", "diagnostic.inspect",
-    "diagnostic.capabilities", "preview.agent", "status.report", "chart.read"}
+    "diagnostic.capabilities", "preview.agent", "status.report", "chart.read",
+    "org.tree", "org.node-detail", "org.feed"}
 
 
 class OperationContacts(unittest.TestCase):
@@ -587,7 +588,10 @@ class OperationContacts(unittest.TestCase):
                     self.assertEqual(r["harness"]["stores"]["primary"]["tables_written"],
                                      ["nodes"])
                     self.assertEqual(r["harness"]["writes"], 1)
-        for r in self.rows(contract="status.report", variant="status.report:done-top-level") +                 self.rows(contract="status.report", variant="status.report:blocked-top-level"):
+        top_level = (self.rows(contract="status.report", variant="status.report:done-top-level")
+                     + self.rows(contract="status.report",
+                                 variant="status.report:blocked-top-level"))
+        for r in top_level:
             self.assertEqual(r["agents"]["targets"], [])
         for condition in both:
             with self.subTest(replay=condition):
@@ -640,8 +644,89 @@ class OperationContacts(unittest.TestCase):
                             self.assertEqual(r["census"]["connects"], 1)
                             self.assertGreater(r["census"]["statements"], 0)
         for r in self.doc["rows"]:
-            if r["contract"] != "chart.read":
+            if r["contract"] not in ("chart.read", "org.tree", "org.node-detail"):
                 self.assertIsNone(r["disclosed"], r["variant"])
+
+
+    # -- P01 S3 F1b: org.tree, org.node-detail, org.feed ---------------------------
+    OV_ALL = ["ov-boss", "ov-gone", "ov-worker"]
+
+    def test_org_tree_and_detail_admin_and_public_cold_and_warm(self):
+        """org-view.reads/instrumentation: the tree and detail routes, admin
+        and public, cold and warm, with an archived node present; each a read
+        that writes nothing; `disclosed` shows the archived node is in the
+        tree and that each detail row answers for its own node."""
+        cases = {"org.tree": ("org.tree", self.OV_ALL),
+                 "org.tree:public": ("org.tree", self.OV_ALL),
+                 "org.node-detail": ("org.node-detail", ["ov-worker"]),
+                 "org.node-detail:archived": ("org.node-detail", ["ov-gone"]),
+                 "org.node-detail:public": ("org.node-detail", ["ov-worker"])}
+        for variant, (contract, shown) in cases.items():
+            for condition in ("cold", "warm"):
+                with self.subTest(variant=variant, condition=condition):
+                    r = self.rows(contract=contract, variant=variant, condition=condition)[0]
+                    self.assertEqual(r["http_status"], 200, r["detail"])
+                    self.assertEqual(r["census"]["records"], 1)
+                    self.assertEqual(r["harness"]["writes"], 0)
+                    self.assertEqual(r["disclosed"], shown)
+                    if condition == "cold":
+                        self.assertGreater(r["census"]["statements"], 0)
+        refusals = {"refusal:tree-no-token": 401, "refusal:detail-unknown-node": 404,
+                    "refusal:tree-bad-kiosk-token": 404,
+                    "refusal:tree-admin-on-kiosk-org": 500}
+        for variant, status in refusals.items():
+            with self.subTest(variant=variant):
+                r = self.rows(variant=variant)[0]
+                self.assertEqual((r["http_status"], r["harness"]["writes"]), (status, 0))
+        self.assertIn("Not available in desktop MVP: kiosk",
+                      self.rows(variant="refusal:tree-admin-on-kiosk-org")[0]["detail"])
+
+    def test_org_tree_migration_path_through_cached_org(self):
+        """org-view.writes: the cold and migration paths reached through
+        cached_org."""
+        refused = self.rows(contract="org.tree", variant="migration:refused")[0]
+        self.assertEqual((refused["http_status"], refused["harness"]["writes"]), (500, 0))
+        cold = self.rows(contract="org.tree", variant="migration:legacy-json", condition="cold")[0]
+        self.assertEqual(cold["http_status"], 200, cold["detail"])
+        self.assertGreater(cold["harness"]["writes"], 0)
+        self.assertIn("os.rename:data:org-db:own@orgtree.store:migrate_org",
+                      cold["audit"]["fs_mutation"])
+        warm = self.rows(contract="org.tree", variant="migration:legacy-json", condition="warm")[0]
+        self.assertEqual(warm["harness"]["writes"], 0)
+
+    def test_org_feed_subscriptions_and_fan_out(self):
+        """org-feed.instrumentation: subscriptions and frame fan-out per slug,
+        admin and public. The census records no websocket attempt (census
+        records 0), and a subscription runs no statement."""
+        for variant, label, public in (("org.feed", "admin", 0), ("org.feed:public", "public", 1)):
+            for condition in ("cold", "warm"):
+                with self.subTest(variant=variant, condition=condition):
+                    r = self.rows(contract="org.feed", variant=variant, condition=condition)[0]
+                    self.assertEqual(r["http_status"], 101)
+                    self.assertEqual(r["feed"], {"subscribers": 1, "frames": {label: 1},
+                                                 "public_in_room": public})
+                    self.assertEqual(r["census"]["records"], 0)
+                    self.assertEqual(r["harness"]["statements_attributed"]
+                                     + r["harness"]["statements_unbound"], 0)
+        fan = self.rows(variant="org.feed:fanout")[0]
+        self.assertEqual(fan["feed"], {"subscribers": 2, "frames": {"admin": 2, "public": 2},
+                                       "public_in_room": 1})
+        refused = self.rows(variant="refusal:feed-no-token")[0]
+        self.assertEqual((refused["http_status"], refused["feed"]),
+                         (4401, {"refused": True, "close_code": 4401}))
+
+    def test_kiosk_token_scan_is_measured_outside_the_rows(self):
+        """The public gateway's token-map rebuild runs before any census
+        attempt and reads every org's document: none of its statements can be
+        attributed. Measured on its own so the public rows carry only their
+        own request."""
+        scan = self.doc["kiosk_token_scan"]
+        self.assertGreater(scan["statements"], 0)
+        self.assertEqual(scan["statements_unbound"], scan["statements"])
+        self.assertGreater(scan["db_unattributed_delta"], 0)
+        self.assertEqual(scan["recorded_delta"], 0)
+        self.assertEqual(scan["kiosk_orgs_mapped"], 1)
+        self.assertGreater(scan["orgs_listed"], 1)
 
 
 if __name__ == "__main__":

@@ -284,8 +284,8 @@ ordinary words.
 
   A done or blocked report goes to the caller's parent. That parent is never
   named in the arguments, so each status row declares it as an IMPLIED target
-  (`agents.targets`), read from the actor's STORED parent before the call. Such a report's mail changes belong only to the parent,
-  with one wake. Every other outcome writes only the caller's own `nodes`
+  (`agents.targets`), read from the actor's STORED parent before the call.
+  Such a report's mail changes belong only to the parent, with one wake. Every other outcome writes only the caller's own `nodes`
   row.
 - **Status locality control** (`control:status-third-agent-mail`): a done
   report whose delivery step also posts mail to `st-sibling`. The control is
@@ -326,14 +326,71 @@ Owned elsewhere, with no rows added:
   design, then P03, with P07 or P05;
 - `status.wire` and `chart.wire`: the native/Rust conversion.
 
-Pending, added next:
-- F1b `org.tree`, `org.node-detail` and `org.feed` (fixed at v3 f2d71a1;
-  facets `org-view.*` and `org-feed.*`);
-- F2 `mail.message` and `mail.notice` (fixed at v3 325ec75; facets
-  `agent-mail.*`).
+F1b follows below. Pending, added next: F2 `mail.message` and `mail.notice`
+(fixed at v3 325ec75; facets `agent-mail.*`). Pending as P01 fixes their ids:
+the rest of F2 mail, F3 funding / staffing / receipt replay, and F4 work-item
+GET routes.
 
-Pending as P01 fixes their ids: the rest of F2 mail, F3 funding / staffing /
-receipt replay, and F4 work-item GET routes.
+## P01 S3 F1b: `org.tree`, `org.node-detail`, `org.feed`
+
+These are not `/api/agent` tools. The runner's `call` option drives the real
+route through the same window, census baseline and collector: an HTTP GET
+with the desktop token (admin), the public kiosk gateway (`/k/<token>/…`),
+or a websocket. The fixture follows `tests/test_state_org_view_boundary.py`:
+`ov-boss`, `ov-worker`, and a retired `ov-gone`.
+
+- **Admin** (kiosk off): `org.tree`, `org.node-detail` (`ov-worker`) and
+  `org.node-detail:archived` (`ov-gone`), each cold and warm, with
+  `disclosed`. Refusals: `refusal:tree-no-token` (401) and
+  `refusal:detail-unknown-node` (404).
+- **Public** (kiosk on): `org.tree:public` and `org.node-detail:public`,
+  cold and warm. Refusal: `refusal:tree-bad-kiosk-token` (404, answered by
+  the gateway, with no census record).
+- **The desktop-mode kiosk 500** (`refusal:tree-admin-on-kiosk-org`): the
+  admin tree of a kiosk-enabled org answers 500 "Not available in desktop MVP:
+  kiosk". This is the legacy defect P01 pinned at f2d71a1; it is recorded, not
+  fixed. That is why the admin rows run before the kiosk is enabled.
+- **The kiosk token scan** (`kiosk_token_scan`, top level, NOT a row): the
+  public gateway resolves `/k/<token>` through `api._kiosk_token_map`. That
+  map is rebuilt, on a 5-second cache, by reading every org's document, and
+  the rebuild runs in the ASGI wrapper before the app, so before any census
+  attempt exists.
+  - Measured on its own with the cache forced stale: every statement is
+    unattributable (`statements_unbound` equals `statements`, census
+    `db_unattributed` grows), no census record, and every org store is read
+    to map one kiosk org.
+  - The public rows run with the map warm, so they carry only their own
+    request's contacts and per-row loss stays zero.
+  - This is a census coverage gap for P02 runtime instrumentation and a
+    cross-org read for the native design; it is not fixed here.
+- **Feed** (`org.feed`, a websocket): `org.feed` (admin) and `org.feed:public`,
+  each cold and warm; `org.feed:fanout` (admin and public together, two
+  broadcasts); `refusal:feed-no-token` (close 4401). Each row's `feed`
+  records:
+  - subscribers in the slug's room;
+  - frames received per subscriber after `hub.changed`;
+  - how many subscribers the hub holds as public.
+
+  The census records no websocket attempt, and a subscription runs no
+  statement.
+- **Migration path** (`org.tree` `migration:*`): a legacy `.json` org read
+  through `cached_org`: refused, then migrated inside the GET.
+
+## Hand-off to P01 (S3 F1b): facet → clause → rows
+
+Clauses from the Owner lines at v3 f2d71a1.
+
+| Facet | Closing clause | Status | Rows |
+|---|---|---|---|
+| `org-view.reads` | observed per-operation contacts for GET /api/orgs/{slug} and the node detail route, admin and public, cold and warm, with archived nodes present | covered | `org.tree`, `org.tree:public`, `org.node-detail`, `org.node-detail:archived`, `org.node-detail:public`, each cold and warm (the archived node is in every tree's `disclosed`); refusals. The gateway's token-map rebuild is in `kiosk_token_scan` (not attributable to a row) |
+| `org-view.writes` | observed writes on the cold and migration paths reached through cached_org | covered | cold path: every cold tree/detail row (no table written); migration: `org.tree` `migration:refused`, `migration:legacy-json` cold (the migration's writes) and warm |
+| `org-view.instrumentation` | an observed, loss-accounted contact record for the tree and detail routes, admin and public, cold and warm | partly | covered: the rows above, per-row loss zero. NOT covered: the public gateway's token-map rebuild, which the census cannot attribute to any attempt (`kiosk_token_scan`). Closing it needs product instrumentation (P02 runtime stage); P03 native controls are separate |
+| `org-feed.instrumentation` | an observed record of feed subscriptions and frame fan-out (per slug, admin and public) | covered by the harness, not by the census | `org.feed`, `org.feed:public` (cold/warm), `org.feed:fanout`, `refusal:feed-no-token`, each with `feed` (subscribers, frames per subscriber, public count). The product's census records no websocket attempt; a census record of subscriptions needs product instrumentation (P02 runtime stage) |
+
+Owned elsewhere, with no rows added:
+- `org-view.conflicts` and `org-feed.conflicts`: the native design, then P03;
+- `org-view.wire` and `org-feed.wire`: the native/Rust conversion. The
+  desktop-mode kiosk 500 is recorded above, for them to decide.
 
 ## Limits
 
