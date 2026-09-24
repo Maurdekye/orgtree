@@ -142,6 +142,12 @@ class ContractCoverage(unittest.TestCase):
                   | {("desktop_recovery.py", n) for n in (97, 99, 118, 120, 122, 124, 125)}
                   | {("gitworkspace.py", n) for n in (482, 1114, 1136, 1140)}
                   | {("supervisor.py", 35326), ("supervisor.py", 35351), ("toolwait.py", 88)})
+    # the EXACT route each client-process exclusion calls (W8 review finding f1: 'a route' is not 'the route')
+    W8_CLIENT_ROUTES = {("externtool.py", 219): ("api.py", 1752, "/api/orgs"),
+                        ("externtool.py", 232): ("api.py", 8958, "/api/extern/{peer}/send"),
+                        ("externtool.py", 238): ("api.py", 9040, "/api/extern/{peer}/messages"),
+                        ("externtool.py", 244): ("api.py", 9052, "/api/extern/{peer}/wait"),
+                        ("mcptool.py", 2315): ("api.py", 11156, "/api/agent")}
 
     def test_w8_machine_client_and_presentation_dispatch_is_triaged(self):
         # W1-W8 rules (decision 1 on the W1 item) with rule 2 as sharpened (decision 2 there); an HTTP-client
@@ -153,16 +159,22 @@ class ContractCoverage(unittest.TestCase):
             return (selectors[i]["path"].rsplit("/", 1)[1], selectors[i]["line"])
         self.assertEqual({at(i) for i, r in rows.items() if r["disposition"] == "excluded"}, self.W8_EXCLUDED)
         self.assertEqual(len(self.W8_PENDING), 26)
-        # the ruling's condition: a client-process exclusion must cite the inventoried route it calls
-        routes = {(r["source"]["path"], r["source"]["line"]) for r in self.source["registrations"] if r["kind"] == "http"}
+        # the ruling's condition: a client-process exclusion must cite the inventoried route it calls, and no other
+        routes = {(r["source"]["path"].rsplit("/", 1)[1], r["source"]["line"]): r["selectors"]
+                  for r in self.source["registrations"] if r["kind"] == "http"}
         seen = set()
         for i, r in rows.items():
             if at(i) in self.W8_EXCLUDED:
                 with self.subTest(site=at(i)):
                     self.assertTrue(r["reason"].startswith("Not ") and r["reason"].endswith(" P01 W8."), r["reason"])
-                    if at(i)[0] == "externtool.py" or at(i) == ("mcptool.py", 2315):
-                        self.assertTrue(any((ref["path"], line) in routes for ref in r["source_refs"]
-                                            for line in range(ref["start"], ref["end"] + 1)), r["source_refs"])
+                    self.assertEqual(at(i)[0] == "externtool.py" or at(i) == ("mcptool.py", 2315),
+                                     at(i) in self.W8_CLIENT_ROUTES)
+                    if at(i) in self.W8_CLIENT_ROUTES:
+                        file, line, url = self.W8_CLIENT_ROUTES[at(i)]
+                        self.assertEqual(routes.get((file, line)), [url])
+                        cited = {(ref["path"].rsplit("/", 1)[1], n) for ref in r["source_refs"]
+                                 for n in range(ref["start"], ref["end"] + 1)} & set(routes)
+                        self.assertEqual(cited, {(file, line)}, r["source_refs"])
             if at(i) in self.W8_PENDING:
                 seen.add(at(i))
                 with self.subTest(site=at(i)):
