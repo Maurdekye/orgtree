@@ -307,6 +307,11 @@ recovery's completion event, the same path W1 excluded through the shutdown hook
 31 an owner (the runtime, channels and mail, watchdogs, the desktop import and maintenance, the
 agent door, the staffing snapshot). W4 closes nothing: it names the tool and owner on each of the
 40 agent-door branches for tools that have no contract.
+W5 and W6 (reviewed together) close nothing: 559 stands. W5 names the owner of the 37 docket-family
+branches (the `orgtree_work` card, P05, S3 ruling 2) and of `_attach_ref`'s present branch. W6 does
+the same for 26 operator-operation, preview-simulation and receipt-helper branches. One of them,
+`opreceipts.result_slice`'s reservation branch, is reached only by contracted reservation
+variants; it is recorded as a mapping candidate for the coordinator, not mapped.
 
 Of the 41 open dimension occurrences on the sixteen legacy-family contracts, 25 (9 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the

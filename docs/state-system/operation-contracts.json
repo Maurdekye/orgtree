@@ -13732,238 +13732,238 @@
       "id": "536a8465f8308baacfeb51bdd4a494e41187848f0ae66d04aee76b6a71b9b119",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): _attach_ref's orgtree_present branch stamps the presented document's reference onto the tool result that goes back to the agent, whose transcript transcript ingest copies into transcript_records (an org sidecar); orgtree_present has no contract. Owner: channels and mail (P07).",
       "source_refs": []
     },
     {
       "id": "11a94f315be0750bcadc28f78da486b3bb42ea521719d24f828da1e9b1a2fda0",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's receipt and rangediff branch (api._work_expected_rev_route). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
       "id": "8d08ecd764dbacd286f16b975b12cef76a80a0b51aeb839d13376dc469836448",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's evidence branch (api._work_refuse_unused). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
       "id": "69ed610420468507c67a16350af3ac99f786dbbb9417dbf2f6d5acb3df0f810e",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's receipt and rangediff branch (api._work_read_call). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
       "id": "b029163c599de51c0d9a3fea3642b6d969c07b1d1dfbbd41c9c5e7518f0d68fc",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's rangediff branch (api._work_read_call). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
       "id": "fbd30bbd5c07590b86bddd736e3b81e06befeba59bfb79f268e35ec7f95ea245",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's receipts and artifact_read branch (api._work_read_call). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
       "id": "22ba2713d7d736e71ddf10fe0fd1de5ba5a5ae5761d81b56aeca4f86d1d04c55",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's receipts branch (api._work_read_call). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
       "id": "412cc02742c43429dcb32dd61eb6488c2aa55943616ae598d299a2328c1ccc54",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's verify branch (api._work_read_call). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
       "id": "6c3a64ed2aba73350eeb163faba20d8696859360eca7158bfed0c04a7eb2ff3b",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's list branch (api._work_read_call). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
       "id": "113b9bc78f4e52aa9b1e51277d53ab194c61b8d5765b667764f9d363ebb0013f",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's create branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
       "id": "ca53a6f5ab65db338b734c370686ce536f9e90765623a442b88476a8b098bb14",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's update branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
       "id": "b392c583e10b557ee89db5b31370147304703a12fa7618c59d5c0d6cd9bfdfa3",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's addendum branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
       "id": "1511cfe3b1449b74afe72705c00ef359ae7e7251cbf81946b4230cd5fe8201ce",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's assign branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
       "id": "9527e6e5d17717a990e4d07d4d35d211e1cb8021fcc79c3e803a21725beb9cd5",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's handoff and handoff_request branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
       "id": "98b95ff8fe410ba69245b90d37df546019c8f6c7c3805242a4cbf8e23085a227",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's review branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
       "id": "b6ff1e0d2525b620b14ff8f3e29fbbf11239f5f4c632b9689af70c770675127c",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's verdict, candidate_verdict, integration_verdict and review_verdict branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
       "id": "be8291225f0e68b1b9bda137e168826a2381a9a2eacd06f91e00a722b0a97368",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's review_request and review_seat_request branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
       "id": "0ef708f20ebd60ea1de5f2c6fe9d9079994ef7d558a3acf28602f9df8197faa9",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's review_grant and review_grants branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
       "id": "db8c02772124308896913d9213b6df52838c4580e7c9138232ce0ba90f199a55",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's review_revoke and review_seat_revoke branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
       "id": "073ea6faf876c5e0bc767744d97826823bfce5299f1e05201cfec91ae824f025",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's participants branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
       "id": "3597754907b815c987962cba3eb26ebd68f3e47b2042870ef40f68e4f9e1e52a",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's evidence branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
       "id": "6ac647be37ebf954ff678237fc2d49f15078dc8c64501883cfb2df07a1627a0f",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's decision branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
       "id": "ee7c816b5e25c81a3d644feeee341e12e15418e387ac85e0090b31ff5b001c26",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's artifact branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
       "id": "5185ebc43b601e9e862f6703e152877381ff804828bcf482aa55e4f42d84232e",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's grant branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
       "id": "f3d24589238d4fdd169d63969d290dc575029ee7ed269803a523af9da5ccf079",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's revoke branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
       "id": "6c575db1e046d9eaa0dc3b4c57cff5d7c3c2b6e78a4a5ac44fef0f55e929bf7c",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's finding branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
       "id": "009181cb4662549db97eb442085d0dda57a64a88a3142aeb16eacc2e9136ff28",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's dispose branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
       "id": "668a9db8d9962cd5704f3b210fe9e6abac1a3e8c90734751133e577dc0339d71",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's claim branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
       "id": "c72e82cc4521af3a1428d71f1dcb56a984ba2ec505c31ccc1dafa9ddbe4db395",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's check branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
       "id": "ca73b7fc11e937b866edf5fdff880257e4ff3b799bb0af8a484b2b94d9168dad",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's accept branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
       "id": "a3a8f4f958ae2adc8e4edf741d1d3dc333b9025fb071aecb757b43e36182a986",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's archive branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
       "id": "7cb1ae2db492f3ada87213464b79ccef587e7f73bd604af495cff4a696cb33a5",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's move branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
       "id": "8aeef2f466503b42604c313afc286b8259c853e9121e25ceb5b1df8ef2186922",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's supersede branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
       "id": "386e8072aad9d4de367f06d7c9aabd2b0541108a7cee7cd61110f128dd72e21c",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's delete branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
@@ -14049,7 +14049,7 @@
       "id": "225cd500a3ad4324c5222fd51ef5d08525004ad94c6871a23a8351955430cf25",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W6): _op_post_expected records in a keyed call's receipt that orgtree_retire, orgtree_dissolve and orgtree_cheap_compact will attempt a remote reap after the save; those tools have no contract. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
@@ -14737,28 +14737,28 @@
       "id": "a3b59ae683f581e5498d4ad7bdae004fd0aa18e50fbdc8d61d4262eb01863fae",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W6): the operator ops route's switch_model branch (api.org_op); only hire and reallocate are contracted (operator.hire, operator.reallocate), and the other operator operations change org state with no contract. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "a9a577ed105a04cb90a432934373ff1c374faebd70d6c4c38c0a16ddfdde5d11",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W6): the operator ops route's rename branch (api.org_op); only hire and reallocate are contracted (operator.hire, operator.reallocate), and the other operator operations change org state with no contract. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
       "id": "6da13d1d9f5cc6631527a25c577c300cb4ccfd9ae2f7d99b6cbb2e1b5017131e",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W6): the operator ops route's retire, dissolve and rescind branch (api.org_op); only hire and reallocate are contracted (operator.hire, operator.reallocate), and the other operator operations change org state with no contract. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
       "id": "e5019a836aa33163ffe1b50b3dfcb3f802098c208f8adfa90fdabc2cb965a268",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W6): the operator ops route's branch for anything but dissolve (api.org_op); only hire and reallocate are contracted (operator.hire, operator.reallocate), and the other operator operations change org state with no contract. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
@@ -14781,7 +14781,7 @@
       "id": "4fc178c11e8a669e97e92330464d73f73dc50a4e275706c6fd9ecfc76446ccf5",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W6): the operator ops route's retire, dissolve, delete, rescind and cheap_compact branch (api.org_op); only hire and reallocate are contracted (operator.hire, operator.reallocate), and the other operator operations change org state with no contract. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
@@ -14804,42 +14804,42 @@
       "id": "3bd5ecdfa6b95a5da9dadcceb21809f108ad0368f0234cf325c1f088f88d428b",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W6): the operator ops route's retire branch (api._org_op_locked); only hire and reallocate are contracted (operator.hire, operator.reallocate), and the other operator operations change org state with no contract. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
       "id": "3f92a09a2251f2ea1bb7f2b288f0f747f65cd4629b66924658feeddabdf3f0a4",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W6): the operator ops route's rescind branch (api._org_op_locked); only hire and reallocate are contracted (operator.hire, operator.reallocate), and the other operator operations change org state with no contract. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
       "id": "35b3fa2af5310cd6c8564dab07d3f7b2130875f8022e5d5f4cd407046897327d",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W6): the operator ops route's cheap_compact branch (api._org_op_locked); only hire and reallocate are contracted (operator.hire, operator.reallocate), and the other operator operations change org state with no contract. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
       "id": "5cfd72a333956086e401dc039ac5c9838b3f0a964229301b06de780cc0ccf9be",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W6): the operator ops route's rehire branch (api._org_op_locked); only hire and reallocate are contracted (operator.hire, operator.reallocate), and the other operator operations change org state with no contract. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
       "id": "8351f85e420ce097437802ac97aea088018bbc976b0758368f6f3845e938e4fb",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W6): the operator ops route's dissolve branch (api._org_op_locked); only hire and reallocate are contracted (operator.hire, operator.reallocate), and the other operator operations change org state with no contract. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
       "id": "ff2db95246db4d3e33fe74883b7a5a9ee86e86416c9c7537a1183542a4c33cf8",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W6): the operator ops route's delete branch (api._org_op_locked); only hire and reallocate are contracted (operator.hire, operator.reallocate), and the other operator operations change org state with no contract. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
@@ -14862,42 +14862,42 @@
       "id": "682c530f50b1896dc75327c4b117b774d08ea2a9fe88109529222c29a3f163ad",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W6): the operator ops route's switch_model branch (api._org_op_locked); only hire and reallocate are contracted (operator.hire, operator.reallocate), and the other operator operations change org state with no contract. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "e510048dad524e64160ad12bf0e20adece934f33fa0d139f0176f16ddb6c67e1",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W6): the operator ops route's promote branch (api._org_op_locked); only hire and reallocate are contracted (operator.hire, operator.reallocate), and the other operator operations change org state with no contract. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
       "id": "4ffdbb90ab03288c0c9e66817bfa0f6efaf6c174c6516fae27c8f60ca136c5ed",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W6): the operator ops route's demote branch (api._org_op_locked); only hire and reallocate are contracted (operator.hire, operator.reallocate), and the other operator operations change org state with no contract. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
       "id": "08094805714f1f9aed6330add717ee8fd3eb35a3c2eba486c52b552950426418",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W6): the operator ops route's move branch (api._org_op_locked); only hire and reallocate are contracted (operator.hire, operator.reallocate), and the other operator operations change org state with no contract. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
       "id": "9741730ce355d6cbb0ed0d7b31b792a44dd73f69cc426103826766e8364df7d7",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W6): the operator ops route's reseed branch (api._org_op_locked); only hire and reallocate are contracted (operator.hire, operator.reallocate), and the other operator operations change org state with no contract. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
       "id": "b9b2d0e9dac4bf30bfee0b8d0a930cc88a14d5a98d37c42dc1ddafc5a5a54832",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W6): the operator ops route's revoke_dir branch (api._org_op_locked); only hire and reallocate are contracted (operator.hire, operator.reallocate), and the other operator operations change org state with no contract. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
@@ -15131,21 +15131,21 @@
       "id": "ccaf86bce59c069af64b351ad12a5bb52dc636a7e795b006c01360090478a455",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's accept, reopen and supersede branch (Org._work_status_at in ledger.py, a docket status transition). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
       "id": "842fb2bb9982ce9cc460a8b76f57bf5301d353750833536e1fe2f1a5555d5db7",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's update branch (Org._work_status_at in ledger.py, a docket status transition). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
       "id": "f9985ca93ea681b1e47358ab09ab9833e27238beba63ed103777f03107ab8bb1",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W5): the orgtree_work card's dismiss_attention branch (Org._work_status_at in ledger.py, a docket status transition). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
@@ -15264,14 +15264,14 @@
       "id": "0e067aac866fa734e990a896947545dd030837fad7389b9358c1d49bb4781b83",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W6): opreceipts.coverage's orgtree_rehire branch classifies a rehire's receipt (PRE when it renames, TX_POST otherwise), which a keyed call writes into the org's receipt log; orgtree_rehire has no contract. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
       "id": "61f97ed29330fd84842ee5f49cbe7e55cc8c3697beceba87333bb7375efaf9fa",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W6): opreceipts.result_slice's reservation branch keeps the reservation result fields in the receipt a keyed orgtree_reservation or orgtree_resource_reservation call writes. MAPPING CANDIDATE: every operation reaching this branch is a contracted reservation variant, so rule 1 would allow mapping it; that is left to the coordinator's ruling. Owner: P01 (the reservation contracts).",
       "source_refs": []
     },
     {
@@ -15545,7 +15545,7 @@
       "id": "2d642810bb69f6b539b39319719c8be007197e65fbf0e397620cf8b822686570",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W6): the state preview's simulation of move_batch (statepreview._apply), which applies that operator operation to a preview clone. The branch is shared by the contracted preview.agent and the operator route's uncontracted previews, so under the shared-selector rule it stays pending. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
@@ -15632,35 +15632,35 @@
       "id": "7c1876f6c6a451e5a9f6e1d716e4bad698113ac23ce7749d8c13b661ee5ca6fe",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W6): the state preview's simulation of delete (statepreview._apply), which applies that operator operation to a preview clone. The branch is shared by the contracted preview.agent and the operator route's uncontracted previews, so under the shared-selector rule it stays pending. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
       "id": "4e20508f63ee2ab9059b5e42f9ef06021c55631e8bb457edfdef2506c84dc077",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W6): the state preview's simulation of rescind (statepreview._apply), which applies that operator operation to a preview clone. The branch is shared by the contracted preview.agent and the operator route's uncontracted previews, so under the shared-selector rule it stays pending. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
       "id": "52faf8fa66886f6cf9086aa172e63fb23a68c9ceea8fe8bccb7130e3ea0c0832",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W6): the state preview's simulation of promote (statepreview._apply), which applies that operator operation to a preview clone. The branch is shared by the contracted preview.agent and the operator route's uncontracted previews, so under the shared-selector rule it stays pending. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
       "id": "2c8451c45960fd187312365ffd6a7271f0e1069d905962933035837a905792ac",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W6): the state preview's simulation of demote (statepreview._apply), which applies that operator operation to a preview clone. The branch is shared by the contracted preview.agent and the operator route's uncontracted previews, so under the shared-selector rule it stays pending. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
       "id": "8fbf08193efb9e314d2229aa7d15003fd5238b7174d3cdd4702a579a2a214e3b",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 W6): the state preview's simulation of reseed (statepreview._apply), which applies that operator operation to a preview clone. The branch is shared by the contracted preview.agent and the operator route's uncontracted previews, so under the shared-selector rule it stays pending. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {

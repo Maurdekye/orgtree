@@ -1,6 +1,6 @@
 {
   "schema": "orgtree.status-chart-boundary/v1",
-  "source_contract_sha256": "47a8743a9790446ccfe359eaff054b8125f5bac34876d9e9400a3956f4ca03c1",
+  "source_contract_sha256": "8640b698751a2342db687573109a653b4c9acaf41728dcab49438651bdf8291c",
   "qualification": {
     "runtime_census": false,
     "conversion_authorized": false

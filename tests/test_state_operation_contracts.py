@@ -284,6 +284,33 @@ class ContractCoverage(unittest.TestCase):
                     self.assertIn(tool, r["reason"])
                 self.assertIn("Owner: ", r["reason"])
 
+    W5_SYMBOLS = {"_work_mutate_action": 25, "_work_read_call": 6, "_work_expected_rev_route": 1,
+                  "_work_refuse_unused": 1, "Org._work_status_at": 3, "_attach_ref": 1}
+    W6_SYMBOLS = {"org_op": 5, "_org_op_locked": 12, "_apply": 6, "_op_post_expected": 1, "coverage": 1,
+                  "result_slice": 1}
+
+    def test_w5_w6_docket_and_operator_branches_name_their_owner(self):
+        rows = {r["id"]: r for r in self.document["dispatch"]}
+        for step, symbols in (("W5", self.W5_SYMBOLS), ("W6", self.W6_SYMBOLS)):
+            prefix = "Stays pending (P01 " + step + "): "
+            found = {}
+            for s in self.source["dispatch_selectors"]:
+                r = rows[contracts.witness_id("dispatch", s)]
+                if r["reason"].startswith(prefix):
+                    found[s["source"]["symbol"]] = found.get(s["source"]["symbol"], 0) + 1
+                    with self.subTest(step=step, line=s["source"]["line"]):
+                        self.assertEqual(r["disposition"], "pending")
+                        self.assertIn("Owner: ", r["reason"])
+                        for value in s["values"]:
+                            self.assertIn(value, r["reason"])
+            self.assertEqual(found, symbols, step)
+        # the one branch every reaching operation of which is contracted is named as a mapping candidate, not mapped
+        [slice_row] = [rows[contracts.witness_id("dispatch", s)] for s in self.source["dispatch_selectors"]
+                       if s["source"]["symbol"] == "result_slice"
+                       and "orgtree_reservation" in s["values"]]
+        self.assertEqual(slice_row["disposition"], "pending")
+        self.assertIn("MAPPING CANDIDATE", slice_row["reason"])
+
     def test_contacts_is_specified_only_with_agent_level_mail_locality(self):
         # S2b ruling R1: org-store locality is not mail locality. contacts became
         # specified only once P02 observed agent-level mail locality (6721cad); the
