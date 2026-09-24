@@ -1,0 +1,40 @@
+{
+  "schema": "orgtree.work-read-boundary/v1",
+  "source_contract_sha256": "ca3b7d0e6e647cf1e17bc02c83fbec93cdc7ba5f696b8e9af9ba2cbbafcebfdd",
+  "qualification": {
+    "runtime_census": false,
+    "conversion_authorized": false
+  },
+  "contracts": {
+    "work.item-list": "GET /api/orgs/{slug}/work-items",
+    "work.item-get": "GET /api/orgs/{slug}/work-items/{wid}"
+  },
+  "results": {
+    "list": [
+      "counts",
+      "fields",
+      "folded_how",
+      "groups",
+      "items",
+      "now",
+      "projection"
+    ],
+    "counts": [
+      "active",
+      "archived",
+      "attention",
+      "backlogged"
+    ],
+    "get": [
+      "item"
+    ]
+  },
+  "refusals": {
+    "identity": 409,
+    "unknown_item": 404,
+    "unknown_org": 404,
+    "agent_token": 401
+  },
+  "legacy_defects": [],
+  "scope": "Legacy boundary of the two operator work-item reads on disposable SQLite: authority, predicates, the no-write and no-signal guarantees and the derived archive at their boundary. Nothing native, contact-level or concurrent is qualified."
+}

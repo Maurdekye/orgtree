@@ -7290,6 +7290,276 @@
         "Extend the P02 per-operation probe to the staffing chooser.",
         "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed, loss-accounted contact record for the chooser with agent-level locality (the assignee, the new seat and the ticket only). Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to the staffing chooser."
       ]
+    },
+    "work-read.authority": {
+      "dimension": "authority",
+      "status": "specified",
+      "facts": [
+        "Both are operator routes behind the desktop TokenGate (engine/launch.py, outside the pinned set): an agent credential is refused 401 (pinned). They read as the user (viewer USER), so every item of the org is visible; an unknown org is 404. These routes are the prototype's STRICT item read (S3 decision 1); the orgtree_work tool card, with its 36 actions, is the P05 work family and stays pending (S3 ruling 2)."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6908,
+          "end": 6924,
+          "sha256": "069e6c8c1f1e536e0ff2d921f6ea8394bf8c5b7f115131ee2df74ad34860a770"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6927,
+          "end": 6939,
+          "sha256": "20066e07ce41fb94ce0f9a65c7669021478420beda501edad53f28b125628bb6"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 14165,
+          "end": 14356,
+          "sha256": "2281cec72824b8ab48edf47655a765c5b61a8d1a02b0e1001caf98f735679df3"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 14358,
+          "end": 14372,
+          "sha256": "fd948cf2f7874d6dc92fbd212d0c95ada60e29422e85b14a617c3b36ca0cbe46"
+        }
+      ],
+      "open_questions": []
+    },
+    "work-read.predicates": {
+      "dimension": "predicates",
+      "status": "specified",
+      "facts": [
+        "A document whose work records are not wholly slug-keyed (an item still carrying the retired key, an item with no name, or two items answering to the same name) is REFUSED 409 with the migrate-work-identity instruction rather than served with mixed identity; a read never converts. The list splits items by the DERIVED archive and backlog rules, newest docket update first, with `counts` over the full set; archived=1 and backlogged=1 each append their own group, compact=1 serves the compact projection. The item read answers an unknown item 404 and stamps the item's ref. Pinned."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6908,
+          "end": 6924,
+          "sha256": "069e6c8c1f1e536e0ff2d921f6ea8394bf8c5b7f115131ee2df74ad34860a770"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6927,
+          "end": 6939,
+          "sha256": "20066e07ce41fb94ce0f9a65c7669021478420beda501edad53f28b125628bb6"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6880,
+          "end": 6884,
+          "sha256": "f0c5917653042819bf8d110f153252e6920a7ac4402c1ad74252b8449b5cd673"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 12448,
+          "end": 12481,
+          "sha256": "9da892682de91fe7e6b827a8af96c07e91488eea432ba3838bee5a060d286f28"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 14165,
+          "end": 14356,
+          "sha256": "2281cec72824b8ab48edf47655a765c5b61a8d1a02b0e1001caf98f735679df3"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 14358,
+          "end": 14372,
+          "sha256": "fd948cf2f7874d6dc92fbd212d0c95ada60e29422e85b14a617c3b36ca0cbe46"
+        }
+      ],
+      "open_questions": []
+    },
+    "work-read.writes": {
+      "dimension": "writes",
+      "status": "specified",
+      "facts": [
+        "Neither route writes: no DOC_LOCK, no save, and the physical archive sweep runs on the next docket WRITE, never on a read — an item past its archive time is listed as archived while its stored record is unchanged. Pinned with the committed document read cold before and after."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6908,
+          "end": 6924,
+          "sha256": "069e6c8c1f1e536e0ff2d921f6ea8394bf8c5b7f115131ee2df74ad34860a770"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6927,
+          "end": 6939,
+          "sha256": "20066e07ce41fb94ce0f9a65c7669021478420beda501edad53f28b125628bb6"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 14165,
+          "end": 14356,
+          "sha256": "2281cec72824b8ab48edf47655a765c5b61a8d1a02b0e1001caf98f735679df3"
+        }
+      ],
+      "open_questions": []
+    },
+    "work-read.receipt": {
+      "dimension": "receipt",
+      "status": "specified",
+      "facts": [
+        "Reads carry no operation receipt and have nothing to replay; a repeated read answers again from the current document."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6908,
+          "end": 6924,
+          "sha256": "069e6c8c1f1e536e0ff2d921f6ea8394bf8c5b7f115131ee2df74ad34860a770"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6927,
+          "end": 6939,
+          "sha256": "20066e07ce41fb94ce0f9a65c7669021478420beda501edad53f28b125628bb6"
+        }
+      ],
+      "open_questions": []
+    },
+    "work-read.effects": {
+      "dimension": "effects",
+      "status": "specified",
+      "facts": [
+        "Neither route drives, notifies or broadcasts (no send_message, mail_notify or hub_changed). Pinned with spies."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6908,
+          "end": 6924,
+          "sha256": "069e6c8c1f1e536e0ff2d921f6ea8394bf8c5b7f115131ee2df74ad34860a770"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6927,
+          "end": 6939,
+          "sha256": "20066e07ce41fb94ce0f9a65c7669021478420beda501edad53f28b125628bb6"
+        }
+      ],
+      "open_questions": []
+    },
+    "work-read.reads": {
+      "dimension": "reads",
+      "status": "unresolved",
+      "facts": [
+        "Source read set: store.load_org(slug) OUTSIDE DOC_LOCK (the resident or a cold load), then the work records, their owners' and participants' liveness for the derived state, and each item's view (_work_view)."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6908,
+          "end": 6924,
+          "sha256": "069e6c8c1f1e536e0ff2d921f6ea8394bf8c5b7f115131ee2df74ad34860a770"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6927,
+          "end": 6939,
+          "sha256": "20066e07ce41fb94ce0f9a65c7669021478420beda501edad53f28b125628bb6"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 13408,
+          "end": 13581,
+          "sha256": "a85ffd140422957a568da2dcb73119659714700ee97d75199d901dafd68eada6"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 14165,
+          "end": 14356,
+          "sha256": "2281cec72824b8ab48edf47655a765c5b61a8d1a02b0e1001caf98f735679df3"
+        }
+      ],
+      "open_questions": [
+        "Record the statement-level read set of the work-item list and item read, cold and warm.",
+        "Owner: P02. Closes with: observed per-operation contacts for the list (plain, archived, backlogged, compact) and the item read, cold and warm. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to the work-item reads."
+      ]
+    },
+    "work-read.conflicts": {
+      "dimension": "conflicts",
+      "status": "unresolved",
+      "facts": [
+        "The reads take no lock: they see whichever committed document the resident or a cold load holds, so a read racing a docket write answers the state before or after it, never a mix within one document."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6908,
+          "end": 6924,
+          "sha256": "069e6c8c1f1e536e0ff2d921f6ea8394bf8c5b7f115131ee2df74ad34860a770"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6927,
+          "end": 6939,
+          "sha256": "20066e07ce41fb94ce0f9a65c7669021478420beda501edad53f28b125628bb6"
+        }
+      ],
+      "open_questions": [
+        "Choose the native snapshot isolation for the strict item reads.",
+        "Owner: the separately staffed native conflict/predicate design (S2 decision 1, option 3), then qualification at P03 (strict read). Closes with: the native snapshot isolation for the item reads, qualified by a read racing a docket write. Not coverable at P01 from available evidence: the question requires choosing and qualifying native PostgreSQL behaviour, which no static reading of the legacy source decides."
+      ]
+    },
+    "work-read.wire": {
+      "dimension": "wire",
+      "status": "unresolved",
+      "facts": [
+        "Result shapes are fixtured in docs/state-system/work-read-boundary.json and compared by tests/test_state_work_read_boundary.py: the list {items, counts, …} with `archived`/`backlogged` groups only when asked; the item read {item} with the item's ref stamped."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6908,
+          "end": 6924,
+          "sha256": "069e6c8c1f1e536e0ff2d921f6ea8394bf8c5b7f115131ee2df74ad34860a770"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6927,
+          "end": 6939,
+          "sha256": "20066e07ce41fb94ce0f9a65c7669021478420beda501edad53f28b125628bb6"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 7601,
+          "end": 7616,
+          "sha256": "a7d95352d8ba6a6f605529c730ca6bc5729131762fe3ea76c2bb07d2c3d4d9eb"
+        }
+      ],
+      "open_questions": [
+        "Carry the fixtured work-item read shapes to the native/Rust door.",
+        "Owner: the native/Rust conversion, from the P03 prototype onward. Closes with: the fixtured item-read shapes passing against the native and Rust builds. Not coverable at P01 from available evidence: no native or Rust build exists to run the fixtures against."
+      ]
+    },
+    "work-read.instrumentation": {
+      "dimension": "instrumentation",
+      "status": "unresolved",
+      "facts": [
+        "The access middleware labels both routes. No P02 per-operation record covers them."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6908,
+          "end": 6924,
+          "sha256": "069e6c8c1f1e536e0ff2d921f6ea8394bf8c5b7f115131ee2df74ad34860a770"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6927,
+          "end": 6939,
+          "sha256": "20066e07ce41fb94ce0f9a65c7669021478420beda501edad53f28b125628bb6"
+        }
+      ],
+      "open_questions": [
+        "Extend the P02 per-operation probe to the work-item reads.",
+        "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed, loss-accounted contact record for the item reads with org-level locality (this org's work records only). Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to the work-item reads."
+      ]
     }
   },
   "contracts": {
@@ -9561,6 +9831,104 @@
           "sha256": "2c29ae2268f2119ff535c3e450c191aca80032b8faf02243d8f2cdc4688934e2"
         }
       ]
+    },
+    "work.item-list": {
+      "entry_ids": [
+        "23e1de8154aa08153f7e17efb48d00a628ff62cd547b3a9ff4d40cfd0efedf12"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "domain_mode": "read",
+      "dimensions": {
+        "authority": [
+          "work-read.authority"
+        ],
+        "reads": [
+          "work-read.reads"
+        ],
+        "writes": [
+          "work-read.writes"
+        ],
+        "predicates": [
+          "work-read.predicates"
+        ],
+        "conflicts": [
+          "work-read.conflicts"
+        ],
+        "wire": [
+          "work-read.wire"
+        ],
+        "receipt": [
+          "work-read.receipt"
+        ],
+        "effects": [
+          "work-read.effects"
+        ],
+        "instrumentation": [
+          "work-read.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6908,
+          "end": 6924,
+          "sha256": "069e6c8c1f1e536e0ff2d921f6ea8394bf8c5b7f115131ee2df74ad34860a770"
+        }
+      ]
+    },
+    "work.item-get": {
+      "entry_ids": [
+        "7bceeea4c41c962ee12327fb16782da47c953125e6f3d9859a03f8b15381e9d9"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "domain_mode": "read",
+      "dimensions": {
+        "authority": [
+          "work-read.authority"
+        ],
+        "reads": [
+          "work-read.reads"
+        ],
+        "writes": [
+          "work-read.writes"
+        ],
+        "predicates": [
+          "work-read.predicates"
+        ],
+        "conflicts": [
+          "work-read.conflicts"
+        ],
+        "wire": [
+          "work-read.wire"
+        ],
+        "receipt": [
+          "work-read.receipt"
+        ],
+        "effects": [
+          "work-read.effects"
+        ],
+        "instrumentation": [
+          "work-read.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6927,
+          "end": 6939,
+          "sha256": "20066e07ce41fb94ce0f9a65c7669021478420beda501edad53f28b125628bb6"
+        }
+      ]
     }
   },
   "wire_cases": [
@@ -10184,6 +10552,20 @@
       },
       "contract": "quick-staff.select",
       "domain_mode": "conditional_write"
+    },
+    {
+      "name": "work.item-list",
+      "entry_id": "23e1de8154aa08153f7e17efb48d00a628ff62cd547b3a9ff4d40cfd0efedf12",
+      "args": {},
+      "contract": "work.item-list",
+      "domain_mode": "read"
+    },
+    {
+      "name": "work.item-get",
+      "entry_id": "7bceeea4c41c962ee12327fb16782da47c953125e6f3d9859a03f8b15381e9d9",
+      "args": {},
+      "contract": "work.item-get",
+      "domain_mode": "read"
     }
   ],
   "limits": [
@@ -11006,17 +11388,35 @@
     },
     {
       "id": "23e1de8154aa08153f7e17efb48d00a628ff62cd547b3a9ff4d40cfd0efedf12",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "work.item-list"
+      ],
+      "reason": "GET /api/orgs/{slug}/work-items: the strict item list (S3 F4).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6908,
+          "end": 6924,
+          "sha256": "069e6c8c1f1e536e0ff2d921f6ea8394bf8c5b7f115131ee2df74ad34860a770"
+        }
+      ]
     },
     {
       "id": "7bceeea4c41c962ee12327fb16782da47c953125e6f3d9859a03f8b15381e9d9",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "work.item-get"
+      ],
+      "reason": "GET /api/orgs/{slug}/work-items/{wid}: the strict item read (S3 F4).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6927,
+          "end": 6939,
+          "sha256": "20066e07ce41fb94ce0f9a65c7669021478420beda501edad53f28b125628bb6"
+        }
+      ]
     },
     {
       "id": "e5b47cd00c876e1b056b90ec5054eefb13308f1ea0f61dfeab05a8687a13e429",
@@ -11888,7 +12288,7 @@
       "id": "53052a77187a9676a3c5b772ea0209d6483f16a972cb43b044699b822ee36690",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "The orgtree_work tool card: the full orgtree_work card (36 actions) is the P05 work family and the action-coverage rule needs all 36 (S3 ruling 2); the prototype's item read is covered by work.item-list and work.item-get instead.",
       "source_refs": []
     },
     {
@@ -13265,7 +13665,7 @@
       "id": "d9892c9e7ed8dca929e73d88080055806cca166ff2697b47501253894080178c",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Exact orgtree_work selector in agent_call: pending with its card — the full orgtree_work card (36 actions) is the P05 work family and the action-coverage rule needs all 36 (S3 ruling 2); the prototype's item read is covered by work.item-list and work.item-get instead.",
       "source_refs": []
     },
     {
@@ -13439,7 +13839,7 @@
       "id": "830e3c0edc27e3dadf4def3ed9452b98622c43a38d450f1c386f09cb1a379dd2",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Exact orgtree_work branch in the agent write cycle: pending with its card — the full orgtree_work card (36 actions) is the P05 work family and the action-coverage rule needs all 36 (S3 ruling 2); the prototype's item read is covered by work.item-list and work.item-get instead.",
       "source_refs": []
     },
     {
@@ -14180,7 +14580,7 @@
       "id": "b2e49e97ad9fc65c4f529f5e1c4bf4b3f770eb24289e0cb9e19ecd2f3402ac8d",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "orgtree_work in mcptool.available_tools: pending with its card — the full orgtree_work card (36 actions) is the P05 work family and the action-coverage rule needs all 36 (S3 ruling 2); the prototype's item read is covered by work.item-list and work.item-get instead.",
       "source_refs": []
     },
     {
@@ -14733,7 +15133,7 @@
       "id": "26eaf4984123a609dedc5b5dbb514d17df5f78220287a86822a2817d5a37f928",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Shared transcript docket-button selector (orgtree_work, orgtree_staff): orgtree_staff is contracted, orgtree_work is not — the full orgtree_work card (36 actions) is the P05 work family and the action-coverage rule needs all 36 (S3 ruling 2); the prototype's item read is covered by work.item-list and work.item-get instead.",
       "source_refs": []
     },
     {

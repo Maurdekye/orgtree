@@ -42,10 +42,10 @@ class ContractCoverage(unittest.TestCase):
         self.assertGreater(result["summary"]["storage"]["pending"], 0)
         # THE one registry-wide tripwire (review of S3 candidate 1): every candidate
         # that maps a witness or adds a contract moves these numbers here, and only here.
-        self.assertEqual(result["contracts"], 39)
+        self.assertEqual(result["contracts"], 41)
         self.assertEqual((result["summary"]["entries"]["mapped"], result["summary"]["dispatch"]["mapped"],
-                          result["summary"]["storage"]["mapped"]), (27, 49, 0))
-        self.assertEqual(len(result["pending"]), 625)
+                          result["summary"]["storage"]["mapped"]), (29, 49, 0))
+        self.assertEqual(len(result["pending"]), 631)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the

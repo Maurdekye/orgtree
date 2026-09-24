@@ -119,9 +119,9 @@ runtime probes remain unresolved. Material reads add two cards and two selectors
 diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
-Current totals are 39 contracts, 27 mapped registrations and 49 mapped
-dispatch witnesses. **625 obligations remain**: 292 registrations, 178 dispatch
-witnesses, 15 storage candidates and 140 unresolved dimension occurrences.
+Current totals are 41 contracts, 29 mapped registrations and 49 mapped
+dispatch witnesses. **631 obligations remain**: 290 registrations, 178 dispatch
+witnesses, 15 storage candidates and 148 unresolved dimension occurrences.
 How it got there: 600 was two more registrations than the preceding 598 because the scanner now
 recognizes `asyncio.to_thread` hand-offs; both new witnesses are pending and no
 existing witness identity, disposition or contract changed.
@@ -210,6 +210,10 @@ are mapped (-4) to `quick-staff.options`, `quick-staff.options-refresh`,
 `quick-staff.preview` and `quick-staff.select`, whose four unresolved shared
 `quick-staff` facets add sixteen occurrences (+16), and `_staff_call`'s three action
 branches map back (-3) now that both of its callers are contracted.
+631 is six more than that 625 (S3 F4): the two work-item GET routes are mapped (-2)
+to `work.item-list` and `work.item-get`, whose four unresolved shared `work-read`
+facets add eight occurrences (+8). The `orgtree_work` card and its four tool
+selectors stay pending with the ruling-2 reason.
 See "P03-prototype surface" below.
 
 Of the 53 open dimension occurrences on the sixteen legacy-family contracts, 37 (17 facets) cannot be closed at P01
@@ -464,6 +468,17 @@ because quick staff always sends action update. Recorded legacy defect: a
 request-mode commit whose kickoff is refused on a ticket with empty progress lists
 fails with an unhandled 500 and undoes nothing. The operator ops door's kiosk-visitor
 path is now pinned too (the candidate 6b reviewer's note).
+
+F4 (the strict item read, S3 ruling 2) adds `work.item-list` and `work.item-get`
+(GET `/api/orgs/{slug}/work-items[/{wid}]`), sharing one set of `work-read` facets.
+Specified from source and pinned by `tests/test_state_work_read_boundary.py` against
+`work-read-boundary.json`: authority (the desktop token gate; the user as viewer),
+predicates (the legacy-identity 409, the derived archive and backlog split, 404s),
+writes (none: a read derives the archive and never sweeps it), receipt and effects
+(none). Unresolved with an owner: reads and instrumentation (P02), conflicts (native
+snapshot isolation) and wire (native/Rust). The `orgtree_work` tool card (36
+actions) and its four tool selectors stay pending with the ruling-2 reason: the full
+card is the P05 work family.
 
 ## Deliberate failing controls
 
