@@ -15,7 +15,7 @@ import unittest
 from unittest.mock import patch
 
 _root = tempfile.TemporaryDirectory(prefix="astra-always-", ignore_cleanup_errors=True)
-os.environ["ORGTREE_DATA"] = _root.name
+os.environ.update(ORGTREE_DATA=_root.name, ORGTREE_V2_TOKEN="astra-always-tests")
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
