@@ -1572,7 +1572,7 @@
         "The read door consults cached org snapshots for caller/halt/target/item/ancestry. Scratch resolves an OS realpath beneath the shared lineage scratch root, checks isdir/isfile, enumerates the whole directory before a 200-name slice, or reads the whole UTF-8 replacement-decoded file before a 20000-character slice.",
         "scratch_dir additionally checks disk placement through sandbox.on_disk (which can load org state) and can reload org data on directory creation. Disk-backed UNC resolution, sandbox ownership, storage-pool/cache misses and every transitive helper are not an exhaustive contact map yet.",
         "read_chat calls chat_window.read_window and unique_cards. The current transcript stack consults provider files, prompt/import sidecars, retained transcript records, projection cache, assistant state, runtime state and reply snapshots. The bounded fixture witnesses three SQLite surfaces; it does not enumerate every provider/import/sandbox branch.",
-        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 be8a05e), for a SANDBOXED organization: host-placed (sandbox:host-placed, scratch and transcript, cold and warm), the transcript is read from the sandbox home (data:sandbox) and scratch from the shared scratch root, with no unknown contact. Disk-backed (sandbox:on-disk, scratch and transcript), the path is resolved through wsl, which the probe's isolation guard refuses, so the read fails with a 500 before any file is read: the disk-backed read contacts are NOT observed. Recorded from P02's source reading, not run: where Docker Desktop's WSL distro is down or absent, disk.distro() raises DiskError, which the agent read path does not catch (it catches LedgerError), so the caller gets a 500 carrying DiskError's text rather than a refusal; whether that should be a clean refusal is a product question, not decided here. Asserted by tests/test_state_p02_contact_facets.py."
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 be8a05e), for a SANDBOXED organization: host-placed (sandbox:host-placed, scratch and transcript, cold and warm), the transcript is read from the sandbox home (data:sandbox) and scratch from the shared scratch root, with no unknown contact. Disk-backed (sandbox:on-disk, scratch and transcript), the path is resolved through wsl, which the probe's isolation guard refuses, so the read fails with a 500 before any file is read: the disk-backed read contacts are NOT observed. Recorded from P02's source reading, not run: where Docker Desktop's WSL distro is down or absent, disk.distro() raises DiskError, which the agent read path does not catch (it catches LedgerError), so the caller gets a 500 carrying DiskError's text rather than a refusal; whether that should be a clean refusal is a product question, not decided here (docket item disk-backed-sandbox-reads-return-a-raw-500-when). Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -15635,107 +15635,135 @@
   "storage": [
     {
       "id": "0e72ae7299a886a315dff352af48cc0b2e0c89c0dd4568cebca6133576d5e5a5",
-      "disposition": "pending",
+      "disposition": "excluded",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "reason": "Not org state: a READ-ONLY (mode=ro, or immutable=1) snapshot of the Antigravity CLI's own conversation database, the provider's store outside every org store and org sidecar, opened to reconcile a turn's provenance; the class documents that it never writes. Provider state belongs to P08, not to this storage inventory. P01 S2k.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/antigravity_provenance.py",
+          "start": 284,
+          "end": 329,
+          "sha256": "c895150fc49d428def7fbc2588b7d4f497394aa2e80ffbf289a4160cc001d799"
+        }
+      ]
     },
     {
       "id": "714d9423b138a1c4953bd030414541040940972b5d4918c2da97cedb093a8bbf",
-      "disposition": "pending",
+      "disposition": "excluded",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "reason": "Not org state: a READ-ONLY (mode=ro, or immutable=1) snapshot of the Antigravity CLI's own conversation database, the provider's store outside every org store and org sidecar, opened to reconcile a turn's provenance; the class documents that it never writes. Provider state belongs to P08, not to this storage inventory. P01 S2k.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/antigravity_provenance.py",
+          "start": 284,
+          "end": 329,
+          "sha256": "c895150fc49d428def7fbc2588b7d4f497394aa2e80ffbf289a4160cc001d799"
+        }
+      ]
     },
     {
       "id": "c72c7bc427d1b94101fe1df394c938f250c23cab52b25243c1e18aaaafa99a9f",
-      "disposition": "pending",
+      "disposition": "excluded",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "reason": "Not storage and not org state: a UDP socket 'connected' to 8.8.8.8:80 only so getsockname() names this machine's LAN address for a kiosk share URL; no datagram is sent, nothing is read or written, and the result is a process-local cache (_LAN_IP). P01 S2k.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1324,
+          "end": 1343,
+          "sha256": "e3b2ee9176d5182aac98ebb733b188f71b494214e97f71e3a1a75bc367accffc"
+        }
+      ]
     },
     {
       "id": "0b5f2a46dc468fdda20ccd8113ba04a61b39e373a7f31cee17f100e8a893381a",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 S2k): the chat_window_index sidecar. P02's per-operation probe observes it under material.transcript, but a shared site is mapped only once every operation reaching it has a contract (the rule for shared selectors, S3 decision 3), and the desktop's own chat route (api.node_chat, through supervisor.read_chat), which has no contract, reaches it.",
       "source_refs": []
     },
     {
       "id": "30ec93d4dcecd42ecd22b3c6cbeccb9d29947578ecc1930d1c1b241317b66935",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 S2k): org state, the private copy and backup of a V1 organization's store that the desktop import reads before it writes a V2 candidate; the import has no contract.",
       "source_refs": []
     },
     {
       "id": "ce2a626ed1594f37ff576445b9d2db4a0a92543141a0cfcb93d04ba85985a668",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 S2k): org state, the private copy and backup of a V1 organization's store that the desktop import reads before it writes a V2 candidate; the import has no contract.",
       "source_refs": []
     },
     {
       "id": "93669ca59b5f065aeb95867fafa342302c34d879153dfb3a0d9f090217fd31a1",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 S2k): org state, the private copy and backup of a V1 organization's store that the desktop import reads before it writes a V2 candidate; the import has no contract.",
       "source_refs": []
     },
     {
       "id": "fbcd23d8d4ca37630c60cd8263a4cfbc59b153cd9209798a0364c4f08ac9b615",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 S2k): org state, the V2 candidate org store the desktop import writes with the store's own DDL; the import has no contract.",
       "source_refs": []
     },
     {
       "id": "6e5106032f645a9b816765a88c436b0671fcfc5f9828c837b255c34ddb9de085",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 S2k): org state, the file_deliveries sidecar (per org and seat delivery receipts) that orgtree_send_file writes; orgtree_send_file has no contract (outside the accepted surface).",
       "source_refs": []
     },
     {
       "id": "a7be513a7ee6d262b5221364548727deb9811d90c2e1a19eb5579423ce530b23",
-      "disposition": "pending",
+      "disposition": "excluded",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "reason": "Not storage and not org state: a TCP connect to 127.0.0.1:<port> that only observes whether a local service is listening (listening / refused / unreachable / probe-error); nothing is read from or written to any store. P01 S2k.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/liveness.py",
+          "start": 205,
+          "end": 229,
+          "sha256": "be473a15f51a09ddb6fae18203e5f59a80513ce5446412f4a8cd642d6e1adedd"
+        }
+      ]
     },
     {
       "id": "31237e3490917a845ead31c1f7e627531198e85ba35abceb46676dacc3270c30",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 S2k): the reply_events sidecar's read-write connection. P02's per-operation probe observes it under mail.human-send and material.transcript (the sidecar, not this site specifically), but a shared site is mapped only once every operation reaching it has a contract (the rule for shared selectors, S3 decision 3), and the supervisor's reply-event recording and annotation (supervisor.py), which no contract covers, reach it.",
       "source_refs": []
     },
     {
       "id": "8058d0905f3e6077f25ac7f6f62944171d17a7e035384e5a6f87f98bdb69d312",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 S2k): the reply_events sidecar's read-only count. P02's per-operation probe observes it under mail.human-send and material.transcript (the sidecar, not this site specifically), but a shared site is mapped only once every operation reaching it has a contract (the rule for shared selectors, S3 decision 3), and the uncontracted route GET /api/orgs/{slug}/nodes/{nid}/reply-events (api.retained_reply_events) calls it.",
       "source_refs": []
     },
     {
       "id": "69c03d9bcc7feb05046e855f82c20b1e8fe1017eb4e65e3a7c77800248139eb2",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 S2k): the org store's own connection factory (every org document read and write). P02's per-operation probe observes it under 40 of the 42 contracts, but a shared site is mapped only once every operation reaching it has a contract (the rule for shared selectors, S3 decision 3), and uncontracted org routes load through it, for one the desktop's chat route (api.node_chat, store.load_org).",
       "source_refs": []
     },
     {
       "id": "7e2342632e71afe6c4baa5118942e015b1eeb6d2d9db8a878c8c3dc513ed903b",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 S2k): the tool_waits sidecar (the journal of every managed-wait agent tool, mcptool.MANAGED_WAIT_TOOLS). P02's per-operation probe observes it under the three staffing contracts (orgtree_hire and orgtree_staff), but a shared site is mapped only once every operation reaching it has a contract (the rule for shared selectors, S3 decision 3), and the uncontracted managed-wait tools (orgtree_rehire, orgtree_retire, orgtree_dissolve, orgtree_cheap_compact, orgtree_watchdog, orgtree_continue_on) and the backend-start recovery (toolwait.start) reach it.",
       "source_refs": []
     },
     {
       "id": "323bf911f0907980cf504d81b4f066c03f9db1152c81d4e8bcf529c26e7aaac9",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 S2k): the transcript_records sidecar. P02's per-operation probe observes it under mail.human-send and material.transcript, but a shared site is mapped only once every operation reaching it has a contract (the rule for shared selectors, S3 decision 3), and the supervisor's prompt-view and journal paths and transcript_ingest, which no contract covers, reach it.",
       "source_refs": []
     }
   ]

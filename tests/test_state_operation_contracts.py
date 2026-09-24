@@ -46,7 +46,7 @@ class ContractCoverage(unittest.TestCase):
         self.assertEqual(result["contracts"], 42)
         self.assertEqual((result["summary"]["entries"]["mapped"], result["summary"]["dispatch"]["mapped"],
                           result["summary"]["storage"]["mapped"]), (29, 50, 0))
-        self.assertEqual(len(result["pending"]), 584)
+        self.assertEqual(len(result["pending"]), 580)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
@@ -80,6 +80,33 @@ class ContractCoverage(unittest.TestCase):
                 closes = owner.split(". Closes with: ", 1)[1].split(". Not coverable at P01", 1)[0]
                 self.assertIn(clause, closes)
                 self.assertIn("narrowed by P01 S2j", closes)
+
+    def test_s2k_storage_triage_excludes_only_sites_that_are_not_org_state(self):
+        # P01 S2k (coordinator ruling 2026-09-24 21:14Z), by source reading: four connection candidates are not org
+        # state and are excluded; none is mapped (a shared store maps only once every operation reaching it has a
+        # contract); the other eleven stay pending with a reason that says why
+        sites = {contracts.witness_id("storage", s): s["source"] for s in self.source["connection_sites"]}
+        rows = {r["id"]: r for r in self.document["storage"]}
+        self.assertEqual(set(sites), set(rows))
+
+        def where(i):
+            return sites[i]["path"].rsplit("/", 1)[1] + ":" + sites[i]["symbol"]
+        by = {}
+        for i, r in rows.items():
+            by.setdefault(r["disposition"], []).append(where(i))
+        self.assertEqual(sorted(by["excluded"]), ["antigravity_provenance.py:_Read.__init__",
+                                                  "antigravity_provenance.py:_Read.__init__",
+                                                  "api.py:_share_url", "liveness.py:_observe_port"])
+        self.assertNotIn("mapped", by)
+        self.assertEqual(len(by["pending"]), 11)
+        # the org store and every census-observed sidecar stay pending, each with its S2k reason
+        self.assertLessEqual({"store.py:_open_conn", "toolwait.py:_db", "reply_events.py:_connect",
+                              "reply_events.py:count", "transcript_records.py:database",
+                              "chat_window.py:project_tail", "filedelivery.py:snapshot"}, set(by["pending"]))
+        for i, r in rows.items():
+            with self.subTest(site=where(i)):
+                prefix = "Stays pending (P01 S2k): " if r["disposition"] == "pending" else "Not "
+                self.assertTrue(r["reason"].startswith(prefix), r["reason"][:60])
 
     def test_contacts_is_specified_only_with_agent_level_mail_locality(self):
         # S2b ruling R1: org-store locality is not mail locality. contacts became

@@ -120,8 +120,8 @@ diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
 Current totals are 42 contracts, 29 mapped registrations and 50 mapped
-dispatch witnesses. **584 obligations remain**: 290 registrations, 177 dispatch
-witnesses, 15 storage candidates and 102 unresolved dimension occurrences.
+dispatch witnesses. **580 obligations remain**: 290 registrations, 177 dispatch
+witnesses, 11 storage candidates and 102 unresolved dimension occurrences.
 How it got there: 600 was two more registrations than the preceding 598 because the scanner now
 recognizes `asyncio.to_thread` hand-offs; both new witnesses are pending and no
 existing witness identity, disposition or contract changed.
@@ -270,6 +270,12 @@ record meets `diagnostic.instrumentation`'s clause, so it is specified. Three P0
 narrowed to what the probe cannot reach: `org-view.instrumentation` to the gateway's token-map
 rebuild, `material.reads` to a disk-backed sandboxed org, and `material.effects` to a successful
 chown. The lookup's warm reload is now measured, not inferred (the reviewer's mutant on S2i).
+580 is four fewer than that 584 (P01 S2k): of the 15 storage candidates, source reading excludes
+the four that are not org state, each with a covering source reference: the kiosk share URL's
+LAN-address socket, the liveness port probe, and the two read-only opens of the Antigravity CLI's
+own conversation database. None is mapped. The org store and every sidecar the probe observes are
+shared with uncontracted operations, so under the shared-selector rule they stay pending, and
+every pending candidate now says why.
 
 Of the 41 open dimension occurrences on the sixteen legacy-family contracts, 25 (9 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the
