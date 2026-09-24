@@ -6,6 +6,7 @@ import copy
 import io
 import json
 from pathlib import Path
+import re
 import sys
 import subprocess
 import tempfile
@@ -45,7 +46,7 @@ class ContractCoverage(unittest.TestCase):
         self.assertEqual(result["contracts"], 42)
         self.assertEqual((result["summary"]["entries"]["mapped"], result["summary"]["dispatch"]["mapped"],
                           result["summary"]["storage"]["mapped"]), (29, 50, 0))
-        self.assertEqual(len(result["pending"]), 632)
+        self.assertEqual(len(result["pending"]), 612)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
@@ -147,6 +148,36 @@ class ContractCoverage(unittest.TestCase):
         "uncovered": {"status.conflicts", "chart.conflicts", "org-view.conflicts", "org-feed.conflicts",
                       "human-mail.conflicts", "inbox.conflicts", "quick-staff.conflicts", "work-read.conflicts"},
     }
+
+    # Every r7 section 8 schedule stays named in an unresolved facet's open questions, so closing a
+    # design-only dimension never drops its qualification schedule (coordinator ruling on review
+    # note N1, item p01-s2e-specify-the-org-view-org-feed-mail-and-i). The ids are r7's, sha above.
+    R7_SCHEDULES = ({f"Q-C{n}" for n in range(1, 13)} | {f"Q-D{n}" for n in range(1, 7)}
+                    | {f"Q-M{n}" for n in range(1, 8)} | {f"Q-P{n}" for n in range(1, 7)}
+                    | {f"Q-R{n}" for n in range(1, 12)})
+
+    @staticmethod
+    def anchored_schedules(document):
+        named = set()
+        for facet in document["facets"].values():
+            if facet["status"] != "unresolved":
+                continue
+            for q in facet["open_questions"]:
+                for lo_family, lo, hi_family, hi in re.findall(r"Q-([A-Z]+)(\d+) to Q-([A-Z]+)(\d+)", q):
+                    if lo_family == hi_family:
+                        named |= {f"Q-{lo_family}{n}" for n in range(int(lo), int(hi) + 1)}
+                named |= set(re.findall(r"Q-[A-Z]+\d+(?!\d)", q))
+        return named
+
+    def test_every_r7_schedule_stays_anchored_in_an_open_facet(self):
+        self.assertEqual(len(self.R7_SCHEDULES), 42)
+        self.assertEqual(self.R7_SCHEDULES - self.anchored_schedules(self.document), set())
+
+    def test_dropping_a_carried_schedule_is_caught(self):
+        document = copy.deepcopy(self.document)
+        facet = document["facets"]["preview.conflicts"]
+        facet["open_questions"] = [q.replace("Q-C9", "Q-CX") for q in facet["open_questions"]]
+        self.assertIn("Q-C9", self.R7_SCHEDULES - self.anchored_schedules(document))
 
     def native_citation_gaps(self, document):
         gaps = {}

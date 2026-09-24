@@ -68,10 +68,13 @@ class BoundaryBinding(unittest.TestCase):
         result = contracts.validate(registry, contracts.inventory.scan(ROOT), ROOT)
         self.assertTrue(result['valid'], result['errors'])
         self.assertEqual(result['qualification'], contracts.GATES)
-        for name in ('human-mail.effects', 'human-mail.reads', 'human-mail.conflicts', 'human-mail.wire',
-                     'human-mail.instrumentation', 'inbox.reads', 'inbox.writes', 'inbox.conflicts', 'inbox.wire',
-                     'inbox.instrumentation'):
+        # the reads, writes and instrumentation P02 observes were specified from its rows (S2e)
+        for name in ('human-mail.effects', 'human-mail.conflicts', 'human-mail.wire', 'inbox.conflicts',
+                     'inbox.wire'):
             self.assertEqual(registry['facets'][name]['status'], 'unresolved', name)
+        for name in ('human-mail.reads', 'human-mail.instrumentation', 'inbox.reads', 'inbox.writes',
+                     'inbox.instrumentation'):
+            self.assertEqual(registry['facets'][name]['status'], 'specified', name)
 
     def test_stale_incomplete_or_elevated_fixture_refuses(self):
         for edit in [lambda d: d['routes'].pop('mail.node-inbox'), lambda d: d.update(covered=True),

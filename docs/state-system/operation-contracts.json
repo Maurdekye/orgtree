@@ -3640,7 +3640,7 @@
       ],
       "open_questions": [
         "Define and qualify native consistent simulation reads, indexed predicates, current-output fences and independent progress without global locks.",
-        "Owner: P03 and P05 qualification of r7 (schedules Q-P1, Q-P2, Q-P4, Q-P5; D11). Closes with: a qualified native consistent-simulation read with current-output fences and independent progress without global locks. Not coverable at P01 from available evidence: the design half is answered by r7, but the qualified half needs r7's section 8 schedules run against a native build, which does not exist yet."
+        "Owner: P03 and P05 qualification of r7 (schedules Q-P1, Q-P2, Q-P4, Q-P5; D11; and, carried here so they stay pending, Q-P3, Q-P6, Q-C2 and Q-C9 from the design-only closure of preview.predicates on the same contract, and Q-C5, which r7 runs over every operation it designs). Closes with: a qualified native consistent-simulation read with current-output fences and independent progress without global locks, and the carried schedules run and passing: Q-P3 (preview-versus-real parity over the ten transitions), Q-P6 (predicate mutation), Q-C2 (opposing and disjoint topology moves, cap races), Q-C9 (P4 open background work, run only if native adds a writer of it) and Q-C5 (observed relations equal declared relations). Not coverable at P01 from available evidence: the design half is answered by r7, but the qualified half needs r7's section 8 schedules run against a native build, which does not exist yet."
       ]
     },
     "preview.wire": {
@@ -4596,9 +4596,13 @@
     },
     "org-view.reads": {
       "dimension": "reads",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
-        "Source read set: the shared cached_org snapshot (eager document; mail, asks and org_inbox materialise on first touch), Org.tree() over every node, the supervisor's per-node runtime state, the account registry rows and ambient provider paths, the limits and usage caches, kiosk config, sandbox disk usage and hub network status. Detail builds the same whole-tree projection before selecting one node."
+        "Source read set: the shared cached_org snapshot (eager document; mail, asks and org_inbox materialise on first touch), Org.tree() over every node, the supervisor's per-node runtime state, the account registry rows and ambient provider paths, the limits and usage caches, kiosk config, sandbox disk usage and hub network status. Detail builds the same whole-tree projection before selecting one node.",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 27c8667) for org.tree and org.node-detail, admin (desktop token) and public (kiosk gateway), cold and warm, with a retired node present (it is in every tree's disclosed set), answering both questions above. Cold, every build reads doc, log_d, log_l, meta and nodes of the org's own store. Warm, the node detail (admin and public) and the public tree run no statement at all: they are served from the cached snapshot and the tree cache.",
+        "Recorded cross-org read (legacy, not endorsed; P02 finding): every ADMIN tree build, cold and warm, also reads the doc table of the other orgs on the data root through store.local_net_slugs, declared as foreign statements; warm, those are the build's only statements. The node detail and the public tree make no foreign contact. Admin builds also read provider settings files under HOME.",
+        "The public gateway resolves /k/<token> through api._kiosk_token_map, which is rebuilt on a 5-second cache by reading every org's store in the ASGI wrapper, before any census attempt exists (P02 kiosk_token_scan: every statement unbound, no census record). The public rows ran with that map pinned fresh, so a real public request made after the cache expires carries this every-org read as well (see org-view.instrumentation).",
+        "Refusals: no token (401) and a bad kiosk token (404, answered by the gateway) run no statement and leave no census record; an unknown node (404) and the desktop-mode kiosk 500 (the recorded org-view.wire defect) run no statement warm. No row has an unknown contact. Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -4626,17 +4630,16 @@
           "sha256": "096e48cb75323d9d95a8e1c6c668ccb8deb8848c9f016e39ec696d8e32df61ca"
         }
       ],
-      "open_questions": [
-        "Record the statement-level and cache read set of the tree and detail builds, admin and public, cold and warm.",
-        "Owner: P02. Closes with: observed per-operation contacts for GET /api/orgs/{slug} and the node detail route, admin and public, cold and warm, with archived nodes present. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to these routes."
-      ]
+      "open_questions": []
     },
     "org-view.writes": {
       "dimension": "writes",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
         "Neither route saves. Measured on already-migrated synthetic data: no document section changes for the tree, the detail route or the public tree. The tree cache, the per-slug invalidation rev and the supervisor state entries annotate allocates are process memory.",
-        "Observed load-time migration: a cold load of a kiosk org whose config has no max_scope backfills the ceiling in memory and mints a fresh access.kiosk_ceiling notice into the user's mail log (a new id on every load; observed across two consecutive cold reads with no request between them). The view itself never saves it; what a later write cycle persists was not measured."
+        "Observed load-time migration: a cold load of a kiosk org whose config has no max_scope backfills the ceiling in memory and mints a fresh access.kiosk_ceiling notice into the user's mail log (a new id on every load; observed across two consecutive cold reads with no request between them). The view itself never saves it; what a later write cycle persists was not measured.",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 27c8667), answering both questions above: no tree or detail row writes a table, cold or warm, admin or public. On the migration path through cached_org, migration:refused (no ORGTREE_MIGRATE) answers 500 MigrationRefused with no statement and nothing written; migration:legacy-json cold migrates inside the GET (writes doc, log_d, log_l, meta and nodes and renames the JSON document aside in store.migrate_org) and then serves the tree; its warm repeat writes nothing.",
+        "One of the cold migration's 68 statement writes runs outside a transaction, the same count as on every other route's migration:legacy-json row. Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -4664,10 +4667,7 @@
           "sha256": "cd3daea7e6197e23e26aeb95f8739ef9171d2e5585d935ca933a55f9441f9ba5"
         }
       ],
-      "open_questions": [
-        "Inventory the cache-miss, cold-schema and migration writes reachable from the tree and detail builds.",
-        "Owner: P02, then P03 qualification. Closes with: observed writes on the cold and migration paths reached through cached_org (a snapshot miss falls through to load_org and _ensure_migrated). Not coverable at P01 from available evidence: the measurement uses already-migrated data, and the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to these routes."
-      ]
+      "open_questions": []
     },
     "org-view.conflicts": {
       "dimension": "conflicts",
@@ -4792,7 +4792,8 @@
       "dimension": "instrumentation",
       "status": "unresolved",
       "facts": [
-        "The access middleware labels the route; when profiling is bound the build records load_snapshot_ms, tree_ms and annotate_ms stages. No P02 per-operation record covers these routes."
+        "The access middleware labels the route; when profiling is bound the build records load_snapshot_ms, tree_ms and annotate_ms stages. No P02 per-operation record covers these routes.",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 27c8667): a loss-accounted per-operation record for every tree and detail row, admin and public, cold and warm (per-row unattributed and late deltas zero, every statement bound). NOT covered: the public gateway's token-map rebuild (kiosk_token_scan) runs before any census attempt, so its every-org read is unattributable (all its statements unbound, census db_unattributed grows, no record); the public rows ran with the map pinned fresh. Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -4803,8 +4804,8 @@
         }
       ],
       "open_questions": [
-        "Extend the P02 per-operation probe to the tree and detail routes.",
-        "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed, loss-accounted contact record for the tree and detail routes, admin and public, cold and warm. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to these routes."
+        "Attribute the public gateway's token-map rebuild to the request that triggers it.",
+        "Owner: P02's runtime instrumentation stage for the gateway's token-map rebuild, then P03 for native negative controls. Closes with: an observed, loss-accounted contact record for the tree and detail routes, admin and public, cold and warm, including the public gateway's token-map rebuild that a request after the cache expires carries. Not coverable at P01 from available evidence: P02's rows cover the routes themselves, but the rebuild runs in the ASGI wrapper before the census attempt exists, so no record can attribute it without product instrumentation."
       ]
     },
     "org-feed.authority": {
@@ -5004,9 +5005,11 @@
     },
     "org-feed.instrumentation": {
       "dimension": "instrumentation",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
-        "No per-operation census record is made for the socket or its frames."
+        "No per-operation census record is made for the socket or its frames.",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 27c8667) through a real websocket, answering the question above. Each row records the subscribers in the slug's room, the frames each received after hub.changed, and how many the hub holds as public: org.feed (admin) and org.feed:public, cold and warm, one subscriber and one frame (public count 0 and 1); org.feed:fanout (admin and public together, two broadcasts), two subscribers with two frames each, one of them public; refusal:feed-no-token closes 4401. A subscription runs no statement.",
+        "This record is the probe's, not the product census's: the census makes no websocket attempt (fact above), and a census record of subscriptions would need product instrumentation, which this facet's question does not ask for. Native negative controls are the P03 gate, not a clause of this legacy facet (S2d decision 1, reviewer ruling on 803227e). Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -5016,10 +5019,7 @@
           "sha256": "acc1ba7e777da981f00ea0fedf30577e01e3bee890b6258577b7105319c762d6"
         }
       ],
-      "open_questions": [
-        "Record feed subscriptions and frame fan-out in the P02 record.",
-        "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed record of feed subscriptions and frame fan-out (per slug, admin and public). Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) does not cover websocket subscriptions."
-      ]
+      "open_questions": []
     },
     "agent-mail.authority": {
       "dimension": "authority",
@@ -5209,7 +5209,8 @@
       "status": "unresolved",
       "facts": [
         "Observed at the callback boundary with spies: an in-org message sparks mail_notify(org, sender, recipient) inside the write cycle and, after the save, pings the recipient once through supervisor.send_message (wake default, mail_ping, ping_reason 'agent_mail'); a notice sparks the same and then steers once with wake=False and ping_reason 'notice'; a deferred (archived) recipient is sparked but never pinged. Mail to the user sparks '@user' and pings nobody. Every accepted send ends with hub_changed.",
-        "Outside parties: @org: sparks 'org_inbox' and, after the save, calls supervisor.interorg_send(this org, destination org, body), which writes into the DESTINATION org's own inbox; @mcp: only files the org-inbox row (the peer pulls it) and answers delivered false with a status sentence; @net: stages the spool entry in the same save and then calls net.kick to wake the sender daemon."
+        "Outside parties: @org: sparks 'org_inbox' and, after the save, calls supervisor.interorg_send(this org, destination org, body), which writes into the DESTINATION org's own inbox; @mcp: only files the org-inbox row (the peer pulls it) and answers delivered false with a status sentence; @net: stages the spool entry in the same save and then calls net.kick to wake the sender daemon.",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 27c8667), row mail.message:org: interorg_send runs unstubbed, and its write into the destination org's store is observed (foreign statements through store._save_sqlite, with a foreign connect cold). Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -5245,14 +5246,16 @@
       ],
       "open_questions": [
         "Observe the destination-org write of @org: mail and the @net: spool drain and delivery, with failure outcomes.",
-        "Owner: P07 (channels/mail), with P02 observing. Closes with: observed cross-org effects of interorg_send on the destination org's document and of the @net: spool drain and hub delivery, with their failure outcomes. Not coverable at P01 from available evidence: those callees are spied at this boundary (interorg_send, net.kick); what they then write in another org or send over the hub was not exercised, and the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to the mail tools."
+        "Owner: P07 (channels/mail), with P02 observing. Closes with: observed cross-org effects of interorg_send on the destination org's document and of the @net: spool drain and hub delivery, with their failure outcomes. Not coverable at P01 from available evidence: P02 observes that @org: mail writes the destination store, but not the destination document's changed sections, the @net: spool drain and hub delivery (network, refused in the probe) or interorg_send's failure outcomes."
       ]
     },
     "agent-mail.reads": {
       "dimension": "reads",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
-        "Source read set: caller identity (cached snapshot) and the resident document (caller node, halt, killswitch, recipient node and parent chain, audiences, EXTERN holders, org_inbox peers). A bare name that is not a node here is resolved by external_candidates, which lists every local org and reads each one's document to skip sealed kiosks, and by the net roster cache."
+        "Source read set: caller identity (cached snapshot) and the resident document (caller node, halt, killswitch, recipient node and parent chain, audiences, EXTERN holders, org_inbox peers). A bare name that is not a node here is resolved by external_candidates, which lists every local org and reads each one's document to skip sealed kiosks, and by the net roster cache.",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 27c8667) for orgtree_message and orgtree_send_notice by recipient class, cold and warm, answering both questions above: agent (to the sender's superior), deep agent, archived, user, @org:, @mcp: and a bare unknown name for the message; peer, deep and archived for the notice; plus keyed fresh and replay, the halted refusal and the notice refusals. Cold, every class reads doc, log_d, log_l, meta and nodes of the sender's org. A keyed replay and every refusal write nothing; the halted refusal reads only meta and nodes.",
+        "Recorded cross-org contacts (legacy, not endorsed): a bare name that is not a node here is looked up in every other org before the 422 NOT DELIVERED, hundreds of statements on foreign stores, cold or warm; @org: mail writes into the DESTINATION org's store (interorg_send runs unstubbed), with a foreign connect when that store is cold. Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -5280,17 +5283,14 @@
           "sha256": "288b5ed6ce5eebce5180f6fd7e09fed816475ed64149519c60c4f4cd1aaa62e1"
         }
       ],
-      "open_questions": [
-        "Record the statement-level read set of each recipient class, including the cross-org scan behind bare-name resolution.",
-        "Owner: P02. Closes with: observed per-operation contacts for orgtree_message and orgtree_send_notice by recipient class (agent, deep agent, archived, user, @org:, @mcp:, a bare unknown name that scans other orgs), cold and warm. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to the mail tools."
-      ]
+      "open_questions": []
     },
     "agent-mail.conflicts": {
       "dimension": "conflicts",
       "status": "unresolved",
       "facts": [
         "The whole send runs under DOC_LOCK in one write cycle, and the mail queue, mail_log, events, lifecycle, audiences and org_inbox are org-wide document sections, so two sends to different recipients write the same rows in the legacy store.",
-        "Native design r7 (docket design-the-native-conflict-predicate-and-isolati artifact r7, sha256 24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792; approved by review artifact r10, sha256 8be9323173dd1ae785f66328a8481a12bf86c7f2c816797c1c9c496c01ea895b): the design half is answered in part: only the implicit reply grant an orgtree_message send creates is covered (orgtree_send_notice passes grant_reply_audience=False and grants nothing, so for mail.notice r7 covers nothing), as a C2a pair P1 outside writer (the grantee's authority-epoch row is bumped on every audience insert or delete and island moves share-lock it), with the audience grant row's unique key (section 6.4 audience row). Not covered by r7: the native source and receiver transactions for a send, its deposit, dedupe and order, which r7 leaves to v6 MAIL-STAGES-AND-AUTHORITY. Qualification of the covered part is scheduled at P03: Q-C7 (b)."
+        "Native design r7 (docket design-the-native-conflict-predicate-and-isolati artifact r7, sha256 24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792; approved by review artifact r10, sha256 8be9323173dd1ae785f66328a8481a12bf86c7f2c816797c1c9c496c01ea895b): the design half is answered in part: only the implicit reply grant an explicit send creates is covered, for orgtree_message and orgtree_send_notice alike (both keep grant_reply_audience=True; only the ledger's automatic notices pass False; P02 row mail.notice:deep records the grant), as a C2a pair P1 outside writer (the grantee's authority-epoch row is bumped on every audience insert or delete and island moves share-lock it), with the audience grant row's unique key (section 6.4 audience row). Not covered by r7: the native source and receiver transactions for a send, its deposit, dedupe and order, which r7 leaves to v6 MAIL-STAGES-AND-AUTHORITY. Qualification of the covered part is scheduled at P03: Q-C7 (b)."
       ],
       "source_refs": [
         {
@@ -5357,9 +5357,10 @@
     },
     "agent-mail.instrumentation": {
       "dimension": "instrumentation",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
-        "The door labels the request with the tool name and census.classify files its action/target shape before dispatch; stateprobe.refine names the tool. No P02 per-operation record exists for these tools yet."
+        "The door labels the request with the tool name and census.classify files its action/target shape before dispatch; stateprobe.refine names the tool. No P02 per-operation record exists for these tools yet.",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 27c8667): a loss-accounted record for both tools by recipient class, cold and warm (per-row unattributed and late deltas zero, every statement bound). Agent-level locality: every in-org send changes only the named recipient's mail, mail_log and node row, plus, on a first deep send (the cold row), the audience grant between sender and recipient; user, @org: and @mcp: mail and every refusal change no agent's mail. The control control:mail-third-agent (a delivery that also posts to a sibling) is flagged as a third-agent contact, and no other mail row touches a third agent. Native negative controls are the P03 gate, not a clause of this legacy facet (S2d decision 1, reviewer ruling on 803227e). Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -5369,10 +5370,7 @@
           "sha256": "6f5efe7bb30fdd0330659bb4f6e7277ba1bfc99a0e1a9da1011db2ec15a72cda"
         }
       ],
-      "open_questions": [
-        "Extend the P02 per-operation probe to both mail tools with an agent-level locality control.",
-        "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed, loss-accounted contact record for both mail tools by recipient class, with agent-level locality (only the sender and the named recipient touched). Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to the mail tools."
-      ]
+      "open_questions": []
     },
     "human-mail.authority": {
       "dimension": "authority",
@@ -5488,7 +5486,8 @@
       "dimension": "effects",
       "status": "unresolved",
       "facts": [
-        "Observed at the callback boundary with spies: after the save, mail sparks mail_notify(org, @user, node) and pings the node once through supervisor.send_message (mail_ping, ping_reason 'user_mail'); a notice steers once with wake=False and ping_reason 'notice'; a deferred recipient is sparked but not pinged; a session command calls supervisor.immediate_command and then send_message(..., command=True). In production every save also schedules the coalesced tree broadcast through store.on_save (wired at startup; the test harness does not start it)."
+        "Observed at the callback boundary with spies: after the save, mail sparks mail_notify(org, @user, node) and pings the node once through supervisor.send_message (mail_ping, ping_reason 'user_mail'); a notice steers once with wake=False and ping_reason 'notice'; a deferred recipient is sparked but not pinged; a session command calls supervisor.immediate_command and then send_message(..., command=True). In production every save also schedules the coalesced tree broadcast through store.on_save (wired at startup; the test harness does not start it).",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 27c8667): the session-command row counts immediate_command once and the command delivery (send_message) once, both spies, with no mail spark. A refused /compact on a node with no conversation answers 422 after it has already saved the deep-reach notice to the chain (recorded legacy behaviour, not endorsed; backlog a-refused-compact-still-notifies-the-superior-ch). Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -5506,14 +5505,17 @@
       ],
       "open_questions": [
         "Observe the session-command effects, including the /compact background compaction and its failures.",
-        "Owner: P08 (runtime/providers), with P02 observing. Closes with: the observed effects of the session-command branch (immediate_command, the command delivery and the /compact background compaction), with their failure outcomes. Not coverable at P01 from available evidence: those supervisor calls are spied at this boundary and /compact starts a real compaction thread that the synthetic harness does not run; the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to this route."
+        "Owner: P08 (runtime/providers), with P02 observing. Closes with: the observed effects of the session-command branch (immediate_command, the command delivery and the /compact background compaction), with their failure outcomes. Not coverable at P01 from available evidence: P02 counts the two supervisor calls as spies and records the refused /compact, but a real immediate command, a real delivery and the compaction thread with its failures are not run by the synthetic harness."
       ]
     },
     "human-mail.reads": {
       "dimension": "reads",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
-        "Source read set: the resident document for the node, its ancestors and audiences, the user outbox, and (for reply targets) the node's chat events through supervisor.resolve_chat_event; attachments stat the recipient's working folder."
+        "Source read set: the resident document for the node, its ancestors and audiences, the user outbox, and (for reply targets) the node's chat events through supervisor.resolve_chat_event; attachments stat the recipient's working folder.",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 27c8667) for the human send by class, cold and warm, answering both questions above: top-level, deep (deep-reach notices to the chain, and the first user-audience grant cold), archived (deferred), notice, session command, attachment, reply to a chat event and reply target; plus the refusals. Cold, every class reads doc, log_d, log_l, meta and nodes. Warm, every class but the attachment reads only meta and nodes; the attachment reads all five.",
+        "The attachment row stats the recipient's working folder (audit.stat). The reply-to-chat-event row opens four sidecar connections on every call, cold and warm, reads transcript_records and writes the reply_events sidecar, whose DDL runs outside a transaction each time (the row's one write outside a transaction; recorded, not endorsed).",
+        "Recorded legacy behaviour (P02 finding): refusal:human-unknown-node looks the name up in every other org before its 422 (hundreds of statements on foreign stores). The other refusals (empty, target-and-reply, command to an archived node) run no statement. Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -5529,10 +5531,7 @@
           "sha256": "4d34e5bce96e3311ba8a9ec8a53b2c528c4aaa90045767e44b7baeda6dac7507"
         }
       ],
-      "open_questions": [
-        "Record the statement-level read set of each human-send class.",
-        "Owner: P02. Closes with: observed per-operation contacts for the human send by class (top-level, deep, archived, notice, session command, reply target), cold and warm. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to this route."
-      ]
+      "open_questions": []
     },
     "human-mail.conflicts": {
       "dimension": "conflicts",
@@ -5581,9 +5580,10 @@
     },
     "human-mail.instrumentation": {
       "dimension": "instrumentation",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
-        "The access middleware labels the route; no census action classification and no P02 per-operation record exist for it."
+        "The access middleware labels the route; no census action classification and no P02 per-operation record exist for it.",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 27c8667): a loss-accounted record for every human-send class, cold and warm (per-row unattributed and late deltas zero, every statement bound). Agent-level locality: each send changes only the addressed node's mail, mail_log and node row, the deep-reach notices of its non-user ancestors and, on a first contact, the node's user audience; a session command changes no mail, only the chain's notice. The control control:human-send-third-agent (a delivery that also posts to a sibling) is flagged, and no other human-send row touches a third agent. Native negative controls are the P03 gate, not a clause of this legacy facet (S2d decision 1, reviewer ruling on 803227e). Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -5593,10 +5593,7 @@
           "sha256": "a959d38900fe9b35081719dcfda658ce985fb8926de2e71d995d53d784429cdd"
         }
       ],
-      "open_questions": [
-        "Extend the P02 per-operation probe to the human send with an agent-level locality control.",
-        "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed, loss-accounted contact record for the human send with agent-level locality (the node and its notified chain only). Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to this route."
-      ]
+      "open_questions": []
     },
     "inbox.authority": {
       "dimension": "authority",
@@ -5681,9 +5678,11 @@
     },
     "inbox.writes": {
       "dimension": "writes",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
-        "POST /inbox/read saves only when a listed id matched: user_inbox and user_mail_log change, nothing else. The two GETs never save. Measured on already-migrated synthetic data."
+        "POST /inbox/read saves only when a listed id matched: user_inbox and user_mail_log change, nothing else. The two GETs never save. Measured on already-migrated synthetic data.",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 27c8667), answering both questions above. SQLite: the two GETs never write, cold or warm; the read mark writes only when a listed id matches (doc, log_l and meta cold; doc and log_l warm), and an unknown id writes nothing. JSON: the read mark saves through an unnamed temp file in orgs/ renamed onto the org's own document (store._save_json); an unknown id writes nothing. Every JSON row also makes the orgs-directory os.mkdir(exist_ok).",
+        "Migration, for each route: migration:refused answers 500 MigrationRefused with no statement; migration:legacy-json cold migrates inside the route (writes doc, log_d, log_l, meta and nodes; os.rename in store.migrate_org; one of its 68 statement writes outside a transaction); its warm repeat writes nothing. Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -5705,10 +5704,7 @@
           "sha256": "2dd7f7830f4b88630c5318c3d31a36f7eab4c80028c636787d514c34c24a8e28"
         }
       ],
-      "open_questions": [
-        "Inventory the cold and migration writes reachable from the inbox routes.",
-        "Owner: P02, then P03 qualification. Closes with: observed writes on the cold and migration paths of the three routes (read_user_inbox, read_mail_tails, load_org_snapshot and the resident load). Not coverable at P01 from available evidence: the measurement uses already-migrated data, and the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to these routes."
-      ]
+      "open_questions": []
     },
     "inbox.receipt": {
       "dimension": "receipt",
@@ -5756,9 +5752,11 @@
     },
     "inbox.reads": {
       "dimension": "reads",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
-        "Source read set: on SQLite, store.read_user_inbox and store.read_mail_tails read bounded rows directly; otherwise load_org_snapshot with mail_log and user_mail_log; the node inbox also reads the in-flight delivering set."
+        "Source read set: on SQLite, store.read_user_inbox and store.read_mail_tails read bounded rows directly; otherwise load_org_snapshot with mail_log and user_mail_log; the node inbox also reads the in-flight delivering set.",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 27c8667) for GET /inbox, POST /inbox/read (one pending id, and an unknown id) and GET nodes/{nid}/inbox, cold and warm, on BOTH store backends, answering both questions above. SQLite: GET /inbox reads doc, log_l and meta; the read mark reads doc, log_d, log_l, meta and nodes, and an unknown id reads the same cold and runs no statement warm; the node inbox reads all five. JSON (json: rows): no statement; each reads the org's own JSON document.",
+        "Refusals: no token (401) on both backends runs nothing and leaves no census record; an unknown node (404) reads as the node inbox does on SQLite. No row has an unknown contact. Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -5786,10 +5784,7 @@
           "sha256": "f92fe4ae8c2b76145b6eba335f7aeb5ed3f4aa94baeaaddfd8aedf719de2a5dc"
         }
       ],
-      "open_questions": [
-        "Record the read set of the three inbox routes on both backends.",
-        "Owner: P02. Closes with: observed per-operation contacts for the three routes on both store backends, cold and warm. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to these routes."
-      ]
+      "open_questions": []
     },
     "inbox.conflicts": {
       "dimension": "conflicts",
@@ -5862,9 +5857,10 @@
     },
     "inbox.instrumentation": {
       "dimension": "instrumentation",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
-        "The access middleware labels each route; no P02 per-operation record covers them."
+        "The access middleware labels each route; no P02 per-operation record covers them.",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 27c8667): a loss-accounted per-operation record for the three routes, cold and warm, on both backends (per-row unattributed and late deltas zero, every statement bound); the no-token refusals are answered before any census attempt and leave none. Native negative controls are the P03 gate, not a clause of this legacy facet (S2d decision 1, reviewer ruling on 803227e). Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -5886,10 +5882,7 @@
           "sha256": "2dd7f7830f4b88630c5318c3d31a36f7eab4c80028c636787d514c34c24a8e28"
         }
       ],
-      "open_questions": [
-        "Extend the P02 per-operation probe to the inbox routes.",
-        "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed, loss-accounted contact record for the three inbox routes. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to these routes."
-      ]
+      "open_questions": []
     },
     "funding.authority": {
       "dimension": "authority",

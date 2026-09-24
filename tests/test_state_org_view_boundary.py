@@ -71,9 +71,13 @@ class BoundaryBinding(unittest.TestCase):
         result = contracts.validate(registry, contracts.inventory.scan(ROOT), ROOT)
         self.assertTrue(result['valid'], result['errors'])
         self.assertEqual(result['qualification'], contracts.GATES)
-        for name in ('org-view.reads', 'org-view.writes', 'org-view.conflicts', 'org-view.wire',
-                     'org-view.instrumentation', 'org-feed.conflicts', 'org-feed.wire', 'org-feed.instrumentation'):
+        # reads, writes and the feed's instrumentation were specified from P02 rows (S2e); the
+        # view's instrumentation stays open on the gateway's unattributable token-map rebuild
+        for name in ('org-view.conflicts', 'org-view.wire', 'org-view.instrumentation', 'org-feed.conflicts',
+                     'org-feed.wire'):
             self.assertEqual(registry['facets'][name]['status'], 'unresolved', name)
+        for name in ('org-view.reads', 'org-view.writes', 'org-feed.instrumentation'):
+            self.assertEqual(registry['facets'][name]['status'], 'specified', name)
 
     def test_stale_incomplete_or_elevated_fixture_refuses(self):
         for edit in [lambda d: d['routes'].pop('org.feed'), lambda d: d['frames'].pop('mail'),

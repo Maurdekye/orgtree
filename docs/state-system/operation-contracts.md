@@ -120,8 +120,8 @@ diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
 Current totals are 42 contracts, 29 mapped registrations and 50 mapped
-dispatch witnesses. **632 obligations remain**: 290 registrations, 177 dispatch
-witnesses, 15 storage candidates and 150 unresolved dimension occurrences.
+dispatch witnesses. **612 obligations remain**: 290 registrations, 177 dispatch
+witnesses, 15 storage candidates and 130 unresolved dimension occurrences.
 How it got there: 600 was two more registrations than the preceding 598 because the scanner now
 recognizes `asyncio.to_thread` hand-offs; both new witnesses are pending and no
 existing witness identity, disposition or contract changed.
@@ -220,6 +220,19 @@ four occurrences (+4). The agent door entry stays pending by precedent.
 632 is two fewer than that 634 (the native-design citation): `preview.reads` and
 `preview.predicates` become specified (-2), because their "Closes with" clauses ask
 only for the approved design, which r7 now is. See "Native conflict/predicate design" below.
+612 is twenty fewer than that 632 (P01 S2e): P02's probe now observes what twenty
+occurrences' Owner lines asked for on the S3 read and mail families, so those facets
+are specified from its rows: `org-view.reads` and `org-view.writes` (two contracts
+each), `org-feed.instrumentation`, `agent-mail.reads` and
+`agent-mail.instrumentation` (two each), `human-mail.reads` and
+`human-mail.instrumentation`, and `inbox.reads`, `inbox.writes` and
+`inbox.instrumentation` (three each). The instrumentation facets close under S2d
+decision 1: their "Closes with" clauses are legacy-only. Three facets gain observed
+facts but stay open, each with an owner line narrowed to what remains:
+`org-view.instrumentation` (the public gateway's token-map rebuild reads every org
+before any census attempt exists, so it cannot be attributed; its question is
+rewritten to that), `agent-mail.effects` (P07) and `human-mail.effects` (P08).
+`tests/test_state_p02_contact_facets.py` re-runs the probe and asserts each new fact.
 See "P03-prototype surface" below.
 
 Of the 43 open dimension occurrences on the sixteen legacy-family contracts, 27 (10 facets) cannot be closed at P01
@@ -522,7 +535,8 @@ pins the classification (item `p01-cite-the-approved-native-conflict-predicate`)
 - **partial**: `staffing.conflicts` (the island, P2, P3, P5, P6 and the
   seat-plus-item crossing; no declared read set for hire), `operator-ops.conflicts`
   (reallocate and hire as ledger transitions; not the operator door),
-  `agent-mail.conflicts` (only `orgtree_message`'s reply-grant crossing, P1),
+  `agent-mail.conflicts` (only the reply-grant crossing, P1, which an explicit
+  `orgtree_send_notice` makes as `orgtree_message` does),
   `receipt-lookup.conflicts` (C1's receipt-key uniqueness and replay order; not the
   fence) and `funding.conflicts` (section 6.4's reallocate row, C2a pairs P2 and P7;
   not credit-request approval's own conflict set, the filing's one-pending order, or
@@ -531,6 +545,15 @@ pins the classification (item `p01-cite-the-approved-native-conflict-predicate`)
   `inbox`, `quick-staff` and `work-read` conflicts.
 
 The partial and uncovered facets name the design extension as their owner.
+
+Every one of r7's 42 section 8 schedules stays named in an unresolved facet, so a
+design-only closure never drops its qualification (S2e, on review note N1): the
+schedules `preview.predicates` carried (Q-P3, Q-P6, Q-C2, Q-C9) and Q-C5, which r7
+runs over every operation it designs, are carried on `preview.conflicts`, whose
+"Closes with" now requires them. `tests/test_state_operation_contracts.py` pins it.
+S2e also retracts a sentence the citation's review round added: an explicit
+`orgtree_send_notice` keeps the reply grant (only the ledger's automatic notices do
+not), so r7's P1 covers `mail.notice` as it covers `mail.message`.
 
 ## Deliberate failing controls
 
