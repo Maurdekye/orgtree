@@ -115,8 +115,8 @@ runtime probes remain unresolved. Material reads add two cards and two selectors
 diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
-Current totals are 33 contracts, 23 mapped registrations and 46 mapped
-dispatch witnesses. **608 obligations remain**: 296 registrations, 181 dispatch
+Current totals are 33 contracts, 23 mapped registrations and 43 mapped
+dispatch witnesses. **611 obligations remain**: 296 registrations, 184 dispatch
 witnesses, 15 storage candidates and 116 unresolved dimension occurrences.
 How it got there: 600 was two more registrations than the preceding 598 because the scanner now
 recognizes `asyncio.to_thread` hand-offs; both new witnesses are pending and no
@@ -186,14 +186,16 @@ the request-credits and reallocate cards and branches, the credit-decision route
 and its two ledger action branches — to `credits.request`, `credits.reallocate`
 and `credits.decide`, whose four unresolved shared `funding` facets add twelve
 occurrences (+12).
-608 is four more than that 604 (S3 candidate 6): ten witnesses are mapped (-10) —
+611 is seven more than that 604 (S3 candidate 6): seven witnesses are mapped (-7) —
 the hire and staff cards and branches, the shared hire|staff harness selector, the
-staff half of the rehire-rename selector, three `_staff_call` action branches and
-the staff receipt-coverage branch — to `staffing.hire`, `staffing.staff-create` and
+staff half of the rehire-rename selector and the staff receipt-coverage branch —
+to `staffing.hire`, `staffing.staff-create` and
 `staffing.staff-update`, whose four unresolved shared `staffing` facets add twelve
 occurrences (+12); and candidate 5's two `credit_request_action` branches return to
 pending (+2, S3 decision 5), because the uncontracted inbox batch submit
-(`Org.resolve_batch`) reaches them too.
+(`Org.resolve_batch`) reaches them too. The three `_staff_call` action branches
+stay pending for the same reason: the uncontracted quick-staff route calls
+`_staff_call` as the user.
 See "P03-prototype surface" below.
 
 Of the 53 open dimension occurrences on the sixteen legacy-family contracts, 37 (17 facets) cannot be closed at P01
@@ -401,6 +403,10 @@ insertion), receipt (TX_POST, or PRE for a named rehire-mode staff) and effects 
 drive per started seat). Unresolved with an owner: reads and instrumentation (P02),
 conflicts (native design) and wire (native/Rust). The tool infers an omitted staff
 action, which the selector DSL cannot express, so the selector cases name it.
+`_staff_call`'s three action branches stay pending until quick-staff is contracted,
+because that route reaches them too (S3 decision 5); `tests/test_state_operation_contracts.py`
+now pins the known multi-caller helpers (`_staff_call`, `Org.credit_request_action`)
+and refuses a mapped witness inside one while any of its callers is unmapped.
 Recorded legacy behaviour: a hire started only by an audience grant is told its turn
 starts on a kickoff it never sent; rehire-mode staffing of a live agent is not
 refused; a named rehire-mode staffing renames the node before the transaction, so a

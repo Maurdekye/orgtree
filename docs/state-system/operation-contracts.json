@@ -11985,52 +11985,24 @@
     },
     {
       "id": "a129adb0711aa3c86eb0b63e4d4d692096f31bdd292b121329b41164de71967b",
-      "disposition": "mapped",
-      "contracts": [
-        "staffing.staff-create",
-        "staffing.staff-update"
-      ],
-      "reason": "_staff_call's action check (create|update).",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 10549,
-          "end": 10706,
-          "sha256": "c05dda630c5c9b3551574a6b61ab384de8d7c86945b4e73996387244ddd844aa"
-        }
-      ]
+      "disposition": "pending",
+      "contracts": [],
+      "reason": "_staff_call's action check (create|update): staffing.staff-create/staffing.staff-update (the orgtree_staff agent door) is contracted, but the quick-staff route (POST /api/orgs/{slug}/work-items/{wid}/quick-staff, quick_staff_select -> _staff_call, actor USER) reaches it too and is uncontracted, so it stays pending until quick-staff is contracted (S3 decision 5; review of candidate 6).",
+      "source_refs": []
     },
     {
       "id": "41f825929d1206f2eb579e0aad6037380a11ef5ac273e42cfde30211a42d8d88",
-      "disposition": "mapped",
-      "contracts": [
-        "staffing.staff-update"
-      ],
-      "reason": "_staff_call's update-needs-slug branch.",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 10549,
-          "end": 10706,
-          "sha256": "c05dda630c5c9b3551574a6b61ab384de8d7c86945b4e73996387244ddd844aa"
-        }
-      ]
+      "disposition": "pending",
+      "contracts": [],
+      "reason": "_staff_call's update-needs-slug branch: staffing.staff-create/staffing.staff-update (the orgtree_staff agent door) is contracted, but the quick-staff route (POST /api/orgs/{slug}/work-items/{wid}/quick-staff, quick_staff_select -> _staff_call, actor USER) reaches it too and is uncontracted, so it stays pending until quick-staff is contracted (S3 decision 5; review of candidate 6).",
+      "source_refs": []
     },
     {
       "id": "f2c32b21411c4d5538cff9d28796fa7916b7fbc5754bb8ab6114228d6ff323eb",
-      "disposition": "mapped",
-      "contracts": [
-        "staffing.staff-create"
-      ],
-      "reason": "_staff_call's create branch (work_create).",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 10549,
-          "end": 10706,
-          "sha256": "c05dda630c5c9b3551574a6b61ab384de8d7c86945b4e73996387244ddd844aa"
-        }
-      ]
+      "disposition": "pending",
+      "contracts": [],
+      "reason": "_staff_call's create branch (work_create): staffing.staff-create/staffing.staff-update (the orgtree_staff agent door) is contracted, but the quick-staff route (POST /api/orgs/{slug}/work-items/{wid}/quick-staff, quick_staff_select -> _staff_call, actor USER) reaches it too and is uncontracted, so it stays pending until quick-staff is contracted (S3 decision 5; review of candidate 6).",
+      "source_refs": []
     },
     {
       "id": "225cd500a3ad4324c5222fd51ef5d08525004ad94c6871a23a8351955430cf25",

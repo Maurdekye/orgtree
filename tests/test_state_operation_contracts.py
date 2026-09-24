@@ -44,8 +44,8 @@ class ContractCoverage(unittest.TestCase):
         # that maps a witness or adds a contract moves these numbers here, and only here.
         self.assertEqual(result["contracts"], 33)
         self.assertEqual((result["summary"]["entries"]["mapped"], result["summary"]["dispatch"]["mapped"],
-                          result["summary"]["storage"]["mapped"]), (23, 46, 0))
-        self.assertEqual(len(result["pending"]), 608)
+                          result["summary"]["storage"]["mapped"]), (23, 43, 0))
+        self.assertEqual(len(result["pending"]), 611)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
@@ -116,6 +116,49 @@ class ContractCoverage(unittest.TestCase):
                    source_refs=document["contracts"]["chart.read"]["source_refs"][1:])
         self.assertTrue(self.validate(document)["valid"])     # the validator alone does not see it
         self.assertIn(row["id"], self.uncontracted_selector_values(document))
+
+    # The same rule one level down (S3 decision 5; review of S3 candidate 6): a
+    # witness inside a helper that more than one entry point calls is mapped only
+    # once every one of those entries is. Pinned: the known multi-caller helpers
+    # (by inventory symbol) and the entries that reach them.
+    MULTI_CALLER_HELPERS: dict[str, set[str]] = {
+        # POST /api/orgs/{slug}/credit-requests and the inbox batch submit
+        # (POST /api/orgs/{slug}/nodes/{nid}/batch, Org.resolve_batch)
+        "Org.credit_request_action": {"a1dca24432d9b810d711a3afc1c2bbde140876c0f16b6286bc8012207b20e7ed",
+                                      "16833d38b3e314ae747711a7664e829fdb0af4f1b6dfb928cf63dbefe7abc8b3"},
+        # the orgtree_staff card (agent door) and POST .../work-items/{wid}/quick-staff
+        "_staff_call": {"b77b25e891a35aac05166f56195b7a125fc7cb1017e50709c00ffd4dafd8d69c",
+                        "47f1cc42531f402c39255f7276a6e6f2da0500789978e3294284a9645e34309a"},
+    }
+
+    def early_helper_witnesses(self, document):
+        entries = {r["id"]: r["disposition"] for r in document["entries"]}
+        selectors = {contracts.witness_id("dispatch", r): r for r in self.source["dispatch_selectors"]}
+        early = set()
+        for row in document["dispatch"]:
+            callers = self.MULTI_CALLER_HELPERS.get(selectors[row["id"]]["source"]["symbol"])
+            if callers and row["disposition"] == "mapped" and any(entries[c] != "mapped" for c in callers):
+                early.add(row["id"])
+        return early
+
+    def test_helper_witnesses_wait_for_every_caller(self):
+        # the pins name real helpers and real entries, or the guard guards nothing
+        symbols = {r["source"]["symbol"] for r in self.source["dispatch_selectors"]}
+        self.assertLessEqual(set(self.MULTI_CALLER_HELPERS), symbols)
+        entries = {r["id"] for r in self.document["entries"]}
+        for callers in self.MULTI_CALLER_HELPERS.values():
+            self.assertLessEqual(callers, entries)
+        self.assertEqual(self.early_helper_witnesses(self.document), set())
+
+    def test_mapping_a_helper_witness_early_is_caught(self):
+        document = copy.deepcopy(self.document)
+        row = next(r for r in document["dispatch"] if r["id"].startswith("f2c32b21"))
+        self.assertEqual(row["disposition"], "pending")
+        staff_call = document["contracts"]["staffing.staff-create"]["source_refs"][2]
+        row.update(disposition="mapped", contracts=["staffing.staff-create"], reason="early",
+                   source_refs=[staff_call])
+        self.assertTrue(self.validate(document)["valid"])     # the validator alone does not see it
+        self.assertEqual(self.early_helper_witnesses(document), {row["id"]})
 
     def test_each_required_dimension_is_enforced(self):
         for dimension in contracts.DIMENSIONS:
