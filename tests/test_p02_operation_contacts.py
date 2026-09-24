@@ -40,7 +40,7 @@ CONTRACTS = {f"reservation.{v}" for v in RESERVATION} | {
     "staffing.hire", "staffing.staff-create", "staffing.staff-update",
     "operator.hire", "operator.reallocate",
     "quick-staff.options", "quick-staff.options-refresh", "quick-staff.preview",
-    "quick-staff.select"}
+    "quick-staff.select", "work.item-list", "work.item-get", "receipt.lookup"}
 
 
 class OperationContacts(unittest.TestCase):
@@ -268,7 +268,7 @@ class OperationContacts(unittest.TestCase):
             if r["variant"] in (self.CONTROL, self.STATUS_CONTROL, self.MAIL_CONTROL,
                                 self.HUMAN_CONTROL, self.FUNDING_CONTROL,
                                 self.STAFFING_CONTROL, self.OPERATOR_CONTROL,
-                                self.QS_CONTROL):
+                                self.QS_CONTROL, self.RL_CONTROL):
                 continue
             with self.subTest(variant=r["variant"], condition=r["condition"]):
                 self.assertEqual(r["agents"]["third_agent_mail"], 0)
@@ -368,7 +368,7 @@ class OperationContacts(unittest.TestCase):
         statements on another org's store (warm and cold); cold, that store
         is closed first, so its connect shows too."""
         variant, condition, contract = r["variant"], r["condition"], r["contract"]
-        if variant == "control:foreign-org-contact":
+        if variant in ("control:foreign-org-contact", "control:work-read-foreign-org"):
             return sorted([self.F_CONN, self.F_STMT])
         if variant in ("mail.message:org", "mail.message:bare-unknown-name"):
             return sorted([self.F_STMT] + ([self.F_CONN] if condition == "cold" else []))
@@ -407,7 +407,8 @@ class OperationContacts(unittest.TestCase):
                     seen.add(r["variant"])
         self.assertEqual(seen, set(self.DECLARED) | {
             "control:foreign-org-contact", "mail.message:org", "mail.message:bare-unknown-name",
-            "org.tree", "migration:legacy-json", "refusal:human-unknown-node"})
+            "org.tree", "migration:legacy-json", "refusal:human-unknown-node",
+            "control:work-read-foreign-org"})
 
     def test_sandboxed_org_reads_come_from_the_sandbox_placement(self):
         """material.reads: a SANDBOXED org's transcript is read from the
@@ -1358,6 +1359,16 @@ class OperationContacts(unittest.TestCase):
         for condition in ("cold", "warm"):
             refresh = self.rows(variant="quick-staff.options-refresh", condition=condition)[0]
             self.assertEqual(refresh["census"]["statements"], 0)
+        # warm, every read and replay is served from the resident document: no
+        # statement at all; cold, the options read and the previews do read
+        for variant in reads:
+            with self.subTest(variant=variant):
+                warm = self.rows(variant=variant, condition="warm")[0]
+                self.assertEqual((warm["census"]["statements"], len(warm["harness"]["stores"])),
+                                 (0, 0))
+        for variant in ("quick-staff.options", "quick-staff.preview"):
+            self.assertGreater(self.rows(variant=variant, condition="cold")[0]
+                               ["census"]["statements"], 0)
 
     def test_quick_staff_refusals_write_nothing(self):
         for variant, status in (("refusal:qs-options-agent-token", 401),
@@ -1378,6 +1389,93 @@ class OperationContacts(unittest.TestCase):
         self.assertEqual(control["http_status"], 200, control["detail"])
         agents = control["agents"]
         self.assertEqual(agents["logical"]["mail"], {"qs-kid": "third", "qs-mgr": "target"})
+        self.assertGreaterEqual(agents["third_agent_mail"], 1)
+        self.assertGreaterEqual(agents["third_agent_rows_written"], 1)
+        self.assertTrue(agents["third_sites"])
+
+    # -- P01 S3 F4: work-read (the operator's docket reads) and receipt-lookup ---
+    WORK_READS = ["work.item-list", "work.item-list:archived", "work.item-list:backlogged",
+                  "work.item-list:compact", "work.item-get", "work.item-get:compact"]
+
+    def test_work_reads_touch_only_this_orgs_records(self):
+        """work-read.reads/instrumentation: the list (plain, archived,
+        backlogged, compact) and the item read, cold and warm, loss-
+        accounted; org-level locality: every statement runs on THIS org's
+        store, nothing is written, nobody is told or woken."""
+        for variant in self.WORK_READS:
+            for condition in ("cold", "warm"):
+                with self.subTest(variant=variant, condition=condition):
+                    r = self.rows(variant=variant, condition=condition)[0]
+                    self.assertEqual(r["http_status"], 200, r["detail"])
+                    self.assertEqual(r["census"]["records"], 1)
+                    self.assertGreater(r["census"]["statements"], 0)
+                    self.assertEqual(set(r["harness"]["statement_stores"]), {"data:org-db:own"})
+                    self.assertEqual((r["harness"]["writes"], r["agents"]["logical"],
+                                      r["agents"]["physical_written"], r["guard_refusals"]),
+                                     (0, {}, [], {}))
+                    self.assertEqual(r["wakes"], {"send_message": 0, "mail_notify": 0})
+        for variant, status in (("refusal:wr-unknown-item", 404),
+                                ("refusal:wr-list-agent-token", 401),
+                                ("refusal:wr-get-agent-token", 401),
+                                ("refusal:wr-legacy-identity", 409)):
+            with self.subTest(variant=variant):
+                r = self.rows(variant=variant)[0]
+                self.assertEqual((r["http_status"], r["harness"]["writes"]), (status, 0))
+                self.assertEqual(r["census"]["records"], 0 if status == 401 else 1)
+        # the org-level control: the other org's store shows as foreign
+        control = self.rows(variant="control:work-read-foreign-org")[0]
+        self.assertEqual(control["http_status"], 200, control["detail"])
+        self.assertGreater(control["harness"]["statement_stores"].get("data:org-db:foreign", 0), 0)
+
+    RL_CONTROL = "control:receipt-lookup-third-agent"
+    #: variant -> (answer state, receipt rows added per agent)
+    LOOKUPS = {"receipt.lookup:not-applied": ("not_applied", {"rl-top": 1}),
+               "receipt.lookup:fenced-again": ("not_applied", {}),
+               "receipt.lookup:applied": ("applied", {}),
+               "receipt.lookup:conflict": ("conflict", {}),
+               "receipt.lookup:epoch-rotated": ("unknown", {})}
+
+    def test_receipt_lookups_stay_in_the_callers_namespace(self):
+        """receipt-lookup.reads/instrumentation: each answer (not_applied with
+        a fence, applied, conflict, epoch-rotated) and a lookup answered from
+        the fence, cold and warm, loss-accounted; agent-level locality: the
+        only receipt rows written are the caller's own fence, and no other
+        agent's row is read or written."""
+        for variant, (state, namespace) in self.LOOKUPS.items():
+            for condition in ("cold", "warm"):
+                with self.subTest(variant=variant, condition=condition):
+                    r = self.rows(variant=variant, condition=condition)[0]
+                    self.assertEqual(r["http_status"], 200, r["detail"])
+                    self.assertEqual(r["census"]["records"], 1)
+                    self.assertEqual(r["answer"]["state"], state)
+                    self.assertEqual(r["receipt_namespace"], namespace)
+                    agents = r["agents"]
+                    self.assertLessEqual(set(agents["physical_nodes"]), {"rl-top"})
+                    self.assertEqual((agents["logical"], agents["third_sites"]), ({}, {}))
+                    self.assertEqual(r["wakes"], {"send_message": 0, "mail_notify": 0})
+                    if state != "not_applied" or namespace == {}:
+                        self.assertEqual(r["harness"]["writes"], 0)
+        rotated = self.rows(variant="receipt.lookup:epoch-rotated", condition="cold")[0]
+        self.assertEqual((rotated["answer"]["reason"], rotated["answer"]["fenced"]),
+                         ("epoch_rotated", False))
+        # another agent asking about rl-top's key fences it in ITS OWN namespace
+        other = self.rows(variant="receipt.lookup:other-agents-key")[0]
+        self.assertEqual((other["answer"]["state"], other["receipt_namespace"]),
+                         ("not_applied", {"rl-mid": 1}))
+        self.assertLessEqual(set(other["agents"]["physical_nodes"]), {"rl-mid"})
+        for variant, status in (("refusal:rl-halted", 409), ("refusal:rl-no-key", 422),
+                                ("refusal:rl-no-tool", 422), ("refusal:rl-bad-token", 401)):
+            with self.subTest(variant=variant):
+                r = self.rows(variant=variant)[0]
+                self.assertEqual((r["http_status"], r["harness"]["writes"]), (status, 0))
+                self.assertEqual(r["census"]["records"], 0 if status == 401 else 1)
+        self.assertEqual(self.rows(variant="refusal:rl-halted")[0]["receipt_namespace"], {})
+
+    def test_receipt_lookup_third_agent_control_is_flagged(self):
+        control = self.rows(variant=self.RL_CONTROL)[0]
+        self.assertEqual(control["http_status"], 200, control["detail"])
+        agents = control["agents"]
+        self.assertEqual(agents["logical"]["mail"], {"rl-sib": "third"})
         self.assertGreaterEqual(agents["third_agent_mail"], 1)
         self.assertGreaterEqual(agents["third_agent_rows_written"], 1)
         self.assertTrue(agents["third_sites"])

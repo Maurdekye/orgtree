@@ -657,6 +657,13 @@ class Probe:
             self.immediate[0] += 1
             return False
 
+        # the boot build identity the app freezes at startup
+        # (restart_wake.on_backend_startup, which the probe never runs): left
+        # unset, the first docket read would compute it and start `git`
+        from orgtree import restart_wake
+        restart_wake._reset_boot_build_info_for_tests({
+            "commit": self.commit, "commit_short": self.commit[:7], "dirty": False,
+            "branch": "p02-probe", "backend_pid": os.getpid(), "started_at": "probe"})
         supervisor.send_message = send_message
         supervisor.immediate_command = immediate_command
         supervisor.delivery_note = lambda *_a, **_k: "fixture carrier accepted; read unknown"
@@ -2652,6 +2659,8 @@ class Probe:
         saved = [(obj, name, getattr(obj, name)) for obj, name, _ in family]
         for obj, name, value in family:
             setattr(obj, name, value)
+        # the app settings this family changes, restored to what they were
+        settings = (appsettings.quick_staff_behavior(), appsettings.quick_staff_request_accounts())
         staffcache.reset_for_tests()
         appsettings.set_quick_staff_request_accounts(False)
         try:
@@ -2660,7 +2669,8 @@ class Probe:
             for obj, name, value in reversed(saved):
                 setattr(obj, name, value)
             staffcache.reset_for_tests()
-            appsettings.set_quick_staff_behavior("request")
+            appsettings.set_quick_staff_behavior(settings[0])
+            appsettings.set_quick_staff_request_accounts(settings[1])
 
     def _quick_staff_rows(self, s: str, base: str, store: Any, api: Any, appsettings: Any,
                           user: str, op: dict[str, str], both: tuple[str, str]) -> None:
@@ -2755,6 +2765,201 @@ class Probe:
             refusal="negative control (not a product path)",
             patches=[(api, "hub_changed", mail_third)])
 
+    # -- P01 S3 F4: work.item-list, work.item-get (the operator's docket reads) --
+    def build_workread(self) -> None:
+        """tests/test_state_work_read_boundary.py's org (distinctive `wr-*`
+        ids): wr-mgr owns an open, a backlogged and a done item; the done
+        item's docket update is two hours old, so it derives archived."""
+        store, ledger = self.m["store"], self.m["ledger"]
+        org = store.create_org("p02-contacts-workread")
+        self.wrslug = str(org.d["slug"])
+        org.hire(ledger.USER, None, "haiku", 4, "wr-mgr", add_dirs=[], tools={}, charter="fixture")
+        self.wr_open = str(org.work_create("wr-mgr", "Open item", "P. F.", status="open",
+                                           owner="wr-mgr")["slug"])
+        self.wr_back = str(org.work_create("wr-mgr", "Backlog item", "P. F.",
+                                           status="backlogged", owner="wr-mgr")["slug"])
+        self.wr_done = str(org.work_create("wr-mgr", "Done item", "P. F.", status="open",
+                                           owner="wr-mgr")["slug"])
+        org.work_update("wr-mgr", self.wr_done, ["finished"], [], status="done")
+        old = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 7200))
+        item = org._work_find(self.wr_done)[0]
+        item["docket_at"] = item["updated_at"] = old
+        org.d["mail"], org.d["audiences"] = {}, []
+        store.save_org(org)
+        self.tokens[(self.wrslug, "wr-mgr")] = self.m["agentauth"].child_env(
+            self.wrslug, "wr-mgr")["ORGTREE_AGENT_TOKEN"]
+
+    def work_read(self) -> None:
+        """The list (plain, archived, backlogged, compact) and the item read
+        (plain, compact), cold and warm, as @user on the desktop token;
+        refusals; an org-level locality control (the read also loads ANOTHER
+        org's store, which must show as foreign)."""
+        s, store, api = self.wrslug, self.m["store"], self.m["api"]
+        user, op, both = self.m["ledger"].USER, self.OPERATOR, ("cold", "warm")
+        base = f"/api/orgs/{s}/work-items"
+
+        def get(contract: str, variant: str, condition: str, path: str,
+                headers: Any = op, **kw: Any) -> None:
+            self.run(contract, variant, condition, s, user, f"GET {contract}", {},
+                     call=self.http(self.client, base + path, headers), **kw)
+
+        for cond in both:
+            for variant, query in (("work.item-list", ""), ("work.item-list:archived", "?archived=1"),
+                                   ("work.item-list:backlogged", "?backlogged=1"),
+                                   ("work.item-list:compact", "?compact=1")):
+                get("work.item-list", variant, cond, query)
+            get("work.item-get", "work.item-get", cond, f"/{self.wr_open}")
+            get("work.item-get", "work.item-get:compact", cond, f"/{self.wr_open}?compact=1")
+        agent = {"X-Orgtree-Agent-Token": self.tokens[(s, "wr-mgr")]}
+        get("work.item-get", "refusal:wr-unknown-item", "warm", "/nope",
+            refusal="404 no such item")
+        get("work.item-list", "refusal:wr-list-agent-token", "warm", "", agent,
+            refusal="401 an agent credential is refused here")
+        get("work.item-get", "refusal:wr-get-agent-token", "warm", f"/{self.wr_open}", agent,
+            refusal="401 an agent credential is refused here")
+        # a document with an unnamed item is legacy identity: refused, never
+        # served or converted (restored outside the row)
+        saved: dict[str, Any] = {}
+        self.mutate(s, lambda o: saved.update(slug=o._work_find(self.wr_back)[0].pop("slug")))
+        get("work.item-list", "refusal:wr-legacy-identity", "warm", "",
+            refusal="409 legacy work identity (migrate-work-identity)")
+        self.mutate(s, lambda o: next(w for w in o.d["work_items"] if "slug" not in w).update(
+            slug=saved["slug"]))
+
+        # org-level locality control: the identity guard ALSO loads another
+        # org's store cold, so the read's statements must show it as foreign
+        foreign, guard = self.mslug, api._work_identity_guard
+
+        def guard_and_load_foreign(org: Any) -> None:
+            store._invalidate_snapshot(foreign)
+            store._POOL.close_all(foreign)
+            store.load_org(foreign)
+            guard(org)
+        get("work.item-get", "control:work-read-foreign-org", "warm", f"/{self.wr_open}",
+            refusal="negative control (not a product path)",
+            patches=[(api, "_work_identity_guard", guard_and_load_foreign)],
+            expected_unknown=("sqlite_connect:data:org-db:foreign",
+                              "statement:data:org-db:foreign"))
+
+    # -- P01 S3 F4: receipt.lookup (orgtree_op_lookup) ---------------------------
+    def build_receipts(self) -> None:
+        """tests/test_state_receipt_lookup_boundary.py's org (distinctive
+        `rl-*` ids): rl-top, rl-mid under it (the reallocation target the
+        looked-up call names), rl-sib (the third agent of the control)."""
+        store, ledger = self.m["store"], self.m["ledger"]
+        org = store.create_org("p02-contacts-receipts")
+        self.rlslug = str(org.d["slug"])
+        org.hire(ledger.USER, None, "haiku", 40, "rl-top", add_dirs=[], tools={}, charter="fixture")
+        org.hire("rl-top", "rl-top", "haiku", 4, "rl-mid", **self.SCOPE)
+        org.hire("rl-top", "rl-top", "haiku", 0, "rl-sib", **self.SCOPE)
+        org.d["mail"], org.d["audiences"] = {}, []
+        store.save_org(org)
+        for n in ("rl-top", "rl-mid"):
+            self.tokens[(self.rlslug, n)] = self.m["agentauth"].child_env(
+                self.rlslug, n)["ORGTREE_AGENT_TOKEN"]
+
+    def receipt_namespaces(self, slug: str) -> dict[str, int]:
+        """Receipt rows per owning agent (`log_l` rows of section
+        `op_receipts`), read with a plain read-only connection OUTSIDE any
+        operation window."""
+        path = self.data / "orgs" / f"{slug}.db"
+        with contextlib.closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)) as c:
+            return {str(n): int(k) for n, k in c.execute(
+                "SELECT json_extract(val, '$.node'), count(*) FROM log_l "
+                "WHERE sect = 'op_receipts' GROUP BY 1").fetchall()}
+
+    def receipts(self) -> None:
+        """Each lookup answer P01's clause names (not_applied with a fence,
+        applied, conflict, epoch-rotated), plus a lookup answered from the
+        fence, cold and warm; another agent asking about the same key;
+        refusals and a locality control. `receipt_namespace` is each row's
+        change in receipt rows per owning agent (read outside the window).
+        Setup calls are followed by a snapshot refresh OUTSIDE the row, so a
+        warm row does not carry the setup's changed-row re-read (see F3)."""
+        s, store, api, opreceipts = self.rlslug, self.m["store"], self.m["api"], self.m["opreceipts"]
+        supervisor, both = self.m["supervisor"], ("cold", "warm")
+        ra, args = "orgtree_reallocate", {"node": "rl-mid", "delta": 1}
+
+        def post(actor: str, tool: str, body: dict[str, Any]) -> Any:
+            return self.client.post("/api/agent", json=self.agent_body(s, actor, tool, body),
+                                    headers={"X-Orgtree-Agent-Token": self.tokens[(s, actor)]})
+        epoch = post("rl-top", opreceipts.OP_EPOCH, {}).json()["epoch"]
+
+        def lookup(variant: str, condition: str, key: str, actor: str = "rl-top",
+                   for_args: "dict[str, Any] | None" = None, ep: "str | None" = None,
+                   **kw: Any) -> dict[str, Any]:
+            body = {"op_key": key, "op_epoch": epoch if ep is None else ep, "for_tool": ra,
+                    "for_args": args if for_args is None else for_args}
+            answer: dict[str, Any] = {}
+
+            def call() -> tuple[int, Any]:
+                # the agent door itself, so the answer can be kept on the row
+                r = post(actor, opreceipts.OP_LOOKUP, body)
+                try:
+                    payload = r.json()
+                except ValueError:
+                    payload = None
+                answer["payload"] = payload
+                return r.status_code, payload
+            before = self.receipt_namespaces(s)
+            row = self.run("receipt.lookup", variant, condition, s, actor, opreceipts.OP_LOOKUP,
+                           body, call=call, **kw)
+            after = self.receipt_namespaces(s)
+            got = answer.get("payload")
+            row["answer"] = ({k: got.get(k) for k in ("state", "reason", "fenced")}
+                             if isinstance(got, dict) and "state" in got else None)
+            row["receipt_namespace"] = {n: after.get(n, 0) - before.get(n, 0)
+                                        for n in sorted(set(before) | set(after))
+                                        if after.get(n, 0) != before.get(n, 0)}
+            return row
+
+        def applied_key() -> str:
+            key = opreceipts.mint_key()
+            r = post("rl-top", opreceipts.OP_CALL, {"tool": ra, "args": args, "op_key": key,
+                                                    "op_epoch": epoch})
+            if r.status_code != 200:
+                raise RuntimeError(f"fixture keyed call answered {r.status_code}: {r.text[:200]}")
+            store.cached_org(s)       # drain the setup's changed rows outside the row
+            return key
+
+        for cond in both:
+            key = opreceipts.mint_key()
+            lookup("receipt.lookup:not-applied", cond, key)
+            lookup("receipt.lookup:fenced-again", cond, key)
+            key = applied_key()
+            lookup("receipt.lookup:applied", cond, key)
+            lookup("receipt.lookup:conflict", cond, key, for_args={"node": "rl-mid", "delta": 2})
+            lookup("receipt.lookup:epoch-rotated", cond, opreceipts.mint_key(), ep="rotated")
+        # another agent asking about rl-top's applied key finds nothing in ITS
+        # namespace and fences it there
+        key = applied_key()
+        lookup("receipt.lookup:other-agents-key", "warm", key, actor="rl-mid")
+        halted = [(supervisor.halt, "blocked", lambda *_a, **_k: "halt")]
+        lookup("refusal:rl-halted", "warm", key, refusal="409 the agent is halted",
+               patches=halted)
+        for variant, body, token, refusal in (
+                ("refusal:rl-no-key", {"op_epoch": epoch, "for_tool": ra, "for_args": args},
+                 None, "422 a lookup needs the op_key"),
+                ("refusal:rl-no-tool", {"op_key": opreceipts.mint_key(), "op_epoch": epoch,
+                                        "for_args": args}, None, "422 a lookup needs for_tool"),
+                ("refusal:rl-bad-token", {"op_key": key}, "nope", "401 bad agent token")):
+            self.run("receipt.lookup", variant, "warm", s, "rl-top", opreceipts.OP_LOOKUP, body,
+                     token=token, refusal=refusal)
+
+        # agent-level locality control: a lookup whose answer is followed by
+        # mail to a third agent
+        original = api._op_lookup_call
+
+        def lookup_and_mail_third(*a: Any, **k: Any) -> Any:
+            out = original(*a, **k)
+            with store.write_org(s) as o:
+                o.post_mail("rl-top", "rl-sib", "p02 control: mail to a third agent")
+                store.save_org(o)
+            return out
+        lookup("control:receipt-lookup-third-agent", "warm", opreceipts.mint_key(),
+               refusal="negative control (not a product path)",
+               patches=[(api, "_op_lookup_call", lookup_and_mail_third)])
+
     # -- the r5 residuals ----------------------------------------------------
     def residuals(self) -> dict[str, Any]:
         """db_unbound and unclassified_action, reproduced: which records carry
@@ -2845,11 +3050,13 @@ class Probe:
             self.build_staffing()
             self.build_operator()
             self.build_quickstaff()
+            self.build_workread()
+            self.build_receipts()
         self.build_human()
         for slug in ((self.dslug, self.hslug) if json_backend else
                      (self.rslug, self.mslug, self.dslug, self.pslug, self.sslug,
                       self.stslug, self.ovslug, self.mlslug, self.hslug, self.fslug,
-                      self.stfslug, self.opslug, self.qsslug)):
+                      self.stfslug, self.opslug, self.qsslug, self.wrslug, self.rlslug)):
             _NODES[slug] = {str(n) for n in self.m["store"].load_org(slug).nodes}
         self.operator("post", "/api/diagnostics/operation-census/reset")
         self.operator("post", "/api/diagnostics/operation-census", json={"enabled": True})
@@ -2874,6 +3081,8 @@ class Probe:
             self.staffing()
             self.operator_ops()
             self.quick_staff()
+            self.work_read()
+            self.receipts()
         w1 = self.census_state()
         self.load_table_catalogue()
         self.map_tables()

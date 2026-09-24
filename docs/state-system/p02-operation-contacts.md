@@ -14,7 +14,11 @@ fixtures, rebuilt under a fresh temporary root with HOME redirected. The
 live and legacy roots are pinned before that redirect and protected by
 `tests/isolation_guards.py`. The same guards refuse every process start and
 network connect. The app lifespan is never started. Wakes and mail delivery
-are spies: they are counted, never delivered. `tests/test_p02_operation_contacts.py`
+are spies: they are counted, never delivered. The boot build identity that
+the app computes and freezes at startup (`restart_wake.on_backend_startup`)
+is injected instead, naming the probe's commit. Left unset, the first docket
+read would compute it and start `git`, which a running app never does on a
+read path. `tests/test_p02_operation_contacts.py`
 runs the probe and checks its output.
 
 ## Cross-org reads found (recorded, not fixed)
@@ -366,8 +370,13 @@ Owned elsewhere, with no rows added:
 - `status.wire` and `chart.wire`: the native/Rust conversion.
 
 F1b, F2 (agent and human mail, inbox routes), F3 (funding), F3b (staffing),
-F3c (operator ops) and F3d (quick-staff) follow below. Still pending:
-receipt-lookup (receipt replay) and work-read (the work-item GET routes).
+F3c (operator ops), F3d (quick-staff) and F4 (work-read, receipt-lookup)
+follow below. With F4, every P02-owned `reads` and `instrumentation` facet in
+the registry at v3 b4a702b has probe rows, several of them only partly
+covered (for example `material.reads`, disk-backed placement, and
+`org-view.instrumentation`, the kiosk token scan). That is NOT complete
+coverage: see each hand-off table's status, "NOT covered" and "Owned
+elsewhere" entries, and Limits.
 
 ## P01 S3 F1b: `org.tree`, `org.node-detail`, `org.feed`
 
@@ -859,9 +868,10 @@ ticket is titled with the seat's registered id.
   closing tree broadcast also mails `qs-kid`) is flagged.
 
 Observed and recorded:
-- A WARM options read, preview or replay runs no SQL statement at all. The
-  org comes from the resident document, even though these routes call
-  `store.load_org` under DOC_LOCK.
+- A WARM options read, preview or replay runs no SQL statement at all
+  (asserted: census statements 0 and no store touched). The org comes from
+  the resident document, even though these routes call `store.load_org`
+  under DOC_LOCK. Cold, the options read and the previews do read the store.
 - Wakes: a request commit drives the assignee once and sparks once; an
   immediate commit drives the new seat once and sparks twice (the
   assignment and the kickoff).
@@ -880,6 +890,80 @@ Clauses from the Owner lines at v3 845b2c7.
 Owned elsewhere, with no rows added:
 - `quick-staff.conflicts`: the native design, then P03;
 - `quick-staff.wire`: the native/Rust conversion.
+
+## P01 S3 F4: `work.item-list` and `work.item-get` (the operator's docket reads)
+
+The fixture follows `tests/test_state_work_read_boundary.py` with distinctive
+`wr-*` ids: `wr-mgr` owns an open, a backlogged and a done item. The done
+item's docket update is two hours old, so the list derives it archived.
+
+- **`work.item-list`** plain, `:archived`, `:backlogged` and `:compact`, and
+  **`work.item-get`** plain and `:compact`, each cold and warm, as `@user`
+  on the desktop token.
+- **Refusals** (warm; nothing written): an unknown item (404), an agent
+  credential on the list and on the item (401, refused before any attempt is
+  recorded), and legacy work identity (409: an item without a slug, restored
+  outside the row).
+- **Org-level locality:** every statement of every read runs on THIS org's
+  store (`statement_stores` is `data:org-db:own` only), nothing is written,
+  and nobody is told or woken. The control `control:work-read-foreign-org`
+  (the identity guard also loads another org's store cold) shows foreign
+  statements and a foreign connect, so the classification can fire here.
+
+Observed and recorded: in a process whose startup never ran, the FIRST
+docket read computes the boot build identity and starts `git rev-parse`
+(`orgtree.build_identity:_verified_checkout`, via the delivery view's
+`workitems.build_identity`). The isolation guard refused it in a trial
+run, and the read still answered 200. The product computes this identity at
+startup, so this is a harness condition, not a read-path contact. The probe
+now injects the identity (see the top of this page).
+
+## P01 S3 F4: `receipt.lookup` (`orgtree_op_lookup`)
+
+The fixture follows `tests/test_state_receipt_lookup_boundary.py` with
+distinctive `rl-*` ids: `rl-top`; `rl-mid` under it (the reallocation target
+that the looked-up call names); `rl-sib` (the third agent of the control).
+The looked-up call is `orgtree_reallocate {node: rl-mid, delta: 1}`.
+
+- **Each answer**, cold and warm, with the answer's `state`, `reason` and
+  `fenced` kept on the row (`answer`):
+  - `receipt.lookup:not-applied` (a fresh key: `not_applied`, and the key is
+    fenced);
+  - `:fenced-again` (the same key again: answered from the fence);
+  - `:applied` (a key a keyed call applied just before, outside the row);
+  - `:conflict` (that key, different arguments);
+  - `:epoch-rotated` (a fresh key under a rotated epoch: `unknown`,
+    `epoch_rotated`, not fenced).
+- `receipt.lookup:other-agents-key` (warm): `rl-mid` asks about `rl-top`'s
+  applied key, finds nothing in its own namespace, and fences it there.
+- **Refusals** (warm; nothing written): halted (409), no `op_key` (422), no
+  `for_tool` (422), a bad token (401, before any attempt is recorded).
+- **Agent-level locality:** `receipt_namespace` is each row's change in
+  receipt rows per owning agent, read outside the window from `log_l`
+  section `op_receipts`. The only receipt row any lookup adds is the
+  caller's own fence. No other agent's row is read or written: the rows
+  name no third agent, and not even `rl-mid`, although the looked-up call
+  names it. The control `control:receipt-lookup-third-agent` (a lookup
+  followed by mail to `rl-sib`) is flagged.
+- The keyed call that applies a key runs outside the row, followed by a
+  snapshot refresh (`store.cached_org`), so a warm lookup does not carry the
+  setup's changed-row re-read (the carry-over read, S3 F3).
+
+## Hand-off to P01 (S3 F4): facet → clause → rows
+
+Clauses from the Owner lines at v3 b4a702b.
+
+| Facet | Closing clause | Status | Rows |
+|---|---|---|---|
+| `work-read.reads` | observed per-operation contacts for the list (plain, archived, backlogged, compact) and the item read, cold and warm | covered | `work.item-list`, `:archived`, `:backlogged`, `:compact`; `work.item-get`, `:compact`; each cold and warm; plus the refusal rows |
+| `work-read.instrumentation` | an observed, loss-accounted contact record for the item reads with org-level locality (this org's work records only) | partly | covered: the rows above, per-row loss zero; every statement on this org's store only; `control:work-read-foreign-org` flagged. NOT covered: P03 native negative controls |
+| `receipt-lookup.reads` | observed per-operation contacts for the lookup answers (not_applied with a fence, applied, conflict, epoch-rotated), cold and warm | covered | `receipt.lookup:not-applied`, `:applied`, `:conflict`, `:epoch-rotated`, plus `:fenced-again`; each cold and warm, with the answer kept on the row; plus `:other-agents-key` and the refusal rows |
+| `receipt-lookup.instrumentation` | an observed, loss-accounted contact record for the lookup with agent-level locality (the caller's own receipt namespace only) | partly | covered: the rows above, per-row loss zero; `receipt_namespace` changes only for the caller (its fence); no other agent's row read or written; `control:receipt-lookup-third-agent` flagged. NOT covered: P03 native negative controls |
+
+Owned elsewhere, with no rows added:
+- `work-read.conflicts`, `receipt-lookup.conflicts`: the native design,
+  then P03;
+- `work-read.wire`, `receipt-lookup.wire`: the native/Rust conversion.
 
 ## Limits
 
