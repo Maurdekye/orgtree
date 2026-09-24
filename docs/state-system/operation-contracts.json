@@ -1,6 +1,6 @@
 {
   "schema": "orgtree.state-operation-contracts/v1",
-  "source_inventory_sha256": "5bc3fcf8fbb97b02eabd7064b7e5a2801948beaba48a0dcfa99802bc9d881dbd",
+  "source_inventory_sha256": "c62eb9d367e0ccbdeda890a119962227c5198414f2a9d43e57eaf9cacefbcac6",
   "qualification": {
     "runtime_census": false,
     "conversion_authorized": false
@@ -2208,8 +2208,8 @@
         },
         {
           "path": "engine/backend/orgtree/providers.py",
-          "start": 172,
-          "end": 196,
+          "start": 180,
+          "end": 204,
           "sha256": "f67a662fb4062fe9b53307e2b81c6cee1e1a06d32e9070c879ba54b99f560717"
         },
         {
@@ -2463,8 +2463,8 @@
         },
         {
           "path": "engine/backend/orgtree/providers.py",
-          "start": 172,
-          "end": 196,
+          "start": 180,
+          "end": 204,
           "sha256": "f67a662fb4062fe9b53307e2b81c6cee1e1a06d32e9070c879ba54b99f560717"
         },
         {
@@ -2781,8 +2781,8 @@
         },
         {
           "path": "engine/backend/orgtree/providers.py",
-          "start": 172,
-          "end": 196,
+          "start": 180,
+          "end": 204,
           "sha256": "f67a662fb4062fe9b53307e2b81c6cee1e1a06d32e9070c879ba54b99f560717"
         },
         {
@@ -2899,8 +2899,8 @@
         },
         {
           "path": "engine/backend/orgtree/providers.py",
-          "start": 172,
-          "end": 196,
+          "start": 180,
+          "end": 204,
           "sha256": "f67a662fb4062fe9b53307e2b81c6cee1e1a06d32e9070c879ba54b99f560717"
         },
         {

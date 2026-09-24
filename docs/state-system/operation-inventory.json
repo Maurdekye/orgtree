@@ -155,7 +155,7 @@
     },
     {
       "path": "engine/backend/orgtree/codexpin.py",
-      "normalized_source_sha256": "b791d5ed456f8dcacab39c8ff8b87f532f10b06e1fc95f3b06610318dd2fc65d"
+      "normalized_source_sha256": "33a610ecd5aeced4d0ba86def8542192c473ac994d5e6b5d3b75f94f957e23c0"
     },
     {
       "path": "engine/backend/orgtree/codexrun.py",
@@ -387,7 +387,7 @@
     },
     {
       "path": "engine/backend/orgtree/providers.py",
-      "normalized_source_sha256": "8bd0bf48ecdd9ac5b8f2d58907f38311dc2c00396bc93695774a799abbd8a344"
+      "normalized_source_sha256": "77c863514fbe1b2248388b9187590511ce75c16418971e37e532f4f99c2aaf02"
     },
     {
       "path": "engine/backend/orgtree/quickstaff.py",
@@ -5527,8 +5527,8 @@
       "source": {
         "path": "engine/backend/orgtree/providers.py",
         "symbol": "providers_payload",
-        "line": 1420,
-        "end_line": 1422,
+        "line": 1434,
+        "end_line": 1436,
         "syntax_sha256": "0a5c8697e79f8d1f0e172510159d8f511c422efbedb9bb99eea01edfbed3bbfa"
       },
       "mechanism": "probes.submit",
