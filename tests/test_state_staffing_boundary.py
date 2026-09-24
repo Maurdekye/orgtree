@@ -74,9 +74,10 @@ class BoundaryBinding(unittest.TestCase):
         registry = contracts.load(ROOT / 'docs/state-system/operation-contracts.json')
         result = contracts.validate(registry, contracts.inventory.scan(ROOT), ROOT)
         self.assertTrue(result['valid'], result['errors'])
-        for name in ('reads', 'conflicts', 'wire', 'instrumentation'):
+        # reads and instrumentation were specified from P02 rows (S2g); conflicts and wire stay open
+        for name in ('conflicts', 'wire'):
             self.assertEqual(registry['facets']['staffing.' + name]['status'], 'unresolved', name)
-        for name in ('authority', 'predicates', 'writes', 'receipt', 'effects'):
+        for name in ('authority', 'predicates', 'writes', 'receipt', 'effects', 'reads', 'instrumentation'):
             self.assertEqual(registry['facets']['staffing.' + name]['status'], 'specified', name)
 
     def test_stale_incomplete_or_elevated_fixture_refuses(self):
@@ -239,6 +240,32 @@ class StaffingBoundary(unittest.TestCase):
         # behaviour): budget-neutral above, one credit less for the anchor
         self.assertEqual((nodes['boss']['grant'], nodes['mid']['grant']), (6, 5))
         self.assertEqual(nodes['top']['grant'], before['nodes']['top']['grant'])
+
+    def test_a_superior_insertion_tells_the_widened_set_by_relation(self):
+        # staffing.instrumentation's widened locality (S2g): a superior hire first hires the seat under
+        # the anchor (lifecycle.hired: the anchor as report, its reports as peers), then insert_parent
+        # tells the anchor (target), the anchor's reports (child), the new parent's other children (peer)
+        # and the seat itself (self). The caller is told nothing.
+        org = store.load_org(self.slug)
+        for name in ('k1', 'k2'):
+            org.hire('top', 'mid', 'haiku', 0, name, **SCOPE)
+        org.hire('top', 'top', 'haiku', 0, 'sib', **SCOPE)
+        org.d['notices'] = {}
+        store.save_org(org)
+        r, _, after = self.act(lambda: self.agent(HI, dict(name='boss', tier='haiku', grant=0, target='mid',
+                                                              hire_type='superior', charter='fixture'), 'top'))
+        self.assertEqual(r.status_code, 200, r.text)
+
+        def told(n):
+            return sorted((x['ev']['variant'], x['ev'].get('relation') or x['ev'].get('role'))
+                          for x in after['notices'].get(n, [])
+                          if str((x.get('ev') or {}).get('variant', '')).startswith('lifecycle.'))
+        for k in ('k1', 'k2'):
+            self.assertEqual(told(k), [('lifecycle.hired', 'peer'), ('lifecycle.inserted', 'child')], k)
+        self.assertEqual(told('mid'), [('lifecycle.hired', 'report'), ('lifecycle.inserted', 'target')])
+        self.assertEqual(told('sib'), [('lifecycle.inserted', 'peer')])
+        self.assertEqual(told('boss'), [('lifecycle.inserted', 'self')])
+        self.assertEqual((told('top'), told('top2')), ([], []))
 
     def test_audiences_follow_the_audience_rules_and_can_start_the_seat(self):
         r, changed, after = self.act(self.hire('mid', 'w1', audiences=['mid']))

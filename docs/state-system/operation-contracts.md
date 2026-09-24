@@ -120,8 +120,8 @@ diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
 Current totals are 42 contracts, 29 mapped registrations and 50 mapped
-dispatch witnesses. **606 obligations remain**: 290 registrations, 177 dispatch
-witnesses, 15 storage candidates and 124 unresolved dimension occurrences.
+dispatch witnesses. **600 obligations remain**: 290 registrations, 177 dispatch
+witnesses, 15 storage candidates and 118 unresolved dimension occurrences.
 How it got there: 600 was two more registrations than the preceding 598 because the scanner now
 recognizes `asyncio.to_thread` hand-offs; both new witnesses are pending and no
 existing witness identity, disposition or contract changed.
@@ -244,6 +244,13 @@ that node row through the agent door's snapshot refresh (`api._agent_identity` -
 is carried over from the previous row. S2f also corrects the `funding.reads` source fact
 (under `DOC_LOCK`, `load_org` is the resident document) and names all three automatic
 notices that withhold the reply grant (review finding f1).
+600 is six fewer than that 606 (P01 S2g): P02's staffing rows (v3 56a9c22) cover every hire
+and staff class the Owner lines name, so `staffing.reads` and `staffing.instrumentation` are
+specified on all three staffing contracts. The instrumentation clause's locality set is widened
+to the intended hire fan-out (the new seat's parent and peers, and for a superior insertion the
+anchor and its reports), following the user ruling recorded at `ledger.hire`'s notices and the
+coordinator's ruling that it is not a defect. Its warm third-agent reads are the same snapshot
+carry-over S2f settled.
 
 Of the 43 open dimension occurrences on the sixteen legacy-family contracts, 27 (10 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the

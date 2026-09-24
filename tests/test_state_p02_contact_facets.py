@@ -648,6 +648,98 @@ class ContactFacets(unittest.TestCase):
                     a = self.exact("credits.reallocate", variant, condition)["agents"]
                     self.assertEqual(a["logical"], {"notices": {n: "target" for n in noticed}})
 
+    # -- S2g: staffing ---------------------------------------------------------------
+    STAFF_CLASSES = {"staffing.hire": ("staffing.hire", "staffing.hire:kickoff", "staffing.hire:target",
+                                       "staffing.hire:superior", "staffing.hire:audiences", "staffing.hire:work-item"),
+                     "staffing.staff-create": ("staffing.staff-create", "staffing.staff-create:rehire"),
+                     "staffing.staff-update": ("staffing.staff-update",)}
+    STARTED = {"staffing.hire:kickoff", "staffing.hire:audiences", "staffing.hire:work-item",
+               "staffing.staff-create", "staffing.staff-create:rehire", "staffing.staff-update"}
+
+    def staffing_rows(self):
+        return [r for r in self.doc["rows"] if r["contract"].startswith("staffing.")]
+
+    def test_staffing_reads_and_writes_per_class(self):
+        for contract, variants in self.STAFF_CLASSES.items():
+            for variant in variants:
+                for condition in ("cold", "warm"):
+                    with self.subTest(variant=variant, condition=condition):
+                        r = self.exact(contract, variant, condition)
+                        self.assertEqual((r["http_status"], r["unknown_contacts"]), (200, []))
+                        read = self.read(r)
+                        if condition == "cold":
+                            self.assertEqual(read, self.FULL)
+                        else:
+                            self.assertTrue(set(self.WARM_AGENT) <= set(read), read)
+                        written = set(self.written(r))
+                        self.assertTrue({"log_l", "nodes"} <= written, written)
+                        if variant in self.STARTED:
+                            self.assertEqual(written, set(self.FULL))
+        refusals = {r["variant"]: r for r in self.staffing_rows() if r["variant"].startswith("refusal:")}
+        self.assertEqual(set(refusals), {"refusal:hire-outside-subtree", "refusal:hire-no-credits",
+                                         "refusal:hire-unknown-tier", "refusal:staff-bad-action",
+                                         "refusal:staff-no-title"})
+        for variant, r in refusals.items():
+            with self.subTest(variant=variant):
+                self.assertEqual((r["http_status"], self.written(r)), (422, []))
+                self.assertEqual(self.read(r), self.FULL if variant == "refusal:hire-outside-subtree" else None)
+        replays = [r for r in self.staffing_rows() if r["variant"].endswith(":keyed-replay")]
+        self.assertEqual(len(replays), 4)
+        for r in replays:
+            self.assertEqual(self.written(r), [])
+        # every call, refused and replayed too, journals in the tool_waits sidecar: its eight DDL
+        # statements are each row's only writes outside a transaction
+        for r in self.staffing_rows():
+            with self.subTest(variant=r["variant"], condition=r["condition"]):
+                h = r["harness"]
+                self.assertEqual((r["unknown_contacts"], self.foreign(r)), ([], 0))
+                side = h["stores"]["tool_waits"]
+                self.assertEqual((h["sidecars_touched"], side["kinds"]["ddl"], sorted(side["tables_written"])),
+                                 ({"tool_waits": "write"}, 8, ["dead_letters", "operations"]))
+                self.assertEqual(h["writes"] - h["writes_in_transaction"], 8)
+
+    def test_staffing_locality_widened_to_the_hire_fan_out(self):
+        order = self.doc["rows"]
+        carried = set()
+        for r in self.staffing_rows():
+            with self.subTest(variant=r["variant"], condition=r["condition"]):
+                agents = r["agents"]
+                self.assertIs(r["harness"]["matches_census"], True)
+                self.assertEqual(r["census"]["records"], 1)
+                if r["variant"] == "control:staffing-third-agent":
+                    self.assertGreaterEqual(agents["third_agent_mail"], 1)
+                    self.assertEqual(agents["logical"]["mail"].get("s-sib"), "third")
+                    continue
+                self.assertEqual((agents["third_agent_mail"], agents["third_agent_rows_written"]), (0, 0))
+                for section, who in agents["logical"].items():
+                    for n, role in who.items():
+                        self.assertIn(role, ("target", "actor"), (section, n))
+                        if role == "target":
+                            self.assertIn(n, agents["targets"])
+                # a physical third-agent read only ever carries over a node the PREVIOUS row wrote
+                third = {n for n, role in agents["physical_nodes"].items() if role == "third"}
+                if third:
+                    carried.add((r["variant"], r["condition"]))
+                    prev = order[next(i for i, x in enumerate(order) if x is r) - 1]
+                    self.assertEqual(r["condition"], "warm")
+                    self.assertEqual(agents["third_sites"], {"nodes:read@orgtree.api:_agent_identity": len(third)})
+                    self.assertIn("nodes", self.written(prev))
+                    for n in third:
+                        self.assertEqual(prev["agents"]["physical_nodes"].get(n), "target", n)
+        self.assertEqual(carried, {("staffing.hire", "warm"), ("staffing.hire:audiences", "warm"),
+                                   ("staffing.staff-create:rehire", "warm"), ("refusal:hire-outside-subtree", "warm")})
+
+        def logical(variant, section):
+            return set(self.exact(variant.split(":")[0], variant, "cold")["agents"]["logical"].get(section, {}))
+        # the widened set, exactly: lifecycle.hired tells the parent (report) and its other live children (peer);
+        # lifecycle.inserted also tells the anchor (target) and the anchor's reports (child)
+        self.assertEqual(logical("staffing.hire", "notices"), set())          # the actor is the parent; no peers yet
+        self.assertEqual(logical("staffing.hire:target", "notices"), {"s-mid", "hs-plain-cold", "hs-kickoff-cold"})
+        self.assertEqual(logical("staffing.hire:superior", "notices"),
+                         {"hs-superior-cold", "s-mid", "s-sib", "hs-plain-cold", "hs-kickoff-cold", "hs-target-cold"})
+        self.assertEqual(logical("staffing.hire:kickoff", "mail"), {"hs-kickoff-cold"})
+        self.assertEqual(logical("staffing.staff-update", "mail"), {"s-mid", "ss-update-cold"})
+
     def test_no_token_rows_are_the_only_rows_without_a_census_record(self):
         # a loss-accounted record for every S2e row but the ones refused before any attempt
         unrecorded = {"refusal:tree-no-token", "refusal:tree-bad-kiosk-token", "refusal:inbox-no-token",

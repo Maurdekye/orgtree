@@ -305,9 +305,11 @@ class AgentMailBoundary(unittest.TestCase):
         """agent-mail.conflicts: an explicit send keeps the implicit reply grant. The only calls that
         pass anything but True for grant_reply_audience are the docket's assignment and participation
         notices and quick staffing's notice to the previous assignee; post_event forwards its own
-        parameter (S2e review f1). A new withholding caller fails here."""
+        parameter (S2e review f1). A new withholding caller fails here, and so does any post_mail or
+        post_event call that could pass the flag unseen: 8+ positional arguments (it is post_mail's 8th
+        parameter) or */** unpacking (S2f review note)."""
         import ast
-        found = set()
+        found, unscanned = set(), set()
 
         def walk(path, node, scope):
             for child in ast.iter_child_nodes(node):
@@ -315,6 +317,12 @@ class AgentMailBoundary(unittest.TestCase):
                 if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                     inner = scope + (child.name,)
                 if isinstance(child, ast.Call):
+                    func = child.func
+                    called = func.attr if isinstance(func, ast.Attribute) else getattr(func, 'id', None)
+                    if called in ('post_mail', 'post_event') and (
+                            len(child.args) >= 8 or any(isinstance(a, ast.Starred) for a in child.args)
+                            or any(kw.arg is None for kw in child.keywords)):
+                        unscanned.add((path.name, '.'.join(inner), child.lineno))
                     for kw in child.keywords:
                         if kw.arg == 'grant_reply_audience' and not (
                                 isinstance(kw.value, ast.Constant) and kw.value.value is True):
@@ -327,6 +335,7 @@ class AgentMailBoundary(unittest.TestCase):
                                  ('ledger.py', 'Org._work_assign_core', 'False'),
                                  ('ledger.py', 'Org._work_participation_notices', 'False'),
                                  ('ledger.py', 'Org.post_event', 'grant_reply_audience')})
+        self.assertEqual(unscanned, set())
 
     # -- receipts and the door --------------------------------------------
     def test_keyed_sends_file_their_receipt_and_replay_without_effects(self):

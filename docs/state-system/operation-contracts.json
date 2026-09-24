@@ -6521,9 +6521,11 @@
     },
     "staffing.reads": {
       "dimension": "reads",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
-        "Source read set: the caller, the destination and its chain up to the caller (free amounts, grants, scopes, depth and child counts), tier prices and the tier ceiling, the org's defaults (visibility, tools, account, cascade_hire), the audience table, and for staff the work items; the harness choice for an OpenRouter tier is a provider read made before DOC_LOCK (new_hire_harness)."
+        "Source read set: the caller, the destination and its chain up to the caller (free amounts, grants, scopes, depth and child counts), tier prices and the tier ceiling, the org's defaults (visibility, tools, account, cascade_hire), the audience table, and for staff the work items; the harness choice for an OpenRouter tier is a provider read made before DOC_LOCK (new_hire_harness).",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 56a9c22) for every class the clause names, cold and warm, answering both questions above: hire plain, :kickoff, :target, :superior, :audiences and :work-item; staff create, update (an item passes from its owner to a new seat) and create in rehire mode; plus keyed fresh and replay for both tools, the refusals and a locality control. Cold, every class reads doc, log_d, log_l, meta and nodes of the org's own store; warm, every class reads at least doc, log_l, meta and nodes. No row makes an unknown contact or touches another org's store. Not exercised: the OpenRouter harness choice (new_hire_harness, a provider read), because the fixture hires haiku and the provider gate is stubbed; the clause does not name it.",
+        "Every successful call writes log_l and nodes of the org's store, and a call that starts the seat (kickoff, audiences, work item, and every staff call) writes all five tables. Every hire and staff call, refused and replayed ones too, also journals in the tool_waits sidecar (both are managed-wait tools, toolwait.invoke): it writes operations and dead_letters and runs eight DDL statements outside a transaction, each row's only writes outside a transaction (recorded, not endorsed). The refusals (422) write nothing to the org's store: outside the subtree reads all five tables first; not enough credits, an unknown tier, a bad staff action and a missing title run no statement on it. A keyed replay writes nothing to it. Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -6557,10 +6559,7 @@
           "sha256": "c05dda630c5c9b3551574a6b61ab384de8d7c86945b4e73996387244ddd844aa"
         }
       ],
-      "open_questions": [
-        "Record the statement-level read set of each staffing outcome, cold and warm.",
-        "Owner: P02. Closes with: observed per-operation contacts for hire (plain, kickoff, target, superior, audiences, work_item) and staff (create, update, rehire mode), cold and warm. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to the staffing operations."
-      ]
+      "open_questions": []
     },
     "staffing.conflicts": {
       "dimension": "conflicts",
@@ -6627,9 +6626,11 @@
     },
     "staffing.instrumentation": {
       "dimension": "instrumentation",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
-        "The agent door labels and classifies both tools; the seat's first turn is a supervisor drive after the save. No P02 per-operation record covers them."
+        "The agent door labels and classifies both tools; the seat's first turn is a supervisor drive after the save. P02's per-operation record covers both (below).",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 56a9c22): a loss-accounted per-operation record for every staffing row, cold and warm, refusals and replays included (one census record matching the harness per row). Agent-level locality, answering the question above against a WIDENED set: the caller, the destination chain, the new or rehired seat and a moved item's previous owner, plus the new seat's parent and that parent's other live children (lifecycle.hired, relations report and peer) and, for a superior insertion, the anchor and the anchor's reports (lifecycle.inserted, relations target and child). The widening follows the user ruling recorded at ledger.hire's notices (\"every affected agent is told, WHOEVER acted\"; relayed by the coordinator as the 2026-09-07 ruling) and the coordinator's ruling of 2026-09-24 that this fan-out is intended, not a defect; it grows with the number of peers. Mail goes only to the new seat (its first-turn request) and, for a staff update, to the item's previous owner. The control control:staffing-third-agent (a kickoff hire whose first-turn drive also mails a sibling) is flagged, and no other staffing row writes a third agent's mail or row.",
+        "Four warm rows also physically read one node row outside that set, and P02's third_sites names orgtree.api:_agent_identity for each. Each is the node the previous probe row changed, re-read by the agent door's snapshot refresh: the carry-over settled in S2f (see funding.instrumentation), not a contact of the call. Native negative controls are the P03 gate, not a clause of this legacy facet (S2d decision 1, reviewer ruling on 803227e). Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -6649,12 +6650,21 @@
           "start": 12882,
           "end": 12890,
           "sha256": "4df85e42ee64d2706e2ccc264d330b69e0ebdccd11e538e60598236e09c31efb"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4727,
+          "end": 4738,
+          "sha256": "0d072eddf86b502935a58e4d0995999001bfcefb1de073aa0a80d6f895b40ba1"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 7087,
+          "end": 7099,
+          "sha256": "0124131b169ac69240dae1b857d83ca7b833aad0c72037bf58153b73ce9503b5"
         }
       ],
-      "open_questions": [
-        "Extend the P02 per-operation probe to hire and staff with an agent-level locality control.",
-        "Owner: P02 for the per-operation contact record, then P03 for native negative controls. Closes with: an observed, loss-accounted contact record for hire and staff with agent-level locality (the caller, the destination chain, the new seat and a moved item's previous owner only). Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py (docs/state-system/p02-operation-contacts.md)) has not been extended to the staffing operations."
-      ]
+      "open_questions": []
     },
     "operator-ops.authority": {
       "dimension": "authority",
