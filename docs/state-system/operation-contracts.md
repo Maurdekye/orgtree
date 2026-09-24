@@ -251,6 +251,7 @@ to the intended hire fan-out (the new seat's parent and peers, and for a superio
 anchor and its reports), following the user ruling recorded at `ledger.hire`'s notices and the
 coordinator's ruling that it is not a defect. Its warm third-agent reads are the same snapshot
 carry-over S2f settled.
+The citation of the approved design extension r3 (below) changes no status, so the 600 stands.
 
 Of the 43 open dimension occurrences on the sixteen legacy-family contracts, 27 (10 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the
@@ -572,6 +573,28 @@ S2e also retracts a sentence the citation's review round added: an explicit
 `orgtree_send_notice` keeps the reply grant (only three automatic notices do not:
 the docket's assignment and participation notices and quick staffing's notice to
 the previous assignee; S2f, on review finding f1), so r7's P1 covers `mail.notice` as it covers `mail.message`.
+
+## Native design extension r3
+
+The thirteen S3 conflicts facets whose owner lines named "the native conflict/predicate
+design extension" now cite it: `NATIVE-CONFLICT-EXTENSION-S3-r3.md`, docket
+`extend-the-native-conflict-and-predicate-design` artifact r8, sha256
+`f5ee496781b4c2464a3ee723e9a740f5330bb61f516f9279e2e38a3c655af99c`, approved by
+native-design-review in artifact r11, sha256
+`4f94e78ccec0ba8a942e277e0c73f5d298f184c0dfb61d2e25cb73ce50c30b8d`. Each fact names the r3
+section that answers the facet's design half (its section 9.1 row). Every one of the
+thirteen clauses also asks to be "qualified by" concurrent schedules, so no facet is
+specified. Each owner line moves to "P03 qualification of r3" with its schedules (all of r3
+section 7 runs at P03, E-D18; P05 adds section 4.8's refusal fixtures), and keeps any r7
+schedule it already carried. The approval's non-blocking notes A1 and A2 (r3's errata) are
+recorded on `staffing.conflicts` as P04/P05 carries; the retracted section 4.8 sentence is
+not cited. r3 also amends r7 (E-D17): the island gains every lineage split, which amends
+section 6.4's `switch_model` and `retool` account rows (recorded on `preview.predicates`,
+which stays specified, and on `preview.conflicts`, which carries the new schedule Q-E2), the
+kiosk pool E8 joins every top-level holding write, and pair P8 orders a mail receive against
+its mailbox's rehire, delete and fold (Q-E1, on `agent-mail.conflicts`).
+`tests/test_state_operation_contracts.py` checks every citation and keeps all 50 r3 schedules
+anchored in an open facet.
 
 ## Deliberate failing controls
 

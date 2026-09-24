@@ -193,8 +193,8 @@ class ContractCoverage(unittest.TestCase):
                     uncovered = "not covered by r7" in cites[0]
                     ok = ok and (uncovered if cls == "uncovered" else not uncovered)
                     if cls in ("partial", "uncovered"):
-                        ok = ok and any(q.startswith("Owner: the native conflict/predicate design extension")
-                                        for q in facet["open_questions"])
+                        # what r7 left open, the approved extension r3 answers (its own check below)
+                        ok = ok and name in self.R3_FACETS
                     if cls == "answered":
                         ok = ok and any(q.startswith("Owner: P03") for q in facet["open_questions"])
                 if not ok:
@@ -205,12 +205,64 @@ class ContractCoverage(unittest.TestCase):
         self.assertEqual(self.native_citation_gaps(self.document), {})
         # no facet is still owned by the design without a citation
         still = {n for n, f in self.document["facets"].items()
-                 if any(q.startswith("Owner: the separately staffed native conflict") for q in f["open_questions"])}
+                 if any(q.startswith(("Owner: the separately staffed native conflict",
+                                      "Owner: the native conflict/predicate design extension"))
+                        for q in f["open_questions"])}
         self.assertEqual(still, set())
+
+    # The approved extension r3 (docket extend-the-native-conflict-and-predicate-design, artifact r8,
+    # approved by r11) answers the design half of the thirteen S3 conflicts facets; each stays unresolved
+    # on r3's section 7 schedules, all at P03 (E-D18). Item p01-cite-the-approved-native-design-extension-r3.
+    NATIVE_R3 = "f5ee496781b4c2464a3ee723e9a740f5330bb61f516f9279e2e38a3c655af99c"
+    R3_FACETS = {"status.conflicts", "chart.conflicts", "org-view.conflicts", "org-feed.conflicts",
+                 "agent-mail.conflicts", "human-mail.conflicts", "inbox.conflicts", "staffing.conflicts",
+                 "operator-ops.conflicts", "quick-staff.conflicts", "work-read.conflicts",
+                 "receipt-lookup.conflicts", "funding.conflicts"}
+    R3_SCHEDULES = ({f"Q-AM{n}" for n in range(1, 6)} | {"Q-CH1", "Q-CH2", "Q-E1", "Q-E2"}
+                    | {f"Q-F{n}" for n in range(1, 4)} | {f"Q-FD{n}" for n in range(1, 6)}
+                    | {f"Q-HM{n}" for n in range(1, 5)} | {f"Q-IB{n}" for n in range(1, 4)}
+                    | {f"Q-OP{n}" for n in range(1, 5)} | {f"Q-QS{n}" for n in range(1, 5)}
+                    | {f"Q-RL{n}" for n in range(1, 4)} | {f"Q-S{n}" for n in range(1, 4)}
+                    | {f"Q-ST{n}" for n in range(1, 8)} | {f"Q-V{n}" for n in range(1, 4)} | {"Q-W1", "Q-W2"})
+
+    def r3_citation_gaps(self, document):
+        gaps = set()
+        for name in self.R3_FACETS:
+            facet = document["facets"][name]
+            cites = [f for f in facet["facts"] if f.startswith("Native design extension r3 (")]
+            ok = (len(cites) == 1 and self.NATIVE_R3 in cites[0] and "the design half is answered" in cites[0]
+                  and facet["status"] == "unresolved"
+                  and sum(q.startswith("Owner: P03 qualification of r3 (schedules ") for q in facet["open_questions"]) == 1)
+            if not ok:
+                gaps.add(name)
+        for name in ("preview.conflicts", "preview.predicates"):     # r3's amendments to r7 (E-D17)
+            if not any(f.startswith("Native design extension r3 (") and self.NATIVE_R3 in f
+                       for f in document["facets"][name]["facts"]):
+                gaps.add(name)
+        return gaps
+
+    def test_every_s3_conflicts_facet_cites_r3_and_stays_on_its_schedules(self):
+        self.assertEqual(self.r3_citation_gaps(self.document), set())
+        self.assertEqual(len(self.R3_SCHEDULES), 50)
+        self.assertEqual(self.R3_SCHEDULES - self.anchored_schedules(self.document), set())
+
+    def test_a_missing_r3_citation_or_a_dropped_r3_schedule_is_caught(self):
+        document = copy.deepcopy(self.document)
+        document["facets"]["funding.conflicts"]["facts"].pop()
+        self.assertIn("funding.conflicts", self.r3_citation_gaps(document))
+        document = copy.deepcopy(self.document)
+        document["facets"]["staffing.conflicts"].update(status="specified")
+        self.assertIn("staffing.conflicts", self.r3_citation_gaps(document))
+        document = copy.deepcopy(self.document)
+        facet = document["facets"]["funding.conflicts"]
+        facet["open_questions"] = [q.replace("Q-FD1 to Q-FD5", "Q-FD1 to Q-FD4") for q in facet["open_questions"]]
+        self.assertEqual(self.R3_SCHEDULES - self.anchored_schedules(document), {"Q-FD5"})
 
     def test_a_missing_or_wrong_citation_is_caught(self):
         for name, edit in (("legacy-lock", lambda f: f["facts"].pop()),
-                           ("status.conflicts", lambda f: f["facts"].__setitem__(-1, f["facts"][-1].replace("not covered by r7", "covered"))),
+                           ("status.conflicts", lambda f: f["facts"].__setitem__(
+                               *next((i, x.replace("not covered by r7", "covered")) for i, x in enumerate(f["facts"])
+                                     if x.startswith("Native design r7 (")))),
                            ("preview.reads", lambda f: f.update(status="unresolved"))):
             with self.subTest(facet=name):
                 document = copy.deepcopy(self.document)
