@@ -543,6 +543,48 @@ def tree_commit(tree: Path) -> "str | None":
     return None
 
 
+PROVENANCE_REFUSED = "P02 PROBE PROVENANCE REFUSED"
+
+
+class ProbeProvenanceError(RuntimeError):
+    """The probe imported code that is not the tree it was asked to measure."""
+
+
+def expected_imports(root: Path) -> dict[str, Path]:
+    return {"engine": root / "engine" / "__init__.py",
+            "orgtree": root / "engine" / "backend" / "orgtree" / "__init__.py"}
+
+
+def _same_file(a: "str | Path", b: "str | Path") -> bool:
+    return (os.path.normcase(os.path.realpath(str(a)))
+            == os.path.normcase(os.path.realpath(str(b))))
+
+
+def assert_probe_imports(root: Path) -> dict[str, str]:
+    """Import `engine` and `orgtree` and refuse unless each module's own
+    `__file__` is exactly this tree's (tools/assert_repo_import.py's rule:
+    only the imported module's `__file__` settles it). The refusal names the
+    path that was actually loaded; it is raised before any row exists, so a
+    refused run writes no output."""
+    loaded: dict[str, str] = {}
+    for name, want in expected_imports(root).items():
+        try:
+            module = importlib.import_module(name)
+        except ImportError as exc:
+            raise ProbeProvenanceError(
+                f"{PROVENANCE_REFUSED}: {name} could not be imported at all "
+                f"(expected {want}): {exc}") from exc
+        got = getattr(module, "__file__", None)
+        if not got or not _same_file(got, want):
+            raise ProbeProvenanceError(
+                f"{PROVENANCE_REFUSED}: {name} was imported from {got}, not from the "
+                f"tree under test ({want}). The root is not importable here (missing, "
+                f"or in a guarded folder), and the interpreter fell back to other code. "
+                f"No rows were produced.")
+        loaded[name] = str(Path(got).resolve())
+    return loaded
+
+
 def _load_guards() -> Any:
     path = ROOT / "tests" / "isolation_guards.py"
     spec = importlib.util.spec_from_file_location("isolation_guards", path)
@@ -616,6 +658,11 @@ class Probe:
         install_audit_counter(self.root, self.data, self.home)
         self.commit = tree_commit(ROOT)
         sys.path[:0] = [str(ROOT), str(ROOT / "engine" / "backend")]
+        # BEFORE the app loads and before any row: the code under test must be
+        # THIS tree's. A root the interpreter cannot import from (missing, or
+        # guarded so the read raises) does not fail the import; the runtime's
+        # `._pth` fallback answers with another checkout's orgtree instead.
+        self.imported = assert_probe_imports(ROOT)
         from engine.launch import load_app
         self.app, *_ = load_app()
         from fastapi.testclient import TestClient
@@ -633,6 +680,8 @@ class Probe:
         self.provenance = {
             "commit": self.commit, "orgtree_file": str(Path(orgtree.__file__).resolve()),
             "orgtree_under_tree": Path(orgtree.__file__).resolve().is_relative_to(ROOT),
+            # checked, not only recorded (assert_probe_imports, before load_app)
+            "imports_checked": dict(self.imported),
             "python": sys.version.split()[0], "native_blocked": self.native_blocked,
             "store_backend": store.STORE_BACKEND}
         self.client = TestClient(self.app, raise_server_exceptions=False,
@@ -3171,7 +3220,11 @@ def main(argv: "list[str] | None" = None) -> int:
             raise SystemExit(f"JSON-backend child exited {proc.returncode}: {proc.stderr[-3000:]}")
         child_doc = json.loads((child_out / "operation-contacts.json").read_text(encoding="utf-8"))
     probe = Probe(work, out, backend=args.store)
-    doc = probe.execute()
+    try:
+        doc = probe.execute()
+    except ProbeProvenanceError as exc:
+        print(str(exc), file=sys.stderr, flush=True)
+        return 3
     if child_doc is not None:
         doc["rows"].extend(child_doc["rows"])
         doc["json_backend"] = {k: child_doc[k] for k in ("provenance", "warnings", "window",

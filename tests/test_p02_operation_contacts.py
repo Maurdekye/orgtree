@@ -69,6 +69,16 @@ class OperationContacts(unittest.TestCase):
         self.assertTrue(prov["orgtree_under_tree"], prov)
         self.assertRegex(prov["commit"] or "", r"^[0-9a-f]{40}$")
         self.assertEqual(prov["native_blocked"], ["psutil"])
+        # checked before the app loaded, in this process and in the JSON child:
+        # each module's own __file__ is exactly this tree's
+        want = {"engine": ROOT / "engine" / "__init__.py",
+                "orgtree": ROOT / "engine" / "backend" / "orgtree" / "__init__.py"}
+        for doc in (prov, self.doc["json_backend"]["provenance"]):
+            got = doc["imports_checked"]
+            self.assertEqual(set(got), set(want))
+            for name, path in want.items():
+                self.assertEqual(os.path.normcase(os.path.realpath(got[name])),
+                                 os.path.normcase(os.path.realpath(path)), name)
 
     def test_every_contract_and_variant_runs_cold_and_warm(self):
         self.assertEqual({r["contract"] for r in self.doc["rows"]}, CONTRACTS)

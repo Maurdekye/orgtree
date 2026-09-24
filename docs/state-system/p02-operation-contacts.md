@@ -13,7 +13,14 @@ It runs on SYNTHETIC data only. The fixtures are the P01 boundary tests'
 fixtures, rebuilt under a fresh temporary root with HOME redirected. The
 live and legacy roots are pinned before that redirect and protected by
 `tests/isolation_guards.py`. The same guards refuse every process start and
-network connect. The app lifespan is never started. Wakes and mail delivery
+network connect. The probe (and its JSON-backend child) refuses to run on
+code that is not its own tree. Before the app loads, it imports `engine` and
+`orgtree` and checks each module's own `__file__` against the tool's tree. On
+a mismatch it exits 3 with `P02 PROBE PROVENANCE REFUSED`, naming the path it
+actually loaded, and writes no result files. That is what a tree in a guarded
+folder, or a copy without an engine, produces: the runtime's `._pth` fallback
+silently supplies another checkout (`tests/test_p02_probe_provenance.py`).
+The app lifespan is never started. Wakes and mail delivery
 are spies: they are counted, never delivered. The boot build identity that
 the app computes and freezes at startup (`restart_wake.on_backend_startup`)
 is injected instead, naming the probe's commit. Left unset, the first docket
