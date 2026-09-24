@@ -11060,21 +11060,21 @@
       "id": "11439b463aae2968b49bb4f22ea3543476f7d957509d3fc2999761de3173118d",
       "disposition": "pending",
       "contracts": [],
-      "reason": "P02-A1: GET /api/diagnostics/operation-census, the operator read door to the attempt census. No P01 contract describes it yet; recorded pending rather than mapped, because this stage authors no contract text.",
+      "reason": "P02-A1: GET /api/diagnostics/operation-census, the operator read door to the attempt census. No P01 contract describes it yet; recorded pending rather than mapped, because this stage authors no contract text. Owner: P02 (the operation census).",
       "source_refs": []
     },
     {
       "id": "4a0c0d470180b4d1dda4ef18c95a49144bb52c15f1d293b79669333aa43623bb",
       "disposition": "pending",
       "contracts": [],
-      "reason": "P02-A1: POST /api/diagnostics/operation-census, the operator-only capture toggle. No P01 contract describes it yet; recorded pending rather than mapped, because this stage authors no contract text.",
+      "reason": "P02-A1: POST /api/diagnostics/operation-census, the operator-only capture toggle. No P01 contract describes it yet; recorded pending rather than mapped, because this stage authors no contract text. Owner: P02 (the operation census).",
       "source_refs": []
     },
     {
       "id": "45ab8ac19172a8cb732b3e810a64ecb4e82a0ddef0a81035df474b197576fd5f",
       "disposition": "pending",
       "contracts": [],
-      "reason": "P02-A1: POST /api/diagnostics/operation-census/reset, the operator-only window reset. No P01 contract describes it yet; recorded pending rather than mapped, because this stage authors no contract text.",
+      "reason": "P02-A1: POST /api/diagnostics/operation-census/reset, the operator-only window reset. No P01 contract describes it yet; recorded pending rather than mapped, because this stage authors no contract text. Owner: P02 (the operation census).",
       "source_refs": []
     },
     {
@@ -11551,7 +11551,7 @@
       "id": "012c156a171ef7d80f0d8d88b07ce970b76c3cffad307ceefbc8c0da26d63de9",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Newly recognized asyncio.to_thread worker hand-off; requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 owner form): the account removal (api.accounts_remove hands account_removal.remove_account_rebinding_agents to a thread), which rebinds every agent bound to the removed account and saves each changed org under DOC_LOCK. Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
@@ -12124,7 +12124,7 @@
       "id": "7ed4d9f68b5237fde64e698be4f15ad9b91726dafd376a7d6e16aff49b4ab8e3",
       "disposition": "pending",
       "contracts": [],
-      "reason": "POST /api/agent, the agent door: every agent tool and the receipt verbs arrive here. orgtree_op_lookup is contracted (receipt.lookup, S3 decision 9); the door itself stays pending by precedent (S3 decision 1).",
+      "reason": "POST /api/agent, the agent door: every agent tool and the receipt verbs arrive here. orgtree_op_lookup is contracted (receipt.lookup, S3 decision 9); the door itself stays pending by precedent (S3 decision 1). Owner: P01 (the agent door).",
       "source_refs": []
     },
     {
@@ -12259,7 +12259,7 @@
       "id": "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Operator ops route: `op` hire and reallocate are contracted (operator.hire, operator.reallocate, S3 candidate 6b); rename, retire, rescind, cheap_compact, rehire, dissolve, delete, switch_model, promote, demote, move, reseed, revoke_dir and every preview are uncontracted, so the route stays pending.",
+      "reason": "Operator ops route: `op` hire and reallocate are contracted (operator.hire, operator.reallocate, S3 candidate 6b); rename, retire, rescind, cheap_compact, rehire, dissolve, delete, switch_model, promote, demote, move, reseed, revoke_dir and every preview are uncontracted, so the route stays pending. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
@@ -12781,7 +12781,7 @@
       "id": "53052a77187a9676a3c5b772ea0209d6483f16a972cb43b044699b822ee36690",
       "disposition": "pending",
       "contracts": [],
-      "reason": "The orgtree_work tool card: the full orgtree_work card (36 actions) is the P05 work family and the action-coverage rule needs all 36 (S3 ruling 2); the prototype's item read is covered by work.item-list and work.item-get instead.",
+      "reason": "The orgtree_work tool card: the full orgtree_work card (36 actions) is the P05 work family and the action-coverage rule needs all 36 (S3 ruling 2); the prototype's item read is covered by work.item-list and work.item-get instead. Owner: P05 (the work family).",
       "source_refs": []
     },
     {
@@ -13342,7 +13342,7 @@
       "id": "694da78460c6ebb814ece4b14e5e476fdcf6039fd35e1b163c9d874bb6025fb0",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Newly recognized asyncio.to_thread worker hand-off; requires explicit source review, per-entry contracts and transitive contact closure.",
+      "reason": "Stays pending (P01 owner form): the startup recovery's repair thread (Recovery.start's run hands repair to a thread), which repairs org state left by an interrupted run; W3 gave the same run's task this owner. Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
@@ -13663,35 +13663,35 @@
       "id": "8f634ff8cc27c48abec2d78ffc3a5517a9a68df2bed3155f571b1a9d799f619f",
       "disposition": "pending",
       "contracts": [],
-      "reason": "80b28bf (account capacity marks): GET /api/accounts/{account_id}/marks, the operator read of every stored capacity mark on one account. No P01 contract describes it yet; recorded pending rather than mapped, because this stage authors no contract text.",
+      "reason": "80b28bf (account capacity marks): GET /api/accounts/{account_id}/marks, the operator read of every stored capacity mark on one account. No P01 contract describes it yet; recorded pending rather than mapped, because this stage authors no contract text. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "162a9547c2ff546caa9af36a73669e3191e6ee9e6cd62905fb3b738ecae856f3",
       "disposition": "pending",
       "contracts": [],
-      "reason": "80b28bf (account capacity marks): POST /api/accounts/{account_id}/marks/clear, the operator compare-and-set clear of one mark in the machine account store. No P01 contract describes it yet; recorded pending rather than mapped, because this stage authors no contract text.",
+      "reason": "80b28bf (account capacity marks): POST /api/accounts/{account_id}/marks/clear, the operator compare-and-set clear of one mark in the machine account store. No P01 contract describes it yet; recorded pending rather than mapped, because this stage authors no contract text. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "fc989126c1dd6a8acb6320aad7fddee1f1439dabf75db4a75c3360d5f7ffb735",
       "disposition": "pending",
       "contracts": [],
-      "reason": "80b28bf (account capacity marks): the orgtree_account_mark agent tool card (inspect/clear an account's capacity mark). No P01 contract describes it yet; recorded pending rather than mapped, because this stage authors no contract text.",
+      "reason": "80b28bf (account capacity marks): the orgtree_account_mark agent tool card (inspect/clear an account's capacity mark). No P01 contract describes it yet; recorded pending rather than mapped, because this stage authors no contract text. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "91a4a24d786d64271b0db1b6498c525a1904d2af1537f10fb82f5fd711a21af6",
       "disposition": "pending",
       "contracts": [],
-      "reason": "b41dcf1 (external charter template folders): GET /api/app-settings/charter-template-dirs, the app-wide folder list with its read-only scan state. No P01 contract describes it yet; recorded pending rather than mapped, because this stage authors no contract text.",
+      "reason": "b41dcf1 (external charter template folders): GET /api/app-settings/charter-template-dirs, the app-wide folder list with its read-only scan state. No P01 contract describes it yet; recorded pending rather than mapped, because this stage authors no contract text. Owner: P01, once the app settings join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
       "id": "23636fa7dd8695ce24bb0b04e3fe64845a8bf64a2297441f67c98aebc60a1035",
       "disposition": "pending",
       "contracts": [],
-      "reason": "b41dcf1 (external charter template folders): PUT /api/app-settings/charter-template-dirs, the app-wide folder-list setting write. No P01 contract describes it yet; recorded pending rather than mapped, because this stage authors no contract text.",
+      "reason": "b41dcf1 (external charter template folders): PUT /api/app-settings/charter-template-dirs, the app-wide folder-list setting write. No P01 contract describes it yet; recorded pending rather than mapped, because this stage authors no contract text. Owner: P01, once the app settings join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
@@ -14238,7 +14238,7 @@
       "id": "dd72cf1a60af5dcdb9407510b45fa58a2b3a0850b589f67ca3f6e892d3129bc3",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Shared diagnostic/preview body.tool branch: diagnostic.inspect, diagnostic.capabilities and preview.agent are contracted; orgtree_operation_census (added by P02-A1, 286396e) is uncontracted, so the shared branch stays pending (S3 decision 3).",
+      "reason": "Shared diagnostic/preview body.tool branch: diagnostic.inspect, diagnostic.capabilities and preview.agent are contracted; orgtree_operation_census (added by P02-A1, 286396e) is uncontracted, so the shared branch stays pending (S3 decision 3). Owner: P02 (the operation census).",
       "source_refs": []
     },
     {
@@ -14277,14 +14277,14 @@
       "id": "9cc09ec35ab98b9fc19d85de44f8505d94dfc38e366632f2a8c17360bb8b900d",
       "disposition": "pending",
       "contracts": [],
-      "reason": "P02-A1: the new `body.tool == 'orgtree_operation_census'` dispatch branch in agent_call, which routes the agent read door to _census_agent_payload. No P01 contract describes it yet; recorded pending rather than mapped, because this stage authors no contract text.",
+      "reason": "P02-A1: the new `body.tool == 'orgtree_operation_census'` dispatch branch in agent_call, which routes the agent read door to _census_agent_payload. No P01 contract describes it yet; recorded pending rather than mapped, because this stage authors no contract text. Owner: P02 (the operation census).",
       "source_refs": []
     },
     {
       "id": "c477bfda5f7697e4b93a2d52c3d9ed7287174c785c3ea0f9ecc834e0b21603dc",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Shared read-shaped block: material.transcript, material.scratch and chart.read are contracted; orgtree_send_file and orgtree_list_tiers are uncontracted (outside the 51-row P03 surface), so the shared branch stays pending.",
+      "reason": "Shared read-shaped block: material.transcript, material.scratch and chart.read are contracted; orgtree_send_file and orgtree_list_tiers are uncontracted (outside the 51-row P03 surface), so the shared branch stays pending. Owner: channels and mail (P07) for orgtree_send_file, with P01 for orgtree_list_tiers once the catalogue reads join the contracted surface.",
       "source_refs": []
     },
     {
@@ -14337,7 +14337,7 @@
       "id": "d9892c9e7ed8dca929e73d88080055806cca166ff2697b47501253894080178c",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Exact orgtree_work selector in agent_call: pending with its card — the full orgtree_work card (36 actions) is the P05 work family and the action-coverage rule needs all 36 (S3 ruling 2); the prototype's item read is covered by work.item-list and work.item-get instead.",
+      "reason": "Exact orgtree_work selector in agent_call: pending with its card — the full orgtree_work card (36 actions) is the P05 work family and the action-coverage rule needs all 36 (S3 ruling 2); the prototype's item read is covered by work.item-list and work.item-get instead. Owner: P05 (the work family).",
       "source_refs": []
     },
     {
@@ -14511,7 +14511,7 @@
       "id": "830e3c0edc27e3dadf4def3ed9452b98622c43a38d450f1c386f09cb1a379dd2",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Exact orgtree_work branch in the agent write cycle: pending with its card — the full orgtree_work card (36 actions) is the P05 work family and the action-coverage rule needs all 36 (S3 ruling 2); the prototype's item read is covered by work.item-list and work.item-get instead.",
+      "reason": "Exact orgtree_work branch in the agent write cycle: pending with its card — the full orgtree_work card (36 actions) is the P05 work family and the action-coverage rule needs all 36 (S3 ruling 2); the prototype's item read is covered by work.item-list and work.item-get instead. Owner: P05 (the work family).",
       "source_refs": []
     },
     {
@@ -15248,14 +15248,14 @@
       "id": "b62b2f4544ee420c67682f4c15fa65b6d5fe249dc68782ad145f6305d5dfb99a",
       "disposition": "pending",
       "contracts": [],
-      "reason": "credit_request_action's action check (approve|deny): credits.decide (POST /api/orgs/{slug}/credit-requests) is contracted, but the inbox batch submit (POST /api/orgs/{slug}/nodes/{nid}/batch, Org.resolve_batch) reaches it too and is uncontracted, so it stays pending until that entry is contracted (S3 decision 5).",
+      "reason": "credit_request_action's action check (approve|deny): credits.decide (POST /api/orgs/{slug}/credit-requests) is contracted, but the inbox batch submit (POST /api/orgs/{slug}/nodes/{nid}/batch, Org.resolve_batch) reaches it too and is uncontracted, so it stays pending until that entry is contracted (S3 decision 5). Owner: channels and mail (P07), for the inbox batch submit (Org.resolve_batch).",
       "source_refs": []
     },
     {
       "id": "c590e76e7e2d20205c8ddb783eaad204ce29bacca1fd2b1f987e0740ad819537",
       "disposition": "pending",
       "contracts": [],
-      "reason": "credit_request_action's approve branch: credits.decide (POST /api/orgs/{slug}/credit-requests) is contracted, but the inbox batch submit (POST /api/orgs/{slug}/nodes/{nid}/batch, Org.resolve_batch) reaches it too and is uncontracted, so it stays pending until that entry is contracted (S3 decision 5).",
+      "reason": "credit_request_action's approve branch: credits.decide (POST /api/orgs/{slug}/credit-requests) is contracted, but the inbox batch submit (POST /api/orgs/{slug}/nodes/{nid}/batch, Org.resolve_batch) reaches it too and is uncontracted, so it stays pending until that entry is contracted (S3 decision 5). Owner: channels and mail (P07), for the inbox batch submit (Org.resolve_batch).",
       "source_refs": []
     },
     {
@@ -15342,7 +15342,7 @@
       "id": "b2e49e97ad9fc65c4f529f5e1c4bf4b3f770eb24289e0cb9e19ecd2f3402ac8d",
       "disposition": "pending",
       "contracts": [],
-      "reason": "orgtree_work in mcptool.available_tools: pending with its card — the full orgtree_work card (36 actions) is the P05 work family and the action-coverage rule needs all 36 (S3 ruling 2); the prototype's item read is covered by work.item-list and work.item-get instead.",
+      "reason": "orgtree_work in mcptool.available_tools: pending with its card — the full orgtree_work card (36 actions) is the P05 work family and the action-coverage rule needs all 36 (S3 ruling 2); the prototype's item read is covered by work.item-list and work.item-get instead. Owner: P05 (the work family).",
       "source_refs": []
     },
     {
@@ -15441,7 +15441,7 @@
       "id": "e82170eca24774bc6890d3f0e5c3cec9da4280cc548c4cece0065f2d22a33104",
       "disposition": "pending",
       "contracts": [],
-      "reason": "opreceipts.result_slice's account_binding branch, shared by orgtree_hire, orgtree_rehire, orgtree_retool and orgtree_staff: hire and staff are contracted (staffing.*), rehire and retool are not (outside the accepted surface; coordinator ruling on S3 candidate 6), so the shared branch stays pending.",
+      "reason": "opreceipts.result_slice's account_binding branch, shared by orgtree_hire, orgtree_rehire, orgtree_retool and orgtree_staff: hire and staff are contracted (staffing.*), rehire and retool are not (outside the accepted surface; coordinator ruling on S3 candidate 6), so the shared branch stays pending. Owner: P01, once the org lifecycle tools join the contracted surface (outside the accepted surface today).",
       "source_refs": []
     },
     {
@@ -15942,7 +15942,7 @@
       "id": "26eaf4984123a609dedc5b5dbb514d17df5f78220287a86822a2817d5a37f928",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Shared transcript docket-button selector (orgtree_work, orgtree_staff): orgtree_staff is contracted, orgtree_work is not — the full orgtree_work card (36 actions) is the P05 work family and the action-coverage rule needs all 36 (S3 ruling 2); the prototype's item read is covered by work.item-list and work.item-get instead.",
+      "reason": "Shared transcript docket-button selector (orgtree_work, orgtree_staff): orgtree_staff is contracted, orgtree_work is not — the full orgtree_work card (36 actions) is the P05 work family and the action-coverage rule needs all 36 (S3 ruling 2); the prototype's item read is covered by work.item-list and work.item-get instead. Owner: P05 (the work family).",
       "source_refs": []
     },
     {
@@ -16040,7 +16040,7 @@
       "id": "1a92f1064a007be12ab7b57b2f974e92ba48a15b3749e66530d8be2976b1f550",
       "disposition": "pending",
       "contracts": [],
-      "reason": "80b28bf (account capacity marks): the `body.tool == 'orgtree_account_mark'` dispatch branch in agent_call, which writes the machine account store and then the org log and receipt. No P01 contract describes it yet; recorded pending rather than mapped, because this stage authors no contract text.",
+      "reason": "80b28bf (account capacity marks): the `body.tool == 'orgtree_account_mark'` dispatch branch in agent_call, which writes the machine account store and then the org log and receipt. No P01 contract describes it yet; recorded pending rather than mapped, because this stage authors no contract text. Owner: the runtime (P08).",
       "source_refs": []
     }
   ],
@@ -16091,42 +16091,42 @@
       "id": "0b5f2a46dc468fdda20ccd8113ba04a61b39e373a7f31cee17f100e8a893381a",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Stays pending (P01 S2k): the chat_window_index sidecar. P02's per-operation probe observes it under material.transcript, but a shared site is mapped only once every operation reaching it has a contract (the rule for shared selectors, S3 decision 3), and the desktop's own chat route (api.node_chat, through supervisor.read_chat), which has no contract, reaches it.",
+      "reason": "Stays pending (P01 S2k): the chat_window_index sidecar. P02's per-operation probe observes it under material.transcript, but a shared site is mapped only once every operation reaching it has a contract (the rule for shared selectors, S3 decision 3), and the desktop's own chat route (api.node_chat, through supervisor.read_chat), which has no contract, reaches it. Owner: the desktop chat read (api.node_chat).",
       "source_refs": []
     },
     {
       "id": "30ec93d4dcecd42ecd22b3c6cbeccb9d29947578ecc1930d1c1b241317b66935",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Stays pending (P01 S2k): org state, the private copy and backup of a V1 organization's store that the desktop import reads before it writes a V2 candidate; the import has no contract.",
+      "reason": "Stays pending (P01 S2k): org state, the private copy and backup of a V1 organization's store that the desktop import reads before it writes a V2 candidate; the import has no contract. Owner: the desktop import.",
       "source_refs": []
     },
     {
       "id": "ce2a626ed1594f37ff576445b9d2db4a0a92543141a0cfcb93d04ba85985a668",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Stays pending (P01 S2k): org state, the private copy and backup of a V1 organization's store that the desktop import reads before it writes a V2 candidate; the import has no contract.",
+      "reason": "Stays pending (P01 S2k): org state, the private copy and backup of a V1 organization's store that the desktop import reads before it writes a V2 candidate; the import has no contract. Owner: the desktop import.",
       "source_refs": []
     },
     {
       "id": "93669ca59b5f065aeb95867fafa342302c34d879153dfb3a0d9f090217fd31a1",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Stays pending (P01 S2k): org state, the private copy and backup of a V1 organization's store that the desktop import reads before it writes a V2 candidate; the import has no contract.",
+      "reason": "Stays pending (P01 S2k): org state, the private copy and backup of a V1 organization's store that the desktop import reads before it writes a V2 candidate; the import has no contract. Owner: the desktop import.",
       "source_refs": []
     },
     {
       "id": "fbcd23d8d4ca37630c60cd8263a4cfbc59b153cd9209798a0364c4f08ac9b615",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Stays pending (P01 S2k): org state, the V2 candidate org store the desktop import writes with the store's own DDL; the import has no contract.",
+      "reason": "Stays pending (P01 S2k): org state, the V2 candidate org store the desktop import writes with the store's own DDL; the import has no contract. Owner: the desktop import.",
       "source_refs": []
     },
     {
       "id": "6e5106032f645a9b816765a88c436b0671fcfc5f9828c837b255c34ddb9de085",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Stays pending (P01 S2k): org state, the file_deliveries sidecar (per org and seat delivery receipts) that orgtree_send_file writes; orgtree_send_file has no contract (outside the accepted surface).",
+      "reason": "Stays pending (P01 S2k): org state, the file_deliveries sidecar (per org and seat delivery receipts) that orgtree_send_file writes; orgtree_send_file has no contract (outside the accepted surface). Owner: channels and mail (P07).",
       "source_refs": []
     },
     {
@@ -16147,35 +16147,35 @@
       "id": "31237e3490917a845ead31c1f7e627531198e85ba35abceb46676dacc3270c30",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Stays pending (P01 S2k): the reply_events sidecar's read-write connection. P02's per-operation probe observes it under mail.human-send and material.transcript (the sidecar, not this site specifically), but a shared site is mapped only once every operation reaching it has a contract (the rule for shared selectors, S3 decision 3), and the supervisor's reply-event recording and annotation (supervisor.py), which no contract covers, reach it.",
+      "reason": "Stays pending (P01 S2k): the reply_events sidecar's read-write connection. P02's per-operation probe observes it under mail.human-send and material.transcript (the sidecar, not this site specifically), but a shared site is mapped only once every operation reaching it has a contract (the rule for shared selectors, S3 decision 3), and the supervisor's reply-event recording and annotation (supervisor.py), which no contract covers, reach it. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
       "id": "8058d0905f3e6077f25ac7f6f62944171d17a7e035384e5a6f87f98bdb69d312",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Stays pending (P01 S2k): the reply_events sidecar's read-only count. P02's per-operation probe observes it under mail.human-send and material.transcript (the sidecar, not this site specifically), but a shared site is mapped only once every operation reaching it has a contract (the rule for shared selectors, S3 decision 3), and the uncontracted route GET /api/orgs/{slug}/nodes/{nid}/reply-events (api.retained_reply_events) calls it.",
+      "reason": "Stays pending (P01 S2k): the reply_events sidecar's read-only count. P02's per-operation probe observes it under mail.human-send and material.transcript (the sidecar, not this site specifically), but a shared site is mapped only once every operation reaching it has a contract (the rule for shared selectors, S3 decision 3), and the uncontracted route GET /api/orgs/{slug}/nodes/{nid}/reply-events (api.retained_reply_events) calls it. Owner: the desktop chat (the reply-events route, api.retained_reply_events).",
       "source_refs": []
     },
     {
       "id": "69c03d9bcc7feb05046e855f82c20b1e8fe1017eb4e65e3a7c77800248139eb2",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Stays pending (P01 S2k): the org store's own connection factory (every org document read and write). P02's per-operation probe observes it under 40 of the 42 contracts, but a shared site is mapped only once every operation reaching it has a contract (the rule for shared selectors, S3 decision 3), and uncontracted org routes load through it, for one the desktop's chat route (api.node_chat, store.load_org).",
+      "reason": "Stays pending (P01 S2k): the org store's own connection factory (every org document read and write). P02's per-operation probe observes it under 40 of the 42 contracts, but a shared site is mapped only once every operation reaching it has a contract (the rule for shared selectors, S3 decision 3), and uncontracted org routes load through it, for one the desktop's chat route (api.node_chat, store.load_org). Owner: P01 (every uncontracted org route that loads or saves the org).",
       "source_refs": []
     },
     {
       "id": "7e2342632e71afe6c4baa5118942e015b1eeb6d2d9db8a878c8c3dc513ed903b",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Stays pending (P01 S2k): the tool_waits sidecar (the journal of every managed-wait agent tool, mcptool.MANAGED_WAIT_TOOLS). P02's per-operation probe observes it under the three staffing contracts (orgtree_hire and orgtree_staff), but a shared site is mapped only once every operation reaching it has a contract (the rule for shared selectors, S3 decision 3), and the uncontracted managed-wait tools (orgtree_rehire, orgtree_retire, orgtree_dissolve, orgtree_cheap_compact, orgtree_watchdog, orgtree_continue_on) and the backend-start recovery (toolwait.start) reach it.",
+      "reason": "Stays pending (P01 S2k): the tool_waits sidecar (the journal of every managed-wait agent tool, mcptool.MANAGED_WAIT_TOOLS). P02's per-operation probe observes it under the three staffing contracts (orgtree_hire and orgtree_staff), but a shared site is mapped only once every operation reaching it has a contract (the rule for shared selectors, S3 decision 3), and the uncontracted managed-wait tools (orgtree_rehire, orgtree_retire, orgtree_dissolve, orgtree_cheap_compact, orgtree_watchdog, orgtree_continue_on) and the backend-start recovery (toolwait.start) reach it. Owner: P01, once the org lifecycle tools join the contracted surface, with the runtime (P08) for the backend-start recovery (toolwait.start).",
       "source_refs": []
     },
     {
       "id": "323bf911f0907980cf504d81b4f066c03f9db1152c81d4e8bcf529c26e7aaac9",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Stays pending (P01 S2k): the transcript_records sidecar. P02's per-operation probe observes it under mail.human-send and material.transcript, but a shared site is mapped only once every operation reaching it has a contract (the rule for shared selectors, S3 decision 3), and the supervisor's prompt-view and journal paths and transcript_ingest, which no contract covers, reach it.",
+      "reason": "Stays pending (P01 S2k): the transcript_records sidecar. P02's per-operation probe observes it under mail.human-send and material.transcript, but a shared site is mapped only once every operation reaching it has a contract (the rule for shared selectors, S3 decision 3), and the supervisor's prompt-view and journal paths and transcript_ingest, which no contract covers, reach it. Owner: the runtime (P08).",
       "source_refs": []
     },
     {

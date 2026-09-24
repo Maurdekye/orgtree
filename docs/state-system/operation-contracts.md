@@ -330,6 +330,11 @@ with an owner. The launcher also installs the self-restart hook (W7's review fix
 backend-only scan could not see. `engine/native/**/oracle` (offline test-vector generators) and
 `engine/runtime` (the gitignored interpreter) are not scanned, and a test fails if any other engine
 file with a route, hook, task, worker or connection site is left out.
+The owner-form step (p01-put-the-owner-of-the-35-older-pending-rows-i) closes nothing: 35 older
+pending rows (the operation census, account marks, charter template folders, the `orgtree_work`
+card, shared selectors, the S2k storage sites and two thread hand-offs) now state their owner as
+`Owner: ...`. Every pending witness names its owner that way except the 194 concrete http,
+websocket and tool entries still on the generic reason, and a test holds that.
 
 Of the 41 open dimension occurrences on the sixteen legacy-family contracts, 25 (9 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the

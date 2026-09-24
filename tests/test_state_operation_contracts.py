@@ -346,6 +346,41 @@ class ContractCoverage(unittest.TestCase):
         self.assertEqual([r["id"] for r in self.document["dispatch"]
                           if r["reason"].startswith("Requires explicit source review")], [])
 
+    # p01-put-the-owner-of-the-35-older-pending-rows-i: every pending witness names its owner in the standard
+    # form, except the concrete http, websocket and tool entries still on the generic reason (no owner by rule)
+    GENERIC_PENDING_ENTRIES = 194
+
+    def test_every_pending_witness_names_its_owner_or_is_a_generic_entry_point(self):
+        kinds = {s["site_id"]: s["kind"] for s in self.source["registrations"]}
+        generic = 0
+        for group in ("entries", "dispatch", "storage"):
+            for r in self.document[group]:
+                if r["disposition"] != "pending":
+                    continue
+                with self.subTest(group=group, id=r["id"][:8]):
+                    if r["reason"].startswith("Requires explicit source review"):
+                        self.assertEqual(group, "entries")
+                        self.assertIn(kinds[r["id"]], {"http", "websocket", "tool"})
+                        generic += 1
+                    else:
+                        self.assertIn("Owner: ", r["reason"])
+        self.assertEqual(generic, self.GENERIC_PENDING_ENTRIES)
+
+    def test_the_account_removal_and_startup_repair_threads_are_org_state_owned_by_the_runtime(self):
+        rows = {r["id"]: r for r in self.document["entries"]}
+        found = {}
+        for s in self.source["registrations"]:
+            if s.get("mechanism") == "asyncio.to_thread" and s["source"]["symbol"] in ("accounts_remove",
+                                                                                   "Recovery.start.run"):
+                r = rows[s["site_id"]]
+                found[s["source"]["symbol"]] = r["disposition"]
+                self.assertTrue(r["reason"].startswith("Stays pending (P01 owner form): "), r["reason"])
+                self.assertIn("Org state.", r["reason"])
+                self.assertTrue(r["reason"].endswith("Owner: the runtime (P08)."), r["reason"])
+        self.assertEqual(found, {"accounts_remove": "pending", "Recovery.start.run": "pending"})
+        self.assertEqual([r["id"] for r in self.document["entries"]
+                          if r["reason"].startswith("Newly recognized")], [])
+
     def test_contacts_is_specified_only_with_agent_level_mail_locality(self):
         # S2b ruling R1: org-store locality is not mail locality. contacts became
         # specified only once P02 observed agent-level mail locality (6721cad); the
