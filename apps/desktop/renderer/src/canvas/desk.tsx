@@ -7,7 +7,7 @@ import type { ReplyContext } from '../eventReply'
 import { ReplyPreview, ReplySourceProvider } from './replypreview'
 import { indexReplySources, ReplySourceContent } from './replysource'
 import { copyToClipboard, useContextMenu } from './contextmenu'
-import { EFFORT_LEVELS, EffortLevelBadge } from './effort'
+import { EFFORT_LEVELS, EffortLevelBadge, effortChangeToast } from './effort'
 import { foldKeysOf, FoldProvider, sysFoldKey, thoughtFoldKey, toolFoldKey, useFold, useFoldState } from './foldstate'
 import { useChangedState } from '../changedstate'
 import { messageCopyText, toolCallCopyText, toolResultCopyText } from './copytext'
@@ -3924,9 +3924,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
           <EffortButton value={node.scope?.effort ?? ''}
             effective={node.effort_effective ?? ''}
             onSet={(lvl) => saveScope(slug, node.id, { effort: lvl })
-              .then(() => toast([lvl
-                ? `${node.id} thinking effort: ${lvl}`
-                : `${node.id} thinking effort: back to the org default`]))
+              .then((r) => toast([effortChangeToast(node.id, lvl, r)]))
               .catch((e: Error) => toast([`error: ${e.message}`]))} />
         )}
         {/* №3: STOP renders only when an interrupt can actually land —

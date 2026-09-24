@@ -1800,6 +1800,7 @@ KILL_REASON_CLASS = {
     # is visible, distinct from the pool's own deliberate kills:
     "turn-timeout": "turn-machinery",    # the idle/budget watchdog killed it
     "limit-frozen": "turn-machinery",    # usage limit froze the seat
+    "effort-sent-live": "turn-machinery",  # sent a live effort level: respawn
     "background-children": "turn-machinery",  # lives on till bg agents land
     "stdin-closed": "turn-machinery",    # generic non-park drain-to-exit
     # a Codex app-server whose bounded prewarm initialize() failed, timed out

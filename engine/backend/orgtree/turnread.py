@@ -76,7 +76,8 @@ PARKED = frozenset({"untrusted", "auth", "balance"})
 SCHEDULES = frozenset({"observed-deadline", "probe", "backoff"})
 DOORS = frozenset({"pre_model", "ran_then_failed", "killed"})
 DISCARDS = frozenset({"limit-frozen", "turn-timeout", "stdin-closed",
-                      "claim-died", "prompt-changed", "identity-changed"})
+                      "claim-died", "prompt-changed", "identity-changed",
+                      "effort-sent-live"})
 CODEX_POOLS = frozenset({"plan", "reserve"})
 CODEX_ROUTES = frozenset({"reserve", "direct"})     # codex_route.Route.route
 CODEX_SELECTIONS = frozenset({"preflight", "retry"})

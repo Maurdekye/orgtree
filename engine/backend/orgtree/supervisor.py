@@ -20612,6 +20612,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
                         # envelope may never have reached the model and its
                         # snapshot must not be recorded as delivered.
                         _commit_envelope(slug, nid, env_pending)
+                    if ev.get("type") == "control_response":
+                        _note_live_effort_reply(st, proc, ev)
                     if ev.get("type") == "stream_event":
                         # partial-message deltas → the UI renders the reply
                         # growing word-by-word (user spec); batched so the WS
@@ -21551,8 +21553,13 @@ def _run_one_turn_recorded(slug: str, nid: str,
                         # below), nothing queued. The break skips the
                         # stdin close: the process stays alive, parked, and
                         # the next turn attaches where this one detached.
+                        # A process sent a live effort level is never parked
+                        # (`send_live_effort`): the next turn respawns it
+                        # with the node's `--effort`.
+                        effort_sent = _live_effort_sent(st, proc)
                         if (nxt is None and wp_turn is not None
                                 and proc_current and not limited
+                                and not effort_sent
                                 and not timed_out.is_set()
                                 and _bg_count() == 0 and wp_turn.alive()):
                             with _state_lock:
@@ -21571,6 +21578,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                             # generic crash
                             wp_turn.exit_reason = (
                                 "limit-frozen" if limited else
+                                "effort-sent-live" if effort_sent else
                                 "background-children" if _bg_count() else
                                 "disabled" if not warmpool.warm_enabled()
                                 else "stdin-closed")
@@ -26852,6 +26860,104 @@ def interrupt_turn(slug: str, nid: str) -> dict[str, Any]:
         with _state_lock:
             st.pop("interrupted", None)
         return _result(False, f"{type(e).__name__}: {e}")
+
+
+#: Claude tiers whose running CLI takes an effort change mid-session. Haiku
+#: has no effort parameter at all (measured on CLI 2.1.280: no `effort` on any
+#: of its transcript messages), so there is nothing to send it.
+LIVE_EFFORT_TIERS: Final = frozenset({"fable", "opus", "sonnet"})
+#: The CLI version the live-effort behaviour was measured on (item
+#: support-changing-a-claude-agent-s-effort-level-m, 2026-09-24).
+LIVE_EFFORT_MEASURED_CLI: Final = "2.1.280"
+_LIVE_EFFORT_KEY = "effort_live"
+
+
+def send_live_effort(org: Org, nid: str) -> dict[str, Any]:
+    """Send a changed effort level to this node's RUNNING Claude turn.
+
+    ⚠ WHY THIS EXISTS. A node's effort reaches the CLI as `--effort` at spawn,
+    so a change made while a turn runs used to wait for the next turn. The
+    CLI takes a stream-json control request on stdin,
+    `apply_flag_settings {effortLevel}`, and measured on 2.1.280 (Opus 5.5 and
+    Sonnet 5) the running turn's NEXT model call uses the new level; the call
+    already in flight finishes at the old one.
+
+    ⚠ WHAT A SUCCESS REPLY PROVES, AND WHAT IT DOES NOT. The Agent SDK
+    documents `effortLevel` as applied "on the next turn", and the CLI answers
+    `success` even to a level it silently ignores. So the result says the
+    level was SENT TO THE RUNNING AGENT, never that the turn applied it, and
+    correctness never depends on it: a process that was sent a level is never
+    parked (`_live_effort_sent`), so the next turn always respawns with the
+    new `--effort`. If a later CLI stops honouring the request, a change
+    quietly falls back to applying from the next turn.
+
+    ⚠ ALWAYS AN EXPLICIT LEVEL. `effortLevel: null` resets the session to the
+    MODEL's default (medium on Opus 5.5), not to the launch `--effort`, so a
+    node cleared back to "inherit" is sent the level it now resolves to.
+
+    Returns `{"delivery": "sent", "effort": level}` when the line was written
+    to a live process, else `{"delivery": "next_turn", "effort": level,
+    "reason": ...}`. Never raises for a dead or closing process."""
+    level = org.effective_effort(nid)
+
+    def _next(reason: str) -> dict[str, Any]:
+        return {"delivery": "next_turn", "effort": level, "reason": reason}
+    if level not in org.EFFORTS:
+        return _next("not a supported effort level")
+    model = str(org.node(nid).get("model") or "")
+    if model not in providers.CLAUDE_TIERS or codex_harness_turn(org, nid, model):
+        return _next("only Claude turns take an effort change mid-turn")
+    if model not in LIVE_EFFORT_TIERS:
+        return _next(f"{model} has no effort level to change")
+    st = state(str(org.d["slug"]), nid)
+    with _state_lock:
+        proc = st.get("proc") if st.get("responding") else None
+    if proc is None:
+        return _next("no turn is running")
+    if proc.poll() is not None:
+        return _next("the CLI process has exited")
+    rid = "effort-" + os.urandom(4).hex()
+    try:
+        proc.stdin.write(json.dumps({
+            "type": "control_request", "request_id": rid,
+            "request": {"subtype": "apply_flag_settings",
+                        "settings": {"effortLevel": level}}}) + "\n")
+        proc.stdin.flush()
+    # same failure family as interrupt_turn's write: a closed or killed pipe
+    except (OSError, ValueError, AttributeError) as e:
+        return _next(f"the running process could not be reached "
+                     f"({type(e).__name__})")
+    with _state_lock:
+        st[_LIVE_EFFORT_KEY] = {"proc": proc, "request_id": rid,
+                                "effort": level, "state": "sent",
+                                "at": time.time()}
+    return {"delivery": "sent", "effort": level}
+
+
+def _note_live_effort_reply(st: dict[str, Any], proc: Any,
+                            ev: dict[str, Any]) -> None:
+    """Record the CLI's reply to the last live effort request on `proc`."""
+    resp = ev.get("response")
+    if not isinstance(resp, dict):
+        return
+    with _state_lock:
+        rec = st.get(_LIVE_EFFORT_KEY)
+        if (isinstance(rec, dict) and rec.get("proc") is proc
+                and rec.get("request_id") == resp.get("request_id")):
+            rec["state"] = ("accepted" if resp.get("subtype") == "success"
+                            else "refused")
+            if rec["state"] == "refused":
+                rec["error"] = str(resp.get("error") or "")
+
+
+def _live_effort_sent(st: dict[str, Any], proc: Any) -> bool:
+    """Was this process sent a live effort level? Such a process no longer
+    matches the `--effort` it was spawned with (or, if the CLI ignored the
+    request, the node's configured level), so it must not be parked and
+    reused: its turn ends it, and the next turn spawns fresh."""
+    with _state_lock:
+        rec = st.get(_LIVE_EFFORT_KEY)
+        return isinstance(rec, dict) and rec.get("proc") is proc
 
 
 WALL_MEMORY = "last_wall"

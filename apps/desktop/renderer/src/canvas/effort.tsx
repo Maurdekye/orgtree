@@ -46,6 +46,7 @@
 
 import { createContext, useContext } from 'react'
 import type { CanvasNode } from './shared'
+import type { OpResult } from '../types'
 
 /** the levels orgtree offers, in order — mirrors `ledger.Org.EFFORTS` and is
  *  the one list the composer's five-dot effort control (desk.tsx) and these
@@ -197,4 +198,27 @@ export function EffortLevelBadge({ node }: {
       Effort {level}
     </span>
   )
+}
+
+/** What changing an agent's effort did, as the one-line toast the composer's
+ *  effort control shows (item support-changing-a-claude-agent-s-effort-level-m).
+ *
+ *  The server answers a saved effort with `effort_delivery`: `sent` means the
+ *  level was written to the agent's RUNNING Claude process, `next_turn` means
+ *  it applies when its next turn starts. ⚠ "SENT", NEVER "APPLIED": the CLI
+ *  acknowledges the request, which proves it was accepted, not that the turn
+ *  used it — the Agent SDK documents the change as taking effect next turn.
+ *  A reply without the field (an older engine) keeps the plain wording. */
+export function effortChangeToast(
+  nodeId: string, requested: string, result: OpResult | undefined,
+): string {
+  const d = result?.effort_delivery as
+    { delivery?: string, effort?: string } | undefined
+  const level = validLevel(d?.effort) ? d.effort : ''
+  const what = requested
+    ? `${nodeId} thinking effort: ${requested}`
+    : `${nodeId} thinking effort: back to the org default${level ? ` (${level})` : ''}`
+  if (d?.delivery === 'sent') return `${what} — sent to the running agent`
+  if (d?.delivery === 'next_turn') return `${what} — applies from its next turn`
+  return what
 }

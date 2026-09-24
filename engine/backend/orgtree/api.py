@@ -3839,6 +3839,9 @@ def node_scope(slug: str, nid: str, body: Scope,
         except LedgerError as e:
             raise HTTPException(422, str(e))
         store.save_org(org)
+    if body.effort is not None and isinstance(result, dict):
+        # the level is saved now, so a running Claude turn may be sent it
+        result["effort_delivery"] = supervisor.send_live_effort(org, nid)
     if pub and isinstance(result, dict):
         result.pop("bridge", None)
     # (the explicit broadcast is gone: store.save_org announces every write
@@ -11732,6 +11735,7 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
     account_notify: str | None = None
     account_unpark: str | None = None   # a node an assignment just un-parked (SH-2)
     account_thawed: str | None = None   # a node a rebind just auth-thawed (2026-09-16)
+    effort_live: str | None = None      # a node whose effort a retool changed
     drive: list[str] = []      # nodes whose turn should run after we release the lock
     stale_freeze_resumed: list[str] = []  # switch_model cleared their freeze
     unstick_resume: tuple[str, list[str], list[str]] | None = None
@@ -12507,6 +12511,8 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                                        clear_account_fallback=bool(a.get("clear_account_fallback")))
                 if dwarns:
                     result.setdefault("warnings", []).extend(dwarns)
+                if a.get("effort") is not None:
+                    effort_live = _rt_target
                 if _rt_acct is not None:
                     result["_account_selection"] = (_rt_target, _rt_acct, "retool")
             elif body.tool == "orgtree_retire":
@@ -12810,6 +12816,9 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
         # the rebind cleared this node's auth/credential freeze; the doc is
         # saved now, so wake it (ONE sender shared with the operator door)
         supervisor.drive_auth_thaw(body.org, account_thawed)
+    if effort_live is not None and isinstance(result, dict):
+        # the level is saved now, so a running Claude turn may be sent it
+        result["effort_delivery"] = supervisor.send_live_effort(org, effort_live)
     if unstick_resume is not None:
         _target, _texts, _views = unstick_resume
         _texts = _texts or [
