@@ -46,7 +46,7 @@ class ContractCoverage(unittest.TestCase):
         self.assertEqual(result["contracts"], 42)
         self.assertEqual((result["summary"]["entries"]["mapped"], result["summary"]["dispatch"]["mapped"],
                           result["summary"]["storage"]["mapped"]), (29, 50, 0))
-        self.assertEqual(len(result["pending"]), 565)
+        self.assertEqual(len(result["pending"]), 560)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
@@ -135,23 +135,24 @@ class ContractCoverage(unittest.TestCase):
                     self.assertTrue(r["reason"].startswith("Stays pending (P01 W1): "), r["reason"][:60])
                     self.assertIn("Owner: ", r["reason"])
 
-    W8_EXCLUDED = {("mcptool.py", 2111), ("mcptool.py", 2113)}
+    # the client-process branches call inventoried routes (coordinator ruling, decision 2 on the W8 item)
+    W8_EXCLUDED = {("mcptool.py", 2111), ("mcptool.py", 2113), ("mcptool.py", 2315),
+                   ("externtool.py", 219), ("externtool.py", 232), ("externtool.py", 238), ("externtool.py", 244)}
     W8_PENDING = ({("warmpool.py", n) for n in (1365, 1377, 1421, 1463, 1478, 1479, 1525, 1534, 1549, 1551, 1557, 1558)}
                   | {("desktop_recovery.py", n) for n in (97, 99, 118, 120, 122, 124, 125)}
                   | {("gitworkspace.py", n) for n in (482, 1114, 1136, 1140)}
-                  | {("supervisor.py", 35326), ("supervisor.py", 35351), ("toolwait.py", 88)}
-                  | {("externtool.py", n) for n in (219, 232, 238, 244)} | {("mcptool.py", 2315)})
+                  | {("supervisor.py", 35326), ("supervisor.py", 35351), ("toolwait.py", 88)})
 
     def test_w8_machine_client_and_presentation_dispatch_is_triaged(self):
-        # W1-W8 rules (decision 1 on the W1 item) with rule 2 as sharpened (decision 2): a branch whose output can
-        # reach org state, here through the backend route an HTTP client calls, stays pending
+        # W1-W8 rules (decision 1 on the W1 item) with rule 2 as sharpened (decision 2 there); an HTTP-client
+        # branch is excluded only when the route it calls is itself inventoried (coordinator ruling, W8 decision 2)
         selectors = {contracts.witness_id("dispatch", r): r["source"] for r in self.source["dispatch_selectors"]}
         rows = {r["id"]: r for r in self.document["dispatch"]}
 
         def at(i):
             return (selectors[i]["path"].rsplit("/", 1)[1], selectors[i]["line"])
         self.assertEqual({at(i) for i, r in rows.items() if r["disposition"] == "excluded"}, self.W8_EXCLUDED)
-        self.assertEqual(len(self.W8_PENDING), 31)
+        self.assertEqual(len(self.W8_PENDING), 26)
         seen = set()
         for i, r in rows.items():
             if at(i) in self.W8_EXCLUDED:

@@ -14945,31 +14945,83 @@
     },
     {
       "id": "8d928ee3646b5e86683998d501d3decff687cd966bca57274307478777b69083",
-      "disposition": "pending",
+      "disposition": "excluded",
       "contracts": [],
-      "reason": "Stays pending (P01 W8): a branch of the EXTERNAL-chat MCP server (externtool.py, a separate client process) that forwards orgtree_list_orgs to GET /api/orgs; its output reaches org state through that backend route, so under rule 2 as sharpened (decision 2 on the W1 item) it is not excluded, and the route has no contract. Owner: external chat (P07).",
-      "source_refs": []
+      "reason": "Not an org-state operation in this process (coordinator ruling, decision 2 on the W8 item): a branch of externtool.py, the EXTERNAL-chat MCP server, a separate client process, that forwards orgtree_list_orgs to GET /api/orgs. That backend route IS inventoried (api.orgs_list, line 1752), and its witness carries the obligation; the branch has no other path into org state. P01 W8.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/externtool.py",
+          "start": 219,
+          "end": 219,
+          "sha256": "3f7626b0d4a93cac13b4e4ae654e30561aeaecb322ef1a11d0bf6a35b834973f"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1752,
+          "end": 1752,
+          "sha256": "0aba54611f16e6b6b53faf5f3c7f3c9d00a1f82634379b85e688d10bc12f45d8"
+        }
+      ]
     },
     {
       "id": "76df94351aded9ca9a8afa2a1855fb85df8523f12986a2f4f1c6e67f13835d02",
-      "disposition": "pending",
+      "disposition": "excluded",
       "contracts": [],
-      "reason": "Stays pending (P01 W8): a branch of the EXTERNAL-chat MCP server (externtool.py, a separate client process) that forwards orgtree_send to POST /api/extern/{peer}/send; its output reaches org state through that backend route, so under rule 2 as sharpened (decision 2 on the W1 item) it is not excluded, and the route has no contract. Owner: external chat (P07).",
-      "source_refs": []
+      "reason": "Not an org-state operation in this process (coordinator ruling, decision 2 on the W8 item): a branch of externtool.py, the EXTERNAL-chat MCP server, a separate client process, that forwards orgtree_send to POST /api/extern/{peer}/send. That backend route IS inventoried (api.extern_send, line 8958), and its witness carries the obligation; the branch has no other path into org state. P01 W8.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/externtool.py",
+          "start": 232,
+          "end": 232,
+          "sha256": "03a6a54d6ae1fe73d3ecc962457e4bba0fc5bd3230f70a8ca3a118b411f7c31f"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8958,
+          "end": 8958,
+          "sha256": "5338bef5b75fbb8a2621d98222c75988fa4cdc6d3b84d14d2373de0bdb4f3698"
+        }
+      ]
     },
     {
       "id": "2aa688b4229540177e53c2a8d0d6894ff165d86e23d8c7cb87186c6e09e1615e",
-      "disposition": "pending",
+      "disposition": "excluded",
       "contracts": [],
-      "reason": "Stays pending (P01 W8): a branch of the EXTERNAL-chat MCP server (externtool.py, a separate client process) that forwards orgtree_read to GET /api/extern/{peer}/messages; its output reaches org state through that backend route, so under rule 2 as sharpened (decision 2 on the W1 item) it is not excluded, and the route has no contract. Owner: external chat (P07).",
-      "source_refs": []
+      "reason": "Not an org-state operation in this process (coordinator ruling, decision 2 on the W8 item): a branch of externtool.py, the EXTERNAL-chat MCP server, a separate client process, that forwards orgtree_read to GET /api/extern/{peer}/messages. That backend route IS inventoried (api.extern_messages, line 9040), and its witness carries the obligation; the branch has no other path into org state. P01 W8.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/externtool.py",
+          "start": 238,
+          "end": 238,
+          "sha256": "5ac89a6a10c8522004ac937f850e07dbb197c8224437bd4311af7b4650b95b92"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9040,
+          "end": 9040,
+          "sha256": "8b5a4b071c9e8db4e6b5d8814b3f1fc44a95c91549c58788457b726c07a09df6"
+        }
+      ]
     },
     {
       "id": "f97536ea30a7552b36edcebda10fef7af941db188134847a191cb7e67e302adc",
-      "disposition": "pending",
+      "disposition": "excluded",
       "contracts": [],
-      "reason": "Stays pending (P01 W8): a branch of the EXTERNAL-chat MCP server (externtool.py, a separate client process) that forwards orgtree_wait to GET /api/extern/{peer}/wait; its output reaches org state through that backend route, so under rule 2 as sharpened (decision 2 on the W1 item) it is not excluded, and the route has no contract. Owner: external chat (P07).",
-      "source_refs": []
+      "reason": "Not an org-state operation in this process (coordinator ruling, decision 2 on the W8 item): a branch of externtool.py, the EXTERNAL-chat MCP server, a separate client process, that forwards orgtree_wait to GET /api/extern/{peer}/wait. That backend route IS inventoried (api.extern_wait, line 9052), and its witness carries the obligation; the branch has no other path into org state. P01 W8.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/externtool.py",
+          "start": 244,
+          "end": 244,
+          "sha256": "d0698e9e65b88696cee699fa43bbe3093ccb558c6816e86691007f1f930252f8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9052,
+          "end": 9052,
+          "sha256": "1a1710517c6575ba7518cb58463b425cf5cfa8cdcf7f7af2ddd303a56f787fd9"
+        }
+      ]
     },
     {
       "id": "58da65a18f085e5bb2a3d1fecfd1fd052d3e6951c39801e905cf1b07b8874004",
@@ -15144,10 +15196,23 @@
     },
     {
       "id": "7b42a49969655dbd1e6e9d849978fa1ed9884e5ae846e3c6a039126bf5143d7c",
-      "disposition": "pending",
+      "disposition": "excluded",
       "contracts": [],
-      "reason": "Stays pending (P01 W8): the agent-side MCP client's orgtree_send_file branch (mcptool.call_api) mints a delivery_id and forwards the call to POST /api/agent as orgtree_send_file_once, which writes the file_deliveries sidecar and the outbox; its output reaches org state (rule 2 as sharpened), and orgtree_send_file has no contract. Owner: file delivery (orgtree_send_file).",
-      "source_refs": []
+      "reason": "Not an org-state operation in this process (coordinator ruling, decision 2 on the W8 item): a branch of mcptool.py, the agent-side MCP client, a separate client process, that forwards orgtree_send_file (as orgtree_send_file_once) to POST /api/agent. That backend route IS inventoried (api._agent_call_route, line 11156), and its witness carries the obligation; the branch has no other path into org state. P01 W8.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2315,
+          "end": 2315,
+          "sha256": "48011383406b15ae264d56765221f533085f19cab5f10ecce0251505c9df2e18"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11156,
+          "end": 11156,
+          "sha256": "d5140d7e7512a388aff9a6c0c253e9b1c693284cc478edaa72139fc458747e4a"
+        }
+      ]
     },
     {
       "id": "fb501a21476baea2472d94198f466bd8644087c231d9946c1bd21e896fdec7f6",
