@@ -44,6 +44,13 @@ SCRATCH, TRANSCRIPT = TOOLS
 NATIVE = {'effective_output_fence','immutable_identity','exclude_returning_current_holder',
           'closed_item_policy','indexed_item_predicates','full_wire_parity','complete_contacts'}
 
+def family_mapped(registry, prefix):
+    """(entries, dispatch) mapped rows that bind at least one of this family's contracts."""
+    def count(group):
+        return sum(1 for r in registry[group] if r['disposition'] == 'mapped'
+                   and any(c.startswith(prefix) for c in r['contracts']))
+    return count('entries'), count('dispatch')
+
 
 def boundary(document=None):
     """Reject missing tools, shapes, obligations, source drift and false gates."""
@@ -89,9 +96,9 @@ class MaterialBinding(unittest.TestCase):
         self.assertTrue(result['valid'],result['errors'])
         self.assertFalse(result['contract_coverage_complete'])
         self.assertEqual(result['qualification'],contracts.GATES)
-        self.assertEqual(result['summary']['entries']['mapped'],9)
-        self.assertEqual(result['summary']['dispatch']['mapped'],36)
-        self.assertEqual(result['summary']['storage']['mapped'],0)
+        # this family's own witnesses; the registry-wide totals live in test_state_operation_contracts
+        self.assertEqual(family_mapped(registry,'material.'),(2,2))
+        self.assertEqual({k for k in registry['contracts'] if k.startswith('material.')},set(TOOLS.values()))
         self.assertEqual(registry['contracts']['material.transcript']['domain_mode'],'conditional_write')
         self.assertEqual(registry['contracts']['material.scratch']['domain_mode'],'read')
 

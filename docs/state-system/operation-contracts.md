@@ -115,8 +115,8 @@ runtime probes remain unresolved. Material reads add two cards and two selectors
 diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
-Current totals are 18 contracts, nine mapped registrations and 36 mapped
-dispatch witnesses. **578 obligations remain**: 310 registrations, 191 dispatch
+Current totals are 18 contracts, nine mapped registrations and 33 mapped
+dispatch witnesses. **581 obligations remain**: 310 registrations, 194 dispatch
 witnesses, 15 storage candidates and 62 unresolved dimension occurrences.
 How it got there: 600 was two more registrations than the preceding 598 because the scanner now
 recognizes `asyncio.to_thread` hand-offs; both new witnesses are pending and no
@@ -154,10 +154,10 @@ locality (6721cad): release-notify's mail contacts belong only to the named
 successor, never the sender alone, and a third-agent control fires. The legacy
 mail queue is one org-wide row, so that result rests on the logical before/after
 reading plus the per-agent `nodes`/`log_d` rows.
-578 is two MORE than that 576, and that is expected (S3 ruling 1): the first
-P03-prototype candidate maps seven witnesses (two tool cards and five dispatch
-branches, -7) to two new contracts, `status.report` and `chart.read`, whose
-nine facets P01 cannot close add nine unresolved dimension occurrences (+9).
+581 is five MORE than that 576, and that is expected (S3 ruling 1): the first
+P03-prototype candidate maps four witnesses (two tool cards and their two exact
+dispatch branches, -4) to two new contracts, `status.report` and `chart.read`,
+whose nine facets P01 cannot close add nine unresolved dimension occurrences (+9).
 See "P03-prototype surface" below.
 
 Of the 53 open dimension occurrences on the sixteen legacy-family contracts, 37 (17 facets) cannot be closed at P01
@@ -264,10 +264,16 @@ occurrences, and it may rise (S3 ruling 1). Each candidate reports both numbers.
 
 Candidate 1 (F1, first half) adds `status.report` (`orgtree_status`) and
 `chart.read` (`orgtree_chart`, which is also the agent's charter read and credit
-view). It maps both cards, both exact branches, the shared read-shaped block
-(together with the two material contracts), and the shared mail-family result
-ref and transcript chip selectors (whose message and notice contracts come with
-F2). Specified from source and pinned by `tests/test_state_status_chart_boundary.py`
+view). It maps both cards and both exact branches. Three SHARED selectors stay
+pending with a reason naming what is and is not contracted: the read-shaped
+block (`orgtree_send_file` and `orgtree_list_tiers` have no contract and are
+outside the surface) and the mail-family result ref and transcript chip
+(`orgtree_message` and `orgtree_send_notice` come with F2, which maps them). A
+shared selector is mapped only once every tool it admits has a contract;
+`tests/test_state_operation_contracts.py` enforces that for every mapped In/Eq
+tool selector. One older branch breaks the rule and is named there: `dd72cf1a`
+(the diagnostic/preview block) was mapped before P02-A1 added
+`orgtree_operation_census` to it. Specified from source and pinned by `tests/test_state_status_chart_boundary.py`
 against `status-chart-boundary.json`: authority, predicates, writes, receipt and
 effects for status; authority, predicates, receipt and effects for the chart.
 Unresolved with an owner: reads and instrumentation (P02), conflicts (native

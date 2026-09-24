@@ -53,6 +53,13 @@ SHAPES = {
 }
 NATIVE = {'effective_output_fence','generation_revalidation','invalid_visibility_refusal',
           'indexed_visibility_and_funding_reads','complete_contacts','full_wire_parity','receipt_classification'}
+def family_mapped(registry, prefix):
+    """(entries, dispatch) mapped rows that bind at least one of this family's contracts."""
+    def count(group):
+        return sum(1 for r in registry[group] if r['disposition'] == 'mapped'
+                   and any(c.startswith(prefix) for c in r['contracts']))
+    return count('entries'), count('dispatch')
+
 
 def boundary(document=None):
     d = document if document is not None else contracts.load(ROOT/'docs/state-system/state-diagnostic-boundary.json')
@@ -92,10 +99,9 @@ class DiagnosticBinding(unittest.TestCase):
         self.assertTrue(result['valid'],result['errors'])
         self.assertFalse(result['contract_coverage_complete'])
         self.assertEqual(result['qualification'],contracts.GATES)
-        self.assertEqual(result['summary']['entries']['mapped'],9)
-        self.assertEqual(result['summary']['dispatch']['mapped'],36)
-        self.assertEqual(result['summary']['storage']['mapped'],0)
-        self.assertEqual(result['contracts'],18)
+        # this family's own witnesses; the registry-wide totals live in test_state_operation_contracts
+        self.assertEqual(family_mapped(registry,'diagnostic.'),(2,3))
+        self.assertEqual({k for k in registry['contracts'] if k.startswith('diagnostic.')},set(TOOLS.values()))
 
     def test_omissions_private_fields_stale_binding_and_gate_forgery_refuse(self):
         for edit in [lambda d:d['tools'].pop(CAPABILITIES),lambda d:d['visibility'].pop(),

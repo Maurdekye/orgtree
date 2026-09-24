@@ -40,7 +40,12 @@ class ContractCoverage(unittest.TestCase):
         self.assertFalse(result["contract_coverage_complete"])
         self.assertGreater(result["summary"]["entries"]["pending"], 0)
         self.assertGreater(result["summary"]["storage"]["pending"], 0)
+        # THE one registry-wide tripwire (review of S3 candidate 1): every candidate
+        # that maps a witness or adds a contract moves these numbers here, and only here.
         self.assertEqual(result["contracts"], 18)
+        self.assertEqual((result["summary"]["entries"]["mapped"], result["summary"]["dispatch"]["mapped"],
+                          result["summary"]["storage"]["mapped"]), (9, 33, 0))
+        self.assertEqual(len(result["pending"]), 581)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
@@ -78,6 +83,39 @@ class ContractCoverage(unittest.TestCase):
         [note] = [q for q in questions if q.startswith("Owner: ")]
         self.assertTrue(note.startswith("Owner: the native/Rust conversion"), note)
         self.assertIn("including the transcript projector (p01-transcript-projector-legacy-fixtures), is fixtured", note)
+
+    # A mapped shared tool selector must not drop the obligation of a tool it admits
+    # that has no contract yet (review of S3 candidate 1): every value an In/Eq
+    # tool selector admits must be a tool of one of the contracts it maps to.
+    # dd72cf1a predates the rule: P02-A1 (286396e) added orgtree_operation_census
+    # to that already-mapped branch. It is named here, not silently tolerated.
+    EARLY_MAPPED = {"dd72cf1a60af5dcdb9407510b45fa58a2b3a0850b589f67ca3f6e892d3129bc3": {"orgtree_operation_census"}}
+
+    def uncontracted_selector_values(self, document):
+        selectors = {contracts.witness_id("dispatch", r): r for r in self.source["dispatch_selectors"]}
+        gaps = {}
+        for row in document["dispatch"]:
+            site = selectors[row["id"]]
+            if row["disposition"] != "mapped" or site["kind"] != "tool" or site["operator"] not in ("In", "Eq"):
+                continue
+            tools = {t for c in row["contracts"] for t in document["contracts"][c]["tools"]}
+            missing = set(site["values"]) - tools
+            if missing:
+                gaps[row["id"]] = missing
+        return gaps
+
+    def test_mapped_shared_tool_selectors_admit_only_contracted_tools(self):
+        self.assertEqual(self.uncontracted_selector_values(self.document), self.EARLY_MAPPED)
+
+    def test_mapping_a_shared_selector_early_is_caught(self):
+        # the three shared selectors S3 candidate 1 keeps pending
+        document = copy.deepcopy(self.document)
+        row = next(r for r in document["dispatch"] if r["id"].startswith("c477bfda"))
+        self.assertEqual(row["disposition"], "pending")
+        row.update(disposition="mapped", contracts=["chart.read"], reason="early",
+                   source_refs=document["contracts"]["chart.read"]["source_refs"][1:])
+        self.assertTrue(self.validate(document)["valid"])     # the validator alone does not see it
+        self.assertIn(row["id"], self.uncontracted_selector_values(document))
 
     def test_each_required_dimension_is_enforced(self):
         for dimension in contracts.DIMENSIONS:

@@ -42,6 +42,13 @@ NATIVE = {'bounded_snapshot_reads','effective_output_fence','generation_revalida
           'account_session_parity','complete_transition_predicates','full_wire_parity','receipt_classification'}
 PRIVATE = {'account','api_key','credentials','external_handles','inflight','mail','mail_log','user_inbox','user_mail_log',
            'org_inbox','resume_texts','resume_views','halt_sources','session_id','transcript','charter','team_charter','token','secret'}
+def family_mapped(registry, prefix):
+    """(entries, dispatch) mapped rows that bind at least one of this family's contracts."""
+    def count(group):
+        return sum(1 for r in registry[group] if r['disposition'] == 'mapped'
+                   and any(c.startswith(prefix) for c in r['contracts']))
+    return count('entries'), count('dispatch')
+
 
 def boundary(document=None):
     doc = document if document is not None else contracts.load(ROOT/'docs/state-system/preview-boundary.json')
@@ -79,9 +86,9 @@ class PreviewBinding(unittest.TestCase):
         self.assertFalse(checked['contract_coverage_complete'])
         self.assertEqual(checked['qualification'],contracts.GATES)
         self.assertEqual(set(api._AGENT_PREVIEW_OPS),set(OPS))
-        self.assertEqual(checked['summary']['entries']['mapped'],9)
-        self.assertEqual(checked['summary']['dispatch']['mapped'],36)
-        self.assertEqual(checked['contracts'],18)
+        # this family's own witnesses; the registry-wide totals live in test_state_operation_contracts
+        self.assertEqual(family_mapped(reg,'preview.'),(1,13))
+        self.assertEqual({k for k in reg['contracts'] if k.startswith('preview.')},{'preview.agent'})
 
     def test_fixture_omissions_forged_gates_and_stale_binding_refuse(self):
         for change in [lambda d:d['admitted'].pop(),lambda d:d['denied'].remove('delete'),
