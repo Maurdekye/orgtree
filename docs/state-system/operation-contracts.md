@@ -120,8 +120,8 @@ diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
 Current totals are 42 contracts, 29 mapped registrations and 50 mapped
-dispatch witnesses. **586 obligations remain**: 290 registrations, 177 dispatch
-witnesses, 15 storage candidates and 104 unresolved dimension occurrences.
+dispatch witnesses. **584 obligations remain**: 290 registrations, 177 dispatch
+witnesses, 15 storage candidates and 102 unresolved dimension occurrences.
 How it got there: 600 was two more registrations than the preceding 598 because the scanner now
 recognizes `asyncio.to_thread` hand-offs; both new witnesses are pending and no
 existing witness identity, disposition or contract changed.
@@ -265,20 +265,26 @@ v3 220e557) cover `work-read.reads`, `work-read.instrumentation`, `receipt-looku
 outside the document lock, so a warm read is a fresh load of all five tables, never the
 resident. A lookup's warm reads depend on the resident's state, and the only row it writes is
 the caller's own fence.
+584 is two fewer than that 586 (P01 S2j): the coordinator ruled that P02's reviewed probe-level
+record meets `diagnostic.instrumentation`'s clause, so it is specified. Three P02 facets are
+narrowed to what the probe cannot reach: `org-view.instrumentation` to the gateway's token-map
+rebuild, `material.reads` to a disk-backed sandboxed org, and `material.effects` to a successful
+chown. The lookup's warm reload is now measured, not inferred (the reviewer's mutant on S2i).
 
-Of the 43 open dimension occurrences on the sixteen legacy-family contracts, 27 (10 facets) cannot be closed at P01
+Of the 41 open dimension occurrences on the sixteen legacy-family contracts, 25 (9 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the
 native-design citation; those figures were already stale after S2d, which left 45
-and 29 (12 facets).) Their questions need observed runtime contacts (P02) or the
+and 29 (12 facets). It said 43 and 27 (10 facets) until S2j closed
+`diagnostic.instrumentation`.) Their questions need observed runtime contacts (P02) or the
 qualification of the approved native design r7 at P03/P05. Each such facet keeps its original
 question and adds one line naming its owner, the evidence that would close it,
 and why the available evidence does not. The P02 real-data replay
 (20260924T063643Z) does not replay these tools, so it closes none of them. The
-per-operation probe closes `wrapper-reads` and `contacts`. Every other
-P02-owned facet still has a
-clause the probe does not meet: the JSON backend, malformed state,
-legacy/recovery and migration paths, sandbox chown, provider failure modes,
-native placement, or native controls. The remaining 16 are the
+per-operation probe closes `wrapper-reads`, `contacts` and (S2j) `diagnostic.instrumentation`.
+Every other P02-owned facet still has a clause the probe cannot meet: a disk-backed sandbox
+(`material.reads`), a successful sandbox chown (`material.effects`), or production-grade records
+with a product-side drift refusal (`material.contacts`). `material.writes` waits on native
+placement (P04). The remaining 16 are the
 four wire facets. Their legacy parity is now fixtured at the public door:
 - malformed-argument matrices, with the 500 serializer's exception-echo body
 - the agent/operator/bridge door matrix for every P01 tool

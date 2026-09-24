@@ -46,7 +46,7 @@ class ContractCoverage(unittest.TestCase):
         self.assertEqual(result["contracts"], 42)
         self.assertEqual((result["summary"]["entries"]["mapped"], result["summary"]["dispatch"]["mapped"],
                           result["summary"]["storage"]["mapped"]), (29, 50, 0))
-        self.assertEqual(len(result["pending"]), 586)
+        self.assertEqual(len(result["pending"]), 584)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
@@ -64,6 +64,22 @@ class ContractCoverage(unittest.TestCase):
                 self.assertIn(". Closes with: ", notes[0])
                 self.assertIn(". Not coverable at P01 from available evidence: ", notes[0])
                 self.assertGreater(len(self.document["facets"][name]["open_questions"]), 1)
+
+    def test_s2j_closes_diagnostic_instrumentation_and_narrows_the_sandbox_remainder(self):
+        # coordinator ruling 2026-09-24 21:14Z: P02's reviewed probe-level record meets the clause
+        facets = self.document["facets"]
+        closed = facets["diagnostic.instrumentation"]
+        self.assertEqual((closed["status"], closed["open_questions"]), ("specified", []))
+        narrowed = {"org-view.instrumentation": "token-map rebuild (kiosk_token_scan)",
+                    "material.reads": "DISK-BACKED sandboxed organization",
+                    "material.effects": "SUCCESSFUL sandbox chown_agent"}
+        for name, clause in narrowed.items():
+            with self.subTest(facet=name):
+                self.assertEqual(facets[name]["status"], "unresolved")
+                [owner] = [q for q in facets[name]["open_questions"] if q.startswith("Owner: ")]
+                closes = owner.split(". Closes with: ", 1)[1].split(". Not coverable at P01", 1)[0]
+                self.assertIn(clause, closes)
+                self.assertIn("narrowed by P01 S2j", closes)
 
     def test_contacts_is_specified_only_with_agent_level_mail_locality(self):
         # S2b ruling R1: org-store locality is not mail locality. contacts became

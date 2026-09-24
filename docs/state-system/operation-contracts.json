@@ -1571,7 +1571,8 @@
       "facts": [
         "The read door consults cached org snapshots for caller/halt/target/item/ancestry. Scratch resolves an OS realpath beneath the shared lineage scratch root, checks isdir/isfile, enumerates the whole directory before a 200-name slice, or reads the whole UTF-8 replacement-decoded file before a 20000-character slice.",
         "scratch_dir additionally checks disk placement through sandbox.on_disk (which can load org state) and can reload org data on directory creation. Disk-backed UNC resolution, sandbox ownership, storage-pool/cache misses and every transitive helper are not an exhaustive contact map yet.",
-        "read_chat calls chat_window.read_window and unique_cards. The current transcript stack consults provider files, prompt/import sidecars, retained transcript records, projection cache, assistant state, runtime state and reply snapshots. The bounded fixture witnesses three SQLite surfaces; it does not enumerate every provider/import/sandbox branch."
+        "read_chat calls chat_window.read_window and unique_cards. The current transcript stack consults provider files, prompt/import sidecars, retained transcript records, projection cache, assistant state, runtime state and reply snapshots. The bounded fixture witnesses three SQLite surfaces; it does not enumerate every provider/import/sandbox branch.",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 be8a05e), for a SANDBOXED organization: host-placed (sandbox:host-placed, scratch and transcript, cold and warm), the transcript is read from the sandbox home (data:sandbox) and scratch from the shared scratch root, with no unknown contact. Disk-backed (sandbox:on-disk, scratch and transcript), the path is resolved through wsl, which the probe's isolation guard refuses, so the read fails with a 500 before any file is read: the disk-backed read contacts are NOT observed. Recorded from P02's source reading, not run: where Docker Desktop's WSL distro is down or absent, disk.distro() raises DiskError, which the agent read path does not catch (it catches LedgerError), so the caller gets a 500 carrying DiskError's text rather than a refusal; whether that should be a clean refusal is a product question, not decided here. Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -1642,8 +1643,8 @@
         }
       ],
       "open_questions": [
-        "Complete the transitive/provider/import/sandbox and cache-hit/miss contact census, including all file reads and document accesses, before P02 closes this facet.",
-        "Owner: P02. Closes with: observed reads for a SANDBOXED organization (sandbox.on_disk, disk-backed placement). Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py, v3 b6568a1; docs/state-system/p02-operation-contacts.md) covers provider transcript file reads, lazy imports and cold/warm cache on an unsandboxed organization; the sandbox paths were not exercised."
+        "Observe the reads of a disk-backed sandboxed organization (the org's virtual disk mounted in Docker Desktop's WSL distro).",
+        "Owner: P02, in a probe run on a sandbox-capable environment (it starts real processes, so it needs coordinator approval). Closes with: observed reads for a DISK-BACKED sandboxed organization (sandbox.on_disk true, the virtual disk mounted), cold and warm (narrowed by P01 S2j: the host-placed sandbox reads are observed). Not coverable at P01 from available evidence: P02's synthetic harness refuses real processes, so the disk-backed path stops at its wsl resolution with a 500 before any file is read."
       ]
     },
     "material.writes": {
@@ -1850,7 +1851,8 @@
       "status": "unresolved",
       "facts": [
         "These tool branches do not intentionally send mail or start a provider. Scratch may create directories and call sandbox chown_agent; for sandboxed orgs that helper invokes Docker chown. This test package spies that effect and never starts a container.",
-        "Transcript reads can lazily import durable records, persist quote identities, update derived caches/order and volatile runtime state. The source name read must not hide these effects."
+        "Transcript reads can lazily import durable records, persist quote identities, update derived caches/order and volatile runtime state. The source name read must not hide these effects.",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 be8a05e): minting a node's scratch directory in a sandboxed organization (sandbox:chown-new-dir) attempts the sandbox chown_agent effect (a docker exec chown); the probe's isolation guard refuses the process, the product swallows that failure, and the read answers 200. So the attempt and its failure outcome are observed; a SUCCESSFUL chown is not. Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -1921,8 +1923,8 @@
         }
       ],
       "open_questions": [
-        "Inventory all conditional helpers and external effects with P02 probes; retain failure/recovery outcomes rather than claiming exactly-once from these fixtures.",
-        "Owner: P02. Closes with: an observed sandbox chown_agent effect and its failure outcome. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py, v3 b6568a1; docs/state-system/p02-operation-contacts.md) covers directory creation, lazy imports, cache updates and the path-escape/outsider/halt failures on an unsandboxed organization; sandbox chown was not exercised."
+        "Observe a successful sandbox chown_agent in a running sandbox container.",
+        "Owner: P02, in the same sandbox-capable run as material.reads. Closes with: an observed SUCCESSFUL sandbox chown_agent effect (narrowed by P01 S2j: the attempt and its failure outcome are observed). Not coverable at P01 from available evidence: a successful chown needs a running sandbox container, which P02's synthetic, process-refusing harness cannot provide."
       ]
     },
     "material.wire": {
@@ -2938,10 +2940,11 @@
     },
     "diagnostic.instrumentation": {
       "dimension": "instrumentation",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
         "P01 records source-backed predicates and fixture-only actual pooled SQL contacts. No production logger is enabled and no live data, statement values or credentials are recorded by the test observer.",
-        "P02 still requires the complete logical-operation denominator, actual physical/logical contacts and transaction/lock/wait accounting, including cache hits, hidden eager loads and failures. These tests do not measure latency, CPU/GIL capacity or native storage concurrency."
+        "P01's own fixture tests do not supply the logical-operation denominator, the actual physical/logical contacts or the loss accounting; P02's per-operation record (below) does, on synthetic data. These tests do not measure latency, CPU/GIL capacity or native storage concurrency.",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 be8a05e): a drift-aware contact/profile/loss record for both tools. Every diagnostic row (inspect and capabilities; the SQLite and JSON backends; malformed stored state; the migration paths; cold and warm) carries one census record matching the harness, a profile, zero per-row loss and no unknown contact, and the probe refuses any contact a row does not declare (its drift refusal). The profile has total time on every row, and handler and unattributed time on every row the handler answered; the 34 rows that failed with a 500 (malformed stored state on either backend, and the refused and malformed-JSON migrations) carry only total time and the stages they reached (the org load, or the migration's lock and mutate stages). P02's hand-off records this probe-level record as reviewed with its candidate and leaves to P01 whether that meets the clause; the coordinator ruled (2026-09-24 21:14Z) that it does. It approves the probe, not a product drift policy, and runtime_census stays false. Native negative controls are the P03 gate, not a clause of this legacy facet (S2d decision 1, reviewer ruling on 803227e). Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -3005,10 +3008,7 @@
           "sha256": "8eeb86385ab4b17f5ef57bd1c2cf69ada99eeaac8b2409ea9303c87adc24b71a"
         }
       ],
-      "open_questions": [
-        "Implement the approved P02 complete contact/profile/loss/drift instrumentation and native negative controls; runtime_census and conversion_authorized remain false.",
-        "Owner: P02 for the approved instrumentation record, then P03 for native negative controls. Closes with: an approved (reviewed) drift-aware contact/profile/loss record for both tools, plus native negative controls. Not coverable at P01 from available evidence: the P02 per-operation probe (tools/p02_operation_contacts.py, v3 b6568a1; docs/state-system/p02-operation-contacts.md) covers per-operation contacts, profile, window loss and hidden_steps=0 for both tools on synthetic data, cold and warm; no approved drift policy exists and native negative controls need a native build."
-      ]
+      "open_questions": []
     },
     "preview.authority": {
       "dimension": "authority",
@@ -4797,7 +4797,7 @@
       "dimension": "instrumentation",
       "status": "unresolved",
       "facts": [
-        "The access middleware labels the route; when profiling is bound the build records load_snapshot_ms, tree_ms and annotate_ms stages. No P02 per-operation record covers these routes.",
+        "The access middleware labels the route; when profiling is bound the build records load_snapshot_ms, tree_ms and annotate_ms stages. P02's per-operation record covers these routes (below).",
         "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 27c8667): a loss-accounted per-operation record for every tree and detail row, admin and public, cold and warm (per-row unattributed and late deltas zero, every statement bound). NOT covered: the public gateway's token-map rebuild (kiosk_token_scan) runs before any census attempt, so its every-org read is unattributable (all its statements unbound, census db_unattributed grows, no record); the public rows ran with the map pinned fresh. Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
@@ -4810,7 +4810,7 @@
       ],
       "open_questions": [
         "Attribute the public gateway's token-map rebuild to the request that triggers it.",
-        "Owner: P02's runtime instrumentation stage for the gateway's token-map rebuild, then P03 for native negative controls. Closes with: an observed, loss-accounted contact record for the tree and detail routes, admin and public, cold and warm, including the public gateway's token-map rebuild that a request after the cache expires carries. Not coverable at P01 from available evidence: P02's rows cover the routes themselves, but the rebuild runs in the ASGI wrapper before the census attempt exists, so no record can attribute it without product instrumentation."
+        "Owner: P02's runtime instrumentation stage. Closes with: an attributed, loss-accounted contact record for the public gateway's token-map rebuild (kiosk_token_scan), charged to the request that carries it after the cache expires. The tree and detail routes themselves are covered (the fact above), and native negative controls are the P03 gate, not a clause of this facet (S2d decision 1; narrowed by P01 S2j). Not coverable at P01 from available evidence: the rebuild runs in the ASGI wrapper before the census attempt exists, so no record can attribute it without product instrumentation."
       ]
     },
     "org-feed.authority": {
@@ -7774,7 +7774,7 @@
       "status": "specified",
       "facts": [
         "Source read set: under DOC_LOCK, the whole org loaded (load_org), the caller's node and generation, the custody epoch, the receipt row under (node, key) and its fingerprint subject; the in-process in-flight set; the verb's coverage class.",
-        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 f690e5e) for every answer the clause names, cold and warm, as the caller on the agent door: not_applied with a new fence, applied, conflict, and epoch-rotated (unknown, not fenced), plus a repeat lookup answered from the fence and, warm, a lookup of another agent's applied key. Cold, every answer reads doc, log_d, log_l, meta and nodes of the org's own store. Warm, the lookup is served the per-org resident under DOC_LOCK, so its store contact depends on the resident's state: the applied answer ran no statement, the repeat of a fence read only doc, log_l and meta, and the conflict and epoch-rotated answers, each following an answer that returned a receipt row, reloaded all five tables, consistent with store._on_doc_lock_release dropping a resident whose lazy log section a hold exposed. Only a new fence writes (doc and log_l, and meta cold); every other answer writes nothing. No row makes an unknown contact or touches another org's store. The refusals write nothing: halted (409), no op_key (422) and no for_tool (422); a bad token is refused 401 before any census attempt. Asserted by tests/test_state_p02_contact_facets.py."
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 f690e5e) for every answer the clause names, cold and warm, as the caller on the agent door: not_applied with a new fence, applied, conflict, and epoch-rotated (unknown, not fenced), plus a repeat lookup answered from the fence and, warm, a lookup of another agent's applied key. Cold, every answer reads doc, log_d, log_l, meta and nodes of the org's own store. Warm, the lookup is served the per-org resident under DOC_LOCK, so its store contact depends on the resident's state: the applied answer ran no statement, the repeat of a fence read only doc, log_l and meta, and the conflict and epoch-rotated answers, each following an answer that returned a receipt row, reloaded all five tables, because store._on_doc_lock_release drops a resident whose lazy log section a hold exposed (measured by v3-popout-review-opus55's mutant R1 on be8a05e, and repeated in P01 S2j: with that drop disabled, the warm conflict and epoch-rotated lookups run no statement). Only a new fence writes (doc and log_l, and meta cold); every other answer writes nothing. No row makes an unknown contact or touches another org's store. The refusals write nothing: halted (409), no op_key (422) and no for_tool (422); a bad token is refused 401 before any census attempt. Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
