@@ -12,6 +12,7 @@ pub mod boot;
 pub mod descriptor;
 pub mod guard;
 pub mod handler;
+pub mod mail_verbs;
 #[cfg(feature = "qualification")]
 pub mod harness;
 pub mod proto;

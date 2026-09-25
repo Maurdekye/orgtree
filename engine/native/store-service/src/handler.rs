@@ -34,6 +34,29 @@ pub const CONTROLS: &[&str] = &[
 /// The handshake's DECLARED-CONTACTS table (CONTRACT-M1 §5 r4; WS7
 /// `oracle.py` shape). `required` marks the design's mandatory contacts.
 pub fn declared() -> Value {
+    let mut d = declared_ws2();
+    // WS5 (mail, runtime claims)
+    if let (Some(m), Value::Object(w5)) = (d.as_object_mut(), orgtree_store::mail::declared::declared()) {
+        m.extend(w5);
+    }
+    d
+}
+
+/// Every unsafe control this build contains: WS2's and each family's.
+pub fn controls() -> Vec<String> {
+    let mut v: Vec<String> = CONTROLS.iter().map(|s| s.to_string()).collect();
+    v.extend(orgtree_store::mail::declared::controls().into_iter().map(str::to_string));
+    v
+}
+
+/// Every verb this build serves.
+pub fn verbs() -> Vec<String> {
+    let mut v: Vec<String> = VERBS.iter().map(|s| s.to_string()).collect();
+    v.extend(crate::mail_verbs::VERBS.iter().map(|s| s.to_string()));
+    v
+}
+
+fn declared_ws2() -> Value {
     json!({
         "receipt.lookup": {
             "relations": {
@@ -66,6 +89,7 @@ pub fn points() -> Vec<String> {
         out.push(format!("receipt.lookup.stmt.{label}.before"));
         out.push(format!("receipt.lookup.stmt.{label}.after"));
     }
+    out.extend(orgtree_store::mail::declared::points());
     out
 }
 
@@ -134,9 +158,9 @@ impl<C: Connector + 'static> Handler for StoreHandler<C> {
             protocol: PROTOCOL.into(),
             qualification: orgtree_store::hooks::QUALIFICATION,
             build_sha: self.build_sha.clone(),
-            verbs: VERBS.iter().map(|s| s.to_string()).collect(),
+            verbs: verbs(),
             points: if orgtree_store::hooks::QUALIFICATION { points() } else { vec![] },
-            controls: if orgtree_store::hooks::QUALIFICATION { CONTROLS.iter().map(|s| s.to_string()).collect() } else { vec![] },
+            controls: if orgtree_store::hooks::QUALIFICATION { controls() } else { vec![] },
         }
     }
 
@@ -148,7 +172,10 @@ impl<C: Connector + 'static> Handler for StoreHandler<C> {
                 self.shutdown.notify_one();
                 Ok(json!({"ok": true, "stopping": true}))
             }
-            other => Err(json!({"error": "unknown_verb", "verb": other})),
+            other => match crate::mail_verbs::handle(&self.exec, &req).await {
+                Some(r) => r,
+                None => Err(json!({"error": "unknown_verb", "verb": other})),
+            },
         };
         r.unwrap_or_else(|e| e)
     }

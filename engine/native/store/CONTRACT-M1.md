@@ -214,27 +214,55 @@ Migration files: `engine/native/store-schema/migrations/NNNN_<name>.sql`, ascend
 
 Column lists live in the migration files, which are reviewed against v6 SCHEMA-CATALOG as the plan's DDL checklist. Consumers may rely on the **table names, key columns and constraint names** above from M1; other columns may still grow within WS2's range until WS2's first landing.
 
-## 8. Sent interface stub (WS5 owns the implementation)
+## 8. Sent interface (r5, WS5, lead ack A1 — owned by WS5 from 2026-09-25)
+
+`orgtree_store::sent`, the SOURCE half of two-stage mail (S3 E1.1-E1.2). Frozen names kept: `record_sent`, `lock_grantee_for_grant`, `MailSource`, `Destination`, `GrantEffect`, `SentRecord`. r5 adds `MailClass` and the constructors, and removes the public fields of `SendRequest`, with the lead's ack (A1, decision 1 on `p03-ws5-mail-endpoints-and-minimal-runtime-claim`).
 
 ```rust
-pub struct SendRequest {
-    pub source: MailSource,              // Agent{principal} | User | System  (System: no pair_seq, E1.2)
-    pub dest: Destination,               // Resolved{principal, mailbox, mailbox_incarnation} | UserMailbox | External{handle}
-    pub original_message_id: Uuid,       // stable across retries (part of the op identity)
-    pub kind: MailKind, pub body: String, pub urgent: bool,
-    pub grant: GrantEffect,              // None | ReplyGrant{grantee,target} | FirstContactUser | Extern
-}
-pub struct SentRecord { pub message_id: Uuid, pub pair_seq: Option<i64>, pub outgoing_intent: Uuid }
+pub enum MailSource  { Agent { principal }, User, System }
+pub enum Destination { Resolved { principal, mailbox, mailbox_incarnation }, UserMailbox { mailbox }, External { handle } }
+pub enum GrantEffect { None, ReplyGrant { grantee, target }, FirstContactUser { node }, Extern }
+pub enum MailClass   { Message /* wakes */, Passive /* agent notice: mail, no wake */, Notice /* system notice box */ }
 
-/// Called INSIDE the caller's command transaction (release-notify, status done/blocked, credit answer, staffing kickoff).
-pub async fn record_sent(tx: &mut Tx<'_>, req: &SendRequest) -> Result<SentRecord, Refusal>;
-/// Lock-order helper for grant-bearing sends (S3 E1.1 step 5, N4): take the grantee's authority_epoch
-/// FOR NO KEY UPDATE at C4 step 3, BEFORE any other lock the caller takes after it.
-pub async fn lock_grantee_for_grant(tx: &mut Tx<'_>, org: Uuid, grantee: Uuid) -> Result<(), CmdError>;
+// Fields are PRIVATE: callers must use the constructors (a struct literal does not compile).
+SendRequest::message(source, dest, original_message_id, kind, body, fingerprint)
+SendRequest::passive(source, dest, original_message_id, kind, body, fingerprint)
+SendRequest::notice (source, dest, original_message_id, kind, body, fingerprint)
+    .with_grant(GrantEffect) .with_urgent(reason) .attributed()
+
+#[non_exhaustive] pub struct SentRecord { message_id, pair_seq: Option<i64>, outgoing_intent, grant_inserted, extern_revoked: Vec<Uuid> }
+pub enum SendError { Refused(Refusal), Db(DbError), Retry(&'static str) }   // Retry -> CmdError::RetryAttempt { cause }
+
+/// INSIDE the caller's command transaction (org = tx.op().org).
+pub async fn record_sent(tx, &SendRequest) -> Result<SentRecord, SendError>;
+/// C4 step 3 for a grant-bearing send: the grantee's authority_epoch FOR NO KEY UPDATE.
+pub async fn lock_grantee_for_grant(tx, org, grantee) -> Result<(), CmdError>;
 ```
 
-- Writes only source rows: `mail_sent` (with `pair_seq` = committed max + 1 for a paired source; collision → `mail_sent_pair_seq` retry), one `outgoing_intents` row, and the grant rows/epoch bump when `grant` says so. **Never** a receiver row (v6 I07). Registers a post-commit effect that hints the MPSC queue.
-- M1 stub behaviour: writes `mail_sent` + `outgoing_intents` with `pair_seq`, supports `GrantEffect::None` and `ReplyGrant` (the P1 bump), and refuses the other grant kinds with `Unimplemented`. WS5 replaces the body behind the same signature; WS3/WS4 code against the signature only.
+**The pair rule is derived, never passed** (A1 condition 2): `pair_seq` is set iff the source is `Agent` or `User`, the class is `Message` or `Passive`, and the destination is a mailbox (`sent::pair_gated`). A `Notice` or a `System` source never gets one. It is `max(committed pair_seq) + 1` for `(source, destination mailbox)`; a collision on `mail_sent_pair_seq` is an allowlisted retry. Migration `0300` enforces the same rule as `mail_sent_pair_rule`.
+
+**Which class and source to use** (lead ruling A2): an ordinary message is `message`; `orgtree_send_notice` is `passive` and grants the reply audience like a message; a docket participation notice is `passive` from the **acting agent**, keeping its pair order, `GrantEffect::None`; a deep-reach notice is `notice` (System or the causing user); the docket's notice to a previous owner is `notice` from `System`.
+
+**Writes** (source rows only, v6 I07): `mail_sent` (with `class`, `urgent_reason`, `attributed`), one `outgoing_intents` `mail.deliver` row for a mailbox or one `transport_intents` row for an outside party, and the grant effect. It never writes a receiver row and never locks or references a mailbox head. After commit it hints the receiver's queue (`mail::hints`, volatile, dropped when full).
+
+**Grant effects**, each bumping the grantee's authority_epoch **only when a row was inserted** (r7 C2a P1):
+- `ReplyGrant { grantee: recipient, target: sender }`: grant `(recipient, agent, sender)` with `anchor_id = sender`. The caller must hold the grantee's epoch row `FOR NO KEY UPDATE` from C4 step 3 (N4).
+- `FirstContactUser { node }`: grant `(node, user, nil)`; human send only (source `User`).
+- `Extern`: sealed-kiosk refusal; the org's `extern_holders` control row `FOR UPDATE`; an existing holder grants nothing; otherwise a top-level sender only. In single-holder mode each other holder's grant is deleted, its epoch bumped, a restriction recorded (`restrict::record`) and a `Notice` sent to it; then the self grant.
+
+**Addressing helpers** (S3 E1.1 steps 3-4; reusable by release-notify):
+- `resolve_recipient(tx, org, principal, RecipientLock::{Share, Grant})` covers the recipient's epoch (`FOR SHARE`, or `FOR NO KEY UPDATE`) plus its open mailbox read without a lock. It returns `Recipient { dest, lifecycle: Live | Archived }`, and refuses `no_such_agent` or `unrecoverable`.
+- `plan_route(tx, org, sender, To::Agent(r) | To::User)` makes an unlocked prediction. `Route` is one of `SelfSend | Parent | Child | DeepDescendant | Sibling | HeldAudience | UserTopLevel | UserAudience`; with no route it refuses `not_addressable`.
+- `anchor_route(tx, org, &plan)` takes `FOR SHARE` on each edge row the route relies on, leaf upward, re-checking continuity, plus the held grant row. A changed row returns `Retry("sent.route_changed")`.
+- `address_agent(tx, org, sender, recipient, reply_grant)` runs them in C4 order: plan, then the recipient lock (`Grant` if a reply grant is predicted), then the anchors, then a grant re-check. If a grant is needed but only `Share` was taken, it returns `Retry("sent.prediction_stale")`. A share lock is never upgraded (Q-AM1 (ii)).
+- `address_user(tx, org, sender)` addresses the user mailbox from a top-level sender or a `(sender, USER)` holder.
+
+**Other WS5 hooks for WS3/WS4:**
+- `sent::record_retraction(tx, mailbox, original_message_id)` (E1.5, quick-staff undo): a `mail.retract` intent, never a mailbox write.
+- `runtime::record_kickoff(tx, principal, cause)`: a `kickoff` intent, unique per `(cause, principal)`.
+- `mail::mailbox::{create_mailbox, create_user_mailbox, drive_pending (P8 a, head FOR SHARE), close_mailbox (P8 b, head FOR UPDATE), fold_notices (P8 c, head FOR UPDATE)}`.
+
+**Unsafe controls** (static lists `sent::CONTROLS`, `mail::mailbox::CONTROLS`): `Q-AM1.source_writes_head`, `Q-AM1.share_then_upgrade`, `Q-R6.receiver_write_in_source`, `Q-C7.skip_epoch_bump`, `Q-HM1.no_lock_no_key` (the harness also drops `audience_grants_key` for that run), `Q-AM4.no_holder_lock`, `Q-E1.rehire_no_head_lock`, `Q-E1.delete_no_head_lock`, `Q-E1.fold_whole_box_no_lock`.
 
 ## 9. Store-service channel and the door hook
 
