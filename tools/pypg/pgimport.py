@@ -394,6 +394,10 @@ def dry_run(root: Path) -> dict[str, Any]:
     """Every org: source, counts, checksums, problems. Writes nothing."""
     layout = classify_orgs_dir(root)
     report: dict[str, Any] = {"schema": SCHEMA, "kind": "dry_run", "root": str(root),
+                              # which store did the JSON->rows work: the bundled
+                              # runtime's ._pth can otherwise supply another checkout's
+                              "provenance": {"store": str(Path(store.__file__).resolve()),
+                                             "pgimport": str(Path(__file__).resolve())},
                               "orgs": {}, "ignored": layout["ignored"], "refused": list(layout["refused"])}
     for slug, entry in layout["orgs"].items():
         try:
@@ -499,3 +503,37 @@ def write_cutover(root: Path, dry: Mapping[str, Any], imported: Mapping[str, Any
     tmp.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
     os.replace(tmp, target)
     return record
+
+
+# ---------------------------------------------------------------- command line
+
+def main(argv: list[str] | None = None) -> int:
+    """``dry-run --root <data root> [--out report.json]``: the report on
+    stdout (or to ``--out``), exit 0 when importable, 3 when refused. Reads
+    only. The import and the cutover need the PostgreSQL sink (PG-0) and are
+    run by coordinator-opus alone on a real root."""
+    import argparse  # noqa: PLC0415
+
+    parser = argparse.ArgumentParser(prog="pgimport", description=__doc__.split("\n\n")[0])
+    sub = parser.add_subparsers(dest="command", required=True)
+    dry = sub.add_parser("dry-run", help="counts, checksums and refusals for every org; writes nothing")
+    dry.add_argument("--root", type=Path, required=True)
+    dry.add_argument("--out", type=Path)
+    args = parser.parse_args(argv)
+    root = args.root.resolve()
+    if not (root / "orgs").is_dir():
+        print(f"pgimport: {root} has no orgs/ folder", file=sys.stderr)
+        return 2
+    report = dry_run(root)
+    text = json.dumps(report, indent=2, sort_keys=True)
+    if args.out:
+        args.out.write_text(text + "\n", encoding="utf-8")
+    else:
+        print(text)
+    summary = {"orgs": len(report["orgs"]), "importable": report["importable"], "refused": len(report["refused"])}
+    print("pgimport dry-run: " + json.dumps(summary), file=sys.stderr)
+    return 0 if report["importable"] else 3
+
+
+if __name__ == "__main__":
+    sys.exit(main())
