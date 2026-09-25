@@ -186,7 +186,7 @@ class WatchdogDoor(unittest.TestCase):
     def box(self, nid: str) -> list:
         d = self.durable()
         out = []
-        for sec in ('mail', 'mail_log'):
+        for sec in ('mail',):             # the pending queue (mail_log mirrors it)
             got = (d.get(sec) or {}).get(nid) or []
             out += got if isinstance(got, list) else [got]
         return out
