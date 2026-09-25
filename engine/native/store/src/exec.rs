@@ -324,6 +324,8 @@ pub struct Tx<'a, S: Session> {
     prev_attempt_now: Option<i64>,
     effects: Vec<Effect>,
     stub: bool,
+    /// Set by BEGIN; read by [`crate::resolve`] to choose its locking.
+    isolation: Option<Isolation>,
     #[cfg(feature = "qualification")]
     fail_next: Option<String>,
     #[cfg(feature = "qualification")]
@@ -347,6 +349,7 @@ impl<'a, S: Session> Tx<'a, S> {
 
     pub(crate) async fn begin(&mut self, iso: Isolation) -> Result<(), DbError> {
         let r = self.sess.begin(iso).await;
+        self.isolation = Some(iso);
         let pid = self.sess.backend_pid();
         self.emit(EventKind::Begin { isolation: iso.name(), backend_pid: pid });
         self.now = None;
@@ -409,6 +412,7 @@ impl<'a, S: Session> Tx<'a, S> {
             prev_attempt_now,
             effects: Vec::new(),
             stub: false,
+            isolation: None,
             #[cfg(feature = "qualification")]
             fail_next: None,
             #[cfg(feature = "qualification")]
@@ -418,6 +422,11 @@ impl<'a, S: Session> Tx<'a, S> {
 
     pub fn scope(&self) -> Scope<'_> {
         Scope { hooks: self.hooks, family: self.family, verb: self.verb, op: Some(self.op), op_tag: self.op_tag, attempt: self.attempt }
+    }
+
+    /// The isolation this transaction began with (`None` before BEGIN).
+    pub fn isolation(&self) -> Option<Isolation> {
+        self.isolation
     }
 
     pub fn attempt(&self) -> u32 {
@@ -770,6 +779,7 @@ impl<C: Connector> Executor<C> {
         db!(tx.pause("admitted").await, false);
         {
             let r = tx.sess.begin(family.isolation).await;
+            tx.isolation = Some(family.isolation);
             let pid = tx.sess.backend_pid();
             tx.emit(EventKind::Begin { isolation: family.isolation.name(), backend_pid: pid });
             db!(r, false);
