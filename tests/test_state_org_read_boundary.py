@@ -388,7 +388,8 @@ class OrgReadBoundary(unittest.TestCase):
         self.assertEqual(got['chat_warm'][0]['sections'], [])
         for sidecar in ('chat-window-index.sqlite3', 'reply-events.sqlite3', 'transcript-records.sqlite3'):
             self.assertTrue((Path(store.DATA_ROOT) / sidecar).exists(), sidecar)
-        # recorded legacy defect: the mint runs before the cursor check, so a read refused 422 still writes
+        # recorded legacy defect (docket org-reads-that-write-chat-gets-mint-on-first-rea): the mint runs before the cursor check,
+        # so a read refused 422 still writes
         self.assertEqual((got['chat_bad_cursor'][0]['status'], got['chat_bad_cursor'][0]['sections']),
                          (422, ['nodes', 'reply_incarnation']))
 

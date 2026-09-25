@@ -483,7 +483,8 @@ Three of these GETs write:
   first read;
 - the network identity route backfills the identity on its first read;
 - a chat read refused 422 for a bad cursor still writes, because the mint runs first (recorded legacy defect).
-The scratch, tool-image and orgmd reads leave the file open (recorded legacy defect).
+The scratch, tool-image and orgmd reads leave the file open (recorded legacy defect). Both defects and the
+reads that write are docketed as org-reads-that-write-chat-gets-mint-on-first-rea.
 
 The disk routes answer 409 under the desktop-managed profile, which creates no sandboxed org. The
 bridge-credential status answers 409 unless the deployment profile is frozen. With the chat route and the history
