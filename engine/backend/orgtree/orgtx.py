@@ -786,6 +786,12 @@ class _All:
 ALL: Any = _All()
 
 
+def open_on(slug: str) -> bool:
+    """Is an org_tx (single or multi-org) open on `slug` on THIS thread? For
+    helpers callable both inside and outside a transaction (PG-3d)."""
+    return slug in (getattr(_open, "slugs", None) or set())
+
+
 def current_tx(slug: str) -> OrgTx | None:
     """The org_tx open on `slug` on THIS thread, or None — for code that runs
     inside a save (pre-save hooks, reconcile) and must confine its writes to

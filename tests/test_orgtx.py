@@ -189,9 +189,11 @@ class OrgTxBasics(unittest.TestCase):
 
     def test_current_tx_and_lock_plan_order(self) -> None:
         self.assertIsNone(orgtx.current_tx(self.slug))
+        self.assertFalse(orgtx.open_on(self.slug))
         with orgtx.org_tx(self.slug, nodes=['b', 'a'], sections=['killswitch'],
                           share_sections=['settings_x']) as tx:
             self.assertIs(orgtx.current_tx(self.slug), tx)
+            self.assertTrue(orgtx.open_on(self.slug))
             plan = orgtx._lock_plan(tx)
         self.assertIsNone(orgtx.current_tx(self.slug))
         self.assertEqual([(k, n) for k, n, _ in plan],
