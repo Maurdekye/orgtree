@@ -193,7 +193,7 @@ MUTANTS = [
     ("start.trusts_pg_ctl_started", "src/cluster.rs",
      "            if pid_port == Some(port) && status.as_deref() == Some(\"ready\") && fresh && is_ours {",
      "            if true {",
-     ["--test", "drills", "--", "--include-ignored", "--test-threads=1", "abrupt"], True),
+     ["--test", "pidfile"], False),
     ("attach.descriptor_acl_unchecked", "src/cluster.rs",
      "    crate::acl::require_owner_only(&layout.attach)?;\n    let (rt, id) = identify(root, bin)?;",
      "    let (rt, id) = identify(root, bin)?;",
