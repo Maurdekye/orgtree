@@ -110,6 +110,14 @@ class DocketOnOrgTx(Base):
             status='dropped', dropped_reason='Cancelled by the test; nothing to resume.'))
         # the action transaction ran with the move deferred: still active
         self.assertFalse(get(self.slug, self.item)[1])
+        # ⚠ and so does the NEXT docket write, on another item: the inline
+        # `_work_sweep` at its head would have archived the dropped item here
+        # (the deferral is what this asserts — the drop's own head-of-call
+        # sweep ran before the status changed, so it proves nothing alone)
+        worktx.run(self.slug, lambda o: o.work_create(
+            'own', 'Second item', objective='Problem: a. Solution: b.'))
+        self.assertFalse(get(self.slug, self.item)[1],
+                         'an action transaction archived another item')
         moved = worktx.sweep(self.slug)
         self.assertEqual(moved, [self.item])
         self.assertTrue(get(self.slug, self.item)[1])
