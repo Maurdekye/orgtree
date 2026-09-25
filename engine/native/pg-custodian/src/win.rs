@@ -15,19 +15,60 @@ pub struct ProcessInfo {
     pub pid: u32,
     pub parent_pid: u32,
     pub exe_name: String,
+    /// Creation time (FILETIME ticks), when the process could be opened.
+    /// Windows never updates a child's recorded parent PID, so a process
+    /// whose parent died can name a PID that now belongs to someone else;
+    /// only a child created AFTER that PID's current owner is really its child.
+    pub created: Option<u64>,
+}
+
+/// The owned process family of `postmaster`: itself; the `cmd.exe` shim
+/// pg_ctl wraps it in, if its parent is one; and every descendant of either.
+/// Parent links count only when the child was created no earlier than the
+/// parent (see [`ProcessInfo::created`]); an unknown creation time never links.
+pub fn family_pids(procs: &[ProcessInfo], postmaster: u32) -> Vec<u32> {
+    let find = |pid: u32| procs.iter().find(|p| p.pid == pid);
+    let links = |child: &ProcessInfo, parent: &ProcessInfo| match (child.created, parent.created) {
+        (Some(c), Some(p)) => child.parent_pid == parent.pid && c >= p && child.pid != parent.pid,
+        _ => false,
+    };
+    let Some(pm) = find(postmaster) else { return vec![] };
+    let mut set = vec![postmaster];
+    if let Some(parent) = find(pm.parent_pid) {
+        if parent.exe_name.eq_ignore_ascii_case("cmd.exe") && links(pm, parent) {
+            set.push(parent.pid);
+        }
+    }
+    loop {
+        let before = set.len();
+        for p in procs {
+            if p.pid == 0 || set.contains(&p.pid) {
+                continue;
+            }
+            if let Some(parent) = find(p.parent_pid) {
+                if set.contains(&parent.pid) && links(p, parent) {
+                    set.push(p.pid);
+                }
+            }
+        }
+        if set.len() == before {
+            break;
+        }
+    }
+    set
 }
 
 #[cfg(windows)]
 mod imp {
     use super::*;
-    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE, WAIT_OBJECT_0, WAIT_TIMEOUT};
+    use windows_sys::Win32::Foundation::{CloseHandle, FILETIME, HANDLE, INVALID_HANDLE_VALUE, WAIT_OBJECT_0, WAIT_TIMEOUT};
     use windows_sys::Win32::Security::Cryptography::{BCryptGenRandom, BCRYPT_USE_SYSTEM_PREFERRED_RNG};
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{
         CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
     };
     use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
     use windows_sys::Win32::System::Threading::{
-        GetExitCodeProcess, OpenProcess, QueryFullProcessImageNameW, TerminateProcess, WaitForSingleObject,
+        GetExitCodeProcess, GetProcessTimes, OpenProcess, QueryFullProcessImageNameW, TerminateProcess, WaitForSingleObject,
         PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE,
     };
 
@@ -65,11 +106,30 @@ mod imp {
                 pid: e.th32ProcessID,
                 parent_pid: e.th32ParentProcessID,
                 exe_name: String::from_utf16_lossy(&e.szExeFile[..len]),
+                created: creation_time(e.th32ProcessID),
             });
             ok = unsafe { Process32NextW(snap, &mut e) };
         }
         unsafe { CloseHandle(snap) };
         Ok(out)
+    }
+
+    fn creation_time(pid: u32) -> Option<u64> {
+        if pid == 0 {
+            return None;
+        }
+        let h = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+        if h.is_null() {
+            return None;
+        }
+        let z = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+        let (mut c, mut x, mut k, mut u) = (z, z, z, z);
+        let ok = unsafe { GetProcessTimes(h, &mut c, &mut x, &mut k, &mut u) };
+        unsafe { CloseHandle(h) };
+        if ok == 0 {
+            return None;
+        }
+        Some(((c.dwHighDateTime as u64) << 32) | c.dwLowDateTime as u64)
     }
 
     /// An open handle on a process: while we hold it the PID cannot be reused.
