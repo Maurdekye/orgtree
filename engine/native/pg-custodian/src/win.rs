@@ -72,6 +72,26 @@ mod imp {
         PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE,
     };
 
+    /// Make this process's stdin/stdout/stderr handles non-inheritable.
+    ///
+    /// `pg_ctl start` leaves a long-lived postmaster (via a `cmd.exe` shim)
+    /// that inherits every inheritable handle in the chain. If our standard
+    /// handles are pipes owned by a caller that captures our output, the
+    /// postmaster would hold the pipe's write end open and the caller would
+    /// never see end-of-file until the cluster stopped. Rust passes the
+    /// handles it gives a child explicitly (duplicated as inheritable), so
+    /// clearing the flag on our own copies changes nothing else.
+    pub fn stop_std_handle_inheritance() {
+        use windows_sys::Win32::Foundation::{SetHandleInformation, HANDLE_FLAG_INHERIT};
+        use windows_sys::Win32::System::Console::{GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE};
+        for which in [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+            let h = unsafe { GetStdHandle(which) };
+            if !h.is_null() && h != INVALID_HANDLE_VALUE {
+                unsafe { SetHandleInformation(h, HANDLE_FLAG_INHERIT, 0) };
+            }
+        }
+    }
+
     pub fn free_commit_bytes() -> Result<u64> {
         let mut st: MEMORYSTATUSEX = unsafe { std::mem::zeroed() };
         st.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
@@ -203,6 +223,7 @@ mod imp {
     pub fn free_commit_bytes() -> Result<u64> {
         unsupported()
     }
+    pub fn stop_std_handle_inheritance() {}
     pub fn random_bytes(_buf: &mut [u8]) -> Result<()> {
         unsupported()
     }
@@ -231,7 +252,7 @@ mod imp {
     }
 }
 
-pub use imp::{free_commit_bytes, random_bytes, snapshot, ProcessHandle};
+pub use imp::{free_commit_bytes, random_bytes, snapshot, stop_std_handle_inheritance, ProcessHandle};
 
 pub fn random_hex(n_bytes: usize) -> Result<String> {
     let mut buf = vec![0u8; n_bytes];
