@@ -469,6 +469,21 @@ def _begin_create(raw: Any, slug: str) -> int:
     return org_id
 
 
+def backfill_always_rows(rows: dict[str, str]) -> int:
+    """At claim: give every live org the doc rows that must always exist
+    (store.ALWAYS_ROWS — the killswitch), with their cleared value. Returns
+    how many rows were added."""
+    n = 0
+    with connect() as c:
+        for (org_id,) in c.execute(
+                "SELECT org_id FROM public.orgs WHERE deleted_at IS NULL").fetchall():
+            for key, val in rows.items():
+                cur = c.execute(f"INSERT INTO org_{int(org_id)}.doc(key, val) VALUES (%s, %s) "
+                                "ON CONFLICT (key) DO NOTHING", (key, val))
+                n += cur.rowcount or 0
+    return n
+
+
 def retire_unmarked(orgs_dir: str) -> list[str]:
     """At claim: a live orgs row whose `<slug>.pg` marker is not in orgs/ is
     not an org the engine can see (its marker was deleted to the trash, or a

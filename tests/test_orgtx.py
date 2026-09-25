@@ -512,5 +512,89 @@ class TransitionFence(unittest.TestCase):
         self.assertEqual(_node(self.slug, 'b')['name'], 'reentered')
 
 
+class PG0bFake(unittest.TestCase):
+    def setUp(self) -> None:
+        orgtx.use_backend(orgtx.SeamBackend())
+        self.slug = _fresh_org(f'pg0b-{self._testMethodName}'[:60])
+
+    def tearDown(self) -> None:
+        orgtx.TRANSITION_FENCE = False
+        os.environ.pop('ORGTREE_ORGTX_TEST_HOOKS', None)
+
+    def _unheal(self) -> None:
+        org = store.load_org(self.slug)
+        self.assertIsNotNone(dict.pop(org.d, '_migrations', None))
+        store.save_org(org)
+
+    def test_heal_recurs_and_bypasses_the_public_save(self) -> None:
+        from unittest.mock import patch
+        for _ in range(2):                         # not once per process
+            self._unheal()
+            calls: list = []
+            real = store.save_org
+            with patch.object(store, 'save_org', lambda o: (calls.append(1), real(o))[1]):
+                with orgtx.org_tx(self.slug, nodes=['a']) as tx:
+                    tx.d['nodes']['a']['name'] = 'after-heal'
+            self.assertEqual(len(calls), 1, 'only the commit goes through store.save_org')
+            self.assertIn('_migrations', store.load_org(self.slug).d)
+
+    def test_killswitch_row_always_present(self) -> None:
+        org = store.load_org(self.slug)
+        dict.pop(org.d, 'killswitch', None)        # an org that never had one
+        store.save_org(org)
+        with orgtx.org_tx(self.slug, nodes=['a']) as tx:
+            tx.d['nodes']['a']['name'] = 'x'
+        d = store.load_org(self.slug).d
+        self.assertIn('killswitch', d)
+        self.assertIsNone(d['killswitch'])
+        with orgtx.org_tx(self.slug, sections=['killswitch']) as tx:
+            tx.d['killswitch'] = {'on': True, 'by': 'USER'}
+        with orgtx.org_tx(self.slug, sections=['killswitch']) as tx:
+            tx.d.pop('killswitch')                 # a release that pops
+        d = store.load_org(self.slug).d
+        self.assertIn('killswitch', d)
+        self.assertIsNone(d['killswitch'], 'a popped latch is cleared, never left latched')
+
+    def test_absent_section_share_lock_blocks_the_writer(self) -> None:
+        entered, release = threading.Event(), threading.Event()
+
+        def hold() -> None:
+            with orgtx.org_tx(self.slug, share_sections=['never-written']):
+                entered.set()
+                release.wait(5)
+        t = threading.Thread(target=hold)
+        t.start()
+        self.assertTrue(entered.wait(5))
+        try:
+            with self.assertRaises(orgtx.LockTimeout):
+                with orgtx.org_tx(self.slug, sections=['never-written'], lock_timeout=0.2):
+                    pass
+        finally:
+            release.set()
+            t.join()
+
+    def test_mixed_replay_is_refused(self) -> None:
+        other = _fresh_org(f'pg0b-other-{self._testMethodName}'[:60])
+        with orgtx.org_tx(self.slug, nodes=['a'], op_key='k1', fingerprint='f'):
+            pass
+        with self.assertRaises(orgtx.MixedReplay):
+            with orgtx.org_tx_multi({self.slug: dict(nodes=['a'], op_key='k1', fingerprint='f'),
+                                     other: dict(nodes=['b'], op_key='k2', fingerprint='f')}) as t:
+                t[other].d['nodes']['b']['name'] = 'must-not-vanish-silently'
+        self.assertEqual(_node(other, 'b')['name'], 'b')
+
+    def test_doc_lock_after_row_locks_trips_with_hooks(self) -> None:
+        os.environ['ORGTREE_ORGTX_TEST_HOOKS'] = '1'
+        orgtx.TRANSITION_FENCE = False
+        with self.assertRaises(AssertionError):
+            with orgtx.org_tx(self.slug, nodes=['a']):
+                with store.DOC_LOCK:
+                    pass
+        orgtx.TRANSITION_FENCE = True               # fenced: re-entrant, fine
+        with orgtx.org_tx(self.slug, nodes=['a']):
+            with store.DOC_LOCK:
+                pass
+
+
 if __name__ == '__main__':
     unittest.main()

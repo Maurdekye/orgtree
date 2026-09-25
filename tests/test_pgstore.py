@@ -659,5 +659,91 @@ class TransitionFence(unittest.TestCase):
         self.assertEqual(_node(self.slug, 'b')['name'], 'reentered')
 
 
+@unittest.skipUnless(ADMIN, 'ORGTREE_TEST_PG_ADMIN_URL not set: NOT RUN')
+class PG0bPostgres(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        store.claim_data_root()
+
+    def setUp(self) -> None:
+        orgtx.use_backend(orgtx.PgBackend())
+        self.slug = _fresh_org(f'pg0b-{self._testMethodName}'[:60])
+
+    def _row(self, key: str):
+        with pgstore.connect() as c:
+            oid = c.execute('SELECT org_id FROM orgs WHERE slug=%s', (self.slug,)).fetchone()[0]
+            r = c.execute(f'SELECT val FROM org_{oid}.doc WHERE key=%s', (key,)).fetchone()
+        return None if r is None else r[0]
+
+    def test_incremental_delete_is_compare_and_set(self) -> None:
+        org = store.load_org(self.slug)
+        org.d.setdefault('mail_log', {})['a'] = [{'id': 'm1'}, {'id': 'm2'}]
+        store.save_org(org)
+        legacy = store.load_org(self.slug)
+        legacy.d['mail_log']['a'].pop()            # an incremental delete of m2
+        with orgtx.org_tx(self.slug, logs=[('mail_log', 'a')]) as tx:
+            tx.d['mail_log']['a'][1]['body'] = 'edited-by-tx'
+        with self.assertRaises(store.StaleWrite):
+            store.save_org(legacy)
+        self.assertEqual(store.load_org(self.slug).d['mail_log']['a'][1].get('body'), 'edited-by-tx')
+
+    def test_receipt_only_commit_bumps_revision_and_notifies(self) -> None:
+        r0 = _rev(self.slug)
+        listen = psycopg.connect(os.environ['ORGTREE_PG_URL'], autocommit=True)
+        try:
+            listen.execute('LISTEN org_rev')
+            with orgtx.org_tx(self.slug, nodes=['a'], op_key='only-receipt', fingerprint='f') as tx:
+                tx.result = {'ok': True}           # no row changes
+            got = [n.payload for n in listen.notifies(timeout=2, stop_after=1)]
+        finally:
+            listen.close()
+        self.assertEqual(_rev(self.slug), r0 + 1)
+        self.assertEqual(got, [f'{self.slug}:{r0 + 1}'])
+
+    def test_killswitch_row_present_null_after_release_and_backfilled(self) -> None:
+        with orgtx.org_tx(self.slug, sections=['killswitch']) as tx:
+            tx.d['killswitch'] = {'on': True}
+        with orgtx.org_tx(self.slug, sections=['killswitch']) as tx:
+            tx.d.pop('killswitch')
+        self.assertEqual(self._row('killswitch'), 'null')
+        with orgtx.org_tx(self.slug, sections=['killswitch']) as tx:
+            tx.d['killswitch'] = None
+        self.assertEqual(self._row('killswitch'), 'null')
+        with pgstore.connect() as c:                # an org from before the rule
+            oid = c.execute('SELECT org_id FROM orgs WHERE slug=%s', (self.slug,)).fetchone()[0]
+            c.execute(f"DELETE FROM org_{oid}.doc WHERE key='killswitch'")
+        self.assertIsNone(self._row('killswitch'))
+        self.assertGreaterEqual(pgstore.backfill_always_rows(store.ALWAYS_ROWS), 1)
+        self.assertEqual(self._row('killswitch'), 'null')
+
+    def test_share_on_present_killswitch_blocks_the_latch(self) -> None:
+        entered, release = threading.Event(), threading.Event()
+
+        def door() -> None:
+            with orgtx.org_tx(self.slug, share_sections=['killswitch']):
+                entered.set()
+                release.wait(10)
+        t = threading.Thread(target=door)
+        t.start()
+        self.assertTrue(entered.wait(10))
+        try:
+            with self.assertRaises(orgtx.LockTimeout):
+                with orgtx.org_tx(self.slug, sections=['killswitch'], lock_timeout=0.3):
+                    pass
+        finally:
+            release.set()
+            t.join()
+
+    def test_mixed_replay_is_refused(self) -> None:
+        other = _fresh_org(f'pg0b-o-{self._testMethodName}'[:60])
+        with orgtx.org_tx(self.slug, nodes=['a'], op_key='mk1', fingerprint='f'):
+            pass
+        with self.assertRaises(orgtx.MixedReplay):
+            with orgtx.org_tx_multi({self.slug: dict(nodes=['a'], op_key='mk1', fingerprint='f'),
+                                     other: dict(nodes=['b'], op_key='mk2', fingerprint='f')}) as t:
+                t[other].d['nodes']['b']['name'] = 'x'
+        self.assertEqual(_node(other, 'b')['name'], 'b')
+
+
 if __name__ == '__main__':
     unittest.main()

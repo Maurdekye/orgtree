@@ -158,6 +158,12 @@ class ReceiptConflict(OrgTxError):
     """The op_key already has a receipt with a different fingerprint."""
 
 
+class MixedReplay(OrgTxError):
+    """An org_tx_multi call where some orgs' op_keys already applied and
+    others did not. Replaying would silently drop the fresh orgs' writes
+    (review finding f1), so the call is refused; split it or re-key it."""
+
+
 class LockTimeout(OrgTxError):
     """A row lock was not granted within the lock timeout."""
 
@@ -394,13 +400,52 @@ def _check(tx: OrgTx, changes: SaveChanges) -> None:
               "or work_items also rewrites work_items)", bad)
 
 
+class _HealNeeded(Exception):
+    """Internal: the load itself changed rows (a ledger load-heal). The
+    attempt releases its locks, the heal is committed, and it re-runs."""
+
+    def __init__(self, slug: str, rows: list[str]) -> None:
+        super().__init__(f"{slug}: load-heal pending on {rows}")
+        self.slug = slug
+        self.rows = rows
+
+
+MAX_HEALS = 3
+
+
+def _heal_pending(tx: OrgTx) -> list[str]:
+    """What constructing tx.org changed before the body ran: the ledger's
+    load-heals (`_migrations` markers, node scope, legacy freeze retags,
+    their event rows). Not once per process — a heal recurs whenever any
+    writer leaves a pre-heal shape (pg-supervisor-b, 18:47Z)."""
+    d = tx.org.d
+    if not isinstance(d, store.LazyDoc):
+        return []
+    rows = store._resident_dirty(d)                # pyright: ignore[reportPrivateUsage]
+    rows += [f"{k} (append)" for k, v in d._pending.items() if v]   # pyright: ignore[reportPrivateUsage]
+    return rows
+
+
+def _refuse_mixed_replay(order: list[OrgTx]) -> None:
+    replayed = [t.slug for t in order if t.replayed]
+    if replayed and len(replayed) != len(order):
+        fresh = [t.slug for t in order if not t.replayed]
+        raise MixedReplay(f"org_tx_multi: {replayed} already applied under their op_keys "
+                          f"but {fresh} did not; refusing rather than dropping their writes")
+
+
+def _check_heal(tx: OrgTx) -> None:
+    rows = _heal_pending(tx)
+    if rows:
+        raise _HealNeeded(tx.slug, rows)
+
+
 def _heal(slug: str) -> None:
-    """Bring an org to the ledger's load-heal fixed point in its own commit,
-    BEFORE any row lock: constructing an Org runs one-time heals
-    (`_migrations`, node scope, events) whose writes would otherwise ride the
-    first org_tx's commit and be refused as unlocked. A plain seam save — the
-    compare-and-set guards it like any legacy save."""
-    store.save_org(store._load_sqlite_org(slug))   # pyright: ignore[reportPrivateUsage]
+    """Commit a load-heal in its own save, with NO row lock held, through
+    store's internal save — not the public `store.save_org`, which tests patch
+    for fault injection (pg-supervisor-a, 18:50Z). The compare-and-set guards
+    it like any legacy save; under the transition fence DOC_LOCK is held."""
+    store._save_org(store._load_sqlite_org(slug))   # pyright: ignore[reportPrivateUsage]
 
 
 class SeamBackend:
@@ -416,7 +461,6 @@ class SeamBackend:
         self.receipts: dict[tuple[str, str], tuple[str | None, Any]] = {}
         self._rev_lock = threading.Lock()
         self.revisions: dict[str, int] = {}
-        self.healed: set[str] = set()
 
     def revision(self, slug: str) -> int:
         with self._rev_lock:
@@ -431,10 +475,6 @@ class SeamBackend:
             raise OrgTxError(f"org_tx needs ORGTREE_STORE=sqlite or postgres, "
                              f"not {store.STORE_BACKEND!r}")
         order = sorted(txs, key=lambda t: t.slug)
-        for tx in order:
-            if tx.slug not in self.healed:
-                _heal(tx.slug)
-                self.healed.add(tx.slug)
         owner = object()
         try:
             for tx in order:
@@ -461,6 +501,8 @@ class SeamBackend:
                         tx.replayed = True
                         tx.result = hit[1]
                 tx.org = store._load_sqlite_org(tx.slug)   # pyright: ignore[reportPrivateUsage]
+                _check_heal(tx)
+            _refuse_mixed_replay(order)
             yield
             if any(tx.replayed for tx in order):
                 for tx in order:
@@ -528,9 +570,6 @@ class PgBackend:
     (55P03 → LockTimeout). Each org's save bumps that org's revision and
     NOTIFYs; only the last save's COMMIT reaches the server."""
 
-    def __init__(self) -> None:
-        self.healed: set[str] = set()
-
     def transaction(self, tx: OrgTx, lock_timeout: float) -> contextlib.AbstractContextManager[None]:
         return self.transaction_many([tx], lock_timeout)
 
@@ -538,10 +577,6 @@ class PgBackend:
     def transaction_many(self, txs: list[OrgTx], lock_timeout: float) -> Iterator[None]:
         from . import pgstore
         from .ledger import LedgerError
-        for tx in txs:
-            if tx.slug not in self.healed:
-                _heal(tx.slug)
-                self.healed.add(tx.slug)
         conns: dict[str, Any] = {}
         for tx in txs:
             org_id = pgstore.read_marker(store._db_path(tx.slug))  # pyright: ignore[reportPrivateUsage]
@@ -614,12 +649,14 @@ class PgBackend:
                             f"op_key {tx.op_key!r} was used with another fingerprint")
                     tx.replayed = True
                     tx.result = None if row[1] is None else json.loads(row[1])
+            _refuse_mixed_replay(order)
             for c in conns.values():
                 c.pinned = True
             loc.pinned = dict(conns)
             try:
                 for tx in order:
                     tx.org = store._load_sqlite_org(tx.slug)   # pyright: ignore[reportPrivateUsage]
+                    _check_heal(tx)
                 yield
                 if any(tx.replayed for tx in order):
                     raw.execute("ROLLBACK")
@@ -869,6 +906,7 @@ def _attempts(b: Backend, txs: list[OrgTx], make: Callable[[], list[OrgTx]],
     """The retry loop of `_run` (a generator it delegates to): retries only a
     failure raised while taking locks, before the body ran."""
     attempt = 0
+    heals = 0
     while True:
         body_ran = False
         open_slugs.update(slugs)
@@ -877,10 +915,21 @@ def _attempts(b: Backend, txs: list[OrgTx], make: Callable[[], list[OrgTx]],
         for t in txs:
             registry[t.slug] = t
         _open.txs = registry
+        loc = store._orgtx_local                   # pyright: ignore[reportPrivateUsage]
+        loc.rowlock_depth = getattr(loc, "rowlock_depth", 0) + 1
         try:
             with b.transaction_many(txs, timeout):
                 body_ran = True
                 yield txs
+        except _HealNeeded as h:
+            # locks released by the backend's exit; commit the heal, re-run
+            heals += 1
+            if heals > MAX_HEALS:
+                raise OrgTxError(f"org_tx on {h.slug!r}: the load keeps healing "
+                                 f"{h.rows} (a writer keeps restoring a pre-heal shape)") from h
+            _heal(h.slug)
+            txs = make()
+            continue
         except Retryable:
             if body_ran or attempt >= retries:
                 raise
@@ -889,6 +938,7 @@ def _attempts(b: Backend, txs: list[OrgTx], make: Callable[[], list[OrgTx]],
             txs = make()
             continue
         finally:
+            loc.rowlock_depth -= 1
             for sl in slugs:
                 open_slugs.discard(sl)
                 registry.pop(sl, None)
