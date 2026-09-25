@@ -44,6 +44,20 @@ MUTANTS = [
     ("cutover.dirty_dry_run", '    if dry.get("refused"):\n        raise ImportRefused("cutover refused', '    if False:\n        raise ImportRefused("cutover refused'),
     ("cutover.missing_orgs", '    if missing:\n        raise', '    if False:\n        raise'),
     ("cutover.mismatch", '    if mismatched:\n        raise', '    if False:\n        raise'),
+    # decision 18.1 / PG-0 layout (45e5c44)
+    ("layout.orphan_marker_accepted", '                out["refused"].append(f"orgs/{name}: a PostgreSQL marker with no SQLite/JSON source beside it")', '                pass'),
+    ("import.no_byte_check", '        if exact_src != exact_back:', '        if False:'),
+    ("import.no_finish_on_skip", '            sink.finish_org(slug)\n            result["orgs"][slug] = {"action": "already_imported"', '            result["orgs"][slug] = {"action": "already_imported"'),
+    ("import.no_finish", '        sink.finish_org(slug)\n        result["orgs"][slug] = {"action": "imported"', '        result["orgs"][slug] = {"action": "imported"'),
+    ("dry_run.cut_over_ignored", '    if cut_over(root):\n        raise ImportRefused(f"{root} is already cut over', '    if False:\n        raise ImportRefused(f"{root} is already cut over'),
+    ("lock.ignored", '        if not store._try_lock(fd):', '        if False:'),
+    ("cutover.no_marker_check", '    if markers:\n        raise', '    if False:\n        raise'),
+    ("cutover.unservable_root", '    if not ((root / PROTOTYPE_MARKER).is_file() or (root / PRODUCT_BINDING).is_file()):', '    if False:'),
+    ("cutover.no_moves", '    record["moved"] = complete_cutover(root)', '    record["moved"] = []'),
+    ("cutover.moves_without_record", '    if not cut_over(root):\n        raise ImportRefused(f"{root} has no cutover record', '    if False:\n        raise ImportRefused(f"{root} has no cutover record'),
+    ("cutover.moves_markers", '        if p.is_dir() or p.name.endswith(MARKER_EXT):', '        if p.is_dir():'),
+    ("cutover.overwrites", '        if target.exists():\n            raise ImportRefused', '        if False:\n            raise ImportRefused'),
+    ("cutover.wrong_schema", '    record = {"schema": CUTOVER_SCHEMA, "backend": "postgres",', '    record = {"schema": "orgtree.pgimport/v1", "backend": "postgres",'),
 ]
 
 
