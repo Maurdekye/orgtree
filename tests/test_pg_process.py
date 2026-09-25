@@ -180,6 +180,16 @@ class BracketTests(unittest.TestCase):
         self.assertEqual([p for p in touched if bracket.MARKER_FILE in str(p)], [],
                          "a UNC root must not even be checked for a marker")
         self.assertEqual(self.calls(), [])
+        # nor is its cutover record read on the way, whatever ORGTREE_STORE says
+        # (the review N-A check included)
+        with mock.patch.object(bracket, "read_cutover", side_effect=AssertionError("touched")):
+            for unc in (r"\\server\share\proto", r"\\.\C:\p"):
+                with self.assertRaisesRegex(BracketError, "UNC and device"):
+                    bracket.start_for_engine(Path(unc), self.configured(), self.migrator)
+                for other in ("sqlite", "json"):
+                    self.assertIsNone(bracket.start_for_engine(Path(unc), self.configured(ORGTREE_STORE=other),
+                                                               self.migrator))
+        self.assertEqual(self.calls(), [])
 
     def test_the_live_list_is_the_shared_file(self) -> None:
         spec = json.loads(bracket.LIVE_LOCATIONS.read_text(encoding="utf-8"))
