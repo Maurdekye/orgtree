@@ -39,6 +39,11 @@ class ReclaimTransactionTests(unittest.TestCase):
         self.tok = sup._journal_drain(org, 'worker', mails, [], via='steer')
         org.d['delivering']['worker'][0]['at'] = '2000-01-01T00:00:00Z'
         store.save_org(org)
+        # PG-0's first org_tx per slug runs a one-time heal SAVE before its
+        # locks. Run it here, so the patched store.save_org of a fault test
+        # sees reclaim_orphans' own commit, not the heal.
+        with orgtx.org_tx(self.slug):
+            pass
         self.st = sup.state(self.slug, 'worker')
         self.before = store.load_org(self.slug)
         self.original = copy.deepcopy(self.before.d['delivering']['worker'][0])
