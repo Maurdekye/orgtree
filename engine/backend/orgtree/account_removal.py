@@ -29,14 +29,19 @@ touched directly here:
 ATOMICITY (ticket: "must not leave a partial result"). Three phases, in this
 order, and the order is the guarantee:
 
-  1. PLAN — every org is loaded and every affected node is checked, including a
-     real `registry.validate_selection` against the primary selector each node
-     would move to. Nothing is mutated. Any blocker refuses the whole call.
-  2. MIGRATE — every org is mutated IN MEMORY, none is saved. A failure here
-     leaves nothing persisted: under the JSON backend each `Org` is a private
-     parse, and under SQLite the document lock's release hook discards an
-     unsaved resident document.
-  3. COMMIT — every mutated org is saved, and the registry row is removed LAST.
+  1. PLAN — every org is read (a lock-free `orgtx.org_read`) and every
+     affected node is checked, including a real `registry.validate_selection`
+     against the primary selector each node would move to. Nothing is
+     mutated. Any blocker refuses the whole call.
+  2. MIGRATE — ONE `orgtx.org_tx_multi` over every affected org (PYPG plan
+     decision 13, replacing DOC_LOCK's fleet-wide reach). It locks exactly the
+     bound seats, each live seat's `nid@<gen>` archive row, `default_account`
+     and what `supervisor.assign_account` writes; the plan is re-run on the
+     locked rows, and the whole transaction restarts if a binding moved to a
+     seat it did not lock. A failure here rolls every org back.
+  3. COMMIT — the transaction commits (on PostgreSQL every org at once), the
+     fleet is re-read for a binding that appeared in an org the transaction
+     did not lock, and only then is the registry row removed, LAST.
 
 So the one genuinely broken state — the account gone while a binding still
 names it — cannot happen: the row is removed only after every binding has been
@@ -67,7 +72,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from . import providers, registry, store
+from . import orgtx, providers, registry, store
 
 #: Providers whose account rebind is a SESSION boundary (codexrun §3.4:
 #: CODEX_HOME is never repointed live). Same set `assign_account` uses.
@@ -77,6 +82,11 @@ SESSION_BOUNDARY_PROVIDERS = ("openai", "google")
 class RemovalRefused(RuntimeError):
     """The removal cannot be carried out safely. NOTHING was changed: every
     refusal is raised from the plan phase, before any mutation."""
+
+
+class _PlanMoved(RuntimeError):
+    """Inside the transaction a binding sat on a row the plan did not lock:
+    roll back and plan again."""
 
 
 class RemovalIncomplete(RuntimeError):
@@ -224,9 +234,38 @@ def _plan_org(slug: str, org: Any, aid: str, removed: dict[str, Any],
             "primary": primary})
 
 
+#: What the migration writes besides the bound seats (PG-3f). `default_account`
+#: is this module's own; the rest is `supervisor.assign_account`'s row set when
+#: the caller owns the transaction (PG-3e-B `_ASSIGN_SECTIONS`/`_SHARE`/`_LOGS`,
+#: unioned in below when present so the two can never drift apart).
+_SECTIONS = ("default_account", "asks", "credit_requests", "scope_requests",
+             "notices", "work_items")
+_SHARE = ("kiosk", "sandbox")
+_LOGS: tuple[orgtx.LogName, ...] = ("events", "notice_log")
+#: how many times a plan that moved under the transaction is re-made
+_ATTEMPTS = 4
+
+
+def _lock_spec(entry: dict[str, Any]) -> dict[str, Any]:
+    """One org's org_tx keywords for its plan entry."""
+    from . import supervisor
+    nodes: set[str] = set()
+    for target in entry["live"]:
+        nid = str(target["node"])
+        gen = entry["org"].nodes[nid].get("generation", 0)
+        nodes |= {nid, f"{nid}@{gen}"}
+    nodes |= {str(n) for n in entry["archived"]}
+    nodes |= {str(r["node"]) for r in entry["pending"]}
+    sections = set(_SECTIONS) | set(getattr(supervisor, "_ASSIGN_SECTIONS", ()))
+    share = (set(_SHARE) | set(getattr(supervisor, "_ASSIGN_SHARE", ()))) - sections
+    logs = set(_LOGS) | set(getattr(supervisor, "_ASSIGN_LOGS", ()))
+    return {"nodes": sorted(nodes), "sections": sorted(sections),
+            "share_sections": sorted(share), "logs": sorted(logs, key=str)}
+
+
 def plan_removal(account_id: str) -> dict[str, Any]:
     """Everything the removal would do, and every reason it must not. Reads
-    the whole fleet under no mutation; the caller holds `store.DOC_LOCK`."""
+    the whole fleet lock-free (`orgtx.org_read`) and mutates nothing."""
     row = registry.get_account(account_id)      # raises UnknownAccount
     aid = str(row["id"])
     plan: dict[str, Any] = {"account": aid, "row": row, "orgs": [],
@@ -239,7 +278,7 @@ def plan_removal(account_id: str) -> dict[str, Any]:
         return plan
     for slug in org_slugs():
         try:
-            org = store.load_org(slug)
+            org = orgtx.org_read(slug, sections=("default_account", "sandbox"))
         except Exception as e:                               # noqa: BLE001
             # A document we cannot read is a document whose bindings we cannot
             # know. The old guard skipped it, which reads as "binds nothing";
@@ -325,48 +364,93 @@ def remove_account_rebinding_agents(account_id: str, *,
     unsafe (nothing is changed), and `RemovalIncomplete` when a save fails
     after an earlier org was persisted (the account is RETAINED)."""
     from . import apikey_accounts
-    results: list[dict[str, Any]] = []
-    wakes: list[tuple[str, str, str]] = []
-    saved: list[str] = []
-    with store.DOC_LOCK:
+    for _ in range(_ATTEMPTS):
         plan = plan_removal(account_id)
         aid = str(plan["account"])
         if plan["blockers"]:
             raise RemovalRefused(_blocker_message(aid, plan["blockers"]))
-        # PHASE 2 — mutate every org in memory. A raise here persists nothing:
-        # no org has been saved, and an unsaved resident document is discarded
-        # when this lock releases.
-        for entry in plan["orgs"]:
-            entry["account"] = aid
-            out = _migrate_org(entry, actor)
-            results.extend(out["moved"])
-            wakes.extend((entry["slug"], kind, nid)
-                         for kind, nid in out["wakes"])
-        # PHASE 3 — persist, then remove the row LAST. Until the last line of
-        # this block the account is still registered, so no binding can ever
-        # be left pointing at a row that is gone.
-        for entry in plan["orgs"]:
-            try:
-                store.save_org(entry["org"])
-            except Exception as e:                           # noqa: BLE001
-                if saved:
-                    raise RemovalIncomplete(
-                        f"account {aid} was NOT removed: "
-                        f"{', '.join(saved)} had already been migrated and "
-                        f"saved when {entry['slug']!r} failed to save ({e}). "
-                        f"Every agent already moved is on "
-                        f"{entry['primary']} and working; retry the removal "
-                        f"to finish the rest.") from e
-                raise RemovalRefused(
-                    f"account {aid} was not removed: {entry['slug']!r} could "
-                    f"not be saved ({e}). Nothing was changed.") from e
-            saved.append(entry["slug"])
+        try:
+            results, wakes, saved = _migrate_in_one_tx(plan, actor)
+        except _PlanMoved:
+            continue
+        # A binding made in an org the transaction did not lock (a hire or a
+        # rebind that validated this account before we committed) would be
+        # stranded by removing the row, so the fleet is read once more first.
+        again = plan_removal(account_id)
+        if again["orgs"] or again["blockers"]:
+            where = ", ".join(sorted({str(e["slug"]) for e in again["orgs"]}))
+            raise RemovalIncomplete(
+                f"account {aid} was NOT removed: while it was being removed it "
+                f"was bound again, or an organization became unreadable "
+                f"({where or 'see the blockers'}). Every agent already moved is "
+                f"on its provider's primary and working; retry the removal to "
+                f"finish the rest.")
         row = plan["row"]
         if not registry.remove_account(aid):
             raise registry.UnknownAccount(aid)
         apikey_accounts.forget_credentials(row)
-    return {"removed": aid, "rebound": results, "wakes": wakes,
-            "orgs": saved}
+        return {"removed": aid, "rebound": results, "wakes": wakes,
+                "orgs": saved}
+    raise RemovalRefused(
+        f"account {account_id} was not removed: its bindings kept changing "
+        f"while the removal ran. Nothing was changed; try again.")
+
+
+def _migrate_in_one_tx(plan: dict[str, Any], actor: str
+                       ) -> tuple[list[dict[str, Any]],
+                                  list[tuple[str, str, str]], list[str]]:
+    """PHASES 2 and 3: migrate every affected org in ONE org_tx_multi.
+
+    Raises `_PlanMoved` (rolled back) when a binding sits outside the locked
+    rows; `RemovalRefused` when the re-made plan blocks, or when nothing could
+    be saved; `RemovalIncomplete` when the SQLite fake had already committed
+    an earlier org (it commits org by org — on PostgreSQL the orgs commit
+    together, so there a failed commit changed nothing). An exception from
+    the migration itself propagates unchanged, with everything rolled back."""
+    aid = str(plan["account"])
+    specs = {str(e["slug"]): _lock_spec(e) for e in plan["orgs"]}
+    results: list[dict[str, Any]] = []
+    wakes: list[tuple[str, str, str]] = []
+    if not specs:
+        return results, wakes, []
+    txs: dict[str, orgtx.OrgTx] = {}
+    body_done = False
+    try:
+        with orgtx.org_tx_multi(specs) as txs:
+            for slug in sorted(specs):
+                fresh: dict[str, Any] = {"orgs": [], "blockers": []}
+                _plan_org(slug, txs[slug].org, aid, plan["row"], fresh)
+                if fresh["blockers"]:
+                    raise RemovalRefused(
+                        _blocker_message(aid, fresh["blockers"]))
+                if not fresh["orgs"]:
+                    continue
+                entry = fresh["orgs"][0]
+                if not set(_lock_spec(entry)["nodes"]) <= set(specs[slug]["nodes"]):
+                    raise _PlanMoved(slug)
+                entry["account"] = aid
+                out = _migrate_org(entry, actor)
+                results.extend(out["moved"])
+                wakes.extend((slug, kind, nid) for kind, nid in out["wakes"])
+            body_done = True
+    except (RemovalRefused, _PlanMoved):
+        raise
+    except Exception as e:                                   # noqa: BLE001
+        if not body_done:
+            raise
+        saved = sorted(sl for sl, t in txs.items() if t.committed is not None)
+        failed = ", ".join(repr(sl) for sl in sorted(set(specs) - set(saved)))
+        if saved:
+            raise RemovalIncomplete(
+                f"account {aid} was NOT removed: {', '.join(saved)} had "
+                f"already been migrated and saved when {failed} failed to "
+                f"save ({e}). Every agent already moved is on its provider's "
+                f"primary and working; retry the removal to finish the "
+                f"rest.") from e
+        raise RemovalRefused(
+            f"account {aid} was not removed: {failed} could not be saved "
+            f"({e}). Nothing was changed.") from e
+    return results, wakes, sorted(specs)
 
 
 def announce(slug_wakes: list[tuple[str, str, str]],

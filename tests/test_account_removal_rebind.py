@@ -411,6 +411,169 @@ class AccountRemovalTests(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 422)
         self.assertIn("rm-http422/root", str(ctx.exception.detail))
 
+    # --------------------------------------- PG-3f: one org_tx_multi, no DOC_LOCK
+    # These use archived seats, queued intents and the org default only: a
+    # LIVE seat goes through supervisor.assign_account, whose own DOC_LOCK is
+    # PG-3e-B's to remove (it is lock-free with a caller-owned org there).
+    def _settled_org(self, slug, nodes, **doc):
+        self._org(slug, nodes, **doc)
+        # the fixture writes raw node rows; one load+save reaches the fixed
+        # point stored orgs sit at, so the org_tx writes only what it locks
+        self.store.save_org(self.store.load_org(slug))
+
+    def _in_thread(self, fn, timeout):
+        import threading
+        out: list = []
+
+        def go():
+            try:
+                out.append(fn())
+            except BaseException as e:                       # noqa: BLE001
+                out.append(e)
+        t = threading.Thread(target=go, daemon=True)
+        t.start()
+        t.join(timeout)
+        return (not t.is_alive()), out, t
+
+    def _hold(self, cm_factory):
+        import threading
+        entered, release = threading.Event(), threading.Event()
+
+        def run():
+            with cm_factory():
+                entered.set()
+                release.wait(30)
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+        self.assertTrue(entered.wait(10), "holder never entered")
+        return release, t
+
+    def _offline_bindings(self, slug, aid):
+        self._settled_org(slug, {
+            "root": self._node(),
+            "old": self._node(account=aid, state="archived"),
+            "q": self._node(pending_account={"account": aid, "from": "primary"}),
+        }, default_account=aid)
+
+    def test_removal_never_waits_on_the_document_lock(self):
+        row = self._row()
+        self._offline_bindings("rm-nolock", row["id"])
+        release, holder = self._hold(lambda: self.store.DOC_LOCK)
+        try:
+            done, out, _ = self._in_thread(
+                lambda: self._remove(row["id"]), 5.0)
+        finally:
+            release.set()
+            holder.join(10)
+        self.assertTrue(done, "removal waited on DOC_LOCK")
+        self.assertNotIsInstance(out[0], BaseException, out)
+        org = self.store.load_org("rm-nolock")
+        self.assertNotIn("account", org.node("old"))
+        self.assertEqual(org.node("q")["pending_account"]["account"],
+                         "claude/primary")
+        self.assertEqual(org.d["default_account"], "claude/primary")
+        with self.assertRaises(self.registry.UnknownAccount):
+            self.registry.get_account(row["id"])
+
+    def test_removal_waits_for_a_bound_seat_held_by_another_tx(self):
+        from engine.backend.orgtree import orgtx
+        row = self._row()
+        self._offline_bindings("rm-rowlock", row["id"])
+        release, holder = self._hold(
+            lambda: orgtx.org_tx("rm-rowlock", nodes=["old"]))
+        try:
+            done, _, t = self._in_thread(lambda: self._remove(row["id"]), 0.5)
+            self.assertFalse(done, "removal did not wait for the seat row")
+            # nothing has moved and the row is still registered while it waits
+            self.assertEqual(
+                self.store.load_org("rm-rowlock").node("old")["account"],
+                row["id"])
+            self.assertEqual(self.registry.get_account(row["id"])["id"],
+                             row["id"])
+        finally:
+            release.set()
+            holder.join(10)
+        t.join(10)
+        self.assertFalse(t.is_alive(), "removal never finished")
+        self.assertNotIn("account", self.store.load_org("rm-rowlock").node("old"))
+
+    def test_an_unrelated_seat_does_not_stop_the_removal(self):
+        from engine.backend.orgtree import orgtx
+        row = self._row()
+        self._offline_bindings("rm-unrel", row["id"])
+        release, holder = self._hold(
+            lambda: orgtx.org_tx("rm-unrel", nodes=["root"]))
+        try:
+            done, out, _ = self._in_thread(lambda: self._remove(row["id"]), 5.0)
+        finally:
+            release.set()
+            holder.join(10)
+        self.assertTrue(done, "an unrelated seat row blocked the removal")
+        self.assertNotIsInstance(out[0], BaseException, out)
+
+    def test_a_binding_made_during_the_removal_keeps_the_account(self):
+        # the phantom: an org the transaction did not lock gains a binding
+        # after the plan was made. Removing the row then would strand it.
+        row = self._row()
+        self._offline_bindings("rm-ph-a", row["id"])
+        self._settled_org("rm-ph-b", {"root": self._node()})
+        real = self.removal._migrate_in_one_tx
+
+        def and_bind_elsewhere(plan, actor):
+            out = real(plan, actor)
+            org = self.store.load_org("rm-ph-b")
+            org.node("root")["account"] = row["id"]
+            self.store.save_org(org)
+            return out
+
+        self.removal._migrate_in_one_tx = and_bind_elsewhere
+        try:
+            with self.assertRaises(self.removal.RemovalIncomplete) as ctx:
+                self._remove(row["id"])
+        finally:
+            self.removal._migrate_in_one_tx = real
+        self.assertIn("rm-ph-b", str(ctx.exception))
+        self.assertEqual(self.registry.get_account(row["id"])["id"], row["id"])
+        # what was migrated stays migrated, and a retry finishes the job
+        self.assertNotIn("account", self.store.load_org("rm-ph-a").node("old"))
+        out = self._remove(row["id"])
+        self.assertEqual(out["orgs"], ["rm-ph-b"])
+        with self.assertRaises(self.registry.UnknownAccount):
+            self.registry.get_account(row["id"])
+
+    def test_a_binding_that_moves_under_the_plan_is_replanned(self):
+        # between the lock-free plan and the transaction, a seat the plan did
+        # not name becomes bound: the transaction must not commit a migration
+        # that misses it — it rolls back, plans again and moves both
+        row = self._row()
+        self._offline_bindings("rm-moved", row["id"])
+        self._settled_org("rm-moved-x", {"root": self._node()})
+        real = self.removal.plan_removal
+        calls: list[int] = []
+
+        def plan_then_bind(account_id):
+            plan = real(account_id)
+            if not calls:
+                org = self.store.load_org("rm-moved")
+                org.node("root")["pending_account"] = {
+                    "account": row["id"], "from": "primary"}
+                self.store.save_org(org)
+            calls.append(1)
+            return plan
+
+        self.removal.plan_removal = plan_then_bind
+        try:
+            out = self._remove(row["id"])
+        finally:
+            self.removal.plan_removal = real
+        self.assertGreaterEqual(len(calls), 3, "the plan was not re-made")
+        org = self.store.load_org("rm-moved")
+        self.assertEqual(org.node("root")["pending_account"]["account"],
+                         "claude/primary")
+        self.assertEqual(org.node("q")["pending_account"]["account"],
+                         "claude/primary")
+        self.assertEqual(out["removed"], row["id"])
+
 
 if __name__ == "__main__":
     unittest.main()
