@@ -120,14 +120,14 @@ diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
 Current totals are 128 contracts, 87 mapped registrations and 158 mapped
-dispatch witnesses. **673 obligations remain**: 237 registrations, 62 dispatch
-witnesses, 14 storage candidates and 360 unresolved dimension occurrences.
+dispatch witnesses. **659 obligations remain**: 237 registrations, 62 dispatch
+witnesses, 14 storage candidates and 346 unresolved dimension occurrences.
 From P01 F1 on, progress is reported as three numbers (coordinator ruling Q1, decision 1 on
 p01-f1-contracts-for-the-org-lifecycle-and-catal): **entries contracted 54/194** (of the concrete http,
 websocket and tool entries that were on the generic reason; F1b contracts none of them, since the
 operator door had its own reason; F3 contracts thirteen; F2 twenty-two; the relaunch-cards item none of
-them, since its three contracted entries are new witnesses outside the 194), **360 open dimension
-occurrences** and **673 total pending**. Total pending RISES while the 194 are contracted, to about 790-1000 when all
+them, since its three contracted entries are new witnesses outside the 194), **346 open dimension
+occurrences** and **659 total pending**. Total pending RISES while the 194 are contracted, to about 790-1000 when all
 twelve families have landed, and that rise is expected: each new contract closes its entry but opens
 its own conflicts, wire and instrumentation dimensions until P03, the native conversion and P02 answer
 them.
@@ -418,6 +418,22 @@ nothing. The eleven dispatch rows F2 left pending are mapped. The other six verb
 reasons (the receipt verbs with the S3 receipt family, the census with P02, `orgtree_send_file_once` with F4,
 `orgtree_account_assign` as an F1 follow-up). Pending moves by -11 dispatch, +6 entries and +15 open dimension
 occurrences (conflicts, wire and instrumentation on each of the five contracts).
+
+659 is fourteen fewer than that 673 (P01 F1/F1b follow-up, p01-f1-f1b-follow-up-promotion-old-chain-writes).
+P02's per-operation rows (v3 7c79f28 and bfbc4ae) close `operator-ops.variant-instrumentation` on the fourteen F1b
+contracts and narrow `lifecycle.instrumentation`, which stays open only for the success paths of account-assign,
+lineage-recover and lineage-drop-phantom (refusal rows only). Both are asserted in
+`tests/test_state_p02_contact_facets.py`. Three facts are corrected with measured evidence:
+- `operator-ops.writes`: promote, demote and move rewrite the grant of every seat on `ledger._move`'s credit path.
+  A promotion to the top level therefore rewrites the whole old chain, and an ancestor above the old parent is
+  told nothing unless it is also a new peer (P02 finding; pinned by a new test in
+  `tests/test_state_operator_variants_boundary.py`).
+- `control.writes`: an unhalt leaves an unsaved empty `steer_attempts` owner on the cached document, and every
+  later save on the org writes it until a later unhalt. This is a recorded legacy defect, docketed as
+  unhalting-an-agent-leaves-an-unsaved-empty-steer; it was found by P02's write trace and reproduced by P01 with a
+  warm sequence, which a reload between calls hides.
+- `control.authority`: the stripped kiosk route answers 405 when the packaged UI's GET catch-all is mounted, and
+  404 otherwise. The earlier pin of 405 depended on the machine's `ORGTREE_V2_UI_DIR`.
 
 Of the 41 open dimension occurrences on the sixteen legacy-family contracts, 25 (9 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the

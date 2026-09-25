@@ -1,6 +1,6 @@
 {
   "schema": "orgtree.control-boundary/v1",
-  "source_contract_sha256": "43af4c4704954187037abf861c502151e7cd1438eba8d5be6f462f40ae36d724",
+  "source_contract_sha256": "8ac21e58cfbd8992227b0f92f80474e421211507fd62bf927ffba1f44b7c9164",
   "qualification": {
     "runtime_census": false,
     "conversion_authorized": false
@@ -390,7 +390,8 @@
     ]
   },
   "legacy_defects": [
-    "unstick's receipt keeps nothing: its allowlist (released, warnings) names lists"
+    "unstick's receipt keeps nothing: its allowlist (released, warnings) names lists",
+    "unhalt leaves an unsaved empty steer_attempts owner on the cached document, and every later save on the org writes it (docket unhalting-an-agent-leaves-an-unsaved-empty-steer)"
   ],
   "scope": "Legacy boundary of the run-control entry points (P01 F2) on disposable SQLite, per product profile. Every process effect is a spy: halt's cut, interrupts, the killswitch sweep, the warm-pool process control, remote control, the restart launch, the prime arm and cancel, and continue-on's provider read. The doors, the ledger, the halt record, the killswitch latch, the restart-wake sidecar, the receipts, save and reload are real. Legacy conformance evidence only: not a runtime census, not PostgreSQL or Rust qualification."
 }

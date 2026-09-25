@@ -791,6 +791,85 @@ class ContactFacets(unittest.TestCase):
         control = self.exact("operator.reallocate", "control:operator-third-agent", "warm")["agents"]
         self.assertEqual(control["logical"]["mail"], {"op-sib": "third"})
 
+    # -- P01 F1/F1b follow-up: the F1b operator variants and the F1 lifecycle family ----------------------------
+    F1B_OPS = ("operator.rename", "operator.retire", "operator.rescind", "operator.cheap-compact", "operator.rehire",
+               "operator.dissolve", "operator.delete", "operator.switch-model", "operator.promote", "operator.demote",
+               "operator.move", "operator.reseed", "operator.revoke-dir", "operator.preview")
+    F1B_REFUSALS = {"refusal:op-rename-no-name", "refusal:op-rename-taken", "refusal:op-rename-no-authority",
+                    "refusal:op-delete-agent-actor", "refusal:op-switch-no-tier", "refusal:op-promote-agent-actor",
+                    "refusal:op-demote-no-parent", "refusal:op-revoke-no-dir", "refusal:op-unknown-op",
+                    "refusal:op-preview-rename", "refusal:op-preview-rehire", "refusal:op-agent-token",
+                    "refusal:op-cheap-compact-archived", "refusal:op-rescind-agent-actor",
+                    "refusal:op-retire-self-with-reports", "refusal:op-retire-no-authority"}
+
+    def assert_local(self, r, drives=0):
+        agents = r["agents"]
+        self.assertEqual((r["unknown_contacts"], self.foreign(r), r["census"]["records"]), ([], 0, 1))
+        self.assertEqual((agents["third_agent_mail"], agents["third_agent_rows_written"]), (0, 0))
+        self.assertLessEqual(set(agents["physical_written"]), set(agents["targets"]))
+        self.assertEqual(sum(r["wakes"].values()), drives)
+
+    def test_f1b_operator_variants_contacts_and_locality(self):
+        rows = [r for r in self.doc["rows"] if r["contract"] in self.F1B_OPS]
+        for op in self.F1B_OPS:
+            for condition in ("cold", "warm"):
+                with self.subTest(op=op, condition=condition):
+                    r = self.exact(op, op, condition)
+                    self.assertEqual(r["http_status"], 200)
+                    self.assert_local(r)
+                    tables = self.written(r)
+                    if op == "operator.preview":
+                        self.assertEqual(tables, [])
+                    else:
+                        self.assertTrue(tables and set(tables) <= {"doc", "log_l", "meta", "nodes"}, tables)
+        # promote writes the whole old chain up to the top-level seat (ledger._move's credit path)
+        for condition in ("cold", "warm"):
+            promote = self.exact("operator.promote", "operator.promote", condition)["agents"]
+            self.assertEqual(set(promote["physical_written"]),
+                             {f"vx-promote-{condition}-{n}" for n in "kmp"} | {"vx-top"})
+        for variant in ("operator.preview:delete", "operator.preview:reallocate", "operator.preview:switch-model",
+                        "operator.preview:retire-agent-actor", "operator.reseed:no-op"):
+            [r] = [r for r in rows if r["variant"] == variant]
+            self.assert_local(r)
+            self.assertEqual((self.written(r), r["agents"]["physical_written"]), ([], []))
+        [mail] = [r for r in rows if r["variant"] == "operator.rehire:mail"]
+        self.assert_local(mail, drives=1)
+        refusals = {r["variant"]: r for r in rows if r["variant"].startswith("refusal:")}
+        self.assertEqual(set(refusals), self.F1B_REFUSALS)
+        for variant, r in refusals.items():
+            with self.subTest(variant=variant):
+                self.assertEqual((self.written(r), r["agents"]["physical_written"], r["agents"]["logical"]),
+                                 ([], [], {}))
+                self.assertEqual(r["census"]["records"], 0 if variant == "refusal:op-agent-token" else 1)
+        [control] = [r for r in rows if r["variant"] == "control:op-variants-third-agent"]
+        self.assertGreater(control["agents"]["third_agent_mail"], 0)
+        self.assertEqual(sum(1 for r in rows if r["agents"]["third_agent_mail"] or
+                             r["agents"]["third_agent_rows_written"]), 1)
+
+    def test_f1_lifecycle_contacts_and_what_the_record_does_not_cover(self):
+        rows = [r for r in self.doc["rows"] if r["contract"].startswith(("lifecycle.", "catalogue."))]
+        self.assertEqual({r["condition"] for r in rows}, {"cold", "warm"})
+        for r in rows:
+            with self.subTest(contract=r["contract"], variant=r["variant"], condition=r["condition"]):
+                self.assertEqual(r["unknown_contacts"], [])
+                # only list_orgs reads other orgs' stores, as declared
+                self.assertEqual(self.foreign(r) > 0, r["contract"] == "catalogue.list-orgs")
+                if r["variant"].startswith("refusal:"):
+                    self.assertEqual((self.written(r), r["agents"]["logical"]), ([], {}))
+                elif not r["variant"].startswith("control:"):
+                    self.assertEqual((r["agents"]["third_agent_mail"], r["agents"]["third_agent_rows_written"]),
+                                     (0, 0))
+        [control] = [r for r in rows if r["variant"] == "control:lifecycle-third-agent"]
+        self.assertGreater(control["agents"]["third_agent_mail"], 0)
+        # operator-scope (P01 F3) has its rows since P02's F3 probe (v3 bfbc4ae): a success cold and warm and a refusal
+        scope = {(r["variant"], r["condition"], r["http_status"]) for r in rows if r["contract"] == "lifecycle.operator-scope"}
+        self.assertLessEqual({("lifecycle.operator-scope", "cold", 200), ("lifecycle.operator-scope", "warm", 200)},
+                             scope)
+        self.assertIn("refusal:op-scope-bad-visibility", {v for v, _, _ in scope})
+        # NOT covered, so lifecycle.instrumentation stays open: three routes have refusal rows only
+        for contract in ("lifecycle.account-assign", "lifecycle.lineage-recover", "lifecycle.lineage-drop-phantom"):
+            self.assertEqual({r["http_status"] for r in rows if r["contract"] == contract}, {422}, contract)
+
     QS_READS = ("quick-staff.options", "quick-staff.options-refresh", "quick-staff.preview",
                 "quick-staff.preview:under-assignee", "quick-staff.preview:top-level",
                 "quick-staff.select:replay", "quick-staff.select:under-assignee:replay",

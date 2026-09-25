@@ -317,6 +317,38 @@ class ControlBoundary(unittest.TestCase):
         self.case(self.route('POST', '/api/orgs/{slug}/nodes/mid/unhalt'), 'r_unhalt_not')
         self.assertEqual(self.hub.call_count, 0)
 
+    def test_unhalt_leaves_an_unsaved_steer_owner_that_later_saves_write(self):
+        # recorded legacy defect (docket unhalting-an-agent-leaves-an-unsaved-empty-steer; P02 F2 trace, reproduced
+        # by P01): halt.unhalt -> supervisor.scan_steer_records creates steer_attempts[mid] = {} with setdefault on
+        # the cached (resident) document and does not save it; the lock-release discard check does not catch it, so
+        # on the WARM document every later save on the org, whatever its operation, deletes that owner's rows
+        # again, until a later unhalt, and the durable document ends with the empty owner. Nothing may reload the
+        # document between the calls: a reload drops the carry-over (which is how P01's first probe missed it).
+        import sqlite3
+        trace = []
+        connect = sqlite3.connect
+
+        def traced(*a, **k):
+            conn = connect(*a, **k)
+            conn.set_trace_callback(trace.append)
+            return conn
+        store._POOL.close_all(self.slug)
+        self.enterContext(patch.object(sqlite3, 'connect', traced))
+
+        def steer_writes(request):
+            trace.clear()
+            self.assertEqual(request().status_code, 200)
+            return [t for t in trace if 'steer_attempts' in t and not t.lstrip().upper().startswith('SELECT')]
+        self.assertEqual(steer_writes(self.route('POST', '/api/orgs/{slug}/nodes/mid/halt')), [])
+        self.assertEqual(steer_writes(self.agent('orgtree_unhalt', {'node': 'mid'}, 'top')), [])
+        self.assertEqual(store._resident[self.slug].d['steer_attempts'].get('mid'), {})   # unsaved, cached
+        # an unrelated save by ANOTHER agent writes the owner's rows
+        later = steer_writes(self.agent('orgtree_restart_wake', {'action': 'arm'}, 'sib'))
+        self.assertIn("DELETE FROM log_d WHERE sect='steer_attempts' AND owner='mid'", later)
+        self.assertIn('unhalt leaves an unsaved empty steer_attempts owner',
+                      ' '.join(self.spec['legacy_defects']))
+        self.assertEqual(self.durable().get('steer_attempts'), {'mid': {}})
+
     # -- restart tools, per profile -------------------------------------------------------------------------------
     def test_desktop_profile_refuses_the_standard_restart_tools(self):
         want = self.spec['profiles']['desktop_refusal']
@@ -410,8 +442,13 @@ class ControlBoundary(unittest.TestCase):
 
     # -- kiosk, per profile ---------------------------------------------------------------------------------------
     def test_kiosk_route_is_stripped_in_the_desktop_profile_and_served_otherwise(self):
+        # stripped: no route carries /kiosk, so no handler runs. The POST then answers 405 when the packaged UI's
+        # GET catch-all is mounted (it matches the path; api mounts it only when FRONTEND_DIST exists, which on a
+        # dev machine depends on ORGTREE_V2_UI_DIR) and 404 when it is not (P01 follow-up; P02 saw 404)
+        self.assertEqual([p for p in (getattr(route, 'path', '') for route in api.app.routes) if '/kiosk' in p], [])
+        spa = any(getattr(route, 'path', None) == '/{path:path}' for route in api.app.routes)
         r, changed, _, _ = self.act(self.route('POST', '/api/orgs/{slug}/kiosk', {'enabled': True}))
-        self.assertEqual((r.status_code, changed), (405, []))
+        self.assertEqual((r.status_code, changed), (405 if spa else 404, []))
         self.assertIn('POST /api/orgs/{slug}/kiosk', self.spec['profiles']['desktop_stripped_routes'])
         # the handler itself (non-desktop profile): a non-kiosk org is refused; a kiosk org is configured
         with self.assertRaises(api.HTTPException) as ctx:

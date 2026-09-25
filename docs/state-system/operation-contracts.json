@@ -6814,7 +6814,7 @@
       "status": "specified",
       "facts": [
         "Measured with the committed document read cold. operator.hire writes the new node, a hire event and lifecycle.hired notices (nodes, events, notices, notice_log — the acting user is never the parent, so the parent is always told); `above` re-parents the anchor under the new seat in the same save. operator.reallocate writes the target's grant (and inflated grants up the chain) with its event and grant_changed notices (nodes, events, notices, notice_log). One load/mutate/save under DOC_LOCK; a refusal writes nothing. Pinned.",
-        "F1b variants, measured with the committed document read cold: rename writes nodes, events and the renamed seat's notices; retire writes nodes, events and lifecycle.retired to the parent; rescind writes the retire plus a rescind event, claws the stake back from the parent's grant and tells the parent (lifecycle.rescinded); cheap_compact writes the bearer row, the fresh session and notices to the seat and its parent; rehire writes nodes, events and lifecycle.rehired to the seat and its parent; dissolve writes lifecycle.dissolved to the parent and peers; delete removes the subtree's records, rewrites the swept lists (asks, scope_requests, watchdogs) and tells the parent (lifecycle.deleted); switch_model writes lifecycle.model_switched to the node and its parent; promote, demote and move write lifecycle.moved to the old and new parent or peers and the node; reseed of an unrecoverable node writes a lost-generation bearer row nid@gen and lifecycle.reseeded to the seat and its parent; revoke_dir writes nodes and events only. reseed of a live node and every preview write nothing; every refusal writes nothing. Pinned by tests/test_state_operator_variants_boundary.py against docs/state-system/operator-variants-boundary.json."
+        "F1b variants, measured with the committed document read cold: rename writes nodes, events and the renamed seat's notices; retire writes nodes, events and lifecycle.retired to the parent; rescind writes the retire plus a rescind event, claws the stake back from the parent's grant and tells the parent (lifecycle.rescinded); cheap_compact writes the bearer row, the fresh session and notices to the seat and its parent; rehire writes nodes, events and lifecycle.rehired to the seat and its parent; dissolve writes lifecycle.dissolved to the parent and peers; delete removes the subtree's records, rewrites the swept lists (asks, scope_requests, watchdogs) and tells the parent (lifecycle.deleted); switch_model writes lifecycle.model_switched to the node and its parent; promote, demote and move write lifecycle.moved to the old and new parent or peers and the node; reseed of an unrecoverable node writes a lost-generation bearer row nid@gen and lifecycle.reseeded to the seat and its parent; revoke_dir writes nodes and events only. promote, demote and move also rewrite node rows along ledger._move's credit path: the moved seat's parent, and the grant of every seat the stake passes, released hop by hop from the old parent up to the lowest common ancestor and acquired from below it down to the new parent (the ancestor itself is not written). A promotion to the top level has @user as that ancestor, so it rewrites the whole old chain up to the top-level seat, and an ancestor above the old parent is told nothing unless it is also a new peer (P02 finding on this family; measured by P01 on top > mid > leaf > deep: promoting deep rewrites leaf, mid and top and tells deep, leaf, top and top2, not mid); a demote or a move within a subtree stops below the common ancestor. reseed of a live node and every preview write nothing; every refusal writes nothing. Pinned by tests/test_state_operator_variants_boundary.py against docs/state-system/operator-variants-boundary.json."
       ],
       "source_refs": [
         {
@@ -6870,6 +6870,12 @@
           "start": 14585,
           "end": 14808,
           "sha256": "1ef2df1ffd621e60c206a5bf40156cc6d72ccc99f9e88f03b571e4ab05d818a3"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 7106,
+          "end": 7273,
+          "sha256": "659aeda95b40528819cdefbbe5ab850fd1f9940c82e74d224580414c069ceb18"
         }
       ],
       "open_questions": []
@@ -8514,7 +8520,8 @@
       "dimension": "instrumentation",
       "status": "unresolved",
       "facts": [
-        "The agent door labels each call for the storage census (stateprobe.refine('tool:' + tool)); the routes are labelled by the access middleware. No P02 per-operation record covers the lifecycle family yet."
+        "The agent door labels each call for the storage census (stateprobe.refine('tool:' + tool)); the routes are labelled by the access middleware. P02's per-operation record covers most of the family (below).",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 bfbc4ae): a loss-accounted per-operation record for every lifecycle and catalogue contract cold and warm, with the variants, keyed calls (fresh, replay, malformed key) and refusals, and lifecycle.operator-scope (P01 F3) cold, warm and a refusal. No row makes an unknown contact. Org-level locality: only catalogue.list-orgs reads other orgs' stores, as declared; agent-level locality stays within each row's declared set, and every refusal writes nothing and changes no agent's mail. The control control:lifecycle-third-agent is flagged. NOT covered: the success paths of lifecycle.account-assign, lifecycle.lineage-recover and lifecycle.lineage-drop-phantom, which have refusal rows only (question below). Native negative controls are the P03 gate, not a clause of this legacy facet (S2d decision 1, reviewer ruling on 803227e). Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -8525,8 +8532,8 @@
         }
       ],
       "open_questions": [
-        "Observe every lifecycle operation with the P02 per-operation probe: actual contacts per outcome, cold and warm, refusals and keyed replays included, and the org-level locality of each.",
-        "Owner: P02 (p02-contacts-opus55; coordinator ruling Q6 on p01-f1-contracts-for-the-org-lifecycle-and-catal: probed after this family lands). Closes with: a loss-accounted P02 record per lifecycle row. Not coverable at P01 from available evidence: P01 does not run the P02 probe, and no P02 record covers this family yet."
+        "Observe the success paths of lifecycle.account-assign, lifecycle.lineage-recover and lifecycle.lineage-drop-phantom with the P02 per-operation probe: actual contacts, cold and warm, and their org-level locality.",
+        "Owner: P02 (p02-contacts-opus55). Closes with: loss-accounted P02 success rows for those three routes (narrowed by P01's F1/F1b follow-up from the whole family). Not coverable at P01 from available evidence: the P02 record at v3 bfbc4ae has refusal rows only for them, and P01 does not run the P02 probe as its own evidence."
       ]
     },
     "operator-ops.variant-conflicts": {
@@ -8574,9 +8581,10 @@
     },
     "operator-ops.variant-instrumentation": {
       "dimension": "instrumentation",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
-        "The access middleware labels the route; nothing identifies the operation beyond the body. No P02 per-operation record covers the F1b variants."
+        "The access middleware labels the route; nothing identifies the operation beyond the body. P02's per-operation record covers the variants (below).",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 bfbc4ae): a loss-accounted per-operation record for every F1b row, cold and warm (one census record matching the harness): the 13 operations and the preview, the four preview variants, the waiting-mail rehire (its one drive) and the no-op reseed, and 16 refusals, of which only the agent-credential refusal is answered before any census attempt. Org-level locality, answering the question above: every statement runs on this org's own store. Agent-level locality: every agent row a variant writes is one of its declared targets, and for promote that is the WHOLE old chain up to the top-level seat (ledger._move's credit path, see operator-ops.writes); the previews and the no-op reseed write nothing, and every refusal writes nothing and changes no agent's mail. The control control:op-variants-third-agent (an operation that also writes a third agent) is flagged, and no other row touches a third agent. Not exercised: the kiosk visitor path to this door, which the clause does not name. Native negative controls are the P03 gate, not a clause of this legacy facet (S2d decision 1, reviewer ruling on 803227e). Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -8586,10 +8594,7 @@
           "sha256": "1867b9de1eaf72536652d371b2f4eed2e48750069cdf6b27b9b907d5e0338a83"
         }
       ],
-      "open_questions": [
-        "Observe every F1b operator operation and the preview with the P02 per-operation probe: actual contacts per outcome, cold and warm, refusals included, and the org-level locality of each.",
-        "Owner: P02 (p02-contacts-opus55; coordinator ruling Q6 on p01-f1-contracts-for-the-org-lifecycle-and-catal: probed after this family lands). Closes with: a loss-accounted P02 record per variant row. Not coverable at P01 from available evidence: P01 does not run the P02 probe, and no P02 record covers these variants yet."
-      ]
+      "open_questions": []
     },
     "asks.authority": {
       "dimension": "authority",
@@ -9867,7 +9872,7 @@
       "facts": [
         "Agent tools: interrupt, unstick, halt, unhalt and continue_on act only on the caller's subtree (Org._require_authority, no allow_self: 'X has no authority over Y'); continue_on also refuses the caller itself 403 ('you cannot choose your own account …'); halt and unhalt check every target of a `nodes` batch in one lock pass before any process is cut, so a single target outside the caller's subtree refuses the whole batch and nothing is cut (the per-node halt re-checks authority itself). restart_wake manages the caller or a live descendant ('you can only manage restart wake for yourself or your subordinates', 403). A halted caller, or any caller while the org killswitch is latched, is refused 409 before any tool runs. Pinned by tests/test_state_control_boundary.py against docs/state-system/control-boundary.json.",
         "PROFILES (decision 1 on this item). Under the desktop-managed profile (ORGTREE_DESKTOP_MANAGED=1, which engine/launch.py sets) orgtree_self_restart and orgtree_prime_restart are refused 422 at the door, every action included ('desktop-managed V2 renamed … to orgtree_self_relaunch / orgtree_prime_relaunch …'). Under the non-desktop profile (e.g. the Windows service host) they take the machine-wide gate (Org.self_restart_gate / prime_restart_gate): only a top-level agent or a holder of a user audience ('a self-restart restarts the shared orgtree install for EVERY org …'); prime_restart status needs only a live caller; a frozen deployment profile refuses both 403 (source). Pinned by tests/test_state_control_boundary.py against docs/state-system/control-boundary.json, except the frozen profile.",
-        "Routes are operator routes behind the desktop TokenGate (an agent credential is refused 401) and act as the user; the steering routes additionally accept a hook call that carries the agent's own identity, which must name this live agent generation ('Steering credential does not name this live agent generation', 403, source). PROFILES: the kiosk route is REMOVED under the desktop-managed profile (desktop_policy.install_routes strips every path containing /kiosk, so it answers 405) and served under the non-desktop profile, where it refuses a non-kiosk org ('not a kiosk org …'). Pinned by tests/test_state_control_boundary.py against docs/state-system/control-boundary.json."
+        "Routes are operator routes behind the desktop TokenGate (an agent credential is refused 401) and act as the user; the steering routes additionally accept a hook call that carries the agent's own identity, which must name this live agent generation ('Steering credential does not name this live agent generation', 403, source). PROFILES: the kiosk route is REMOVED under the desktop-managed profile (desktop_policy.install_routes strips every path containing /kiosk, so no handler runs: a POST answers 405 when the packaged UI's GET catch-all /{path:path} is mounted, which matches the path, and 404 when it is not, since api mounts that catch-all only when its UI directory exists) and served under the non-desktop profile, where it refuses a non-kiosk org ('not a kiosk org …'). Pinned by tests/test_state_control_boundary.py against docs/state-system/control-boundary.json."
       ],
       "open_questions": [],
       "source_refs": [
@@ -9918,6 +9923,12 @@
           "start": 19,
           "end": 23,
           "sha256": "93fb92b8dfe87c447a573b846bd1dbac03c815a0276d61df06bbefb92600ee6a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14832,
+          "end": 14833,
+          "sha256": "f08ea266dbce59f2223c612a73ef436b6b4f6ac2b6ed41669a59036663df9281"
         }
       ]
     },
@@ -9965,7 +9976,7 @@
       "dimension": "writes",
       "status": "specified",
       "facts": [
-        "Measured cold. halt writes nodes (the halt record, phase halting then halted) and events; unhalt writes nodes and events (a keyed unhalt also steer_attempts), and unhalt of a node that is not halted writes nothing; unstick of a frozen node writes nodes, events and policy.unstuck to the node, and of a node that is not stuck writes nothing ('… not stuck — nothing to release'); interrupt, continue_on (its switch is _continue_on_account's own two transactions, source), steer, steer-ack, steer-state, process, resume with nothing frozen and remote-control write nothing to the org document here; the killswitch latch writes killswitch and events (and pauses every armed watchdog in the same save), its release pops killswitch and writes events, and a release while nothing is latched writes nothing. restart_wake arm, cancel and status write NO org section: the wake lives in its own sidecar file. Non-desktop restart tools: self_restart and prime_restart arm or cancel write events (the gate's log row). The kiosk handler (non-desktop) writes kiosk (enable, token rotation, caps). Pinned by tests/test_state_control_boundary.py against docs/state-system/control-boundary.json."
+        "Measured cold. halt writes nodes (the halt record, phase halting then halted) and events; unhalt writes nodes and events, and leaves an unsaved empty steer_attempts owner for the node on the cached org document, which the next save writes (so a keyed unhalt's own receipt save writes steer_attempts; see the legacy defect below), and unhalt of a node that is not halted writes nothing; unstick of a frozen node writes nodes, events and policy.unstuck to the node, and of a node that is not stuck writes nothing ('… not stuck — nothing to release'); interrupt, continue_on (its switch is _continue_on_account's own two transactions, source), steer, steer-ack, steer-state, process, resume with nothing frozen and remote-control write nothing to the org document here; the killswitch latch writes killswitch and events (and pauses every armed watchdog in the same save), its release pops killswitch and writes events, and a release while nothing is latched writes nothing. restart_wake arm, cancel and status write NO org section: the wake lives in its own sidecar file. Non-desktop restart tools: self_restart and prime_restart arm or cancel write events (the gate's log row). The kiosk handler (non-desktop) writes kiosk (enable, token rotation, caps). Recorded legacy defect (docket unhalting-an-agent-leaves-an-unsaved-empty-steer; found by P02's SQL-level write trace, reproduced by P01): halt.unhalt calls supervisor.scan_steer_records, which loads the cached (resident) document under the document lock and creates steer_attempts[node] = {} with setdefault, and does not save when no attempt is pending; the lock-release discard check does not catch that change, so on the warm document every later save on the org, whatever its operation and whoever calls it, deletes that owner's steer_attempts rows again until a later unhalt, and the durable document ends with the empty owner. A reload between the calls drops the carry-over. Pinned by tests/test_state_control_boundary.py against docs/state-system/control-boundary.json."
       ],
       "open_questions": [],
       "source_refs": [
@@ -10004,6 +10015,24 @@
           "start": 3646,
           "end": 3749,
           "sha256": "dd5d5c5074389c188233f132d27b5d38ac73d068d98670e5853cb0736c22992b"
+        },
+        {
+          "path": "engine/backend/orgtree/halt.py",
+          "start": 921,
+          "end": 952,
+          "sha256": "3798a6bf9e7eec4e6c456ebfb23e6ced0fb27e03cb0b93a3f801280ad459a5e7"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 31021,
+          "end": 31115,
+          "sha256": "616b2005c3a4cdb7c0655a65423d51c53930610a02691b6c929d3aaa60290600"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 30650,
+          "end": 30651,
+          "sha256": "0d92c04126088ff548943b33c452404675041147d4f04e1105bc0d88f0975388"
         }
       ]
     },

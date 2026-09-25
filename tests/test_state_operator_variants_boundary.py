@@ -106,8 +106,10 @@ class BoundaryBinding(unittest.TestCase):
                              (['operator-ops.variant-conflicts'], ['operator-ops.variant-instrumentation']))
             self.assertEqual({d for d, v in dims.items() if v[0].startswith('operator-ops.variant-')},
                              {'conflicts', 'instrumentation'})
-        for name in ('variant-conflicts', 'variant-instrumentation', 'wire'):
+        for name in ('variant-conflicts', 'wire'):
             self.assertEqual(registry['facets']['operator-ops.' + name]['status'], 'unresolved', name)
+        # closed from P02's rows by the P01 F1/F1b follow-up (asserted in tests/test_state_p02_contact_facets.py)
+        self.assertEqual(registry['facets']['operator-ops.variant-instrumentation']['status'], 'specified')
         # the door is mapped now that every op it dispatches is contracted
         row = ops_entry(registry)
         self.assertEqual((row['disposition'], row['contracts']),
@@ -230,6 +232,35 @@ class OperatorVariantsBoundary(unittest.TestCase):
         self.assertEqual(changed, [])
         self.drive.assert_not_called()
         self.hub.assert_not_called()
+
+    def test_moves_rewrite_the_seats_on_the_credit_path_up_to_the_common_ancestor(self):
+        # P02 finding on this family (F1b), measured by P01 (follow-up item): ledger._move releases the moved stake
+        # hop by hop from the old parent up to the lowest common ancestor and acquires it down to the new parent, so
+        # it rewrites the grant of every seat strictly between them. A promotion's common ancestor is @user: the
+        # WHOLE old chain up to the top-level seat is rewritten, and an ancestor above the old parent is told
+        # nothing unless it is also a new peer. Here deep sits under leaf (top > mid > leaf > deep).
+        def rows_and_told(body):
+            self.doCleanups()
+            self.setUp()
+            org = store.load_org(self.slug)
+            org.hire('top', 'leaf', 'haiku', 1, 'deep', **SCOPE)
+            store.save_org(org)
+            before = self.durable()
+            r = self.op(body)()
+            after = self.durable()
+            self.assertEqual(r.status_code, 200, r.text)
+            rows = {n: sorted(k for k in set(before['nodes'][n]) | set(v) if before['nodes'][n].get(k) != v.get(k))
+                    for n, v in after['nodes'].items() if v != before['nodes'].get(n)}
+            return rows, set(self.told(before, after))
+        rows, told = rows_and_told({'op': 'promote', 'node': 'deep', 'new_parent': None})
+        self.assertEqual(rows, {'deep': ['parent'], 'leaf': ['grant'], 'mid': ['grant'], 'top': ['grant']})
+        self.assertEqual(told, {'deep', 'leaf', 'top', 'top2'})     # mid: written, told nothing
+        rows, told = rows_and_told({'op': 'move', 'node': 'deep', 'new_parent': 'mid'})
+        self.assertEqual(rows, {'deep': ['parent'], 'leaf': ['grant']})       # mid is the common ancestor
+        rows, _ = rows_and_told({'op': 'move', 'node': 'leaf', 'new_parent': 'sib'})
+        self.assertEqual(rows, {'leaf': ['parent'], 'mid': ['grant'], 'sib': ['grant']})    # not top
+        rows, _ = rows_and_told({'op': 'demote', 'node': 'sib', 'new_parent': 'mid'})
+        self.assertEqual(rows, {'sib': ['parent'], 'mid': ['grant']})       # top, the old parent, is the ancestor
 
     def test_every_operation_writes_its_fixtured_sections_and_tells_its_fixtured_nodes(self):
         for name, (pre, body) in CASES.items():
