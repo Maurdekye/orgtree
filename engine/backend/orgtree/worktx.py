@@ -157,25 +157,35 @@ def run(slug: str, fn: Callable[[Org], T], *, rows: Rows | None = None,
     on UnlockedWrite (see the module docstring). The archive move is deferred:
     call `sweep(slug)` first. Returns fn's result (or the stored result of a
     replayed `op_key`)."""
-    rows = rows or Rows()
+    return tx(slug, fn, rows=rows or Rows(), op_key=op_key,
+              fingerprint=fingerprint, lock_timeout=lock_timeout,
+              defer_archive=True)
+
+
+def tx(slug: str, fn: Callable[[Org], T], *, rows: Rows,
+       op_key: str | None = None, fingerprint: str | None = None,
+       lock_timeout: float | None = None, defer_archive: bool = False) -> T:
+    """`run` without the docket defaults: any row set, the same widening.
+    For writers outside the docket proper (the supervisor's reminder and
+    recovery passes) that still discover rows at run time."""
     for _ in range(MAX_WIDEN + 1):
         try:
             with orgtx.org_tx(slug, op_key=op_key, fingerprint=fingerprint,
-                              lock_timeout=lock_timeout, **rows.kwargs()) as tx:
-                if tx.replayed:
-                    return cast(T, tx.result)
-                tx.org._work_defer_archive = True  # pyright: ignore[reportAttributeAccessIssue]
+                              lock_timeout=lock_timeout, **rows.kwargs()) as t:
+                if t.replayed:
+                    return cast(T, t.result)
+                t.org._work_defer_archive = defer_archive  # pyright: ignore[reportAttributeAccessIssue]
                 try:
-                    out = fn(tx.org)
+                    out = fn(t.org)
                 finally:
-                    tx.org._work_defer_archive = False  # pyright: ignore[reportAttributeAccessIssue]
-                if op_key is not None and tx.result is None:
-                    tx.result = out
+                    t.org._work_defer_archive = False  # pyright: ignore[reportAttributeAccessIssue]
+                if op_key is not None and t.result is None:
+                    t.result = out
             return out
         except orgtx.UnlockedWrite as e:
             if not rows.widen(refused_rows(e)):
                 raise WidenExhausted(f"refusal named no new row: {e}") from e
-    raise WidenExhausted(f"docket tx on {slug!r} still widening after "
+    raise WidenExhausted(f"tx on {slug!r} still widening after "
                          f"{MAX_WIDEN} attempts: {rows.kwargs()}")
 
 
@@ -183,19 +193,9 @@ def sweep(slug: str, now_ts: float | None = None, *,
           lock_timeout: float | None = None) -> list[str]:
     """The archive move as its own transaction (decision 13). Returns the
     slugs moved. Re-checks eligibility under the `work_items` lock."""
-    rows = Rows(logs={"events", "work_items_archive"})
-
-    def body(org: Org) -> list[str]:
-        return org._work_archive_eligible(now_ts)  # pyright: ignore[reportPrivateUsage]
-
-    for _ in range(MAX_WIDEN + 1):
-        try:
-            with orgtx.org_tx(slug, lock_timeout=lock_timeout, **rows.kwargs()) as tx:
-                return body(tx.org)
-        except orgtx.UnlockedWrite as e:
-            if not rows.widen(refused_rows(e)):
-                raise WidenExhausted(f"refusal named no new row: {e}") from e
-    raise WidenExhausted(f"sweep on {slug!r} still widening")
+    return tx(slug, lambda org: org._work_archive_eligible(now_ts),  # pyright: ignore[reportPrivateUsage]
+              rows=Rows(logs={"events", "work_items_archive"}),
+              lock_timeout=lock_timeout)
 
 
 def mutate(slug: str, fn: Callable[[Org], T], *, rows: Rows | None = None,
