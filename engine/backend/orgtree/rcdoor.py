@@ -66,6 +66,20 @@ RESERVATIONS = "reservations"
 WATCHDOG_SECTIONS = ("watchdogs", "watchdog_tombs", "lifecycle")
 WATCHDOG_SETTINGS = ("sandbox", "workspace", "slug")
 
+# Tools that skip `api._kiosk_cap_check` (lead decision 18.8). The cap bounds
+# `Org.audit()["top_level_holds"]` = the sum of seat_cost(model) + grant over
+# the live top-level nodes, so only a write to a node's parent, state, model
+# or grant, a new node, or the `tiers` prices can move it. None of these
+# tools writes any of those (status: last_status/working_activity_at and the
+# parent's mail_seq/mailbox_id; reservations: the reservations row; watchdogs:
+# the watchdog rows; a credit REQUEST: credit_requests — the grant moves only
+# at the decision, which keeps the check). Proven end to end, on an org
+# already over its cap, by tests/test_pg3c_kiosk_exempt.py.
+KIOSK_EXEMPT = frozenset({"orgtree_status", "orgtree_reservation",
+                          "orgtree_resource_reservation", "orgtree_watchdog",
+                          "orgtree_request_credits"})
+HOLDS_FIELDS = ("parent", "state", "model", "grant")
+
 TOOLS = ("orgtree_reallocate", "orgtree_request_credits", "orgtree_status",
          "orgtree_reservation", "orgtree_resource_reservation",
          "orgtree_watchdog")
