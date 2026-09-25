@@ -243,6 +243,17 @@ pub trait Command: Send + Sync {
 type Effect = Box<dyn FnOnce() + Send>;
 
 /// The only handle a command gets on its transaction.
+///
+/// Statement text must be static, so a value cannot be spliced into SQL:
+///
+/// ```compile_fail
+/// # use orgtree_store::{Tx, Session, DbError};
+/// async fn bad<S: Session>(tx: &mut Tx<'_, S>, name: &str) -> Result<(), DbError> {
+///     let sql = format!("SELECT * FROM agents WHERE name = '{name}'");
+///     tx.exec("bad", &sql, &[]).await?;
+///     Ok(())
+/// }
+/// ```
 pub struct Tx<'a, S: Session> {
     sess: &'a mut S,
     hooks: &'a Hooks,
@@ -348,7 +359,12 @@ impl<'a, S: Session> Tx<'a, S> {
     }
 
     /// Run one labelled statement.
-    pub async fn exec(&mut self, label: &str, sql: &str, params: &[Val]) -> Result<Rows, DbError> {
+    ///
+    /// `sql` is `&'static str` ON PURPOSE: statement text reaches traces and
+    /// (in qualification builds) the server log, so every user-derived value
+    /// must be a bind parameter. A statement built with `format!` from
+    /// arguments cannot be passed here (lead condition on `Statement.sql`).
+    pub async fn exec(&mut self, label: &str, sql: &'static str, params: &[Val]) -> Result<Rows, DbError> {
         #[cfg(feature = "qualification")]
         {
             self.pause(&format!("stmt.{label}.before")).await?;
