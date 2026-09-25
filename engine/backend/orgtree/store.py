@@ -2196,6 +2196,18 @@ class LazyDoc(dict[str, Any]):
     def setdefault(self, k: str, default: Any = None) -> Any:   # pyright: ignore[reportIncompatibleMethodOverride]
         if k in self:
             return self[k]
+        if k in LIST_LOGS and isinstance(default, list) and not default \
+                and k not in self._dropped and k not in self._snap_doc:
+            # PG-3d: a list log with NO rows when this document loaded. Give
+            # it the empty baseline it really had, row-tracked, so its save
+            # INSERTS its rows. Without one the save took the "unprovable
+            # journal" path — replace the whole section — and deleted rows
+            # another writer appended meanwhile (measured: two org_tx each
+            # recording a lifecycle row, the second commit erased the first).
+            v = AppendLog((), rows=[])
+            self._snap_logs[k] = []
+            self[k] = v
+            return v
         self[k] = default
         return default
 
