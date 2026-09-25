@@ -50,6 +50,13 @@ SEND_LOGS: tuple[str, ...] = ("events", "notice_log", "user_mail_log", "user_out
 #: A user read mark / mark-all-read: unread rows move to the read archive.
 READ_MARK_ROWS: dict[str, list[Any]] = {"sections": ["user_inbox"], "logs": ["user_mail_log"]}
 
+#: The user's outside send: the outbound org-inbox row, and the hub spool it
+#: queues on; the kiosk seal, the local identity and the hubs are read for
+#: the decision (FOR SHARE).
+OUTSIDE_SEND_ROWS: dict[str, list[Any]] = {
+    "sections": ["net_spool"], "logs": ["org_inbox", "events"],
+    "share_sections": ["kiosk", "net_identity", "net_hubs"]}
+
 
 def _dedupe(xs: Iterable[Any]) -> list[Any]:
     out: list[Any] = []
