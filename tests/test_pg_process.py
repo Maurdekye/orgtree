@@ -331,34 +331,41 @@ class RefusalLineTests(unittest.TestCase):
 
 class LaunchWiringTests(unittest.TestCase):
     """The bracket sits between root ownership and the API import, and the
-    database is stopped whatever way serving ends."""
+    database is stopped at interpreter exit. Reads launch.py's source and
+    calls its helper with the bracket stubbed; it boots no engine."""
 
     def test_launch_orders_lifetime_database_then_api(self) -> None:
         source = (Path(bracket.__file__).resolve().parent / "launch.py").read_text(encoding="utf-8")
-        main = source[source.index("def main()"):source.index("def _serve(")]
-        self.assertLess(main.index("arm_process_lifetime(data"), main.index("start_for_engine(data, os.environ)"))
-        self.assertIn("finally:", main)
-        self.assertIn("database.stop()", main)
-        self.assertNotIn("load_app()", main, "the API must load only inside _serve, after the database")
+        main = source[source.index("def main()"):source.index("def _own_database(")]
+        lifetime = main.index("arm_process_lifetime(data")
+        database = main.index("_own_database(data)")
+        api = main.index("= load_app()")
+        self.assertLess(lifetime, database)
+        self.assertLess(database, api)
 
-    def test_the_database_is_stopped_when_serving_fails(self) -> None:
+    def test_the_helper_registers_the_stop_and_is_inert_otherwise(self) -> None:
         import engine.launch as launch
-        stopped: list[bool] = []
+        registered: list = []
 
         class Owned:
             def stop(self) -> dict:
-                stopped.append(True)
                 return {}
 
-        with mock.patch.object(launch, "validate_data_root", side_effect=lambda p: p), \
-             mock.patch.dict(os.environ, {"ORGTREE_DATA": str(Path(tempfile.gettempdir()))}), \
-             mock.patch("engine.startup_progress.StartupProgress"), \
-             mock.patch("engine.process_lifetime.arm_process_lifetime", return_value=1), \
-             mock.patch("engine.pg_process.start_for_engine", return_value=Owned()), \
-             mock.patch.object(launch, "_serve", side_effect=RuntimeError("boom")):
-            with self.assertRaisesRegex(RuntimeError, "boom"):
-                launch.main()
-        self.assertEqual(stopped, [True])
+        owned = Owned()
+        with mock.patch("atexit.register", side_effect=registered.append),              mock.patch("engine.pg_process.start_for_engine", return_value=owned) as started:
+            launch._own_database(Path("C:/root"))
+        self.assertEqual(registered, [owned.stop])
+        self.assertEqual(started.call_args.args, (Path("C:/root"), os.environ))
+        registered.clear()
+        with mock.patch("atexit.register", side_effect=registered.append),              mock.patch("engine.pg_process.start_for_engine", return_value=None):
+            launch._own_database(Path("C:/root"))
+        self.assertEqual(registered, [], "nothing to stop when the store is not postgres")
+
+    def test_a_refusal_propagates_out_of_the_helper(self) -> None:
+        import engine.launch as launch
+        with mock.patch("engine.pg_process.start_for_engine", side_effect=BracketError("no database")):
+            with self.assertRaisesRegex(BracketError, "no database"):
+                launch._own_database(Path("C:/root"))
 
 
 if __name__ == "__main__":
