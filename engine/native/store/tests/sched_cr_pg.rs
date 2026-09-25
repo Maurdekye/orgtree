@@ -96,9 +96,19 @@ async fn q_cr2_a_and_d_writers_before_capture_or_after_the_claim() {
 }
 
 async fn order_b(controls: Vec<&'static str>, narrowing: bool) -> (Turn, Arc<Events>) {
+    order_b_with(controls, narrowing, false).await
+}
+
+async fn order_b_with(controls: Vec<&'static str>, narrowing: bool, with_input: bool) -> (Turn, Arc<Events>) {
     reset().await;
     let script = Arc::new(Script::default());
     let (ex, ev) = shared(script.clone(), controls);
+    if with_input {
+        // a message for S, so the turn has a provider input step
+        let m = new_id();
+        ex.run(&agent_send(Target::Agent { principal: c() }, m, orgtree_store::sent::MailClass::Message), &agent_binding(b(), "in", "in")).await.unwrap();
+        orgtree_store::mail::receive::deliver(&ex, org(), mb(c()), m).await.unwrap();
+    }
     let (mut arrived, release) = script.hold_named("charter.capture.after_first_read");
     let turn = spawn_turn(&ex);
     arrive(&mut arrived).await;
@@ -151,7 +161,7 @@ async fn q_cr2_c_a_writer_meeting_the_claim_anchors_commits_after_the_claim() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "needs a WS1 dev cluster; run through p03-run.ps1"]
 async fn q_cr2_every_order_closes_the_capture_before_the_claim_and_runs_no_sql_during_input() {
-    let (t, ev) = order_b(vec![], false).await;
+    let (t, ev) = order_b_with(vec![], false, true).await;
     assert!(matches!(t, Turn::Ran { .. }));
     let snap = ev.snapshot();
     let b0 = snap.iter().position(|e| e == "mark:runtime.turn.provider_input.begin").expect("marker");

@@ -42,6 +42,10 @@ ALTER TABLE mail_sent DROP CONSTRAINT mail_sent_pair_shape;
 ALTER TABLE mail_sent ADD CONSTRAINT mail_sent_pair_rule CHECK (
     (pair_seq IS NOT NULL) = (source_kind IN ('agent', 'user') AND class IN ('message', 'passive') AND dest_kind = 'mailbox'));
 
+-- The transport executor's fenced dispatch claim (v6 "Agent to outside
+-- party"): a fresh token per claim; a settle must present the current one.
+ALTER TABLE transport_intents ADD COLUMN claim_token uuid NULL;
+
 -- Receiver rows copy the captured delegation facts they display (v6: the
 -- receiver reads its captured delegation, never the sender's current state),
 -- so reads need no join to source rows. Digest rows are receiver-created and

@@ -184,6 +184,14 @@ pub fn declared() -> Value {
         }
         m.insert(format!("audiences.{verb}"), entry(rels, Some(if extra { "audiences.revoke" } else { "audiences.grant" }), "mail/audience.rs Audience (schedule-grade; r7 C2a P1)"));
     }
+    m.insert(
+        "mail.transport.claim".into(),
+        entry(vec![receipts(), ("transport_intents", rel(&["read", "for_update", "write"], true)), ("mail_sent", rel(R, true))], Some("exchange.extern-send"), "mail/transport.rs ClaimDispatch (fenced dispatch claim)"),
+    );
+    m.insert(
+        "mail.transport.settle".into(),
+        entry(vec![receipts(), ("transport_intents", rel(RW, true))], Some("exchange.extern-send"), "mail/transport.rs SettleDispatch (under the claim token)"),
+    );
     m.insert("mail.ack.ack".into(), entry(vec![receipts(), ("outgoing_intents", rel(RW, true))], None, "mail/receive.rs Ack (source settles its intent)"));
     m.insert(
         "mail.recovery.sweep".into(),
