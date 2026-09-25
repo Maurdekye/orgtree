@@ -33,7 +33,7 @@ struct Svc {
 
 async fn svc(controls: Vec<&'static str>) -> Svc {
     let x = executor(controls);
-    x.ex.register_read_service(org(), service()).await.unwrap();
+    register_read_service(&x, service()).await;
     Svc { x, reg: ClaimRegistry::new() }
 }
 

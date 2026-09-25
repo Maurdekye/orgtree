@@ -146,6 +146,18 @@ pub async fn reset() {
     admin.batch_execute(&sql).await.unwrap();
 }
 
+/// A read service's incarnation row (WS2: registrations reference
+/// `service_incarnations`), then its registration for the fixture org.
+pub async fn register_read_service(x: &Ex, service: Uuid) {
+    admin_exec(&format!(
+        "INSERT INTO service_incarnations (incarnation_id, kind, db_incarnation, liveness_pid, liveness_backend_start, started_at) \
+         VALUES ('{service}', 'read-service', '{}', pg_backend_pid(), now(), now()) ON CONFLICT DO NOTHING",
+        incarnation()
+    ))
+    .await;
+    x.ex.register_read_service(org(), service).await.unwrap();
+}
+
 pub async fn admin_exec(sql: &str) {
     admin().await.batch_execute(sql).await.unwrap_or_else(|e| panic!("{sql}: {e:?}"));
 }

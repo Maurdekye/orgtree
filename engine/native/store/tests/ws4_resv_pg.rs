@@ -349,7 +349,11 @@ async fn q_r3_acquire_land_and_land_land_on_one_key() {
     let mut h = x.script.hold(Some("l2"), "reservation.land.before_commit");
     let (o1, (o2, _)) = tokio::join!(x.ex.run(&l1, &b1), while_held(&mut h, 1500, x.ex.run(&l2, &b2)));
     assert_eq!(name(&o1), "applied");
-    assert_eq!(refusal(&o2), "integration_key already identifies a different reservation");
+    // legacy `land`: another row already LANDED under the key replays THAT row
+    let v2 = applied(o2);
+    assert_eq!(v2["replayed"], json!(true));
+    assert_eq!(v2["reservation"]["id"], json!(rid));
+    assert_eq!(text(&format!("SELECT state FROM resource_reservations WHERE reservation_id = '{rid2}'")).await, "held", "the second row is untouched");
     assert_eq!(count("SELECT count(*) FROM resource_reservations WHERE integration_key = 'key-9'").await, 1);
     // an acquire with the landed key and its scope replays the LANDED row
     let v = applied(x.ex.run(&acq("main", None, Some("key-9")), &agent_binding(c(), "l4")).await);
@@ -385,7 +389,9 @@ async fn q_r4_release_and_recover_serialize_both_orders() {
         };
         assert!(!no_wait, "recover_first={recover_first}: the second writer did not wait on the row lock");
         assert_eq!(name(&o1), "applied");
-        let expect = if recover_first { "only a held reservation can be released" } else { "only a held reservation can be recovered" };
+        // legacy: a recover of a non-HELD row checks visibility first, and
+        // delta cannot see charlie's item-less claim
+        let expect = if recover_first { "only a held reservation can be released" } else { "reservation is not visible to this collaborator" };
         assert_eq!(refusal(&o2), expect, "recover_first={recover_first}");
         let st = text(&format!("SELECT state FROM resource_reservations WHERE reservation_id = '{rid}'")).await;
         assert_eq!(st, if recover_first { "recovered" } else { "released" });

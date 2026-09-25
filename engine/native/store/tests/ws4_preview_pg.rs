@@ -103,16 +103,16 @@ async fn q_p6_a_dropped_predicate_is_caught_by_the_parity_fixture() {
     let mut caught = Vec::new();
     for (label, f, tag) in cases() {
         setup(tag).await;
-        let x = executor(vec!["Q-P6.drop_children_read"]);
+        let x = executor(vec!["Q-P6.drop_seat_prices"]);
         let (me, node, delta) = f();
         if parity(&x, me, node, delta, "real").await.is_err() {
             caught.push(label);
         }
         if label == "agent chain short at the last credit" {
-            assert!(x.ev.has("control_executed:Q-P6.drop_children_read"), "the mutation did not run");
+            assert!(x.ev.has("control_executed:Q-P6.drop_seat_prices"), "the mutation did not run");
         }
     }
-    assert!(!caught.is_empty(), "no parity case failed with the payer's children dropped from the read set: the fixtures detect nothing");
+    assert!(!caught.is_empty(), "no parity case failed with the seat prices dropped from the read set: the fixtures detect nothing");
 }
 
 // ================================================================ the rendered preview
@@ -227,7 +227,7 @@ async fn q_p4_preview_withheld_after_restriction() {
         reset().await;
         let x = executor(if control { vec!["Q-P4.fence_disabled"] } else { vec![] });
         let svc = Uuid::from_u128(0x5e42);
-        x.ex.register_read_service(org(), svc).await.unwrap();
+        register_read_service(&x, svc).await;
         let reg = ClaimRegistry::new();
         let (h, p) = preview::preview(&x.ex, &reg, pq(Some(b()), c(), 3)).await.unwrap();
         let (before, d) = p.unwrap();

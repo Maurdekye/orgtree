@@ -40,7 +40,7 @@ use crate::value::Val;
 use crate::Tx;
 
 /// Unsafe controls compiled into this module (static list for the handshake).
-pub const CONTROLS: &[&str] = &["Q-P1.whole_document", "Q-P2.run_and_roll_back", "Q-P4.fence_disabled", "Q-P5.org_wide_lock", "Q-P6.drop_children_read"];
+pub const CONTROLS: &[&str] = &["Q-P1.whole_document", "Q-P2.run_and_roll_back", "Q-P4.fence_disabled", "Q-P5.org_wide_lock", "Q-P6.drop_seat_prices"];
 
 /// `orgtree_preview {operation: "reallocate", args: {node, delta}}`.
 pub struct PreviewReallocate {
@@ -103,11 +103,13 @@ impl Read for PreviewReallocate {
         let Some(mut l) = funding::load(tx, org, self.node, ReadMode { lock: false }).await? else {
             return Ok(Err(Refusal::new("funding.nosuchnode", format!("no such node {}", self.node))));
         };
-        if controls::fire(&tx.scope(), "Q-P6.drop_children_read") {
-            // the mutation: the payer's children are dropped from the read set
-            let payer = l.chain.get(1).and_then(|p| l.name(*p).map(str::to_string));
-            let keep: Vec<String> = l.chain.iter().filter_map(|c| l.name(*c).map(str::to_string)).collect();
-            l.snap.nodes.retain(|n| n.parent != payer || keep.contains(&n.id));
+        if controls::fire(&tx.scope(), "Q-P6.drop_seat_prices") {
+            // the mutation: one predicate of the declared read set (the seat
+            // prices under the catalog version, which every `free` depends on)
+            // is dropped, so every seat reads as free of cost
+            for t in l.snap.tiers.iter_mut() {
+                t.1 = PyNum::Int(0);
+            }
         }
         tx.pause("after_snapshot").await?;
         let actor = match self.me {
