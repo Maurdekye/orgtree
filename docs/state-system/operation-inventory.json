@@ -13,7 +13,7 @@
     "exact_effect_contracts": "pending per-entry review"
   },
   "summary": {
-    "modules": 129,
+    "modules": 130,
     "registration_sites": 339,
     "registration_kinds": {
       "callback": 5,
@@ -28,7 +28,7 @@
       "worker": 55
     },
     "unresolved_registrations": 8,
-    "dispatch_selector_sites": 223,
+    "dispatch_selector_sites": 224,
     "connection_sites": 18,
     "unresolved_connect_calls": 2,
     "unresolved_tool_refs": 0,
@@ -381,7 +381,11 @@
     },
     {
       "path": "engine/backend/orgtree/p03_door.py",
-      "normalized_source_sha256": "08cde3537d0edbb4150bbef6ee67a1969ba08f701b46cfb9175895ceaba11a5e"
+      "normalized_source_sha256": "42802baccb6e94a36a15373baa1881bae9ba93c4cd9c7cfbf8f1b6fbfb75fcc3"
+    },
+    {
+      "path": "engine/backend/orgtree/p03_refusal.py",
+      "normalized_source_sha256": "695361c248e7bf95633ac126063d20257759f10c2eeb67a7f44f10db017982a1"
     },
     {
       "path": "engine/backend/orgtree/profiling.py",
@@ -5536,8 +5540,8 @@
       "source": {
         "path": "engine/backend/orgtree/p03_door.py",
         "symbol": "install",
-        "line": 219,
-        "end_line": 219,
+        "line": 258,
+        "end_line": 258,
         "syntax_sha256": "766be361cd95c69a8322cf41d967cf004b0b4e50f17edd11729ab47665ddee52"
       },
       "receiver": "app",
@@ -9265,6 +9269,21 @@
         "orgtree_rehire",
         "orgtree_retool",
         "orgtree_staff"
+      ]
+    },
+    {
+      "source": {
+        "path": "engine/backend/orgtree/p03_door.py",
+        "symbol": "_tool_name",
+        "line": 339,
+        "end_line": 339,
+        "syntax_sha256": "3570a0aa0831919775ae113ed85377c0a0bdeb384b4ce2e3b84cb646f7264794"
+      },
+      "kind": "tool",
+      "selector": "name",
+      "operator": "Eq",
+      "values": [
+        "orgtree_op_call"
       ]
     },
     {

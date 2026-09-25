@@ -595,11 +595,17 @@ adds five entry witnesses:
 - `InstanceStamp` (a response header) and `AccessRecord` (timing, census and the slow-request trace the
   wrapper-writes facet states) are excluded;
 - the P03 door's `_Router` (`p03_door.py`) is excluded while it is inert: it passes every request through while
-  `SLICE_TOOLS` is empty, and a test fails once that set names a verb, because the door then becomes a second
-  `/api/agent` dispatch path;
+  no family is registered, and a test fails once an engine module outside `p03_door.py` calls
+  `p03_door.register`, because the door then becomes a second `/api/agent` dispatch path and a REST route owner
+  (this switch was `SLICE_TOOLS` being empty until P03 WS2's door follow-up derived that set from the registry);
 - `RecoveryBarrier` (every mutating request waits for startup recovery and gets 503 if it failed) and
   `FrozenAdminBoundary` (a non-loopback, unbridged request is refused 403 under the frozen profile) stay pending
   with the runtime as owner: they are request-wide admission predicates that no contract or shared facet states yet.
+
+745 is one more than that 744 (re-anchor on P03 WS2's door follow-up). The door's registration seam adds one
+dispatch branch, `p03_door._tool_name`'s `orgtree_op_call` unwrap, which decides whether the door hands an agent
+call to a registered slice verb. It stays pending, like its `toolwait.tool_name` twin (P01 W8), with the agent door
+(P01) as owner.
 
 Of the 41 open dimension occurrences on the sixteen legacy-family contracts, 25 (9 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the

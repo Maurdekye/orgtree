@@ -1,6 +1,6 @@
 {
   "schema": "orgtree.state-operation-contracts/v1",
-  "source_inventory_sha256": "8f8fbb0de1154ab721fd84659246b21980e5de4a1d8535f65fc003bf0a68c6e2",
+  "source_inventory_sha256": "3abe94eed66721e04e337ae02b11e59db12a9692c05c777bad52302d8edc9443",
   "qualification": {
     "runtime_census": false,
     "conversion_authorized": false
@@ -29439,30 +29439,36 @@
       "id": "e7da5e27c54f34726832bf20aca1000d4804dd9763d93ed221e39fd53ead3a52",
       "disposition": "excluded",
       "contracts": [],
-      "reason": "Not an operation while inert (P01 item p01-inventory-misses-middleware-add-middleware-c): p03_door.install registers _Router as HTTP middleware only when ORGTREE_P03_PROTOTYPE_ROOT names a marked prototype root, and _Router passes every request through unchanged while SLICE_TOOLS is empty (M1). A slice verb makes it a second /api/agent dispatch path, so this row must be revisited then: the contracts test fails while SLICE_TOOLS is non-empty and this row is excluded.",
+      "reason": "Not an operation while inert (P01 item p01-inventory-misses-middleware-add-middleware-c): p03_door.install registers _Router as HTTP middleware only when ORGTREE_P03_PROTOTYPE_ROOT names a marked prototype root (a set-but-wrong value is refused or left inert and recorded in the Windows Application event log by p03_refusal, never in the data root), and _Router passes every request through unchanged while no family is registered: p03_door.register fills its tool and route tables, and SLICE_TOOLS is derived from them. A registered family makes the door a second /api/agent dispatch path and a REST route owner, so this row must be revisited then: the contracts test fails once an engine module outside p03_door.py calls p03_door.register while this row is excluded.",
       "source_refs": [
         {
           "path": "engine/backend/orgtree/p03_door.py",
-          "start": 219,
-          "end": 219,
+          "start": 258,
+          "end": 258,
           "sha256": "4d98581207361d72ad94345b31d684d5f07f783a4b0bd29737e842e4f20619ab"
         },
         {
           "path": "engine/backend/orgtree/p03_door.py",
-          "start": 213,
-          "end": 220,
-          "sha256": "d6cb209ca9923797875700176dfb17de5742918c73e7b40339566d9ec289efec"
+          "start": 235,
+          "end": 259,
+          "sha256": "103117cd63b8ac9a2c68bc1acf2ac8ad84ab668e9b1c554119bf85cdaf5e0851"
         },
         {
           "path": "engine/backend/orgtree/p03_door.py",
-          "start": 223,
-          "end": 235,
-          "sha256": "5e48e4c31703710d7ac0687258f0748f20f6cbca6c281682ae0c0a85b7a7e172"
+          "start": 292,
+          "end": 332,
+          "sha256": "b1d6998de1adbe3d137bae96b5b2959932f3dbd1bb5d6abe93f151d5b81d7885"
         },
         {
           "path": "engine/backend/orgtree/p03_door.py",
-          "start": 48,
-          "end": 48,
+          "start": 375,
+          "end": 429,
+          "sha256": "e22bfcb88e9b59af0080e7121bc872578e25807ff749865b842ca53e96de1a15"
+        },
+        {
+          "path": "engine/backend/orgtree/p03_door.py",
+          "start": 52,
+          "end": 52,
           "sha256": "4484645d9c1efc389b85c34145fca3a4e6990650d437c0cf53bd0fdd31d8a59e"
         }
       ]
@@ -32715,6 +32721,13 @@
       "disposition": "pending",
       "contracts": [],
       "reason": "80b28bf (account capacity marks): the `body.tool == 'orgtree_account_mark'` dispatch branch in agent_call, which writes the machine account store and then the org log and receipt. No P01 contract describes it yet; recorded pending rather than mapped, because this stage authors no contract text. Owner: the runtime (P08).",
+      "source_refs": []
+    },
+    {
+      "id": "585f213b7818fafab40501d56e142f9477ad2d074d3d56558146d1e119886b50",
+      "disposition": "pending",
+      "contracts": [],
+      "reason": "Stays pending (P01 item p01-inventory-misses-middleware-add-middleware-c, re-anchor on the P03 door follow-up): p03_door._tool_name unwraps orgtree_op_call to the verb it carries, exactly as toolwait.tool_name does, and that name decides whether the P03 door hands a POST /api/agent call to a registered slice verb or passes it through to agent_call. It is the door-side twin of the toolwait branch, which stays pending (P01 W8), and the agent door stays pending by precedent (S3 decision 1). Owner: P01 (the agent door).",
       "source_refs": []
     }
   ],
