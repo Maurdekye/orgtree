@@ -167,8 +167,8 @@ def measure(adapter, slug: str, mode: str, config: dict) -> dict:
     if len(got_refs) != len(want_refs):
         errors.append(f"evidence: {len(want_refs) - len(got_refs)} of {len(want_refs)} refs missing")
     for w, n in sent_to.items():
-        if landed.get(w, 0) < n:
-            errors.append(f"mail: {w} got {landed.get(w, 0)} of {n}")
+        if landed[w]["found"] < n:
+            errors.append(f"mail: {w} has {landed[w]['found']} of {n} (boxed or archived)")
     by_kind = {}
     for kind in KINDS:
         ks = [s for s in samples if s["kind"] == kind]
@@ -196,14 +196,19 @@ def measure(adapter, slug: str, mode: str, config: dict) -> dict:
                            "lazy_materializations": probe["lazy_materializations"]}}
 
 
-def _mail_landed(adapter, tag: str) -> dict[str, int]:
-    """Per recipient: how many of THIS run's mails (body carries the tag) are in
-    its mailbox. Nothing drains mail here: no lifespan, no sessions."""
+def _mail_landed(adapter, tag: str) -> dict[str, dict[str, int]]:
+    """Per recipient: how many DISTINCT mails of this run (body carries the tag)
+    are still boxed, or already taken for delivery but archived in its
+    `mail_log`. A mail in neither place is lost."""
     org = adapter.store.load_org(adapter.slug)
     out = {}
     for a in range(AGENTS):
         w = f"worker-{a}"
-        out[w] = sum(tag in str(m.get("body", "")) for m in org.mailbox_in_receive_order(w))
+        boxed = {str(m.get("body")) for m in org.mailbox_in_receive_order(w)
+                 if tag in str(m.get("body", ""))}
+        logged = {str(m.get("body")) for m in ((org.d.get("mail_log") or {}).get(w) or [])
+                  if tag in str(m.get("body", ""))}
+        out[w] = {"found": len(boxed | logged), "boxed": len(boxed), "archived": len(logged)}
     return out
 
 
