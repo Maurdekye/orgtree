@@ -314,6 +314,21 @@ class Archive(unittest.TestCase):
             self.assertEqual(store.load_org(self.slug).node("t")["state"], "live", drop)
         self.assertEqual(refused, ["asks", "credit_requests", "notices"])
 
+    def test_mooting_an_item_attached_question_rewrites_the_work_item(self):
+        # store._save_org runs reconcile_attention whenever `asks` was touched,
+        # and it rewrites the attention fields of the work item the question
+        # is attached to: a retire that moots it writes `work_items` too
+        with store.DOC_LOCK:
+            o = store.load_org(self.slug)
+            slug = o.work_create(ledger.USER, "a docket item", "why it exists",
+                                 owner="t")["slug"]
+            o.ask_user("t", "about the item", work_item=slug)
+            store.save_org(o)
+        self.parity("retire", ledger.USER, "t")
+        items = store.load_org(self.slug).d["work_items"]
+        self.assertFalse(next(i for i in items if i["slug"] == slug)
+                         ["notification_attention_active"])
+
     def test_rescind_holds_the_parent_retire_does_not(self):
         o = store.load_org(self.slug)
         self.assertIn("root", lifecycle_tx._archive_rows(o, ledger.USER, "b", True)[0])
