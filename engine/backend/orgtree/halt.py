@@ -575,32 +575,34 @@ def worker(fn):
         key = (slug, nid)
         st = sup.state(slug, nid)
         turn = fn.__name__ in ("_run_turn", "_run_one_turn") and bool(args)
-        mine = None
         with _reg:
             _workers[key] = _workers.get(key, 0) + 1
             _worker_states.setdefault(key, []).append(st)
-            if turn:
-                c = args[0] if isinstance(args[0], dict) else {"text": str(args[0])}
-                with sup._state_lock:
-                    old = st.get("halt_pending_carrier")
-                    if old and old.get("text") == c.get("text") and not isinstance(args[0], dict):
-                        c = old
-                    st["halt_pending_carrier"] = c
-                    st["halt_carrier_id"] = c.get("_halt_id")
-                mine = c
         if _node(slug, nid) and blocked(slug, nid):
+            # Not admitted. The pending slot is ONE per runtime and may hold
+            # a running worker's carrier that no capture has reached yet, so
+            # a refused worker never touches it: it retains its own carrier
+            # explicitly, with everything else queued on the runtime.
             try:
-                # the turn's OWN carrier is retained explicitly: the pending
-                # slot is one per runtime, and a concurrent worker on the
-                # same agent may already have replaced it
                 with txn(slug, nodes=[nid]) as tx:
-                    if mine is not None:
-                        retain(tx.org, nid, [mine])
+                    if turn:
+                        retain(tx.org, nid, [args[0]])
                     _capture(tx.org, nid, st)
             finally:
                 with _reg:
                     _unregister(slug, nid, st, gated=True)
             return None
+        if turn:
+            # admitted: registered BEFORE the check above, so a halt that
+            # commits from here on waits for this worker, whose finally
+            # captures this carrier if it was not spent
+            c = args[0] if isinstance(args[0], dict) else {"text": str(args[0])}
+            with sup._state_lock:
+                old = st.get("halt_pending_carrier")
+                if old and old.get("text") == c.get("text") and not isinstance(args[0], dict):
+                    c = old
+                st["halt_pending_carrier"] = c
+                st["halt_carrier_id"] = c.get("_halt_id")
         try:
             return fn(slug, nid, *args, **kwargs)
         finally:
