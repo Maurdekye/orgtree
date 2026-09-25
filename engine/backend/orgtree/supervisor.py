@@ -17695,14 +17695,13 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
         # and vanish when the start response installs the real thread id.
         if tid and tid != n.get('session_id'):
             from .desktop_native import follow_session
-            with store.DOC_LOCK:
-                current = store.load_org(slug)
+            with orgtx.org_tx(slug, nodes=[nid]) as tx:
+                current = tx.org
                 if nid in current.nodes:
                     # a retired import binding follows the harvest; left
                     # behind it names a thread this seat abandoned
                     follow_session(current.node(nid), tid)
                     current.node(nid)['session_id'] = tid
-                    store.save_org(current)
             follow_session(n, tid)
             n['session_id'] = tid
         held: list[Callable[[], None]] = []
@@ -17809,8 +17808,8 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
                     or tid != n.get("codex_thread")
                     or str(n.get("codex_account") or "") != str(_bound_id or "")):
             from .desktop_native import follow_session
-            with store.DOC_LOCK:
-                o2 = store.load_org(slug)
+            with orgtx.org_tx(slug, nodes=[nid]) as tx:
+                o2 = tx.org
                 if nid in o2.nodes:
                     # same as the on_thread hook: a RETIRED import binding
                     # follows the harvested thread instead of going stale
@@ -17820,7 +17819,6 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
                     o2.node(nid)["codex_thread"] = tid
                     o2.node(nid)["codex_account"] = _bound_id
                     o2.node(nid).pop("session_unrun", None)
-                    store.save_org(o2)
             follow_session(n, tid)
             n["session_id"] = tid
             n["codex_thread"] = tid
@@ -19046,8 +19044,8 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
                 "its earlier context on this provider is gone")
         if cid and (cid != n.get("session_id") or n.get("session_unrun")
                     or cid != n.get("antigravity_conversation")):
-            with store.DOC_LOCK:
-                o2 = store.load_org(slug)
+            with orgtx.org_tx(slug, nodes=[nid]) as tx:
+                o2 = tx.org
                 if nid in o2.nodes:
                     o2.node(nid)["session_id"] = cid
                     # the resume marker: session_id is a REAL conversation id
@@ -19055,7 +19053,6 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
                         "antigravity_conversation"] = cid
                     o2.node(nid).pop("session_unrun", None)
                     o2.node(nid)["antigravity_account"] = spec["account"]
-                    store.save_org(o2)
         if turn.persistent and wp is None:
             wp = warmpool.AntigravityWarmProc(slug, nid, turn, cid, ih, components)
             wp.claimed = True
