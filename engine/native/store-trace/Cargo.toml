@@ -25,5 +25,9 @@ orgtree-store = { path = "../store", optional = true }
 # qualification: the executor then runs its own trace.xact_stats and
 # trace.pre_commit_lsn statements, which the collector must mark as infrastructure
 orgtree-store = { path = "../store", features = ["fake", "qualification"] }
-# the same pinned version as orgtree-store (engine/native/store/DEPENDENCIES.md)
-tokio = { version = "=1.52.3", default-features = false, features = ["rt"] }
+# the same pinned versions as orgtree-store (engine/native/store/DEPENDENCIES.md)
+tokio = { version = "=1.52.3", default-features = false, features = ["rt", "macros", "time"] }
+# tests/live_qc5.rs only (an #[ignore] run against a WS1 dev cluster): the
+# harness's own admin connection and the schema the executor needs
+tokio-postgres = { version = "0.7", default-features = false, features = ["runtime", "with-uuid-1", "with-serde_json-1"] }
+orgtree-store-schema = { path = "../store-schema" }
