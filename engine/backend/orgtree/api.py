@@ -115,6 +115,8 @@ if TYPE_CHECKING:
     from .schema import DirGrant, KioskCfg as KioskDoc, MailEntry, UserMailEntry
 
 app = FastAPI(title="orgtree", version="1.0.0")
+from . import p03_door  # P03 door hook: installs NOTHING unless a marked prototype root is set (p03_door.py)
+p03_door.install(app, store.DATA_ROOT)
 from . import startup
 app.add_middleware(startup.RecoveryBarrier)
 
