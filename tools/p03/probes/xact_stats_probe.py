@@ -152,8 +152,13 @@ def findings(results: dict[str, dict]) -> dict[str, str]:
         "fk insert: child written": str(write_seen("fk_insert", "child")),
         "fk insert: parent read by the RI check": str(read_seen("fk_insert", "parent")),
         "fk insert: parent relation lock": str(lockmodes("fk_insert", "parent")),
+        # pg_stat_xact_user_tables lists EVERY user table, activity or not: "no
+        # activity" means every counter is zero, not that the view is empty
         "negative control: an empty transaction shows no table activity": str(
-            not results["nothing"]["xact_stats"] and not results["nothing"]["locks"]),
+            not any(read_seen("nothing", t["relname"]) or write_seen("nothing", t["relname"])
+                    for t in results["nothing"]["xact_stats"])
+            and not results["nothing"]["locks"]),
+        "the view lists tables with zero activity too": str(bool(results["nothing"]["xact_stats"])),
     }
 
 
