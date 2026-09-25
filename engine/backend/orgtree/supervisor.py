@@ -14281,11 +14281,10 @@ def _retire_breadcrumb_splice(slug: str, nid: str) -> None:
     reaches neither call site, so the marker survives it and the
     successor's next attempt still gets the splice."""
     try:
-        with store.DOC_LOCK:
-            o = store.load_org(slug)
+        with orgtx.org_tx(slug, nodes=[nid]) as tx:
+            o = tx.org
             if nid in o.nodes and o.node(nid).get("cheap_compacted"):
                 o.node(nid).pop("cheap_compacted", None)
-                store.save_org(o)
     except Exception:                                        # noqa: BLE001
         pass
 
@@ -14482,20 +14481,20 @@ def drive_unfrozen_by_switch(slug: str, nids: Iterable[str]) -> None:
     ended live, unfrozen and idle with nothing ever re-driving it, and the
     freeze's replay record was already gone. The replay record now survives
     the ledger's pop as the node's `switch_resume` marker; it is consumed
-    here (pop + save under DOC_LOCK, then sent off-lock), so the interrupted
-    work rides the wake instead of being discarded."""
+    here (pop in a row transaction on that node alone, then sent after the
+    commit), so the interrupted work rides the wake instead of being
+    discarded."""
     for t in dict.fromkeys(nids):
         texts: list[str] = []
         views: list[str] = []
         try:
-            with store.DOC_LOCK:
-                _o = store.load_org(slug)
+            with orgtx.org_tx(slug, nodes=[t]) as tx:
+                _o = tx.org
                 if t in _o.nodes:
                     rec = _o.node(t).pop("switch_resume", None)
                     if isinstance(rec, dict):
                         texts = [str(x) for x in rec.get("texts") or []]
                         views = [str(x) for x in rec.get("views") or []]
-                        store.save_org(_o)
         except Exception:                                    # noqa: BLE001
             print(f"[orgtree] {slug}/{t}: switch_resume read failed — waking "
                   f"without the replay texts")
@@ -16593,10 +16592,10 @@ def _codex_route_persist(slug: str, nid: str, rec: dict[str, Any],
                          clear_mark: str | None = None) -> None:
     """Durable half of the route receipt: `codex_route_last` on the node
     (survives a restart, so the header can still say "last: reserve"), plus
-    an optional pool mark written or cleared under the same lock."""
+    an optional pool mark written or cleared in the same row transaction."""
     try:
-        with store.DOC_LOCK:
-            o2 = store.load_org(slug)
+        with orgtx.org_tx(slug, nodes=[nid]) as tx:
+            o2 = tx.org
             if nid not in o2.nodes:
                 return
             nd = o2.node(nid)
@@ -16613,7 +16612,6 @@ def _codex_route_persist(slug: str, nid: str, rec: dict[str, Any],
                 nd["codex_routes"] = routes
             else:
                 nd.pop("codex_routes", None)
-            store.save_org(o2)
     except Exception as e:                                 # noqa: BLE001
         print(f"[orgtree] {slug}/{nid}: route receipt not persisted: {e!r}")
 
@@ -16621,13 +16619,12 @@ def _codex_route_persist(slug: str, nid: str, rec: dict[str, Any],
 def _record_codex_native_home(org: Org, nid: str, process_spec: dict[str, Any]) -> None:
     if not org.node(nid).get('desktop_import'):
         return
-    with store.DOC_LOCK:
-        selected = store.load_org(org.d['slug'])
+    with orgtx.org_tx(org.d['slug'], nodes=[nid]) as tx:
+        selected = tx.org
         if (selected.node(nid).get('session_id') != org.node(nid).get('session_id')
                 or selected.node(nid).get('generation',0) != org.node(nid).get('generation',0)):
             raise LedgerError('Native Codex identity changed before process admission')
         selected.node(nid)['codex_native_home'] = str(process_spec['codex_home'])
-        store.save_org(selected)
 
 
 def _codex_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
@@ -26336,10 +26333,10 @@ _remote_procs: dict[tuple[str, str], subprocess.Popen[str]] = {}
 
 def _remote_unpark(slug: str, nid: str) -> None:
     """Roll the park back (failed probe / busy race / refused start)."""
-    with store.DOC_LOCK:
-        o = store.load_org(slug)
-        if nid in o.nodes and o.node(nid).pop("remote_controlled", None):
-            store.save_org(o)
+    with orgtx.org_tx(slug, nodes=[nid]) as tx:
+        o = tx.org
+        if nid in o.nodes:
+            o.node(nid).pop("remote_controlled", None)
 
 
 def remote_control_start(slug: str, nid: str) -> dict[str, Any]:
@@ -26470,11 +26467,17 @@ def remote_reap(slug: str) -> None:
     keys = [k for k in _remote_procs if k[0] == slug]
     if not keys:
         return
+    # ⚠ LOCK-FREE READ, NEVER DOC_LOCK (PG-3e-B). This runs from
+    # `_remote_save_hook`, i.e. inside EVERY `store.save_org` — including the
+    # one an `org_tx` commits through, while its row locks are held. Taking
+    # DOC_LOCK here would make an org_tx wait on DOC_LOCK, the one order
+    # PYPG §3 forbids. A committed-state read is all the reap needs: a seat
+    # that turns live+flagged a moment later is not reaped, and the next save
+    # re-checks.
     try:
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
-            alive = {nid for nid, n in org.nodes.items()
-                     if n["state"] == "live" and n.get("remote_controlled")}
+        org = orgtx.org_read(slug)
+        alive = {nid for nid, n in org.nodes.items()
+                 if n["state"] == "live" and n.get("remote_controlled")}
     except Exception:                                            # noqa: BLE001
         alive = set()                          # org gone: reap everything
     for k in keys:
@@ -26496,12 +26499,13 @@ def remote_control_stop(slug: str, nid: str) -> dict[str, Any]:
             pass
     had_mail = False
     sid_driven = None
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
+    with orgtx.org_tx(slug, nodes=[nid]) as tx:
+        org = tx.org
         if nid in org.nodes and org.node(nid).pop("remote_controlled", None):
+            # an unlocked read: it only decides whether to send a catch-up
+            # nudge, and a wrong guess costs one redundant ping or none
             had_mail = bool((org.d.get("mail") or {}).get(nid))
             sid_driven = org.node(nid)["session_id"]
-            store.save_org(org)
     # FR-01 is the one writer that fills the node's CURRENT session from
     # outside the turn path (the compaction, command and oracle forks all
     # `--fork-session` onto a NEW id), so it is the one place a never-run
