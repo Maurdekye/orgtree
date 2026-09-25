@@ -440,6 +440,7 @@ pub fn init(root: &PrototypeRoot, bin: &PgBin, opts: &InitOptions) -> Result<Ins
     let conf = st.data.join("postgresql.conf");
     let mut text = fs::read_to_string(&conf).map_err(|e| CustodianError::io("init.conf", &conf, e))?;
     text.push_str(&block);
+    text.push_str(QUAL_INCLUDE_LINE);
     fs::write(&conf, text).map_err(|e| CustodianError::io("init.conf", &conf, e))?;
     let hba = st.data.join("pg_hba.conf");
     fs::write(&hba, HBA).map_err(|e| CustodianError::io("init.hba", &hba, e))?;
@@ -487,6 +488,104 @@ pub fn init(root: &PrototypeRoot, bin: &PgBin, opts: &InitOptions) -> Result<Ins
     // THE commit: one rename makes the fully built cluster current.
     fs::rename(&staging, &layout.cluster).map_err(|e| CustodianError::io("init.commit", &layout.cluster, e))?;
     Ok(record)
+}
+
+// ---------------------------------------------------------------- qualification logging
+
+/// The switch file. Present = qualification logging configured on.
+pub const QUAL_FILE: &str = "orgtree-qual-logging.conf";
+/// Last line of postgresql.conf, so the switch file wins over everything.
+pub const QUAL_INCLUDE_LINE: &str = "include_if_exists = 'orgtree-qual-logging.conf'\r\n";
+/// Folder under the prototype root (so it is deleted with the cluster).
+pub const QUAL_LOG_DIR: &str = "qual-logs";
+
+/// The settings the switch applies (lead ruling 2026-09-25, Q-C5 hidden-access
+/// check): every statement and replication command, as JSON lines, with bind
+/// values NEVER written (`log_parameter_max_length*=0`). Rotation is finite:
+/// one file per weekday-hour (168), truncated when the name comes round again,
+/// and a file also rotates at 64MB.
+pub fn qual_logging_settings(log_dir: &Path) -> BTreeMap<String, String> {
+    let dir = log_dir.to_string_lossy().replace('\\', "/").replace('\'', "''");
+    let mut s = BTreeMap::new();
+    for (k, v) in [
+        ("logging_collector", "on".to_string()),
+        ("log_destination", "'jsonlog'".to_string()),
+        ("log_statement", "'all'".to_string()),
+        ("log_replication_commands", "on".to_string()),
+        ("log_parameter_max_length", "0".to_string()),
+        ("log_parameter_max_length_on_error", "0".to_string()),
+        ("log_directory", format!("'{dir}'")),
+        ("log_filename", "'postgresql-%a-%H.log'".to_string()),
+        ("log_rotation_age", "'60min'".to_string()),
+        ("log_rotation_size", "'64MB'".to_string()),
+        ("log_truncate_on_rotation", "on".to_string()),
+        ("log_file_mode", "0600".to_string()),
+    ] {
+        s.insert(k.to_string(), v);
+    }
+    s
+}
+
+pub fn qual_logging_configured(root: &PrototypeRoot) -> bool {
+    Layout::of(root).data.join(QUAL_FILE).is_file()
+}
+
+/// Turn the switch on or off. It takes effect at the next start
+/// (`logging_collector` needs a restart), so a running cluster is refused.
+pub fn set_qual_logging(root: &PrototypeRoot, bin: &PgBin, on: bool) -> Result<bool> {
+    match state(root, bin)? {
+        ClusterState::Stopped { .. } => {}
+        ClusterState::Running { .. } => {
+            return Err(CustodianError::new("qual_logging.running", "stop the cluster first; the switch applies at start"))
+        }
+        other => return Err(CustodianError::new("cluster.not_stopped", format!("{other:?}"))),
+    }
+    let layout = Layout::of(root);
+    let conf = layout.data.join("postgresql.conf");
+    let text = fs::read_to_string(&conf).map_err(|e| CustodianError::io("qual_logging.conf", &conf, e))?;
+    if !text.ends_with(QUAL_INCLUDE_LINE) {
+        return Err(CustodianError::new(
+            "qual_logging.no_include",
+            "postgresql.conf does not end with the switch include line (cluster made by an older custodian?)",
+        ));
+    }
+    let file = layout.data.join(QUAL_FILE);
+    let before = file.is_file();
+    if on {
+        let dir = root.path().join(QUAL_LOG_DIR);
+        fs::create_dir_all(&dir).map_err(|e| CustodianError::io("qual_logging.mkdir", &dir, e))?;
+        let mut body = String::from("# orgtree pg-custodian qualification logging (P03). Delete this file to turn it off.\r\n");
+        for (k, v) in qual_logging_settings(&dir) {
+            body.push_str(&format!("{k} = {v}\r\n"));
+        }
+        fs::write(&file, body).map_err(|e| CustodianError::io("qual_logging.write", &file, e))?;
+    } else if before {
+        fs::remove_file(&file).map_err(|e| CustodianError::io("qual_logging.remove", &file, e))?;
+    }
+    Ok(before != on)
+}
+
+/// Compare what the running server does with what the switch says.
+pub fn qual_logging_failures(configured: bool, server: &BTreeMap<String, String>) -> Vec<String> {
+    let get = |k: &str| server.get(k).map(String::as_str).unwrap_or("<missing>");
+    let mut out = Vec::new();
+    if configured {
+        for (k, want) in [
+            ("logging_collector", "on"),
+            ("log_destination", "jsonlog"),
+            ("log_statement", "all"),
+            ("log_replication_commands", "on"),
+            ("log_parameter_max_length", "0"),
+            ("log_parameter_max_length_on_error", "0"),
+        ] {
+            if get(k) != want {
+                out.push(format!("qualification logging is on but {k}={} (want {want}; restart needed?)", get(k)));
+            }
+        }
+    } else if get("log_statement") != "none" {
+        out.push(format!("qualification logging is off but log_statement={}", get("log_statement")));
+    }
+    out
 }
 
 // ---------------------------------------------------------------- start
@@ -537,6 +636,8 @@ pub fn start(root: &PrototypeRoot, bin: &PgBin, port: Option<u16>) -> Result<Run
         None => pick_port()?,
     };
 
+    // The postmaster outlives us; it must not inherit a caller's pipe.
+    win::stop_std_handle_inheritance();
     let mut cmd = child(&bin.exe("pg_ctl"));
     cmd.arg("start")
         .arg("-D")
@@ -597,6 +698,10 @@ pub struct Identification {
     pub mismatches: Vec<String>,
     /// Readiness failures: it is ours but misconfigured.
     pub readiness_failures: Vec<String>,
+    /// The qualification-logging switch file is present.
+    pub qual_logging_configured: bool,
+    /// The server is actually logging every statement.
+    pub qual_logging_effective: bool,
 }
 
 impl Identification {
@@ -673,6 +778,8 @@ pub fn identify_at(layout: &Layout, instance: &InstanceRecord, runtime: &Runtime
         current_user: row[12].clone(),
         mismatches: vec![],
         readiness_failures: vec![],
+        qual_logging_configured: false,
+        qual_logging_effective: false,
     };
     if id.system_identifier != instance.system_identifier {
         id.mismatches.push(format!(
@@ -708,6 +815,21 @@ pub fn identify_at(layout: &Layout, instance: &InstanceRecord, runtime: &Runtime
     if db != vec![vec!["1".to_string()]] {
         id.readiness_failures.push(format!("database {APP_DB} is missing"));
     }
+
+    let names = [
+        "logging_collector",
+        "log_destination",
+        "log_statement",
+        "log_replication_commands",
+        "log_parameter_max_length",
+        "log_parameter_max_length_on_error",
+    ];
+    let sql = format!("select {}", names.map(|n| format!("current_setting('{n}')")).join(", "));
+    let row = psql(bin, runtime, "postgres", &sql)?.into_iter().next().unwrap_or_default();
+    let server: BTreeMap<String, String> = names.iter().map(|n| n.to_string()).zip(row).collect();
+    id.qual_logging_configured = layout.data.join(QUAL_FILE).is_file();
+    id.readiness_failures.extend(qual_logging_failures(id.qual_logging_configured, &server));
+    id.qual_logging_effective = server.get("log_statement").map(String::as_str) == Some("all");
     Ok(id)
 }
 
