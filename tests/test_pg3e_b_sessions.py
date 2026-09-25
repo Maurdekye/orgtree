@@ -37,6 +37,12 @@ if not str(store.DATA_ROOT).lower().startswith(_ROOT.lower()):
     raise AssertionError(f"store bound outside fixture: {store.DATA_ROOT}")
 
 WAIT_S = 5.0
+_seq = [0]
+
+
+def _slug(prefix: str) -> str:
+    _seq[0] += 1
+    return f"{prefix}-{_seq[0]}"
 
 
 def _org(slug: str) -> str:
@@ -101,7 +107,7 @@ class NeverWaitsOnDocLock(unittest.TestCase):
 
     def setUp(self) -> None:
         orgtx.use_backend(orgtx.SeamBackend())
-        self.slug = _org(f"b-{self._testMethodName}"[:40].replace("_", "-"))
+        self.slug = _org(_slug("b"))
 
     def _assert_free_of_doc_lock(self, fn):
         with _Holder(lambda: store.DOC_LOCK):
@@ -191,7 +197,7 @@ class NeverWaitsOnDocLock(unittest.TestCase):
 class LocksOnlyItsOwnNode(unittest.TestCase):
     def setUp(self) -> None:
         orgtx.use_backend(orgtx.SeamBackend())
-        self.slug = _org(f"rows-{self._testMethodName}"[:40].replace("_", "-"))
+        self.slug = _org(_slug("rows"))
         _set(self.slug, "worker", cheap_compacted={"at": "x"})
 
     def test_another_nodes_lock_does_not_delay_it(self) -> None:
@@ -225,7 +231,7 @@ class RemoteReapInsideASave(unittest.TestCase):
 
     def setUp(self) -> None:
         orgtx.use_backend(orgtx.SeamBackend())
-        self.slug = _org(f"reap-{self._testMethodName}"[:40].replace("_", "-"))
+        self.slug = _org(_slug("reap"))
         _set(self.slug, "worker", remote_controlled={"at": "x"})
         self.kept, self.gone = self._Proc(), self._Proc()
         supervisor._remote_procs[(self.slug, "worker")] = self.kept
