@@ -182,6 +182,29 @@ impl Read for PartialRecapture {
     }
 }
 
+pub const LAST_VECTOR_SQL: &str = "SELECT charter_vector FROM runtime_claims WHERE org_id = $1 AND principal_id = $2     AND charter_vector IS NOT NULL ORDER BY created_at DESC LIMIT 1";
+
+/// The seat's last admitted vector: read ONLY by the Q-CR3.cached_fallback
+/// unsafe control (a stale-vector cache the design forbids).
+pub struct LastVector {
+    pub org: Uuid,
+    pub seat: Uuid,
+}
+
+impl Read for LastVector {
+    type Output = Option<Vector>;
+    fn family(&self) -> &'static str {
+        "runtime"
+    }
+    fn verb(&self) -> &'static str {
+        "last_vector"
+    }
+    async fn run<S: Session>(&self, tx: &mut Tx<'_, S>) -> Result<Option<Vector>, CmdError> {
+        let r = tx.exec("runtime.last_vector", LAST_VECTOR_SQL, &[Val::Uuid(self.org), Val::Uuid(self.seat)]).await?;
+        Ok(r.first().and_then(|x| x.first()).and_then(Val::as_json).and_then(|j| serde_json::from_value(j.clone()).ok()))
+    }
+}
+
 pub const EPOCH_SHARE_SQL: &str = "SELECT lifecycle, generation, halted FROM authority_epoch WHERE org_id = $1 AND principal_id = $2 FOR SHARE";
 pub const EPOCH_READ_SQL: &str = "SELECT lifecycle, generation, halted FROM authority_epoch WHERE org_id = $1 AND principal_id = $2";
 pub const EDGE_SHARE_SQL: &str = "SELECT parent_id, version FROM topology_edges WHERE org_id = $1 AND principal_id = $2 FOR SHARE";

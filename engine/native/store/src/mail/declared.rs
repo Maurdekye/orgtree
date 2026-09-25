@@ -263,6 +263,7 @@ pub fn declared() -> Value {
     };
     m.insert("charter.capture".into(), capture("runtime/admit.rs Capture: WS5 STAND-IN for WS4's charter.capture (Q-CR r2 step 1)"));
     m.insert("charter.partial_recapture".into(), capture("runtime/admit.rs PartialRecapture: runs ONLY under Q-CR2.partial_recapture"));
+    m.insert("runtime.last_vector".into(), entry(vec![("runtime_claims", rel(R, true))], None, "runtime/admit.rs LastVector: runs ONLY under Q-CR3.cached_fallback"));
     Value::Object(m)
 }
 
