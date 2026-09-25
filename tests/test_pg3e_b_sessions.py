@@ -348,6 +348,80 @@ class CompactionSplit(unittest.TestCase):
         self.assertAlmostEqual(float(org.d.get("deleted_cost_usd") or 0), 0.5)
 
 
+class LineageRepairs(unittest.TestCase):
+    """drop_phantom_generation / recover_lost_generation on org_tx."""
+
+    def setUp(self) -> None:
+        orgtx.use_backend(orgtx.SeamBackend())
+        self.slug = _org(_slug("lin"))
+        sid = _node(self.slug, "worker")["session_id"]
+        with orgtx.org_tx(self.slug, nodes=["worker", "worker@0", "worker@1"]) as tx:
+            nodes = tx.d["nodes"]
+            base = dict(nodes["worker"])
+            nodes["worker@0"] = {**base, "id": "worker@0", "state": "archived",
+                                 "bearer_state": "lost", "successor": "worker",
+                                 "predecessor": None, "session_id": sid,
+                                 "generation": 0, "cli_boundary_offset": 5,
+                                 "grant": 0}
+            nodes["worker@1"] = {**base, "id": "worker@1", "state": "archived",
+                                 "bearer_state": "knowledge",
+                                 "successor": "worker", "predecessor": "worker@0",
+                                 "session_id": "s-1", "generation": 1, "grant": 0}
+            nodes["worker"]["predecessor"] = "worker@1"
+            nodes["worker"]["generation"] = 2
+
+    def _run(self, fn):
+        with _Holder(lambda: store.DOC_LOCK):
+            done, out = _finishes(fn)
+        self.assertTrue(done, "the lineage repair waited on DOC_LOCK")
+        if out and isinstance(out[0], BaseException):
+            raise out[0]
+        return out[0]
+
+    def test_drop_phantom_relinks_every_pointer_and_removes_the_row(self) -> None:
+        with patch.object(supervisor, "_phantom_evidence",
+                          return_value={"phantom": True, "why": "dup"}),                 patch.object(supervisor, "notify"):
+            out = self._run(lambda: supervisor.drop_phantom_generation(
+                self.slug, "worker@0"))
+        self.assertEqual(out["dropped"], "worker@0")
+        org = store.load_org(self.slug)
+        self.assertNotIn("worker@0", org.nodes)
+        self.assertIsNone(org.node("worker@1")["predecessor"])
+        self.assertTrue(any(e.get("op") == "drop_phantom_generation"
+                            for e in org.d["events"]))
+
+    def test_drop_phantom_refuses_unproven_and_writes_nothing(self) -> None:
+        with patch.object(supervisor, "_phantom_evidence",
+                          return_value={"phantom": False, "why": "unique"}),                 patch.object(supervisor, "notify"):
+            with self.assertRaises(ledger.LedgerError):
+                supervisor.drop_phantom_generation(self.slug, "worker@0")
+        self.assertIn("worker@0", store.load_org(self.slug).nodes)
+
+    def test_recover_lost_generation_records_the_cut(self) -> None:
+        with patch.object(supervisor, "_phantom_evidence",
+                          return_value={"phantom": False}),                 patch.object(supervisor, "_session_sharers", return_value=["worker"]),                 patch.object(supervisor, "_count_cli_compactions",
+                             return_value=(1, 0, [(5, None)])),                 patch.object(supervisor, "_fork_bearer_session", return_value="cut-1"),                 patch.object(supervisor, "_discard_cut") as discard,                 patch.object(supervisor, "notify"):
+            out = self._run(lambda: supervisor.recover_lost_generation(
+                self.slug, "worker@0"))
+        self.assertEqual(out["session_id"], "cut-1")
+        n = _node(self.slug, "worker@0")
+        self.assertEqual(n["bearer_state"], "knowledge")
+        self.assertEqual(n["session_id"], "cut-1")
+        discard.assert_not_called()
+
+    def test_recover_discards_the_cut_when_the_row_moved(self) -> None:
+        def cut(*_a):
+            _set(self.slug, "worker@0", cli_boundary_offset=9)
+            return "cut-2"
+        with patch.object(supervisor, "_phantom_evidence",
+                          return_value={"phantom": False}),                 patch.object(supervisor, "_session_sharers", return_value=["worker"]),                 patch.object(supervisor, "_count_cli_compactions",
+                             return_value=(1, 0, [(5, None)])),                 patch.object(supervisor, "_fork_bearer_session", side_effect=cut),                 patch.object(supervisor, "_discard_cut") as discard,                 patch.object(supervisor, "notify"):
+            with self.assertRaises(ledger.LedgerError):
+                supervisor.recover_lost_generation(self.slug, "worker@0")
+        discard.assert_called_once()
+        self.assertEqual(_node(self.slug, "worker@0")["bearer_state"], "lost")
+
+
 class LocksOnlyItsOwnNode(unittest.TestCase):
     def setUp(self) -> None:
         orgtx.use_backend(orgtx.SeamBackend())

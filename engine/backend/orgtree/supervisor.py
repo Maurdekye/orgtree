@@ -25644,14 +25644,39 @@ def drop_phantom_generation(slug: str, pred_id: str) -> dict[str, Any]:
     """The opt-in repair for a phantom LOST row (user ruling 2026-08-20).
     Proves phantom-ness under the doc lock — re-proving it there rather than
     trusting an earlier look, since the evidence is on disk and the disk can
-    change — then removes the row. Refuses, loudly, on anything unproven."""
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
+    change — then removes the row. Refuses, loudly, on anything unproven.
+
+    PG-3e-B: one org_tx over the phantom, its successor, and EVERY row whose
+    `predecessor` / `successor` / `parent` names it — the rows the ledger
+    re-links or refuses on — recomputed under the lock (`_computed_tx`)."""
+    def rows(org: Org) -> list[str]:
+        out = {pred_id}
+        if pred_id in org.nodes:
+            succ = org.nodes[pred_id].get("successor")
+            if succ:
+                out.add(str(succ))
+        for k, v in org.nodes.items():
+            if pred_id in (v.get("predecessor"), v.get("successor"),
+                           v.get("parent")):
+                out.add(k)
+        return sorted(out)
+
+    def apply(tx: orgtx.OrgTx) -> tuple[dict[str, Any], dict[str, Any]]:
+        org = tx.org
         ev = _phantom_evidence(org, pred_id)
         if not ev.get("phantom"):
             raise LedgerError(f"refusing to drop {pred_id}: {ev.get('why')}")
-        out = org.drop_phantom_generation(pred_id)
-        store.save_org(org)
+        return org.drop_phantom_generation(pred_id), ev
+
+    try:
+        out, ev = _computed_tx(
+            slug, rows, apply,
+            sections=["deleted_cost_usd", "deleted_cost_usd_unknown", "mail",
+                      "notices", "audiences"],
+            logs=["events", "notice_log", ("mail_log", pred_id),
+                  ("steered_log", pred_id)])
+    except _OrgGone as e:
+        raise LedgerError(str(e)) from e
     notify(slug, out.get("successor") or pred_id, "lineage")
     return {**out, **{k: ev[k] for k in ("records", "why") if k in ev}}
 
@@ -25671,122 +25696,127 @@ def recover_lost_generation(slug: str, pred_id: str) -> dict[str, Any]:
     org, shells out to `docker exec` with a 30 s ceiling — a stopped container
     or a wedged daemon would otherwise block every other org's turn for the
     whole window (redteam round 2; `spend_unrun_pardon` states the same rule
-    for its glob)."""
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
-        n = org.nodes.get(pred_id)
-        if not n:
-            raise LedgerError(f"no such node: {pred_id}")
-        # checked FIRST so re-running on an already-recovered bearer says the
-        # true thing ("not a lost generation") rather than tripping over the
-        # session-sharing test below — which a recovered bearer now fails for
-        # the good reason that it holds a session of its own
-        if n.get("bearer_state") != "lost":
+    for its glob).
+
+    PG-3e-B: DECIDE reads a lock-free snapshot. It writes nothing, and its
+    conclusions were never protected past its own end anyway — the CUT runs
+    unlocked between it and RECORD — so the snapshot is no weaker than the
+    lock was. RECORD re-checks the row under its row lock, as before, and
+    locks `pred_id` only; its notices and log rows take no node lock."""
+    org = orgtx.org_read(slug)
+    n = org.nodes.get(pred_id)
+    if not n:
+        raise LedgerError(f"no such node: {pred_id}")
+    # checked FIRST so re-running on an already-recovered bearer says the
+    # true thing ("not a lost generation") rather than tripping over the
+    # session-sharing test below — which a recovered bearer now fails for
+    # the good reason that it holds a session of its own
+    if n.get("bearer_state") != "lost":
+        raise LedgerError(
+            f"{pred_id} is not a lost generation "
+            f"(bearer_state={n.get('bearer_state')!r})")
+    ev = _phantom_evidence(org, pred_id)
+    if ev.get("phantom"):
+        raise LedgerError(
+            f"refusing to recover {pred_id}: it is a PHANTOM, not a lost "
+            f"generation — {ev.get('why')}. Its content is already held "
+            f"by {ev.get('duplicate_of')}; drop the row instead.")
+    # reseed's row is not a compaction row: its session was declared
+    # unrecoverable and abandoned whole, so it has no boundary of its own
+    # anywhere. Cutting it at the nearest one hands it a NEIGHBOUR's
+    # records under its own name and advertises the result as consultable
+    # — a bearer whose memory is somebody else's (redteam 2026-08-20,
+    # reproduced). The old successor-anchored test excluded these rows by
+    # accident, because reseed always moved the live node to a fresh id;
+    # asking the question of the row lost that accident, so it is stated.
+    if n.get("lost_reason") == "reseed":
+        raise LedgerError(
+            f"{pred_id} is reseed's dead session, not a CLI compaction — "
+            f"it has no boundary of its own, and cutting it at another "
+            f"generation's would give it another generation's records")
+    succ_id = n.get("successor")
+    if not succ_id or succ_id not in org.nodes:
+        raise LedgerError(f"{pred_id} has no successor to recover from")
+    # asked of the ROW, not of the successor, whose session id drifts away
+    # from it on every later compaction (`_session_sharers`). What must be
+    # true is that the row's records still live in somebody else's file:
+    # a row that owns its session alone has already been cut out of one.
+    sharers = _session_sharers(org, pred_id)
+    if not sharers:
+        raise LedgerError(
+            f"{pred_id} owns its session id alone — its records are "
+            f"already in a session of their own, so there is no in-place "
+            f"boundary to cut it from")
+    # …and the same lineage test the drop makes (redteam 2026-08-20: this
+    # one was MISSING here, and `_phantom_evidence` returning phantom=False
+    # for "outside its lineage" reads as permission). Without it a lost row
+    # could be cut out of a STRANGER's live transcript, at a boundary that
+    # is not its own, and the result advertised as its own past self.
+    outside = [k for k in sharers
+               if k != succ_id and org.nodes[k].get("successor") != succ_id]
+    if outside:
+        raise LedgerError(
+            f"{pred_id}'s session is also held by {outside!r}, which is "
+            f"outside its lineage — refusing to cut a bearer out of it")
+    _cnt, _pre, marks = _count_cli_compactions(org, pred_id)
+    if not marks:
+        raise LedgerError(f"no compact boundary in {pred_id}'s session — "
+                          f"there is nothing to cut it from")
+    # (named for what it is: this function later uses a `recorded` FLAG
+    # for whether the save landed, and one name for an offset and a
+    # boolean in one body is a trap for the next editor — redteam round 4)
+    recorded_off = n.get("cli_boundary_offset")
+    if isinstance(recorded_off, int):
+        # the cut point this row was minted with — exact, and immune to
+        # the ordering problem below
+        off = recorded_off
+        if not any(off == m[0] for m in marks):
             raise LedgerError(
-                f"{pred_id} is not a lost generation "
-                f"(bearer_state={n.get('bearer_state')!r})")
-        ev = _phantom_evidence(org, pred_id)
-        if ev.get("phantom"):
+                f"{pred_id} records a boundary at line {off} that is no "
+                f"longer there — refusing to cut at a guessed point")
+    else:
+        # a row minted before the offset was recorded. Positional
+        # inference is only sound while EVERY boundary still has its lost
+        # row: recovering one removes it from this set (it takes a session
+        # of its own), and the arithmetic over the survivors would then
+        # point at the wrong boundary — cutting a bearer from the wrong
+        # moment, which looks exactly like success. So the ambiguous case
+        # refuses rather than guessing.
+        #
+        # The set is BOUNDARY-DERIVED rows only. A reseed row in it would
+        # shift every index past it onto a neighbour's boundary while the
+        # count still matched, which is the failure that looks like
+        # success.
+        gen_rows = sorted(
+            (k for k, v in org.nodes.items()
+             if v.get("bearer_state") == "lost"
+             and v.get("lost_reason") != "reseed"
+             and v.get("session_id") == n.get("session_id")),
+            key=lambda k: org.nodes[k].get("generation", 0))
+        if pred_id not in gen_rows or len(gen_rows) != len(marks):
             raise LedgerError(
-                f"refusing to recover {pred_id}: it is a PHANTOM, not a lost "
-                f"generation — {ev.get('why')}. Its content is already held "
-                f"by {ev.get('duplicate_of')}; drop the row instead.")
-        # reseed's row is not a compaction row: its session was declared
-        # unrecoverable and abandoned whole, so it has no boundary of its own
-        # anywhere. Cutting it at the nearest one hands it a NEIGHBOUR's
-        # records under its own name and advertises the result as consultable
-        # — a bearer whose memory is somebody else's (redteam 2026-08-20,
-        # reproduced). The old successor-anchored test excluded these rows by
-        # accident, because reseed always moved the live node to a fresh id;
-        # asking the question of the row lost that accident, so it is stated.
-        if n.get("lost_reason") == "reseed":
+                f"cannot place {pred_id} against the session's "
+                f"{len(marks)} boundaries ({len(gen_rows)} lost rows "
+                f"share the session) — refusing to guess a cut point")
+        # …and a row minted before `lost_reason` existed cannot be sorted
+        # that way — THIS row might itself be an unrecognised reseed row.
+        # So when it cannot say what it is, the guessing branch demands
+        # the fact that tells a compacted session from an abandoned one:
+        # somebody who could still USE it holds it — the live successor,
+        # or a knowledge bearer. Reseed leaves its dead id to lost rows
+        # alone. A row that DOES say it is a compaction row skips this
+        # (and rows recording their own offset never reach here at all),
+        # so neither the legacy positional case nor the drifted one pays
+        # for the ambiguity.
+        if not n.get("lost_reason") and not any(
+                org.nodes[k].get("bearer_state") in (None, "knowledge")
+                for k in sharers):
             raise LedgerError(
-                f"{pred_id} is reseed's dead session, not a CLI compaction — "
-                f"it has no boundary of its own, and cutting it at another "
-                f"generation's would give it another generation's records")
-        succ_id = n.get("successor")
-        if not succ_id or succ_id not in org.nodes:
-            raise LedgerError(f"{pred_id} has no successor to recover from")
-        # asked of the ROW, not of the successor, whose session id drifts away
-        # from it on every later compaction (`_session_sharers`). What must be
-        # true is that the row's records still live in somebody else's file:
-        # a row that owns its session alone has already been cut out of one.
-        sharers = _session_sharers(org, pred_id)
-        if not sharers:
-            raise LedgerError(
-                f"{pred_id} owns its session id alone — its records are "
-                f"already in a session of their own, so there is no in-place "
-                f"boundary to cut it from")
-        # …and the same lineage test the drop makes (redteam 2026-08-20: this
-        # one was MISSING here, and `_phantom_evidence` returning phantom=False
-        # for "outside its lineage" reads as permission). Without it a lost row
-        # could be cut out of a STRANGER's live transcript, at a boundary that
-        # is not its own, and the result advertised as its own past self.
-        outside = [k for k in sharers
-                   if k != succ_id and org.nodes[k].get("successor") != succ_id]
-        if outside:
-            raise LedgerError(
-                f"{pred_id}'s session is also held by {outside!r}, which is "
-                f"outside its lineage — refusing to cut a bearer out of it")
-        _cnt, _pre, marks = _count_cli_compactions(org, pred_id)
-        if not marks:
-            raise LedgerError(f"no compact boundary in {pred_id}'s session — "
-                              f"there is nothing to cut it from")
-        # (named for what it is: this function later uses a `recorded` FLAG
-        # for whether the save landed, and one name for an offset and a
-        # boolean in one body is a trap for the next editor — redteam round 4)
-        recorded_off = n.get("cli_boundary_offset")
-        if isinstance(recorded_off, int):
-            # the cut point this row was minted with — exact, and immune to
-            # the ordering problem below
-            off = recorded_off
-            if not any(off == m[0] for m in marks):
-                raise LedgerError(
-                    f"{pred_id} records a boundary at line {off} that is no "
-                    f"longer there — refusing to cut at a guessed point")
-        else:
-            # a row minted before the offset was recorded. Positional
-            # inference is only sound while EVERY boundary still has its lost
-            # row: recovering one removes it from this set (it takes a session
-            # of its own), and the arithmetic over the survivors would then
-            # point at the wrong boundary — cutting a bearer from the wrong
-            # moment, which looks exactly like success. So the ambiguous case
-            # refuses rather than guessing.
-            #
-            # The set is BOUNDARY-DERIVED rows only. A reseed row in it would
-            # shift every index past it onto a neighbour's boundary while the
-            # count still matched, which is the failure that looks like
-            # success.
-            gen_rows = sorted(
-                (k for k, v in org.nodes.items()
-                 if v.get("bearer_state") == "lost"
-                 and v.get("lost_reason") != "reseed"
-                 and v.get("session_id") == n.get("session_id")),
-                key=lambda k: org.nodes[k].get("generation", 0))
-            if pred_id not in gen_rows or len(gen_rows) != len(marks):
-                raise LedgerError(
-                    f"cannot place {pred_id} against the session's "
-                    f"{len(marks)} boundaries ({len(gen_rows)} lost rows "
-                    f"share the session) — refusing to guess a cut point")
-            # …and a row minted before `lost_reason` existed cannot be sorted
-            # that way — THIS row might itself be an unrecognised reseed row.
-            # So when it cannot say what it is, the guessing branch demands
-            # the fact that tells a compacted session from an abandoned one:
-            # somebody who could still USE it holds it — the live successor,
-            # or a knowledge bearer. Reseed leaves its dead id to lost rows
-            # alone. A row that DOES say it is a compaction row skips this
-            # (and rows recording their own offset never reach here at all),
-            # so neither the legacy positional case nor the drifted one pays
-            # for the ambiguity.
-            if not n.get("lost_reason") and not any(
-                    org.nodes[k].get("bearer_state") in (None, "knowledge")
-                    for k in sharers):
-                raise LedgerError(
-                    f"nothing that could still use {pred_id}'s session holds "
-                    f"it — only other lost rows do. Without a recorded "
-                    f"boundary offset that is not enough to place a cut point")
-            off = marks[gen_rows.index(pred_id)][0]
-        row_sid = cast(str, n.get("session_id"))
+                f"nothing that could still use {pred_id}'s session holds "
+                f"it — only other lost rows do. Without a recorded "
+                f"boundary offset that is not enough to place a cut point")
+        off = marks[gen_rows.index(pred_id)][0]
+    row_sid = cast(str, n.get("session_id"))
     # ---- outside the lock: the expensive part ----
     sid = _fork_bearer_session(org, row_sid, off)
     if not sid:
@@ -25799,8 +25829,9 @@ def recover_lost_generation(slug: str, pred_id: str) -> dict[str, Any]:
     # successful one must take it — including a save that raises
     recorded = False
     try:
-        with store.DOC_LOCK:
-            org2 = store.load_org(slug)
+        with orgtx.org_tx(slug, nodes=[pred_id], sections=["notices"],
+                          logs=["events", "notice_log"]) as tx:
+            org2 = tx.org
             n2 = org2.nodes.get(pred_id)
             if (not n2 or n2.get("bearer_state") != "lost"
                     or n2.get("session_id") != row_sid
@@ -25813,8 +25844,7 @@ def recover_lost_generation(slug: str, pred_id: str) -> dict[str, Any]:
                     f"{pred_id} changed while its session was being cut — "
                     f"nothing was recorded; try again")
             org2.recover_lost_generation(pred_id, sid)
-            store.save_org(org2)
-            recorded = True
+        recorded = True
     finally:
         if not recorded:
             _discard_cut(org, sid)
@@ -25889,38 +25919,48 @@ class _OrgGone(LedgerError):
     """The org was deleted before a lineage write could open."""
 
 
-def _lineage_tx(slug: str, nid: str, fn: Callable[[orgtx.OrgTx], _T],
-                *, sections: Iterable[str] = (),
-                logs: Iterable[orgtx.LogName] = ("events", "notice_log"),
-                tries: int = 4) -> _T:
-    """Run `fn(tx)` in one org_tx that locks `nid` AND the `nid@<gen>` bearer
-    row a lineage split of it would insert (PG-3e-B).
+def _computed_tx(slug: str, nodes_of: Callable[[Org], Iterable[str]],
+                 fn: Callable[[orgtx.OrgTx], _T], *,
+                 sections: Iterable[str] = (),
+                 logs: Iterable[orgtx.LogName] = (),
+                 tries: int = 4) -> _T:
+    """Run `fn(tx)` in one org_tx whose node lock set DEPENDS ON THE DATA
+    (PG-3e-B) — a split's `nid@<gen>` bearer row, or every row that points at
+    a lineage entry being removed.
 
-    The bearer's id depends on the node's CURRENT generation, and the lock
-    set has to be named before the body reads anything, so the generation is
-    read first (lock-free) and re-checked under the lock. If another split
-    moved it in between, nothing has been written yet: the empty transaction
-    commits and the lock set is recomputed. `fn` therefore runs exactly once,
-    on a node whose generation matches the row it may insert. Raises
-    `_OrgGone` when the org is gone (the caller's "deleted" arm)."""
+    The lock set has to be named before the body reads anything, so it is
+    computed from a lock-free read, then recomputed under the lock. If a
+    concurrent commit changed it in between, nothing has been written yet:
+    the empty transaction commits and the loop starts over with the new set.
+    `fn` therefore runs exactly once, and only when every row it can reach is
+    locked. Raises `_OrgGone` when the org is gone (the callers' "deleted"
+    arm)."""
     for _ in range(tries):
         try:
             pre = orgtx.org_read(slug)
         except LedgerError as e:
             raise _OrgGone(str(e)) from e
-        gen = pre.nodes[nid].get("generation", 0) if nid in pre.nodes else None
-        names = [nid] if gen is None else [nid, f"{nid}@{gen}"]
-        moved = False
-        with orgtx.org_tx(slug, nodes=names, sections=sections, logs=logs) as tx:
-            now_gen = (tx.org.nodes[nid].get("generation", 0)
-                       if nid in tx.org.nodes else None)
-            if now_gen != gen:
-                moved = True
-            else:
+        want = frozenset(nodes_of(pre))
+        with orgtx.org_tx(slug, nodes=want, sections=sections, logs=logs) as tx:
+            if frozenset(nodes_of(tx.org)) <= want:
                 return fn(tx)
-        if not moved:
-            break
-    raise LedgerError(f"{nid}'s generation kept moving; lineage write not applied")
+    raise LedgerError(f"the rows this write needs kept changing in {slug!r}; "
+                      f"not applied")
+
+
+def _lineage_tx(slug: str, nid: str, fn: Callable[[orgtx.OrgTx], _T],
+                *, sections: Iterable[str] = (),
+                logs: Iterable[orgtx.LogName] = ("events", "notice_log"),
+                tries: int = 4) -> _T:
+    """`_computed_tx` locking `nid` AND the `nid@<gen>` bearer row a lineage
+    split of it would insert. The bearer's id depends on the node's CURRENT
+    generation, which another split can move while this one waits."""
+    def rows(org: Org) -> list[str]:
+        if nid not in org.nodes:
+            return [nid]
+        return [nid, f"{nid}@{org.nodes[nid].get('generation', 0)}"]
+    return _computed_tx(slug, rows, fn, sections=sections, logs=logs,
+                        tries=tries)
 
 
 def _compact_split_codex_body(slug: str, nid: str, org: Org,
