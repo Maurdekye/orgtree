@@ -235,7 +235,7 @@ class Drills(unittest.TestCase):
     def test_product_root_bind_import_cutover_and_engine_start(self) -> None:
         parent = Path(tempfile.mkdtemp(prefix="orgtree-p03-pg12-product-"))
         root = parent / "data"
-        root.mkdir()
+        (root / "orgs").mkdir(parents=True)  # every pgimport command needs orgs/
         env = {**os.environ, "ORGTREE_DATA": str(root)}
         self.cleanup.append((root, True, env))
         tool = REPO / "tools" / "pypg" / "pgimport.py"
