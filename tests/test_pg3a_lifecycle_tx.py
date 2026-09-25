@@ -47,6 +47,7 @@ class MarkUnrecoverable(unittest.TestCase):
         o.hire(ledger.USER, None, "luna", 0, "boss")
         o.hire(ledger.USER, "boss", "luna", 0, "worker")
         store.save_org(o)
+        boxed = len((self.org().d.get("notices") or {}).get("boss") or [])
         with store.DOC_LOCK:
             o = store.load_org(twin)
             o.mark_unrecoverable("worker", "No conversation found")
@@ -58,7 +59,7 @@ class MarkUnrecoverable(unittest.TestCase):
         self.assertEqual(a.node("worker")["state"], b.node("worker")["state"])
         na = (a.d.get("notices") or {}).get("boss") or []
         nb = (b.d.get("notices") or {}).get("boss") or []
-        self.assertEqual(len(nb), 1)
+        self.assertEqual(len(nb), boxed + 1)          # one notice to the parent
         self.assertEqual(len(na), len(nb))
         self.assertEqual([r["text"] for r in na], [r["text"] for r in nb])
         ev = [e for e in b.d["events"] if e.get("op") == "unrecoverable"]
