@@ -354,6 +354,8 @@ def _disallowed(tx: OrgTx, changes: SaveChanges) -> tuple[tuple[str, str], ...]:
     """Rows the save wrote that the transaction did not lock for update."""
     bad: list[tuple[str, str]] = []
     for k in (*changes.doc_upserts, *changes.doc_deletes):
+        if k in changes.containers_created and k in tx.share_sections:
+            continue        # PG-3d: an empty split container, under an owner lock
         if k not in tx.lock_sections \
                 and store.split_section_of(k) not in tx.lock_sections:
             bad.append(("section", k))
