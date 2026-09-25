@@ -136,13 +136,20 @@ def incarnation(org, nid):
     if org.d.get('reply_incarnation') and org.node(nid).get('reply_incarnation'):
         return org.d['reply_incarnation'] + ':' + org.node(nid)['reply_incarnation']
     from . import orgtx
-    if orgtx.current_tx(org.d['slug']) is not None:
-        # PG-3d: called with the Org of a transaction already open on this
-        # org (a quoted user reply): mint on THAT Org — the caller names
+    tx = orgtx.current_tx(org.d['slug'])
+    if tx is not None:
+        # PG-3d: a transaction is already open on this org on this thread (a
+        # quoted user reply): mint on THE TRANSACTION'S Org — the caller names
         # nodes=[nid] and sections=['reply_incarnation'] — instead of a
-        # second org_tx (NestedTx) or DOC_LOCK after org_tx (forbidden).
-        return (org.d.setdefault('reply_incarnation', uuid.uuid4().hex) + ':'
-                + org.node(nid).setdefault('reply_incarnation', uuid.uuid4().hex))
+        # second org_tx (NestedTx) or DOC_LOCK after org_tx (forbidden). A
+        # caller that passed another Org is memoized like the other paths
+        # (never a shared snapshot), so its identity is the committed one.
+        org_id = tx.d.setdefault('reply_incarnation', uuid.uuid4().hex)
+        node_id = tx.org.node(nid).setdefault('reply_incarnation', uuid.uuid4().hex)
+        if org is not tx.org and not getattr(org, '_shared_snapshot', False):
+            org.d['reply_incarnation'] = org_id
+            org.node(nid)['reply_incarnation'] = node_id
+        return org_id + ':' + node_id
     persisted = Path(store.org_path(org.d['slug'])).exists()
     if not persisted or getattr(store.DOC_LOCK, '_is_owned', lambda: False)():
         # PG-3r: an unsaved org, or a caller still inside a legacy DOC_LOCK
