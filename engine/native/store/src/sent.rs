@@ -794,6 +794,23 @@ pub async fn record_sent<S: Session>(tx: &mut Tx<'_, S>, req: &SendRequest) -> R
     Ok(SentRecord { message_id: req.original_message_id, pair_seq: rec.0, outgoing_intent: rec.1, grant_inserted, extern_revoked })
 }
 
+/// The current open mailbox of `principal`, read without any lock (for a
+/// system notice to a seat whose rows the caller already anchored, e.g. the
+/// deep-reach notices of a human send). Refuses when it has none.
+pub async fn mailbox_of<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, principal: Uuid) -> Result<Destination, SendError> {
+    resolve_mailbox_only(tx, org, principal).await.map(|r| r.dest)
+}
+
+/// §7.4 first-contact user audience `(node, USER)` WITHOUT a send (the human
+/// session command: direct user contact that is not mail). The caller must
+/// hold the node's authority-epoch row `FOR NO KEY UPDATE`. Bumps only when
+/// inserted. Returns whether a grant was inserted.
+pub async fn grant_user_audience<S: Session>(tx: &mut Tx<'_, S>, node: Uuid) -> Result<bool, SendError> {
+    let org = tx.op().org;
+    let now = tx.now().await?;
+    insert_grant(tx, org, node, "user", Uuid::nil(), None, now).await
+}
+
 /// The mailbox of a principal without any lock (the replaced EXTERN holder's
 /// notice: its epoch row is already held FOR NO KEY UPDATE).
 async fn resolve_mailbox_only<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, principal: Uuid) -> Result<Recipient, SendError> {

@@ -8,3 +8,6 @@ pub mod hints;
 pub mod mailbox;
 pub mod receive;
 pub mod doors;
+pub mod human;
+pub mod inbox;
+pub mod recovery;
