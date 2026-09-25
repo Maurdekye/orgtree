@@ -10538,6 +10538,395 @@
           "sha256": "16baa198105b00e8a60432ad883e5e38a0a29b2cb970e632d4e1a4c3fc2b81a2"
         }
       ]
+    },
+    "exchange.authority": {
+      "dimension": "authority",
+      "status": "specified",
+      "facts": [
+        "Every route is an operator route behind the desktop TokenGate that both current launch paths install (engine/launch.py load_app): a request with no credential is refused 401 ('missing authentication; provide a desktop or live agent credential'), and an agent credential on a route 401 ('agent credential is invalid or expired; reconnect the agent session'); past the gate a route acts as the user. orgtree_send_file and orgtree_send_file_once are agent tools on the agent door, acting for the calling agent on files it can reach. PROFILES (decision 1 on p01-f2-contracts-for-the-run-control-entry-point): desktop_policy.install_routes strips none of these routes and none of them reads ORGTREE_DESKTOP_MANAGED, so the desktop-managed and non-desktop profiles behave alike. Pinned by tests/test_state_exchange_boundary.py against docs/state-system/exchange-boundary.json.",
+        "The external-chat MCP server (externtool.py) sends no credential (Content-Type only), so under that gate every one of its four verbs is refused 401 ('missing authentication …') on both current launch paths (reported to the coordinator by the P01 F4 item); with the desktop token added its client logic works. Pinned by tests/test_state_exchange_boundary.py against docs/state-system/exchange-boundary.json. The public kiosk gateway, which the desktop launcher does not start, is read from source: GET /api/orgs lists only the token's org there, the org_inbox upload and send routes refuse it 404 ('not found'), and node upload is reachable through it."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/launch.py",
+          "start": 156,
+          "end": 195,
+          "sha256": "7fcd8231057ad57fa6da4a66acc584dccc25d9e5dd93afd51c6827163446f580"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_policy.py",
+          "start": 19,
+          "end": 23,
+          "sha256": "93fb92b8dfe87c447a573b846bd1dbac03c815a0276d61df06bbefb92600ee6a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9207,
+          "end": 9232,
+          "sha256": "d72c5e692d530d467ac22616e4aec31114b8fc575d53160ab11e8e7914342638"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9235,
+          "end": 9312,
+          "sha256": "0cc5d4f7c7bbb66f138dd302eb3c8aff5d83f95ad512524fc893ce67cb4ae32f"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12981,
+          "end": 13033,
+          "sha256": "e57c6c9d1e32973359187e2306f9194e500b2b83a6b074b967bbcdf6d0d833a1"
+        },
+        {
+          "path": "engine/backend/orgtree/externtool.py",
+          "start": 174,
+          "end": 181,
+          "sha256": "4dfe655437cba2ff55682e9cc476c6ab2b9ba5ff8d4fda63d7b804a74c2328e1"
+        }
+      ]
+    },
+    "exchange.reads": {
+      "dimension": "reads",
+      "status": "specified",
+      "facts": [
+        "GET /api/orgs reads every org's document once (store.list_orgs_with_docs) and each org's working count; a kiosk org's admin row carries kiosk_cfg, share token included. The externtool orgtree_list_orgs verb drops every row flagged kiosk or kiosk_cfg on the client and adds your_peer_id. The extern messages and wait routes scan EVERY org on the machine under the document lock on each call (store.list_orgs, then store.load_org per org; kiosks skipped; an org filter skips the other orgs' loads) and return the peer's replies from all of them; wait rescans only when store.REVISION moves, off the event loop, and returns at once whenever any org holds a fresh reply for the peer (recorded legacy defect, docket external-chat-messages-and-wait-read-every-org-u). The org inbox list reads a snapshot of org_inbox (the last 100 entries with total and unread); the mail item route reads its box's sections and searches the box whole, so found false is an answer. The reply-events count reads the reply_events sidecar read-only. Pinned by tests/test_state_exchange_boundary.py against docs/state-system/exchange-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1752,
+          "end": 1793,
+          "sha256": "d5eae1511c6509fe2b5b7a6b6007ec2fd7bc2466028115e743af63361d99e19a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8990,
+          "end": 9037,
+          "sha256": "14f4f78d30e1b8ab6a3eb6e5e33d9d453e4f146ae5675e53dbc91b7910efb182"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9052,
+          "end": 9082,
+          "sha256": "0b773e1b9da5a888b1a9d6ca0e144d1747435989ed3f8064efb49f03e690ecd4"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9085,
+          "end": 9109,
+          "sha256": "d7ca181f7da084b62df0b992ec3ff5512886c369b927aa0e721fb38eaeb6431e"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9112,
+          "end": 9157,
+          "sha256": "a920745874071c8c8ff11b6ab62b02739a01c8ceeede42deb9f6c2240054f44d"
+        },
+        {
+          "path": "engine/backend/orgtree/reply_events.py",
+          "start": 165,
+          "end": 173,
+          "sha256": "928ec9fd2f6bb8597385e59a0c2c0810a5ea21dadf625797fcad74d1c9b6b591"
+        },
+        {
+          "path": "engine/backend/orgtree/externtool.py",
+          "start": 215,
+          "end": 259,
+          "sha256": "72a38afc6e597e3a0123b147265c6b06d175545f16ee6d8efd484227dcbf2be9"
+        }
+      ]
+    },
+    "exchange.writes": {
+      "dimension": "writes",
+      "status": "specified",
+      "facts": [
+        "extern send writes the peer's sighting into the machine-wide <DATA_ROOT>/extern-peers.json before it checks the body, the org or the attachments (only a bad peer id is refused first), so an empty, unknown-org, kiosk or bad-attachment send still records it, and messages and wait record it too (docket external-chat-messages-and-wait-read-every-org-u). A delivered extern send, and an @org: send in the destination org, writes org_inbox, mail, mail_log, notices, notice_log, events, nodes and audiences (post_external_mail bootstraps an audience holder) and copies attachments into every recipient's uploads/. org_inbox read writes org_inbox_read. org_inbox upload writes a staged file under <DATA_ROOT>/net_stage, named by a map held in process memory and pruned after 24 hours. org_inbox send writes this org's org_inbox (an out entry) and, for @org:, the OTHER org's documents, a write across two orgs; for @net: it appends to the mail-hub spool (source). inbox clear moves user_inbox into user_mail_log. node upload writes the file under the node's scratch uploads/, de-duplicating a name with -2. The reply-events DELETE deletes the node's rows from the reply_events sidecar and writes nodes (a new reply_incarnation). retract writes mail and tombstones the entry in mail_log. Pinned by tests/test_state_exchange_boundary.py against docs/state-system/exchange-boundary.json.",
+        "orgtree_send_file writes outbox/ only, never an org section, and with a delivery_id also a row in the machine-wide <DATA_ROOT>/file-deliveries.db and the copy under outbox/delivery-<identity>/, replayed as the same result for the same file and caption; orgtree_send_file_once requires the delivery_id and is then the same call. Every refusal writes nothing to any org. Pinned by tests/test_state_exchange_boundary.py against docs/state-system/exchange-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 5306,
+          "end": 5313,
+          "sha256": "9cde47018210911b109f36ddf6ddaf63b1b394b244f35dc97c6476a38885c191"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8958,
+          "end": 8987,
+          "sha256": "b4aee595ce5771cd37c46550605b58a389650aa1f3f8f5945656871625286146"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 28238,
+          "end": 28313,
+          "sha256": "35f29240606dd323ea985cf26202ad61a709abecc243f6d43df40f9f49509a8b"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9160,
+          "end": 9171,
+          "sha256": "31c1975c7d2d75b033d65caf593bf8098d5391da5ede0c8b1b00e47973b78756"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9207,
+          "end": 9232,
+          "sha256": "d72c5e692d530d467ac22616e4aec31114b8fc575d53160ab11e8e7914342638"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9235,
+          "end": 9312,
+          "sha256": "0cc5d4f7c7bbb66f138dd302eb3c8aff5d83f95ad512524fc893ce67cb4ae32f"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9315,
+          "end": 9330,
+          "sha256": "e22f581f05498d24966290c11200cb56c5c7f76f1ab867052f252352e88cb16c"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12981,
+          "end": 13033,
+          "sha256": "e57c6c9d1e32973359187e2306f9194e500b2b83a6b074b967bbcdf6d0d833a1"
+        },
+        {
+          "path": "engine/backend/orgtree/reply_events.py",
+          "start": 176,
+          "end": 182,
+          "sha256": "ef60e76f68985a2cac41e663e1b4e7486cda711533f5743b97fab36692f1c308"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6571,
+          "end": 6585,
+          "sha256": "c7562833a62a2dd58bff94a1811b899c5392f779d78fdf3c7bd1d3be500c4ab5"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13351,
+          "end": 13378,
+          "sha256": "0ca72e55766bed8d2e6c4407e1958901a1932e79a7e1078f5958aff9187f9d01"
+        },
+        {
+          "path": "engine/backend/orgtree/filedelivery.py",
+          "start": 22,
+          "end": 82,
+          "sha256": "495e25bffc235b87073f90e91872da4b81c381a7eca8b2e3fe4f04611c43c7f6"
+        }
+      ]
+    },
+    "exchange.predicates": {
+      "dimension": "predicates",
+      "status": "specified",
+      "facts": [
+        "extern send: a peer id outside [A-Za-z0-9._-]{1,64} 422; an empty body 422; a missing or sealed kiosk org 404 with the same wording; an attachment that is not a file 422 and one over 25 MB 413. org_inbox send: the retired @ext: form 422; a recipient that is not @org:, @mcp: or @net: 422; an unknown staged id 422; attachments to @mcp: 422 (text-only transport); a @net: send with no enabled hub 422; and, from source, a kiosk org 422, a @net: send to this org itself 422 and an unknown hub peer 422. An @org: send to a sealed or missing org answers 200 with a warning ('not delivered: no organization named … is reachable'). org_inbox upload over 25 MB 413. node upload: empty 422, unknown node 404, the org over its storage limit 413, and a kiosk org's 256 MB per-node total 413 (source). mail item: an unknown box or node 404. retract: mail already drained 404. orgtree_send_file: a missing path 422, a missing file 422, a path outside the reachable folders 422, a malformed delivery_id 422, a delivery_id reused for another file or caption 422, the org over its storage limit 422; orgtree_send_file_once without a delivery_id 422. The externtool wait clamps timeout_s to 5-300 seconds and long-polls in slices of at most 25 (source). Pinned by tests/test_state_exchange_boundary.py against docs/state-system/exchange-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8952,
+          "end": 8955,
+          "sha256": "5a11dfcfc52702cf21f37f9813d47eb4dc3ee635d52b95bd43ce74cf624967af"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8958,
+          "end": 8987,
+          "sha256": "b4aee595ce5771cd37c46550605b58a389650aa1f3f8f5945656871625286146"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9235,
+          "end": 9312,
+          "sha256": "0cc5d4f7c7bbb66f138dd302eb3c8aff5d83f95ad512524fc893ce67cb4ae32f"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12981,
+          "end": 13033,
+          "sha256": "e57c6c9d1e32973359187e2306f9194e500b2b83a6b074b967bbcdf6d0d833a1"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9112,
+          "end": 9157,
+          "sha256": "a920745874071c8c8ff11b6ab62b02739a01c8ceeede42deb9f6c2240054f44d"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14070,
+          "end": 14085,
+          "sha256": "0372c2077bf89dcbd1f52f920a7279773d551a21a60ceea3a1b0ddb1215204c0"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13351,
+          "end": 13378,
+          "sha256": "0ca72e55766bed8d2e6c4407e1958901a1932e79a7e1078f5958aff9187f9d01"
+        },
+        {
+          "path": "engine/backend/orgtree/filedelivery.py",
+          "start": 22,
+          "end": 82,
+          "sha256": "495e25bffc235b87073f90e91872da4b81c381a7eca8b2e3fe4f04611c43c7f6"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11279,
+          "end": 11285,
+          "sha256": "26e2489a1deb19240a003809e3217115a5aa60435ee5f93937f8f92833cae9ca"
+        },
+        {
+          "path": "engine/backend/orgtree/externtool.py",
+          "start": 215,
+          "end": 259,
+          "sha256": "72a38afc6e597e3a0123b147265c6b06d175545f16ee6d8efd484227dcbf2be9"
+        }
+      ]
+    },
+    "exchange.conflicts": {
+      "dimension": "conflicts",
+      "status": "unresolved",
+      "facts": [
+        "The extern scans hold the document lock across every org on the machine; extern-peers.json, file-deliveries.db, the reply_events sidecar and net_stage are machine-wide stores written outside any org transaction; an @org: send writes two orgs in two separate saves (source)."
+      ],
+      "open_questions": [
+        "Implement and qualify native transactions for the exchange operations: the cross-org @org: send, the machine-wide sighting, delivery and stage stores, and the every-org extern scan against concurrent writers.",
+        "Owner: P03 (native design and qualification), with P07 for channels and mail. Closes with: a native design qualified by two orgs exchanging @org: mail concurrently and a waiter scanning during their saves. Not coverable at P01 from available evidence: no native build exists, and P01 has not cited a native design section for these operations."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8990,
+          "end": 9037,
+          "sha256": "14f4f78d30e1b8ab6a3eb6e5e33d9d453e4f146ae5675e53dbc91b7910efb182"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 5306,
+          "end": 5313,
+          "sha256": "9cde47018210911b109f36ddf6ddaf63b1b394b244f35dc97c6476a38885c191"
+        },
+        {
+          "path": "engine/backend/orgtree/filedelivery.py",
+          "start": 22,
+          "end": 82,
+          "sha256": "495e25bffc235b87073f90e91872da4b81c381a7eca8b2e3fe4f04611c43c7f6"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9235,
+          "end": 9312,
+          "sha256": "0cc5d4f7c7bbb66f138dd302eb3c8aff5d83f95ad512524fc893ce67cb4ae32f"
+        }
+      ]
+    },
+    "exchange.wire": {
+      "dimension": "wire",
+      "status": "unresolved",
+      "facts": [
+        "The shapes are fixtured in docs/state-system/exchange-boundary.json per case."
+      ],
+      "open_questions": [
+        "Carry the fixtured exchange shapes to the native/Rust door and decide each recorded legacy defect.",
+        "Owner: the native/Rust conversion, from the P03 prototype onward. Closes with: the fixtured shapes passing against the native and Rust builds. Not coverable at P01 from available evidence: no native or Rust build exists to run the fixtures against."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8958,
+          "end": 8987,
+          "sha256": "b4aee595ce5771cd37c46550605b58a389650aa1f3f8f5945656871625286146"
+        }
+      ]
+    },
+    "exchange.receipt": {
+      "dimension": "receipt",
+      "status": "specified",
+      "facts": [
+        "A keyed orgtree_send_file or orgtree_send_file_once files no receipt: the tool returns from the agent door's read-only block before the dispatch transaction, which is what its coverage class NONE records, and a receipt lookup of its key answers state unknown, reason unsupported_operation, coverage none (P01 F4 mutation X5: the class alone does not decide whether a receipt is filed). The routes take no key. The retryable delivery keeps its own receipt, the file-deliveries.db row, which answers a replay of the same delivery_id with the first result. Pinned by tests/test_state_exchange_boundary.py against docs/state-system/exchange-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/filedelivery.py",
+          "start": 22,
+          "end": 82,
+          "sha256": "495e25bffc235b87073f90e91872da4b81c381a7eca8b2e3fe4f04611c43c7f6"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 151,
+          "end": 151,
+          "sha256": "9daccfad05f0b38e7e61fc2dbc1cdb92a352dc42ce9ec1e9dabcad7676ba974f"
+        }
+      ]
+    },
+    "exchange.effects": {
+      "dimension": "effects",
+      "status": "specified",
+      "facts": [
+        "A delivered extern or @org: send drives every recipient in the receiving org with the org-inbox framing (supervisor.send_message) and sparks its mailbox wire (mail_spark); org_inbox send, org_inbox read, inbox clear and retract end with one hub_changed, and org_inbox send also sparks mail_notify for the user; a @net: send kicks the hub spool (source). upload, node upload, the reply-events routes and the reads broadcast nothing, and orgtree_send_file drives nobody. Pinned by tests/test_state_exchange_boundary.py against docs/state-system/exchange-boundary.json for the spy calls."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 28238,
+          "end": 28313,
+          "sha256": "35f29240606dd323ea985cf26202ad61a709abecc243f6d43df40f9f49509a8b"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9235,
+          "end": 9312,
+          "sha256": "0cc5d4f7c7bbb66f138dd302eb3c8aff5d83f95ad512524fc893ce67cb4ae32f"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9160,
+          "end": 9171,
+          "sha256": "31c1975c7d2d75b033d65caf593bf8098d5391da5ede0c8b1b00e47973b78756"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9315,
+          "end": 9330,
+          "sha256": "e22f581f05498d24966290c11200cb56c5c7f76f1ab867052f252352e88cb16c"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14070,
+          "end": 14085,
+          "sha256": "0372c2077bf89dcbd1f52f920a7279773d551a21a60ceea3a1b0ddb1215204c0"
+        }
+      ]
+    },
+    "exchange.instrumentation": {
+      "dimension": "instrumentation",
+      "status": "unresolved",
+      "facts": [
+        "The access middleware labels each route and the agent door labels the two tools (stateprobe.refine('tool:' + tool)); orgtree_send_file_once is one of api._PROFILE_EXTRA_TOOL_VERBS. No P02 per-operation record covers this family yet."
+      ],
+      "open_questions": [
+        "Observe every exchange operation with the P02 per-operation probe: actual contacts per outcome, cold and warm, refusals included, and the org-level locality of each (the extern scans and the @org: send cross orgs).",
+        "Owner: P02 (p02-contacts-opus55; coordinator ruling Q6 on p01-f1-contracts-for-the-org-lifecycle-and-catal: probed after this family lands). Closes with: a loss-accounted P02 record per row. Not coverable at P01 from available evidence: P01 does not run the P02 probe, and no P02 record covers this family yet."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11279,
+          "end": 11285,
+          "sha256": "26e2489a1deb19240a003809e3217115a5aa60435ee5f93937f8f92833cae9ca"
+        }
+      ]
     }
   },
   "contracts": {
@@ -18550,6 +18939,997 @@
         }
       ],
       "domain_mode": "write"
+    },
+    "exchange.orgs-list": {
+      "entry_ids": [
+        "93106cabc9783cb56675e260e05a2f7de7308fb607a84b869fae4006ddb3cd9a",
+        "5ffae5ae831e9cbe21f004a7cddfb622f217c7e9ed0065c09536f34a468770bc"
+      ],
+      "tools": [
+        "orgtree_list_orgs"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "exchange.authority"
+        ],
+        "reads": [
+          "exchange.reads"
+        ],
+        "writes": [
+          "exchange.writes"
+        ],
+        "predicates": [
+          "exchange.predicates"
+        ],
+        "conflicts": [
+          "exchange.conflicts"
+        ],
+        "wire": [
+          "exchange.wire"
+        ],
+        "receipt": [
+          "exchange.receipt"
+        ],
+        "effects": [
+          "exchange.effects"
+        ],
+        "instrumentation": [
+          "exchange.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1752,
+          "end": 1752,
+          "sha256": "0aba54611f16e6b6b53faf5f3c7f3c9d00a1f82634379b85e688d10bc12f45d8"
+        },
+        {
+          "path": "engine/backend/orgtree/externtool.py",
+          "start": 101,
+          "end": 108,
+          "sha256": "1bb728f9544523a596c5ce018a6e6ac6fdd841767e64698ed07be9aa7d18a390"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1752,
+          "end": 1793,
+          "sha256": "d5eae1511c6509fe2b5b7a6b6007ec2fd7bc2466028115e743af63361d99e19a"
+        },
+        {
+          "path": "engine/backend/orgtree/externtool.py",
+          "start": 215,
+          "end": 259,
+          "sha256": "72a38afc6e597e3a0123b147265c6b06d175545f16ee6d8efd484227dcbf2be9"
+        }
+      ],
+      "domain_mode": "read"
+    },
+    "exchange.extern-send": {
+      "entry_ids": [
+        "46c77bf435c85a0bb093411b6306c78471b042fe923133c71f0a0f64eaff35e6",
+        "e5f3ba53047fce748a85bafa17947fe38f4c1c5655fe6fc504e2211aef6215d7"
+      ],
+      "tools": [
+        "orgtree_send"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "exchange.authority"
+        ],
+        "reads": [
+          "exchange.reads"
+        ],
+        "writes": [
+          "exchange.writes"
+        ],
+        "predicates": [
+          "exchange.predicates"
+        ],
+        "conflicts": [
+          "exchange.conflicts"
+        ],
+        "wire": [
+          "exchange.wire"
+        ],
+        "receipt": [
+          "exchange.receipt"
+        ],
+        "effects": [
+          "exchange.effects"
+        ],
+        "instrumentation": [
+          "exchange.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8958,
+          "end": 8958,
+          "sha256": "5338bef5b75fbb8a2621d98222c75988fa4cdc6d3b84d14d2373de0bdb4f3698"
+        },
+        {
+          "path": "engine/backend/orgtree/externtool.py",
+          "start": 109,
+          "end": 131,
+          "sha256": "3d8164f07849b6c2c0a56cc760165b934cf542d27bf47dc8b5302c9e12b0cd14"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8958,
+          "end": 8987,
+          "sha256": "b4aee595ce5771cd37c46550605b58a389650aa1f3f8f5945656871625286146"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8952,
+          "end": 8955,
+          "sha256": "5a11dfcfc52702cf21f37f9813d47eb4dc3ee635d52b95bd43ce74cf624967af"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 5306,
+          "end": 5313,
+          "sha256": "9cde47018210911b109f36ddf6ddaf63b1b394b244f35dc97c6476a38885c191"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 28238,
+          "end": 28313,
+          "sha256": "35f29240606dd323ea985cf26202ad61a709abecc243f6d43df40f9f49509a8b"
+        },
+        {
+          "path": "engine/backend/orgtree/externtool.py",
+          "start": 215,
+          "end": 259,
+          "sha256": "72a38afc6e597e3a0123b147265c6b06d175545f16ee6d8efd484227dcbf2be9"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "exchange.extern-read": {
+      "entry_ids": [
+        "bd67a8f8c69950b7d38cfc0b02969272f6eecd6f8dc6eaa9794faeb09db28bc8",
+        "b55055872c656c5fa32fa9ccbeb144ccdf1ebd00f526b8778f7de80213ea3eb9"
+      ],
+      "tools": [
+        "orgtree_read"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "exchange.authority"
+        ],
+        "reads": [
+          "exchange.reads"
+        ],
+        "writes": [
+          "exchange.writes"
+        ],
+        "predicates": [
+          "exchange.predicates"
+        ],
+        "conflicts": [
+          "exchange.conflicts"
+        ],
+        "wire": [
+          "exchange.wire"
+        ],
+        "receipt": [
+          "exchange.receipt"
+        ],
+        "effects": [
+          "exchange.effects"
+        ],
+        "instrumentation": [
+          "exchange.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9040,
+          "end": 9040,
+          "sha256": "8b5a4b071c9e8db4e6b5d8814b3f1fc44a95c91549c58788457b726c07a09df6"
+        },
+        {
+          "path": "engine/backend/orgtree/externtool.py",
+          "start": 132,
+          "end": 147,
+          "sha256": "b76cec94d768f1ab8d832d16513aa5ecdc3d3ecaffaf3abb84c54a835b526bc8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9040,
+          "end": 9049,
+          "sha256": "028fbb862f8ce0a5ab88ad3a0bb70f45093ef14f4819907d12b42c9f038ff8b5"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8990,
+          "end": 9037,
+          "sha256": "14f4f78d30e1b8ab6a3eb6e5e33d9d453e4f146ae5675e53dbc91b7910efb182"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 5306,
+          "end": 5313,
+          "sha256": "9cde47018210911b109f36ddf6ddaf63b1b394b244f35dc97c6476a38885c191"
+        },
+        {
+          "path": "engine/backend/orgtree/externtool.py",
+          "start": 215,
+          "end": 259,
+          "sha256": "72a38afc6e597e3a0123b147265c6b06d175545f16ee6d8efd484227dcbf2be9"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "exchange.extern-wait": {
+      "entry_ids": [
+        "3c120330bf4b79d8a2a7efa1de230372c2c57dc75dd906f7f403cc70521106cd",
+        "c4681825456aa1f150ac0c752a1b6dbe99bab6f682f6d447fa3a573cf7570d6b"
+      ],
+      "tools": [
+        "orgtree_wait"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "exchange.authority"
+        ],
+        "reads": [
+          "exchange.reads"
+        ],
+        "writes": [
+          "exchange.writes"
+        ],
+        "predicates": [
+          "exchange.predicates"
+        ],
+        "conflicts": [
+          "exchange.conflicts"
+        ],
+        "wire": [
+          "exchange.wire"
+        ],
+        "receipt": [
+          "exchange.receipt"
+        ],
+        "effects": [
+          "exchange.effects"
+        ],
+        "instrumentation": [
+          "exchange.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9052,
+          "end": 9052,
+          "sha256": "1a1710517c6575ba7518cb58463b425cf5cfa8cdcf7f7af2ddd303a56f787fd9"
+        },
+        {
+          "path": "engine/backend/orgtree/externtool.py",
+          "start": 148,
+          "end": 170,
+          "sha256": "ff4c66b4070b3cdd96b67b3f884b05dc94d7f8ee0505db1276bc84a7499be246"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9052,
+          "end": 9082,
+          "sha256": "0b773e1b9da5a888b1a9d6ca0e144d1747435989ed3f8064efb49f03e690ecd4"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8990,
+          "end": 9037,
+          "sha256": "14f4f78d30e1b8ab6a3eb6e5e33d9d453e4f146ae5675e53dbc91b7910efb182"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 5306,
+          "end": 5313,
+          "sha256": "9cde47018210911b109f36ddf6ddaf63b1b394b244f35dc97c6476a38885c191"
+        },
+        {
+          "path": "engine/backend/orgtree/externtool.py",
+          "start": 215,
+          "end": 259,
+          "sha256": "72a38afc6e597e3a0123b147265c6b06d175545f16ee6d8efd484227dcbf2be9"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "exchange.org-inbox-list": {
+      "entry_ids": [
+        "da19a2e41485a33b03a144911ccdfc3fd38f74e87c1c37c3d76ef33850b0c8d7"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "exchange.authority"
+        ],
+        "reads": [
+          "exchange.reads"
+        ],
+        "writes": [
+          "exchange.writes"
+        ],
+        "predicates": [
+          "exchange.predicates"
+        ],
+        "conflicts": [
+          "exchange.conflicts"
+        ],
+        "wire": [
+          "exchange.wire"
+        ],
+        "receipt": [
+          "exchange.receipt"
+        ],
+        "effects": [
+          "exchange.effects"
+        ],
+        "instrumentation": [
+          "exchange.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9085,
+          "end": 9085,
+          "sha256": "dd754cba578916d9560d5e69d9ae291b4a4484fb26d4d3931379449a08d58a23"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9085,
+          "end": 9109,
+          "sha256": "d7ca181f7da084b62df0b992ec3ff5512886c369b927aa0e721fb38eaeb6431e"
+        }
+      ],
+      "domain_mode": "read"
+    },
+    "exchange.org-inbox-read": {
+      "entry_ids": [
+        "012f51ff6fa637e929d44cd8b80f7fb18e6619b7b9517dede64bf59afff27ce7"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "exchange.authority"
+        ],
+        "reads": [
+          "exchange.reads"
+        ],
+        "writes": [
+          "exchange.writes"
+        ],
+        "predicates": [
+          "exchange.predicates"
+        ],
+        "conflicts": [
+          "exchange.conflicts"
+        ],
+        "wire": [
+          "exchange.wire"
+        ],
+        "receipt": [
+          "exchange.receipt"
+        ],
+        "effects": [
+          "exchange.effects"
+        ],
+        "instrumentation": [
+          "exchange.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9160,
+          "end": 9160,
+          "sha256": "de9d29f6aade65615af5c1ac124ae70271a98a102b4c3c4e188e04532912f8b4"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9160,
+          "end": 9171,
+          "sha256": "31c1975c7d2d75b033d65caf593bf8098d5391da5ede0c8b1b00e47973b78756"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "exchange.org-inbox-upload": {
+      "entry_ids": [
+        "b8709c03f541b5a2a1292f4c098994291c5537937367504fdb46d6cfaa46c2ba"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "exchange.authority"
+        ],
+        "reads": [
+          "exchange.reads"
+        ],
+        "writes": [
+          "exchange.writes"
+        ],
+        "predicates": [
+          "exchange.predicates"
+        ],
+        "conflicts": [
+          "exchange.conflicts"
+        ],
+        "wire": [
+          "exchange.wire"
+        ],
+        "receipt": [
+          "exchange.receipt"
+        ],
+        "effects": [
+          "exchange.effects"
+        ],
+        "instrumentation": [
+          "exchange.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9207,
+          "end": 9207,
+          "sha256": "127c0809541b1da4bdbe5b7b3a9d1b22befa809d1516db74df23a86d2e04bc5b"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9207,
+          "end": 9232,
+          "sha256": "d72c5e692d530d467ac22616e4aec31114b8fc575d53160ab11e8e7914342638"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9185,
+          "end": 9198,
+          "sha256": "a641144c95663a1323cb586a27abd3ba65e4a4ecfc2232989e748721ed271b6c"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "exchange.org-inbox-send": {
+      "entry_ids": [
+        "dc5e0c023fd13dec73ac47825c3d4c9731bde7e1bd08f2f67989e6ce50a56dfb"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "exchange.authority"
+        ],
+        "reads": [
+          "exchange.reads"
+        ],
+        "writes": [
+          "exchange.writes"
+        ],
+        "predicates": [
+          "exchange.predicates"
+        ],
+        "conflicts": [
+          "exchange.conflicts"
+        ],
+        "wire": [
+          "exchange.wire"
+        ],
+        "receipt": [
+          "exchange.receipt"
+        ],
+        "effects": [
+          "exchange.effects"
+        ],
+        "instrumentation": [
+          "exchange.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9235,
+          "end": 9235,
+          "sha256": "ba4477baa29247a93c0a349c22b19547c085e531af0b3af168189734ba4e560c"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9235,
+          "end": 9312,
+          "sha256": "0cc5d4f7c7bbb66f138dd302eb3c8aff5d83f95ad512524fc893ce67cb4ae32f"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 28238,
+          "end": 28313,
+          "sha256": "35f29240606dd323ea985cf26202ad61a709abecc243f6d43df40f9f49509a8b"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "exchange.mail-item": {
+      "entry_ids": [
+        "935948dea305a7e259c789671890fe94fc4fbf7c5cee5b02e8fea1f50b2e765a"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "exchange.authority"
+        ],
+        "reads": [
+          "exchange.reads"
+        ],
+        "writes": [
+          "exchange.writes"
+        ],
+        "predicates": [
+          "exchange.predicates"
+        ],
+        "conflicts": [
+          "exchange.conflicts"
+        ],
+        "wire": [
+          "exchange.wire"
+        ],
+        "receipt": [
+          "exchange.receipt"
+        ],
+        "effects": [
+          "exchange.effects"
+        ],
+        "instrumentation": [
+          "exchange.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9112,
+          "end": 9112,
+          "sha256": "9d4372345abc8902d20d09a986643cde23604d078dea4d05b8d9e436c3a57092"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9112,
+          "end": 9157,
+          "sha256": "a920745874071c8c8ff11b6ab62b02739a01c8ceeede42deb9f6c2240054f44d"
+        }
+      ],
+      "domain_mode": "read"
+    },
+    "exchange.inbox-clear": {
+      "entry_ids": [
+        "3b7484efe040a2f896f3c9ce76eef3ca916cb804609c4c6e4db1799530d40359"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "exchange.authority"
+        ],
+        "reads": [
+          "exchange.reads"
+        ],
+        "writes": [
+          "exchange.writes"
+        ],
+        "predicates": [
+          "exchange.predicates"
+        ],
+        "conflicts": [
+          "exchange.conflicts"
+        ],
+        "wire": [
+          "exchange.wire"
+        ],
+        "receipt": [
+          "exchange.receipt"
+        ],
+        "effects": [
+          "exchange.effects"
+        ],
+        "instrumentation": [
+          "exchange.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9315,
+          "end": 9315,
+          "sha256": "c1d3f6cb97f7741fce0a4d58ec595c7171e0ad504e193404f4152643da090ffc"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9315,
+          "end": 9330,
+          "sha256": "e22f581f05498d24966290c11200cb56c5c7f76f1ab867052f252352e88cb16c"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "exchange.node-upload": {
+      "entry_ids": [
+        "ed016724b337831767c41b1ef9feea69553ac663df6be518a2a6065cc40e6034"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "exchange.authority"
+        ],
+        "reads": [
+          "exchange.reads"
+        ],
+        "writes": [
+          "exchange.writes"
+        ],
+        "predicates": [
+          "exchange.predicates"
+        ],
+        "conflicts": [
+          "exchange.conflicts"
+        ],
+        "wire": [
+          "exchange.wire"
+        ],
+        "receipt": [
+          "exchange.receipt"
+        ],
+        "effects": [
+          "exchange.effects"
+        ],
+        "instrumentation": [
+          "exchange.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12981,
+          "end": 12981,
+          "sha256": "4f99d166bbc919400d3aa7a5106a5cc47910c145ff3d6dca4779e9f14929c973"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12981,
+          "end": 13033,
+          "sha256": "e57c6c9d1e32973359187e2306f9194e500b2b83a6b074b967bbcdf6d0d833a1"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "exchange.reply-events-count": {
+      "entry_ids": [
+        "0c0f06e89c1c325090620d7392dd0fa7c8f2a5a11c47da76dbe1f1cd9e321b4b"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "exchange.authority"
+        ],
+        "reads": [
+          "exchange.reads"
+        ],
+        "writes": [
+          "exchange.writes"
+        ],
+        "predicates": [
+          "exchange.predicates"
+        ],
+        "conflicts": [
+          "exchange.conflicts"
+        ],
+        "wire": [
+          "exchange.wire"
+        ],
+        "receipt": [
+          "exchange.receipt"
+        ],
+        "effects": [
+          "exchange.effects"
+        ],
+        "instrumentation": [
+          "exchange.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14051,
+          "end": 14051,
+          "sha256": "82e24133b850c4feef5429d671c8333572c8aa8126d2a463da4f71f0e4e6fdac"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14051,
+          "end": 14056,
+          "sha256": "44339f66e33705de4e5f2d9d161625bb668c46ddb146597d3968a2fcef4e5b68"
+        },
+        {
+          "path": "engine/backend/orgtree/reply_events.py",
+          "start": 165,
+          "end": 173,
+          "sha256": "928ec9fd2f6bb8597385e59a0c2c0810a5ea21dadf625797fcad74d1c9b6b591"
+        }
+      ],
+      "domain_mode": "read"
+    },
+    "exchange.reply-events-clear": {
+      "entry_ids": [
+        "71456595e7c4b8644d101ddc831aaa01f636d2bc7554572d5fceac660a73d739"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "exchange.authority"
+        ],
+        "reads": [
+          "exchange.reads"
+        ],
+        "writes": [
+          "exchange.writes"
+        ],
+        "predicates": [
+          "exchange.predicates"
+        ],
+        "conflicts": [
+          "exchange.conflicts"
+        ],
+        "wire": [
+          "exchange.wire"
+        ],
+        "receipt": [
+          "exchange.receipt"
+        ],
+        "effects": [
+          "exchange.effects"
+        ],
+        "instrumentation": [
+          "exchange.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14059,
+          "end": 14059,
+          "sha256": "6c13f651cdc72cfa22aa114410805d168721200e30031ab863fe708d2db94d7e"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14059,
+          "end": 14067,
+          "sha256": "1c815acf45d134b9057415a42d4c00bf76b3569b355bd287d0a8287dc0e86a90"
+        },
+        {
+          "path": "engine/backend/orgtree/reply_events.py",
+          "start": 176,
+          "end": 182,
+          "sha256": "ef60e76f68985a2cac41e663e1b4e7486cda711533f5743b97fab36692f1c308"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "exchange.mail-retract": {
+      "entry_ids": [
+        "c5a7a4d15ddad676091bfc386bfdcde2386153fb5ebbf1ea5d81b4b747f10e5c"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "exchange.authority"
+        ],
+        "reads": [
+          "exchange.reads"
+        ],
+        "writes": [
+          "exchange.writes"
+        ],
+        "predicates": [
+          "exchange.predicates"
+        ],
+        "conflicts": [
+          "exchange.conflicts"
+        ],
+        "wire": [
+          "exchange.wire"
+        ],
+        "receipt": [
+          "exchange.receipt"
+        ],
+        "effects": [
+          "exchange.effects"
+        ],
+        "instrumentation": [
+          "exchange.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14070,
+          "end": 14070,
+          "sha256": "cd82a97187aa36fc9377e117c23fffc6ef9174b638de03a85a36479f5dfca8b1"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14070,
+          "end": 14085,
+          "sha256": "0372c2077bf89dcbd1f52f920a7279773d551a21a60ceea3a1b0ddb1215204c0"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6571,
+          "end": 6585,
+          "sha256": "c7562833a62a2dd58bff94a1811b899c5392f779d78fdf3c7bd1d3be500c4ab5"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "exchange.send-file": {
+      "entry_ids": [
+        "f011a70eb84897a54ab57cd764f4a6b35231703ecb7c71f9a3b730951fc45211",
+        "50c7b946887edfa794feb7ff098901427465623401aa9f0f8daf243496d8396f"
+      ],
+      "tools": [
+        "orgtree_send_file",
+        "orgtree_send_file_once"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "exchange.authority"
+        ],
+        "reads": [
+          "exchange.reads"
+        ],
+        "writes": [
+          "exchange.writes"
+        ],
+        "predicates": [
+          "exchange.predicates"
+        ],
+        "conflicts": [
+          "exchange.conflicts"
+        ],
+        "wire": [
+          "exchange.wire"
+        ],
+        "receipt": [
+          "exchange.receipt"
+        ],
+        "effects": [
+          "exchange.effects"
+        ],
+        "instrumentation": [
+          "exchange.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1962,
+          "end": 1986,
+          "sha256": "144c65f66c24693fca10b27cb90305d34e60e4f70f100973ce696ba7de212485"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11279,
+          "end": 11279,
+          "sha256": "ad6c9b74037509143ef60320f262494e519245b280929945107d68c8706150c9"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11279,
+          "end": 11285,
+          "sha256": "26e2489a1deb19240a003809e3217115a5aa60435ee5f93937f8f92833cae9ca"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11485,
+          "end": 11488,
+          "sha256": "dae2afcdedddc3850ec1817efd0498a25212519515b41d46eb86898b9adf1a57"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13351,
+          "end": 13378,
+          "sha256": "0ca72e55766bed8d2e6c4407e1958901a1932e79a7e1078f5958aff9187f9d01"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13129,
+          "end": 13193,
+          "sha256": "7ea378060f006e055a456e18067dffab17deb67bdf7572a7c99a98d8354639a5"
+        },
+        {
+          "path": "engine/backend/orgtree/filedelivery.py",
+          "start": 22,
+          "end": 82,
+          "sha256": "495e25bffc235b87073f90e91872da4b81c381a7eca8b2e3fe4f04611c43c7f6"
+        }
+      ],
+      "domain_mode": "write"
     }
   },
   "wire_cases": [
@@ -19923,6 +21303,146 @@
       "args": {},
       "contract": "relaunch.self-update",
       "domain_mode": "write"
+    },
+    {
+      "name": "GET /api/orgs:exchange.orgs-list",
+      "entry_id": "93106cabc9783cb56675e260e05a2f7de7308fb607a84b869fae4006ddb3cd9a",
+      "args": {},
+      "contract": "exchange.orgs-list",
+      "domain_mode": "read"
+    },
+    {
+      "name": "orgtree_list_orgs:exchange.orgs-list",
+      "entry_id": "5ffae5ae831e9cbe21f004a7cddfb622f217c7e9ed0065c09536f34a468770bc",
+      "args": {},
+      "contract": "exchange.orgs-list",
+      "domain_mode": "read"
+    },
+    {
+      "name": "POST /api/extern/{peer}/send:exchange.extern-send",
+      "entry_id": "46c77bf435c85a0bb093411b6306c78471b042fe923133c71f0a0f64eaff35e6",
+      "args": {},
+      "contract": "exchange.extern-send",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_send:exchange.extern-send",
+      "entry_id": "e5f3ba53047fce748a85bafa17947fe38f4c1c5655fe6fc504e2211aef6215d7",
+      "args": {},
+      "contract": "exchange.extern-send",
+      "domain_mode": "write"
+    },
+    {
+      "name": "GET /api/extern/{peer}/messages:exchange.extern-read",
+      "entry_id": "bd67a8f8c69950b7d38cfc0b02969272f6eecd6f8dc6eaa9794faeb09db28bc8",
+      "args": {},
+      "contract": "exchange.extern-read",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_read:exchange.extern-read",
+      "entry_id": "b55055872c656c5fa32fa9ccbeb144ccdf1ebd00f526b8778f7de80213ea3eb9",
+      "args": {},
+      "contract": "exchange.extern-read",
+      "domain_mode": "write"
+    },
+    {
+      "name": "GET /api/extern/{peer}/wait:exchange.extern-wait",
+      "entry_id": "3c120330bf4b79d8a2a7efa1de230372c2c57dc75dd906f7f403cc70521106cd",
+      "args": {},
+      "contract": "exchange.extern-wait",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_wait:exchange.extern-wait",
+      "entry_id": "c4681825456aa1f150ac0c752a1b6dbe99bab6f682f6d447fa3a573cf7570d6b",
+      "args": {},
+      "contract": "exchange.extern-wait",
+      "domain_mode": "write"
+    },
+    {
+      "name": "GET /api/orgs/{slug}/org_inbox:exchange.org-inbox-list",
+      "entry_id": "da19a2e41485a33b03a144911ccdfc3fd38f74e87c1c37c3d76ef33850b0c8d7",
+      "args": {},
+      "contract": "exchange.org-inbox-list",
+      "domain_mode": "read"
+    },
+    {
+      "name": "POST /api/orgs/{slug}/org_inbox/read:exchange.org-inbox-read",
+      "entry_id": "012f51ff6fa637e929d44cd8b80f7fb18e6619b7b9517dede64bf59afff27ce7",
+      "args": {},
+      "contract": "exchange.org-inbox-read",
+      "domain_mode": "write"
+    },
+    {
+      "name": "POST /api/orgs/{slug}/org_inbox/upload:exchange.org-inbox-upload",
+      "entry_id": "b8709c03f541b5a2a1292f4c098994291c5537937367504fdb46d6cfaa46c2ba",
+      "args": {},
+      "contract": "exchange.org-inbox-upload",
+      "domain_mode": "write"
+    },
+    {
+      "name": "POST /api/orgs/{slug}/org_inbox/send:exchange.org-inbox-send",
+      "entry_id": "dc5e0c023fd13dec73ac47825c3d4c9731bde7e1bd08f2f67989e6ce50a56dfb",
+      "args": {},
+      "contract": "exchange.org-inbox-send",
+      "domain_mode": "write"
+    },
+    {
+      "name": "GET /api/orgs/{slug}/mail/{box}/{mid}:exchange.mail-item",
+      "entry_id": "935948dea305a7e259c789671890fe94fc4fbf7c5cee5b02e8fea1f50b2e765a",
+      "args": {},
+      "contract": "exchange.mail-item",
+      "domain_mode": "read"
+    },
+    {
+      "name": "POST /api/orgs/{slug}/inbox/clear:exchange.inbox-clear",
+      "entry_id": "3b7484efe040a2f896f3c9ce76eef3ca916cb804609c4c6e4db1799530d40359",
+      "args": {},
+      "contract": "exchange.inbox-clear",
+      "domain_mode": "write"
+    },
+    {
+      "name": "POST /api/orgs/{slug}/nodes/{nid}/upload:exchange.node-upload",
+      "entry_id": "ed016724b337831767c41b1ef9feea69553ac663df6be518a2a6065cc40e6034",
+      "args": {},
+      "contract": "exchange.node-upload",
+      "domain_mode": "write"
+    },
+    {
+      "name": "GET /api/orgs/{slug}/nodes/{nid}/reply-events:exchange.reply-events-count",
+      "entry_id": "0c0f06e89c1c325090620d7392dd0fa7c8f2a5a11c47da76dbe1f1cd9e321b4b",
+      "args": {},
+      "contract": "exchange.reply-events-count",
+      "domain_mode": "read"
+    },
+    {
+      "name": "DELETE /api/orgs/{slug}/nodes/{nid}/reply-events:exchange.reply-events-clear",
+      "entry_id": "71456595e7c4b8644d101ddc831aaa01f636d2bc7554572d5fceac660a73d739",
+      "args": {},
+      "contract": "exchange.reply-events-clear",
+      "domain_mode": "write"
+    },
+    {
+      "name": "DELETE /api/orgs/{slug}/nodes/{nid}/mail/{mid}:exchange.mail-retract",
+      "entry_id": "c5a7a4d15ddad676091bfc386bfdcde2386153fb5ebbf1ea5d81b4b747f10e5c",
+      "args": {},
+      "contract": "exchange.mail-retract",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_send_file:exchange.send-file",
+      "entry_id": "f011a70eb84897a54ab57cd764f4a6b35231703ecb7c71f9a3b730951fc45211",
+      "args": {},
+      "contract": "exchange.send-file",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_send_file_once:exchange.send-file",
+      "entry_id": "50c7b946887edfa794feb7ff098901427465623401aa9f0f8daf243496d8396f",
+      "args": {},
+      "contract": "exchange.send-file",
+      "domain_mode": "write"
     }
   ],
   "limits": [
@@ -20129,10 +21649,19 @@
     },
     {
       "id": "93106cabc9783cb56675e260e05a2f7de7308fb607a84b869fae4006ddb3cd9a",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "exchange.orgs-list"
+      ],
+      "reason": "GET /api/orgs: exchange.orgs-list (P01 F4).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1752,
+          "end": 1752,
+          "sha256": "0aba54611f16e6b6b53faf5f3c7f3c9d00a1f82634379b85e688d10bc12f45d8"
+        }
+      ]
     },
     {
       "id": "882ab383a88f2817a5ff784fa457965aa4f4db4d2e37cca1564be54958224f28",
@@ -21190,66 +22719,147 @@
     },
     {
       "id": "46c77bf435c85a0bb093411b6306c78471b042fe923133c71f0a0f64eaff35e6",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "exchange.extern-send"
+      ],
+      "reason": "POST /api/extern/{peer}/send: exchange.extern-send (P01 F4).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8958,
+          "end": 8958,
+          "sha256": "5338bef5b75fbb8a2621d98222c75988fa4cdc6d3b84d14d2373de0bdb4f3698"
+        }
+      ]
     },
     {
       "id": "bd67a8f8c69950b7d38cfc0b02969272f6eecd6f8dc6eaa9794faeb09db28bc8",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "exchange.extern-read"
+      ],
+      "reason": "GET /api/extern/{peer}/messages: exchange.extern-read (P01 F4).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9040,
+          "end": 9040,
+          "sha256": "8b5a4b071c9e8db4e6b5d8814b3f1fc44a95c91549c58788457b726c07a09df6"
+        }
+      ]
     },
     {
       "id": "3c120330bf4b79d8a2a7efa1de230372c2c57dc75dd906f7f403cc70521106cd",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "exchange.extern-wait"
+      ],
+      "reason": "GET /api/extern/{peer}/wait: exchange.extern-wait (P01 F4).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9052,
+          "end": 9052,
+          "sha256": "1a1710517c6575ba7518cb58463b425cf5cfa8cdcf7f7af2ddd303a56f787fd9"
+        }
+      ]
     },
     {
       "id": "da19a2e41485a33b03a144911ccdfc3fd38f74e87c1c37c3d76ef33850b0c8d7",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "exchange.org-inbox-list"
+      ],
+      "reason": "GET /api/orgs/{slug}/org_inbox: exchange.org-inbox-list (P01 F4).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9085,
+          "end": 9085,
+          "sha256": "dd754cba578916d9560d5e69d9ae291b4a4484fb26d4d3931379449a08d58a23"
+        }
+      ]
     },
     {
       "id": "935948dea305a7e259c789671890fe94fc4fbf7c5cee5b02e8fea1f50b2e765a",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "exchange.mail-item"
+      ],
+      "reason": "GET /api/orgs/{slug}/mail/{box}/{mid}: exchange.mail-item (P01 F4).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9112,
+          "end": 9112,
+          "sha256": "9d4372345abc8902d20d09a986643cde23604d078dea4d05b8d9e436c3a57092"
+        }
+      ]
     },
     {
       "id": "012f51ff6fa637e929d44cd8b80f7fb18e6619b7b9517dede64bf59afff27ce7",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "exchange.org-inbox-read"
+      ],
+      "reason": "POST /api/orgs/{slug}/org_inbox/read: exchange.org-inbox-read (P01 F4).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9160,
+          "end": 9160,
+          "sha256": "de9d29f6aade65615af5c1ac124ae70271a98a102b4c3c4e188e04532912f8b4"
+        }
+      ]
     },
     {
       "id": "b8709c03f541b5a2a1292f4c098994291c5537937367504fdb46d6cfaa46c2ba",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "exchange.org-inbox-upload"
+      ],
+      "reason": "POST /api/orgs/{slug}/org_inbox/upload: exchange.org-inbox-upload (P01 F4).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9207,
+          "end": 9207,
+          "sha256": "127c0809541b1da4bdbe5b7b3a9d1b22befa809d1516db74df23a86d2e04bc5b"
+        }
+      ]
     },
     {
       "id": "dc5e0c023fd13dec73ac47825c3d4c9731bde7e1bd08f2f67989e6ce50a56dfb",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "exchange.org-inbox-send"
+      ],
+      "reason": "POST /api/orgs/{slug}/org_inbox/send: exchange.org-inbox-send (P01 F4).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9235,
+          "end": 9235,
+          "sha256": "ba4477baa29247a93c0a349c22b19547c085e531af0b3af168189734ba4e560c"
+        }
+      ]
     },
     {
       "id": "3b7484efe040a2f896f3c9ce76eef3ca916cb804609c4c6e4db1799530d40359",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "exchange.inbox-clear"
+      ],
+      "reason": "POST /api/orgs/{slug}/inbox/clear: exchange.inbox-clear (P01 F4).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9315,
+          "end": 9315,
+          "sha256": "c1d3f6cb97f7741fce0a4d58ec595c7171e0ad504e193404f4152643da090ffc"
+        }
+      ]
     },
     {
       "id": "bb81bd6890b901bcf515f3edbd2270edc3d4334d5d73859836c707950da1e248",
@@ -21341,10 +22951,19 @@
     },
     {
       "id": "ed016724b337831767c41b1ef9feea69553ac663df6be518a2a6065cc40e6034",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "exchange.node-upload"
+      ],
+      "reason": "POST /api/orgs/{slug}/nodes/{nid}/upload: exchange.node-upload (P01 F4).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12981,
+          "end": 12981,
+          "sha256": "4f99d166bbc919400d3aa7a5106a5cc47910c145ff3d6dca4779e9f14929c973"
+        }
+      ]
     },
     {
       "id": "24ba938786f0b1fa99d7ccfac08dabe13e5cc0ccd96fbc73875a1a931cd19b82",
@@ -21418,24 +23037,51 @@
     },
     {
       "id": "0c0f06e89c1c325090620d7392dd0fa7c8f2a5a11c47da76dbe1f1cd9e321b4b",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "exchange.reply-events-count"
+      ],
+      "reason": "GET /api/orgs/{slug}/nodes/{nid}/reply-events: exchange.reply-events-count (P01 F4).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14051,
+          "end": 14051,
+          "sha256": "82e24133b850c4feef5429d671c8333572c8aa8126d2a463da4f71f0e4e6fdac"
+        }
+      ]
     },
     {
       "id": "71456595e7c4b8644d101ddc831aaa01f636d2bc7554572d5fceac660a73d739",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "exchange.reply-events-clear"
+      ],
+      "reason": "DELETE /api/orgs/{slug}/nodes/{nid}/reply-events: exchange.reply-events-clear (P01 F4).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14059,
+          "end": 14059,
+          "sha256": "6c13f651cdc72cfa22aa114410805d168721200e30031ab863fe708d2db94d7e"
+        }
+      ]
     },
     {
       "id": "c5a7a4d15ddad676091bfc386bfdcde2386153fb5ebbf1ea5d81b4b747f10e5c",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "exchange.mail-retract"
+      ],
+      "reason": "DELETE /api/orgs/{slug}/nodes/{nid}/mail/{mid}: exchange.mail-retract (P01 F4).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14070,
+          "end": 14070,
+          "sha256": "cd82a97187aa36fc9377e117c23fffc6ef9174b638de03a85a36479f5dfca8b1"
+        }
+      ]
     },
     {
       "id": "5a8e6049fd1d403dd8ae8eb42e7f935f02459bc5b8c1066c08dc08c19a95d6c1",
@@ -21716,31 +23362,67 @@
     },
     {
       "id": "5ffae5ae831e9cbe21f004a7cddfb622f217c7e9ed0065c09536f34a468770bc",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "exchange.orgs-list"
+      ],
+      "reason": "orgtree_list_orgs tool card (externtool): exchange.orgs-list (P01 F4).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/externtool.py",
+          "start": 101,
+          "end": 108,
+          "sha256": "1bb728f9544523a596c5ce018a6e6ac6fdd841767e64698ed07be9aa7d18a390"
+        }
+      ]
     },
     {
       "id": "e5f3ba53047fce748a85bafa17947fe38f4c1c5655fe6fc504e2211aef6215d7",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "exchange.extern-send"
+      ],
+      "reason": "orgtree_send tool card (externtool): exchange.extern-send (P01 F4).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/externtool.py",
+          "start": 109,
+          "end": 131,
+          "sha256": "3d8164f07849b6c2c0a56cc760165b934cf542d27bf47dc8b5302c9e12b0cd14"
+        }
+      ]
     },
     {
       "id": "b55055872c656c5fa32fa9ccbeb144ccdf1ebd00f526b8778f7de80213ea3eb9",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "exchange.extern-read"
+      ],
+      "reason": "orgtree_read tool card (externtool): exchange.extern-read (P01 F4).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/externtool.py",
+          "start": 132,
+          "end": 147,
+          "sha256": "b76cec94d768f1ab8d832d16513aa5ecdc3d3ecaffaf3abb84c54a835b526bc8"
+        }
+      ]
     },
     {
       "id": "c4681825456aa1f150ac0c752a1b6dbe99bab6f682f6d447fa3a573cf7570d6b",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "exchange.extern-wait"
+      ],
+      "reason": "orgtree_wait tool card (externtool): exchange.extern-wait (P01 F4).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/externtool.py",
+          "start": 148,
+          "end": 170,
+          "sha256": "ff4c66b4070b3cdd96b67b3f884b05dc94d7f8ee0505db1276bc84a7499be246"
+        }
+      ]
     },
     {
       "id": "2a2ef8f2c4f0ad133537dffbed8182b3aa37cd9dbffb567cdd075256e5ea74a2",
@@ -22718,10 +24400,19 @@
     },
     {
       "id": "f011a70eb84897a54ab57cd764f4a6b35231703ecb7c71f9a3b730951fc45211",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "exchange.send-file"
+      ],
+      "reason": "orgtree_send_file tool card: exchange.send-file (P01 F4).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1962,
+          "end": 1986,
+          "sha256": "144c65f66c24693fca10b27cb90305d34e60e4f70f100973ce696ba7de212485"
+        }
+      ]
     },
     {
       "id": "7c5751ff07172b9d7e56f3ffaac6195746ddec717d11466763bd80be38f7e9fc",
@@ -23417,10 +25108,19 @@
     },
     {
       "id": "50c7b946887edfa794feb7ff098901427465623401aa9f0f8daf243496d8396f",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "orgtree_send_file_once, the internal transport verb the agent-side client posts for a retryable file delivery: the door refuses it 422 without a delivery_id and then dispatches it as orgtree_send_file. Stays pending until orgtree_send_file is contracted. Owner: P01 F4 (mail, inbox and files). (P01 relaunch-cards item, p01-inventory-misses-the-desktop-relaunch-tool-c.)",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "exchange.send-file"
+      ],
+      "reason": "orgtree_send_file_once (a card-less agent-door verb): exchange.send-file (P01 F4).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11279,
+          "end": 11279,
+          "sha256": "ad6c9b74037509143ef60320f262494e519245b280929945107d68c8706150c9"
+        }
+      ]
     }
   ],
   "dispatch": [
@@ -23875,17 +25575,35 @@
     },
     {
       "id": "d868e5b607b8a09b86e070a661865fbc0986b7241767d21de6348a4e3736a8b9",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_send_file_once (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: channels and mail (P07).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "exchange.send-file"
+      ],
+      "reason": "Exact orgtree_send_file_once branch in the agent door (P01 F4, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11279,
+          "end": 11279,
+          "sha256": "ad6c9b74037509143ef60320f262494e519245b280929945107d68c8706150c9"
+        }
+      ]
     },
     {
       "id": "2762466942ae61416c27816812fe1c2645f0bcd89c5e7488679230991f1aa3fd",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_send_file (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: channels and mail (P07).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "exchange.send-file"
+      ],
+      "reason": "Exact orgtree_send_file branch in the agent door (P01 F4, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11285,
+          "end": 11285,
+          "sha256": "ff045430b9e0fe7c54ad879d91b93518898ad8051ade193ead5ffb42b113312f"
+        }
+      ]
     },
     {
       "id": "cd162cb13bb17e9f48d5a776dc2abefcd7909372271c19d543793523028c0929",
@@ -23968,10 +25686,23 @@
     },
     {
       "id": "c477bfda5f7697e4b93a2d52c3d9ed7287174c785c3ea0f9ecc834e0b21603dc",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Shared read-shaped block: material.transcript, material.scratch and chart.read are contracted, and catalogue.list-tiers since P01 F1; orgtree_send_file is uncontracted (outside the 51-row P03 surface), so the shared branch stays pending. Owner: channels and mail (P07) for orgtree_send_file.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "catalogue.list-tiers",
+        "chart.read",
+        "exchange.send-file",
+        "material.scratch",
+        "material.transcript"
+      ],
+      "reason": "Shared read-shaped block in the agent door, every tool it admits now contracted (P01 F4, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11441,
+          "end": 11443,
+          "sha256": "2c82b8a9dac2fbd1b5a06648a37c768ca330325597a5fda6dbc875a1d36b7df2"
+        }
+      ]
     },
     {
       "id": "d5c7084188e88cf0324c691f4aaf8d7afb1f7d3ff569301cb950d611965fb327",
@@ -24007,10 +25738,19 @@
     },
     {
       "id": "3a4260fd740a9cf5586d98acce7ceb8dd7ebdf7a41f121aa5fc2451dae4f5e14",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_send_file (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: channels and mail (P07).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "exchange.send-file"
+      ],
+      "reason": "Exact orgtree_send_file branch in the agent door (P01 F4, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11485,
+          "end": 11485,
+          "sha256": "72be7284fdd56fd5fec2d3984586fc13217170e043a34c540513fb847130de74"
+        }
+      ]
     },
     {
       "id": "d076e1efee9b63f8d7d7b5bc8c92d4a0980943b6d1f51aba2af787debf2c3c46",
@@ -26738,10 +28478,19 @@
     },
     {
       "id": "6e5106032f645a9b816765a88c436b0671fcfc5f9828c837b255c34ddb9de085",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 S2k): org state, the file_deliveries sidecar (per org and seat delivery receipts) that orgtree_send_file writes; orgtree_send_file has no contract (outside the accepted surface). Owner: channels and mail (P07).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "exchange.send-file"
+      ],
+      "reason": "The file_deliveries sidecar that orgtree_send_file writes with a delivery_id; only that call reaches it (api._agent_send_file) (P01 F4, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/filedelivery.py",
+          "start": 45,
+          "end": 45,
+          "sha256": "d115d107e5a570e1dbd0a6065c098174cb85a2de98520e665dd07f90a53c5d31"
+        }
+      ]
     },
     {
       "id": "a7be513a7ee6d262b5221364548727deb9811d90c2e1a19eb5579423ce530b23",
@@ -26766,10 +28515,19 @@
     },
     {
       "id": "8058d0905f3e6077f25ac7f6f62944171d17a7e035384e5a6f87f98bdb69d312",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 S2k): the reply_events sidecar's read-only count. P02's per-operation probe observes it under mail.human-send and material.transcript (the sidecar, not this site specifically), but a shared site is mapped only once every operation reaching it has a contract (the rule for shared selectors, S3 decision 3), and the uncontracted route GET /api/orgs/{slug}/nodes/{nid}/reply-events (api.retained_reply_events) calls it. Owner: the desktop chat (the reply-events route, api.retained_reply_events).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "exchange.reply-events-count"
+      ],
+      "reason": "The reply_events sidecar's read-only count; only the reply-events GET route reaches it (P01 F4, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/reply_events.py",
+          "start": 169,
+          "end": 169,
+          "sha256": "2b1786154c84fffdd61d4d1505a7930dafae7b024b04d7bf3dff4c795d0b7036"
+        }
+      ]
     },
     {
       "id": "69c03d9bcc7feb05046e855f82c20b1e8fe1017eb4e65e3a7c77800248139eb2",

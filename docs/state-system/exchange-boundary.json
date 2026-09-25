@@ -1,0 +1,1169 @@
+{
+  "schema": "orgtree.exchange-boundary/v1",
+  "source_contract_sha256": "2e6a99aef1858c15320cb3c7e52f8854cdc5b88b68cf24801cf1a04d40c91e50",
+  "qualification": {
+    "runtime_census": false,
+    "conversion_authorized": false
+  },
+  "contracts": {
+    "exchange.orgs-list": [
+      "93106cabc978",
+      "5ffae5ae831e"
+    ],
+    "exchange.extern-send": [
+      "46c77bf435c8",
+      "e5f3ba53047f"
+    ],
+    "exchange.extern-read": [
+      "bd67a8f8c699",
+      "b55055872c65"
+    ],
+    "exchange.extern-wait": [
+      "3c120330bf4b",
+      "c4681825456a"
+    ],
+    "exchange.org-inbox-list": [
+      "da19a2e41485"
+    ],
+    "exchange.org-inbox-read": [
+      "012f51ff6fa6"
+    ],
+    "exchange.org-inbox-upload": [
+      "b8709c03f541"
+    ],
+    "exchange.org-inbox-send": [
+      "dc5e0c023fd1"
+    ],
+    "exchange.mail-item": [
+      "935948dea305"
+    ],
+    "exchange.inbox-clear": [
+      "3b7484efe040"
+    ],
+    "exchange.node-upload": [
+      "ed016724b337"
+    ],
+    "exchange.reply-events-count": [
+      "0c0f06e89c1c"
+    ],
+    "exchange.reply-events-clear": [
+      "71456595e7c4"
+    ],
+    "exchange.mail-retract": [
+      "c5a7a4d15dda"
+    ],
+    "exchange.send-file": [
+      "f011a70eb848",
+      "50c7b946887e"
+    ]
+  },
+  "cases": {
+    "orgs_list": {
+      "status": 200,
+      "keys": "list",
+      "detail": null,
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "extern_send": {
+      "status": 200,
+      "keys": [
+        "delivered"
+      ],
+      "detail": null,
+      "sections": [
+        "audiences",
+        "events",
+        "mail",
+        "mail_log",
+        "nodes",
+        "notice_log",
+        "notices",
+        "org_inbox"
+      ],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": true,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {
+        "mail_spark": 1,
+        "send_message": 1
+      }
+    },
+    "extern_send_empty": {
+      "status": 422,
+      "keys": [
+        "detail"
+      ],
+      "detail": "empty message",
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": true,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "extern_send_bad_peer": {
+      "status": 422,
+      "keys": [
+        "detail"
+      ],
+      "detail": "peer id must be 1-64 chars of [A-Za-z0-9._-]",
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "extern_send_no_org": {
+      "status": 404,
+      "keys": [
+        "detail"
+      ],
+      "detail": "no organization named 'nope-org'",
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": true,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "extern_send_kiosk": {
+      "status": 404,
+      "keys": [
+        "detail"
+      ],
+      "detail": "no organization named '{other}'",
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": true,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "extern_send_att": {
+      "status": 200,
+      "keys": [
+        "delivered"
+      ],
+      "detail": null,
+      "sections": [
+        "audiences",
+        "events",
+        "mail",
+        "mail_log",
+        "nodes",
+        "notice_log",
+        "notices",
+        "org_inbox"
+      ],
+      "sections_other": [],
+      "files": {
+        "top": [
+          "uploads/note.txt"
+        ]
+      },
+      "peer_seen": true,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {
+        "mail_spark": 1,
+        "send_message": 1
+      }
+    },
+    "extern_send_att_missing": {
+      "status": 422,
+      "keys": [
+        "detail"
+      ],
+      "detail": "attachment not found: <path>",
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": true,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "extern_send_att_big": {
+      "status": 413,
+      "keys": [
+        "detail"
+      ],
+      "detail": "attachment over the 25 MB cap: <path>",
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": true,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "extern_messages": {
+      "status": 200,
+      "keys": [
+        "cursor",
+        "messages"
+      ],
+      "detail": null,
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": true,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "extern_messages_org": {
+      "status": 200,
+      "keys": [
+        "messages"
+      ],
+      "detail": null,
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": true,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "extern_messages_none": {
+      "status": 200,
+      "keys": [
+        "messages"
+      ],
+      "detail": null,
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": true,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "extern_wait_ready": {
+      "status": 200,
+      "keys": [
+        "cursor",
+        "messages"
+      ],
+      "detail": null,
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": true,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "extern_wait_timeout": {
+      "status": 200,
+      "keys": [
+        "messages"
+      ],
+      "detail": null,
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": true,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "org_inbox": {
+      "status": 200,
+      "keys": [
+        "entries",
+        "total",
+        "unread"
+      ],
+      "detail": null,
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "org_inbox_no_org": {
+      "status": 404,
+      "keys": [
+        "detail"
+      ],
+      "detail": "no such org: 'nope-org'",
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "mail_user_found": {
+      "status": 200,
+      "keys": [
+        "found",
+        "mail"
+      ],
+      "detail": null,
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "mail_user_missing": {
+      "status": 200,
+      "keys": [
+        "found",
+        "mail"
+      ],
+      "detail": null,
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "mail_node_found": {
+      "status": 200,
+      "keys": [
+        "found",
+        "mail"
+      ],
+      "detail": null,
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "mail_node_unknown": {
+      "status": 404,
+      "keys": [
+        "detail"
+      ],
+      "detail": "no such node: 'ghost'",
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "mail_bad_box": {
+      "status": 404,
+      "keys": [
+        "detail"
+      ],
+      "detail": "no mailbox family named 'bogus'",
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "mail_org_found": {
+      "status": 200,
+      "keys": [
+        "found",
+        "mail"
+      ],
+      "detail": null,
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "org_inbox_read": {
+      "status": 200,
+      "keys": [
+        "ok"
+      ],
+      "detail": null,
+      "sections": [
+        "org_inbox_read"
+      ],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {
+        "hub_changed": 1
+      }
+    },
+    "org_inbox_read_no_org": {
+      "status": 404,
+      "keys": [
+        "detail"
+      ],
+      "detail": "no such org: 'nope-org'",
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "org_inbox_upload": {
+      "status": 200,
+      "keys": [
+        "bytes",
+        "id",
+        "name"
+      ],
+      "detail": null,
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 1,
+      "spies": {}
+    },
+    "org_inbox_upload_big": {
+      "status": 413,
+      "keys": [
+        "detail"
+      ],
+      "detail": "attachment exceeds 25 MB",
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "org_send_mcp": {
+      "status": 200,
+      "keys": [
+        "id",
+        "warnings"
+      ],
+      "detail": null,
+      "sections": [
+        "org_inbox"
+      ],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {
+        "hub_changed": 1,
+        "mail_notify": 1
+      }
+    },
+    "org_send_org": {
+      "status": 200,
+      "keys": [
+        "id",
+        "warnings"
+      ],
+      "detail": null,
+      "sections": [
+        "org_inbox"
+      ],
+      "sections_other": [
+        "audiences",
+        "events",
+        "mail",
+        "mail_log",
+        "nodes",
+        "notice_log",
+        "notices",
+        "org_inbox"
+      ],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {
+        "hub_changed": 1,
+        "mail_notify": 1,
+        "mail_spark": 1,
+        "send_message": 1
+      }
+    },
+    "org_send_org_kiosk": {
+      "status": 200,
+      "keys": [
+        "id",
+        "warnings"
+      ],
+      "detail": null,
+      "sections": [
+        "org_inbox"
+      ],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {
+        "hub_changed": 1,
+        "mail_notify": 1
+      }
+    },
+    "org_send_org_missing": {
+      "status": 200,
+      "keys": [
+        "id",
+        "warnings"
+      ],
+      "detail": null,
+      "sections": [
+        "org_inbox"
+      ],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {
+        "hub_changed": 1,
+        "mail_notify": 1
+      }
+    },
+    "org_send_org_att": {
+      "status": 200,
+      "keys": [
+        "id",
+        "warnings"
+      ],
+      "detail": null,
+      "sections": [
+        "org_inbox"
+      ],
+      "sections_other": [
+        "audiences",
+        "events",
+        "mail",
+        "mail_log",
+        "nodes",
+        "notice_log",
+        "notices",
+        "org_inbox"
+      ],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {
+        "hub_changed": 1,
+        "mail_notify": 1,
+        "mail_spark": 1,
+        "send_message": 1
+      }
+    },
+    "org_send_ext": {
+      "status": 422,
+      "keys": [
+        "detail"
+      ],
+      "detail": "the @ext: address form is retired — reach chats through the mail hub (@net:<slug>)",
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "org_send_bad_to": {
+      "status": 422,
+      "keys": [
+        "detail"
+      ],
+      "detail": "recipient must be an outside address (@or<path>",
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "org_send_bad_stage": {
+      "status": 422,
+      "keys": [
+        "detail"
+      ],
+      "detail": "staged attachment 'nope' not found — re-upload and retry",
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "org_send_mcp_att": {
+      "status": 422,
+      "keys": [
+        "detail"
+      ],
+      "detail": "attachments ride @net: and @org: mail only — @mcp: is a text-only transport",
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "org_send_net_nohub": {
+      "status": 422,
+      "keys": [
+        "detail"
+      ],
+      "detail": "no mailserver is configured — enable a hub in settings → mailserver first",
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "inbox_clear": {
+      "status": 200,
+      "keys": [
+        "ok"
+      ],
+      "detail": null,
+      "sections": [
+        "user_inbox",
+        "user_mail_log"
+      ],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {
+        "hub_changed": 1
+      }
+    },
+    "inbox_clear_no_org": {
+      "status": 404,
+      "keys": [
+        "detail"
+      ],
+      "detail": "no such org: 'nope-org'",
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "node_upload": {
+      "status": 200,
+      "keys": [
+        "bytes",
+        "path"
+      ],
+      "detail": null,
+      "sections": [],
+      "sections_other": [],
+      "files": {
+        "mid": [
+          "uploads/a.txt"
+        ]
+      },
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "node_upload_dup": {
+      "status": 200,
+      "keys": [
+        "bytes",
+        "path"
+      ],
+      "detail": null,
+      "sections": [],
+      "sections_other": [],
+      "files": {
+        "mid": [
+          "uploads/a-2.txt",
+          "uploads/a.txt"
+        ]
+      },
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "node_upload_empty": {
+      "status": 422,
+      "keys": [
+        "detail"
+      ],
+      "detail": "empty upload",
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "node_upload_ghost": {
+      "status": 404,
+      "keys": [
+        "detail"
+      ],
+      "detail": "no such node: 'ghost'",
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "node_upload_blocked": {
+      "status": 413,
+      "keys": [
+        "detail"
+      ],
+      "detail": "the org is over its storage limit — uploads are paused until files are deleted (the block lifts automatically)",
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "reply_events": {
+      "status": 200,
+      "keys": [
+        "count"
+      ],
+      "detail": null,
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "reply_events_ghost_node": {
+      "status": 500,
+      "keys": [
+        "detail",
+        "error"
+      ],
+      "detail": "LedgerError: no such node: 'ghost'",
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "reply_events_no_org": {
+      "status": 500,
+      "keys": [
+        "detail",
+        "error"
+      ],
+      "detail": "LedgerError: no such org: 'nope-org'",
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "reply_events_clear": {
+      "status": 200,
+      "keys": [
+        "removed"
+      ],
+      "detail": null,
+      "sections": [
+        "nodes"
+      ],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "reply_events_clear_ghost": {
+      "status": 500,
+      "keys": [
+        "detail",
+        "error"
+      ],
+      "detail": "LedgerError: no such node: 'ghost'",
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "retract": {
+      "status": 200,
+      "keys": [
+        "retracted"
+      ],
+      "detail": null,
+      "sections": [
+        "mail",
+        "mail_log"
+      ],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {
+        "hub_changed": 1
+      }
+    },
+    "retract_gone": {
+      "status": 404,
+      "keys": [
+        "detail"
+      ],
+      "detail": "no such pending mail — it may already have been delivered",
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "route_no_token": {
+      "status": 401,
+      "keys": [
+        "detail"
+      ],
+      "detail": "missing authentication; provide a desktop or live agent credential",
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "route_agent_token": {
+      "status": 401,
+      "keys": [
+        "detail"
+      ],
+      "detail": "agent credential is invalid or expired; reconnect the agent session",
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "extern_no_token": {
+      "status": 401,
+      "keys": [
+        "detail"
+      ],
+      "detail": "missing authentication; provide a desktop or live agent credential",
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "send_file": {
+      "status": 200,
+      "keys": [
+        "hint",
+        "sent"
+      ],
+      "detail": null,
+      "sections": [],
+      "sections_other": [],
+      "files": {
+        "mid": [
+          "outbox/report.txt"
+        ]
+      },
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "send_file_missing": {
+      "status": 422,
+      "keys": [
+        "detail"
+      ],
+      "detail": "no such file: nope.txt",
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "send_file_no_path": {
+      "status": 422,
+      "keys": [
+        "detail"
+      ],
+      "detail": "path is required — the file to deliver",
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "send_file_escape": {
+      "status": 422,
+      "keys": [
+        "detail"
+      ],
+      "detail": "cannot send ../../x.txt — only files in your working folder, the workspace, or a folder you hold are reachable",
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "send_file_delivery": {
+      "status": 200,
+      "keys": [
+        "hint",
+        "sent"
+      ],
+      "detail": null,
+      "sections": [],
+      "sections_other": [],
+      "files": {
+        "mid": [
+          "outbox/delivery-*/report.txt"
+        ]
+      },
+      "peer_seen": false,
+      "deliveries_added": 1,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "send_file_delivery_replay": {
+      "status": 200,
+      "keys": [
+        "hint",
+        "sent"
+      ],
+      "detail": null,
+      "sections": [],
+      "sections_other": [],
+      "files": {
+        "mid": [
+          "outbox/delivery-*/report.txt"
+        ]
+      },
+      "peer_seen": false,
+      "deliveries_added": 1,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "send_file_delivery_conflict": {
+      "status": 422,
+      "keys": [
+        "detail"
+      ],
+      "detail": "delivery_id already belongs to a different file or caption; use a new ID for a new delivery",
+      "sections": [],
+      "sections_other": [],
+      "files": {
+        "mid": [
+          "outbox/delivery-*/report.txt"
+        ]
+      },
+      "peer_seen": false,
+      "deliveries_added": 1,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "send_file_bad_id": {
+      "status": 422,
+      "keys": [
+        "detail"
+      ],
+      "detail": "delivery_id must be 16-128 letters, digits, hyphens or underscores; reuse it only for this delivery",
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "send_file_once": {
+      "status": 200,
+      "keys": [
+        "hint",
+        "sent"
+      ],
+      "detail": null,
+      "sections": [],
+      "sections_other": [],
+      "files": {
+        "mid": [
+          "outbox/delivery-*/report.txt"
+        ]
+      },
+      "peer_seen": false,
+      "deliveries_added": 1,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "send_file_once_no_id": {
+      "status": 422,
+      "keys": [
+        "detail"
+      ],
+      "detail": "retryable file delivery requires delivery_id",
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "send_file_keyed": {
+      "status": 200,
+      "keys": [
+        "hint",
+        "sent"
+      ],
+      "detail": null,
+      "sections": [],
+      "sections_other": [],
+      "files": {
+        "mid": [
+          "outbox/report.txt"
+        ]
+      },
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    },
+    "send_file_blocked": {
+      "status": 422,
+      "keys": [
+        "detail"
+      ],
+      "detail": "the org is over its storage limit; file delivery is paused",
+      "sections": [],
+      "sections_other": [],
+      "files": {},
+      "peer_seen": false,
+      "deliveries_added": 0,
+      "stage_added": 0,
+      "spies": {}
+    }
+  },
+  "externtool": {
+    "bare": {
+      "orgtree_list_orgs": {
+        "error": true,
+        "text": "{\"detail\": \"missing authentication; provide a desktop or live agent credential\"}"
+      },
+      "orgtree_send": {
+        "error": true,
+        "text": "{\"detail\": \"missing authentication; provide a desktop or live agent credential\"}"
+      },
+      "orgtree_read": {
+        "error": true,
+        "text": "{\"detail\": \"missing authentication; provide a desktop or live agent credential\"}"
+      },
+      "orgtree_wait": {
+        "error": true,
+        "text": "{\"detail\": \"missing authentication; provide a desktop or live agent credential\"}"
+      }
+    },
+    "token": {
+      "orgtree_list_orgs": {
+        "error": false,
+        "kiosk_hidden": true,
+        "main_listed": true,
+        "peer": "@mcp:probe.peer"
+      },
+      "orgtree_send": {
+        "error": false,
+        "keys": [
+          "delivered",
+          "your_peer_id"
+        ]
+      },
+      "orgtree_read": {
+        "error": false,
+        "messages": 1
+      },
+      "orgtree_wait": {
+        "error": false,
+        "messages": 1
+      }
+    }
+  },
+  "legacy_defects": [
+    "the reply-events GET and DELETE answer a raw 500 'LedgerError: …' for an unknown org or node (docket reply-events-get-and-delete-answer-a-raw-500-for)",
+    "the extern messages and wait routes load every org on the machine under the document lock on each call, and wait returns at once whenever any org holds a fresh reply (docket external-chat-messages-and-wait-read-every-org-u)",
+    "extern send records the peer's sighting in the machine-wide extern-peers.json before it validates the body, the org or the attachments (same docket)",
+    "the external-chat MCP server sends no credential, so every externtool verb is refused 401 by the TokenGate of both current launch paths (reported to the coordinator by the P01 F4 item)"
+  ],
+  "scope": "Legacy boundary of the mail, inbox, file and external-chat entry points (P01 F4) on disposable SQLite. Drives, sparks, notices, broadcasts and the hub kick are spies; the routes, the ledger, the org inbox, extern-peers.json, file-deliveries.db, the compose stage and the scratch folders are real. Legacy conformance evidence only: not a runtime census, not PostgreSQL or Rust qualification."
+}

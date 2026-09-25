@@ -119,15 +119,15 @@ runtime probes remain unresolved. Material reads add two cards and two selectors
 diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
-Current totals are 128 contracts, 87 mapped registrations and 158 mapped
-dispatch witnesses. **645 obligations remain**: 237 registrations, 62 dispatch
-witnesses, 14 storage candidates and 332 unresolved dimension occurrences.
+Current totals are 143 contracts, 107 mapped registrations, 162 mapped
+dispatch witnesses and 2 mapped storage sites. **664 obligations remain**: 217 registrations, 58 dispatch
+witnesses, 12 storage candidates and 377 unresolved dimension occurrences.
 From P01 F1 on, progress is reported as three numbers (coordinator ruling Q1, decision 1 on
-p01-f1-contracts-for-the-org-lifecycle-and-catal): **entries contracted 54/194** (of the concrete http,
+p01-f1-contracts-for-the-org-lifecycle-and-catal): **entries contracted 73/194** (of the concrete http,
 websocket and tool entries that were on the generic reason; F1b contracts none of them, since the
 operator door had its own reason; F3 contracts thirteen; F2 twenty-two; the relaunch-cards item none of
-them, since its three contracted entries are new witnesses outside the 194), **332 open dimension
-occurrences** and **645 total pending**. Total pending RISES while the 194 are contracted, to about 790-1000 when all
+them, since its three contracted entries are new witnesses outside the 194; F4 nineteen), **377 open dimension
+occurrences** and **664 total pending**. Total pending RISES while the 194 are contracted, to about 790-1000 when all
 twelve families have landed, and that rise is expected: each new contract closes its entry but opens
 its own conflicts, wire and instrumentation dimensions until P03, the native conversion and P02 answer
 them.
@@ -443,6 +443,29 @@ and not a clause of a legacy facet (S2d decision 1), so a facet closes when that
 The control rows also confirm the unhalt carry-over: apart from the locality control, the only third agent any
 warm run-control row writes is the node unhalted earlier, through its `steer_attempts` rows. Asserted in
 `tests/test_state_p02_contact_facets.py`.
+
+664 is nineteen more than that 645, and the rise is expected (P01 F4,
+p01-f4-contracts-for-mail-inbox-files-and-extern). F4 contracts mail, inbox, files and external chat on a new
+`exchange.*` facet family: 15 contracts on 20 entries. The entries are:
+- the extern send, messages and wait routes;
+- the org inbox list, read, upload and send routes;
+- the mail item, the inbox clear, node upload, reply-events GET and DELETE, and the mail retract;
+- the four externtool cards and the `orgtree_send_file` card, plus the card-less `orgtree_send_file_once`;
+- GET /api/orgs, moved from F7 by coordinator ruling (a); the externtool `orgtree_list_orgs` card binds to it.
+
+They are pinned by `tests/test_state_exchange_boundary.py` against `docs/state-system/exchange-boundary.json`: 65
+cases on fresh org pairs with a separate external peer per case, plus the externtool client run with and without
+the desktop token. The four agent-door branches of `orgtree_send_file` map, as does the shared read-shaped block,
+whose every tool is now contracted. So do the two sidecar sites only F4 reaches: the file_deliveries write and the
+reply_events count.
+
+Recorded legacy defects:
+- the reply-events routes answer 500 for an unknown org or node (docket
+  reply-events-get-and-delete-answer-a-raw-500-for);
+- the extern messages and wait routes load every org under the document lock on each call, and extern send records
+  the peer's sighting before it validates anything else (docket external-chat-messages-and-wait-read-every-org-u);
+- the externtool server sends no credential, so every one of its verbs is refused 401 by the TokenGate of both
+  current launch paths (reported to the coordinator).
 
 Of the 41 open dimension occurrences on the sixteen legacy-family contracts, 25 (9 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the

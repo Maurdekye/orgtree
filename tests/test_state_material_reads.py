@@ -97,7 +97,8 @@ class MaterialBinding(unittest.TestCase):
         self.assertFalse(result['contract_coverage_complete'])
         self.assertEqual(result['qualification'],contracts.GATES)
         # this family's own witnesses; the registry-wide totals live in test_state_operation_contracts
-        self.assertEqual(family_mapped(registry,'material.'),(2,2))
+        # (2,2) -> (2,3): P01 F4 maps the agent door's shared read-shaped block, which also names both material tools
+        self.assertEqual(family_mapped(registry,'material.'),(2,3))
         self.assertEqual({k for k in registry['contracts'] if k.startswith('material.')},set(TOOLS.values()))
         self.assertEqual(registry['contracts']['material.transcript']['domain_mode'],'conditional_write')
         self.assertEqual(registry['contracts']['material.scratch']['domain_mode'],'read')

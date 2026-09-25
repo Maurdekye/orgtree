@@ -139,7 +139,7 @@ class BoundaryBinding(unittest.TestCase):
         self.assertEqual({n: r['disposition'] for n, r in verbs.items()}, {
             S: 'mapped', P: 'mapped', U: 'mapped', 'orgtree_account_assign': 'pending', 'orgtree_op_call': 'pending',
             'orgtree_op_epoch': 'pending', 'orgtree_op_lookup': 'pending', 'orgtree_operation_census': 'pending',
-            'orgtree_send_file_once': 'pending'})
+            'orgtree_send_file_once': 'mapped'})       # contracted by P01 F4 (exchange.send-file)
         for n, r in verbs.items():
             if r['disposition'] == 'pending':
                 self.assertIn('Owner: ', r['reason'], n)

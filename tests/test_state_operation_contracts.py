@@ -43,9 +43,9 @@ class ContractCoverage(unittest.TestCase):
         self.assertGreater(result["summary"]["storage"]["pending"], 0)
         # THE one registry-wide tripwire (review of S3 candidate 1): every candidate
         # that maps a witness or adds a contract moves these numbers here, and only here.
-        self.assertEqual(result["contracts"], 128)
+        self.assertEqual(result["contracts"], 143)
         self.assertEqual((result["summary"]["entries"]["mapped"], result["summary"]["dispatch"]["mapped"],
-                          result["summary"]["storage"]["mapped"]), (87, 158, 0))
+                          result["summary"]["storage"]["mapped"]), (107, 162, 2))
         # 571 -> 590 (P01 F1): 19 entries and 19 dispatch witnesses mapped, 57 new open dimension occurrences
         # (conflicts, wire and instrumentation on each of the 19 lifecycle contracts), as the Q1 ruling expects
         # 590 -> 608 (P01 F1b): the operator door and 23 of its branches mapped, 42 new open dimension
@@ -61,7 +61,9 @@ class ContractCoverage(unittest.TestCase):
         # dimension occurrences fewer (one on each F1b contract); lifecycle.instrumentation only narrowed
         # 659 -> 645 (P01 F3/F2 instrumentation follow-up): asks.instrumentation and audiences.instrumentation closed
         # from P02's rows (7 contracts each); watchdogs and control instrumentation only narrowed
-        self.assertEqual(len(result["pending"]), 645)
+        # 645 -> 664 (P01 F4): 20 entries, 4 dispatch witnesses and 2 storage sites mapped, 45 new open dimension
+        # occurrences (conflicts, wire and instrumentation on each of 15 exchange contracts)
+        self.assertEqual(len(result["pending"]), 664)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
@@ -112,15 +114,20 @@ class ContractCoverage(unittest.TestCase):
         self.assertEqual(sorted(by["excluded"]), ["antigravity_provenance.py:_Read.__init__",
                                                   "antigravity_provenance.py:_Read.__init__",
                                                   "api.py:_share_url", "liveness.py:_observe_port"])
-        self.assertNotIn("mapped", by)
-        # 11 from S2k, plus the 3 mail hub store migration connections the launch.py item's wider scan found
-        self.assertEqual(len(by["pending"]), 14)
+        # P01 F4 maps the two sidecar sites only its operations reach (rule 1): the file_deliveries write and the
+        # reply_events read-only count
+        self.assertEqual(sorted(by["mapped"]), ["filedelivery.py:snapshot", "reply_events.py:count"])
+        # 11 from S2k, plus the 3 mail hub store migration connections the launch.py item's wider scan found, less
+        # the two P01 F4 mapped
+        self.assertEqual(len(by["pending"]), 12)
         self.assertEqual(by["pending"].count("mailhub_runtime.py:MailhubRuntime._migrate_store"), 3)
         # the org store and every census-observed sidecar stay pending, each with its S2k reason
         self.assertLessEqual({"store.py:_open_conn", "toolwait.py:_db", "reply_events.py:_connect",
-                              "reply_events.py:count", "transcript_records.py:database",
-                              "chat_window.py:project_tail", "filedelivery.py:snapshot"}, set(by["pending"]))
+                              "transcript_records.py:database", "chat_window.py:project_tail"}, set(by["pending"]))
         for i, r in rows.items():
+            if r["disposition"] == "mapped":
+                self.assertIn("(P01 F4, rule 1)", r["reason"])
+                continue
             with self.subTest(site=where(i)):
                 step = "launch.py item" if where(i).startswith("mailhub_runtime.py:") else "S2k"
                 prefix = "Stays pending (P01 " + step + "): " if r["disposition"] == "pending" else "Not "
@@ -302,7 +309,8 @@ class ContractCoverage(unittest.TestCase):
         # 24 -> 17: P01 F3 mapped the seven ask, report, scope, watchdog and audience tool branches
         # 17 -> 9: P01 F2 mapped the eight run-control tool branches
         # 9 -> 4: the relaunch-cards item mapped the self_relaunch, prime_relaunch and self_update branches
-        self.assertEqual(len(branches), 4)
+        # 4 -> 1: P01 F4 mapped the orgtree_send_file and orgtree_send_file_once branches (orgtree_account_assign stays)
+        self.assertEqual(len(branches), 1)
         for s in branches:
             r = rows[contracts.witness_id("dispatch", s)]
             with self.subTest(line=s["source"]["line"]):
@@ -375,7 +383,8 @@ class ContractCoverage(unittest.TestCase):
     # 194 -> 175: P01 F1 contracted 19 of them
     # 175 -> 162: P01 F3 contracted 13 of them
     # 162 -> 140: P01 F2 contracted 22 of them
-    GENERIC_PENDING_ENTRIES = 140
+    # 140 -> 121: P01 F4 contracted 19 of them (its 20th entry, orgtree_send_file_once, had its own reason)
+    GENERIC_PENDING_ENTRIES = 121
 
     def test_every_pending_witness_names_its_owner_or_is_a_generic_entry_point(self):
         kinds = {s["site_id"]: s["kind"] for s in self.source["registrations"]}
@@ -426,8 +435,9 @@ class ContractCoverage(unittest.TestCase):
         [shared] = [rows[contracts.witness_id("dispatch", s)] for s in self.source["dispatch_selectors"]
                     if s["source"]["symbol"] == "agent_call" and "orgtree_send_file" in s["values"]
                     and "orgtree_list_tiers" in s["values"]]
-        self.assertEqual(shared["disposition"], "pending")
-        self.assertIn("catalogue.list-tiers", shared["reason"])
+        # P01 F4 maps the shared read block once orgtree_send_file is contracted: every tool it admits has a contract
+        self.assertEqual(shared["disposition"], "mapped")
+        self.assertLessEqual({"catalogue.list-tiers", "exchange.send-file"}, set(shared["contracts"]))
 
     # P01 F1b: the operator door's branches and the preview simulations only the operator preview reaches
     F1B_MAPPED = {"org_op": 5, "_org_op_locked": 12, "_apply": 6}
@@ -538,12 +548,18 @@ class ContractCoverage(unittest.TestCase):
         self.assertEqual(self.uncontracted_selector_values(self.document), self.EARLY_MAPPED)
 
     def test_mapping_a_shared_selector_early_is_caught(self):
-        # the three shared selectors S3 candidate 1 keeps pending
+        # a shared selector still pending (the transcript docket button: orgtree_work is not contracted); the
+        # shared read block S3 candidate 1 used here is mapped since P01 F4
         document = copy.deepcopy(self.document)
-        row = next(r for r in document["dispatch"] if r["id"].startswith("c477bfda"))
+        row = next(r for r in document["dispatch"] if r["id"].startswith("26eaf498"))
         self.assertEqual(row["disposition"], "pending")
-        row.update(disposition="mapped", contracts=["chart.read"], reason="early",
-                   source_refs=document["contracts"]["chart.read"]["source_refs"][1:])
+        site = next(s["source"] for s in self.source["dispatch_selectors"]
+                    if contracts.witness_id("dispatch", s) == row["id"])
+        text = (ROOT / site["path"]).read_text(encoding="utf-8-sig").splitlines(keepends=True)
+        import hashlib
+        cover = {"path": site["path"], "start": site["line"], "end": site["end_line"],
+                 "sha256": hashlib.sha256("".join(text[site["line"] - 1:site["end_line"]]).encode()).hexdigest()}
+        row.update(disposition="mapped", contracts=["staffing.hire"], reason="early", source_refs=[cover])
         self.assertTrue(self.validate(document)["valid"])     # the validator alone does not see it
         self.assertIn(row["id"], self.uncontracted_selector_values(document))
 

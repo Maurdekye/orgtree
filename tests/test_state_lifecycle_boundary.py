@@ -103,10 +103,11 @@ class BoundaryBinding(unittest.TestCase):
             with self.subTest(contract=name):
                 self.assertEqual((rows[entry]['disposition'], rows[entry]['contracts']), ('mapped', [name]))
         # the external-chat server's orgtree_list_orgs card calls GET /api/orgs, a different handler: it belongs to
-        # the external chat family (F4) and stays pending here
+        # the external chat family and P01 F4 contracts it there (exchange.orgs-list), not here
         [extern] = [s for s in source['registrations'] if s['kind'] == 'tool'
                     and s['source']['path'].endswith('externtool.py') and s.get('names') == ['orgtree_list_orgs']]
-        self.assertEqual(rows[extern['site_id']]['disposition'], 'pending')
+        self.assertEqual((rows[extern['site_id']]['disposition'], rows[extern['site_id']]['contracts']),
+                         ('mapped', ['exchange.orgs-list']))
 
     def test_stale_incomplete_or_elevated_fixture_refuses(self):
         for edit in [lambda d: d['contracts'].pop('lifecycle.retire'), lambda d: d.update(covered=True),
