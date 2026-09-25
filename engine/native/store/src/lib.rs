@@ -18,6 +18,7 @@
 //! real database, the store-service binary. Passing these tests proves the
 //! executor's decision logic over a fake session, not PostgreSQL behaviour.
 
+pub mod charter;
 pub mod claims;
 pub mod conn;
 pub mod exec;

@@ -371,6 +371,9 @@ pub enum Racer {
     /// A visibility narrowing of `node` (READ COMMITTED retool; records its
     /// restriction, r7 C5 step 6).
     Narrow { node: Uuid, visibility: &'static str },
+    /// A PURE charter edit (Q-CR r2 N5; WS3's retool with only `charter` /
+    /// `team_charter`): one new version row and the head, nothing else.
+    CharterEdit { node: Uuid, kind: &'static str, body: &'static str },
     /// `mark_unrecoverable` of `node` (SERIALIZABLE; moots nothing).
     MarkUnrecoverable { node: Uuid },
     /// A hire of a new seat under `parent` (None = top level), SERIALIZABLE,
@@ -385,7 +388,7 @@ impl Command for Racer {
     type Output = ();
     fn family(&self) -> &'static Family {
         match self {
-            Racer::Halt { .. } | Racer::Narrow { .. } => &OUTSIDE,
+            Racer::Halt { .. } | Racer::Narrow { .. } | Racer::CharterEdit { .. } => &OUTSIDE,
             _ => &ISLAND,
         }
     }
@@ -396,6 +399,7 @@ impl Command for Racer {
             Racer::Halt { .. } => "halt",
             Racer::Rehire { .. } => "rehire",
             Racer::Narrow { .. } => "narrow",
+            Racer::CharterEdit { .. } => "charter_edit",
             Racer::MarkUnrecoverable { .. } => "mark_unrecoverable",
             Racer::Hire { .. } => "hire",
         }
@@ -448,6 +452,27 @@ impl Command for Racer {
                 tx.exec("sg.rehire.lock_epoch", "SELECT 1 FROM authority_epoch WHERE org_id = $1 AND principal_id = $2 FOR NO KEY UPDATE", &[Val::Uuid(org), Val::Uuid(*node)]).await?;
                 tx.exec("sg.rehire.epoch", "UPDATE authority_epoch SET lifecycle = 'live', generation = generation + 1, version = version + 1 WHERE org_id = $1 AND principal_id = $2", &[Val::Uuid(org), Val::Uuid(*node)]).await?;
                 orgtree_store::restrict::record(tx, org, "rehire").await?;
+            }
+            Racer::CharterEdit { node, kind, body } => {
+                let v = tx
+                    .exec("sg.charter.next", "SELECT coalesce(max(version), 0) + 1 FROM charter_versions WHERE org_id = $1 AND principal_id = $2 AND charter_kind = $3", &[Val::Uuid(org), Val::Uuid(*node), Val::text(*kind)])
+                    .await?
+                    .first()
+                    .and_then(|r| r.first())
+                    .and_then(Val::as_int)
+                    .unwrap_or(1);
+                tx.exec(
+                    "sg.charter.version",
+                    "INSERT INTO charter_versions (org_id, principal_id, charter_kind, version, body, body_sha256, saved_at) VALUES ($1, $2, $3, $4, $5, md5($5), clock_timestamp())",
+                    &[Val::Uuid(org), Val::Uuid(*node), Val::text(*kind), Val::Int(v), Val::text(*body)],
+                )
+                .await?;
+                tx.exec(
+                    "sg.charter.head",
+                    "INSERT INTO charter_heads (org_id, principal_id, charter_kind, current_version) VALUES ($1, $2, $3, $4)                      ON CONFLICT ON CONSTRAINT charter_heads_pk DO UPDATE SET current_version = EXCLUDED.current_version",
+                    &[Val::Uuid(org), Val::Uuid(*node), Val::text(*kind), Val::Int(v)],
+                )
+                .await?;
             }
             Racer::Narrow { node, visibility } => {
                 tx.exec("sg.narrow.lock", "SELECT 1 FROM scope_rows WHERE org_id = $1 AND principal_id = $2 FOR NO KEY UPDATE", &[Val::Uuid(org), Val::Uuid(*node)]).await?;
