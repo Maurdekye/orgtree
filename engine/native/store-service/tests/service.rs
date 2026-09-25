@@ -20,7 +20,7 @@ fn scratch(name: &str) -> PathBuf {
 }
 
 fn mark(root: &Path) {
-    let real = guard::norm(&std::fs::canonicalize(root).unwrap());
+    let real = guard::canonical(root).unwrap();
     let m = json!({"schema": MARKER_SCHEMA, "root_id": "0123456789abcdef0123456789abcdef", "root_path": real,
                    "disposable": true, "created_at_unix": 1, "created_by": "test"});
     std::fs::write(root.join(MARKER_FILE), serde_json::to_vec(&m).unwrap()).unwrap();
@@ -54,7 +54,7 @@ fn a_root_inside_live_data_is_refused_even_with_a_valid_marker() {
     std::fs::create_dir_all(&root).unwrap();
     mark(&root);
     let e = guard::validate(&root, &fake_env(&base)).unwrap_err();
-    assert!(e.contains("live location"), "{e}");
+    assert!(e.starts_with("[root."), "{e}");
     // and the trailing-dot spelling of the same folder
     let dotted = base.join("appdata").join("Orgtree v2.").join("data");
     assert!(guard::refuse_live(&dotted, &fake_env(&base)).is_err());
@@ -73,17 +73,21 @@ fn markers_must_be_exact() {
     let root = base.join("proto");
     std::fs::create_dir_all(&root).unwrap();
     let env = fake_env(&base);
-    assert!(guard::validate(&root, &env).unwrap_err().contains("no prototype-root marker"));
-    let real = guard::norm(&std::fs::canonicalize(&root).unwrap());
+    assert!(guard::validate(&root, &env).is_err(), "an unmarked root must be refused");
+    let real = guard::canonical(&root).unwrap();
+    let full = |schema: &str, rid: &str, path: &str, disposable: bool| {
+        json!({"schema": schema, "root_id": rid, "root_path": path, "disposable": disposable, "created_at_unix": 1, "created_by": "t"})
+    };
+    let rid = "0123456789abcdef0123456789abcdef";
     for (m, want) in [
-        (json!({"schema": "other", "root_id": "0123456789abcdef0123456789abcdef", "root_path": real, "disposable": true}), "schema"),
-        (json!({"schema": MARKER_SCHEMA, "root_id": "0123456789abcdef0123456789abcdef", "root_path": real, "disposable": false}), "disposable"),
-        (json!({"schema": MARKER_SCHEMA, "root_id": "XYZ", "root_path": real, "disposable": true}), "root_id"),
-        (json!({"schema": MARKER_SCHEMA, "root_id": "0123456789abcdef0123456789abcdef", "root_path": "c:\\elsewhere", "disposable": true}), "written for"),
+        (full("other", rid, &real, true), "[root.bad_marker]"),
+        (full(MARKER_SCHEMA, rid, &real, false), "[root.not_disposable]"),
+        (full(MARKER_SCHEMA, "XYZ", &real, true), "[root.bad_marker]"),
+        (full(MARKER_SCHEMA, rid, "c:\\elsewhere", true), "[root.moved_or_copied]"),
     ] {
         std::fs::write(root.join(MARKER_FILE), serde_json::to_vec(&m).unwrap()).unwrap();
         let e = guard::validate(&root, &env).unwrap_err();
-        assert!(e.contains(want), "{want}: {e}");
+        assert!(e.starts_with(want), "{want}: {e}");
     }
 }
 

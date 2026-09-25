@@ -11,6 +11,7 @@ import json
 import os
 import socket
 import struct
+import subprocess
 import tempfile
 import threading
 import unittest
@@ -139,6 +140,47 @@ class LiveRootRefusal(Base):
         self.mark(proto)
         with self.assertRaises(p03_door.LiveRootRefused):
             self.install(proto, self.base / "appdata" / "Orgtree v2" / "data")
+
+
+class SharedGuardRules(Base):
+    """The hook uses WS1's shared list and rules (lead ruling 2026-09-25)."""
+
+    def test_the_live_list_is_the_shared_json(self):
+        spec = json.loads(p03_door.LIVE_LOCATIONS_FILE.read_text(encoding="utf-8"))
+        self.assertEqual(spec["schema"], p03_door.LIVE_LOCATIONS_SCHEMA)
+        env = dict(self.env, ORGTREE_AGENT_PARENT_DATA=str(self.base / "parent"),
+                   ORGTREE_AGENT_LEGACY_DATA=str(self.base / "legacy"))
+        labels = [label for label, _ in p03_door.live_locations(env)]
+        want = [loc["label"] for loc in spec["locations"] if loc["unconditional"]]
+        self.assertEqual(labels, want)
+        self.assertGreaterEqual(len(labels), 7)
+
+    def test_a_missing_list_fails_closed(self):
+        proto = self.base / "proto"
+        self.mark(proto)
+        saved = p03_door.LIVE_LOCATIONS_FILE
+        p03_door.LIVE_LOCATIONS_FILE = self.base / "nope.json"
+        try:
+            with self.assertRaises(p03_door.LiveRootRefused):
+                self.install(proto, proto)
+        finally:
+            p03_door.LIVE_LOCATIONS_FILE = saved
+
+    def test_a_junction_under_the_root_is_refused(self):
+        proto = self.base / "proto"
+        self.mark(proto)
+        target = self.base / "elsewhere"
+        target.mkdir()
+        link = proto / "sub" / "j"
+        link.parent.mkdir()
+        r = subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, f"could not create the junction, so this control did not run: {r.stdout}{r.stderr}")
+        with self.assertRaises(p03_door.LiveRootRefused):
+            self.install(proto, proto)
+
+    def test_forbidden_characters_are_refused(self):
+        with self.assertRaises(p03_door.LiveRootRefused):
+            p03_door.refuse_live(str(self.base / "bad|name"), self.env)
 
 
 class ApiEdit(unittest.TestCase):
