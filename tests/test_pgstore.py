@@ -29,6 +29,7 @@ import shutil
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from urllib.parse import urlsplit, urlunsplit
 
@@ -296,6 +297,157 @@ class OrgTxOnPostgres(unittest.TestCase):
         self.assertEqual(_node(self.slug, 'a')['name'], 'mA')
         self.assertEqual(_node(other, 'b')['name'], 'b')
         self.assertEqual((_rev(self.slug), _rev(other)), (r0a + 1, r0b + 1))
+
+    # ---- review 42d445a (native-design-review): B1-B3, N1, N2 -------------
+
+    def _seed_mail(self) -> None:
+        org = store.load_org(self.slug)
+        org.d['mail_log']['a'] = [{'id': 'm1', 'body': 'one'}, {'id': 'm2', 'body': 'two'}]
+        store.save_org(org)
+
+    def _mail_ids(self) -> list:
+        return [m['id'] for m in store.load_org(self.slug).d['mail_log'].get('a', [])]
+
+    def test_b1_owner_log_lock_edits_and_blocks(self) -> None:
+        self._seed_mail()
+        with orgtx.org_tx(self.slug, logs=[('mail_log', 'a')]) as tx:
+            tx.d['mail_log']['a'][0]['body'] = 'edited'
+        self.assertEqual(store.load_org(self.slug).d['mail_log']['a'][0]['body'], 'edited')
+        e, r = threading.Event(), threading.Event()
+        t = self._hold(e, r, logs=[('mail_log', 'a')])
+        try:
+            self.assertEqual(self._try(logs=[('mail_log', 'a')]), 'blocked')
+            self.assertEqual(self._try(logs=[('mail_log', 'b')]), 'got')
+        finally:
+            r.set()
+            t.join()
+
+    def test_b2_stale_legacy_save_cannot_drop_or_overwrite_log_rows(self) -> None:
+        self._seed_mail()
+        legacy = store.load_org(self.slug)
+        legacy.d['mail_log']['a'] = [{'id': 'm1', 'body': 'one'}]      # a replacement
+        with orgtx.org_tx(self.slug, logs=['mail_log']) as tx:
+            tx.d['mail_log']['a'].append({'id': 'm-tx', 'body': 'tx'})
+        with self.assertRaises(store.StaleWrite):
+            store.save_org(legacy)
+        self.assertEqual(self._mail_ids(), ['m1', 'm2', 'm-tx'])
+        # an in-place edit racing an org_tx edit of the same row
+        legacy = store.load_org(self.slug)
+        legacy.d['mail_log']['a'][0]['body'] = 'legacy'
+        with orgtx.org_tx(self.slug, logs=[('mail_log', 'a')]) as tx:
+            tx.d['mail_log']['a'][0]['body'] = 'tx-edit'
+        with self.assertRaises(store.StaleWrite):
+            store.save_org(legacy)
+        self.assertEqual(store.load_org(self.slug).d['mail_log']['a'][0]['body'], 'tx-edit')
+        # control: a legacy incremental APPEND keeps both rows and saves
+        legacy = store.load_org(self.slug)
+        legacy.d['mail_log']['a'].append({'id': 'm-legacy'})
+        with orgtx.org_tx(self.slug, logs=['mail_log']) as tx:
+            tx.d['mail_log']['a'].append({'id': 'm-tx2'})
+        store.save_org(legacy)
+        self.assertEqual(sorted(self._mail_ids()[-2:]), ['m-legacy', 'm-tx2'])
+
+    def test_b3_lock_timeout_does_not_leak_into_later_saves(self) -> None:
+        with orgtx.org_tx(self.slug, nodes=['c'], lock_timeout=0.3):
+            pass                                    # returns its connection
+        e, r = threading.Event(), threading.Event()
+        t = self._hold(e, r, nodes=['a'])
+        threading.Timer(1.5, r.set).start()
+        try:
+            legacy = store.load_org(self.slug)
+            legacy.d['nodes']['a']['name'] = 'after-wait'
+            t0 = time.monotonic()
+            store.save_org(legacy)                  # waits for the holder, then saves
+            waited = time.monotonic() - t0
+        finally:
+            r.set()
+            t.join()
+        self.assertGreater(waited, 1.0)
+        self.assertEqual(_node(self.slug, 'a')['name'], 'after-wait')
+
+    def test_p2_legacy_writer_waits_on_the_row_then_refuses(self) -> None:
+        os.environ['ORGTREE_ORGTX_TEST_HOOKS'] = '1'
+        paused, go = threading.Event(), threading.Event()
+
+        def hook(point, tx):
+            if point == 'before_commit' and tx.slug == self.slug:
+                paused.set()
+                go.wait(10)
+        errs: list = []
+
+        def body():
+            try:
+                with orgtx.org_tx(self.slug, nodes=['b']) as tx:
+                    tx.d['nodes']['b']['name'] = 'from-tx'
+            except BaseException as ex:            # noqa: BLE001
+                errs.append(ex)
+        legacy = store.load_org(self.slug)
+        legacy.d['nodes']['b']['name'] = 'from-legacy'
+        orgtx.set_pause_hook(hook)
+        try:
+            t = threading.Thread(target=body)
+            t.start()
+            self.assertTrue(paused.wait(10))
+            out: list = []
+
+            def save():
+                try:
+                    store.save_org(legacy)
+                    out.append('saved')
+                except store.StaleWrite:
+                    out.append('stale')
+            s = threading.Thread(target=save)
+            s.start()
+            s.join(0.5)
+            self.assertTrue(s.is_alive(), 'the legacy UPDATE must wait on the row lock')
+            go.set()
+            t.join(10)
+            s.join(10)
+        finally:
+            go.set()
+            orgtx.set_pause_hook(None)
+            os.environ.pop('ORGTREE_ORGTX_TEST_HOOKS')
+        self.assertEqual(errs, [])
+        self.assertEqual(out, ['stale'])
+        self.assertEqual(_node(self.slug, 'b')['name'], 'from-tx')
+
+    def test_same_new_node_id_creators_exclude_each_other(self) -> None:
+        e, r = threading.Event(), threading.Event()
+        t = self._hold(e, r, nodes=['new-x'])
+        try:
+            self.assertEqual(self._try(nodes=['new-x']), 'blocked')
+        finally:
+            r.set()
+            t.join()
+
+    def test_n1_same_op_key_in_flight_waits_then_replays(self) -> None:
+        entered, release = threading.Event(), threading.Event()
+
+        def first():
+            with orgtx.org_tx(self.slug, logs=['events'], op_key='n1', fingerprint='f') as tx:
+                entered.set()
+                release.wait(10)
+                tx.append('events', {'kind': 'n1'})
+                tx.result = {'done': 1}
+        t = threading.Thread(target=first)
+        t.start()
+        self.assertTrue(entered.wait(10))
+        threading.Timer(0.5, release.set).start()
+        with orgtx.org_tx(self.slug, logs=['events'], op_key='n1', fingerprint='f') as tx2:
+            replayed, result = tx2.replayed, tx2.result
+            if not tx2.replayed:
+                tx2.append('events', {'kind': 'n1'})
+        t.join(10)
+        self.assertEqual((replayed, result), (True, {'done': 1}))
+        kinds = [e.get('kind') for e in store.load_org(self.slug).d['events']]
+        self.assertEqual(kinds.count('n1'), 1)
+
+    def test_pg_errors_map_to_orgtx_errors(self) -> None:
+        class E(Exception):
+            def __init__(self, st): self.sqlstate = st
+        self.assertIsInstance(orgtx._pg_error(E('40P01')), orgtx.DeadlockDetected)
+        self.assertIsInstance(orgtx._pg_error(E('40001')), orgtx.SerializationFailure)
+        self.assertIsInstance(orgtx._pg_error(E('55P03')), orgtx.LockTimeout)
 
     def test_racing_increments_are_not_lost(self) -> None:
         errs: list[BaseException] = []

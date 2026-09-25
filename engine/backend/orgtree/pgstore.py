@@ -112,12 +112,14 @@ def migrate(target: Any, d: pathlib.Path = MIGRATIONS_DIR) -> dict[str, Any]:
     own = isinstance(target, str)
     conn = connect(target) if own else target
     try:
-        if conn.execute("SELECT to_regclass('public.schema_migrations')").fetchone()[0] is None:
-            conn.execute("CREATE TABLE public.schema_migrations ("
-                         "name text PRIMARY KEY, sha256 text NOT NULL, "
-                         "applied_at timestamptz NOT NULL DEFAULT now())")
+        # the lock first, so two first-boot migrators cannot race to create
+        # the bookkeeping table (review N7)
         conn.execute("SELECT pg_advisory_lock(%s)", (_MIGRATE_LOCK_KEY,))
         try:
+            if conn.execute("SELECT to_regclass('public.schema_migrations')").fetchone()[0] is None:
+                conn.execute("CREATE TABLE public.schema_migrations ("
+                             "name text PRIMARY KEY, sha256 text NOT NULL, "
+                             "applied_at timestamptz NOT NULL DEFAULT now())")
             applied = {str(n): str(s) for n, s in conn.execute(
                 "SELECT name, sha256 FROM public.schema_migrations").fetchall()}
             files = migration_files(d)
@@ -347,7 +349,9 @@ def _release(raw: Any) -> None:
              and raw.info.transaction_status == pq.TransactionStatus.IDLE)
     if clean:
         try:
-            raw.execute("RESET search_path")
+            # every session setting, not just search_path: nothing a checkout
+            # SET may reach the next one (review B3)
+            raw.execute("RESET ALL")
         except Exception:                                   # noqa: BLE001
             clean = False
     if clean:
