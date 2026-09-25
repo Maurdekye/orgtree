@@ -4694,10 +4694,8 @@ def redrive_after_limit(slug: str, nid: str, why: str) -> bool:
       · the MAILBOX gets `ACCOUNT_SWITCH_DRIVE` and nothing else.
 
     Returns True if the node still exists and was driven."""
-    with store.DOC_LOCK:
-        o2 = store.load_org(slug)
-        if nid not in o2.nodes:
-            return False
+    if nid not in orgtx.org_read(slug).nodes:   # PG-3e-A: a read
+        return False
     # the loud half — a screen, not an inbox. `_log_turn_error` is the durable
     # per-node row read_chat interleaves into the conversation.
     _log_turn_error(slug, nid, f"account switched: {why}")
@@ -27742,8 +27740,7 @@ def freeze_provider_limit(slug: str, nid: str, blob: str,
                       else _usage_schedule_kind(blob, src))
     tier = ""
     try:
-        with store.DOC_LOCK:
-            o2 = store.load_org(slug)
+        with _node_write(slug, nid) as o2:  # PG-3e-A: the agent's row
             if nid not in o2.nodes:
                 return False
             tier = str(o2.node(nid).get("model") or "")
@@ -27831,7 +27828,6 @@ def freeze_provider_limit(slug: str, nid: str, blob: str,
                 # too would deliver it twice.
                 _append_resume(fz, replay[-8000:], replay_view[-8000:])
                 halt.link_freeze_replay(slug, nid, fz)
-            store.save_org(o2)
     except Exception as e:                                   # noqa: BLE001
         # a freeze that cannot be written must not swallow the failure that
         # caused it — the caller has already logged the durable row
@@ -28336,13 +28332,16 @@ def interrupt_all(slug: str, *,
     paused: list[dict[str, str]] = []
     if pause_watchdogs:
         _wd_bump_stop_epoch(slug)
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
-        if pause_watchdogs:
+    # PG-3e-A: pausing the watchdogs writes only the `watchdogs` section (and
+    # an event); the live-node list is a read. No agent row is written here —
+    # each stop goes through `interrupt_turn`'s own path below.
+    if pause_watchdogs:
+        with halt.txn(slug, sections=["watchdogs"], logs=["events"]) as _ia_tx:
+            org = _ia_tx.org
             paused = org.watchdogs_pause_all(org.WATCHDOG_KILLSWITCH_PAUSE)
-            if paused:
-                store.save_org(org)
-        nids = [k for k, v in org.nodes.items() if v["state"] == "live"]
+    else:
+        org = orgtx.org_read(slug)
+    nids = [k for k, v in org.nodes.items() if v["state"] == "live"]
     stopped = []
     for nid in nids:
         st = state(slug, nid)
