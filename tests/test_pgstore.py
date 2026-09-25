@@ -34,6 +34,9 @@ from urllib.parse import urlsplit, urlunsplit
 
 ADMIN = os.environ.get('ORGTREE_TEST_PG_ADMIN_URL', '').strip()
 DEPS = os.environ.get('ORGTREE_TEST_PYDEPS', '').strip()
+#: optional: the engine's non-superuser role on the same server (PG-1's
+#: `orgtree_runtime`), to prove the grants migration
+RUNTIME = os.environ.get('ORGTREE_TEST_PG_RUNTIME_URL', '').strip()
 if DEPS:
     sys.path.insert(0, DEPS)
 
@@ -97,11 +100,13 @@ def _rev(slug: str) -> int:
 @unittest.skipUnless(ADMIN, 'ORGTREE_TEST_PG_ADMIN_URL not set: NOT RUN')
 class Migrations(unittest.TestCase):
     def test_applies_once_and_refuses_drift(self) -> None:
+        res = pgstore.migrate(os.environ['ORGTREE_PG_URL'])     # conninfo form (PG-1)
+        self.assertEqual(Path(res['folder']), pgstore.MIGRATIONS_DIR.resolve())
+        self.assertIn('0002_runtime_grants.sql', res['current'])
         with pgstore.connect() as c:
-            first = pgstore.migrate(c)
-            self.assertEqual(pgstore.migrate(c), [])
-            self.assertIn('0001_base.sql', {r[0] for r in c.execute(
-                'SELECT name FROM schema_migrations').fetchall()} | set(first))
+            self.assertEqual(pgstore.migrate(c)['applied'], [])
+            self.assertEqual({r[0] for r in c.execute(
+                'SELECT name FROM schema_migrations').fetchall()}, set(res['current']))
             d = Path(tempfile.mkdtemp(dir=_temp.name))
             shutil.copy(pgstore.MIGRATIONS_DIR / '0001_base.sql', d / '0001_base.sql')
             (d / '0001_base.sql').write_bytes((d / '0001_base.sql').read_bytes() + b'\n-- edit\n')
@@ -109,7 +114,27 @@ class Migrations(unittest.TestCase):
                 pgstore.migrate(c, d)
             (d / '0001_base.sql').unlink()
             with self.assertRaises(pgstore.MigrationDrift):
-                pgstore.migrate(c, d)            # the db has one this dir lacks
+                pgstore.migrate(c, d)            # the db has ones this dir lacks
+
+    @unittest.skipUnless(RUNTIME, 'ORGTREE_TEST_PG_RUNTIME_URL not set: NOT RUN')
+    def test_engine_role_can_create_write_and_org_tx(self) -> None:
+        with pgstore.connect() as c:
+            pgstore.migrate(c)
+            c.execute(f'GRANT CONNECT, TEMP ON DATABASE {DBNAME} TO orgtree_runtime')
+        store.claim_data_root()
+        old = os.environ['ORGTREE_PG_URL']
+        os.environ['ORGTREE_PG_URL'] = _with_db(RUNTIME, DBNAME)
+        try:
+            with pgstore.connect() as c:
+                self.assertEqual(c.execute('SELECT current_user').fetchone()[0], 'orgtree_runtime')
+                with self.assertRaises(Exception):
+                    c.execute('CREATE TABLE public.nope (x int)')
+            slug = _fresh_org('runtime-role')          # schema via SECURITY DEFINER
+            with orgtx.org_tx(slug, nodes=['a']) as tx:
+                tx.d['nodes']['a']['name'] = 'rt'
+            self.assertEqual(_node(slug, 'a')['name'], 'rt')
+        finally:
+            os.environ['ORGTREE_PG_URL'] = old
 
     def test_json_extract(self) -> None:
         with pgstore.connect() as c:
@@ -147,6 +172,15 @@ class Seam(unittest.TestCase):
         slug2 = _fresh_org('seam-rt')
         self.assertEqual(slug2, slug)
         self.assertEqual(_node(slug, 'b')['name'], 'b')
+
+    def test_many_orgs_share_a_bounded_connection_pool(self) -> None:
+        slugs = [_fresh_org(f'pool-{i}') for i in range(30)]
+        for s in slugs:
+            store.load_org(s).d['events']            # a lazy read, too
+        with psycopg.connect(ADMIN, autocommit=True) as c:
+            n = c.execute('SELECT count(*) FROM pg_stat_activity WHERE datname = %s',
+                          (DBNAME,)).fetchone()[0]
+        self.assertLessEqual(n, pgstore._IDLE_CAP + 2, f'{n} server connections for 30 orgs')
 
     def test_revision_and_notify(self) -> None:
         slug = _fresh_org('seam-rev')
@@ -221,6 +255,21 @@ class OrgTxOnPostgres(unittest.TestCase):
             r.set()
             t.join()
         self.assertEqual(self._try(nodes=['a'], sections=['killswitch']), 'got')
+
+    def test_all_nodes_excludes_node_writers_and_creators(self) -> None:
+        e, r = threading.Event(), threading.Event()
+        t = self._hold(e, r, nodes=orgtx.ALL)
+        try:
+            self.assertEqual(self._try(nodes=['b']), 'blocked')
+            self.assertEqual(self._try(nodes=['brand-new']), 'blocked')
+            self.assertEqual(self._try(sections=['killswitch']), 'got')
+        finally:
+            r.set()
+            t.join()
+        with orgtx.org_tx(self.slug, nodes=orgtx.ALL) as tx:
+            for n in tx.d['nodes'].values():
+                n['swept'] = True
+        self.assertTrue(all(_node(self.slug, x).get('swept') for x in ('a', 'b', 'c')))
 
     def test_racing_increments_are_not_lost(self) -> None:
         errs: list[BaseException] = []
