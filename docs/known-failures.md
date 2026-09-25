@@ -124,6 +124,15 @@ binding failures ("stale source span", "source inventory binding is stale", a `K
 assertion failing in those modules is still a regression, so read the message before you file it as known. The
 re-anchor, and the rewrite of the DOC_LOCK facts that `org_tx` makes false, are owned by p01-current-gap-opus55.
 
+**PG-0 (PostgreSQL storage core, `orgtx.py` / `pgstore.py`) adds to this, 2026-09-25.** Its `store.py` edits
+and its one-line `api.py` edit move pinned spans, so `test_state_operation_contracts` (measured by PG-0: 5
+failures on SQLite through `tools/run-python-verification.py`) and `test_state_org_read_boundary` (named by the
+lead; not measured by PG-0) fail on span drift, which p01 re-anchors ONCE after the last PYPG family lands. Two
+of the `test_state_operation_contracts` messages are CONTENT rather than span drift: "storage: unknown witness" /
+"storage: missing witnesses", and the changed S2k storage site set. They come from PG-0's new storage code
+(`orgtx.py`, `pgstore.py`, the postgres branches in `store.py`), which the inventory has no rows for yet. Those
+rows are added in the same p01 re-anchor, from facts PG-0 supplies.
+
 ---
 
 ## How old is it, and does that matter?
