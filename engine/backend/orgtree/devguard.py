@@ -10,6 +10,14 @@ from collections.abc import Mapping
 
 LIVE = "ORGTREE_AGENT_PARENT_DATA"
 LEGACY = "ORGTREE_AGENT_LEGACY_DATA"
+#: The engine's own store selection and database connection (PYPG PG-1 sets
+#: them in the engine's environment), and libpq's own connection variables.
+#: A child inheriting them would open the LIVE PostgreSQL from a test or probe
+#: with a throwaway ORGTREE_DATA, so no desktop child ever gets them (PG-1
+#: review B1, plan decision 35).
+ENGINE_STORE_VARS = ("ORGTREE_STORE", "ORGTREE_PG_CONNINFO", "ORGTREE_PG_URL",
+                     "PGHOST", "PGPORT", "PGDATABASE", "PGUSER", "PGPASSWORD",
+                     "PGPASSFILE", "PGSERVICE")
 
 
 def _canonical(path: str) -> str:
@@ -17,7 +25,10 @@ def _canonical(path: str) -> str:
 
 
 def child_env(env: dict[str, str], parent: Mapping[str, str] | None = None) -> dict[str, str]:
-    """Tag only desktop children; never mutate the engine's environment."""
+    """Tag only desktop children; never mutate the engine's environment.
+    Always drops the engine's store variables (``ENGINE_STORE_VARS``)."""
+    for key in ENGINE_STORE_VARS:
+        env.pop(key, None)
     parent = os.environ if parent is None else parent
     if parent.get("ORGTREE_DESKTOP_MANAGED") == "1" or parent.get(LIVE):
         env[LIVE] = parent.get(LIVE) or _canonical(parent.get("ORGTREE_DATA") or os.path.expanduser("~/orgtree"))

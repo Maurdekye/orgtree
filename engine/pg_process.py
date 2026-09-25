@@ -38,8 +38,11 @@ SAFETY. A root is served in one of two modes, and anything else refuses:
   binding (``orgtree-product-root.json``, written by ``pg-custodian
   bind-product`` at the PG-2 import), and it lies clear of the agent
   variables and the installed app (``PRODUCT_DENY``). An agent session names
-  the live data in ``ORGTREE_AGENT_PARENT_DATA``, so no agent can run this
-  mode on it. The custodian is then called with ``--product``.
+  the live data in ``ORGTREE_AGENT_PARENT_DATA``, so an agent cannot run this
+  mode on it BY ACCIDENT; like devguard this is an accident guard, not a
+  sandbox (a process that unsets the variables passes it, as the PG-2 runbook's
+  plain terminal does on purpose). The custodian is then called with
+  ``--product``.
 
 In both modes the custodian re-checks everything (binding, junctions, UNC)
 in Rust, and refuses destroy/restore on a product root.
@@ -48,12 +51,24 @@ CONNECTION. The engine receives ``ORGTREE_PG_CONNINFO`` (the runtime role,
 libpq keyword form) in its own environment. It names the cluster's owner-only
 ``pgpass.conf``: no password is ever placed in an environment variable, a log
 or a report. The admin connection string is passed to the migrations only.
+No child of the engine inherits it: ``devguard.child_env`` (every agent and
+shell spawn) drops the store and libpq variables, and ``pgstore.connect``
+refuses the live root's cluster from an agent context (review B1, decision 35).
+
+STARTUP PROGRESS. Each database step (status, init, start, attach, migrate,
+ready) is reported as a startup-progress checkpoint, so the desktop's
+readiness window restarts between them (review N-B). One step that alone
+outlasts that window (a first ``init`` on a slow disk) still fails the start
+visibly; it is not hidden.
 
 LIFETIME. The database is started after ``arm_process_lifetime``, so it runs
 inside the guardian's Job: a FORCED engine kill also kills PostgreSQL, which
 then recovers from its WAL on the next start (WS1 drill "abrupt database
 exit"). In return it can never outlive the app as an orphan. A normal quit
-(``/api/desktop/shutdown``) stops it cleanly.
+(``/api/desktop/shutdown``) stops it cleanly. That stop may wait up to
+``STOP_TIMEOUT``; if the desktop's quit deadline kills the engine first,
+PostgreSQL dies with the Job and recovers from its WAL next start (review
+N-C: safe, inferred from the WS1 abrupt-exit drill, not separately measured).
 """
 
 from __future__ import annotations
@@ -63,6 +78,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import time
@@ -86,6 +102,8 @@ _ENGINE = Path(__file__).resolve().parent
 LIVE_LOCATIONS = _ENGINE / "native" / "prototype-guard" / "live-locations.json"
 REFUSAL_MODULE = _ENGINE / "backend" / "orgtree" / "p03_refusal.py"
 
+_MARKER_TMP = re.compile(r".+\.pg\.\d+\.tmp")
+
 STATUS_TIMEOUT = 60.0
 INIT_TIMEOUT = 300.0
 START_TIMEOUT = 420.0
@@ -94,6 +112,9 @@ STOP_TIMEOUT = 720.0
 #: A migration step: (admin conninfo) -> report. Must include "folder" and
 #: "applied"; the bracket adds the folder's file checksums itself.
 Migrator = Callable[[str], Mapping[str, Any]]
+#: The engine's startup-progress reporter (``StartupProgress.report``): each
+#: call is a checkpoint that restarts the desktop's readiness window.
+Progress = Callable[[str], None]
 
 
 class BracketError(RuntimeError):
@@ -123,11 +144,20 @@ def read_cutover(root: Path) -> dict[str, Any] | None:
 
 
 def chosen_backend(root: Path, env: Mapping[str, str]) -> str:
-    """Decision 18.1: ``ORGTREE_STORE``, else the cutover record, else sqlite."""
+    """Decision 18.1: ``ORGTREE_STORE``, else the cutover record, else sqlite.
+    One exception refuses (review N-A): a record choosing postgres with the
+    variable naming another backend. The sqlite/json stores do not read the
+    ``.pg`` markers a cutover leaves in orgs/, so that engine would start
+    with every org invisible; going back to SQLite is the PG-2 rollback."""
     explicit = env.get(STORE_ENV, "").strip().lower()
+    record = read_cutover(root)
+    if explicit and explicit != "postgres" and record is not None and record.get("backend") == "postgres":
+        raise BracketError(
+            f"{STORE_ENV}={explicit}, but {root / CUTOVER_FILE} records that this root was cut over to "
+            f"PostgreSQL; the {explicit} store cannot see its orgs. Unset {STORE_ENV}, or roll the cutover "
+            f"back first (move pre-postgres/orgs back into orgs/ and rename {CUTOVER_FILE}).")
     if explicit:
         return explicit
-    record = read_cutover(root)
     return str(record["backend"]) if record is not None else "sqlite"
 
 
@@ -211,7 +241,10 @@ def check_cutover_finished(root: Path, env: Mapping[str, str]) -> None:
     if record is None or record.get("backend") != "postgres":
         return
     orgs = root / "orgs"
-    left = sorted(p.name for p in orgs.iterdir() if p.is_file() and not p.name.endswith(".pg"))         if orgs.is_dir() else []
+    # a crash-left marker temp (pgstore._write_marker: <slug>.pg.<pid>.tmp) is
+    # not an unmoved source file (review N-E)
+    left = sorted(p.name for p in orgs.iterdir() if p.is_file() and not p.name.endswith(".pg")
+                  and not _MARKER_TMP.fullmatch(p.name)) if orgs.is_dir() else []
     if left:
         custodian = env.get(CUSTODIAN_ENV, "").strip() or "<pg-custodian.exe>"
         shown = ", ".join(left[:10]) + (f" (+{len(left) - 10} more)" if len(left) > 10 else "")
@@ -285,21 +318,26 @@ def _run_custodian(exe: Path, args: list[str], env: Mapping[str, str], timeout: 
 
 
 def database_up(exe: Path, root: Path, env: Mapping[str, str], workdir: Path,
-                product: bool = False) -> dict[str, Any]:
+                product: bool = False, progress: Progress | None = None) -> dict[str, Any]:
     """Init if absent, start if stopped, ATTACH (strictly) if already running.
-    Never a second instance, never trust a port or pid alone."""
+    Never a second instance, never trust a port or pid alone. ``progress``
+    (the engine's startup-progress reporter) is told before each step."""
+    step = progress or (lambda _phase: None)
     r = ["--root", str(root)] + (["--product"] if product else [])
+    step("database-status")
     status = _run_custodian(exe, ["status", *r], env, STATUS_TIMEOUT, workdir)
     if not status.get("ok"):
         raise BracketError(f"pg-custodian status refused: {status.get('code')}: {status.get('message')}")
     state = status["cluster"]["state"]
     outcome = "attached"
     if state == "absent":
+        step("database-init")
         init = _run_custodian(exe, ["init", *r], env, INIT_TIMEOUT, workdir)
         if not init.get("ok"):
             raise BracketError(f"pg-custodian init refused: {init.get('code')}: {init.get('message')}")
         state, outcome = "stopped", "initialized+started"
     if state in ("stopped", "stale_pid"):
+        step("database-start")
         start = _run_custodian(exe, ["start", *r], env, START_TIMEOUT, workdir)
         if not start.get("ok"):
             raise BracketError(f"pg-custodian start refused: {start.get('code')}: {start.get('message')}")
@@ -307,6 +345,7 @@ def database_up(exe: Path, root: Path, env: Mapping[str, str], workdir: Path,
             outcome = "started"
     elif state != "running":
         raise BracketError(f"the database is {state}; refusing to serve")
+    step("database-attach")
     attach = _run_custodian(exe, ["attach", *r], env, STATUS_TIMEOUT, workdir)
     if not attach.get("ok"):
         raise BracketError(f"pg-custodian attach refused: {attach.get('code')}: {attach.get('message')}")
@@ -403,16 +442,19 @@ class ManagedPostgres:
         self.migration: dict[str, Any] | None = None
         self.conninfo = ""
 
-    def start(self, migrator: Migrator | None) -> "ManagedPostgres":
-        self.database = database_up(self.custodian, self.root, self.env, self.workdir, self.product)
+    def start(self, migrator: Migrator | None, progress: Progress | None = None) -> "ManagedPostgres":
+        step = progress or (lambda _phase: None)
+        self.database = database_up(self.custodian, self.root, self.env, self.workdir, self.product, step)
         try:
             runtime = self.database["runtime"]
             admin = conninfo(runtime, str(runtime.get("admin_role") or ""), "orgtree-migrate") \
                 if runtime.get("admin_role") else ""
             if not admin:
                 raise BracketError("pg-custodian attach gave no admin_role")
+            step("database-migrate")
             self.migration = run_migrations(migrator or default_migrator(), admin)
             self.conninfo = conninfo(runtime, RUNTIME_ROLE, "orgtree-engine")
+            step("database-ready")
         except BaseException:
             self.stop()
             raise
@@ -428,7 +470,8 @@ class ManagedPostgres:
         return report
 
 
-def start_for_engine(root: Path, env: MutableMapping[str, str], migrator: Migrator | None = None) -> ManagedPostgres | None:
+def start_for_engine(root: Path, env: MutableMapping[str, str], migrator: Migrator | None = None,
+                     progress: Progress | None = None) -> ManagedPostgres | None:
     """launch.py's entry point. None = inert (the chosen backend is not
     postgres). On success sets ``ORGTREE_PG_CONNINFO`` (and, when the cutover
     record chose postgres, ``ORGTREE_STORE``) in ``env``. Raises BracketError
@@ -442,7 +485,7 @@ def start_for_engine(root: Path, env: MutableMapping[str, str], migrator: Migrat
         custodian = _executable(env, CUSTODIAN_ENV)
         # The engine's per-boot desktop token is not the custodian's to see.
         child_env = {k: v for k, v in env.items() if k not in ("ORGTREE_V2_TOKEN", CONNINFO_ENV)}
-        owned = ManagedPostgres(root, child_env, custodian, mode == "product").start(migrator)
+        owned = ManagedPostgres(root, child_env, custodian, mode == "product").start(migrator, progress)
     except BracketError as exc:
         record_refusal(str(exc), root)
         raise

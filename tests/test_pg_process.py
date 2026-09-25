@@ -226,6 +226,30 @@ class BracketTests(unittest.TestCase):
         self.assertEqual(self.cmds(), ["status", "attach"])
         owned.stop()
 
+    def test_every_database_step_is_a_startup_checkpoint(self) -> None:
+        # review N-B: the desktop's readiness window restarts on each one
+        self.mark()
+        phases: list[str] = []
+
+        def report(phase: str) -> None:
+            phases.append(phase)
+            self.assertEqual(len(self.calls()), {"database-status": 0, "database-init": 1, "database-start": 2,
+                                                 "database-attach": 3, "database-migrate": 4,
+                                                 "database-ready": 4}[phase], f"{phase} is reported before its step")
+            if phase == "database-ready":
+                self.assertEqual(len(self.migrated), 1, "ready comes after the migrations")
+
+        owned = bracket.start_for_engine(self.root, self.configured(), self.migrator, progress=report)
+        self.assertEqual(phases, ["database-status", "database-init", "database-start", "database-attach",
+                                  "database-migrate", "database-ready"])
+        owned.stop()
+        phases.clear()
+        self.log.unlink()
+        self.state.write_text("running")
+        seen: list[str] = []
+        bracket.start_for_engine(self.root, self.configured(), self.migrator, progress=seen.append).stop()
+        self.assertEqual(seen, ["database-status", "database-attach", "database-migrate", "database-ready"])
+
     def test_a_stale_lock_is_started_not_attached(self) -> None:
         self.mark()
         self.state.write_text("stale_pid")
@@ -340,11 +364,23 @@ class BracketTests(unittest.TestCase):
         self.assertIsNone(bracket.start_for_engine(self.root, self.unset_store(), self.migrator))
         self.assertEqual(self.calls(), [])
 
-    def test_the_variable_wins_over_the_record(self) -> None:
+    def test_the_variable_wins_over_a_record_that_is_not_postgres(self) -> None:
+        self.mark()
+        self.cutover(self.root, "sqlite")
+        owned = bracket.start_for_engine(self.root, self.configured(), self.migrator)
+        self.assertIsNotNone(owned, "ORGTREE_STORE=postgres beats a sqlite record")
+        owned.stop()
+
+    def test_another_backend_on_a_cut_over_root_refuses(self) -> None:
+        # review N-A: the sqlite/json stores ignore the .pg markers, so that
+        # engine would start with every org invisible
         self.mark()
         self.cutover(self.root)
-        self.assertIsNone(bracket.start_for_engine(self.root, self.configured(ORGTREE_STORE="sqlite"), self.migrator))
+        for other in ("sqlite", "json", " SQLite "):
+            with self.assertRaisesRegex(BracketError, "cannot see its orgs"):
+                bracket.start_for_engine(self.root, self.configured(ORGTREE_STORE=other), self.migrator)
         self.assertEqual(self.calls(), [])
+        self.assertEqual(len(self.refusals), 3, "every refusal writes the event-log line")
 
     def test_a_record_that_is_not_ours_refuses_rather_than_guessing(self) -> None:
         self.mark()
@@ -444,6 +480,12 @@ class BracketTests(unittest.TestCase):
             owned = bracket.start_for_engine(root, env, self.migrator)
             owned.stop()
             self.log.unlink()
+        # a crash-left marker temp is not an unmoved source (review N-E)
+        (self.root / "orgs" / "acme.pg.4242.tmp").write_text("{}")
+        bracket.start_for_engine(self.root, self.unset_store(), self.migrator).stop()
+        (self.root / "orgs" / "acme.pg.x.tmp").write_text("{}")
+        with self.assertRaisesRegex(BracketError, "still holds acme.pg.x.tmp"):
+            bracket.start_for_engine(self.root, self.unset_store(), self.migrator)
         # without a cutover record the files are simply the SQLite store
         other = self.tmp / "roots" / "plain"
         (other / "orgs").mkdir(parents=True)
@@ -507,7 +549,7 @@ class LaunchWiringTests(unittest.TestCase):
         source = (Path(bracket.__file__).resolve().parent / "launch.py").read_text(encoding="utf-8")
         main = source[source.index("def main()"):source.index("def _own_database(")]
         lifetime = main.index("arm_process_lifetime(data")
-        database = main.index("_own_database(data)")
+        database = main.index("_own_database(data, progress.report)")
         api = main.index("= load_app()")
         self.assertLess(lifetime, database)
         self.assertLess(database, api)
@@ -522,9 +564,10 @@ class LaunchWiringTests(unittest.TestCase):
 
         owned = Owned()
         with mock.patch("atexit.register", side_effect=registered.append),              mock.patch("engine.pg_process.start_for_engine", return_value=owned) as started:
-            launch._own_database(Path("C:/root"))
+            launch._own_database(Path("C:/root"), print)
         self.assertEqual(registered, [owned.stop])
         self.assertEqual(started.call_args.args, (Path("C:/root"), os.environ))
+        self.assertIs(started.call_args.kwargs["progress"], print, "the startup reporter reaches the bracket")
         registered.clear()
         with mock.patch("atexit.register", side_effect=registered.append),              mock.patch("engine.pg_process.start_for_engine", return_value=None):
             launch._own_database(Path("C:/root"))
