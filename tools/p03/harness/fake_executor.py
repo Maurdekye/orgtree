@@ -52,6 +52,8 @@ class Stmt:
     apply: "Callable[[dict, dict, dict, dict], None] | None" = None
     #: a control id (``<schedule>.<variant>``) that, when armed, skips the lock
     skip_lock_control: "str | None" = None
+    #: the row-lock mode the statement's lock is (``for_update``, ``for_share``, ...)
+    lock_mode: "str | None" = None
 
 
 class _Stream:
@@ -81,13 +83,29 @@ class _Abort(Exception):
 class FakeExecutor:
     def __init__(self, op_kinds: dict[str, list[Stmt]], *, qualification: bool = True,
                  barriers: bool = True, silent_controls: bool = False,
-                 unclean_tail: bool = False, drop_records: int = 0) -> None:
+                 unclean_tail: bool = False, drop_records: int = 0,
+                 declared: "dict[str, Any] | None" = None,
+                 server_extra: "dict[str, dict[str, int]] | None" = None,
+                 hidden_statements: int = 0, skip_stmts: "set[str] | None" = None,
+                 factory: str = "fake-pool") -> None:
+        """Fault options for the Q-C5 oracle's meta-controls:
+        ``server_extra``: relation -> pg_stat_xact_user_tables counters the SERVER
+        reports for every transaction but no statement names (a trigger);
+        ``hidden_statements``: transactions run on the first backend outside any
+        traced operation (a pooled connection used behind the trace's back);
+        ``skip_stmts``: statement labels silently not executed (a deleted anchor);
+        ``factory``: the factory name the backends report as having opened them."""
         self.op_kinds = op_kinds
         self.qualification = qualification
         self.barriers = barriers
         self.silent_controls = silent_controls
         self.unclean_tail = unclean_tail
         self.drop_records = drop_records
+        self.declared = declared if declared is not None else self.derived_declared()
+        self.server_extra = dict(server_extra or {})
+        self.hidden_statements = hidden_statements
+        self.skip_stmts = set(skip_stmts or ())
+        self.factory = factory
         self.rows: dict[str, Any] = {}
         self.stream = _Stream("fake-executor")
         self._events: "queue.Queue[dict[str, Any]]" = queue.Queue()
@@ -101,6 +119,7 @@ class FakeExecutor:
         self._pids = itertools.count(40001)
         self._threads: list[threading.Thread] = []
         self._rows_lock = threading.Lock()
+        self._tx_count: dict[int, int] = {}              # backend pid -> transactions begun
 
     # -- the protocol ---------------------------------------------------------
     def points(self) -> list[str]:
@@ -113,10 +132,25 @@ class FakeExecutor:
         return sorted({s.skip_lock_control for stmts in self.op_kinds.values()
                        for s in stmts if s.skip_lock_control})
 
+    def derived_declared(self) -> dict[str, Any]:
+        """Every statement's relations and modes, all required: what this fake does."""
+        out: dict[str, Any] = {}
+        for kind, stmts in self.op_kinds.items():
+            rels: dict[str, Any] = {}
+            for s in stmts:
+                for rel in s.relations:
+                    r = rels.setdefault(rel, {"modes": [], "required": True})
+                    for m in (s.mode, s.lock_mode):
+                        if m and m not in r["modes"]:
+                            r["modes"].append(m)
+            out[kind] = {"relations": rels, "p01_contract": None, "source": "fake"}
+        return out
+
     def handshake(self) -> dict[str, Any]:
         return {"type": "handshake", "protocol": PROTOCOL, "qualification": self.qualification,
                 "build_sha": "fake", "points": self.points() if self.qualification else [],
-                "controls": self.controls() if self.qualification else []}
+                "controls": self.controls() if self.qualification else [],
+                "declared": self.declared if self.qualification else {}}
 
     def install_plan(self, plan: dict[str, Any]) -> None:
         errors = frame_errors(plan)
@@ -156,6 +190,10 @@ class FakeExecutor:
             gate.set()
         for t in self._threads:
             t.join(timeout)
+        # the server's own view of every backend: its transaction count
+        for i, (pid, n) in enumerate(sorted(self._tx_count.items())):
+            self.stream.emit("conn_activity", backend_pid=pid, factory=self.factory,
+                             transactions=n + (self.hidden_statements if i == 0 else 0))
         if self.drop_records:
             self.stream.emit("drop", count=self.drop_records)
         self.stream.emit("stream_end", clean=not self.unclean_tail)
@@ -218,12 +256,17 @@ class FakeExecutor:
         pending: dict[str, Any] = {}
         point = lambda name: self._point(tag, op_id, attempt, pid, f"{kind}.{name}", pending)  # noqa: E731
         emit("tx_begin", operation_id=op_id, attempt=attempt, conn_id=f"c{pid}",
-             backend_pid=pid, isolation="fake", factory="fake-pool")
+             backend_pid=pid, isolation="fake", factory=self.factory)
+        with self._rows_lock:
+            self._tx_count[pid] = self._tx_count.get(pid, 0) + 1
         for name in GENERIC_POINTS[1:4]:        # begin, after_anchor, after_claim
             point(name)
         ctx: dict[str, Any] = {}
         writes: dict[str, Any] = {}
+        server: dict[str, dict[str, int]] = {}
         for s in self.op_kinds[kind]:
+            if s.label in self.skip_stmts:
+                continue
             point(f"stmt.{s.label}.before")
             if s.lock and not self._fire(s.skip_lock_control, tag, op_id):
                 self._take(s.lock, pid)
@@ -233,10 +276,19 @@ class FakeExecutor:
                     s.apply(self.rows, ctx, writes, args)
             emit("stmt", operation_id=op_id, attempt=attempt, conn_id=f"c{pid}",
                  backend_pid=pid, stmt_label=s.label, fingerprint=f"fake:{kind}:{s.label}",
-                 mode=s.mode, relations=list(s.relations), sqlstate=code)
+                 mode=s.mode, relations=list(s.relations), sqlstate=code,
+                 lock_mode=s.lock_mode)
             if code != "00000":
                 raise _Abort(code)
+            for rel in s.relations:          # what the server's per-xact view would count
+                t = server.setdefault(rel, {"relname": rel})
+                key = "idx_scan" if s.mode == "read" else "n_tup_upd"
+                t[key] = t.get(key, 0) + 1
             point(f"stmt.{s.label}.after")
+        for rel, counters in self.server_extra.items():
+            server.setdefault(rel, {"relname": rel}).update(counters)
+        emit("xact_stats", operation_id=op_id, attempt=attempt, backend_pid=pid,
+             tables=list(server.values()))
         point("before_commit")
         with self._rows_lock:
             self.rows.update(writes)
