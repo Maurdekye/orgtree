@@ -102,6 +102,30 @@ async fn a_refusal_commits_nothing_not_even_its_receipt() {
     assert_eq!(domain_rows(&db), 0);
     assert!(db.receipts().is_empty());
     assert_eq!(cmd.effects_run(), 0);
+    // Rolled back, not committed-and-rescued: without this the claimed-at-
+    // commit trigger alone would hide a refusal that COMMITs (mutation M6
+    // survived before this line was added).
+    assert_eq!(db.count("commit"), 0, "a refusal must never reach COMMIT");
+}
+
+/// The claimed-at-commit trigger (emulated by the fake) turns a commit that
+/// still holds a `claimed` receipt into a failure, never a silent success.
+#[tokio::test]
+async fn a_commit_with_an_unfinalized_claim_fails() {
+    use orgtree_store::fake::FakeConnector;
+    use orgtree_store::{Session, Val};
+    let db = FakeDb::new();
+    let mut s = <FakeConnector as orgtree_store::Connector>::connect(&FakeConnector { db: db.clone() }).await.unwrap();
+    s.begin(orgtree_store::Isolation::ReadCommitted).await.unwrap();
+    let b = binding("k9", "fp");
+    let p = vec![
+        Val::Uuid(b.op.org), Val::text("agent"), Val::Uuid(agent()), Val::text("k9"), Val::Uuid(orgtree_store::Uuid::new_v4()),
+        Val::text("test"), Val::text("v"), Val::text("fp"), Val::text("legacy-1"), Val::text("agent"), Val::Null, Val::Null, Val::Null, Val::Null,
+    ];
+    s.exec("receipt.claim", "", &p).await.unwrap();
+    let e = s.commit().await.unwrap_err();
+    assert_eq!(e.sqlstate(), Some("OT001"));
+    assert!(db.receipts().is_empty());
 }
 
 /// Q-C4 core (pure): inject 40001 and 40P01 at every statement and at
