@@ -119,6 +119,19 @@ async fn control_late_receipt_skips_the_claim() {
     assert!(pos("fake.insert:rows") < pos("receipt.late_insert"));
 }
 
+/// Q-QS2 control (S3 §7.4): the same late-receipt path, recording its OWN id.
+#[tokio::test]
+async fn control_qs2_late_receipt_skips_the_claim_under_its_own_id() {
+    let db = FakeDb::new();
+    let (h, c) = armed(&["Q-QS2.late_receipt"]);
+    let ex = exec_with(&db, h);
+    ex.run(&InsertOne::new(), &binding("k1", "fp1")).await.unwrap();
+    assert!(c.has("control_executed:Q-QS2.late_receipt"));
+    assert!(!c.has("control_executed:Q-RL1.late_receipt_separate_fence"), "Q-QS2 must not be recorded as Q-RL1");
+    assert_eq!(db.count("receipt.claim"), 0);
+    assert_eq!(db.count("receipt.late_insert"), 1);
+}
+
 // ---- pause hooks
 
 struct Script {

@@ -17,7 +17,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::exec::Isolation;
-use crate::receipts::{CLAIM_LABEL, FENCE_LABEL, FINALIZE_LABEL, LATE_INSERT_LABEL, READ_LABEL};
+use crate::receipts::{CLAIM_LABEL, FENCE_LABEL, FINALIZE_LABEL, LATE_INSERT_LABEL, READMIT_LABEL, READ_LABEL};
 use crate::session::{Connector, DbError, Session};
 use crate::value::{Rows, Val};
 
@@ -248,6 +248,19 @@ impl Session for FakeSession {
                         r.state = "applied".into();
                         r.result = params[4].as_json().cloned();
                         Ok(Rows::one(vec![Val::Uuid(r.receipt_id)]))
+                    }
+                    _ => Ok(Rows::empty()),
+                }
+            }
+            l if l == READMIT_LABEL => {
+                let k = key_of(params);
+                let fp = params[4].as_text().map(str::to_string);
+                let current = self.pending.get(&k).cloned().or_else(|| self.db.st.lock().unwrap().receipts.get(&k).cloned());
+                match current {
+                    Some(r) if r.state == "compensated" && r.fingerprint == fp => {
+                        let rid = r.receipt_id;
+                        self.pending.insert(k, FakeReceipt { state: "claimed".into(), result: None, ..r });
+                        Ok(Rows::one(vec![Val::Uuid(rid)]))
                     }
                     _ => Ok(Rows::empty()),
                 }

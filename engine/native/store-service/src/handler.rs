@@ -22,6 +22,7 @@ pub const CONTROLS: &[&str] = &[
     "Q-C4.retry_any_23505",
     "Q-C4.effects_before_commit",
     "Q-RL1.late_receipt_separate_fence",
+    "Q-QS2.late_receipt",
     "Q-RL3.skip_inflight_check",
     "Q-C5.hidden_pooled_statement",
     "Q-C1.org_wide_lock",

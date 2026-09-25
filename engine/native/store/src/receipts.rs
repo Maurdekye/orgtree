@@ -14,6 +14,7 @@ pub const READ_LABEL: &str = "receipt.read";
 pub const FINALIZE_LABEL: &str = "receipt.finalize";
 pub const LATE_INSERT_LABEL: &str = "receipt.late_insert";
 pub const FENCE_LABEL: &str = "receipt.fence";
+pub const READMIT_LABEL: &str = "receipt.readmit";
 pub const INFLIGHT_INSERT_LABEL: &str = "inflight.insert";
 pub const INFLIGHT_DELETE_LABEL: &str = "inflight.delete";
 pub const INFLIGHT_LIVE_LABEL: &str = "inflight.live";
@@ -35,7 +36,13 @@ pub const FINALIZE_SQL: &str = "UPDATE operation_receipts \
     WHERE org_id = $1 AND ns_kind = $2 AND ns_id = $3 AND op_key = $4 AND state = 'claimed' \
     RETURNING receipt_id";
 
-/// Unsafe control `Q-RL1.late_receipt_separate_fence` only: the receipt
+/// S3 §4.10: a compensated receipt moves back to `claimed` under the same
+/// key, for the same fingerprint only (a command that opts in with
+/// `Command::readmit_compensated`). Waits on a racing re-admission; after it
+/// commits, matches nothing.
+pub const READMIT_SQL: &str = "UPDATE operation_receipts     SET state = 'claimed', result = NULL, decided_at = NULL     WHERE org_id = $1 AND ns_kind = $2 AND ns_id = $3 AND op_key = $4       AND state = 'compensated' AND fingerprint = $5     RETURNING receipt_id";
+
+/// Unsafe controls `Q-RL1.late_receipt_separate_fence` and `Q-QS2.late_receipt` only: the receipt
 /// written at the END, as a plain insert, with no earlier claim.
 pub const LATE_INSERT_SQL: &str = "INSERT INTO operation_receipts \
     (org_id, ns_kind, ns_id, op_key, receipt_id, state, family, verb, fingerprint, fingerprint_codec, \
@@ -102,6 +109,14 @@ pub async fn late_insert<S: Session>(tx: &mut Tx<'_, S>, b: &Binding, family: &s
     p.push(Val::Json(result));
     let rows = tx.exec(LATE_INSERT_LABEL, LATE_INSERT_SQL, &p).await?;
     Ok(!rows.is_empty())
+}
+
+/// Returns true when the compensated row was re-admitted by this attempt.
+pub async fn readmit<S: Session>(tx: &mut Tx<'_, S>, op: &OpIdentity) -> Result<bool, DbError> {
+    let mut p: Vec<Val> = key_params(op).into();
+    p.push(Val::text(op.fingerprint.clone()));
+    let rows = tx.exec(READMIT_LABEL, READMIT_SQL, &p).await?;
+    Ok(rows.len() == 1)
 }
 
 pub async fn finalize<S: Session>(tx: &mut Tx<'_, S>, op: &OpIdentity, result: Value) -> Result<bool, DbError> {

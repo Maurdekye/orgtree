@@ -253,6 +253,14 @@ pub trait Command: Send + Sync {
     fn causal_refs(&self) -> Vec<String> {
         Vec::new()
     }
+    /// S3 §4.10 (quick-staff undo): a later call with the SAME key and
+    /// fingerprint as a `compensated` receipt is admitted again as a fresh
+    /// attempt, the receipt moving from `compensated` back to `claimed` under
+    /// the same key. Default: a compensated receipt is replayed (every other
+    /// family).
+    fn readmit_compensated(&self) -> bool {
+        false
+    }
     /// Read set → decide → apply (C6).
     fn execute<S: Session>(&self, tx: &mut Tx<'_, S>, b: &Binding) -> impl Future<Output = Result<Decided<Self::Output>, CmdError>> + Send;
 }
@@ -815,12 +823,31 @@ impl<C: Connector> Executor<C> {
         }
         db!(tx.pause("after_anchor").await, false);
 
-        let late_receipt = controls::fire(&tx.scope(), "Q-RL1.late_receipt_separate_fence");
+        // Two unsafe controls share this path: Q-RL1's and Q-QS2's (S3 §7.4,
+        // "the receipt written at the END instead of first"). Each records
+        // its own id; the second is not evaluated when the first fires.
+        let late_receipt = controls::fire(&tx.scope(), "Q-RL1.late_receipt_separate_fence")
+            || controls::fire(&tx.scope(), "Q-QS2.late_receipt");
         if !late_receipt {
             claimed = db!(receipts::claim(&mut tx, b, family.name, cmd.verb()).await, true);
+            let mut stored = None;
             if !claimed {
-                // A committed row exists under this key: never execute again.
-                let stored = db!(receipts::read(&mut tx, &b.op).await, false);
+                // A committed row exists under this key: never execute again
+                // (except a re-admitted compensated receipt, S3 §4.10).
+                stored = db!(receipts::read(&mut tx, &b.op).await, false);
+                if cmd.readmit_compensated()
+                    && matches!(&stored, Some(s) if s.state == "compensated" && s.fingerprint.as_deref() == Some(b.op.fingerprint.as_str()))
+                {
+                    if db!(receipts::readmit(&mut tx, &b.op).await, true) {
+                        claimed = true;
+                    } else {
+                        // A racer re-admitted it first and has committed:
+                        // answer from what is there now.
+                        stored = db!(receipts::read(&mut tx, &b.op).await, false);
+                    }
+                }
+            }
+            if !claimed {
                 let outcome = match stored {
                     None => Err(ExecError::Defect("claim inserted nothing but no row is visible".into())),
                     Some(s) => match receipts::classify(&s, &b.op.fingerprint) {
@@ -988,6 +1015,9 @@ impl<C: Connector> Executor<C> {
                     Existing::Conflict => Resolution::Committed(Outcome::Conflict),
                     Existing::Fenced => Resolution::Committed(Outcome::Fenced),
                     Existing::Invalid(m) => Resolution::Fatal(ExecError::Defect(m)),
+                    // The in-doubt attempt re-admitted a compensated receipt
+                    // and did not commit: the row is still compensated.
+                    Existing::Compensated(_) if cmd.readmit_compensated() => Resolution::NotCommitted,
                     Existing::Replay(v) | Existing::Compensated(v) => {
                         let compensated = s.state == "compensated";
                         match serde_json::from_value::<Cmd::Output>(v) {
