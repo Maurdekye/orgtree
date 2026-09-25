@@ -202,6 +202,27 @@ def product_deny_locations(env: Mapping[str, str]) -> list[tuple[str, Path]]:
     return out
 
 
+def check_cutover_finished(root: Path, env: Mapping[str, str]) -> None:
+    """A cutover record choosing postgres with SQLite/JSON files still in
+    ``orgs/`` is a cutover that stopped between writing the record and moving
+    the old files (PG-2 writes the record first on purpose). Refuse, and say
+    exactly how to finish it or roll it back."""
+    record = read_cutover(root)
+    if record is None or record.get("backend") != "postgres":
+        return
+    orgs = root / "orgs"
+    left = sorted(p.name for p in orgs.iterdir() if p.is_file() and not p.name.endswith(".pg"))         if orgs.is_dir() else []
+    if left:
+        custodian = env.get(CUSTODIAN_ENV, "").strip() or "<pg-custodian.exe>"
+        shown = ", ".join(left[:10]) + (f" (+{len(left) - 10} more)" if len(left) > 10 else "")
+        raise BracketError(
+            f"the cutover of {root} to PostgreSQL did not finish: orgs/ still holds {shown}. "
+            f"Finish it (with the engine stopped) by running: "
+            f"python tools/pypg/pgimport.py import --root \"{root}\" --custodian \"{custodian}\" "
+            f"-- it only moves the remaining files to pre-postgres/orgs. Or roll back: move "
+            f"pre-postgres/orgs back into orgs/ and delete {CUTOVER_FILE}.")
+
+
 def check_root(root: Path, env: Mapping[str, str]) -> str:
     """UNC/device paths lexically first (never touched); then PROTOTYPE mode
     (the marker, and no overlap with any unconditional live location) or
@@ -417,6 +438,7 @@ def start_for_engine(root: Path, env: MutableMapping[str, str], migrator: Migrat
             env.pop(CONNINFO_ENV, None)  # never a stale connection from a parent
             return None
         mode = check_root(root, env)
+        check_cutover_finished(root, env)
         custodian = _executable(env, CUSTODIAN_ENV)
         # The engine's per-boot desktop token is not the custodian's to see.
         child_env = {k: v for k, v in env.items() if k not in ("ORGTREE_V2_TOKEN", CONNINFO_ENV)}
