@@ -3109,6 +3109,7 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
                     changes.doc_upserts.append(k)
             dict.__setitem__(d, k, json.loads(default))
             new_doc[k] = default
+            items.append((k, json.loads(default)))   # into the recorded key order
     for k in known_doc - set(new_doc) - LAZY_SECTIONS - set(ROWED):
         if _ROW_CAS and snap_doc is not None and k in snap_doc:
             _cas(conn, "DELETE FROM doc WHERE key=? AND val=?",
