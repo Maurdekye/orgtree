@@ -331,12 +331,27 @@ class AgentTxTest(unittest.TestCase):
             release.wait(5)
             return self._body_fn(tx)
 
-        ts = [threading.Thread(target=lambda n=n: self.call(Body(node=n), fn=slow,
-                                                      spec=pgdoor.TxSpec()))
-              for n in (W, P)]
+        errs = []
+
+        def tool(n):
+            # record, never print: a thread traceback interleaves with the
+            # runner's summary and can hide which test failed
+            try:
+                self.call(Body(node=n), fn=slow, spec=pgdoor.TxSpec())
+            except Exception as e:
+                errs.append(e)
+
+        ts = [threading.Thread(target=tool, args=(n,)) for n in (W, P)]
         for t in ts:
             t.start()
-        inside.wait()                    # BOTH tools are inside at once
+        try:
+            inside.wait()                # BOTH tools are inside at once
+        except threading.BrokenBarrierError:
+            release.set()
+            for t in ts:
+                t.join(5)
+            self.fail(f'the two tools never overlapped: they queued on a '
+                      f'shared row (tool errors: {errs!r})')
         latched = {}
 
         def latch():
@@ -350,6 +365,7 @@ class AgentTxTest(unittest.TestCase):
         release.set()
         for t in ts + [lt]:
             t.join(5)
+        self.assertEqual(errs, [])
         self.assertEqual(latched['x_seen'], 2)       # latch ran after both
         with self.assertRaisesRegex(LedgerError, 'killswitch'):
             self.call()
