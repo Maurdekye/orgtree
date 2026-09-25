@@ -21397,8 +21397,10 @@ def _run_one_turn_recorded(slug: str, nid: str,
                         if (not ev.get("is_error")
                                 and cache_attempt is not None):
                             try:
-                                with store.DOC_LOCK:
-                                    _co = store.load_org(slug)
+                                # PG-3e-A: one halt transaction on the
+                                # agent's row (occupancy + cache receipt).
+                                with halt.txn(slug, nodes=[nid]) as _co_tx:
+                                    _co = _co_tx.org
                                     if nid in _co.nodes:
                                         if turn_occ:
                                             _co.node(nid)["occupancy"] = turn_occ
@@ -21424,7 +21426,6 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                             # ordinary follow-up admission
                                             # cheap-compacts before it drains.
                                             may_feed = False
-                                        store.save_org(_co)
                             except Exception as exc:            # noqa: BLE001
                                 print(f"[orgtree] {slug}/{nid}: boundary cache "
                                       f"reconciliation unavailable "
@@ -21576,8 +21577,22 @@ def _run_one_turn_recorded(slug: str, nid: str,
                         if nxt is not None:
                             bnd_inflight_event: dict[str, Any] | None = None
                             try:
-                                with store.DOC_LOCK:
-                                    o2 = store.load_org(slug)
+                                # PG-3e-A: this boundary feed STARTS NEW WORK
+                                # in a running turn, so it re-checks halt on
+                                # the agent's row it holds FOR UPDATE (with the
+                                # killswitch FOR SHARE) in the same halt
+                                # transaction that records the input
+                                # (decision 2, RT5 arm iii). The in-memory
+                                # `halt_requested` pre-check above cannot see
+                                # a halt that committed but has not yet killed
+                                # this process.
+                                with halt.txn(
+                                        slug, nodes=[nid],
+                                        sections=["delivering"] if ntoks else [],
+                                        share_sections=[halt.KILLSWITCH]
+                                        ) as _bnd_tx:
+                                    o2 = _bnd_tx.org
+                                    _halt_check_locked(o2, nid)
                                     if nid in o2.nodes:
                                         ninf: InflightInfo = {
                                             "at": now_iso(), "text": nxt[-8000:]}
@@ -21599,22 +21614,31 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                         mailruntime.record_input(o2, nid, ntoks,
                                             attempt=turn_operation_id, base=nreplay_base, marker=ninf)
                                         o2.node(nid)["inflight"] = ninf
-                                        store.save_org(o2)
-                                        if not ncmd:
-                                            # Do not persist a changing usage
-                                            # board into inflight replay text.
-                                            # A resumed carrier gets a fresh
-                                            # board when it re-enters.
-                                            nusage_org = o2
-                                            # The mid-turn projection for THIS
-                                            # message, superseding the idle
-                                            # verdict streamed at the boundary
-                                            # a moment ago.
-                                            try:
-                                                bnd_inflight_event = \
-                                                    cache_forecast_public(o2, nid)
-                                            except Exception:    # noqa: BLE001
-                                                bnd_inflight_event = None
+                                if nid in o2.nodes:
+                                    if not ncmd:
+                                        # Do not persist a changing usage
+                                        # board into inflight replay text.
+                                        # A resumed carrier gets a fresh
+                                        # board when it re-enters.
+                                        nusage_org = o2
+                                        # The mid-turn projection for THIS
+                                        # message, superseding the idle
+                                        # verdict streamed at the boundary
+                                        # a moment ago.
+                                        try:
+                                            bnd_inflight_event = \
+                                                cache_forecast_public(o2, nid)
+                                        except Exception:    # noqa: BLE001
+                                            bnd_inflight_event = None
+                            except halt.Cancelled:
+                                # Halted at the boundary: no provider write.
+                                # The follow-up is kept whole for the halt's
+                                # capture, exactly as a missing input record
+                                # keeps it below, and the turn ends here.
+                                if ntoks:
+                                    with _state_lock:
+                                        mailruntime.hold_handoff(st, nboundary_carrier)
+                                raise
                             except Exception:                # noqa: BLE001
                                 if ntoks:
                                     # No provider write is allowed without durable input
