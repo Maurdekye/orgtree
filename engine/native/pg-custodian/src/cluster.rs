@@ -691,22 +691,7 @@ pub fn identify_at(layout: &Layout, instance: &InstanceRecord, runtime: &Runtime
     if !(id.server_version == instance.engine_version || id.server_version.starts_with(&format!("{} ", instance.engine_version))) {
         id.mismatches.push(format!("server_version {} != {}", id.server_version, instance.engine_version));
     }
-    // Readiness (v6/BUNDLED-DATABASE-SERVICE.md:84). The slot/sender budget
-    // is checked as "configured and finite"; publication allowlist and role
-    // privileges arrive with the role set (WS1 milestone 2).
-    let s = &id.settings;
-    let mut need = |cond: bool, msg: String| {
-        if !cond {
-            id.readiness_failures.push(msg);
-        }
-    };
-    need(s["max_prepared_transactions"] == "0", format!("max_prepared_transactions={} (must be 0)", s["max_prepared_transactions"]));
-    need(s["wal_level"] == "logical", format!("wal_level={} (must be logical)", s["wal_level"]));
-    need(s["listen_addresses"] == LOOPBACK, format!("listen_addresses={} (must be {LOOPBACK})", s["listen_addresses"]));
-    need(s["max_slot_wal_keep_size"] != "-1", "max_slot_wal_keep_size is unlimited (must be finite)".into());
-    need(s["max_wal_senders"].parse::<u32>().map(|n| n > 0).unwrap_or(false), format!("max_wal_senders={}", s["max_wal_senders"]));
-    need(s["max_replication_slots"].parse::<u32>().map(|n| n > 0).unwrap_or(false), format!("max_replication_slots={}", s["max_replication_slots"]));
-    need(s["password_encryption"] == "scram-sha-256", format!("password_encryption={}", s["password_encryption"]));
+    id.readiness_failures = readiness_failures(&id.settings);
 
     // Role privileges: exactly the attributes each role is meant to have.
     let roles = psql(
@@ -762,6 +747,30 @@ pub fn urls(root: &PrototypeRoot, runtime: &RuntimeRecord) -> Result<BTreeMap<St
         out.insert(var.to_string(), format!("postgresql://{role}:{pw}@{}:{}/{APP_DB}?sslmode=disable", runtime.host, runtime.port));
     }
     Ok(out)
+}
+
+/// Readiness settings (v6/BUNDLED-DATABASE-SERVICE.md:84), as reported by
+/// the server. The slot/sender budget is checked as "configured, non-zero and
+/// finite". Role privileges are checked by `identify_at`; the publication
+/// allowlist arrives with WS6's catalog. A missing setting is a failure.
+pub fn readiness_failures(s: &BTreeMap<String, String>) -> Vec<String> {
+    let get = |k: &str| s.get(k).map(String::as_str).unwrap_or("<missing>");
+    let mut out = Vec::new();
+    let mut need = |cond: bool, msg: String| {
+        if !cond {
+            out.push(msg);
+        }
+    };
+    let positive = |k: &str| get(k).parse::<u32>().map(|n| n > 0).unwrap_or(false);
+    need(get("max_prepared_transactions") == "0", format!("max_prepared_transactions={} (must be 0)", get("max_prepared_transactions")));
+    need(get("wal_level") == "logical", format!("wal_level={} (must be logical)", get("wal_level")));
+    need(get("listen_addresses") == LOOPBACK, format!("listen_addresses={} (must be {LOOPBACK})", get("listen_addresses")));
+    let keep = get("max_slot_wal_keep_size");
+    need(keep != "-1" && keep != "<missing>", format!("max_slot_wal_keep_size={keep} (must be finite)"));
+    need(positive("max_wal_senders"), format!("max_wal_senders={}", get("max_wal_senders")));
+    need(positive("max_replication_slots"), format!("max_replication_slots={}", get("max_replication_slots")));
+    need(get("password_encryption") == "scram-sha-256", format!("password_encryption={}", get("password_encryption")));
+    out
 }
 
 /// Identify the server the runtime record points at. Refuses unless the
