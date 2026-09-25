@@ -190,6 +190,10 @@ async fn work_names_active_first_then_the_legacy_corpus() {
 fn only_the_executor_can_build_a_tx() {
     let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/exec.rs")).unwrap();
     let body = &src[src.find("impl<'a, S: Session> Tx<'a, S> {").expect("the Tx impl")..];
+    // only the Tx impl block: it ends at the first unindented closing brace
+    let body = &body[..body.find("
+}").expect("the end of the Tx impl")];
+    assert!(body.contains("pub(crate) async fn begin("), "the Tx block was cut short; re-check this test");
     assert!(body.contains("pub(crate) fn new_internal("), "the constructor moved; re-check this test");
     for public in ["pub fn new_internal(", "pub fn new(", "pub async fn begin(", "pub(crate) fn new("] {
         assert!(!body.contains(public), "Tx gained `{public}`: a caller could run resolution outside the executor");
