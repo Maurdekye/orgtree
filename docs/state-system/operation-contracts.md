@@ -588,6 +588,19 @@ these routes. `desktop_policy.install_routes` filters route paths for `/git/`, b
 the included git router as one `_IncludedRouter` entry with no path, which the filter keeps. Entries contracted: 113 of
 187.
 
+744 is two more than that 742 (p01-inventory-misses-middleware-add-middleware-c). The scanner only saw middleware
+written as a decorator. It now also records `add_middleware` and `add_exception_handler` calls, and a decorator
+factory called directly (`app.middleware("http")(handler)` registers what `@app.middleware("http")` would). That
+adds five entry witnesses:
+- `InstanceStamp` (a response header) and `AccessRecord` (timing, census and the slow-request trace the
+  wrapper-writes facet states) are excluded;
+- the P03 door's `_Router` (`p03_door.py`) is excluded while it is inert: it passes every request through while
+  `SLICE_TOOLS` is empty, and a test fails once that set names a verb, because the door then becomes a second
+  `/api/agent` dispatch path;
+- `RecoveryBarrier` (every mutating request waits for startup recovery and gets 503 if it failed) and
+  `FrozenAdminBoundary` (a non-loopback, unbridged request is refused 403 under the frozen profile) stay pending
+  with the runtime as owner: they are request-wide admission predicates that no contract or shared facet states yet.
+
 Of the 41 open dimension occurrences on the sixteen legacy-family contracts, 25 (9 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the
 native-design citation; those figures were already stale after S2d, which left 45

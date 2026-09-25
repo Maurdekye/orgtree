@@ -1,6 +1,7 @@
 """Source contract checks and unsafe-control refusals; no live state or PG."""
 from __future__ import annotations
 
+import ast
 import contextlib
 import copy
 import io
@@ -74,7 +75,10 @@ class ContractCoverage(unittest.TestCase):
         # entry row are gone
         # 704 -> 742 (P01 F8): 21 entries and 4 dispatch witnesses mapped, 63 new open dimension occurrences
         # (conflicts, wire and instrumentation on each of 21 git-workspace contracts)
-        self.assertEqual(len(result["pending"]), 742)
+        # 742 -> 744 (p01-inventory-misses-middleware-add-middleware-c): the scan now sees middleware installed by
+        # add_middleware and by a direct decorator-factory call; of its 5 new entries the two request-wide
+        # admission layers (RecoveryBarrier, FrozenAdminBoundary) stay pending
+        self.assertEqual(len(result["pending"]), 744)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
@@ -253,12 +257,48 @@ class ContractCoverage(unittest.TestCase):
     LAUNCH_EXCLUDED = {("launch.py", 339), ("launch.py", 407), ("process_lifetime.py", 57),
                        ("service_host.py", 465)}
 
+    # p01-inventory-misses-middleware-add-middleware-c: middleware installed by a call, not a decorator
+    MIDDLEWARE_EXCLUDED = {("api.py", 679), ("api.py", 683), ("p03_door.py", 219)}
+    MIDDLEWARE_PENDING = {("api.py", 121), ("api.py", 680)}
+
+    def test_middleware_registrations_are_triaged(self):
+        registrations = {r["site_id"]: r for r in self.source["registrations"]}
+        rows = {r["id"]: r for r in self.document["entries"]}
+
+        def at(i):
+            return (registrations[i]["source"]["path"].rsplit("/", 1)[1], registrations[i]["source"]["line"])
+        found = {at(i): (registrations[i], r) for i, r in rows.items()
+                 if at(i) in self.MIDDLEWARE_EXCLUDED | self.MIDDLEWARE_PENDING}
+        self.assertEqual(set(found), self.MIDDLEWARE_EXCLUDED | self.MIDDLEWARE_PENDING)
+        item = "p01-inventory-misses-middleware-add-middleware-c"
+        for where, (site, r) in found.items():
+            with self.subTest(site=where):
+                if where in self.MIDDLEWARE_PENDING:
+                    self.assertEqual((r["disposition"], site["mechanism"]), ("pending", "app.add_middleware"))
+                    self.assertTrue(r["reason"].startswith("Stays pending (P01 item " + item + "): "), r["reason"])
+                    self.assertIn("Owner: ", r["reason"])
+                else:
+                    self.assertEqual(r["disposition"], "excluded")
+                    self.assertTrue(r["reason"].startswith("Not "), r["reason"])
+                    self.assertIn(item, r["reason"])
+        door = found[("p03_door.py", 219)][0]
+        self.assertEqual((door["kind"], door["method"], door["form"], door["target"]),
+                         ("hook", "middleware", "direct_call", "_Router(root)"))
+        # the door row is excluded only while the door is inert: once SLICE_TOOLS names a verb, _Router is a second
+        # /api/agent dispatch path and this row (and the contracts of the verbs it forwards) must be revisited
+        tree = ast.parse((ROOT / "engine/backend/orgtree/p03_door.py").read_text(encoding="utf-8-sig"))
+        [value] = [n.value for n in tree.body if isinstance(n, ast.AnnAssign)
+                   and isinstance(n.target, ast.Name) and n.target.id == "SLICE_TOOLS"]
+        self.assertEqual(ast.dump(value), ast.dump(ast.parse("frozenset()", mode="eval").body),
+                         "p03_door.SLICE_TOOLS names slice verbs: revisit the door's middleware entry row")
+
     def test_every_excluded_witness_belongs_to_a_reviewed_triage_step(self):
         # no exclusion outside S2k (storage) and W1/W2/W3/W8 (their review records hold the source reading)
         def where(source):
             return (source["path"].rsplit("/", 1)[1], source["line"])
         groups = {"entries": ({r["site_id"]: r["source"] for r in self.source["registrations"]},
-                              self.W1_EXCLUDED | self.W2_EXCLUDED | self.W3_EXCLUDED | self.LAUNCH_EXCLUDED),
+                              self.W1_EXCLUDED | self.W2_EXCLUDED | self.W3_EXCLUDED | self.LAUNCH_EXCLUDED
+                              | self.MIDDLEWARE_EXCLUDED),
                   "dispatch": ({contracts.witness_id("dispatch", r): r["source"]
                                 for r in self.source["dispatch_selectors"]}, self.W8_EXCLUDED),
                   "storage": ({contracts.witness_id("storage", r): r["source"]

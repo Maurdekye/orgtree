@@ -14,12 +14,12 @@
   },
   "summary": {
     "modules": 129,
-    "registration_sites": 334,
+    "registration_sites": 339,
     "registration_kinds": {
       "callback": 5,
-      "hook": 4,
+      "hook": 5,
       "http": 191,
-      "registration_call": 10,
+      "registration_call": 14,
       "task": 13,
       "tool": 47,
       "tool_catalog": 1,
@@ -582,6 +582,21 @@
       "resolution": "expression"
     },
     {
+      "site_id": "054b364f563eaf95d00eb9a4343c2c3ce0c6dc2eb7de843edae3d61455ca4e35",
+      "kind": "registration_call",
+      "source": {
+        "path": "engine/backend/orgtree/api.py",
+        "symbol": "<module>",
+        "line": 121,
+        "end_line": 121,
+        "syntax_sha256": "8dba14838f3378afc35cf83815bd17cafaf88fbc965f673824169102160c06f3"
+      },
+      "mechanism": "app.add_middleware",
+      "target": "startup.RecoveryBarrier",
+      "call_expression": "app.add_middleware(startup.RecoveryBarrier)",
+      "resolution": "expression"
+    },
+    {
       "site_id": "2c2afa85ab428a24d8960d93c7b82ca4250fe40708ea020a31369ba3d8053e79",
       "kind": "registration_call",
       "source": {
@@ -609,6 +624,51 @@
       "mechanism": "app.include_router",
       "target": "diagnostics_router",
       "call_expression": "app.include_router(diagnostics_router)",
+      "resolution": "expression"
+    },
+    {
+      "site_id": "7a371737cda89aeb205d1d7e30eff8256eb9ecd072c4c7694cad64319e42d1be",
+      "kind": "registration_call",
+      "source": {
+        "path": "engine/backend/orgtree/api.py",
+        "symbol": "<module>",
+        "line": 679,
+        "end_line": 679,
+        "syntax_sha256": "7e433179c37a5e7867c18ee75f306e85e607feee08faa4deda9f006eb0b93d19"
+      },
+      "mechanism": "app.add_middleware",
+      "target": "InstanceStamp",
+      "call_expression": "app.add_middleware(InstanceStamp)",
+      "resolution": "expression"
+    },
+    {
+      "site_id": "4b6088d7d07b48646feaa9631509cf90e3b782c9b59d9c1cd913a3c2b4ddc75f",
+      "kind": "registration_call",
+      "source": {
+        "path": "engine/backend/orgtree/api.py",
+        "symbol": "<module>",
+        "line": 680,
+        "end_line": 680,
+        "syntax_sha256": "474fc3a6cca9886de1a68f8507cd5abd94f07ebc95e2c21c17b9282b05b6fce3"
+      },
+      "mechanism": "app.add_middleware",
+      "target": "FrozenAdminBoundary",
+      "call_expression": "app.add_middleware(FrozenAdminBoundary)",
+      "resolution": "expression"
+    },
+    {
+      "site_id": "62320f511c44f17f2aa59621e047350864b32bae5e8cb103dc221d3ff58ee9e8",
+      "kind": "registration_call",
+      "source": {
+        "path": "engine/backend/orgtree/api.py",
+        "symbol": "<module>",
+        "line": 683,
+        "end_line": 683,
+        "syntax_sha256": "8923ee2ec38a004e48235354afe58894cc82e6e6a2be9d621bf6b2b2e4f8d84f"
+      },
+      "mechanism": "app.add_middleware",
+      "target": "AccessRecord",
+      "call_expression": "app.add_middleware(AccessRecord)",
       "resolution": "expression"
     },
     {
@@ -5469,6 +5529,27 @@
       "mechanism": "threading.Thread",
       "target": "_poller_loop",
       "resolution": "expression"
+    },
+    {
+      "site_id": "e7da5e27c54f34726832bf20aca1000d4804dd9763d93ed221e39fd53ead3a52",
+      "kind": "hook",
+      "source": {
+        "path": "engine/backend/orgtree/p03_door.py",
+        "symbol": "install",
+        "line": 219,
+        "end_line": 219,
+        "syntax_sha256": "766be361cd95c69a8322cf41d967cf004b0b4e50f17edd11729ab47665ddee52"
+      },
+      "receiver": "app",
+      "method": "middleware",
+      "selectors": [
+        "http"
+      ],
+      "selector_expression": "'http'",
+      "methods_expression": null,
+      "resolution": "literal",
+      "form": "direct_call",
+      "target": "_Router(root)"
     },
     {
       "site_id": "4e01d1c7e61b0943e6f8629c190eef7f8d19250785dd282dc8acb20de0a87d52",

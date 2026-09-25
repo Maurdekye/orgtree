@@ -1,6 +1,6 @@
 {
   "schema": "orgtree.state-operation-contracts/v1",
-  "source_inventory_sha256": "353eafa65fb3ff9e3b116ef89a3b077244b8b9606d256618a066e6cbc918b1a7",
+  "source_inventory_sha256": "8f8fbb0de1154ab721fd84659246b21980e5de4a1d8535f65fc003bf0a68c6e2",
   "qualification": {
     "runtime_census": false,
     "conversion_authorized": false
@@ -29378,6 +29378,92 @@
           "start": 11131,
           "end": 11131,
           "sha256": "ad6c9b74037509143ef60320f262494e519245b280929945107d68c8706150c9"
+        }
+      ]
+    },
+    {
+      "id": "054b364f563eaf95d00eb9a4343c2c3ce0c6dc2eb7de843edae3d61455ca4e35",
+      "disposition": "pending",
+      "contracts": [],
+      "reason": "Stays pending (P01 item p01-inventory-misses-middleware-add-middleware-c): the RecoveryBarrier middleware (startup.py) holds every HTTP request whose method is not GET, HEAD or OPTIONS, except the desktop shutdown route, until startup recovery finishes, and answers 503 (text/plain, the recovery error) when recovery failed or was cancelled. It is a request-wide admission predicate on every mutating route that no contract or shared facet states yet. Owner: the runtime (P08).",
+      "source_refs": []
+    },
+    {
+      "id": "7a371737cda89aeb205d1d7e30eff8256eb9ecd072c4c7694cad64319e42d1be",
+      "disposition": "excluded",
+      "contracts": [],
+      "reason": "Not org state: the InstanceStamp middleware only adds the X-Orgtree-Instance response header (this process's random id) and, on /api/ paths, Cache-Control no-store; it reads and writes no store. P01 item p01-inventory-misses-middleware-add-middleware-c.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 679,
+          "end": 679,
+          "sha256": "22ed1b81f1c4fab243877ceff4a0b42e8749f7c71ae9ee48e8acd8f0e5cf85e1"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 296,
+          "end": 325,
+          "sha256": "54ee8e10e6b10b6dc01bac76ec5730ce7901c8536948009bdcc2db1daab48ce1"
+        }
+      ]
+    },
+    {
+      "id": "4b6088d7d07b48646feaa9631509cf90e3b782c9b59d9c1cd913a3c2b4ddc75f",
+      "disposition": "pending",
+      "contracts": [],
+      "reason": "Stays pending (P01 item p01-inventory-misses-middleware-add-middleware-c): under a deployment policy without allow_admin_exposure, the FrozenAdminBoundary middleware refuses an HTTP or websocket request from a non-loopback client that the bridge gateway has not marked (no bridge_slug in the request scope) before any route runs: 403 JSON 'the frozen deployment profile exposes the admin API to loopback clients only', or websocket close 4403. It is a request-wide authority predicate that no contract or shared facet states yet. Owner: the runtime (P08).",
+      "source_refs": []
+    },
+    {
+      "id": "62320f511c44f17f2aa59621e047350864b32bae5e8cb103dc221d3ff58ee9e8",
+      "disposition": "excluded",
+      "contracts": [],
+      "reason": "Not an operation: the AccessRecord middleware times every HTTP request, binds the request-profiling and census context, prints one access line and keeps in-memory profile and census windows. Its one durable write is the slow-request trace, already stated in the wrapper-writes facet; it reads and writes no org store. P01 item p01-inventory-misses-middleware-add-middleware-c.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 683,
+          "end": 683,
+          "sha256": "eb52e7bba99fa28505f4f1545bb712fe637e47156807d4f35df6fbcb0ad8e237"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 412,
+          "end": 529,
+          "sha256": "32b6bdd0cb6c25046c0837b426e64b10f37f13f6b4228727b1d32d06af664032"
+        }
+      ]
+    },
+    {
+      "id": "e7da5e27c54f34726832bf20aca1000d4804dd9763d93ed221e39fd53ead3a52",
+      "disposition": "excluded",
+      "contracts": [],
+      "reason": "Not an operation while inert (P01 item p01-inventory-misses-middleware-add-middleware-c): p03_door.install registers _Router as HTTP middleware only when ORGTREE_P03_PROTOTYPE_ROOT names a marked prototype root, and _Router passes every request through unchanged while SLICE_TOOLS is empty (M1). A slice verb makes it a second /api/agent dispatch path, so this row must be revisited then: the contracts test fails while SLICE_TOOLS is non-empty and this row is excluded.",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/p03_door.py",
+          "start": 219,
+          "end": 219,
+          "sha256": "4d98581207361d72ad94345b31d684d5f07f783a4b0bd29737e842e4f20619ab"
+        },
+        {
+          "path": "engine/backend/orgtree/p03_door.py",
+          "start": 213,
+          "end": 220,
+          "sha256": "d6cb209ca9923797875700176dfb17de5742918c73e7b40339566d9ec289efec"
+        },
+        {
+          "path": "engine/backend/orgtree/p03_door.py",
+          "start": 223,
+          "end": 235,
+          "sha256": "5e48e4c31703710d7ac0687258f0748f20f6cbca6c281682ae0c0a85b7a7e172"
+        },
+        {
+          "path": "engine/backend/orgtree/p03_door.py",
+          "start": 48,
+          "end": 48,
+          "sha256": "4484645d9c1efc389b85c34145fca3a4e6990650d437c0cf53bd0fdd31d8a59e"
         }
       ]
     }

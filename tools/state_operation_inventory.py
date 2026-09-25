@@ -21,7 +21,12 @@ SCHEMA = "orgtree.state-operation-inventory/v1"
 METHODS = {"get", "post", "put", "patch", "delete", "head", "options", "trace"}
 HOOKS = {"on_event", "middleware", "exception_handler"}
 REGISTRATION_CALLS = {"add_api_route", "add_route", "add_websocket_route",
-                      "add_event_handler", "include_router", "mount"}
+                      "add_event_handler", "include_router", "mount",
+                      # middleware and handlers installed by a call rather than a decorator (P01 item
+                      # p01-inventory-misses-middleware-add-middleware-c)
+                      "add_middleware", "add_exception_handler"}
+# the route and hook decorator factories: `@app.get("/p")` and `app.get("/p")(f)` register the same thing
+ROUTE_FACTORIES = METHODS | {"api_route", "websocket"} | HOOKS
 # Matched on the CALL NAME, like every other name in this pass: the receiver
 # is recorded in `mechanism` rather than used to accept or reject a site.
 # `to_thread` is asyncio's worker hand-off. `anyio.to_thread.run_sync` is a
@@ -162,21 +167,26 @@ class ModuleInventory(ast.NodeVisitor):
     def visit_FunctionDef(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         self.scope.append(node.name)
         for decorator in node.decorator_list:
-            if not isinstance(decorator, ast.Call) or not isinstance(decorator.func, ast.Attribute):
-                continue
-            method = decorator.func.attr
-            if method in METHODS | {"api_route", "websocket"} | HOOKS:
-                selector = argument(decorator, "path", 0)
-                values = literal_strings(selector)
-                self.registration(
-                    "http" if method in METHODS | {"api_route"} else
-                    "websocket" if method == "websocket" else "hook",
-                    decorator, receiver=expression(decorator.func.value), method=method,
-                    selectors=values, selector_expression=expression(selector),
-                    methods_expression=expression(argument(decorator, "methods")),
-                    resolution="literal" if values is not None else "unresolved")
+            if (isinstance(decorator, ast.Call) and isinstance(decorator.func, ast.Attribute)
+                    and decorator.func.attr in ROUTE_FACTORIES):
+                self.route(decorator)
         self.generic_visit(node)
         self.scope.pop()
+
+    def route(self, factory: ast.Call, **direct) -> None:
+        """One route or hook registration from its decorator-factory call, e.g. `app.get("/p")` or
+        `app.middleware("http")`. `direct` carries the extra facts of the call form `app.middleware("http")(f)`;
+        the decorator form adds none, so its site ids do not depend on this form existing."""
+        method = factory.func.attr
+        selector = argument(factory, "path", 0)
+        values = literal_strings(selector)
+        self.registration(
+            "http" if method in METHODS | {"api_route"} else
+            "websocket" if method == "websocket" else "hook",
+            factory, receiver=expression(factory.func.value), method=method,
+            selectors=values, selector_expression=expression(selector),
+            methods_expression=expression(argument(factory, "methods")),
+            resolution="literal" if values is not None else "unresolved", **direct)
 
     visit_AsyncFunctionDef = visit_FunctionDef
 
@@ -250,6 +260,10 @@ class ModuleInventory(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
+        if (isinstance(node.func, ast.Call) and isinstance(node.func.func, ast.Attribute)
+                and node.func.func.attr in ROUTE_FACTORIES):
+            # the decorator factory called directly: app.middleware("http")(handler)
+            self.route(node.func, form="direct_call", target=expression(positional(node, 0)))
         name = self.name(node.func)
         method = name.rsplit(".", 1)[-1]
         if name in {"threading.Thread", "threading.Timer"}:
@@ -261,6 +275,7 @@ class ModuleInventory(ast.NodeVisitor):
                 "add_api_route": ("endpoint", 1), "add_route": ("endpoint", 1),
                 "add_websocket_route": ("endpoint", 1), "add_event_handler": ("func", 1),
                 "include_router": ("router", 0), "mount": ("app", 1),
+                "add_middleware": ("middleware_class", 0), "add_exception_handler": ("handler", 1),
                 "create_task": ("coro", 0), "ensure_future": ("coro_or_future", 0),
                 "run_in_executor": ("func", 1), "submit": ("fn", 0),
                 "call_soon": ("callback", 0), "call_soon_threadsafe": ("callback", 0),

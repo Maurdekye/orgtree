@@ -189,6 +189,30 @@ async def read(function):
         self.assertEqual([r for r in result["registrations"] if r["kind"] == "task"], [])
         self.assertEqual(result["summary"]["modules"], 1)
 
+    def test_middleware_and_direct_factory_calls_are_registrations(self):
+        # p01-inventory-misses-middleware-add-middleware-c: installing middleware or a handler by a CALL registers
+        # the same thing its decorator form does
+        self.source('''
+app.add_middleware(Stamp)
+app.add_exception_handler(ValueError, on_value_error)
+app.middleware("http")(Router(root))
+app.get("/direct")(handler)
+@app.middleware("http")
+async def decorated(request, call_next): pass
+''')
+        rows = self.scan()["registrations"]
+        self.assertEqual([(r["kind"], r.get("mechanism") or r.get("method"), r.get("target"), r.get("form"))
+                          for r in rows],
+                         [("registration_call", "app.add_middleware", "Stamp", None),
+                          ("registration_call", "app.add_exception_handler", "on_value_error", None),
+                          ("hook", "middleware", "Router(root)", "direct_call"),
+                          ("http", "get", "handler", "direct_call"),
+                          ("hook", "middleware", None, None)])
+        self.assertEqual(rows[3]["selectors"], ["/direct"])
+        # the decorator form carries no form fact, so its site ids are what they were before the call form counted
+        self.assertNotIn("form", rows[4])
+        self.assertEqual(len({r["site_id"] for r in rows}), 5)
+
     def test_registration_targets_are_endpoints_not_route_names(self):
         self.source('''
 app.router.add_event_handler("shutdown", scheduler.stop)
@@ -328,7 +352,9 @@ def b():
         # 342 -> 335: the external-chat retirement (docket the-external-chat-mcp-server-cannot-reach-the-v2) removes
         # the three /api/extern routes and externtool.py's four tool cards
         # 335 -> 334: the retirement's second stage removes the external-chat handle sweeper's worker
-        self.assertEqual(summary["registration_sites"], 334)
+        # 334 -> 339: p01-inventory-misses-middleware-add-middleware-c sees api.py's four add_middleware calls and
+        # p03_door's app.middleware("http")(_Router(root))
+        self.assertEqual(summary["registration_sites"], 339)
         self.assertEqual(summary["registration_kinds"]["task"], 13)
         self.assertEqual((summary["registration_kinds"]["tool"], summary["registration_kinds"]["tool_verb"],
                           summary["unresolved_tool_refs"]), (47, 7, 0))
