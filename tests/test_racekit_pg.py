@@ -117,6 +117,7 @@ class RaceKitPg(unittest.TestCase):
         ACCESS EXCLUSIVE table lock held by another session) is waiting,
         but not on a row lock; blocked() must refuse it."""
         import psycopg
+        self.bump('b')        # heal the new org first: A's only session is then its tx
         other = psycopg.connect(URL)
         try:
             oid = other.execute('SELECT org_id FROM public.orgs WHERE slug = %s',
