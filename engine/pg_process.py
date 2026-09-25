@@ -14,19 +14,35 @@ It reuses WS1's ``pg-custodian`` binary for everything that touches the
 cluster (quarantined init, identity-checked attach, handle-pinned stop); this
 module only orders the calls and hands the engine a connection string.
 
-WHEN IT ACTS. Only when ``ORGTREE_STORE`` is ``postgres``. Then
+WHEN IT ACTS (plan decision 18.1). Only when the CHOSEN backend is
+postgres, chosen in this order: ``ORGTREE_STORE`` from the environment;
+otherwise ``<root>/store-backend.json`` (written only by the PG-2 cutover);
+otherwise SQLite. So without a cutover record the engine starts on SQLite
+exactly as before and this module does nothing. When the file chooses
+postgres the bracket also sets ``ORGTREE_STORE=postgres`` for the engine, so
+the store cannot disagree. A cutover record that does not parse, or names a
+backend we do not know, REFUSES rather than guessing. Once postgres is chosen,
 ``ORGTREE_PG_CUSTODIAN`` must name an existing absolute executable (no PATH
 lookup, no fallback) and the data root must pass the checks below, or the
 engine does not start. There is never a fallback to SQLite: a postgres store
 without a database is a refusal (a raise, plus one Windows Application
 event-log line, because the desktop discards the engine's stderr).
 
-SAFETY (PG-1 scope: copied or synthetic roots only). The root must carry
-WS1's prototype marker and lie outside every unconditional live location in
-the shared list (``engine/native/prototype-guard/live-locations.json``); the
-custodian re-checks all of it (marker binding, junctions, UNC) in Rust. So
-this cannot run against the user's real data root: how the real root is
-unlocked after the PG-2 cutover is a separate ruling.
+SAFETY. A root is served in one of two modes, and anything else refuses:
+
+* PROTOTYPE: the root carries WS1's prototype marker and lies outside every
+  unconditional live location in the shared list
+  (``engine/native/prototype-guard/live-locations.json``).
+* PRODUCT (decision 18.1): the root is the engine's own ``ORGTREE_DATA``,
+  its cutover record chooses postgres, it carries the custodian's product
+  binding (``orgtree-product-root.json``, written by ``pg-custodian
+  bind-product`` at the PG-2 import), and it lies clear of the agent
+  variables and the installed app (``PRODUCT_DENY``). An agent session names
+  the live data in ``ORGTREE_AGENT_PARENT_DATA``, so no agent can run this
+  mode on it. The custodian is then called with ``--product``.
+
+In both modes the custodian re-checks everything (binding, junctions, UNC)
+in Rust, and refuses destroy/restore on a product root.
 
 CONNECTION. The engine receives ``ORGTREE_PG_CONNINFO`` (the runtime role,
 libpq keyword form) in its own environment. It names the cluster's owner-only
@@ -56,6 +72,14 @@ STORE_ENV = "ORGTREE_STORE"
 CUSTODIAN_ENV = "ORGTREE_PG_CUSTODIAN"
 CONNINFO_ENV = "ORGTREE_PG_CONNINFO"
 MARKER_FILE = "orgtree-p03-prototype-root.json"
+PRODUCT_FILE = "orgtree-product-root.json"
+CUTOVER_FILE = "store-backend.json"
+CUTOVER_SCHEMA = "orgtree.store-backend/v1"
+BACKENDS = ("sqlite", "postgres", "json")
+#: The shared-list labels a PRODUCT root must stay clear of; the same list as
+#: ``PRODUCT_DENY`` in the Rust guard (a test compares them).
+PRODUCT_DENY = ("ORGTREE_AGENT_PARENT_DATA", "ORGTREE_AGENT_LEGACY_DATA",
+                "%ProgramFiles%\\Orgtree", "%LOCALAPPDATA%\\Programs\\Orgtree")
 RUNTIME_ROLE = "orgtree_runtime"
 DATABASE = "orgtree"
 _ENGINE = Path(__file__).resolve().parent
@@ -76,8 +100,41 @@ class BracketError(RuntimeError):
     """The engine must not start."""
 
 
-def wanted(env: Mapping[str, str]) -> bool:
-    return env.get(STORE_ENV, "").strip().lower() == "postgres"
+def read_cutover(root: Path) -> dict[str, Any] | None:
+    """The cutover record, or None when there is none. A record that exists
+    but does not parse, or is not ours, refuses: guessing SQLite would hide
+    every write made on PostgreSQL since the cutover."""
+    path = root / CUTOVER_FILE
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise BracketError(f"cannot read the cutover record {path}: {exc}") from exc
+    try:
+        record = json.loads(text)
+    except ValueError as exc:
+        raise BracketError(f"the cutover record {path} is not valid JSON: {exc}") from exc
+    if not isinstance(record, dict) or record.get("schema") != CUTOVER_SCHEMA:
+        raise BracketError(f"the cutover record {path} is not a {CUTOVER_SCHEMA} record")
+    if record.get("backend") not in BACKENDS:
+        raise BracketError(f"the cutover record {path} names an unknown backend {record.get('backend')!r}")
+    return record
+
+
+def chosen_backend(root: Path, env: Mapping[str, str]) -> str:
+    """Decision 18.1: ``ORGTREE_STORE``, else the cutover record, else sqlite."""
+    explicit = env.get(STORE_ENV, "").strip().lower()
+    if explicit:
+        return explicit
+    record = read_cutover(root)
+    return str(record["backend"]) if record is not None else "sqlite"
+
+
+def wanted(env: Mapping[str, str], root: Path | None = None) -> bool:
+    if root is None:
+        return env.get(STORE_ENV, "").strip().lower() == "postgres"
+    return chosen_backend(root, env) == "postgres"
 
 
 # ---------------------------------------------------------------- the root check
@@ -115,20 +172,58 @@ def live_locations(env: Mapping[str, str]) -> list[tuple[str, Path]]:
     return out
 
 
-def check_root(root: Path, env: Mapping[str, str]) -> None:
-    """UNC/device paths lexically first (never touched), then the marker, then
-    the live-location overlap, typed and resolved."""
-    if str(root).replace("/", "\\").startswith("\\\\"):
-        raise BracketError(f"refusing {root}: UNC and device paths are never served by the private database")
-    if not (root / MARKER_FILE).is_file():
-        raise BracketError(f"{STORE_ENV}=postgres, but {root} is not a disposable prototype root "
-                           f"(no {MARKER_FILE}); the real data root is not unlocked yet")
-    candidates = {_canon(root), str(root).replace("/", "\\").casefold().rstrip("\\")}
-    for label, loc in live_locations(env):
-        for form in {_canon(loc), str(loc).replace("/", "\\").casefold().rstrip("\\")}:
-            for c in candidates:
+def _forms(path: Path) -> set[str]:
+    return {_canon(path), str(path).replace("/", "\\").casefold().rstrip("\\")}
+
+
+def _refuse_overlap(root: Path, locations: list[tuple[str, Path]]) -> None:
+    for label, loc in locations:
+        for form in _forms(loc):
+            for c in _forms(root):
                 if _within(c, form) or _within(form, c):
                     raise BracketError(f"refusing to serve {root}: it overlaps protected location {label} ({loc})")
+
+
+def product_deny_locations(env: Mapping[str, str]) -> list[tuple[str, Path]]:
+    """``PRODUCT_DENY`` resolved from the shared list; a missing label fails
+    closed."""
+    try:
+        spec = json.loads(LIVE_LOCATIONS.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise BracketError(f"cannot read the shared live-location list {LIVE_LOCATIONS}: {exc}") from exc
+    out = []
+    for label in PRODUCT_DENY:
+        loc = next((x for x in spec.get("locations", []) if x.get("label") == label), None)
+        if loc is None:
+            raise BracketError(f"the shared live-location list has no {label!r}")
+        base = next((env[k].strip() for k in loc["base_env"] if env.get(k, "").strip()), None)
+        if base:
+            out.append((label, Path(base).joinpath(*loc["parts"])))
+    return out
+
+
+def check_root(root: Path, env: Mapping[str, str]) -> str:
+    """UNC/device paths lexically first (never touched); then PROTOTYPE mode
+    (the marker, and no overlap with any unconditional live location) or
+    PRODUCT mode (see the module doc). Returns "prototype" or "product"."""
+    if str(root).replace("/", "\\").startswith("\\\\"):
+        raise BracketError(f"refusing {root}: UNC and device paths are never served by the private database")
+    if (root / MARKER_FILE).is_file():
+        _refuse_overlap(root, live_locations(env))
+        return "prototype"
+    data = env.get("ORGTREE_DATA", "").strip()
+    if not data or _canon(Path(data)) != _canon(root):
+        raise BracketError(f"postgres is chosen, but {root} is neither a disposable prototype root "
+                           f"(no {MARKER_FILE}) nor the engine's own ORGTREE_DATA")
+    record = read_cutover(root)
+    if record is None or record.get("backend") != "postgres":
+        raise BracketError(f"postgres is chosen, but {root} has no cutover record choosing it "
+                           f"({CUTOVER_FILE}); the engine's own data root is served only after the PG-2 cutover")
+    if not (root / PRODUCT_FILE).is_file():
+        raise BracketError(f"{root} was cut over but has no product binding ({PRODUCT_FILE}); "
+                           "run `pg-custodian bind-product` (the PG-2 import does)")
+    _refuse_overlap(root, product_deny_locations(env))
+    return "product"
 
 
 def _executable(env: Mapping[str, str], name: str) -> Path:
@@ -168,10 +263,11 @@ def _run_custodian(exe: Path, args: list[str], env: Mapping[str, str], timeout: 
     return value
 
 
-def database_up(exe: Path, root: Path, env: Mapping[str, str], workdir: Path) -> dict[str, Any]:
+def database_up(exe: Path, root: Path, env: Mapping[str, str], workdir: Path,
+                product: bool = False) -> dict[str, Any]:
     """Init if absent, start if stopped, ATTACH (strictly) if already running.
     Never a second instance, never trust a port or pid alone."""
-    r = ["--root", str(root)]
+    r = ["--root", str(root)] + (["--product"] if product else [])
     status = _run_custodian(exe, ["status", *r], env, STATUS_TIMEOUT, workdir)
     if not status.get("ok"):
         raise BracketError(f"pg-custodian status refused: {status.get('code')}: {status.get('message')}")
@@ -198,8 +294,10 @@ def database_up(exe: Path, root: Path, env: Mapping[str, str], workdir: Path) ->
     return {"action": outcome, "runtime": attach["runtime"]}
 
 
-def database_down(exe: Path, root: Path, env: Mapping[str, str], workdir: Path) -> dict[str, Any]:
-    return _run_custodian(exe, ["stop", "--root", str(root)], env, STOP_TIMEOUT, workdir)
+def database_down(exe: Path, root: Path, env: Mapping[str, str], workdir: Path,
+                  product: bool = False) -> dict[str, Any]:
+    return _run_custodian(exe, ["stop", "--root", str(root)] + (["--product"] if product else []),
+                          env, STOP_TIMEOUT, workdir)
 
 
 def _quote(value: str) -> str:
@@ -276,8 +374,8 @@ def record_refusal(reason: str, root: Path) -> bool:
 # ---------------------------------------------------------------- the bracket
 
 class ManagedPostgres:
-    def __init__(self, root: Path, env: Mapping[str, str], custodian: Path) -> None:
-        self.root, self.env, self.custodian = root, dict(env), custodian
+    def __init__(self, root: Path, env: Mapping[str, str], custodian: Path, product: bool = False) -> None:
+        self.root, self.env, self.custodian, self.product = root, dict(env), custodian, product
         self.workdir = root / "host-logs" / f"{time.strftime('%Y%m%dT%H%M%S')}-{os.getpid()}"
         self.workdir.mkdir(parents=True, exist_ok=True)
         self.database: dict[str, Any] | None = None
@@ -285,7 +383,7 @@ class ManagedPostgres:
         self.conninfo = ""
 
     def start(self, migrator: Migrator | None) -> "ManagedPostgres":
-        self.database = database_up(self.custodian, self.root, self.env, self.workdir)
+        self.database = database_up(self.custodian, self.root, self.env, self.workdir, self.product)
         try:
             runtime = self.database["runtime"]
             admin = conninfo(runtime, str(runtime.get("admin_role") or ""), "orgtree-migrate") \
@@ -303,28 +401,29 @@ class ManagedPostgres:
         """Stop the database this bracket started or attached. Idempotent."""
         report: dict[str, Any] = {}
         if self.database is not None:
-            down = database_down(self.custodian, self.root, self.env, self.workdir)
+            down = database_down(self.custodian, self.root, self.env, self.workdir, self.product)
             report["database_stop"] = {k: down.get(k) for k in ("ok", "code", "message")}
             self.database = None
         return report
 
 
 def start_for_engine(root: Path, env: MutableMapping[str, str], migrator: Migrator | None = None) -> ManagedPostgres | None:
-    """launch.py's entry point. None = inert (``ORGTREE_STORE`` is not
-    postgres). On success sets ``ORGTREE_PG_CONNINFO`` in ``env``. Raises
-    BracketError (after writing the event-log line) when the engine must not
-    start."""
-    if not wanted(env):
-        env.pop(CONNINFO_ENV, None)  # never a stale connection from a parent
-        return None
+    """launch.py's entry point. None = inert (the chosen backend is not
+    postgres). On success sets ``ORGTREE_PG_CONNINFO`` (and, when the cutover
+    record chose postgres, ``ORGTREE_STORE``) in ``env``. Raises BracketError
+    (after writing the event-log line) when the engine must not start."""
     try:
-        check_root(root, env)
+        if not wanted(env, root):
+            env.pop(CONNINFO_ENV, None)  # never a stale connection from a parent
+            return None
+        mode = check_root(root, env)
         custodian = _executable(env, CUSTODIAN_ENV)
         # The engine's per-boot desktop token is not the custodian's to see.
         child_env = {k: v for k, v in env.items() if k not in ("ORGTREE_V2_TOKEN", CONNINFO_ENV)}
-        owned = ManagedPostgres(root, child_env, custodian).start(migrator)
+        owned = ManagedPostgres(root, child_env, custodian, mode == "product").start(migrator)
     except BracketError as exc:
         record_refusal(str(exc), root)
         raise
+    env[STORE_ENV] = "postgres"
     env[CONNINFO_ENV] = owned.conninfo
     return owned
