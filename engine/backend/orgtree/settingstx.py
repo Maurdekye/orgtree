@@ -8,14 +8,10 @@ PHANTOM: the sweep would miss it.
 
 THE RULE (PYPG decision 12). Every writer that DECIDES from an org setting
 (hire, staffing: `staffdoor.HIRE_SETTINGS`) holds that settings section FOR
-SHARE, and the settings writers here take it FOR UPDATE. So once we hold the
-settings rows, no hire can commit a new node. A hire that committed BETWEEN
-our node listing and our lock is caught by re-listing inside the transaction:
-we refuse before the body runs, and retry with the grown list. Nothing is
-written by a refused attempt.
-
-Until PG-0 offers `nodes=ALL`, this is how "every node row of the org, in key
-order" is named.
+SHARE, and the settings writers here take it FOR UPDATE. The fleet sweep
+itself uses PG-0's `nodes=ALL`: every node row FOR UPDATE, behind the
+exclusive node pseudo-row that also excludes node CREATION for the
+transaction's life — so no phantom can appear under the sweep.
 """
 
 from __future__ import annotations
@@ -59,41 +55,18 @@ HEAL_SECTIONS = ("_migrations", "permission_mode")
 DEFAULTS_SECTIONS = ("default_tools", "default_visibility", "permission_mode",
                      "default_account")
 
-#: how often a hire may slip in between the listing and the lock before we
-#: give up (each retry re-lists; one retry is already rare)
-RETRIES = 5
-
-
-class NodesGrew(orgtx.OrgTxError):
-    """New nodes kept appearing between the listing and the lock."""
-
-
-def _node_ids(slug: str) -> frozenset[str]:
-    return frozenset(orgtx.org_read(slug).nodes)
-
-
 def whole_org_tx(slug: str, fn: Callable[[orgtx.OrgTx], T], *,
                  sections: Iterable[str] = (),
                  share_sections: Iterable[str] = (),
-                 logs: Iterable[orgtx.LogName] = (),
-                 retries: int = RETRIES) -> T:
+                 logs: Iterable[orgtx.LogName] = ()) -> T:
     """Run `fn(tx)` in one org_tx that locks `sections` FOR UPDATE, every
-    node row of the org FOR UPDATE, and `share_sections` FOR SHARE. `fn`
-    runs once, on a transaction whose node set is complete. An exception
-    from `fn` rolls everything back, exactly like the old discard."""
-    sections = tuple(sections)
-    share = tuple(share_sections)
-    logs = tuple(logs)
-    for _ in range(retries + 1):
-        ids = _node_ids(slug)
-        with orgtx.org_tx(slug, sections=sections, share_sections=share,
-                          nodes=sorted(ids), logs=logs) as tx:
-            if not frozenset(tx.org.nodes) - ids:
-                return fn(tx)
-        # a node appeared after the listing: fn never ran, the commit was
-        # empty; list again
-    raise NodesGrew(f"{slug!r}: nodes kept appearing while locking the org; "
-                    "retry the request")
+    node row of the org FOR UPDATE (`nodes=ALL`), and `share_sections` FOR
+    SHARE. An exception from `fn` rolls everything back, exactly like the
+    old discard."""
+    with orgtx.org_tx(slug, nodes=orgtx.ALL, sections=tuple(sections),
+                      share_sections=tuple(share_sections),
+                      logs=tuple(logs)) as tx:
+        return fn(tx)
 
 
 def settings_tx(slug: str, fn: Callable[[orgtx.OrgTx], T], *, all_nodes: bool,

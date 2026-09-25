@@ -388,20 +388,35 @@ class KioskWholeOrg(unittest.TestCase):
         self.assertFalse(isinstance(out[0], BaseException), out)
         self._check()
 
-    def test_a_node_added_after_the_listing_is_still_swept(self) -> None:
+    def test_no_node_can_be_created_under_the_sweep(self) -> None:
+        """The phantom rule: while org_kiosk holds every node row, a
+        transaction that would CREATE a node waits for it."""
         from unittest import mock
-        from orgtree import settingstx
-        real = settingstx._node_ids
-        calls: list = []
+        entered, release = threading.Event(), threading.Event()
 
-        def stale(slug):
-            ids = real(slug)
-            calls.append(ids)
-            return ids - {'top'} if len(calls) == 1 else ids
-        with mock.patch.object(settingstx, '_node_ids', stale):
-            self._call()
-        self.assertEqual(len(calls), 2, 'the grown node set was not re-listed')
+        def hook(point, tx):
+            if point == 'after_lock' and tx.all_nodes and tx.slug == self.slug:
+                entered.set()
+                release.wait(10)
+        with mock.patch.dict(os.environ, {'ORGTREE_ORGTX_TEST_HOOKS': '1'}):
+            orgtx.set_pause_hook(hook)
+        self.addCleanup(orgtx.set_pause_hook, None)
+        done_k, out_k, tk = _run(self._call, 0)
+        self.assertTrue(entered.wait(FREE_S), 'org_kiosk never took nodes=ALL')
+
+        def create():
+            with orgtx.org_tx(self.slug, nodes=['newbie']) as tx:
+                tx.org.nodes['newbie'] = dict(tx.org.nodes['top'], id='newbie',
+                                              name='newbie')
+        done_c, out_c, tc = _run(create, BLOCKED_S)
+        self.assertFalse(done_c, 'a node was created under the fleet sweep')
+        release.set()
+        tk.join(FREE_S)
+        tc.join(FREE_S)
+        self.assertFalse(tk.is_alive() or tc.is_alive())
+        self.assertFalse(out_k and isinstance(out_k[0], BaseException), out_k)
         self._check()
+        self.assertIn('newbie', _doc(self.slug)['nodes'])
 
 
 class SettingsRoute(unittest.TestCase):
