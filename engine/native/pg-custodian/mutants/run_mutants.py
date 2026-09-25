@@ -6,7 +6,7 @@ matches nothing is itself a failure (the mutant never ran), so a stale mutant
 cannot report "caught". The source is restored from git after every mutant,
 so the crate must be committed and clean first.
 
-    python mutants/run_mutants.py [--db]        # --db adds the database mutants
+    python mutants/run_mutants.py [--db] [--only id,id]   # --db adds the database mutants
 
 --db mutants start real clusters: run them only under the P03 run lock, with
 ORGTREE_P03_PG_BIN set. Output: one JSON line per mutant, then a summary.
@@ -305,6 +305,10 @@ def git(*args: str) -> str:
 
 def main() -> int:
     with_db = "--db" in sys.argv[1:]
+    only = set(sys.argv[sys.argv.index("--only") + 1].split(",")) if "--only" in sys.argv[1:] else None
+    if only is not None and not only <= {m[0] for m in MUTANTS}:
+        print(f"refusing: unknown mutant ids {sorted(only - {m[0] for m in MUTANTS})}", file=sys.stderr)
+        return 2
     if git("status", "--porcelain", "--", ".", "../prototype-guard"):
         print("refusing: crate has uncommitted changes (restore uses git checkout)", file=sys.stderr)
         return 2
@@ -312,6 +316,8 @@ def main() -> int:
     results = []
     for mid, rel, old, new, targs, needs_db in MUTANTS:
         if needs_db and not with_db:
+            continue
+        if only is not None and mid not in only:
             continue
         path = CRATE / rel
         raw = path.read_bytes()
@@ -358,6 +364,7 @@ def main() -> int:
         print(json.dumps(results[-1]), flush=True)
     summary = {
         "schema": "orgtree.p03.ws1-mutants/v1",
+        "only": sorted(only) if only is not None else None,
         "commit": head,
         "with_db": with_db,
         "total": len(results),
