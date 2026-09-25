@@ -39,6 +39,11 @@ from engine.launch import load_app  # noqa: E402
 app, *_ = load_app()
 from orgtree import ledger, mailtx, orgtx, store, supervisor  # noqa: E402
 
+# These prove the converted routes never wait on DOC_LOCK, which the
+# transition fence (plan decision 19: every org_tx behind DOC_LOCK until the
+# last writer converts) deliberately undoes; it has its own tests in PG-0.
+orgtx.TRANSITION_FENCE = False
+
 HEADERS = {'X-Orgtree-Desktop-Token': 'operator'}
 
 
