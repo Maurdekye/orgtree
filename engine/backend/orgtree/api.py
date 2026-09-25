@@ -6921,10 +6921,19 @@ def _quick_staff_undo_locked(org: Org, wid: str, request_id: str, nid: str,
     if request_id not in receipts or int(item.get("rev") or 0) != int(undo["rev"]):
         return False
     flag = item.get("manual_attention")
-    org.work_update(USER, wid, undo["done"], undo["next"],
+    # ⚠ THE LISTS ARE RESTORED, NOT RE-AUTHORED. A ticket may store no
+    # progress at all, and work_update refuses an update whose two lists are
+    # both empty ("says nothing the user can read") — so passing the stored
+    # lists made the undo RAISE: a 500, the ticket left at Open and the
+    # request left in the inbox. The update carries the lists the forward
+    # step wrote (never both empty), and the stored ones are put back below.
+    org.work_update(USER, wid, list(item.get("done_so_far") or []),
+                    list(item.get("working_on_next") or []),
                     status=undo["status"], owner=undo["owner"] or None,
                     expected_rev=int(undo["rev"]))
     item = org._work_find(wid)[0]
+    item["done_so_far"] = list(undo["done"])
+    item["working_on_next"] = list(undo["next"])
     # restore OUR OWN clear verbatim: the forward update dropped a standing
     # manual flag because every update restates it, and putting the stored
     # record back is not a fresh raise (no `manual_attention_rev` bump, no
