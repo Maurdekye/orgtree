@@ -134,7 +134,7 @@ mod imp {
         Ok(out)
     }
 
-    fn creation_time(pid: u32) -> Option<u64> {
+    pub fn creation_time(pid: u32) -> Option<u64> {
         if pid == 0 {
             return None;
         }
@@ -224,6 +224,9 @@ mod imp {
         unsupported()
     }
     pub fn stop_std_handle_inheritance() {}
+    pub fn creation_time(_pid: u32) -> Option<u64> {
+        None
+    }
     pub fn random_bytes(_buf: &mut [u8]) -> Result<()> {
         unsupported()
     }
@@ -252,7 +255,7 @@ mod imp {
     }
 }
 
-pub use imp::{free_commit_bytes, random_bytes, snapshot, stop_std_handle_inheritance, ProcessHandle};
+pub use imp::{creation_time, free_commit_bytes, random_bytes, snapshot, stop_std_handle_inheritance, ProcessHandle};
 
 pub fn random_hex(n_bytes: usize) -> Result<String> {
     let mut buf = vec![0u8; n_bytes];

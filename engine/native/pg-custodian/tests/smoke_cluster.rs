@@ -119,6 +119,30 @@ fn dev_cluster_lifecycle() {
     assert_eq!(id.system_identifier, inst.system_identifier);
     assert_eq!(id.current_user, cluster::ADMIN_ROLE);
 
+    // Secrets and the attach descriptor are owner-only; attach succeeds.
+    let layout = cluster::Layout::of(&root);
+    orgtree_pg_custodian::acl::require_owner_only(&layout.secrets).unwrap();
+    orgtree_pg_custodian::acl::require_owner_only(&layout.secrets.join("pgpass.conf")).unwrap();
+    orgtree_pg_custodian::acl::require_owner_only(&layout.attach).unwrap();
+    assert!(!layout.runtime.exists(), "the legacy runtime.json is not written any more");
+    let (_, attached) = cluster::attach(&root, &b).unwrap();
+    assert!(attached.ready(), "{:?}", attached.readiness_failures);
+    // Tamper 1: someone widens the descriptor's ACL -> attach refuses.
+    let desc_text = std::fs::read_to_string(&layout.attach).unwrap();
+    let widen = std::process::Command::new("icacls").arg(&layout.attach).args(["/grant", "*S-1-1-0:R"]).output().unwrap();
+    assert!(widen.status.success(), "{}", String::from_utf8_lossy(&widen.stderr));
+    assert_eq!(cluster::attach(&root, &b).unwrap_err().code, "acl.not_owner_only");
+    orgtree_pg_custodian::acl::replace_owner_only(&layout.attach, desc_text.as_bytes()).unwrap();
+    cluster::attach(&root, &b).unwrap();
+    // Tamper 2: the descriptor names a different postmaster creation time
+    // (what a reused pid looks like) -> refused before any connection.
+    let mut forged: serde_json::Value = serde_json::from_str(&desc_text).unwrap();
+    forged["postmaster_created"] = json!(forged["postmaster_created"].as_u64().unwrap() - 1);
+    orgtree_pg_custodian::acl::replace_owner_only(&layout.attach, forged.to_string().as_bytes()).unwrap();
+    assert_eq!(cluster::attach(&root, &b).unwrap_err().code, "identify.postmaster_replaced");
+    orgtree_pg_custodian::acl::replace_owner_only(&layout.attach, desc_text.as_bytes()).unwrap();
+    checks.push(json!({"check": "owner-only secrets + descriptor; attach ok; widened ACL and forged creation time refused"}));
+
     // Real work through a real connection.
     cluster::psql(&b, &rt, "postgres", "create table smoke(x int primary key); insert into smoke select generate_series(1,1000)").unwrap();
     let rows = cluster::psql(&b, &rt, "postgres", "select count(*), sum(x) from smoke").unwrap();
@@ -295,6 +319,9 @@ fn dev_cli_end_to_end_with_captured_output() {
     // Second `up` attaches to the running cluster by identity, not by port.
     let (again, raw) = cli(&home, &b, &["dev", "up", "--agent", &agent]);
     assert_eq!(again["dev"]["started"], json!(false), "{raw}");
+    // A second process attaches strictly.
+    let (att, raw) = cli(&home, &b, &["dev", "attach", "--agent", &agent]);
+    assert_eq!(att["attached"], json!(true), "{raw}");
 
     // `dev env` is the only place a password is printed; use its URLs.
     let (_, envtext) = cli(&home, &b, &["dev", "env", "--agent", &agent, "--shell", "plain"]);
