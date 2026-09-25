@@ -9,8 +9,9 @@ cycle takes DOC_LOCK, and a converted branch never runs inside DOC_LOCK
 prologue the old cycle gave it for free, and this module is the ONE copy of
 it:
 
-    1. the caller's NODE ROW is locked FOR UPDATE — FIRST, before any other
-       row the family names — and `halt` is checked ON THAT LOCKED ROW;
+    1. the caller's NODE ROW is locked FOR UPDATE — with every other row the
+       family names, in the org-wide order below — and `halt` is checked ON
+       THAT LOCKED ROW, after every lock is held;
     2. the `killswitch` section is locked FOR SHARE and checked there;
     3. receipt admission (`_op_admit`): a replay returns its receipt and
        runs nothing;
@@ -34,14 +35,14 @@ call holds the row FOR SHARE, the latch takes it FOR UPDATE, so a latch waits
 for in-flight tools and every later tool sees it — without making every tool
 in the org queue behind every other one on a single row.
 
-LOCK ORDER. The caller's own node row is always the FIRST row named, so the
-halt ordering holds whatever else a family locks; the killswitch is held FOR
-SHARE; the family's rows follow in the order `org_tx` takes them. A family
-body must not reach back for a row it did not name. This is NOT a global total
-order: two callers that each name the other's node row (a hire into a
-subtree whose root is hiring back into ours) can deadlock. PostgreSQL detects
-that and aborts one with 40P01, which `org_tx` retries — so the cost is a
-retry, never a hang, and never a lost write.
+LOCK ORDER (org-wide rule, agreed with WS3b 2026-09-25). Node rows in
+ascending id order, then section rows in ascending name order; nothing locks
+an org row. `_norm` sorts every declared list, and the caller's own row is
+sorted in with the rest, so any two transactions that share rows meet them in
+the same order and cannot deadlock on each other. The halt rule does not need
+the caller's row FIRST, only HELD: the gate runs after every lock is granted.
+A family body must not reach back for a row it did not name (it raises
+`Widen` instead).
 
 The receipt functions are PASSED IN (`admit`, `file`) rather than imported:
 they live in `api` (they build HTTP refusals and read api-side helpers), and
@@ -259,20 +260,24 @@ def _receipted(body: Any, a: dict[str, Any]) -> bool:
 
 
 def _norm(spec: TxSpec) -> TxSpec:
-    """A row named both ways is held FOR UPDATE only; duplicates dropped."""
-    ns = tuple(dict.fromkeys(spec.nodes))
-    ss = tuple(dict.fromkeys(spec.sections))
+    """A row named both ways is held FOR UPDATE only; duplicates dropped;
+    every list in ASCENDING order — the org-wide lock-order rule (agreed with
+    WS3b 2026-09-25): node rows in ascending id order, then section rows, so
+    two transactions sharing any rows always meet them in the same order and
+    cannot deadlock on each other. The caller's row is sorted in with the
+    rest rather than taken first: the halt rule needs only that it is HELD
+    before the gate runs, and the gate runs after every lock is granted."""
+    ns = tuple(sorted(set(spec.nodes)))
+    ss = tuple(sorted(set(spec.sections)))
     return TxSpec(ns, ss,
-                  tuple(n for n in dict.fromkeys(spec.share_nodes)
-                        if n not in ns),
-                  tuple(s for s in dict.fromkeys(spec.share_sections)
-                        if s not in ss),
-                  tuple(dict.fromkeys(spec.logs)))
+                  tuple(sorted(set(spec.share_nodes) - set(ns))),
+                  tuple(sorted(set(spec.share_sections) - set(ss))),
+                  tuple(sorted(set(spec.logs))))
 
 
 def agent_spec(body: Any, a: dict[str, Any], spec: TxSpec) -> TxSpec:
     """The rows `agent_tx` locks for this call, in lock order: the caller's
-    node row FIRST and FOR UPDATE whatever the tool declared, the killswitch
+    node row FOR UPDATE whatever the tool declared (sorted in with the rest), the killswitch
     FOR SHARE (unless the tool itself holds it FOR UPDATE), and — when a key
     rides the call — the receipt log (appended) and its META row (FOR UPDATE). Public so a family (and a
     reviewer) can see exactly what a call will hold."""
