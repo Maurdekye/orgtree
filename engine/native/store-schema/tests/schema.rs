@@ -1,0 +1,181 @@
+//! Pure checks of the migration set. No database.
+
+use std::collections::BTreeSet;
+
+use orgtree_store_schema::lint::{lint, Schema};
+use orgtree_store_schema::{
+    computed_manifest, schema, EXCLUDED, INSTALLATION_TABLES, MANIFEST, MIGRATIONS, PUBLISHED, RANGES,
+    RECEIPT_PUBLISHED_COLUMNS,
+};
+
+/// The table count the 0001-0007 files declare. A parser that silently finds
+/// nothing would make every lint below pass vacuously; this pins the work done.
+const EXPECTED_TABLES: usize = 39;
+
+#[test]
+fn migrations_are_ascending_named_and_in_the_ws2_range() {
+    let (_, lo, hi) = RANGES.iter().find(|r| r.0 == "WS2").copied().unwrap();
+    let mut prev = 0;
+    for m in MIGRATIONS {
+        assert!(m.version > prev, "{} not ascending", m.file);
+        assert!(m.version >= lo && m.version <= hi, "{} outside WS2 range", m.file);
+        assert_eq!(m.file, format!("{:04}_{}.sql", m.version, m.name));
+        assert!(!m.sql.trim().is_empty());
+        prev = m.version;
+    }
+    // ranges do not overlap
+    for (i, a) in RANGES.iter().enumerate() {
+        for b in &RANGES[i + 1..] {
+            assert!(a.2 < b.1 || b.2 < a.1, "{} and {} overlap", a.0, b.0);
+        }
+    }
+}
+
+#[test]
+fn landed_migrations_match_their_pinned_checksums() {
+    // Immutability: a landed migration's file never changes. A NEW migration
+    // adds a line (schema-manifest prints it); an edited one fails here.
+    assert_eq!(computed_manifest().replace('\r', ""), MANIFEST.replace('\r', ""));
+}
+
+#[test]
+fn checksum_ignores_line_endings_only() {
+    let m = &MIGRATIONS[0];
+    let crlf = m.sql.replace('\r', "").replace('\n', "\r\n");
+    assert_eq!(orgtree_store_schema::sha256_hex(&crlf), orgtree_store_schema::sha256_hex(m.sql));
+    let changed = format!("{} ", m.sql);
+    assert_ne!(orgtree_store_schema::sha256_hex(&changed), orgtree_store_schema::sha256_hex(m.sql));
+}
+
+#[test]
+fn the_real_schema_parses_fully_and_passes_every_lint() {
+    let s = schema();
+    assert_eq!(s.tables.len(), EXPECTED_TABLES, "tables parsed: {:?}", s.tables.iter().map(|t| &t.name).collect::<Vec<_>>());
+    for t in &s.tables {
+        assert!(!t.columns.is_empty(), "{} parsed with no columns", t.name);
+        assert!(!t.constraints.is_empty(), "{} parsed with no constraints", t.name);
+    }
+    assert!(s.indexes.len() >= 20, "indexes parsed: {}", s.indexes.len());
+    let findings = lint(&s);
+    assert!(findings.is_empty(), "{:#?}", findings);
+}
+
+#[test]
+fn publication_lists_partition_the_tables() {
+    let s = schema();
+    let tables: BTreeSet<&str> = s.tables.iter().map(|t| t.name.as_str()).collect();
+    let published: BTreeSet<&str> = PUBLISHED.iter().copied().collect();
+    let excluded: BTreeSet<&str> = EXCLUDED.iter().copied().collect();
+    assert_eq!(published.len(), PUBLISHED.len(), "duplicate in PUBLISHED");
+    assert_eq!(excluded.len(), EXCLUDED.len(), "duplicate in EXCLUDED");
+    assert!(published.is_disjoint(&excluded));
+    let union: BTreeSet<&str> = published.union(&excluded).copied().collect();
+    assert_eq!(union, tables, "every table is either published or excluded");
+    for t in INSTALLATION_TABLES {
+        assert!(excluded.contains(t), "installation table {t} must be excluded");
+    }
+    // receipts publish only safe identifier columns, and those columns exist
+    let r = s.table("operation_receipts").unwrap();
+    for c in RECEIPT_PUBLISHED_COLUMNS {
+        assert!(r.columns.iter().any(|x| x.name == *c), "operation_receipts has no column {c}");
+    }
+    assert!(!RECEIPT_PUBLISHED_COLUMNS.contains(&"result"));
+    assert!(!RECEIPT_PUBLISHED_COLUMNS.contains(&"fingerprint"));
+}
+
+#[test]
+fn contract_constraint_names_exist() {
+    // Names CONTRACT-M1 §3.4/§7 promise to consumers.
+    let names: BTreeSet<String> = schema().object_names().into_iter().map(|(_, n)| n).collect();
+    for n in [
+        "operation_receipts_original_key",
+        "resource_reservations_held_resource",
+        "resource_reservations_integration_key",
+        "audience_grants_key",
+        "mailbox_messages_original",
+        "mail_sent_pair_seq",
+        "agent_names_active",
+        "request_batches_one_pending",
+        "folder_move_intents_one_pending",
+    ] {
+        assert!(names.contains(n), "missing {n}");
+    }
+}
+
+// ---- negative controls: each rule must fire on a fixture built to break it.
+// Each control asserts the exact rule fired, so a rule that silently stops
+// working fails here rather than letting the real-schema test pass vacuously.
+
+fn findings_for(sql: &str) -> Vec<&'static str> {
+    let mut s = Schema::default();
+    s.add("fixture.sql", sql);
+    assert!(!s.tables.is_empty(), "control fixture parsed no table: the control did not run");
+    lint(&s).into_iter().map(|f| f.rule).collect()
+}
+
+const GOOD: &str = "CREATE TABLE t ( org_id uuid NOT NULL, name text COLLATE \"C\" NOT NULL, \
+                    amount_centi bigint NOT NULL, CONSTRAINT t_pk PRIMARY KEY (org_id, name), \
+                    CONSTRAINT t_org_fk FOREIGN KEY (org_id) REFERENCES organizations (org_id) );";
+
+#[test]
+fn control_good_fixture_is_clean() {
+    assert_eq!(findings_for(GOOD), Vec::<&str>::new());
+}
+
+#[test]
+fn control_r1_missing_org_id() {
+    let bad = "CREATE TABLE t ( id uuid NOT NULL, CONSTRAINT t_pk PRIMARY KEY (id) );";
+    let f = findings_for(bad);
+    assert!(f.contains(&"R1-org-id"), "{f:?}");
+}
+
+#[test]
+fn control_r2_identity_text_without_collation() {
+    let bad = GOOD.replace("name text COLLATE \"C\" NOT NULL", "name text NOT NULL");
+    assert_eq!(findings_for(&bad), vec!["R2-collate-c"]);
+}
+
+#[test]
+fn control_r3_credits_not_bigint() {
+    let bad = GOOD.replace("amount_centi bigint", "amount_centi numeric(20,2)");
+    let f = findings_for(&bad);
+    assert!(f.contains(&"R3-credits"), "{f:?}");
+}
+
+#[test]
+fn control_r4_unprefixed_constraint() {
+    let bad = GOOD.replace("CONSTRAINT t_pk", "CONSTRAINT pk_t");
+    assert_eq!(findings_for(&bad), vec!["R4-prefix"]);
+}
+
+#[test]
+fn control_r5_duplicate_name() {
+    let bad = format!("{GOOD} CREATE INDEX t_pk ON t (name);");
+    assert_eq!(findings_for(&bad), vec!["R5-unique-name"]);
+}
+
+#[test]
+fn control_r6_fk_without_org_id() {
+    let bad = GOOD.replace(
+        "CONSTRAINT t_org_fk FOREIGN KEY (org_id) REFERENCES organizations (org_id)",
+        "CONSTRAINT t_agent_fk FOREIGN KEY (name) REFERENCES agents (name)",
+    );
+    assert_eq!(findings_for(&bad), vec!["R6-org-fk"]);
+}
+
+#[test]
+fn control_r7_unnamed_inline_constraint() {
+    let bad = GOOD.replace("amount_centi bigint NOT NULL", "amount_centi bigint NOT NULL CHECK (amount_centi >= 0)");
+    assert_eq!(findings_for(&bad), vec!["R7-named"]);
+}
+
+#[test]
+fn control_comment_and_dollar_bodies_do_not_hide_tables() {
+    let sql = format!(
+        "-- CREATE TABLE ghost ( x int );\nCREATE FUNCTION f() RETURNS int LANGUAGE sql AS $$ SELECT 1; $$;\n{GOOD}"
+    );
+    let mut s = Schema::default();
+    s.add("fixture.sql", &sql);
+    assert_eq!(s.tables.len(), 1);
+    assert_eq!(s.tables[0].name, "t");
+}
