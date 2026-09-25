@@ -200,6 +200,11 @@ class RaceKit(unittest.TestCase):
             with self.assertRaisesRegex(racekit.RaceFailure, 'disposable_pg'):
                 racekit.Race().__enter__()
 
+    def test_refuses_a_conninfo_that_would_bypass_the_url(self) -> None:
+        with patch.object(store, 'STORE_BACKEND', 'postgres'),              patch.dict(os.environ, {'ORGTREE_PG_CONNINFO': 'host=127.0.0.1 dbname=live'}):
+            with self.assertRaisesRegex(racekit.RaceFailure, 'CONNINFO'):
+                racekit.Race().__enter__()
+
     def test_fence_state_is_recorded(self) -> None:
         with racekit.Race(pair='converted') as race:
             pass

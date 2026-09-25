@@ -129,6 +129,10 @@ def isolation_proof() -> dict[str, str]:
         raise RaceFailure(f"data root {root} is not a throwaway folder inside {tmp}")
     facts = {"data_root": str(root), "backend": store.STORE_BACKEND}
     if store.STORE_BACKEND == "postgres":
+        if os.environ.get("ORGTREE_PG_CONNINFO", "").strip():
+            # pgstore prefers CONNINFO over the URL: it would bypass the check below
+            raise RaceFailure("ORGTREE_PG_CONNINFO is set; racekit only runs on the "
+                              "ORGTREE_PG_URL that disposable_pg() created")
         url = os.environ.get("ORGTREE_PG_URL", "")
         if url not in _disposable_urls:
             raise RaceFailure("ORGTREE_PG_URL is not a database disposable_pg() "
