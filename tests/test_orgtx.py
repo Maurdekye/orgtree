@@ -36,6 +36,11 @@ import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside thi
 
 from orgtree import orgtx, store  # noqa: E402
 
+# These suites prove ROW-lock behaviour, which the transition fence (every
+# org_tx behind DOC_LOCK, plan decision 19) would serialize away; the fence
+# has its own tests, which turn it back on.
+orgtx.TRANSITION_FENCE = False
+
 
 def _fresh_org(name: str) -> str:
     org = store.create_org(name)
@@ -184,9 +189,11 @@ class OrgTxBasics(unittest.TestCase):
 
     def test_current_tx_and_lock_plan_order(self) -> None:
         self.assertIsNone(orgtx.current_tx(self.slug))
+        self.assertFalse(orgtx.open_on(self.slug))
         with orgtx.org_tx(self.slug, nodes=['b', 'a'], sections=['killswitch'],
                           share_sections=['settings_x']) as tx:
             self.assertIs(orgtx.current_tx(self.slug), tx)
+            self.assertTrue(orgtx.open_on(self.slug))
             plan = orgtx._lock_plan(tx)
         self.assertIsNone(orgtx.current_tx(self.slug))
         self.assertEqual([(k, n) for k, n, _ in plan],
@@ -302,6 +309,38 @@ class OrgTxConcurrency(unittest.TestCase):
                 n['swept'] = True
         self.assertTrue(all(_node(self.slug, x).get('swept') for x in ('a', 'b', 'c')))
 
+    def test_multi_org_locks_and_commits_both(self) -> None:
+        other = _fresh_org(f'cc2-{self._testMethodName}')
+        entered, release = threading.Event(), threading.Event()
+        done: list[str] = []
+
+        def run() -> None:
+            with orgtx.org_tx_multi({self.slug: dict(nodes=['a']),
+                                     other: dict(nodes=['b'])}) as t:
+                entered.set()
+                release.wait(5)
+                t[self.slug].d['nodes']['a']['name'] = 'mA'
+                t[other].d['nodes']['b']['name'] = 'mB'
+            done.append('ok')
+        th = threading.Thread(target=run)
+        th.start()
+        self.assertTrue(entered.wait(5))
+        try:
+            with self.assertRaises(orgtx.LockTimeout):
+                with orgtx.org_tx(other, nodes=['b'], lock_timeout=0.2):
+                    pass
+            self.assertEqual(self._try(0.2, nodes=['c']), 'got')
+        finally:
+            release.set()
+            th.join(10)
+        self.assertEqual(done, ['ok'])
+        self.assertEqual(_node(self.slug, 'a')['name'], 'mA')
+        self.assertEqual(_node(other, 'b')['name'], 'mB')
+        with orgtx.org_tx_multi({self.slug: dict(nodes=['a']), other: dict()}):
+            with self.assertRaises(orgtx.NestedTx):
+                with orgtx.org_tx(other, nodes=['c']):
+                    pass
+
     def test_waiting_probe(self) -> None:
         locks = orgtx.RowLocks()
         o1, o2 = object(), object()
@@ -369,6 +408,108 @@ class OrgTxConcurrency(unittest.TestCase):
         for t in ts:
             t.join(60)
         self.assertEqual(_node(self.slug, 'a')['n'], 20)
+
+
+class TransitionFence(unittest.TestCase):
+    # plan decision 19: (a) an unconverted DOC_LOCK load->save cycle racing an
+    # org_tx on the same row loses nothing with the fence ON, and loses the
+    # update (or raises StaleWrite) with it OFF; (b) a DOC_LOCK holder may
+    # call org_tx (re-entry, no deadlock)
+
+    def setUp(self) -> None:
+        orgtx.use_backend(orgtx.SeamBackend())
+        self.slug = _fresh_org(f'fence-{self._testMethodName}'[:60])
+        with orgtx.org_tx(self.slug, nodes=['a']):
+            pass                                  # heal before racing
+
+    def tearDown(self) -> None:
+        orgtx.TRANSITION_FENCE = False
+
+    def _race(self, fence: bool) -> tuple:
+        orgtx.TRANSITION_FENCE = fence
+        loaded, go = threading.Event(), threading.Event()
+        stale: list = []
+
+        def legacy() -> None:
+            try:
+                with store.DOC_LOCK:
+                    org = store.load_org(self.slug)
+                    node = org.d['nodes']['a']            # the baseline is read
+                    loaded.set()
+                    go.wait(10)
+                    node['legacy'] = 1
+                    store.save_org(org)
+            except store.StaleWrite as e:
+                stale.append(e)
+
+        def converted() -> None:
+            with orgtx.org_tx(self.slug, nodes=['a']) as tx:
+                tx.d['nodes']['a']['tx'] = 1
+        lt = threading.Thread(target=legacy)
+        lt.start()
+        self.assertTrue(loaded.wait(10))
+        ct = threading.Thread(target=converted)
+        ct.start()
+        ct.join(1.0)
+        tx_done_early = not ct.is_alive()
+        go.set()
+        lt.join(10)
+        ct.join(10)
+        node = _node(self.slug, 'a')
+        return tx_done_early, node.get('legacy'), node.get('tx'), bool(stale)
+
+    def test_a_fence_on_loses_nothing(self) -> None:
+        early, legacy, tx, stale = self._race(True)
+        self.assertFalse(early, 'the org_tx must wait for the DOC_LOCK holder')
+        self.assertEqual((legacy, tx, stale), (1, 1, False))
+
+    def test_a_fence_off_loses_the_update_or_refuses(self) -> None:
+        early, legacy, tx, stale = self._race(False)
+        self.assertTrue(early, 'without the fence the org_tx does not wait')
+        self.assertFalse(legacy == 1 and tx == 1, 'both writes survived: no race was exercised')
+        self.assertTrue(stale or legacy is None or tx is None)
+
+    def test_a2_org_tx_holds_the_fence_until_commit(self) -> None:
+        orgtx.TRANSITION_FENCE = True
+        inside, release = threading.Event(), threading.Event()
+        got_lock = threading.Event()
+
+        def converted() -> None:
+            with orgtx.org_tx(self.slug, nodes=['a']) as tx:
+                inside.set()
+                release.wait(10)
+                tx.d['nodes']['a']['tx2'] = 1
+
+        def legacy() -> None:
+            with store.DOC_LOCK:
+                got_lock.set()
+        ct = threading.Thread(target=converted)
+        ct.start()
+        self.assertTrue(inside.wait(10))
+        lt = threading.Thread(target=legacy)
+        lt.start()
+        self.assertFalse(got_lock.wait(0.5), 'a DOC_LOCK cycle ran inside an open org_tx')
+        release.set()
+        ct.join(10)
+        lt.join(10)
+        self.assertTrue(got_lock.is_set())
+        self.assertEqual(_node(self.slug, 'a').get('tx2'), 1)
+
+    def test_b_doc_lock_holder_reenters(self) -> None:
+        orgtx.TRANSITION_FENCE = True
+        done: list = []
+
+        def run() -> None:
+            with store.DOC_LOCK:
+                with orgtx.org_tx(self.slug, nodes=['b']) as tx:
+                    tx.d['nodes']['b']['name'] = 'reentered'
+                done.append(1)
+        t = threading.Thread(target=run)
+        t.start()
+        t.join(10)
+        self.assertFalse(t.is_alive(), 'deadlocked')
+        self.assertEqual(done, [1])
+        self.assertEqual(_node(self.slug, 'b')['name'], 'reentered')
 
 
 if __name__ == '__main__':

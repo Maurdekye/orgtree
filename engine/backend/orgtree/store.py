@@ -1255,10 +1255,12 @@ class _Pool:
         `_open_conn`. Every read path leaves it False so that a database
         deleted under us raises instead of coming back empty."""
         pinned = getattr(_orgtx_local, "pinned", None)
-        if pinned is not None and pinned.slug == slug:
+        pc = pinned.get(slug) if pinned else None
+        if pc is not None:
             # PG-0: inside an org_tx on postgres, the load and the save run
-            # on the transaction's own connection (pgstore module docstring)
-            yield pinned
+            # on the transaction's own connection (pgstore module docstring);
+            # a multi-org org_tx pins one entry per org, all on one connection
+            yield pc
             return
         with self._lock:
             epoch = self._epoch.get(slug, 0)
@@ -2640,7 +2642,8 @@ def _write_log_rows(conn: sqlite3.Connection, table: str,
                     scope_sql: str, scope_args: tuple[Any, ...],
                     insert_sql: str, insert_prefix: tuple[Any, ...],
                     cur: list[Any], snap: list[tuple[int, str]] | None,
-                    *, incremental: AppendLog | None = None
+                    *, incremental: AppendLog | None = None,
+                    cas_old: list[tuple[int, str]] | None = None
                     ) -> list[tuple[int, str]]:
     """Reconcile a single ordered log while retaining proven row identities.
 
@@ -2654,6 +2657,10 @@ def _write_log_rows(conn: sqlite3.Connection, table: str,
     strs = [_dumps(entry) for entry in cur]
     old = list(snap or [])
     old_by_id = {seq: val for seq, val in old}
+    # PG-0 compare-and-set (see _ROW_CAS): the rows this save loaded for the
+    # scope; a delete or update of one applies only if it still holds them
+    cas = old if snap is not None else cas_old
+    cas = cas if _ROW_CAS else None
 
     ids: list[int | None] | None = None
     if incremental is not None and not incremental.full_rewrite \
@@ -2668,7 +2675,13 @@ def _write_log_rows(conn: sqlite3.Connection, table: str,
 
     if snap is not None and ids is not None:
         kept_ids = {cast(int, seq) for seq in ids if seq is not None}
-        _delete_log_seqs(conn, table, (seq for seq, _ in old if seq not in kept_ids))
+        if cas is not None:
+            for seq, oval in old:
+                if seq not in kept_ids:
+                    _cas(conn, f"DELETE FROM {table} WHERE seq=? AND val=?",
+                         (seq, oval), f"{table} row {seq} ({scope_args[0]!r})")
+        else:
+            _delete_log_seqs(conn, table, (seq for seq, _ in old if seq not in kept_ids))
         result: list[tuple[int, str]] = []
         for entry, val, seq in zip(cur, strs, ids):
             if seq is None:
@@ -2676,8 +2689,13 @@ def _write_log_rows(conn: sqlite3.Connection, table: str,
                 result.append((cast(int, cursor.lastrowid), val))
             else:
                 if old_by_id[seq] != val:
-                    conn.execute(f"UPDATE {table} SET at=?, val=? WHERE seq=?",
-                                 (_at_of(entry), val, seq))
+                    if cas is not None:
+                        _cas(conn, f"UPDATE {table} SET at=?, val=? WHERE seq=? AND val=?",
+                             (_at_of(entry), val, seq, old_by_id[seq]),
+                             f"{table} row {seq} ({scope_args[0]!r})")
+                    else:
+                        conn.execute(f"UPDATE {table} SET at=?, val=? WHERE seq=?",
+                                     (_at_of(entry), val, seq))
                 result.append((seq, val))
         return result
 
@@ -2685,7 +2703,20 @@ def _write_log_rows(conn: sqlite3.Connection, table: str,
     # falls back to an exact replacement of this bounded scope.
     if snap is not None and [val for _, val in old] == strs:
         return old
-    conn.execute(f"DELETE FROM {table} WHERE {scope_sql}", scope_args)
+    if cas is not None:
+        # replace only what this save loaded, row by row, and refuse if the
+        # scope holds anything else (a row another writer committed since)
+        for seq, oval in cas:
+            _cas(conn, f"DELETE FROM {table} WHERE seq=? AND val=?", (seq, oval),
+                 f"{table} row {seq} ({scope_args[0]!r})")
+        row = conn.execute(f"SELECT COUNT(*) FROM {table} WHERE {scope_sql}",
+                           scope_args).fetchone()
+        if row is not None and int(row[0]) != 0:
+            raise StaleWrite(f"{table} scope {scope_args!r} gained rows since this "
+                             "save loaded it (another writer committed them); "
+                             "nothing was written")
+    else:
+        conn.execute(f"DELETE FROM {table} WHERE {scope_sql}", scope_args)
     result = []
     for entry, val in zip(cur, strs):
         cursor = conn.execute(insert_sql, (*insert_prefix, _at_of(entry), val))
@@ -2731,7 +2762,19 @@ def _write_dict_log(conn: sqlite3.Connection, sect: str, cur: dict[str, Any],
     new_snap = {owner: list(rows) for owner, rows in snap.items()
                 if owner in cur._present}
     for owner in cur._dropped:
-        conn.execute("DELETE FROM log_d WHERE sect=? AND owner=?", (sect, owner))
+        base = snap.get(owner)
+        if _ROW_CAS and base is not None:
+            for seq, oval in base:
+                _cas(conn, "DELETE FROM log_d WHERE seq=? AND val=?", (seq, oval),
+                     f"log_d row {seq} ({sect!r}, {owner!r})")
+            row = conn.execute("SELECT COUNT(*) FROM log_d WHERE sect=? AND owner=?",
+                               (sect, owner)).fetchone()
+            if row is not None and int(row[0]) != 0:
+                raise StaleWrite(f"{sect}[{owner!r}] gained rows since this save "
+                                 "loaded it (another writer committed them); "
+                                 "nothing was written")
+        else:
+            conn.execute("DELETE FROM log_d WHERE sect=? AND owner=?", (sect, owner))
         new_snap.pop(owner, None)
     # Walk loaded/new real owners in document order.  Raw dict iteration would
     # also see SectionMap's private JSON-encoder seed until a whole-map
@@ -2752,7 +2795,8 @@ def _write_dict_log(conn: sqlite3.Connection, sect: str, cur: dict[str, Any],
             "INSERT INTO log_d(sect, owner, at, val) VALUES(?,?,?,?)",
             (sect, owner), entries, baseline,
             incremental=row_log if isinstance(row_log, AppendLog)
-            and owner not in cur._replaced else None)
+            and owner not in cur._replaced else None,
+            cas_old=snap.get(owner))
     raw_old_owners = _meta_get(conn, _META_OWNERS + sect)
     # Owner names are a separate journal from loaded row snapshots. Merge
     # only this proxy's structural changes into the currently committed
