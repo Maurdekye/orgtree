@@ -251,9 +251,14 @@ class LastCredit(unittest.TestCase):
 class StaleSnapshot(unittest.TestCase):
     """The declaration is computed from an UNLOCKED snapshot, so the tree can
     move before the locks are held. rcdoor.require() re-derives the rows from
-    the locked document and widens; without it the body would write a row it
-    never locked. (Added after the mutation pass: 'require() never widens'
-    survived every other test.)"""
+    the locked document and widens. The case that matters is a row the
+    operation only READS to decide — here the new payer, which pays from its
+    own free credit and so is never written. pgdoor's safety net widens only
+    on a refused WRITE, so without require() that payer would be decided on
+    unlocked: exactly RT1's double-spend. (Added after the mutation pass:
+    'require() never widens' survived every other test — twice, the second
+    time because the first version of this test moved a WRITTEN row, which
+    the safety net covered.)"""
 
     def setUp(self) -> None:
         orgtx.use_backend(orgtx.SeamBackend())
@@ -272,18 +277,18 @@ class StaleSnapshot(unittest.TestCase):
         stale = orgtx.org_read(self.slug)
         spec = rcdoor.reallocate_rows(stale, 'boss', 'c1')
         self.assertEqual(spec.nodes, ('c1', 'p', 'boss'))
-        # the tree moves: c1 now reports to q, which has no free credit, so a
-        # raise of c1 bubbles through q and WRITES q's grant
+        # the tree moves: c1 now reports to q, which HAS free credit, so a
+        # raise of c1 is paid by q — q is read to decide and never written
         org = store.load_org(self.slug)
         org.move('boss', 'c1', 'q')
         f = org.free('q')
-        if f >= 1:
-            org.reallocate('boss', 'q', -math.floor(f))
+        if f < 1:
+            org.reallocate('boss', 'q', math.ceil(1 - f))
         store.save_org(org)
         org = store.load_org(self.slug)
         self.assertEqual(org.node('c1')['parent'], 'q')
-        self.assertLess(org.free('q'), 1, 'fixture: q must not be able to pay alone')
-        q_before = org.node('q')['grant']
+        self.assertGreaterEqual(org.free('q'), 1, 'fixture: q must be able to pay alone')
+        q_before, q_free = org.node('q')['grant'], org.free('q')
         body = types.SimpleNamespace(org=self.slug, node='boss', tool='orgtree_reallocate',
                                      op_key=None)
         seen: list = []
@@ -299,8 +304,8 @@ class StaleSnapshot(unittest.TestCase):
         self.assertEqual(len(seen), 2, f'expected one widening re-run, saw {seen}')
         self.assertIn('q', seen[1])
         org = store.load_org(self.slug)
-        self.assertGreater(org.node('q')['grant'], q_before, 'the raise bubbled through q')
-        self.assertGreaterEqual(org.free('q'), 0)
+        self.assertEqual(org.node('q')['grant'], q_before, 'q paid from its free credit: not written')
+        self.assertEqual(org.free('q'), q_free - 1, 'q is the payer the decision read')
 
 
 if __name__ == '__main__':
