@@ -181,6 +181,22 @@ async fn fail_next_makes_the_next_statement_fail_as_if_from_the_server() {
     assert_eq!(db.rows("rows").len(), 1);
 }
 
+/// A FailNext planned at before_commit fails the COMMIT itself (COMMIT is not
+/// a Tx::exec statement, so without the executor's handling the fault would
+/// silently never fire).
+#[tokio::test]
+async fn fail_next_at_before_commit_fails_the_commit() {
+    let db = FakeDb::new();
+    let (h, _, c) = scripted("test.insert_one.before_commit", HookAction::FailNext("40001".into()));
+    let cmd = InsertOne::new();
+    let o = exec_with(&db, h).run(&cmd, &binding("k1", "fp1")).await.unwrap();
+    assert!(matches!(o, Outcome::Applied(_)));
+    assert!(c.has("retry:serialization_failure"), "the planned fault never fired");
+    assert_eq!(db.rows("rows").len(), 1);
+    assert_eq!(db.commits(), 1, "the first attempt must not have committed");
+    assert_eq!(cmd.effects_run(), 1);
+}
+
 #[tokio::test]
 async fn drop_conn_before_commit_retries_on_a_fresh_session() {
     let db = FakeDb::new();
