@@ -133,6 +133,16 @@ fn dev_cluster_lifecycle() {
     let postgres_count = stop.family.iter().filter(|m| m.exe_name.eq_ignore_ascii_case("postgres.exe")).count();
     assert!(postgres_count >= 2, "expected postmaster + auxiliaries, saw {:?}", stop.family);
     assert!(stop.family.iter().all(|m| m.exited && !m.terminated_by_custodian), "{:?}", stop.family);
+    // Independent of the report: no family PID is a live process running our
+    // postgres.exe now.
+    let ours = b.exe("postgres");
+    for m in &stop.family {
+        if let Some(h) = orgtree_pg_custodian::win::ProcessHandle::open(m.pid) {
+            let alive_ours = !h.wait_exit(0)
+                && h.image_path().map(|p| orgtree_pg_custodian::win::same_file(&p, &ours)).unwrap_or(false);
+            assert!(!alive_ours, "pid {} still runs our postgres.exe after stop", m.pid);
+        }
+    }
     match cluster::state(&root, &b).unwrap() {
         ClusterState::Stopped { .. } => {}
         other => panic!("after stop expected Stopped, got {other:?}"),
