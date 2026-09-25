@@ -306,18 +306,22 @@ class Race:
     def _wrap_pg_open(self) -> None:
         import psycopg
         from orgtree import pgstore
-        orig = pgstore.open_conn
         race = self
+        # every session org_tx or the seam takes comes from the pool's
+        # _checkout (open_conn calls it too); an older pgstore has only open_conn
+        name = "_checkout" if hasattr(pgstore, "_checkout") else "open_conn"
+        orig = getattr(pgstore, name)
 
-        def open_conn(*a: Any, **k: Any) -> Any:
-            conn = orig(*a, **k)
+        def wrapped(*a: Any, **k: Any) -> Any:
+            got = orig(*a, **k)
             act = race._current()
             if act is not None:
-                act.pg_pids.append(int(conn.raw.info.backend_pid))
-            return conn
+                raw = getattr(got, "raw", got)
+                act.pg_pids.append(int(raw.info.backend_pid))
+            return got
 
-        pgstore.open_conn = open_conn               # type: ignore[assignment]
-        self._undo.append(lambda: setattr(pgstore, "open_conn", orig))
+        setattr(pgstore, name, wrapped)
+        self._undo.append(lambda: setattr(pgstore, name, orig))
         probe = psycopg.connect(os.environ["ORGTREE_PG_URL"], autocommit=True)
         self._undo.append(probe.close)
 
