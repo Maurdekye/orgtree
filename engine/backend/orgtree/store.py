@@ -630,6 +630,10 @@ def claim_data_root(root: str | None = None) -> None:
             pgstore.migrate(_c)
         finally:
             _c.close()
+        # an orgs row with no marker is not an org anyone can see: retire it
+        # (rows kept) so nothing half-made stays live (lead decision 20.2)
+        for _s in pgstore.retire_unmarked(os.path.join(base, "orgs")):
+            _log(f"postgres org {_s!r} has no marker in orgs/; retired (rows kept)")
     os.makedirs(base, exist_ok=True)
     fd = os.open(owner_file(base), os.O_RDWR | os.O_CREAT, 0o644)
     if not _try_lock(fd):
