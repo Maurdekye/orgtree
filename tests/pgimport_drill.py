@@ -231,11 +231,15 @@ class Drills(unittest.TestCase):
         self.cleanup.append((root, True, env))
         tool = REPO / "tools" / "pypg" / "pgimport.py"
         prep = [sys.executable, str(tool), "prepare", "--root", str(root), "--custodian", env[bracket.CUSTODIAN_ENV]]
-        # an agent session naming this root refuses, and binds nothing
-        refused = subprocess.run(prep, capture_output=True, text=True, timeout=120,
+        # an agent session naming this root refuses, and binds nothing: the
+        # custodian itself (pgimport would not even load the store there —
+        # devguard refuses an agent's inherited data root first)
+        refused = custodian_json("bind-product", "--root", str(root), env={**env, "ORGTREE_AGENT_PARENT_DATA": str(root)})
+        self.assertEqual((refused["ok"], refused.get("code")), (False, "root.protected"), refused)
+        guarded = subprocess.run(prep, capture_output=True, text=True, timeout=120,
                                  env={**env, "ORGTREE_AGENT_PARENT_DATA": str(root)})
-        self.assertEqual(refused.returncode, 3, refused.stderr)
-        self.assertIn("root.protected", refused.stderr)
+        self.assertNotEqual(guarded.returncode, 0, guarded.stderr)
+        self.assertIn("devguard", guarded.stderr)
         self.assertFalse((root / "orgtree-product-root.json").exists())
         # a root that is not ORGTREE_DATA refuses too
         other = subprocess.run(prep, capture_output=True, text=True, timeout=120, env={**env, "ORGTREE_DATA": str(parent)})
@@ -251,7 +255,8 @@ class Drills(unittest.TestCase):
         self.assertFalse(destroy_plain["ok"], destroy_plain)
         self.assertTrue((root / "pg").is_dir(), "the product cluster must survive both destroy attempts")
         detail["destroy_refused"] = {"with_product": destroy.get("code"), "without": destroy_plain.get("code")}
-        detail["prepare_refusals"] = {"agent_variable": "root.protected", "not_orgtree_data": "product.not_engine_root"}
+        detail["prepare_refusals"] = {"custodian_agent_variable": "root.protected", "pgimport_agent_variable": "devguard",
+                                      "not_orgtree_data": "product.not_engine_root"}
         report("product root: bind, import, cutover, engine on postgres", "passed", detail)
 
 
