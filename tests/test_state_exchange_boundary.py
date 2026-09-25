@@ -1,12 +1,12 @@
-"""P01 F4 legacy boundary contracts for mail, inbox, files and external chat (exchange.*).
+"""P01 F4 legacy boundary contracts for mail, inbox and files (exchange.*).
 
 Disposable SQLite only; the app's lifecycle is not started. Every case builds a fresh pair of orgs (main and other,
 the other optionally a kiosk) under this test's temporary data root. The drives (supervisor.send_message), the
-sparks, notices, broadcasts and the mail-hub kick are spies; the routes, the ledger, the org inbox, the machine-wide
-extern-peers.json sighting file, the file-deliveries sidecar, the compose stage and the agents' scratch folders are
-real. Each case's observation is normalized (one NORM block) and compared with
-docs/state-system/exchange-boundary.json, and each test pins a fact stated in
-docs/state-system/operation-contracts.json (exchange.*).
+sparks, notices, broadcasts and the mail-hub kick are spies; the routes, the ledger, the org inbox, the
+file-deliveries sidecar, the compose stage and the agents' scratch folders are real. (The external-chat routes and
+their MCP client were retired by user ruling, docket the-external-chat-mcp-server-cannot-reach-the-v2.) Each case's
+observation is normalized (one NORM block) and compared with docs/state-system/exchange-boundary.json, and each
+test pins a fact stated in docs/state-system/operation-contracts.json (exchange.*).
 """
 from __future__ import annotations
 
@@ -43,15 +43,14 @@ import import_provenance  # noqa: E402,F401
 from engine.launch import load_app  # noqa: E402
 app, *_ = load_app()
 from fastapi.testclient import TestClient  # noqa: E402
-from orgtree import agentauth, api, externtool, ledger, opreceipts, store, supervisor  # noqa: E402
+from orgtree import agentauth, api, ledger, opreceipts, store, supervisor  # noqa: E402
 
 assert Path(store.DATA_ROOT).resolve() == _data.resolve(), 'this process would have written to the live root'
 
 OP = {'X-Orgtree-Desktop-Token': 'operator'}
 NO_TOOLS = {'bash': False, 'web': False, 'edit': False, 'subagents': False, 'mcp': []}
 SCOPE = {'add_dirs': [], 'tools': NO_TOOLS, 'org_visibility': 'team', 'charter': 'fixture'}
-FIELDS = {'schema', 'source_contract_sha256', 'qualification', 'contracts', 'cases', 'externtool', 'legacy_defects',
-          'scope'}
+FIELDS = {'schema', 'source_contract_sha256', 'qualification', 'contracts', 'cases', 'legacy_defects', 'scope'}
 SEQ = [0]
 CUR: dict = {}
 BIG = Path(_temp) / 'big.bin'
@@ -122,7 +121,7 @@ def fresh(kiosk_other=False):
         store.save_org(org)
         orgs[role] = slug
     CUR["slug"], CUR["other"] = orgs["main"], orgs["other"]
-    CUR["peer"] = f"probe.p{SEQ[0]}"     # one peer per case: the extern scans read EVERY org on the machine
+    CUR["peer"] = f"probe.p{SEQ[0]}"     # one outside peer per case
     CUR["tokens"] = {n: agentauth.child_env(orgs["main"], n)["ORGTREE_AGENT_TOKEN"] for n in ("top", "mid", "leaf")}
 
 
@@ -242,10 +241,11 @@ def twice(req):
 
 # ---- fixture states -----------------------------------------------------------------------------------------------
 def org_reply(c):
-    """The org answers the peer: an 'out' entry to @mcp:<peer>, after the peer's own inbound."""
-    op("POST", "/api/extern/{peer}/send", json={"org": CUR["slug"], "body": "question one"})(c)
+    """An outside peer's inbound and the org's answer, written straight into the org inbox (the retired external-chat
+    send route used to write the inbound)."""
     org = store.load_org(CUR["slug"])
-    org._org_inbox_log("out", f"@mcp:{CUR['peer']}", "answer one", by="top")
+    org._org_inbox_log("in", f"@net:{CUR['peer']}", "question one")
+    org._org_inbox_log("out", f"@net:{CUR['peer']}", "answer one", by="top")
     store.save_org(org)
 
 
@@ -293,29 +293,8 @@ def big_file():
 
 DID = "f4-delivery-0001"
 CASES = [
-    # GET /api/orgs (moved into F4) and the external-chat routes
+    # GET /api/orgs (moved into F4)
     ("orgs_list", op("GET", "/api/orgs"), None, True),
-    ("extern_send", op("POST", "/api/extern/{peer}/send", json={"org": "{slug}", "body": "hi"}), None, False),
-    ("extern_send_empty", op("POST", "/api/extern/{peer}/send", json={"org": "{slug}", "body": "  "}), None, False),
-    ("extern_send_bad_peer", op("POST", "/api/extern/bad!peer/send", json={"org": "{slug}", "body": "hi"}), None, False),
-    ("extern_send_no_org", op("POST", "/api/extern/{peer}/send", json={"org": "nope-org", "body": "hi"}), None, False),
-    ("extern_send_kiosk", op("POST", "/api/extern/{peer}/send", json={"org": "{other}", "body": "hi"}), None, True),
-    ("extern_send_att", dyn(lambda: op("POST", "/api/extern/{peer}/send",
-                                       json={"org": CUR["slug"], "body": "file", "attachments": [str(SMALL)]})),
-     None, False),
-    ("extern_send_att_missing", op("POST", "/api/extern/{peer}/send",
-                                   json={"org": "{slug}", "body": "x", "attachments": ["C:/nope/missing.txt"]}),
-     None, False),
-    ("extern_send_att_big", dyn(lambda: op("POST", "/api/extern/{peer}/send",
-                                           json={"org": CUR["slug"], "body": "x", "attachments": [str(big_file())]})),
-     None, False),
-    ("extern_messages", op("GET", "/api/extern/{peer}/messages"), org_reply, False),
-    ("extern_messages_org", dyn(lambda: op("GET", "/api/extern/{peer}/messages", params={"org": CUR["other"]})),
-     org_reply, False),
-    ("extern_messages_none", op("GET", "/api/extern/{peer}/messages"), None, False),
-    ("extern_wait_ready", op("GET", "/api/extern/{peer}/wait", params={"timeout": 1}), org_reply, False),
-    ("extern_wait_timeout", op("GET", "/api/extern/{peer}/wait", params={"timeout": 1}), None, False),
-    # the org inbox, mail items and the user's inbox
     ("org_inbox", op("GET", "/api/orgs/{slug}/org_inbox"), org_reply, False),
     ("org_inbox_no_org", op("GET", "/api/orgs/nope-org/org_inbox"), None, False),
     ("mail_user_found", dyn(lambda: op("GET", f"/api/orgs/{CUR['slug']}/mail/user/"
@@ -376,7 +355,6 @@ CASES = [
     ("route_no_token", lambda c: c.get("/api/orgs"), None, False),
     ("route_agent_token", lambda c: c.get(f"/api/orgs/{CUR['slug']}/org_inbox",
                                           headers={"X-Orgtree-Agent-Token": CUR["tokens"]["mid"]}), None, False),
-    ("extern_no_token", lambda c: c.get(f"/api/extern/{CUR['peer']}/messages"), None, False),
     # agent tools
     ("send_file", agent("orgtree_send_file", {"path": "report.txt", "note": "the report"}), scratch_file, False),
     ("send_file_missing", agent("orgtree_send_file", {"path": "nope.txt"}), scratch_file, False),
@@ -434,7 +412,7 @@ class BoundaryBinding(unittest.TestCase):
         registry = contracts.load(ROOT / 'docs/state-system/operation-contracts.json')
         result = contracts.validate(registry, contracts.inventory.scan(ROOT), ROOT)
         self.assertTrue(result['valid'], result['errors'])
-        self.assertEqual(len(spec['contracts']), 15)
+        self.assertEqual(len(spec['contracts']), 12)     # 15 until the three exchange.extern-* were retired
         self.assertEqual(set(spec['cases']), set(CASES))
         for d in contracts.DIMENSIONS:
             self.assertEqual(registry['facets']['exchange.' + d]['status'],
@@ -460,7 +438,7 @@ class BoundaryBinding(unittest.TestCase):
                 for e in c['entry_ids']:
                     bound.setdefault(e, []).append(name)
                     self.assertEqual(contracts.select(registry, e, {}), [name], name)
-        self.assertEqual(len(bound), 20)
+        self.assertEqual(len(bound), 13)     # 20 until the extern routes and the four externtool cards were retired
         for e, names in bound.items():
             self.assertEqual((entries[e]['disposition'], entries[e]['contracts']), ('mapped', names))
         # the four agent-door branches and the two sidecar sites that only F4's operations reach
@@ -490,7 +468,7 @@ class ExchangeBoundary(unittest.TestCase):
                 out[name] = (seen, body, docs, cur)
         return out
 
-    # -- the org list and the external-chat routes ----------------------------------------------------------------
+    # -- the org list ----------------------------------------------------------------
     def test_orgs_list_reads_every_org_and_carries_the_kiosk_flags(self):
         [(seen, body, _, cur)] = self.check('orgs_list').values()
         rows = {r['slug']: r for r in body}
@@ -498,67 +476,8 @@ class ExchangeBoundary(unittest.TestCase):
         self.assertIn('token', rows[cur['other']]['kiosk_cfg'])       # the admin view carries the share token
         self.assertNotIn('kiosk_cfg', rows[cur['slug']])
 
-    def test_extern_send_records_the_sighting_first_then_delivers_to_the_org_inbox(self):
-        got = self.check('extern_send', 'extern_send_empty', 'extern_send_bad_peer', 'extern_send_no_org',
-                         'extern_send_kiosk', 'extern_send_att', 'extern_send_att_missing', 'extern_send_att_big')
-        # the sighting is written before the empty-body, unknown-org, kiosk and attachment refusals, not before a
-        # bad peer id (docket external-chat-messages-and-wait-read-every-org-u, the extern-peers point)
-        self.assertEqual({n for n, (s, _, _, _) in got.items() if s['peer_seen']},
-                         set(got) - {'extern_send_bad_peer'})
-        # a sealed kiosk answers exactly like a missing org
-        self.assertEqual(got['extern_send_kiosk'][0]['detail'].replace('{other}', 'X'),
-                         got['extern_send_no_org'][0]['detail'].replace('nope-org', 'X'))
-
-    def test_extern_read_and_wait_scan_every_org(self):
-        self.check('extern_messages', 'extern_messages_org', 'extern_messages_none', 'extern_wait_ready',
-                   'extern_wait_timeout')
-        # recorded legacy defect (docket external-chat-messages-and-wait-read-every-org-u): the scan reads every org
-        # on the machine; a peer's replies from TWO orgs come back from one call, and a wait returns at once when
-        # any org holds a fresh reply
-        fresh()
-        client = TestClient(app, raise_server_exceptions=False)
-        peer = CUR['peer']
-        with Spies():
-            for slug in (CUR['slug'], CUR['other']):
-                client.post(f'/api/extern/{peer}/send', json={'org': slug, 'body': 'q'}, headers=OP)
-                org = store.load_org(slug)
-                org._org_inbox_log('out', f'@mcp:{peer}', 'a from ' + slug, by='top')
-                store.save_org(org)
-            got = client.get(f'/api/extern/{peer}/messages', headers=OP).json()['messages']
-            self.assertEqual(sorted(m['org'] for m in got), sorted([CUR['slug'], CUR['other']]))
-            t0 = time.monotonic()
-            waited = client.get(f'/api/extern/{peer}/wait', params={'timeout': 5}, headers=OP).json()['messages']
-            self.assertEqual((len(waited), time.monotonic() - t0 < 2), (2, True))
-            scanned = []
-            real = store.load_org
-            with patch.object(store, 'load_org', lambda slug: scanned.append(slug) or real(slug)):
-                client.get(f'/api/extern/{peer}/messages', params={'org': CUR['slug']}, headers=OP)
-                filtered = list(scanned)
-                client.get(f'/api/extern/{peer}/messages', headers=OP)
-            # the org filter skips only the second, per-org load_org: store.list_orgs has already read and parsed
-            # every org document before the filter applies (P02 F4 finding, corrected in P01 F6)
-            self.assertEqual(set(filtered), {CUR['slug']})
-            self.assertGreaterEqual(len(set(scanned)) - len(set(filtered)), 2)
-            # ... but the listing before the filter has already read and parsed every org document (P02 F4 finding)
-            listed = []
-            real_scan = store._scan_orgs
-
-            def counting_scan(*a, **k):
-                for row in real_scan(*a, **k):
-                    listed.append(row[0])
-                    yield row
-            with patch.object(store, '_scan_orgs', counting_scan):
-                client.get(f'/api/extern/{peer}/messages', params={'org': CUR['slug']}, headers=OP)
-            self.assertEqual(len(listed), len(store.list_orgs()))
-            self.assertGreater(len(listed), 2)
-
-    def test_the_gate_and_the_external_chat_client(self):
-        self.check('route_no_token', 'route_agent_token', 'extern_no_token')
-        # the external-chat MCP server sends no credential: every one of its verbs is refused by the gate both
-        # current launch paths install; with the desktop token its client logic works
-        for token, want in ((False, self.spec['externtool']['bare']), (True, self.spec['externtool']['token'])):
-            with self.subTest(token=token):
-                self.assertEqual(run_externtool(token), want)
+    def test_the_gate(self):
+        self.check('route_no_token', 'route_agent_token')
 
     # -- the org inbox, mail items and the user's inbox ---------------------------------------------------------
     def test_org_inbox_mail_items_and_the_user_inbox(self):
@@ -575,6 +494,9 @@ class ExchangeBoundary(unittest.TestCase):
         got = self.check('org_inbox_upload', 'org_inbox_upload_big', 'org_send_mcp', 'org_send_org',
                          'org_send_org_kiosk', 'org_send_org_missing', 'org_send_org_att', 'org_send_ext',
                          'org_send_bad_to', 'org_send_bad_stage', 'org_send_mcp_att', 'org_send_net_nohub')
+        # a new @mcp: send is retired: refused 422 before the attachment checks, with or without a staged file
+        for name in ('org_send_mcp', 'org_send_mcp_att'):
+            self.assertEqual((got[name][0]['status'], got[name][0]['detail']), (422, ledger.MCP_RETIRED), name)
         # an @org: send writes the OTHER org's documents and drives its holders; a sealed or missing one only warns
         self.assertEqual(got['org_send_org_kiosk'][1]['warnings'],
                          [f"not delivered: no organization named {got['org_send_org_kiosk'][3]['other']!r} is reachable"])
@@ -617,42 +539,6 @@ class ExchangeBoundary(unittest.TestCase):
             answer = client.post('/api/agent', json=dict(org=CUR['slug'], node='mid', tool=opreceipts.OP_LOOKUP, args={
                 'op_key': key, 'op_epoch': epoch, 'for_tool': 'orgtree_send_file', 'for_args': args}), headers=head).json()
         self.assertEqual((answer['state'], answer['reason'], answer['coverage']), ('unknown', 'unsupported_operation', 'none'))
-
-
-def run_externtool(token):
-    """externtool.run_tool for its four verbs, its http() served by this app with EXACTLY the headers it sends
-    (Content-Type only), or with the desktop token added."""
-    fresh(kiosk_other=True)
-    client = TestClient(app, raise_server_exceptions=False)
-
-    def http(method, path, body=None, timeout=30.0):
-        r = client.request(method, path, json=body, headers=OP if token else {'Content-Type': 'application/json'})
-        if r.status_code >= 400:
-            raise urllib.error.HTTPError(path, r.status_code, 'error', {}, io.BytesIO(r.content))
-        return r.json()
-
-    out = {}
-    with Spies(), patch.object(externtool, 'http', http):
-        for tool, args in (('orgtree_list_orgs', {}), ('orgtree_send', {'org': CUR['slug'], 'body': 'hello'}),
-                           ('orgtree_read', {'org': CUR['slug']}), ('orgtree_wait', {'org': CUR['slug'], 'timeout_s': 5})):
-            if tool == 'orgtree_read':
-                org = store.load_org(CUR['slug'])
-                org._org_inbox_log('out', f'@mcp:{externtool.PEER}', 'reply', by='top')
-                store.save_org(org)
-            text, err = externtool.run_tool(tool, args)
-            if err:
-                out[tool] = {'error': True, 'text': text[:200]}
-                continue
-            data = json.loads(text)
-            if tool == 'orgtree_list_orgs':
-                out[tool] = {'error': False, 'kiosk_hidden': all(o['slug'] != CUR['other'] for o in data['orgs']),
-                             'main_listed': any(o['slug'] == CUR['slug'] for o in data['orgs']),
-                             'peer': data['your_peer_id']}
-            elif tool == 'orgtree_send':
-                out[tool] = {'error': False, 'keys': sorted(data)}
-            else:
-                out[tool] = {'error': False, 'messages': len(data['messages'])}
-    return out
 
 
 if __name__ == '__main__':

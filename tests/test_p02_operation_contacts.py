@@ -63,7 +63,7 @@ CONTRACTS = {f"reservation.{v}" for v in RESERVATION} | {
         "killswitch-release", "resume", "remote-control", "steer-claim", "steer-ack",
         "steer-state", "kiosk")} | {
     f"exchange.{v}" for v in (
-        "orgs-list", "extern-send", "extern-read", "extern-wait", "org-inbox-list", "mail-item",
+        "orgs-list", "org-inbox-list", "mail-item",
         "org-inbox-read", "org-inbox-upload", "org-inbox-send", "inbox-clear", "node-upload",
         "reply-events-count", "reply-events-clear", "mail-retract", "send-file")} | {
     f"org-read.{v}" for v in (
@@ -347,7 +347,7 @@ class OperationContacts(unittest.TestCase):
                                          "audiences.operator-action", "audiences.request",
                                          "audiences.revoke", "control.op-unstick",
                                          "control.unstick", "lifecycle.operator-scope",
-                                         "exchange.extern-send", "exchange.mail-retract"})
+                                         "exchange.mail-retract"})
 
     def test_third_agent_mail_control_is_flagged(self):
         control = self.rows(variant=self.CONTROL)
@@ -455,7 +455,7 @@ class OperationContacts(unittest.TestCase):
         if variant == "catalogue.list-orgs":
             return [self.F_STMT]      # the catalogue loads EVERY org (pooled stores)
         if variant in self.EX_FOREIGN:
-            return [self.F_STMT]      # F4: the org list, the extern scans, an @org: send
+            return [self.F_STMT]      # F4: the org list, an @org: send
         return self.DECLARED.get(variant, [])
 
     def test_every_row_loses_nothing(self):
@@ -889,15 +889,21 @@ class OperationContacts(unittest.TestCase):
             warm = self.rows(variant=variant, condition="warm")[0]
             self.assertEqual(cold["agents"]["logical"].get("audiences"), pair)
             self.assertNotIn("audiences", warm["agents"]["logical"])
-        for variant in ("mail.message:user", "mail.message:org", "mail.message:mcp"):
+        for variant in ("mail.message:user", "mail.message:org"):
             for condition in ("cold", "warm"):
                 with self.subTest(variant=variant, condition=condition):
                     r = self.rows(variant=variant, condition=condition)[0]
                     self.assertEqual(r["http_status"], 200, r["detail"])
                     self.assertNotIn("mail", r["agents"]["logical"])
                     self.assertEqual(r["agents"]["third_agent_mail"], 0)
+        # @mcp: is retired (ledger.MCP_RETIRED): refused, cold and warm
+        for r in self.rows(variant="refusal:mail-message-mcp-retired"):
+            with self.subTest(variant="mcp-retired", condition=r["condition"]):
+                self.assertIn("@mcp: address form is retired", r["detail"])
+                self.assertEqual(r["agents"]["logical"], {})
         refusals = {"mail.message:bare-unknown-name": 422, "refusal:notice-to-org": 422,
-                    "refusal:notice-to-user": 422, "refusal:mail-halted": 409}
+                    "refusal:notice-to-user": 422, "refusal:mail-halted": 409,
+                    "refusal:mail-message-mcp-retired": 422}
         for variant, status in refusals.items():
             for r in self.rows(variant=variant):
                 with self.subTest(variant=variant, condition=r["condition"]):
@@ -2138,17 +2144,16 @@ class OperationContacts(unittest.TestCase):
 
     # -- P01 F4: the exchange routes and tools --------------------------------------
     EX_CONTROL = "control:exchange-third-agent"
-    EX_MAIN = ("exchange.orgs-list", "exchange.extern-send", "exchange.extern-read",
-               "exchange.extern-wait", "exchange.org-inbox-list", "exchange.mail-item",
+    #: the external-chat routes (exchange.extern-send, -read, -wait) and their MCP
+    #: server were retired on 2026-09-25: no rows
+    EX_MAIN = ("exchange.orgs-list", "exchange.org-inbox-list", "exchange.mail-item",
                "exchange.org-inbox-read", "exchange.org-inbox-upload", "exchange.org-inbox-send",
                "exchange.inbox-clear", "exchange.node-upload", "exchange.reply-events-count",
                "exchange.reply-events-clear", "exchange.mail-retract", "exchange.send-file")
     #: the rows that run statements on OTHER orgs' stores, as found: the org list
-    #: and the external-chat scans (every org), and an @org: send (the other org)
-    EX_FOREIGN = {"exchange.orgs-list", "exchange.extern-read", "exchange.extern-wait",
-                  "exchange.extern-read:org-filter", "exchange.extern-wait:timeout",
-                  "exchange.org-inbox-send:org", "exchange.org-inbox-send:org-kiosk",
-                  "exchange.org-inbox-send:org-attachment"}
+    #: (every org) and an @org: send (the other org; the main send row is one)
+    EX_FOREIGN = {"exchange.orgs-list", "exchange.org-inbox-send", "exchange.org-inbox-send:org",
+                  "exchange.org-inbox-send:org-kiosk", "exchange.org-inbox-send:org-attachment"}
 
     def ex_rows(self):
         return [r for r in self.doc["rows"] if r["contract"].startswith("exchange.")
@@ -2168,22 +2173,22 @@ class OperationContacts(unittest.TestCase):
                     self.assertIs(r["harness"]["matches_census"], True)
 
     def test_exchange_org_level_locality_as_found(self):
-        """The org list and the external-chat scans read EVERY org's document
-        (docket external-chat-messages-and-wait-read-every-org-u), and an
-        org FILTER on the read does not stop that: the scan lists every org
-        through store.list_orgs before it filters. An @org: send writes the
-        other org's store; to a sealed kiosk it reads the other store and
-        only warns. Nothing else leaves the org."""
+        """The org list reads EVERY org's document. An @org: send writes the
+        other org's store (the main send row, cold and warm, and its :org
+        variants); to a sealed kiosk it reads the other store and only warns.
+        Nothing else leaves the org."""
         for r in self.ex_rows():
             foreign = r["harness"]["statement_stores"].get("data:org-db:foreign", 0)
             with self.subTest(variant=r["variant"], condition=r["condition"]):
                 self.assertEqual(foreign > 0, r["variant"] in self.EX_FOREIGN)
-        for variant in ("exchange.extern-read", "exchange.extern-read:org-filter",
-                        "exchange.orgs-list"):
-            [r] = self.rows(variant=variant, condition="warm")
-            self.assertLessEqual({"orgtree.store:_load_lazy", "orgtree.store:_meta_get"},
-                                 set(r["harness"]["foreign_statement_sites"]), variant)
-            self.assertGreater(r["harness"]["statement_stores"]["data:org-db:foreign"], 100, variant)
+        [r] = self.rows(variant="exchange.orgs-list", condition="warm")
+        self.assertLessEqual({"orgtree.store:_load_lazy", "orgtree.store:_meta_get"},
+                             set(r["harness"]["foreign_statement_sites"]))
+        self.assertGreater(r["harness"]["statement_stores"]["data:org-db:foreign"], 100)
+        for condition in ("cold", "warm"):
+            sent = self.rows(variant="exchange.org-inbox-send",
+                             condition=condition)[0]["harness"]["foreign_statement_sites"]
+            self.assertIn("orgtree.store:_save_sqlite", sent, condition)
         sent = self.rows(variant="exchange.org-inbox-send:org")[0]["harness"]["foreign_statement_sites"]
         self.assertIn("orgtree.store:_save_sqlite", sent)
         sealed = self.rows(variant="exchange.org-inbox-send:org-kiosk")[0]
@@ -2191,7 +2196,7 @@ class OperationContacts(unittest.TestCase):
 
     def test_exchange_rows_reach_only_the_declared_set(self):
         rows = self.ex_rows()
-        self.assertGreater(len(rows), 70)
+        self.assertGreater(len(rows), 60)
         for r in rows:
             agents = r["agents"]
             with self.subTest(variant=r["variant"], condition=r["condition"]):
@@ -2204,12 +2209,6 @@ class OperationContacts(unittest.TestCase):
                 self.assertLessEqual(roles, {"actor", "target", "user-or-org"})
                 self.assertNotIn("ex-third", agents["physical_nodes"])
                 self.assertFalse([s for s in agents["third_sites"] if ":read@" not in s])
-        # an outside message lands in the org inbox and reaches the org's
-        # external-mail recipients (Org.extern_recipients_preview): ex-top
-        for condition in ("cold", "warm"):
-            [r] = self.rows(variant="exchange.extern-send", condition=condition)
-            self.assertEqual(set(r["agents"]["logical"]["mail"]), {"ex-top"})
-            self.assertEqual(r["agents"]["targets"], ["ex-top"])
 
     def test_exchange_effects_and_pinned_legacy_behaviour(self):
         def one(variant, condition="warm"):
@@ -2217,18 +2216,17 @@ class OperationContacts(unittest.TestCase):
                    if x["contract"].startswith("exchange.")]
             return r
 
-        def sighting(r):
-            return any("_peers_write" in k for k in r["audit"].get("file_write", {}))
-        # extern send records the peer's sighting before it validates the body,
-        # the org or the attachments; not before a bad peer id
-        for variant in ("exchange.extern-send", "refusal:extern-send-empty",
-                        "refusal:extern-send-no-org", "refusal:extern-send-kiosk",
-                        "refusal:extern-send-attachment-missing"):
-            self.assertTrue(sighting(one(variant)), variant)
-        self.assertFalse(sighting(one("refusal:extern-send-bad-peer")))
-        # a sealed kiosk answers exactly like a missing org
-        self.assertEqual(one("refusal:extern-send-kiosk")["http_status"],
-                         one("refusal:extern-send-no-org")["http_status"])
+        # with the external-chat routes retired, no row records an extern peer
+        # sighting (extern-peers.json)
+        for r in self.ex_rows():
+            with self.subTest(variant=r["variant"], condition=r["condition"]):
+                self.assertFalse([k for k in r["audit"].get("file_write", {}) if "_peers_write" in k])
+        # @mcp: is retired: refused 422 before anything else, the attachment
+        # check included, and nothing is written
+        for variant in ("refusal:org-send-mcp-retired", "refusal:org-send-mcp-retired-attachment"):
+            r = one(variant)
+            self.assertEqual((r["http_status"], r["harness"]["writes"]), (422, 0), variant)
+            self.assertIn("@mcp: address form is retired", r["detail"])
         # @net: with no enabled hub: the product's own refusal
         self.assertIn("no mailserver is configured", one("refusal:org-send-net-no-hub")["detail"])
         # the reply-events routes answer a raw 500 for an unknown org or node
@@ -2241,15 +2239,7 @@ class OperationContacts(unittest.TestCase):
             with self.subTest(variant=r["variant"], condition=r["condition"]):
                 self.assertEqual(r["harness"]["stores"].get("primary", {}).get("tables_written", []),
                                  [])
-        # the external-chat MCP server's client sends no credential: 401 at the
-        # gate, before any attempt is recorded
-        for variant in ("refusal:externtool-no-credential", "refusal:externtool-send-no-credential",
-                        "refusal:externtool-read-no-credential",
-                        "refusal:externtool-wait-no-credential"):
-            ext = one(variant)
-            self.assertEqual((ext["http_status"], ext["census"]["records"]), (401, 0), variant)
-        for variant in ("refusal:route-no-token", "refusal:route-agent-token",
-                        "refusal:extern-no-token"):
+        for variant in ("refusal:route-no-token", "refusal:route-agent-token"):
             self.assertEqual((one(variant)["http_status"], one(variant)["census"]["records"]),
                              (401, 0), variant)
         # an @org: send sparks the other org's recipient; a sealed kiosk does not
@@ -2258,10 +2248,9 @@ class OperationContacts(unittest.TestCase):
 
     def test_exchange_refusals_write_nothing_to_the_org(self):
         refusals = [r for r in self.ex_rows() if r["variant"].startswith("refusal:")]
-        # 24 route refusals, the attachment on an @mcp: send (a text-only
-        # transport), 7 send_file refusals and the four tokenless externtool
-        # verbs (list_orgs, send, read, wait)
-        self.assertEqual(len(refusals), 36)
+        # 18 route refusals, the two retired @mcp: sends (with and without an
+        # attachment) and 7 send_file refusals
+        self.assertEqual(len(refusals), 27)
         for r in refusals:
             with self.subTest(variant=r["variant"]):
                 self.assertGreaterEqual(r["http_status"], 400)

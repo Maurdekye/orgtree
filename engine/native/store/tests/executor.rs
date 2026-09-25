@@ -674,19 +674,18 @@ mod amendment_2 {
     }
 
     #[cfg(feature = "qualification")]
-    fn armed(db: &std::sync::Arc<FakeDb>) -> orgtree_store::Executor<orgtree_store::fake::FakeConnector> {
-        {
-            use orgtree_store::hooks::{ControlPlan, Hooks};
-            struct Arm;
-            impl ControlPlan for Arm {
-                fn armed(&self, id: &str, _: &orgtree_store::OpIdentity, _: Option<&str>) -> bool {
-                    id == "Q-C4.anchor_refuses_first"
-                }
+    fn armed(db: &std::sync::Arc<FakeDb>) -> (orgtree_store::Executor<orgtree_store::fake::FakeConnector>, std::sync::Arc<Collect>) {
+        use orgtree_store::hooks::{ControlPlan, Hooks};
+        struct Arm;
+        impl ControlPlan for Arm {
+            fn armed(&self, id: &str, _: &orgtree_store::OpIdentity, _: Option<&str>) -> bool {
+                id == "Q-C4.anchor_refuses_first"
             }
-            let mut h = Hooks::default();
-            h.controls = Some(std::sync::Arc::new(Arm));
-            exec_with(db, h)
         }
+        let c = std::sync::Arc::new(Collect::default());
+        let mut h = Hooks::with_trace(c.clone());
+        h.controls = Some(std::sync::Arc::new(Arm));
+        (exec_with(db, h), c)
     }
 
     /// (a) lost COMMIT, then the operation's own effect makes the anchor refuse.
@@ -736,17 +735,20 @@ mod amendment_2 {
         // (a)
         let db = FakeDb::new();
         db.fault("commit", 1, FaultKind::CommitLostAfterApply);
-        let ex = armed(&db);
+        let (ex, c) = armed(&db);
         let cmd = Halting { halted: AtomicBool::new(false), retire_self: true };
         let o = ex.run(&cmd, &binding("k1", "fp1")).await.unwrap();
+        assert!(c.has("control_executed:Q-C4.anchor_refuses_first"), "control did not record that it ran");
         assert!(matches!(o, Outcome::Refused(_)), "the unsafe control must answer Refused for a committed op: {o:?}");
         assert_eq!(db.rows("rows").len(), 1, "yet it committed");
         // (b)
         let db = FakeDb::new();
-        let ex = armed(&db);
+        let (ex, c) = armed(&db);
         let cmd = Halting { halted: AtomicBool::new(false), retire_self: false };
         assert_eq!(ex.run(&cmd, &binding("k1", "fp1")).await.unwrap(), Outcome::Applied(1));
+        assert!(!c.has("control_executed:Q-C4.anchor_refuses_first"), "no refusal yet, so the control has no site to fire at");
         cmd.halted.store(true, Ordering::SeqCst);
         assert!(matches!(ex.run(&cmd, &binding("k1", "fp1")).await.unwrap(), Outcome::Refused(_)), "the unsafe control refuses the replay");
+        assert!(c.has("control_executed:Q-C4.anchor_refuses_first"), "control did not record that it ran");
     }
 }

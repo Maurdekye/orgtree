@@ -1,0 +1,878 @@
+{
+  "schema": "orgtree.git-workspace-boundary/v1",
+  "source_contract_sha256": "74de0c2b01d4b4f5bf7a653842e45cb725eaee655e11cb6fc02829d74d35939a",
+  "qualification": {
+    "runtime_census": false,
+    "conversion_authorized": false
+  },
+  "contracts": {
+    "git-workspace.repositories": "2a2ef8f2c4f0",
+    "git-workspace.discover": "319abaf2a15d",
+    "git-workspace.register": "e2adf989a8a3",
+    "git-workspace.forget": "a6e786143607",
+    "git-workspace.select": "05118ec2fbb1",
+    "git-workspace.observation": "9ae6b29b14fd",
+    "git-workspace.inventory": "cd2a08ef854f",
+    "git-workspace.setup": "61d96f5916bf",
+    "git-workspace.cleanup-preview": "2565ad659bfb",
+    "git-workspace.cleanup-unlink": "210def498a20",
+    "git-workspace.settings": "633bd7d90368",
+    "git-workspace.settings-write": "bb69df452341",
+    "git-workspace.link": "8c00802a413d",
+    "git-workspace.unlink": "a73690cecbcf",
+    "git-workspace.snapshot": "7bb90315dbd4",
+    "git-workspace.history": "4acc5598d91c",
+    "git-workspace.changes": "f88bf4dbf45d",
+    "git-workspace.fetch": "191025332555",
+    "git-workspace.watch": "81820b2d602b",
+    "git-workspace.push": "77f29053733e",
+    "git-workspace.pull": "e663042cc6ae"
+  },
+  "git": {
+    "version": "git version 2.52.0.windows.1",
+    "output_format_dependent_cases": [
+      "register_not_repo"
+    ]
+  },
+  "cases": {
+    "repositories_none": {
+      "status": 200,
+      "keys": [
+        "repositories",
+        "selected"
+      ],
+      "detail": null,
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {}
+    },
+    "discover_roots": {
+      "status": 200,
+      "keys": [
+        "candidates",
+        "errors",
+        "scanned",
+        "truncated"
+      ],
+      "detail": null,
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {
+        "rev-parse": 2
+      }
+    },
+    "discover_scan": {
+      "status": 200,
+      "keys": [
+        "candidates",
+        "errors",
+        "scanned",
+        "truncated"
+      ],
+      "detail": null,
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {
+        "rev-parse": 17
+      }
+    },
+    "discover_outside": {
+      "status": 403,
+      "keys": [
+        "detail"
+      ],
+      "detail": "Scan directory is outside this org's registered folder roots",
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {}
+    },
+    "register": {
+      "status": 200,
+      "keys": [
+        "id",
+        "name"
+      ],
+      "detail": null,
+      "org_changed": [],
+      "registry_changed": [
+        "links",
+        "repositories",
+        "revision",
+        "selected_by_org",
+        "version"
+      ],
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {
+        "rev-parse": 3
+      }
+    },
+    "register_again": {
+      "status": 200,
+      "keys": [
+        "id",
+        "name"
+      ],
+      "detail": null,
+      "org_changed": [],
+      "registry_changed": [
+        "revision"
+      ],
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {
+        "rev-parse": 3
+      }
+    },
+    "register_not_repo": {
+      "status": 422,
+      "keys": [
+        "detail"
+      ],
+      "detail": "fatal: not a git repository (or any of the parent directories): .git\n",
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {
+        "rev-parse": 1
+      }
+    },
+    "register_missing": {
+      "status": 422,
+      "keys": [
+        "detail"
+      ],
+      "detail": "Choose an existing repository directory",
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {}
+    },
+    "register_no_org": {
+      "status": 404,
+      "keys": [
+        "detail"
+      ],
+      "detail": "no such org: 'nope-org'",
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {
+        "rev-parse": 3
+      }
+    },
+    "repositories": {
+      "status": 200,
+      "keys": [
+        "repositories",
+        "selected"
+      ],
+      "detail": null,
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {}
+    },
+    "forget": {
+      "status": 200,
+      "keys": [
+        "removed"
+      ],
+      "detail": null,
+      "org_changed": [],
+      "registry_changed": [
+        "repositories",
+        "revision",
+        "selected_by_org"
+      ],
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {}
+    },
+    "forget_unknown": {
+      "status": 404,
+      "keys": [
+        "detail"
+      ],
+      "detail": "Repository is not registered for this org",
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {}
+    },
+    "select": {
+      "status": 200,
+      "keys": [
+        "selected"
+      ],
+      "detail": null,
+      "org_changed": [],
+      "registry_changed": [
+        "revision"
+      ],
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {
+        "rev-parse": 3
+      }
+    },
+    "select_unknown": {
+      "status": 404,
+      "keys": [
+        "detail"
+      ],
+      "detail": "Repository is not registered for this org",
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {}
+    },
+    "observation": {
+      "status": 200,
+      "keys": [
+        "busy",
+        "freshness",
+        "ref_identity"
+      ],
+      "detail": null,
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {
+        "config": 1,
+        "for-each-ref": 1,
+        "remote": 4,
+        "rev-parse": 3
+      }
+    },
+    "inventory": {
+      "status": 200,
+      "keys": [
+        "active",
+        "complete",
+        "dirty",
+        "hidden",
+        "omitted",
+        "repository",
+        "total",
+        "unmerged",
+        "visible",
+        "worktrees"
+      ],
+      "detail": null,
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {
+        "diff": 4,
+        "rev-parse": 11,
+        "status": 2,
+        "worktree": 1
+      }
+    },
+    "setup": {
+      "status": 200,
+      "keys": [
+        "command",
+        "dependencies",
+        "git_metadata_write",
+        "lockfile",
+        "note",
+        "package_manager",
+        "ready",
+        "worktree"
+      ],
+      "detail": null,
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {
+        "rev-parse": 6
+      }
+    },
+    "setup_link_refused": {
+      "status": 422,
+      "keys": [
+        "detail"
+      ],
+      "detail": "Refusing to link node_modules without an explicit opt-in. Place the worktree under the repository root (.worktrees/<name>), where node_modules resolves upward and no link is needed, or install dependencies into this checkout. Linking makes the checkout non-private.",
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {
+        "rev-parse": 6
+      }
+    },
+    "setup_not_dir": {
+      "status": 422,
+      "keys": [
+        "detail"
+      ],
+      "detail": "Fresh worktree setup requires a real directory",
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {
+        "rev-parse": 3
+      }
+    },
+    "setup_other_repo": {
+      "status": 422,
+      "keys": [
+        "detail"
+      ],
+      "detail": "Worktree belongs to another repository",
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {
+        "rev-parse": 5
+      }
+    },
+    "cleanup_preview": {
+      "status": 200,
+      "keys": [
+        "applied",
+        "preserved",
+        "retirement_authorized",
+        "root",
+        "targets",
+        "unlinkable"
+      ],
+      "detail": null,
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {
+        "diff": 2,
+        "rev-parse": 7,
+        "status": 1,
+        "worktree": 1
+      }
+    },
+    "cleanup_preview_not_worktree": {
+      "status": 404,
+      "keys": [
+        "detail"
+      ],
+      "detail": "Cleanup root is not a registered Git worktree",
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {
+        "rev-parse": 3,
+        "worktree": 1
+      }
+    },
+    "cleanup_unlink_no_preview": {
+      "status": 422,
+      "keys": [
+        "detail"
+      ],
+      "detail": "Provide the cleanup preview before unlinking",
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {}
+    },
+    "cleanup_unlink_other_root": {
+      "status": 422,
+      "keys": [
+        "detail"
+      ],
+      "detail": "Cleanup preview belongs to another worktree",
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {
+        "diff": 2,
+        "rev-parse": 7,
+        "status": 1,
+        "worktree": 1
+      }
+    },
+    "settings": {
+      "status": 200,
+      "keys": [
+        "branches",
+        "items",
+        "links",
+        "remote",
+        "remote_missing",
+        "remotes",
+        "revision",
+        "saved_remote",
+        "saved_trunk",
+        "trunk",
+        "trunk_missing"
+      ],
+      "detail": null,
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {
+        "for-each-ref": 1,
+        "remote": 1,
+        "rev-parse": 3
+      }
+    },
+    "settings_patch": {
+      "status": 200,
+      "keys": [
+        "saved"
+      ],
+      "detail": null,
+      "org_changed": [],
+      "registry_changed": [
+        "repositories",
+        "revision"
+      ],
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {
+        "for-each-ref": 1,
+        "remote": 1,
+        "rev-parse": 3
+      }
+    },
+    "settings_patch_stale": {
+      "status": 409,
+      "keys": [
+        "detail"
+      ],
+      "detail": "Git settings changed; refresh before saving",
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {
+        "remote": 1,
+        "rev-parse": 3
+      }
+    },
+    "settings_patch_bad_key": {
+      "status": 422,
+      "keys": [
+        "detail"
+      ],
+      "detail": "Unsupported repository setting",
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {
+        "rev-parse": 3
+      }
+    },
+    "settings_patch_bad_remote": {
+      "status": 422,
+      "keys": [
+        "detail"
+      ],
+      "detail": "Select a known remote",
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {
+        "remote": 1,
+        "rev-parse": 3
+      }
+    },
+    "link": {
+      "status": 200,
+      "keys": [
+        "saved"
+      ],
+      "detail": null,
+      "org_changed": [],
+      "registry_changed": [
+        "links",
+        "revision"
+      ],
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {
+        "for-each-ref": 1,
+        "rev-parse": 3
+      }
+    },
+    "link_unknown_item": {
+      "status": 422,
+      "keys": [
+        "detail"
+      ],
+      "detail": "Select an existing docket item in this org",
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {
+        "for-each-ref": 1,
+        "rev-parse": 3
+      }
+    },
+    "link_unknown_branch": {
+      "status": 422,
+      "keys": [
+        "detail"
+      ],
+      "detail": "Select a known branch",
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {
+        "for-each-ref": 1,
+        "rev-parse": 3
+      }
+    },
+    "unlink": {
+      "status": 200,
+      "keys": [
+        "removed"
+      ],
+      "detail": null,
+      "org_changed": [],
+      "registry_changed": [
+        "links",
+        "revision"
+      ],
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {
+        "rev-parse": 3
+      }
+    },
+    "snapshot": {
+      "status": 200,
+      "keys": [
+        "bare",
+        "branches",
+        "captured_at",
+        "checkouts_changed",
+        "config",
+        "created",
+        "freshness",
+        "history",
+        "inventory",
+        "name",
+        "newer_available",
+        "omitted_active",
+        "omitted_worktrees",
+        "ref_identity",
+        "remote_fingerprint",
+        "repository_id",
+        "root",
+        "shallow",
+        "slug",
+        "tips",
+        "token",
+        "total_commits",
+        "unborn_branch",
+        "worktrees"
+      ],
+      "detail": null,
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {
+        "config": 1,
+        "for-each-ref": 2,
+        "log": 1,
+        "remote": 4,
+        "rev-list": 1,
+        "rev-parse": 4,
+        "worktree": 2
+      }
+    },
+    "snapshot_bad_branches": {
+      "status": 422,
+      "keys": [
+        "detail"
+      ],
+      "detail": "Branch selection must be a list of full refs",
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {}
+    },
+    "history_bad_cursor": {
+      "status": 422,
+      "keys": [
+        "detail"
+      ],
+      "detail": "Invalid history cursor",
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {}
+    },
+    "changes_clean": {
+      "status": 200,
+      "keys": [
+        "branch",
+        "complete",
+        "conflicted",
+        "count",
+        "files",
+        "fingerprint",
+        "head_oid",
+        "operations",
+        "read_at",
+        "state"
+      ],
+      "detail": null,
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {
+        "diff": 2,
+        "rev-parse": 7,
+        "status": 1,
+        "worktree": 2
+      }
+    },
+    "changes_dirty": {
+      "status": 200,
+      "keys": [
+        "branch",
+        "complete",
+        "conflicted",
+        "count",
+        "files",
+        "fingerprint",
+        "head_oid",
+        "operations",
+        "read_at",
+        "state"
+      ],
+      "detail": null,
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {
+        "diff": 2,
+        "rev-parse": 7,
+        "status": 1,
+        "worktree": 2
+      }
+    },
+    "changes_unknown": {
+      "status": 404,
+      "keys": [
+        "detail"
+      ],
+      "detail": "Worktree no longer exists",
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {
+        "rev-parse": 3,
+        "worktree": 1
+      }
+    },
+    "fetch": {
+      "status": 200,
+      "keys": [
+        "message",
+        "observed_at",
+        "state"
+      ],
+      "detail": null,
+      "org_changed": [],
+      "registry_changed": [
+        "repositories",
+        "revision"
+      ],
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {
+        "config": 1,
+        "fetch": 1,
+        "for-each-ref": 1,
+        "remote": 4,
+        "rev-parse": 3
+      }
+    },
+    "fetch_no_remote": {
+      "status": 422,
+      "keys": [
+        "detail"
+      ],
+      "detail": "Select an available remote in repository settings",
+      "org_changed": [],
+      "registry_changed": [
+        "repositories",
+        "revision"
+      ],
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {
+        "for-each-ref": 1,
+        "remote": 1,
+        "rev-parse": 3
+      }
+    },
+    "watch": {
+      "status": 200,
+      "keys": [
+        "started"
+      ],
+      "detail": null,
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {
+        "rev-parse": 3
+      }
+    },
+    "push": {
+      "status": 200,
+      "keys": [
+        "after",
+        "before",
+        "message",
+        "state",
+        "target"
+      ],
+      "detail": null,
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": true,
+      "repo_refs_moved": true,
+      "git": {
+        "check-ref-format": 1,
+        "config": 1,
+        "for-each-ref": 2,
+        "ls-remote": 2,
+        "push": 1,
+        "remote": 4,
+        "rev-parse": 3
+      }
+    },
+    "push_not_ahead": {
+      "status": 422,
+      "keys": [
+        "detail"
+      ],
+      "detail": "Push requires unpushed commits and a non-diverged upstream",
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {
+        "check-ref-format": 1,
+        "config": 1,
+        "for-each-ref": 2,
+        "remote": 4,
+        "rev-parse": 3
+      }
+    },
+    "push_bad_snapshot": {
+      "status": 409,
+      "keys": [
+        "detail"
+      ],
+      "detail": "History snapshot expired; refresh this repository",
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {}
+    },
+    "pull": {
+      "status": 200,
+      "keys": [
+        "after",
+        "before",
+        "changes",
+        "message",
+        "state",
+        "target"
+      ],
+      "detail": null,
+      "org_changed": [],
+      "registry_changed": [
+        "repositories",
+        "revision"
+      ],
+      "remote_refs_moved": false,
+      "repo_refs_moved": true,
+      "git": {
+        "check-ref-format": 1,
+        "config": 3,
+        "diff": 6,
+        "fetch": 1,
+        "for-each-ref": 3,
+        "merge": 1,
+        "merge-base": 1,
+        "remote": 10,
+        "rev-parse": 16,
+        "status": 3,
+        "worktree": 2
+      }
+    },
+    "desktop_serves_list": {
+      "status": 200,
+      "keys": [
+        "repositories",
+        "selected"
+      ],
+      "detail": null,
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {}
+    },
+    "desktop_serves_register": {
+      "status": 422,
+      "keys": [
+        "detail"
+      ],
+      "detail": "Choose an existing repository directory",
+      "org_changed": [],
+      "registry_changed": null,
+      "remote_refs_moved": false,
+      "repo_refs_moved": false,
+      "git": {}
+    }
+  },
+  "legacy_defects": [
+    "the desktop app serves every git workspace route: desktop_policy.install_routes filters route paths for '/git/', but FastAPI 0.141.1 registers the included git router as one _IncludedRouter entry with no path, which the filter keeps (docket the-desktop-app-still-serves-the-git-workspace-r)"
+  ],
+  "scope": "Legacy boundary of the git workspace routes (P01 F8) on disposable SQLite and disposable git repositories, against REAL git confined by the coordinator's ruling (decision 1 on p01-f8-contracts-for-the-git-workspace-routes-21): only git, with its cwd inside the test's temp root and an isolated configuration (no system config, a global config inside the root with no credential helper and an empty hooks directory, HOME inside the root), may launch, and every launch is recorded; remotes are local bare repositories inside the root. Legacy conformance evidence only: not a runtime census, not PostgreSQL or Rust qualification."
+}

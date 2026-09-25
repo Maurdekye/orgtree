@@ -50,13 +50,11 @@ synthetic data; none is fixed here. P01 and P05 should cite these rows.
   `statement:data:org-db:foreign` statements at `orgtree.store:_load_lazy`
   and `_meta_get` (P01 F1, below).
 
-- **The org list and the external-chat routes read EVERY org's whole
-  document** (`GET /api/orgs`; `GET /api/extern/{peer}/messages` and
-  `/wait`), cold and warm: several hundred statements on other orgs' stores
-  per call (P01 F4, below). **An `?org=` filter on the read does not stop
-  it**: `_extern_scan` lists every org through `store.list_orgs()`
-  (`_scan_orgs`, a full parse of each) before it applies the filter, which
-  only skips the per-org `load_org`.
+- **The org list reads EVERY org's whole document** (`GET /api/orgs`), cold
+  and warm: several hundred statements on other orgs' stores per call (P01
+  F4, below). The external-chat scans (`GET /api/extern/{peer}/messages`
+  and `/wait`) did the same, even with an `?org=` filter, until they were
+  retired on 2026-09-25.
 - **An `@org:` send from the org inbox writes the other org's store**; to a
   sealed kiosk it reads the other store and only warns.
 
@@ -71,7 +69,8 @@ synthetic data; none is fixed here. P01 and P05 should cite these rows.
   `wsl -d <docker-desktop distro> -e sh -c "mkdir -p /mnt/host/wsl/orgtree-disk"`,
   a WRITE inside the real distro (both are cached per process after the
   first success). The probe's guard refuses the first process start, so
-  these rows answer 500 here; P01's unguarded fixture pins 503 / 404. The
+  these rows answer 500 here; P01's fixture (a fake `disk._run` since
+  581ea2d) pins 503 / 404. The
   material rows `sandbox:on-disk` reach the same `windows_path` start
   (below).
 
@@ -511,8 +510,10 @@ stubbed.
   - `:user` (from the top);
   - `:org` (`@org:<dest>`; the cold row is the org's first outside send and
     auto-grants `m-top` the org-inbox audience);
-  - `:mcp` (`@mcp:peer1`, filed);
-  - `:bare-unknown-name` (`nobody-here`, 422 NOT DELIVERED).
+  - `:bare-unknown-name` (`nobody-here`, 422 NOT DELIVERED);
+  - `refusal:mail-message-mcp-retired` (`@mcp:peer1`): 422 "the @mcp:
+    address form is retired", writing nothing. Until the external chat was
+    retired on 2026-09-25, this row was `:mcp`, a filed send.
 - **`orgtree_send_notice`**, each cold and warm: `mail.notice` (`m-mid` to
   its peer `m-sib`), `:deep` (`m-top` to `m-kid`, with its grant cold) and
   `:archived`. Refusals: `refusal:notice-to-org` and
@@ -541,7 +542,7 @@ Clauses from the Owner lines at v3 325ec75.
 
 | Facet | Closing clause | Status | Rows |
 |---|---|---|---|
-| `agent-mail.reads` | observed per-operation contacts for orgtree_message and orgtree_send_notice by recipient class (agent, deep agent, archived, user, @org:, @mcp:, a bare unknown name that scans other orgs), cold and warm | covered | `mail.message`, `:deep`, `:archived`, `:user`, `:org`, `:mcp`, `:bare-unknown-name`; `mail.notice`, `:deep`, `:archived`; each cold and warm; plus the notice refusals, keyed and halted rows |
+| `agent-mail.reads` | observed per-operation contacts for orgtree_message and orgtree_send_notice by recipient class (agent, deep agent, archived, user, @org:, @mcp:, a bare unknown name that scans other orgs), cold and warm | covered | `mail.message`, `:deep`, `:archived`, `:user`, `:org`, `:bare-unknown-name`, and `refusal:mail-message-mcp-retired` (the retired @mcp: class, 422); `mail.notice`, `:deep`, `:archived`; each cold and warm; plus the notice refusals, keyed and halted rows |
 | `agent-mail.instrumentation` | an observed, loss-accounted contact record for both mail tools by recipient class, with agent-level locality (only the sender and the named recipient touched) | partly | covered: the record above, per-row loss zero, `agents.logical` = the named recipient only (plus the first-deep-send grant between sender and recipient), `control:mail-third-agent` flagged. NOT covered: P03 native negative controls |
 | `agent-mail.effects` | observed cross-org effects of interorg_send on the destination org's document and of the @net: spool drain and hub delivery, with their failure outcomes | partly (P07 owns it; P02 observes) | covered: `mail.message:org`. interorg_send runs unstubbed and its write into the destination org's store is observed cold (foreign connect). NOT observed: the destination document's changed sections (the harness snapshots the sender's org only), the @net: spool drain and hub delivery (network, refused here; P07), and interorg_send's failure outcomes |
 
@@ -1392,7 +1393,18 @@ facet's first open question, not the Owner line.
 Owned elsewhere, with no rows added: `asks.*`, `watchdogs.*`, `audiences.*`
 and `control.*` conflicts and wire.
 
-## P01 F4: mail, inbox, files and external chat (`exchange.*`)
+## P01 F4: mail, inbox and files (`exchange.*`)
+
+**The external chat was retired on 2026-09-25** (user ruling): the
+`/api/extern/{peer}/send`, `/messages` and `/wait` routes, their MCP server
+(`externtool`) and `@mcp:` sends are gone, and so are their contracts
+(`exchange.extern-send`, `.extern-read`, `.extern-wait`). Up to v3 aa8dec1
+the probe drove them. Those rows recorded that an extern send wrote the peer
+sighting (`extern-peers.json`) before most of its refusals, that the extern
+scans read every org even with an `?org=` filter, and that the MCP server's
+client was refused 401 by the token gate on all four verbs. They are removed
+here. An `@mcp:` send is now a refusal row, both from the org inbox (below)
+and as agent mail (`refusal:mail-message-mcp-retired`, P01 S3 F2).
 
 The fixture follows `tests/test_state_exchange_boundary.py` with
 distinctive ids. The main org has `ex-top` and `ex-top2` at the top level,
@@ -1403,13 +1415,9 @@ distinctive ids. The main org has `ex-top` and `ex-top2` at the top level,
   mints no ceiling notice;
 - a STORAGE-BLOCKED org, because the flag is org-wide.
 
-**External chat:**
-- **Every external-chat row uses a peer id of its own** (`p02x.<n>`). Extern
-  send records the peer in the machine-wide `extern-peers.json` before it
-  validates anything, and the extern scans read every org, so rows must not
-  see each other's replies.
-- `extern-peers.json` is the SYNTHETIC data root's: the live file is never
-  touched, and the guards protect the live roots.
+The org inbox's peer entries (a question in, an answer out) are written
+directly into the fixture from a mail-hub peer (`@net:p02x.<n>`); no row
+writes `extern-peers.json`, and the test asserts it.
 
 **Spies:** as in the P01 fixture, these are counting spies (`spies`):
 - turn delivery;
@@ -1421,72 +1429,55 @@ distinctive ids. The main org has `ex-top` and `ex-top2` at the top level,
 
 `hub_changed` is real and counted.
 
-- **Each contract, cold and warm** (15): `exchange.orgs-list` (`GET
-  /api/orgs`), `.extern-send`, `.extern-read`, `.extern-wait`,
-  `.org-inbox-list`, `.mail-item`, `.org-inbox-read`, `.org-inbox-upload`,
-  `.org-inbox-send`, `.inbox-clear`, `.node-upload`, `.reply-events-count`,
-  `.reply-events-clear`, `.mail-retract`, and `.send-file` (the agent tool).
-  Routes run on the desktop token.
+- **Each contract, cold and warm** (12): `exchange.orgs-list` (`GET
+  /api/orgs`), `.org-inbox-list`, `.mail-item`, `.org-inbox-read`,
+  `.org-inbox-upload`, `.org-inbox-send`, `.inbox-clear`, `.node-upload`,
+  `.reply-events-count`, `.reply-events-clear`, `.mail-retract`, and
+  `.send-file` (the agent tool). Routes run on the desktop token. The
+  `.org-inbox-send` row sends to `@org:<other>`: with `@mcp:` retired and
+  no mail hub for `@net:`, that is the only delivered send.
 - **Variants** (warm):
-  - an extern read with an `?org=` filter;
-  - an extern wait that times out;
   - mail items from the node, org and user boxes, including a missing one;
   - `@org:` sends: delivered, to a sealed kiosk, to a missing org, with an
     attachment;
   - a duplicate node upload;
   - send_file with a delivery id, its replay, `send_file_once`, and a keyed
     call.
-- **Refusals** (warm; no primary write, nothing logical): 36 of them.
-  - extern send: an empty body, a bad peer id, no org, a sealed kiosk, a
-    missing attachment;
+- **Refusals** (warm; no primary write, nothing logical): 27 of them.
   - an unknown org on the inbox, read and clear routes;
   - an unknown node and a bad box on a mail item;
-  - `@ext:`, a bad recipient, an unknown stage id, `@net:` with no hub, and
-    an attachment on an `@mcp:` send;
+  - `@ext:`, a bad recipient, an unknown stage id and `@net:` with no hub;
+  - **a send to `@mcp:`**, with and without a staged attachment
+    (`refusal:org-send-mcp-retired`, `-attachment`): 422 "the @mcp: address
+    form is retired", before the attachment check, writing nothing;
   - an empty, unknown-node and storage-blocked upload;
   - the three raw-500 reply-event cases;
   - a retract of mail that is gone;
-  - a route with no credential and with an agent credential, and an extern
-    route with no credential;
+  - a route with no credential and with an agent credential (401, before
+    any attempt is recorded);
   - seven send_file refusals (missing, no path, escape, bad delivery id,
-    `_once` without an id, a delivery conflict, storage blocked);
-  - **the external-chat MCP server's own client** (`externtool.run_tool`)
-    for each of its four verbs (list_orgs, send, read, wait), its `http()`
-    served by this app with exactly the headers it sends: 401 at the gate,
-    before any attempt is recorded (docket
-    `the-external-chat-mcp-server-cannot-reach-the-v2`, recorded, not fixed).
+    `_once` without an id, a delivery conflict, storage blocked).
 - **Org-level locality, as found:**
-  - the org list and both extern scans run statements on every other org's
-    store, the org-filtered read included (see "Cross-org reads found").
-    "Cold" here, as everywhere in this probe, means the ACTOR org's store
-    is closed and its snapshot dropped before the row: the other orgs these
-    rows read stay warm from earlier rows, so their counts are not a
-    cold-machine figure;
-  - an `@org:` send writes the other org's store; to a sealed kiosk it only
-    reads it;
+  - the org list runs statements on every other org's store (see "Cross-org
+    reads found"). "Cold" here, as everywhere in this probe, means the ACTOR
+    org's store is closed and its snapshot dropped before the row: the
+    other orgs the list reads stay warm from earlier rows, so its counts are
+    not a cold-machine figure;
+  - an `@org:` send (the main send row, cold and warm, and its `:org`
+    variants) writes the other org's store; to a sealed kiosk it only reads
+    it;
   - no other row leaves its org.
-- **Agent-level locality:** an outside message lands in the org inbox and
-  reaches the org's external-mail recipients, as the product names them
-  (`Org.extern_recipients_preview`: `ex-top` here), which the row declares.
-  Nothing outside the actor and its targets is written, `ex-third` is never
-  touched, and a third agent's row is only ever read. The control
-  `control:exchange-third-agent` (an org-inbox read whose closing broadcast
-  also posts mail to `ex-third`) is flagged.
+- **Agent-level locality:** nothing outside the actor and its targets is
+  written, `ex-third` is never touched, and a third agent's row is only ever
+  read. The control `control:exchange-third-agent` (an org-inbox read whose
+  closing broadcast also posts mail to `ex-third`) is flagged.
 
-Observed and recorded:
-- **An org filter does not stop the extern scan reading every org** (above).
-  This contradicts P01's pin that "an org filter skips the other docs'
-  loads", which holds only for `load_org` (reported to p01).
-- These pinned legacy behaviours are measured, not fixed, and each is
-  confirmed by the rows:
-  - extern send writes the peer sighting (`store._peers_write`) before the
-    empty-body, no-org, kiosk and missing-attachment refusals, but not
-    before a bad peer id;
-  - a sealed kiosk answers exactly like a missing org;
-  - the reply-event routes answer a raw 500 for an unknown org or node;
-  - send_file never writes the org's store, and a keyed call files no
-    receipt;
-  - the external-chat MCP server's client is refused by the gate.
+Observed and recorded. These pinned legacy behaviours are measured, not
+fixed, and each is confirmed by the rows:
+- a sealed kiosk `@org:` send only reads the other org, and sparks nobody;
+- the reply-event routes answer a raw 500 for an unknown org or node;
+- send_file never writes the org's store, and a keyed call files no
+  receipt.
 
 ## Hand-off to P01 (F4, exchange): facet → clause → rows
 
@@ -1495,7 +1486,7 @@ first open question, not the Owner line.
 
 | Facet | Closing clause | Status | Rows |
 |---|---|---|---|
-| `exchange.instrumentation` | a loss-accounted P02 record per row (open question: actual contacts per outcome, cold and warm, refusals included, and the org-level locality of each; the extern scans and the @org: send cross orgs) | partly | covered: all 15 contracts cold and warm, the variants above and 36 refusals, per-row loss zero; org-level locality measured (the org list and the extern scans read every org, the filtered read included; an @org: send writes the other org); agent-level locality within the declared recipients; `control:exchange-third-agent` flagged. NOT covered: the externtool verbs beyond their 401 (P02 rows show the gate refusing all four); cold-machine counts for the other orgs the scans read (cold is the actor org only); a live mail hub (`@net:` answers "no mailserver is configured"); P03 native negative controls |
+| `exchange.instrumentation` | a loss-accounted P02 record per row (open question: actual contacts per outcome, cold and warm, refusals included, and the org-level locality of each; the extern scans and the @org: send cross orgs) | partly | covered: all 12 contracts cold and warm (the three extern contracts are retired, with no rows), the variants above and 27 refusals, including the retired `@mcp:` send with and without an attachment; per-row loss zero; org-level locality measured (the org list reads every org; an @org: send, the main send row included, writes the other org); agent-level locality within the declared recipients; no row writes `extern-peers.json`; `control:exchange-third-agent` flagged. NOT covered: cold-machine counts for the other orgs the org list reads (cold is the actor org only); a live mail hub (`@net:` answers "no mailserver is configured"); P03 native negative controls |
 
 Owned elsewhere, with no rows added: `exchange.conflicts` and
 `exchange.wire`.
@@ -1555,8 +1546,8 @@ after a garbage collection.
   disk is configured but not mounted, the three disk reads shell out to WSL
   (`wsl -l -q`, and `mount_root`'s `mkdir -p` inside the Docker Desktop
   distro; see "Reads that start a process" at the top). The guard refuses
-  the process start, so these rows answer **500 here**; P01's unguarded
-  fixture pins 503 / 404. Each row declares exactly
+  the process start, so these rows answer **500 here**; P01's fixture (a
+  fake `disk._run` since 581ea2d) pins 503 / 404. Each row declares exactly
   `guard:process/subprocess.Popen`, and the test asserts it is the row's only
   guard refusal. What the product does past that refused start is not
   measured.
@@ -1577,7 +1568,7 @@ first open question, not the Owner line.
 
 | Facet | Closing clause | Status | Rows |
 |---|---|---|---|
-| `org-read.instrumentation` | a loss-accounted P02 record per row (open question: actual contacts per outcome, cold and warm, refusals included; the chat reads touch three sidecars) | partly | covered: all 15 reads cold and warm, per-row loss zero; the writing reads as write rows on the first call and the repeat; the chat sidecars; the open file handles counted; org-level locality (all statements org-local) and agent-level locality (only the minted node written); `control:org-read-third-agent` flagged; the unmounted-disk rows (`refusal:disk-list-unmounted`, `refusal:disk-dir-unmounted`, `refusal:disk-file-missing`) up to the refused `wsl.exe` start (500 here, where P01's unguarded fixture pins 503 / 404). NOT covered: the success paths of the bridge credential and the three disk reads (they need a sandboxed org with a mounted disk; the rows are their standard answers); the unmounted-disk reads' contacts past the refused process start (the WSL commands and `mount_root`'s `mkdir -p` in the distro); P03 native negative controls |
+| `org-read.instrumentation` | a loss-accounted P02 record per row (open question: actual contacts per outcome, cold and warm, refusals included; the chat reads touch three sidecars) | partly | covered: all 15 reads cold and warm, per-row loss zero; the writing reads as write rows on the first call and the repeat; the chat sidecars; the open file handles counted; org-level locality (all statements org-local) and agent-level locality (only the minted node written); `control:org-read-third-agent` flagged; the unmounted-disk rows (`refusal:disk-list-unmounted`, `refusal:disk-dir-unmounted`, `refusal:disk-file-missing`) up to the refused `wsl.exe` start (500 here, where P01's fixture, a fake `disk._run` since 581ea2d, pins 503 / 404). NOT covered: the success paths of the bridge credential and the three disk reads (they need a sandboxed org with a mounted disk; the rows are their standard answers); the unmounted-disk reads' contacts past the refused process start (the WSL commands and `mount_root`'s `mkdir -p` in the distro); P03 native negative controls |
 
 Owned elsewhere, with no rows added: `org-read.conflicts` and
 `org-read.wire`.

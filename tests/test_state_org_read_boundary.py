@@ -17,7 +17,9 @@ from __future__ import annotations
 import sys
 
 # ---- the no-process guard, first: any process launch is refused (before the child exists) and recorded
-LAUNCH_EVENTS = ('subprocess.Popen', 'os.system', 'os.posix_spawn', 'os.spawn', 'os.startfile', 'os.exec')
+# _winapi.CreateProcess is the Windows launch that bypasses subprocess.Popen (multiprocessing's spawn uses it)
+LAUNCH_EVENTS = ('subprocess.Popen', '_winapi.CreateProcess', 'os.system', 'os.posix_spawn', 'os.spawn',
+                 'os.startfile', 'os.exec')
 GUARD = {'on': True}
 LAUNCHES: list = []
 
@@ -486,6 +488,15 @@ class OrgReadBoundary(unittest.TestCase):
         self.assertEqual([e for e, _ in LAUNCHES[before:]], ['subprocess.Popen'])
         del LAUNCHES[before:]
 
+    @unittest.skipUnless(os.name == 'nt', 'the Windows launch path')
+    def test_the_guard_refuses_a_multiprocessing_spawn_child(self):
+        import multiprocessing
+        before = len(LAUNCHES)
+        with self.assertRaises(RuntimeError):
+            multiprocessing.get_context('spawn').Process(target=os.getpid).start()
+        self.assertEqual([e for e, _ in LAUNCHES[before:]], ['_winapi.CreateProcess'])
+        del LAUNCHES[before:]
+
     def test_bridge_credential_per_deployment_profile_and_the_org_disk(self):
         self.check('bridge_standard', 'bridge_frozen', 'bridge_frozen_no_org', 'disk_none', 'disk_dir_none',
                    'disk_file_none', 'disk_fake', 'disk_dir_fake', 'disk_dir_escape', 'disk_file_escape',
@@ -493,8 +504,12 @@ class OrgReadBoundary(unittest.TestCase):
 
 
 def tearDownModule():
-    # a launch the product caught and swallowed fails no case; it still fails the module
-    assert LAUNCHES == [], LAUNCHES
+    # a launch the product caught and swallowed fails no case; it still fails the module. The hook cannot be
+    # removed, so it is switched off here: a single-process discover run's later modules do not inherit it.
+    try:
+        assert LAUNCHES == [], LAUNCHES
+    finally:
+        GUARD['on'] = False
 
 
 if __name__ == '__main__':

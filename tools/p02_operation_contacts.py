@@ -54,7 +54,6 @@ import copy
 import gc
 import hashlib
 import importlib.util
-import io
 import json
 import os
 import re
@@ -64,7 +63,6 @@ import sys
 import tempfile
 import threading
 import time
-import urllib.error
 import uuid
 import warnings
 from pathlib import Path
@@ -2060,7 +2058,9 @@ class Probe:
             ("mail.message:archived", "m-top", "m-gone", {}),
             ("mail.message:user", "m-top", "user", {}),
             ("mail.message:org", "m-top", f"@org:{dest}", {"cross_org": True}),
-            ("mail.message:mcp", "m-top", "@mcp:peer1", {}),
+            # @mcp: was retired on 2026-09-25 (ledger.MCP_RETIRED)
+            ("refusal:mail-message-mcp-retired", "m-top", "@mcp:peer1",
+             {"refusal": "the @mcp: address form is retired"}),
             ("mail.message:bare-unknown-name", "m-mid", "nobody-here",
              {"refusal": "422 NOT DELIVERED: a bare name that is no agent here",
               "cross_org": True}),
@@ -3334,7 +3334,7 @@ class Probe:
             return out
         return wrapped
 
-    # -- P01 F4: the exchange routes and tools (mail, inbox, files, external chat) --
+    # -- P01 F4: the exchange routes and tools (mail, inbox, files) ------------------
     def build_exchange(self) -> None:
         """tests/test_state_exchange_boundary.py's shape (distinctive `ex-*` ids):
         the main org (ex-top and ex-top2 top-level, ex-mid under ex-top, ex-leaf
@@ -3379,11 +3379,11 @@ class Probe:
         """Every F4 contract, cold and warm. As in the P01 fixture, turn
         delivery, the mail spark, supervisor.notify, the storage check, the
         workspace usage read and the mail-hub kick are counting spies
-        (`spies`); hub_changed is real and counted. Every external-chat row
-        uses a peer id of its own (`p02x.<n>`): extern send records the peer in
-        the machine-wide extern-peers.json (of this synthetic data root) before
-        it validates anything, and the extern scans read EVERY org, so rows
-        must not see each other's replies."""
+        (`spies`); hub_changed is real and counted. The external-chat routes
+        (/api/extern/*), their MCP server (externtool) and @mcp: sends were
+        retired on 2026-09-25: an @mcp: send is now a refusal row, and the
+        org inbox's peer entries are written directly, from `@net:p02x.<n>`
+        peers."""
         s, api, supervisor = self.ex["main"], self.m["api"], self.m["supervisor"]
         spies: collections.Counter = collections.Counter()
 
@@ -3462,10 +3462,11 @@ class Probe:
             return r.json()
 
         def org_reply(p: str, slug: str = s) -> None:
-            """The peer asks, the org answers: an 'out' entry to @mcp:<peer>."""
-            req("POST", f"/api/extern/{p}/send", json={"org": slug, "body": "question one"})
-            self.mutate(slug, lambda o: o._org_inbox_log("out", f"@mcp:{p}", "answer one",
-                                                         by="ex-top"))
+            """A mail-hub peer asks, the org answers: an 'in' and an 'out' entry."""
+            def log(o: Any) -> None:
+                o._org_inbox_log("in", f"@net:{p}", "question one")
+                o._org_inbox_log("out", f"@net:{p}", "answer one", by="ex-top")
+            self.mutate(slug, log)
 
         def user_mail() -> str:
             self.mutate(s, lambda o: o.post_mail("ex-top", user, "hello user"))
@@ -3483,20 +3484,6 @@ class Probe:
         for cond in both:
             route("exchange.orgs-list", "exchange.orgs-list", cond, "GET", "/api/orgs",
                   expected_unknown=stmt)
-            p = peer()
-            # delivered to the org's external-mail recipients, as the product
-            # names them (Org.extern_recipients_preview), read before the row
-            route("exchange.extern-send", "exchange.extern-send", cond, "POST",
-                  f"/api/extern/{p}/send", json_body={"org": s, "body": "hi"},
-                  implied=tuple(store.load_org(s).extern_recipients_preview()))
-            p = peer()
-            org_reply(p)
-            route("exchange.extern-read", "exchange.extern-read", cond, "GET",
-                  f"/api/extern/{p}/messages", expected_unknown=stmt)
-            p = peer()
-            org_reply(p)
-            route("exchange.extern-wait", "exchange.extern-wait", cond, "GET",
-                  f"/api/extern/{p}/wait", params={"timeout": 1}, expected_unknown=stmt)
             org_reply(peer())
             route("exchange.org-inbox-list", "exchange.org-inbox-list", cond, "GET",
                   f"{base}/org_inbox")
@@ -3507,8 +3494,11 @@ class Probe:
                   f"{base}/org_inbox/read")
             route("exchange.org-inbox-upload", "exchange.org-inbox-upload", cond, "POST",
                   f"{base}/org_inbox/upload", params={"name": "a b?.txt"}, content=b"bytes")
+            # the delivered send: to another local org (@mcp: is retired, and
+            # @net: needs a mail hub), so it writes the OTHER org's document
             route("exchange.org-inbox-send", "exchange.org-inbox-send", cond, "POST",
-                  f"{base}/org_inbox/send", json_body={"to": f"@mcp:{peer()}", "body": "hi"})
+                  f"{base}/org_inbox/send", json_body={"to": f"@org:{other}", "body": "hi"},
+                  expected_unknown=stmt)
             user_mail()
             route("exchange.inbox-clear", "exchange.inbox-clear", cond, "POST", f"{base}/inbox/clear")
             route("exchange.node-upload", "exchange.node-upload", cond, "POST",
@@ -3525,13 +3515,6 @@ class Probe:
                 {"path": "report.txt", "note": "the report"})
 
         # variants (warm)
-        p = peer()
-        org_reply(p)
-        # the org filter does not stop the scan: it lists every org first
-        route("exchange.extern-read", "exchange.extern-read:org-filter", "warm", "GET",
-              f"/api/extern/{p}/messages", params={"org": s}, expected_unknown=stmt)
-        route("exchange.extern-wait", "exchange.extern-wait:timeout", "warm", "GET",
-              f"/api/extern/{peer()}/wait", params={"timeout": 1}, expected_unknown=stmt)
         route("exchange.mail-item", "exchange.mail-item:user-missing", "warm", "GET",
               f"{base}/mail/user/nope")
         mid = pending_mail()
@@ -3552,11 +3535,15 @@ class Probe:
                   json_body={"to": to, "body": "hi", **extra},
                   expected_unknown=(stmt if ":org" in variant and "missing" not in variant
                                     else ()))
-        # attachments ride @org: and @net: only: @mcp: is a text-only transport
-        route("exchange.org-inbox-send", "refusal:org-send-mcp-attachment", "warm", "POST",
+        # @mcp: is retired: refused 422 before anything else, the attachment
+        # check included
+        route("exchange.org-inbox-send", "refusal:org-send-mcp-retired", "warm", "POST",
+              f"{base}/org_inbox/send", json_body={"to": f"@mcp:{peer()}", "body": "hi"},
+              refusal="422 the @mcp: address form is retired")
+        route("exchange.org-inbox-send", "refusal:org-send-mcp-retired-attachment", "warm", "POST",
               f"{base}/org_inbox/send",
               json_body={"to": f"@mcp:{peer()}", "body": "hi", "attachments": [staged()]},
-              refusal="422 @mcp: carries no attachments")
+              refusal="422 the @mcp: address form is retired (before the attachment check)")
         route("exchange.node-upload", "exchange.node-upload:duplicate", "warm", "POST",
               f"{base}/nodes/ex-mid/upload", params={"name": "a-warm.txt"}, content=b"one",
               args={"node": "ex-mid"})
@@ -3578,22 +3565,6 @@ class Probe:
         # refusals (warm): the routes
         agent = {"X-Orgtree-Agent-Token": self.tokens[(s, "ex-mid")]}
         for contract, variant, method, path, kw, refusal in (
-                ("exchange.extern-send", "refusal:extern-send-empty", "POST",
-                 f"/api/extern/{peer()}/send", {"json_body": {"org": s, "body": "  "}},
-                 "422 empty body (after the peer sighting)"),
-                ("exchange.extern-send", "refusal:extern-send-bad-peer", "POST",
-                 "/api/extern/bad!peer/send", {"json_body": {"org": s, "body": "hi"}},
-                 "422 bad peer id (before the sighting)"),
-                ("exchange.extern-send", "refusal:extern-send-no-org", "POST",
-                 f"/api/extern/{peer()}/send", {"json_body": {"org": "nope-org", "body": "hi"}},
-                 "404 no org (after the sighting)"),
-                ("exchange.extern-send", "refusal:extern-send-kiosk", "POST",
-                 f"/api/extern/{peer()}/send", {"json_body": {"org": kiosk, "body": "hi"}},
-                 "404 a sealed kiosk answers like a missing org"),
-                ("exchange.extern-send", "refusal:extern-send-attachment-missing", "POST",
-                 f"/api/extern/{peer()}/send",
-                 {"json_body": {"org": s, "body": "x", "attachments": ["C:/nope/missing.txt"]}},
-                 "422 a missing attachment"),
                 ("exchange.org-inbox-list", "refusal:org-inbox-no-org", "GET",
                  "/api/orgs/nope-org/org_inbox", {}, "404 no org"),
                 ("exchange.mail-item", "refusal:mail-node-unknown", "GET", f"{base}/mail/node/x",
@@ -3635,9 +3606,7 @@ class Probe:
                 ("exchange.orgs-list", "refusal:route-no-token", "GET", "/api/orgs",
                  {"headers": {}}, "401 no credential"),
                 ("exchange.org-inbox-list", "refusal:route-agent-token", "GET", f"{base}/org_inbox",
-                 {"headers": agent}, "401 an agent credential is refused here"),
-                ("exchange.extern-read", "refusal:extern-no-token", "GET",
-                 f"/api/extern/{peer()}/messages", {"headers": {}}, "401 no credential")):
+                 {"headers": agent}, "401 an agent credential is refused here")):
             route(contract, variant, "warm", method, path, refusal=refusal, **kw)
         # refusals (warm): the agent tools
         for variant, tool, args, slug, actor in (
@@ -3655,43 +3624,6 @@ class Probe:
                  {"path": "report.txt", "delivery_id": "p02-delivery-0003"}, blocked, "exb-mid")):
             run("exchange.send-file", variant, "warm", actor, tool, args, slug=slug,
                 refusal="refused")
-        # the external-chat MCP server's own client: it sends no credential, so
-        # the TokenGate refuses every verb (recorded; the user question on that
-        # docket item is pending). Its http() is served by this app with
-        # EXACTLY the headers it sends; a fixed ORGTREE_EXTERN_ID keeps its
-        # import from writing an extern-id file
-        os.environ.setdefault("ORGTREE_EXTERN_ID", "p02x.externtool")
-        from orgtree import externtool
-        seen: dict[str, Any] = {}
-
-        def extern_http(method: str, path: str, body: Any = None, timeout: float = 30.0) -> Any:
-            r = self.client.request(method, path, json=body,
-                                    headers={"Content-Type": "application/json"})
-            seen["status"] = r.status_code
-            if r.status_code >= 400:
-                raise urllib.error.HTTPError(path, r.status_code, "error", {},  # type: ignore[arg-type]
-                                             io.BytesIO(r.content))
-            return r.json()
-
-        def extern_call(tool: str, args: dict[str, Any]) -> Callable[[], tuple[int, Any]]:
-            def call() -> tuple[int, Any]:
-                seen.clear()
-                text, err = externtool.run_tool(tool, args)
-                return int(seen.get("status") or 0), {"error": bool(err), "detail": str(text)[:200]}
-            return call
-        # the MCP server's four cards: list_orgs (GET /api/orgs), send, read and
-        # wait (the extern routes); each is one row
-        for contract, variant, tool, args in (
-                ("exchange.orgs-list", "refusal:externtool-no-credential", "orgtree_list_orgs", {}),
-                ("exchange.extern-send", "refusal:externtool-send-no-credential", "orgtree_send",
-                 {"org": s, "body": "hello"}),
-                ("exchange.extern-read", "refusal:externtool-read-no-credential", "orgtree_read",
-                 {"org": s}),
-                ("exchange.extern-wait", "refusal:externtool-wait-no-credential", "orgtree_wait",
-                 {"org": s, "timeout_s": 1})):
-            run(contract, variant, "warm", user, f"externtool {tool}", {},
-                call=extern_call(tool, args), patches=[(externtool, "http", extern_http)],
-                refusal="401 the MCP server's client sends no credential")
 
         # agent-level locality control: an org-inbox read whose closing tree
         # broadcast (api.hub_changed) ALSO posts mail to a third agent
