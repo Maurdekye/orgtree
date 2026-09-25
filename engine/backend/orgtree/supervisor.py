@@ -28264,6 +28264,16 @@ def resume_frozen(slug: str, only: Iterable[str] | None = None,
 # exclusively). Historical @ext: and @mcp: rows in org docs remain readable.
 
 
+#: PG-3d: predictions of the org-inbox holders an inbound delivery tries
+#: before giving up (each retry means the holder set changed under it)
+_INBOUND_ATTEMPTS = 4
+
+
+class _HoldersMoved(Exception):
+    """The org-inbox holders changed between the lock-free prediction and
+    the locks: roll back and predict again."""
+
+
 def deliver_org_inbox(slug: str, peer: str, body: str,
                       attachments: list[str] | None = None,
                       net_id: str | None = None) -> list[str]:
@@ -28278,13 +28288,13 @@ def deliver_org_inbox(slug: str, peer: str, body: str,
     by_node: dict[str, list[dict[str, Any]]] = {}
     missing_by_node: dict[str, list[str]] = {}
     if attachments:
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
-            # C0: recipients are audience holders — and when none exist,
-            # post_external_mail will BOOTSTRAP one, so the attachment
-            # pre-pass must copy for the same prospective recipient or the
-            # bootstrapped holder would get mail without its files
-            tops = org.extern_recipients_preview()
+        # PG-3d: a lock-free read (was DOC_LOCK)
+        org = orgtx.org_read(slug)
+        # C0: recipients are audience holders — and when none exist,
+        # post_external_mail will BOOTSTRAP one, so the attachment
+        # pre-pass must copy for the same prospective recipient or the
+        # bootstrapped holder would get mail without its files
+        tops = org.extern_recipients_preview()
         for nid in tops:
             updir = os.path.join(scratch_dir(slug, nid), "uploads")
             new_updir = not os.path.isdir(updir)
@@ -28318,14 +28328,25 @@ def deliver_org_inbox(slug: str, peer: str, body: str,
                         f"not be stored ({e.strerror or 'I/O error'})")
             if metas:
                 by_node[nid] = metas
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
-        delivered = org.post_external_mail(peer, body,
-                                           attachments_by_node=by_node or None,
-                                           net_id=net_id,
-                                           missing_by_node=missing_by_node
-                                           or None)
-        store.save_org(org)
+    # PG-3d: one row transaction on the destination org, not DOC_LOCK. The
+    # holders who receive it are found by the body, so they are PREDICTED
+    # lock-free, their rows (and `audiences`, which decides them) locked, and
+    # the prediction re-checked under the locks; a holder set that moved in
+    # between rolls back and predicts again.
+    delivered: list[str] = []
+    for attempt in range(_INBOUND_ATTEMPTS):
+        predicted = orgtx.org_read(slug).extern_recipients_preview()
+        try:
+            with orgtx.org_tx(slug, **mailtx.inbound_rows(predicted)) as tx:
+                if tx.org.extern_recipients_preview() != predicted:
+                    raise _HoldersMoved(predicted)
+                delivered = tx.org.post_external_mail(
+                    peer, body, attachments_by_node=by_node or None,
+                    net_id=net_id, missing_by_node=missing_by_node or None)
+            break
+        except _HoldersMoved:
+            if attempt == _INBOUND_ATTEMPTS - 1:
+                raise
     for t in delivered:
         # spark on the wire (user spec 2026-08-05): inbound org mail rides
         # the mailbox→holder line like every other message rides its wire
@@ -28348,12 +28369,14 @@ def interorg_send(src_slug: str, dst_slug: str, body: str) -> str | None:
     or None on success. Kiosks are sealed in both directions (the ledger
     already refuses the sending side for kiosk orgs)."""
     try:
-        with store.DOC_LOCK:
-            dst = store.load_org(dst_slug)
-            if dst.is_kiosk:
-                # sealed kiosks answer exactly like nonexistent orgs — the
-                # split wording let a sender enumerate the kiosk roster
-                return f"no organization named '{dst_slug}'"
+        # PG-3d: a lock-free read (was DOC_LOCK). The destination is the only
+        # org written, in deliver_org_inbox's own transaction; the source's
+        # side (its outbound log) was written by the caller's.
+        dst = orgtx.org_read(dst_slug)
+        if dst.is_kiosk:
+            # sealed kiosks answer exactly like nonexistent orgs — the
+            # split wording let a sender enumerate the kiosk roster
+            return f"no organization named '{dst_slug}'"
     except Exception:                        # noqa: BLE001 — unknown slug
         return f"no organization named '{dst_slug}'"
     deliver_org_inbox(dst_slug, f"@org:{src_slug}", body)
