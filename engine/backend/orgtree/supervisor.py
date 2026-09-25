@@ -26365,11 +26365,15 @@ def _remote_control_start_owned(slug: str, nid: str) -> dict[str, Any]:
     # launch path refuses. Only then is `busy` re-checked: a turn that set
     # busy before our check is caught here (roll back and refuse); one that
     # sets it after will hit the turn gate, which now sees the flag. Both
-    # writes serialize on DOC_LOCK, so there is no window in which the node
-    # looks idle and unflagged while the server is (about to be) driving
-    # the same session id.
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
+    # writes serialize on the node's row lock (PG-3e-B: this tx and turn
+    # admission both lock `nid` FOR UPDATE), so there is no window in which
+    # the node looks idle and unflagged while the server is (about to be)
+    # driving the same session id. The killswitch and sandbox gates are read
+    # FOR SHARE: a latch committing now orders before or after this park,
+    # never through it.
+    with orgtx.org_tx(slug, nodes=[nid],
+                      share_sections=["killswitch", "kiosk", "sandbox"]) as tx:
+        org = tx.org
         if nid not in org.nodes:
             return {"error": f"no agent {nid!r}"}
         n = org.node(nid)
@@ -26390,7 +26394,6 @@ def _remote_control_start_owned(slug: str, nid: str) -> dict[str, Any]:
             return {"ok": True, "already": True}
         sid = n["session_id"]
         n["remote_controlled"] = {"at": now_iso()}
-        store.save_org(org)
     st = state(slug, nid)
     with _state_lock:
         busy = st["busy"]
@@ -26428,21 +26431,21 @@ def _remote_control_start_owned(slug: str, nid: str) -> dict[str, Any]:
             pass
         return {"error": "the remote-control server exited immediately "
                          f"(code {proc.returncode}) — log tail: {tail}"}
-    with store.DOC_LOCK:
-        o2 = store.load_org(slug)
-        if (nid in o2.nodes and o2.node(nid).get("remote_controlled")
-                and not o2.node(nid).get("halt")):
+    with orgtx.org_tx(slug, nodes=[nid]) as tx:
+        o2 = tx.org
+        kept = (nid in o2.nodes and bool(o2.node(nid).get("remote_controlled"))
+                and not o2.node(nid).get("halt"))
+        if kept:
             o2.node(nid)["remote_controlled"] = {"at": now_iso(),
                                                  "pid": proc.pid}
-            store.save_org(o2)
-        else:
-            # the node vanished (or was force-released) mid-probe — the
-            # server must not outlive its seat
-            try:
-                proc.terminate()
-            except OSError:
-                pass
-            return {"error": f"{nid} disappeared while the server started"}
+    if not kept:
+        # the node vanished (or was force-released) mid-probe — the
+        # server must not outlive its seat
+        try:
+            proc.terminate()
+        except OSError:
+            pass
+        return {"error": f"{nid} disappeared while the server started"}
     notify(slug, nid, "remote_control")
     return {"ok": True, "log": log_path,
             "note": "connect from claude.ai/code or the Claude mobile app; "

@@ -216,6 +216,35 @@ class NeverWaitsOnDocLock(unittest.TestCase):
         self.assertEqual(len(notes), 1, "the user notice did not land")
 
 
+    def _start(self):
+        class P:
+            pid, returncode = 4242, None
+
+            def poll(self):
+                return None
+
+            def terminate(self):
+                pass
+        with patch.object(supervisor.subprocess, "Popen", return_value=P()),                 patch.object(supervisor.time, "sleep"),                 patch.object(supervisor, "_leash"),                 patch.object(supervisor, "_claude_argv", return_value=["claude"]),                 patch.object(supervisor, "notify"),                 patch.object(supervisor.halt, "check"):
+            return self._assert_free_of_doc_lock(
+                lambda: supervisor._remote_control_start_owned(self.slug, "worker"))
+
+    def test_remote_control_start_parks_then_records_pid(self) -> None:
+        try:
+            r = self._start()
+        finally:
+            supervisor._remote_procs.pop((self.slug, "worker"), None)
+        self.assertTrue(r.get("ok"), r)
+        self.assertEqual(_node(self.slug, "worker")["remote_controlled"]["pid"], 4242)
+
+    def test_remote_control_start_refuses_under_a_latched_killswitch(self) -> None:
+        with orgtx.org_tx(self.slug, sections=["killswitch"]) as tx:
+            tx.d["killswitch"] = {"on": True, "at": "x"}
+        r = self._start()
+        self.assertIn("killswitch", r.get("error", ""))
+        self.assertNotIn("remote_controlled", _node(self.slug, "worker"))
+
+
 class LocksOnlyItsOwnNode(unittest.TestCase):
     def setUp(self) -> None:
         orgtx.use_backend(orgtx.SeamBackend())
