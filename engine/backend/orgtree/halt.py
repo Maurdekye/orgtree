@@ -567,6 +567,7 @@ def worker(fn):
     runs, or the halt's registry read sees this worker and waits for it. This
     costs a provider callback (which re-enters here on every stream event) no
     row transaction; only a BLOCKED worker opens one, to retain its carriers.
+    (It does still take the transition fence — see the note in the body.)
     (The read is `blocked`, whose snapshot is seq-gated: a committed halt is
     visible to the very next read — store.cached_org.)"""
     @wraps(fn)
@@ -575,14 +576,37 @@ def worker(fn):
         key = (slug, nid)
         st = sup.state(slug, nid)
         turn = fn.__name__ in ("_run_turn", "_run_one_turn") and bool(args)
-        with _reg:
-            _workers[key] = _workers.get(key, 0) + 1
-            _worker_states.setdefault(key, []).append(st)
-        if _node(slug, nid) and blocked(slug, nid):
-            # Not admitted. The pending slot is ONE per runtime and may hold
-            # a running worker's carrier that no capture has reached yet, so
-            # a refused worker never touches it: it retains its own carrier
-            # explicitly, with everything else queued on the runtime.
+        # ⚠ UNDER THE FENCE, like the DOC_LOCK section this replaced. The
+        # ordering proof above needs no lock, but `halt_pending_carrier` is
+        # ONE slot per runtime: two turn workers admitted side by side on one
+        # agent overwrite each other's unconfirmed carrier, and only the last
+        # is retained when the halt lands. Lock-free admission let all six
+        # direct workers of test_halt_racing_send_and_manual_drive_... in
+        # before the halt and lost five of their carriers (4/20 passes, base
+        # 20/20). Removing the fence therefore needs per-worker pending
+        # carriers first (supervisor rewrites the slot mid-turn too), and
+        # that test is the guard.
+        with _fence():
+            with _reg:
+                _workers[key] = _workers.get(key, 0) + 1
+                _worker_states.setdefault(key, []).append(st)
+            refused = bool(_node(slug, nid) and blocked(slug, nid))
+            if turn and not refused:
+                # admitted: registered BEFORE the check, so a halt that
+                # commits from here on waits for this worker, whose finally
+                # captures this carrier if it was not spent
+                c = args[0] if isinstance(args[0], dict) else {"text": str(args[0])}
+                with sup._state_lock:
+                    old = st.get("halt_pending_carrier")
+                    if old and old.get("text") == c.get("text") and not isinstance(args[0], dict):
+                        c = old
+                    st["halt_pending_carrier"] = c
+                    st["halt_carrier_id"] = c.get("_halt_id")
+        if refused:
+            # Not admitted. The pending slot may hold a running worker's
+            # carrier that no capture has reached yet, so a refused worker
+            # never touches it: it retains its own carrier explicitly, with
+            # everything else queued on the runtime.
             try:
                 with txn(slug, nodes=[nid]) as tx:
                     if turn:
@@ -592,17 +616,6 @@ def worker(fn):
                 with _reg:
                     _unregister(slug, nid, st, gated=True)
             return None
-        if turn:
-            # admitted: registered BEFORE the check above, so a halt that
-            # commits from here on waits for this worker, whose finally
-            # captures this carrier if it was not spent
-            c = args[0] if isinstance(args[0], dict) else {"text": str(args[0])}
-            with sup._state_lock:
-                old = st.get("halt_pending_carrier")
-                if old and old.get("text") == c.get("text") and not isinstance(args[0], dict):
-                    c = old
-                st["halt_pending_carrier"] = c
-                st["halt_carrier_id"] = c.get("_halt_id")
         try:
             return fn(slug, nid, *args, **kwargs)
         finally:
