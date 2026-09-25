@@ -535,17 +535,23 @@ def agent_tx(body: Any, a: dict[str, Any],
 
 @dataclass
 class OpTx:
-    """What an operator-op body receives."""
+    """What an operator-op body receives: the locked document, the op and
+    its request body, the rows held, the open handle, the org's slug, and
+    `pre` — values the route computed BEFORE the transaction (provider reads
+    and the like never happen inside it)."""
     org: Any
     op: str
     body: Any
     args: dict[str, Any]
     spec: TxSpec
     tx: Any = None
+    slug: str = ""
+    pre: dict[str, Any] = field(default_factory=dict)
 
 
 def op_tx(slug: str, op: str, body: Any, a: dict[str, Any],
           fn: Callable[[OpTx], Any], *, spec: TxSpec | None = None,
+          pre: dict[str, Any] | None = None,
           on_commit: Callable[[Any], None] | None = None) -> Any:
     """Run one OPERATOR op (the user's door, POST /api/orgs/{slug}/ops) as one
     row transaction. No caller node row, no halt gate and no receipts: the
@@ -555,7 +561,8 @@ def op_tx(slug: str, op: str, body: Any, a: dict[str, Any],
     base = spec if spec is not None else _resolve(op, slug, body, a)
     h, result = _run(slug, base,
                      lambda h, held: fn(OpTx(org=h.org, op=op, body=body,
-                                             args=a, spec=held, tx=h)))
+                                             args=a, spec=held, tx=h,
+                                             slug=slug, pre=dict(pre or {}))))
     if on_commit is not None:
         on_commit(h.org)
     return result
