@@ -40,6 +40,10 @@ STUB_CUSTODIAN = textwrap.dedent('''
         if os.environ.get("STUB_ATTACH_FAILS"):
             print(json.dumps({"ok": False, "code": "identity.mismatch", "message": "stub"})); sys.exit(1)
         print(json.dumps({"ok": True, "runtime": {"port": 1}}))
+    elif cmd == "migrate":
+        if os.environ.get("STUB_MIGRATE_FAILS"):
+            print(json.dumps({"ok": False, "code": "migrate.checksum_mismatch", "message": "stub"})); sys.exit(1)
+        print(json.dumps({"ok": True, "migrate": {"applied_now": []}}))
     elif cmd == "stop":
         open(state_file, "w").write("stopped"); print(json.dumps({"ok": True, "stop": {}}))
 ''')
@@ -87,6 +91,7 @@ class BracketTests(unittest.TestCase):
             "PATH": os.environ.get("PATH", ""),
             "STUB_LOG": str(self.log),
             "STUB_STATE": str(self.state),
+            "ORGTREE_P03_SCHEMA_DIR": str(self.tmp),
         }
 
     def tearDown(self) -> None:
@@ -161,7 +166,7 @@ class BracketTests(unittest.TestCase):
         self.assertTrue(report["database_stop"]["ok"])
         seq = [(c["who"], c.get("args", [c.get("event")])[0]) for c in self.calls()]
         self.assertEqual(seq, [("custodian", "status"), ("custodian", "init"), ("custodian", "start"),
-                               ("custodian", "attach"), ("store", "start"), ("store", "stdin-eof-exit"),
+                               ("custodian", "attach"), ("custodian", "migrate"), ("store", "start"), ("store", "stdin-eof-exit"),
                                ("custodian", "stop")])
         # The engine's token never reaches either child.
         self.assertFalse((self.root / bracket.STORE_DESCRIPTOR).exists())
@@ -199,6 +204,21 @@ class BracketTests(unittest.TestCase):
             bracket.start_for_host(self.root, env)
         cmds = [c["args"][0] for c in self.calls() if c["who"] == "custodian"]
         self.assertEqual(cmds[-1], "stop")
+
+    def test_a_failed_migration_starts_no_store_service_and_stops_the_database(self) -> None:
+        self.mark()
+        env = {**self.configured(), "STUB_MIGRATE_FAILS": "1"}
+        with self.assertRaisesRegex(BracketError, "migrate refused"):
+            bracket.start_for_host(self.root, env)
+        self.assertFalse(any(c["who"] == "store" for c in self.calls()))
+        cmds = [c["args"][0] for c in self.calls() if c["who"] == "custodian"]
+        self.assertEqual(cmds[-1], "stop")
+
+    def test_no_schema_folder_is_a_refusal(self) -> None:
+        self.mark()
+        env = {**self.configured(), "ORGTREE_P03_SCHEMA_DIR": str(self.tmp / "nope")}
+        with self.assertRaisesRegex(BracketError, "no store schema"):
+            bracket.start_for_host(self.root, env)
 
     def test_the_engine_token_is_not_passed_on(self) -> None:
         self.mark()
