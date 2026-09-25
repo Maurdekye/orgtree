@@ -229,6 +229,23 @@ def declare_all() -> None:
 
 # ------------------------------------------------------ operator doors
 
+def _log_key(x: Any) -> str:
+    return x if isinstance(x, str) else " ".join(x)
+
+
+def _norm(spec: pgdoor.TxSpec) -> pgdoor.TxSpec:
+    """pgdoor's rule (a row named both ways is held FOR UPDATE only;
+    ascending order) with logs sorted by a key that also orders the
+    `(section, owner)` dict-log names mail sends carry — pgdoor._norm's plain
+    `sorted()` raises TypeError on that mix (reported to WS3a)."""
+    ns = tuple(sorted(set(spec.nodes)))
+    ss = tuple(sorted(set(spec.sections)))
+    return pgdoor.TxSpec(ns, ss,
+                         tuple(sorted(set(spec.share_nodes) - set(ns))),
+                         tuple(sorted(set(spec.share_sections) - set(ss))),
+                         tuple(sorted(set(spec.logs), key=_log_key)))
+
+
 def run_op(slug: str, spec: pgdoor.TxSpec, fn: Any) -> Any:
     """Run an OPERATOR door body `fn(tx)` in one `org_tx` on `spec`, re-running
     with the widened set when the body raises `pgdoor.Widen` (the tree moved
@@ -239,7 +256,7 @@ def run_op(slug: str, spec: pgdoor.TxSpec, fn: Any) -> Any:
     from . import orgtx
     widens = 0
     while True:
-        spec = pgdoor._norm(spec)   # pyright: ignore[reportPrivateUsage]
+        spec = _norm(spec)
         try:
             with orgtx.org_tx(slug, nodes=list(spec.nodes),
                               sections=list(spec.sections),
