@@ -40,7 +40,9 @@ from orgtree import api, net, orgtx, store  # noqa: E402
 # PYPG decision 19: every org_tx takes DOC_LOCK first while the transition
 # fence is on (the default until the last family converts). What this file
 # proves is the row-lock behaviour AFTER the fence comes down, so it runs with
-# the fence off; FenceControl below shows the fence-on case does wait.
+# the fence off; FenceControl below shows the fence-on case does wait. (A
+# PG-0 without the fence — before PG-0b — has no DOC_LOCK to turn off.)
+_HAS_FENCE = hasattr(orgtx, 'TRANSITION_FENCE')
 orgtx.TRANSITION_FENCE = False
 
 #: how long a writer may take when nothing it needs is held
@@ -187,6 +189,7 @@ class NeverWaitsOnDocLock(unittest.TestCase):
         self.assertEqual(ran, len(Writers.all()))    # the loop really ran
 
 
+@unittest.skipUnless(_HAS_FENCE, 'this PG-0 has no transition fence (PG-0b)')
 class FenceControl(unittest.TestCase):
     def test_with_the_fence_on_a_writer_does_wait_on_doc_lock(self) -> None:
         # the negative control for NeverWaitsOnDocLock: same writer, same

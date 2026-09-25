@@ -431,6 +431,10 @@ class AccountRemovalTests(unittest.TestCase):
     # every org_tx takes DOC_LOCK first); the fence-on control is below.
     def _fence(self, on):
         from engine.backend.orgtree import orgtx
+        if not hasattr(orgtx, "TRANSITION_FENCE"):
+            if on:
+                self.skipTest("this PG-0 has no transition fence (PG-0b)")
+            return
         was = orgtx.TRANSITION_FENCE
         orgtx.TRANSITION_FENCE = on
         self.addCleanup(setattr, orgtx, "TRANSITION_FENCE", was)
