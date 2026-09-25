@@ -117,7 +117,7 @@ def run_startup_migration() -> dict[str, Any] | None:
                  "error": f"orgs directory unreadable: {e}"}) from None
         for f in names:
             slug = f[:-5] if f.endswith(".json") else (
-                f[:-3] if f.endswith(".db") else "")
+                f[:-len(store.db_ext())] if f.endswith(store.db_ext()) else "")
             if slug and slug not in seen and not f.endswith(".premigration"):
                 seen.add(slug)
                 slugs.append(slug)
@@ -415,7 +415,7 @@ def run_apikey_cutover() -> dict[str, Any] | None:
         seen: set[str] = set()
         for f in names:
             slug = f[:-5] if f.endswith(".json") else (
-                f[:-3] if f.endswith(".db") else "")
+                f[:-len(store.db_ext())] if f.endswith(store.db_ext()) else "")
             if slug and slug not in seen and not f.endswith(".premigration"):
                 seen.add(slug)
                 slugs.append(slug)

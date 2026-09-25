@@ -117,7 +117,12 @@ class OrgTxError(RuntimeError):
 
 class UnlockedWrite(OrgTxError):
     """The body changed a row it did not lock FOR UPDATE (or a log it did
-    not name). The whole transaction was rolled back."""
+    not name). The whole transaction was rolled back; nothing was written.
+    `rows` names them: (('node'|'section'|'log', name), ...)."""
+
+    def __init__(self, msg: str, rows: tuple[tuple[str, str], ...] = ()) -> None:
+        super().__init__(msg)
+        self.rows = rows
 
 
 class NestedTx(OrgTxError):
@@ -172,6 +177,12 @@ class OrgTx:
     op_key: str | None = None
     fingerprint: str | None = None
     committed: Committed | None = field(default=None)
+    #: nodes=ALL: every node row is locked FOR UPDATE (and new ones may be
+    #: inserted); `lock_nodes` holds the ids resolved under the lock
+    all_nodes: bool = False
+    #: slugs whose save hooks store deferred; org_tx fires them after COMMIT
+    #: with every lock released (lead decision 14)
+    deferred_hooks: list[str] = field(default_factory=lambda: [])
 
     @property
     def d(self) -> dict[str, Any]:
@@ -288,6 +299,12 @@ class RowLocks:
         with self._cv:
             return self._x.get(key), frozenset(self._s.get(key, set()))
 
+    def waiting(self, owner: object) -> frozenset[object]:
+        """The owners `owner` is currently blocked behind (empty when it is
+        not waiting) — the public probe PG-5's race harness reads."""
+        with self._cv:
+            return frozenset(self._waits.get(owner, ()))
+
 
 # ----------------------------------------------------------------- backends
 
@@ -296,20 +313,65 @@ class Backend(Protocol):
     def read(self, slug: str, sections: tuple[str, ...]) -> Org: ...
 
 
-def _allowed(tx: OrgTx, changes: SaveChanges) -> list[str]:
+#: the pseudo-row every node lock takes first: shared for named nodes,
+#: exclusive for nodes=ALL, so an ALL sweep excludes node creations too
+_ALL_NODES_KEY = "*"
+
+
+def _lock_plan(tx: OrgTx, node_ids: Iterable[str] = ()) -> list[tuple[str, str, bool]]:
+    """THE lock order, one for both backends and every family (agreed with
+    PG-3a/PG-3b): the node pseudo-row, then NODE rows in ascending id, then
+    SECTIONS in ascending key, then (dict-log, owner) rows. Each entry is
+    (kind, name, exclusive). `node_ids` are the resolved ids for ALL."""
+    plan: list[tuple[str, str, bool]] = []
+    nodes = sorted(set(node_ids) | tx.lock_nodes | tx.share_nodes) if not tx.all_nodes \
+        else sorted(set(node_ids))
+    if tx.all_nodes or nodes:
+        plan.append(("node", _ALL_NODES_KEY, tx.all_nodes))
+    for name in nodes:
+        plan.append(("node", name, tx.all_nodes or name in tx.lock_nodes))
+    for name in sorted(tx.lock_sections | tx.share_sections):
+        plan.append(("section", name, name in tx.lock_sections))
+    for lg in sorted((x for x in tx.logs if not isinstance(x, str)),
+                     key=lambda x: "\0".join(x)):
+        plan.append(("log", "\0".join(lg), True))
+    return plan
+
+
+def _disallowed(tx: OrgTx, changes: SaveChanges) -> tuple[tuple[str, str], ...]:
     """Rows the save wrote that the transaction did not lock for update."""
-    bad: list[str] = []
+    bad: list[tuple[str, str]] = []
     for k in (*changes.doc_upserts, *changes.doc_deletes):
         if k not in tx.lock_sections:
-            bad.append(f"section {k!r}")
-    for n in (*changes.node_updates, *changes.node_inserts, *changes.node_deletes):
-        if n not in tx.lock_nodes:
-            bad.append(f"node {n!r}")
+            bad.append(("section", k))
+    if not tx.all_nodes:
+        for n in (*changes.node_updates, *changes.node_inserts, *changes.node_deletes):
+            if n not in tx.lock_nodes:
+                bad.append(("node", n))
     named_logs = {x if isinstance(x, str) else x[0] for x in tx.logs}
-    for s in changes.log_sections:
+    for s in sorted(changes.log_sections):
         if s not in named_logs:
-            bad.append(f"log {s!r}")
-    return bad
+            bad.append(("log", s))
+    return tuple(dict.fromkeys(bad))
+
+
+def _check(tx: OrgTx, changes: SaveChanges) -> None:
+    bad = _disallowed(tx, changes)
+    if bad:
+        raise UnlockedWrite(
+            f"org_tx on {tx.slug!r} wrote rows it did not lock: "
+            + ", ".join(f"{k} {n!r}" for k, n in bad)
+            + " (name them in nodes=/sections=/logs=; a save that touches asks "
+              "or work_items also rewrites work_items)", bad)
+
+
+def _heal(slug: str) -> None:
+    """Bring an org to the ledger's load-heal fixed point in its own commit,
+    BEFORE any row lock: constructing an Org runs one-time heals
+    (`_migrations`, node scope, events) whose writes would otherwise ride the
+    first org_tx's commit and be refused as unlocked. A plain seam save — the
+    compare-and-set guards it like any legacy save."""
+    store.save_org(store._load_sqlite_org(slug))   # pyright: ignore[reportPrivateUsage]
 
 
 class SeamBackend:
@@ -320,6 +382,7 @@ class SeamBackend:
         self.receipts: dict[tuple[str, str], tuple[str | None, Any]] = {}
         self._rev_lock = threading.Lock()
         self.revisions: dict[str, int] = {}
+        self.healed: set[str] = set()
 
     def revision(self, slug: str) -> int:
         with self._rev_lock:
@@ -330,20 +393,21 @@ class SeamBackend:
         if store.STORE_BACKEND != "sqlite":
             raise OrgTxError(f"org_tx needs ORGTREE_STORE=sqlite or postgres, "
                              f"not {store.STORE_BACKEND!r}")
+        if tx.slug not in self.healed:
+            _heal(tx.slug)
+            self.healed.add(tx.slug)
         owner = object()
         try:
             _pause("before_lock", tx)
-            # one fixed order over every key: sections, nodes, logs; sorted
-            order: list[tuple[RowKey, bool]] = []
-            for name in sorted(tx.lock_sections | tx.share_sections):
-                order.append(((tx.slug, "section", name), name in tx.lock_sections))
-            for name in sorted(tx.lock_nodes | tx.share_nodes):
-                order.append(((tx.slug, "node", name), name in tx.lock_nodes))
-            for lg in sorted(tx.logs, key=lambda x: x if isinstance(x, str) else "\0".join(x)):
-                if not isinstance(lg, str):
-                    order.append(((tx.slug, "log", "\0".join(lg)), True))
-            for key, exclusive in order:
-                self.locks.acquire(owner, key, exclusive, lock_timeout)
+            ids: list[str] = []
+            if tx.all_nodes:
+                self.locks.acquire(owner, (tx.slug, "node", _ALL_NODES_KEY), True,
+                                   lock_timeout)
+                probe = store._load_sqlite_org(tx.slug)   # pyright: ignore[reportPrivateUsage]
+                ids = list(dict.keys(cast("dict[str, Any]", probe.d.get("nodes") or {})))
+                tx.lock_nodes = frozenset(ids)
+            for kind, name, exclusive in _lock_plan(tx, ids):
+                self.locks.acquire(owner, (tx.slug, kind, name), exclusive, lock_timeout)
             _pause("after_lock", tx)
             if tx.op_key is not None:
                 hit = self.receipts.get((tx.slug, tx.op_key))
@@ -361,15 +425,6 @@ class SeamBackend:
             _pause("before_commit", tx)
             got: list[SaveChanges] = []
 
-            def guard(changes: SaveChanges) -> None:
-                bad = _allowed(tx, changes)
-                if bad:
-                    raise UnlockedWrite(
-                        f"org_tx on {tx.slug!r} wrote rows it did not lock: "
-                        f"{', '.join(bad)} (name them in nodes=/sections=/logs=; "
-                        "a save that touches asks or work_items also rewrites "
-                        "work_items)")
-
             def on_commit(changes: SaveChanges) -> None:
                 got.append(changes)
                 if not changes.is_empty() or tx.op_key is not None:
@@ -379,11 +434,12 @@ class SeamBackend:
                     self.receipts[(tx.slug, tx.op_key)] = (tx.fingerprint, tx.result)
 
             loc = store._orgtx_local                   # pyright: ignore[reportPrivateUsage]
-            loc.guard, loc.on_commit = guard, on_commit
+            loc.guard, loc.on_commit = (lambda c: _check(tx, c)), on_commit
+            loc.defer_hooks = tx.deferred_hooks
             try:
                 store.save_org(tx.org)
             finally:
-                loc.guard = loc.on_commit = None
+                loc.guard = loc.on_commit = loc.defer_hooks = None
             changes = got[0] if got else SaveChanges()
             tx.revision = self.revision(tx.slug)
             tx.committed = Committed(tx.slug, tx.revision, changes, tx.op_key)
@@ -420,6 +476,9 @@ class PgBackend:
     own detector reports deadlocks (40P01) and `lock_timeout` bounds waits
     (55P03 → LockTimeout)."""
 
+    def __init__(self) -> None:
+        self.healed: set[str] = set()
+
     @contextlib.contextmanager
     def transaction(self, tx: OrgTx, lock_timeout: float) -> Iterator[None]:
         from . import pgstore
@@ -432,29 +491,33 @@ class PgBackend:
         raw = conn.raw
         loc = store._orgtx_local                   # pyright: ignore[reportPrivateUsage]
         try:
+            if tx.slug not in self.healed:
+                _heal(tx.slug)
+                self.healed.add(tx.slug)
             _pause("before_lock", tx)
             try:
                 raw.execute(f"SET lock_timeout = '{max(1, int(lock_timeout * 1000))}ms'")
                 raw.execute("BEGIN")
-                order: list[tuple[str, str, str, bool]] = []
-                for name in sorted(tx.lock_sections | tx.share_sections):
-                    order.append(("section", name,
-                                  "SELECT 1 FROM doc WHERE key = %s",
-                                  name in tx.lock_sections))
-                for name in sorted(tx.lock_nodes | tx.share_nodes):
-                    order.append(("node", name, "SELECT 1 FROM nodes WHERE id = %s",
-                                  name in tx.lock_nodes))
-                for lg in sorted((x for x in tx.logs if not isinstance(x, str)),
-                                 key=lambda x: "\0".join(x)):
-                    order.append(("log", "\0".join(lg),
-                                  "SELECT 1 FROM log_d WHERE sect = %s AND owner = %s",
-                                  True))
-                for kind, name, sel, exclusive in order:
+                sel = {"node": "SELECT 1 FROM nodes WHERE id = %s",
+                       "section": "SELECT 1 FROM doc WHERE key = %s",
+                       "log": "SELECT 1 FROM log_d WHERE sect = %s AND owner = %s"}
+                ids: list[str] = []
+                if tx.all_nodes:
+                    raw.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))",
+                                (conn.org_id, f"node:{_ALL_NODES_KEY}"))
+                    ids = [str(r[0]) for r in raw.execute(
+                        "SELECT id FROM nodes ORDER BY id").fetchall()]
+                    tx.lock_nodes = frozenset(ids)
+                for kind, name, exclusive in _lock_plan(tx, ids):
+                    if tx.all_nodes and kind == "node" and name == _ALL_NODES_KEY:
+                        continue                       # taken above
                     fn = "pg_advisory_xact_lock" if exclusive else "pg_advisory_xact_lock_shared"
                     raw.execute(f"SELECT {fn}(%s, hashtext(%s))",
                                 (conn.org_id, f"{kind}:{name}"))
+                    if name == _ALL_NODES_KEY:
+                        continue                       # a pseudo-row: no table row
                     args = tuple(name.split("\0")) if kind == "log" else (name,)
-                    raw.execute(sel + (" FOR UPDATE" if exclusive else " FOR SHARE"), args)
+                    raw.execute(sel[kind] + (" FOR UPDATE" if exclusive else " FOR SHARE"), args)
             except Exception as e:
                 raise _pg_error(e) from e
             _pause("after_lock", tx)
@@ -481,13 +544,7 @@ class PgBackend:
                 got: list[SaveChanges] = []
 
                 def guard(changes: SaveChanges) -> None:
-                    bad = _allowed(tx, changes)
-                    if bad:
-                        raise UnlockedWrite(
-                            f"org_tx on {tx.slug!r} wrote rows it did not lock: "
-                            f"{', '.join(bad)} (name them in nodes=/sections=/logs=; "
-                            "a save that touches asks or work_items also rewrites "
-                            "work_items)")
+                    _check(tx, changes)
                     if tx.op_key is not None:
                         raw.execute("INSERT INTO public.receipts(org_id, op_key, "
                                     "fingerprint, result) VALUES (%s, %s, %s, %s)",
@@ -496,12 +553,13 @@ class PgBackend:
                     conn.commit_armed = True
 
                 loc.guard, loc.on_commit = guard, got.append
+                loc.defer_hooks = tx.deferred_hooks
                 try:
                     store.save_org(tx.org)
                 except Exception as e:
                     raise _pg_error(e) from e
                 finally:
-                    loc.guard = loc.on_commit = None
+                    loc.guard = loc.on_commit = loc.defer_hooks = None
             finally:
                 loc.pinned = None
                 conn.pinned = False
@@ -579,8 +637,25 @@ def _check_logs(logs: Iterable[LogName] | None) -> frozenset[LogName]:
     return frozenset(out)
 
 
+class _All:
+    """The `nodes=ALL` sentinel: lock every node row of the org."""
+
+    def __repr__(self) -> str:
+        return "orgtx.ALL"
+
+
+ALL: Any = _All()
+
+
+def current_tx(slug: str) -> OrgTx | None:
+    """The org_tx open on `slug` on THIS thread, or None — for code that runs
+    inside a save (pre-save hooks, reconcile) and must confine its writes to
+    the rows the transaction locked."""
+    return cast("dict[str, OrgTx]", getattr(_open, "txs", None) or {}).get(slug)
+
+
 @contextlib.contextmanager
-def org_tx(slug: str, *, nodes: Iterable[str] | None = None,
+def org_tx(slug: str, *, nodes: Iterable[str] | Any = None,
            sections: Iterable[str] | None = None,
            logs: Iterable[LogName] | None = None,
            share_nodes: Iterable[str] | None = None,
@@ -589,7 +664,8 @@ def org_tx(slug: str, *, nodes: Iterable[str] | None = None,
            lock_timeout: float | None = None,
            retries: int = DEFAULT_RETRIES) -> Iterator[OrgTx]:
     """One row transaction on one org. See the module docstring."""
-    lock_nodes = _names(nodes, "nodes")
+    all_nodes = nodes is ALL
+    lock_nodes = frozenset() if all_nodes else _names(nodes, "nodes")
     lock_sections = _names(sections, "sections")
     sh_nodes = _names(share_nodes, "share_nodes") - lock_nodes
     sh_sections = _names(share_sections, "share_sections") - lock_sections
@@ -607,10 +683,13 @@ def org_tx(slug: str, *, nodes: Iterable[str] | None = None,
         tx = OrgTx(slug=slug, org=cast(Org, None), lock_nodes=lock_nodes,
                    lock_sections=lock_sections, share_nodes=sh_nodes,
                    share_sections=sh_sections, logs=log_names,
-                   op_key=op_key, fingerprint=fingerprint)
+                   op_key=op_key, fingerprint=fingerprint, all_nodes=all_nodes)
         body_ran = False
         open_slugs.add(slug)
         _open.slugs = open_slugs
+        txs: dict[str, OrgTx] = getattr(_open, "txs", None) or {}
+        txs[slug] = tx
+        _open.txs = txs
         try:
             with b.transaction(tx, timeout):
                 body_ran = True
@@ -623,7 +702,11 @@ def org_tx(slug: str, *, nodes: Iterable[str] | None = None,
             continue
         finally:
             open_slugs.discard(slug)
+            txs.pop(slug, None)
         break
+    # save hooks deferred out of the transaction: after COMMIT, locks released
+    for hs in tx.deferred_hooks:
+        store.fire_save_hooks(hs)
     if tx.committed is not None:
         for fn in list(commit_listeners):
             try:
