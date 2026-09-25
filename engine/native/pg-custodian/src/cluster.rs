@@ -752,6 +752,40 @@ pub fn psql(bin: &PgBin, runtime: &RuntimeRecord, dbname: &str, sql: &str) -> Re
         .collect())
 }
 
+/// Run a script through psql on stdin (`-f -`), stopping at the first error;
+/// with `single_tx` the whole script is one transaction (`-1`), so an error
+/// rolls all of it back.
+pub fn psql_stdin(bin: &PgBin, runtime: &RuntimeRecord, dbname: &str, script: &str, single_tx: bool) -> Result<String> {
+    use std::io::Write;
+    let mut cmd = child(&bin.exe("psql"));
+    cmd.args(["-X", "-q", "-A", "-t", "-w", "-v", "ON_ERROR_STOP=1"]);
+    if single_tx {
+        cmd.arg("-1");
+    }
+    let mut proc = cmd
+        .arg("-d")
+        .arg(runtime.conninfo(dbname))
+        .args(["-f", "-"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| CustodianError::new("psql.run", e.to_string()))?;
+    let mut stdin = proc.stdin.take().expect("piped stdin");
+    let body = script.to_string();
+    // Write on a thread so a large script cannot deadlock against output.
+    let writer = std::thread::spawn(move || stdin.write_all(body.as_bytes()));
+    let out = proc.wait_with_output().map_err(|e| CustodianError::new("psql.run", e.to_string()))?;
+    let _ = writer.join();
+    if !out.status.success() {
+        return Err(CustodianError::new(
+            "psql.failed",
+            format!("{}: {}", out.status, String::from_utf8_lossy(&out.stderr).trim()),
+        ));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).to_string())
+}
+
 pub fn identify_at(layout: &Layout, instance: &InstanceRecord, runtime: &RuntimeRecord, bin: &PgBin) -> Result<Identification> {
     let rows = psql(bin, runtime, "postgres", IDENT_SQL)?;
     let row = rows.first().filter(|r| r.len() == 13).ok_or_else(|| {

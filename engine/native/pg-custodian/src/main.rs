@@ -4,6 +4,7 @@
 
 use orgtree_pg_custodian::cluster::{self, ClusterState, InitOptions, PgBin};
 use orgtree_pg_custodian::dev;
+use orgtree_pg_custodian::migrate;
 use orgtree_pg_custodian::guard::{self, process_env, Env};
 use orgtree_pg_custodian::{CustodianError, Result};
 use serde_json::{json, Value};
@@ -22,8 +23,17 @@ dev commands (one cluster per agent under <repo>/artifacts/p03-db/<agent>):
   status    state without connecting; --all lists every P03 cluster
   env       identify, then print the URLs as shell assignments (default ps)
   destroy   delete a STOPPED agent cluster entirely
+  migrate   apply engine/native/store-schema/migrations (see root `migrate`)
+  check-writer  (see root `check-writer`)
 
 root commands:
+  migrate     --schema-dir <dir> [--writer-version N]
+              apply every pending NNNN_*.sql listed in <dir>/SHA256SUMS in order,
+              each in one transaction with its bookkeeping row; refuses unlisted
+              or missing files, gaps, checksum or history mismatches, a newer
+              database, or a migration needing a newer writer; writes
+              store_incarnation once
+  check-writer --writer-version N   refuse if N is below the schema's min_writer
   init-root   mark a NEW or EMPTY folder as a disposable prototype root
   init        initdb a cluster under the root (quarantine, then commit by rename)
   start       start it on 127.0.0.1 [--port N] (default: a free port)
@@ -55,6 +65,8 @@ struct Args {
     shell: Option<String>,
     all: bool,
     qual_logging: Option<bool>,
+    schema_dir: Option<PathBuf>,
+    writer_version: Option<u32>,
     immediate: bool,
     force: bool,
 }
@@ -86,6 +98,11 @@ fn parse() -> Result<Args> {
                 })
             }
             "--all" => a.all = true,
+            "--schema-dir" => a.schema_dir = Some(PathBuf::from(val("--schema-dir")?)),
+            "--writer-version" => {
+                a.writer_version =
+                    Some(val("--writer-version")?.parse().map_err(|_| CustodianError::new("cli.usage", "--writer-version must be a positive integer"))?)
+            }
             "--immediate" => a.immediate = true,
             "--force" => a.force = true,
             "-h" | "--help" => return Err(CustodianError::new("cli.usage", USAGE)),
@@ -109,6 +126,20 @@ fn identified(r: &guard::PrototypeRoot, b: &PgBin) -> Result<(cluster::RuntimeRe
         return Err(CustodianError::new("identity.mismatch", format!("{:?}", id.mismatches)));
     }
     Ok((rt, id))
+}
+
+fn run_migrate(a: &Args, r: &guard::PrototypeRoot, b: &PgBin) -> Result<Value> {
+    let dir = a.schema_dir.clone().ok_or_else(|| CustodianError::new("cli.usage", "migrate needs --schema-dir <store-schema/migrations>"))?;
+    let (rt, _) = identified(r, b)?;
+    let report = migrate::migrate(b, &rt, &dir, a.writer_version.unwrap_or(1))?;
+    Ok(json!({"migrate": report}))
+}
+
+fn run_check_writer(a: &Args, r: &guard::PrototypeRoot, b: &PgBin) -> Result<Value> {
+    let w = a.writer_version.ok_or_else(|| CustodianError::new("cli.usage", "check-writer needs --writer-version N"))?;
+    let (rt, _) = identified(r, b)?;
+    let applied = migrate::read_applied(b, &rt)?;
+    Ok(json!({"writer_version": w, "schema_min_writer": migrate::check_writer(&applied, w)?}))
 }
 
 enum Out {
@@ -150,6 +181,8 @@ fn run_dev(a: &Args, env: &Env) -> Result<Out> {
             cluster::destroy(&r, &b)?;
             Ok(Out::Json(json!({"destroyed": r.path()})))
         }
+        "migrate" => Ok(Out::Json(run_migrate(a, &dev::root_for(env, &home, &agent)?, &b)?)),
+        "check-writer" => Ok(Out::Json(run_check_writer(a, &dev::root_for(env, &home, &agent)?, &b)?)),
         other => Err(CustodianError::new("cli.usage", format!("unknown dev command {other:?}\n{USAGE}"))),
     }
 }
@@ -182,6 +215,8 @@ fn run(a: Args) -> Result<Out> {
             "qual_logging_configured": cluster::qual_logging_configured(&r),
             "cluster": cluster::state(&r, &b)?,
         }),
+        "migrate" => run_migrate(&a, &r, &b)?,
+        "check-writer" => run_check_writer(&a, &r, &b)?,
         "qual-logging" => {
             let on = a.qual_logging.ok_or_else(|| CustodianError::new("cli.usage", "qual-logging needs --qual-logging on|off"))?;
             json!({"changed": cluster::set_qual_logging(&r, &b, on)?, "qual_logging_configured": on})
