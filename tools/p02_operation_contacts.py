@@ -892,7 +892,17 @@ class Probe:
                                                         uri=True)) as c:
                     for key in MAIL_DOC_KEYS:
                         row = c.execute("SELECT val FROM doc WHERE key=?", (key,)).fetchone()
-                        snap[key] = json.loads(row[0]) if row else None
+                        val = json.loads(row[0]) if row else None
+                        if isinstance(val, dict):
+                            # PG-3d per-owner split (store.SPLIT_SECTIONS):
+                            # `key` is a container, each owner's list its own
+                            # row keyed `key\x1fowner`
+                            pre = key + "\x1f"
+                            for k, v in c.execute(
+                                    "SELECT key, val FROM doc WHERE substr(key, 1, ?) = ?",
+                                    (len(pre), pre)):
+                                val[k[len(pre):]] = json.loads(v)
+                        snap[key] = val
                     for sect in MAIL_LOG_SECTS:
                         snap[sect] = {o: n for o, n in c.execute(
                             "SELECT owner, COUNT(*) FROM log_d WHERE sect=? GROUP BY owner",
