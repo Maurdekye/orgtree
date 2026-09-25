@@ -311,6 +311,9 @@ class PgConn:
         self.commit_armed = False
         #: the revision the last committed save bumped to
         self.last_revision: int | None = None
+        #: set while this connection's transaction is CREATING the org: the
+        #: marker path to write once its COMMIT succeeds (`_begin_create`)
+        self.creating: str | None = None
         #: set when several orgs share ONE server connection (a multi-org
         #: org_tx): holds the org_id whose schema the search_path names now,
         #: and every statement switches it first when it is another org's
@@ -339,6 +342,11 @@ class PgConn:
         try:
             if st.kind != "sql":
                 self.raw.execute(st.sql)
+                if self.creating is not None and st.kind in ("commit", "rollback"):
+                    marker, self.creating = self.creating, None
+                    self.pinned = self.commit_armed = False
+                    if st.kind == "commit":
+                        _write_marker(marker, self.slug, self.org_id)
                 return _EMPTY
             self.use()
             cur = self.raw.execute(st.sql, tuple(params) if params else None)
@@ -370,8 +378,6 @@ class PgConn:
 
 
 # ----------------------------------------------------------------- orgs
-
-_create_lock = threading.Lock()
 
 #: idle server connections shared by every org (search_path is set on each
 #: checkout). Bounded: beyond it a released connection is closed.
@@ -443,17 +449,41 @@ def _write_marker(path: str, slug: str, org_id: int) -> None:
     os.replace(tmp, path)
 
 
-def _create_org(raw: Any, slug: str) -> int:
-    with raw.transaction():
-        # a live row with no marker is an org whose marker went to the trash
-        # (delete_org): retire its slug so the name is free, keep its rows
-        raw.execute("UPDATE public.orgs SET slug = slug || '@deleted-' || org_id, "
-                    "deleted_at = now() WHERE slug = %s", (slug,))
-        row = raw.execute("INSERT INTO public.orgs(slug) VALUES (%s) RETURNING org_id",
-                          (slug,)).fetchone()
-        org_id = int(row[0])
-        raw.execute("SELECT orgtree_create_org_schema(%s)", (org_id,))
+def _begin_create(raw: Any, slug: str) -> int:
+    """Open the ONE transaction an org is created in (lead decision 20.2):
+    the orgs row and its schema here, then the caller's save writes the rows,
+    bumps the revision, NOTIFYs and COMMITs it; the `.pg` marker is written
+    only after that COMMIT (PgConn.execute). A crash anywhere before leaves
+    nothing: no row, no schema, no marker. Serialized per slug by an advisory
+    transaction lock; the caller re-checks the marker under it."""
+    raw.execute("BEGIN")
+    raw.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("create:" + slug,))
+    # a live row with no marker is an org whose marker went to the trash
+    # (delete_org): retire its slug so the name is free, keep its rows
+    raw.execute("UPDATE public.orgs SET slug = slug || '@deleted-' || org_id, "
+                "deleted_at = now() WHERE slug = %s", (slug,))
+    row = raw.execute("INSERT INTO public.orgs(slug) VALUES (%s) RETURNING org_id",
+                      (slug,)).fetchone()
+    org_id = int(row[0])
+    raw.execute("SELECT orgtree_create_org_schema(%s)", (org_id,))
     return org_id
+
+
+def retire_unmarked(orgs_dir: str) -> list[str]:
+    """At claim: a live orgs row whose `<slug>.pg` marker is not in orgs/ is
+    not an org the engine can see (its marker was deleted to the trash, or a
+    crash fell between an old non-atomic create's commit and its marker).
+    Retire its slug — rows kept, restorable from a trash marker, which names
+    the org_id — so the name is free and nothing half-made stays live."""
+    out: list[str] = []
+    with connect() as c:
+        for org_id, slug in c.execute(
+                "SELECT org_id, slug FROM public.orgs WHERE deleted_at IS NULL").fetchall():
+            if read_marker(os.path.join(orgs_dir, f"{slug}{MARKER_EXT}")) != int(org_id):
+                c.execute("UPDATE public.orgs SET slug = slug || '@unmarked-' || org_id, "
+                          "deleted_at = now() WHERE org_id = %s", (org_id,))
+                out.append(str(slug))
+    return out
 
 
 def open_conn(slug: str, marker: str, *, create: bool = False) -> PgConn:
@@ -466,11 +496,19 @@ def open_conn(slug: str, marker: str, *, create: bool = False) -> PgConn:
         if org_id is None:
             if not create:
                 raise sqlite3.OperationalError(f"unable to open database file: {marker}")
-            with _create_lock:
-                org_id = read_marker(marker)
-                if org_id is None:
-                    org_id = _create_org(raw, slug)
-                    _write_marker(marker, slug, org_id)
+            org_id = _begin_create(raw, slug)
+            if read_marker(marker) is not None:     # created while we waited
+                raw.execute("ROLLBACK")
+                _release(raw)
+                return open_conn(slug, marker, create=False)
+            raw.execute(f"SET search_path TO org_{int(org_id)}, public")
+            conn = PgConn(raw, slug, org_id)
+            # the save's BEGIN is swallowed (we are already in the creating
+            # transaction); its COMMIT goes through and then writes the marker
+            conn.pinned = True
+            conn.commit_armed = True
+            conn.creating = marker
+            return conn
         raw.execute(f"SET search_path TO org_{int(org_id)}, public")
         return PgConn(raw, slug, org_id)
     except BaseException:

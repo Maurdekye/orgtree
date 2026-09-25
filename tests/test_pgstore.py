@@ -179,6 +179,40 @@ class Seam(unittest.TestCase):
         self.assertEqual(slug2, slug)
         self.assertEqual(_node(slug, 'b')['name'], 'b')
 
+    def _pg(self, sql: str, *args):
+        with psycopg.connect(os.environ['ORGTREE_PG_URL'], autocommit=True) as c:
+            return c.execute(sql, args).fetchall()
+
+    def test_create_is_atomic_marker_after_commit(self) -> None:
+        from unittest.mock import patch
+        schemas_before = {r[0] for r in self._pg(
+            "SELECT nspname FROM pg_namespace WHERE nspname LIKE 'org_%%'")}
+        real = store._write_doc
+
+        def boom(*a, **k):
+            real(*a, **k)
+            raise RuntimeError('crash after the rows, before COMMIT')
+        with patch.object(store, '_write_doc', boom):
+            with self.assertRaises(Exception):
+                store.create_org('atomic-one')
+        self.assertFalse(os.path.exists(store.org_path('atomic-one')), 'no marker')
+        self.assertEqual(self._pg("SELECT count(*) FROM orgs WHERE slug = %s", 'atomic-one')[0][0], 0)
+        schemas_after = {r[0] for r in self._pg(
+            "SELECT nspname FROM pg_namespace WHERE nspname LIKE 'org_%%'")}
+        self.assertEqual(schemas_after, schemas_before, 'no half-made schema')
+        slug = _fresh_org('atomic-one')                   # and the name still works
+        self.assertEqual(_node(slug, 'a')['name'], 'a')
+
+    def test_claim_retires_a_live_row_without_a_marker(self) -> None:
+        slug = _fresh_org('unmarked-one')
+        os.remove(store.org_path(slug))                    # the marker is lost
+        retired = pgstore.retire_unmarked(os.path.join(str(data), 'orgs'))
+        self.assertIn(slug, retired)
+        self.assertEqual(self._pg("SELECT count(*) FROM orgs WHERE slug = %s AND deleted_at IS NULL",
+                                  slug)[0][0], 0)
+        again = _fresh_org('unmarked-one')                 # the name is free, and empty
+        self.assertEqual(_node(again, 'a')['name'], 'a')
+
     def test_many_orgs_share_a_bounded_connection_pool(self) -> None:
         slugs = [_fresh_org(f'pool-{i}') for i in range(30)]
         for s in slugs:
