@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -120,8 +121,11 @@ def check(results: dict, host_log: str) -> list[str]:
                                                       "incomplete-contact", "the plan"))]
     if other:
         p.append(f"early_release: it failed for a reason other than the order: {other}")
-    if "test order_host ... ok" not in host_log or "1 passed" not in host_log:
-        p.append("the host test did not report 'test order_host ... ok' and '1 passed'")
+    # --nocapture: the host's own "serving" line lands between "test order_host ..." and
+    # "ok", so the per-test line is not matched literally; the summary line is exact
+    if "test order_host ..." not in host_log or not re.search(
+            r"^test result: ok\. 1 passed; 0 failed;", host_log, re.M):
+        p.append("the host test did not report order_host and 'test result: ok. 1 passed; 0 failed'")
     return p
 
 
