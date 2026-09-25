@@ -8,7 +8,7 @@ engine process (an engine restart is not a database restart), so the bracket
 lives in ``engine/service_host.py`` only (lead ruling 2026-09-25, recorded as a
 decision on docket item p03-ws1-private-postgresql-service-custodian-and):
 
-    database up (or attach)  ->  store service up  ->  launch.py
+    database up (or attach)  ->  migrate  ->  store service up  ->  launch.py
     ... engine exits ...     ->  store service down ->  database down
 
 WHEN IT ACTS. Only on a prototype root: the data root carries the P03 marker
@@ -48,6 +48,9 @@ MARKER_FILE = "orgtree-p03-prototype-root.json"
 CUSTODIAN_ENV = "ORGTREE_P03_CUSTODIAN"
 STORE_SERVICE_ENV = "ORGTREE_P03_STORE_SERVICE"
 STORE_DESCRIPTOR = "p03-store-service.json"
+SCHEMA_DIR_ENV = "ORGTREE_P03_SCHEMA_DIR"
+DEFAULT_SCHEMA_DIR = Path(__file__).resolve().parent / "native" / "store-schema"
+MIGRATE_TIMEOUT = 600.0
 LIVE_LOCATIONS = Path(__file__).resolve().parent / "native" / "prototype-guard" / "live-locations.json"
 
 STATUS_TIMEOUT = 60.0
@@ -178,6 +181,24 @@ def database_up(exe: Path, root: Path, env: Mapping[str, str], workdir: Path) ->
     return {"action": action, "runtime": attach["runtime"]}
 
 
+def schema_dir(env: Mapping[str, str]) -> Path:
+    """WS2's store-schema folder: ``ORGTREE_P03_SCHEMA_DIR`` or the one beside
+    this module. The store service needs the schema, so none is a refusal."""
+    raw = env.get(SCHEMA_DIR_ENV, "").strip()
+    path = Path(raw) if raw else DEFAULT_SCHEMA_DIR
+    if not path.is_absolute() or not path.is_dir():
+        raise BracketError(f"no store schema to migrate: {path} (set {SCHEMA_DIR_ENV})")
+    return path
+
+
+def migrate(exe: Path, root: Path, env: Mapping[str, str], workdir: Path) -> dict[str, Any]:
+    """Apply pending migrations (resumable, checksummed, one transaction each)."""
+    out = _run_custodian(exe, ["migrate", "--root", str(root), "--schema-dir", str(schema_dir(env))], env, MIGRATE_TIMEOUT, workdir)
+    if not out.get("ok"):
+        raise BracketError(f"pg-custodian migrate refused: {out.get('code')}: {out.get('message')}")
+    return out["migrate"]
+
+
 def database_down(exe: Path, root: Path, env: Mapping[str, str], workdir: Path) -> dict[str, Any]:
     return _run_custodian(exe, ["stop", "--root", str(root)], env, STOP_TIMEOUT, workdir)
 
@@ -261,11 +282,13 @@ class OwnedServices:
         self.workdir = root / "host-logs" / f"{time.strftime('%Y%m%dT%H%M%S')}-{os.getpid()}"
         self.workdir.mkdir(parents=True, exist_ok=True)
         self.database: dict[str, Any] | None = None
+        self.migration: dict[str, Any] | None = None
         self.store: StoreService | None = None
 
     def start(self) -> "OwnedServices":
         self.database = database_up(self.custodian, self.root, self.env, self.workdir)
         try:
+            self.migration = migrate(self.custodian, self.root, self.env, self.workdir)
             self.store = StoreService(self.store_exe, self.root, self.env, self.workdir)
             self.store.wait_ready()
         except BaseException:
