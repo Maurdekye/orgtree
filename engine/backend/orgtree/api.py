@@ -101,6 +101,7 @@ from . import opreceipts
 from . import pgdoor
 from . import workdoor
 from . import rcdoor  # PG-3c: credits/reservations/status on row transactions
+from . import staffdoor  # noqa: F401  PG-3b: registers its door tools
 from . import reservations
 from . import ledger as ledger_mod
 from . import (accounts, antigravity_limits, appsettings, bridgeauth,
