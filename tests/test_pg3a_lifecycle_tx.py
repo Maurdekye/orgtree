@@ -745,8 +745,10 @@ class Scope(unittest.TestCase):
             legacy = o.set_scope(actor, nid, **kw)
             store.save_org(o)
         mine = lifecycle_tx.set_scope(self.slug, actor, nid, **kw)
-        self.assertEqual(mine, legacy)
-        self.assertEqual(self.view(self.slug), self.view(twin))
+        # each org's scope carries its own workspace folder, named by slug
+        same = lambda x: repr(x).replace(twin, self.slug)  # noqa: E731
+        self.assertEqual(same(mine), same(legacy))
+        self.assertEqual(same(self.view(self.slug)), same(self.view(twin)))
         store._POOL.close_all(twin)
         return mine
 
