@@ -1,6 +1,6 @@
 {
   "schema": "orgtree.state-operation-contracts/v1",
-  "source_inventory_sha256": "8f8fbb0de1154ab721fd84659246b21980e5de4a1d8535f65fc003bf0a68c6e2",
+  "source_inventory_sha256": "30e5c482d64c86a30db5210a6db8254eea847fd8b7ffac8293f98dd8911b4b79",
   "qualification": {
     "runtime_census": false,
     "conversion_authorized": false
