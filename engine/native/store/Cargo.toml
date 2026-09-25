@@ -23,6 +23,8 @@ tokio = { version = "=1.52.3", default-features = false, features = ["sync", "ti
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.150"
 uuid = { version = "1", default-features = false, features = ["v4", "std", "serde"] }
+tokio-postgres = { version = "0.7", default-features = false, features = ["runtime", "with-uuid-1", "with-serde_json-1"] }
+bytes = "1"
 
 [dev-dependencies]
 orgtree-store-schema = { path = "../store-schema" }

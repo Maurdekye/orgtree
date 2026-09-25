@@ -17,8 +17,10 @@
 //! executor's decision logic over a fake session, not PostgreSQL behaviour.
 
 pub mod claims;
+pub mod conn;
 pub mod exec;
 pub mod hooks;
+pub mod pg;
 pub mod pool;
 pub mod receipts;
 pub mod retry;
