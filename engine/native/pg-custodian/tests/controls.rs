@@ -264,7 +264,17 @@ fn d_a_live_directory_copy_restores_inconsistently_under_writes() {
     let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
     let start = controls::start_copy(&b, &copy, &copy.parent().unwrap().join("copy.log"), port);
     let outcome = match start {
-        Err(e) => json!({"restore": "server refused to start", "code": e.code}),
+        Err(e) => {
+            // Only an inconsistency the server itself reports counts as the
+            // hazard shown; any other start failure proves nothing (review N2).
+            let text = std::fs::read_to_string(copy.parent().unwrap().join("copy.log")).unwrap_or_default();
+            let sign = text.lines().find(|l| {
+                l.contains("PANIC:")
+                    || (l.contains("FATAL:") && ["checkpoint", "invalid", "corrupt", "could not read", "could not open file"].iter().any(|k| l.contains(k)))
+            });
+            let sign = sign.unwrap_or_else(|| panic!("control (d): the copy did not start ({}), but its log shows no inconsistency: the hazard is NOT shown\n{text}", e.code));
+            json!({"restore": "server refused to start", "code": e.code, "server_reported": sign})
+        }
         Ok(()) => {
             let mut rt2 = rt.clone();
             rt2.port = port;

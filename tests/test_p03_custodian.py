@@ -14,6 +14,7 @@ import sys
 import tempfile
 import textwrap
 import unittest
+from unittest import mock
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
@@ -144,6 +145,17 @@ class BracketTests(unittest.TestCase):
         (home / bracket.MARKER_FILE).write_text("{}")
         with self.assertRaisesRegex(BracketError, "overlaps protected location"):
             bracket.start_for_host(home, self.configured())
+        self.assertEqual(self.calls(), [])
+
+    def test_unc_and_device_roots_are_refused_without_being_touched(self) -> None:
+        touched: list[Path] = []
+        with mock.patch.object(bracket, "is_prototype_root", side_effect=lambda r: touched.append(r) or True):
+            for unc in (r"\\server\share\proto", r"\\?\UNC\server\share\p", r"\\.\C:\p", "//server/share/p"):
+                with self.assertRaisesRegex(BracketError, "UNC and device"):
+                    bracket.start_for_host(Path(unc), self.configured())
+                # Not configured for P03: inert, and still not looked at.
+                self.assertIsNone(bracket.start_for_host(Path(unc), self.env))
+        self.assertEqual(touched, [], "a UNC root must not even be checked for a marker")
         self.assertEqual(self.calls(), [])
 
     def test_the_live_list_is_the_shared_file(self) -> None:
