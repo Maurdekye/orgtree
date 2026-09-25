@@ -324,9 +324,10 @@ class CompactionSplit(unittest.TestCase):
 
         def read(slug, **kw):
             calls.append(1)
+            got = real_read(slug, **kw)
             if len(calls) == 2:          # #1 is the pre-fork snapshot
-                bump()                      # moves between the read and the lock
-            return real_read(slug, **kw)
+                bump()                   # moves AFTER the read, before the lock
+            return got
         with patch.object(orgtx, "org_read", side_effect=read):
             self._fork()
         org = store.load_org(self.slug)
