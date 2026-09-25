@@ -166,9 +166,9 @@ class MailTx(unittest.TestCase):
 
     def test_ask_answer_audience_revoke_and_retract_commit_without_doc_lock(self) -> None:
         org = store.load_org(self.slug)
-        ask = org.ask_user('deep', 'Proceed?')
+        ask = org.ask_user('boss', 'Proceed?')
         store.save_org(org)
-        aid = ask.get('id') or store.load_org(self.slug).d['asks'][-1]['id']
+        aid = ask['asked']
         with patch.object(supervisor, 'send_message', return_value={'accepted': True}):
             with DocLockHeld():
                 r = call_with_timeout(lambda: self.client.post(
