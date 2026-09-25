@@ -483,6 +483,44 @@ class CredWatcher(unittest.TestCase):
         self.assertEqual(self._notes(), [])
 
 
+class AfterTurnSessionSites(unittest.TestCase):
+    """_after_turn's session sites (PG-3e-B): the CLI-compaction record, one
+    org_tx over the node and EVERY `nid@<gen>` row its cuts insert; the
+    baseline; the oracle transition."""
+
+    def setUp(self) -> None:
+        orgtx.use_backend(orgtx.SeamBackend())
+        self.slug = _org(_slug("at"))
+
+    def _turn(self, marks, fork_ids):
+        sup = supervisor
+        forks = iter(fork_ids)
+        with patch.object(sup, "_count_cli_compactions",
+                          return_value=(len(marks), 77, marks)),                 patch.object(sup, "_fork_bearer_session",
+                             side_effect=lambda *a: next(forks)),                 patch.object(sup, "session_occupancy", return_value=(None, False)),                 patch.object(sup, "_discard_cut") as discard,                 patch.object(sup, "notify"):
+            org = store.load_org(self.slug)
+            sup._after_turn(self.slug, "worker", org, {"total_cost_usd": 0.0},
+                            sup.state(self.slug, "worker"))
+        return discard
+
+    def test_two_cli_compactions_record_two_generations_in_one_tx(self) -> None:
+        _set(self.slug, "worker", cli_compactions=0)
+        discard = self._turn([(10, 50), (20, 60)], ["cut-a", "cut-b"])
+        discard.assert_not_called()
+        org = store.load_org(self.slug)
+        n = org.node("worker")
+        self.assertEqual(n["cli_compactions"], 2)
+        self.assertEqual(n["generation"], 2)
+        self.assertEqual(org.node("worker@0")["session_id"], "cut-a")
+        self.assertEqual(org.node("worker@1")["session_id"], "cut-b")
+
+    def test_first_observation_baselines_without_minting(self) -> None:
+        self._turn([], [])
+        n = _node(self.slug, "worker")
+        self.assertEqual(n.get("cli_compactions"), 0)
+        self.assertNotIn("worker@0", store.load_org(self.slug).nodes)
+
+
 class LocksOnlyItsOwnNode(unittest.TestCase):
     def setUp(self) -> None:
         orgtx.use_backend(orgtx.SeamBackend())

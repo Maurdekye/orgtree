@@ -25017,8 +25017,9 @@ def _after_turn(slug: str, nid: str, org: Org, res: dict[str, Any],
         # preserving oracle: still answers, but exchanges are forked and discarded.
         if (n["bearer_state"] == "knowledge" and occ and cw
                 and occ / cw >= ORACLE_AT):
-            with store.DOC_LOCK:
-                o2 = store.load_org(slug)
+            with orgtx.org_tx(slug, nodes=[nid], sections=["notices"],
+                              logs=["notice_log"]) as tx:
+                o2 = tx.org
                 o2.node(nid)["bearer_state"] = "preserving"
                 # ⚠ The notice used to go to `parent` ALONE, and `_notify`
                 # silently drops a falsy target — so a bearer rehired into a
@@ -25034,7 +25035,6 @@ def _after_turn(slug: str, nid: str, org: Org, res: dict[str, Any],
                 o2._notify_ev([o2.node(nid)["parent"], o2.node(nid).get("successor")],
                               events.mint("lifecycle.bearer_exhausted", _SYSTEM_ACTOR,
                                           _node_ref(o2, nid), bearer=nid))
-                store.save_org(o2)
         return
     # per-org compaction threshold (user setting, 50–95%); the env default is
     # the fallback, everything hard-capped at 95%.
@@ -25100,12 +25100,11 @@ def _after_turn(slug: str, nid: str, org: Org, res: dict[str, Any],
         # first observation of this node under the feature: BASELINE without
         # minting — retroactively minting a generation per historical
         # boundary would restructure long-lived orgs on the deploy turn
-        with store.DOC_LOCK:
-            o2 = store.load_org(slug)
+        with orgtx.org_tx(slug, nodes=[nid]) as tx:
+            o2 = tx.org
             # …against the session we actually counted (see the ⚠ below)
             if nid in o2.nodes and o2.node(nid)["session_id"] == sid0:
                 o2.node(nid)["cli_compactions"] = cli_cnt
-                store.save_org(o2)
         if cli_cnt:
             # 1b applies to the baseline turn too (redteam round 2). The
             # occupancy NUMBER is left alone deliberately — `occ` is a
@@ -25156,78 +25155,91 @@ def _after_turn(slug: str, nid: str, org: Org, res: dict[str, Any],
         # into last_error, `cli_compactions` is never persisted, so the next
         # turn cuts the same boundaries again onto the same full disk
         # (redteam round 3).
+        # PG-3e-B: ONE org_tx records every cut — the node and each
+        # `nid@<gen>` row the records insert (one per cut, from the current
+        # generation up), recomputed under the lock (`_computed_tx`).
+        def _rows(o: Org) -> list[str]:
+            if nid not in o.nodes:
+                return [nid]
+            g0 = int(o.nodes[nid].get("generation", 0) or 0)
+            return [nid] + [f"{nid}@{g}" for g in range(g0, g0 + len(cuts))]
+
+        def _record(tx: orgtx.OrgTx) -> bool:
+            o2 = tx.org
+            if nid not in o2.nodes:
+                # the node was deleted mid-turn — these cuts name
+                # generations of a node that no longer exists, and
+                # `delete` explicitly leaves transcripts on disk, so
+                # nothing else would ever reap them
+                return False
+            n2 = o2.node(nid)
+            # ⚠ Everything above ran unlocked, and `cheap_compact` has no
+            # in-flight guard — the user or a superior can replace this
+            # node's SESSION mid-turn (documented at the auto-cheap-compact
+            # site). These marks describe a file the node may no longer
+            # own, and recording them would be doubly wrong: a burst of
+            # LOST generations minted against a brand-new EMPTY session
+            # (each with an offset indexing a different file, each telling
+            # the agent it lost context it never had), and then a count
+            # stamped on that empty session high enough to swallow the
+            # next N GENUINE compactions in silence. The re-baseline to
+            # None makes it worse, not better — `have` would collapse to 0
+            # and mint every mark rather than the delta.
+            #
+            # …and it SAYS SO on the way out (peer decision, lostgen-fix,
+            # 2026-08-20). The bail writes nothing — that is its whole
+            # contract, and the correctness of everything above it rests on
+            # this region having exactly ONE mutating exit, which is also
+            # why the occupancy correction below stays inside it rather
+            # than being hoisted out as a consolation write. But a silent
+            # `return` on a path that discards real work is an event no
+            # operator could ever learn happened, including us. The two
+            # reasons are worth telling apart: a CHANGED session is the
+            # ordinary `cheap_compact` race and reads as the system
+            # working, while a HELD session whose watermark moved under a
+            # locked read means something is wrong with the doc itself.
+            if n2.get("session_id") != sid0:
+                print(f"[orgtree] {slug}/{nid}: cli-compaction cuts "
+                      f"discarded — session changed under the turn "
+                      f"(a mint mid-turn); {len(cuts)} cut(s) reaped")
+                return False
+            if n2.get("cli_compactions") != seen0:
+                print(f"[orgtree] {slug}/{nid}: cli-compaction cuts "
+                      f"discarded — session held but watermark moved "
+                      f"({n2.get('cli_compactions')!r} != {seen0!r}); "
+                      f"{len(cuts)} cut(s) reaped")
+                return False
+            for off, pre, bearer_sid in cuts:
+                o2.record_cli_compaction(
+                    nid, pre if pre is not None else cli_pre,
+                    bearer_sid, off)
+            n2["cli_compactions"] = cli_cnt
+            # THE PEAK IS NOT THE AFTERMATH (user bug 2026-08-20). `occ` is
+            # a HIGH-WATER mark by design (1a, above), so the write at the
+            # top of this function has just persisted the fill this turn
+            # reached BEFORE the CLI compacted it away — and this branch
+            # returns before the threshold check, so nothing corrected it:
+            # the card wheel sat full on an agent whose context had just
+            # been emptied, until its next turn.
+            #
+            # UNKNOWN BEATS STALE, unconditionally: where the transcript
+            # cannot answer (a boundary whose summary is not written yet, a
+            # sandboxed session this host cannot read) the peak is still a
+            # fill this session does not have. `_fill or None` — never
+            # "leave it standing".
+            n2["occupancy"] = _fill or None
+            if _fill and _est:
+                n2["occupancy_est"] = True
+            else:
+                n2.pop("occupancy_est", None)
+            return True
+
         recorded = False
         try:
-            with store.DOC_LOCK:
-                o2 = store.load_org(slug)
-                if nid not in o2.nodes:
-                    # the node was deleted mid-turn — these cuts name
-                    # generations of a node that no longer exists, and
-                    # `delete` explicitly leaves transcripts on disk, so
-                    # nothing else would ever reap them
-                    return
-                n2 = o2.node(nid)
-                # ⚠ Everything above ran unlocked, and `cheap_compact` has no
-                # in-flight guard — the user or a superior can replace this
-                # node's SESSION mid-turn (documented at the auto-cheap-compact
-                # site). These marks describe a file the node may no longer
-                # own, and recording them would be doubly wrong: a burst of
-                # LOST generations minted against a brand-new EMPTY session
-                # (each with an offset indexing a different file, each telling
-                # the agent it lost context it never had), and then a count
-                # stamped on that empty session high enough to swallow the
-                # next N GENUINE compactions in silence. The re-baseline to
-                # None makes it worse, not better — `have` would collapse to 0
-                # and mint every mark rather than the delta.
-                #
-                # …and it SAYS SO on the way out (peer decision, lostgen-fix,
-                # 2026-08-20). The bail writes nothing — that is its whole
-                # contract, and the correctness of everything above it rests on
-                # this region having exactly ONE mutating exit, which is also
-                # why the occupancy correction below stays inside it rather
-                # than being hoisted out as a consolation write. But a silent
-                # `return` on a path that discards real work is an event no
-                # operator could ever learn happened, including us. The two
-                # reasons are worth telling apart: a CHANGED session is the
-                # ordinary `cheap_compact` race and reads as the system
-                # working, while a HELD session whose watermark moved under a
-                # locked read means something is wrong with the doc itself.
-                if n2.get("session_id") != sid0:
-                    print(f"[orgtree] {slug}/{nid}: cli-compaction cuts "
-                          f"discarded — session changed under the turn "
-                          f"(a mint mid-turn); {len(cuts)} cut(s) reaped")
-                    return
-                if n2.get("cli_compactions") != seen0:
-                    print(f"[orgtree] {slug}/{nid}: cli-compaction cuts "
-                          f"discarded — session held but watermark moved "
-                          f"({n2.get('cli_compactions')!r} != {seen0!r}); "
-                          f"{len(cuts)} cut(s) reaped")
-                    return
-                for off, pre, bearer_sid in cuts:
-                    o2.record_cli_compaction(
-                        nid, pre if pre is not None else cli_pre,
-                        bearer_sid, off)
-                n2["cli_compactions"] = cli_cnt
-                # THE PEAK IS NOT THE AFTERMATH (user bug 2026-08-20). `occ` is
-                # a HIGH-WATER mark by design (1a, above), so the write at the
-                # top of this function has just persisted the fill this turn
-                # reached BEFORE the CLI compacted it away — and this branch
-                # returns before the threshold check, so nothing corrected it:
-                # the card wheel sat full on an agent whose context had just
-                # been emptied, until its next turn.
-                #
-                # UNKNOWN BEATS STALE, unconditionally: where the transcript
-                # cannot answer (a boundary whose summary is not written yet, a
-                # sandboxed session this host cannot read) the peak is still a
-                # fill this session does not have. `_fill or None` — never
-                # "leave it standing".
-                n2["occupancy"] = _fill or None
-                if _fill and _est:
-                    n2["occupancy_est"] = True
-                else:
-                    n2.pop("occupancy_est", None)
-                store.save_org(o2)
-                recorded = True
+            recorded = _computed_tx(slug, _rows, _record, sections=["notices"],
+                                    logs=["events", "notice_log"])
+            if not recorded:
+                return
         finally:
             if not recorded:
                 for _o, _p, s in cuts:
