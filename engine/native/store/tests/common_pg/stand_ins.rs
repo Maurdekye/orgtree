@@ -42,6 +42,9 @@ pub enum Island {
     Delete(Uuid),
     Move { node: Uuid, new_parent: Option<Uuid> },
     NamesakeHire { principal: Uuid, name: &'static str, parent: Option<Uuid> },
+    /// The notice fold leg of a session-replacing writer (cheap_compact,
+    /// reseed, a cross-provider switch or account split): WS5's helper.
+    Fold(Uuid),
 }
 
 async fn ancestors<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, mut n: Option<Uuid>) -> Result<Vec<Uuid>, CmdError> {
@@ -68,6 +71,7 @@ impl Command for Island {
             Island::Delete(_) => "delete",
             Island::Move { .. } => "move",
             Island::NamesakeHire { .. } => "hire",
+            Island::Fold(_) => "fold",
         }
     }
     async fn anchor<S: Session>(&self, _tx: &mut Tx<'_, S>, _b: &Binding) -> Result<(), CmdError> {
@@ -135,6 +139,10 @@ impl Command for Island {
                 tx.exec("island.reparent", REPARENT, &[Val::Uuid(org), Val::Uuid(*node), Val::opt_uuid(*new_parent)]).await?;
                 Ok(Decided::Applied(swept))
             }
+            Island::Fold(x) => {
+                tx.exec("island.snapshot", READ_NODE, &[Val::Uuid(org), Val::Uuid(*x)]).await?;
+                Ok(Decided::Applied(mailbox::fold_notices(tx, org, *x).await?.folded as i64))
+            }
             Island::NamesakeHire { principal, name, parent } => {
                 let p = [Val::Uuid(org), Val::Uuid(*principal), Val::text(*name), Val::opt_uuid(*parent)];
                 tx.exec("island.hire_agent", HIRE_AGENT, &p[..3]).await?;
@@ -146,5 +154,30 @@ impl Command for Island {
                 Ok(Decided::Applied(1))
             }
         }
+    }
+}
+
+static OUTSIDE: Family = Family { name: "outside", isolation: Isolation::ReadCommitted, retry_unique: &[] };
+
+/// Q-E1 (c)'s unsafe control shape: the fold run READ COMMITTED (outside the
+/// island). Only ever run with `Q-E1.fold_whole_box_no_lock` armed.
+pub struct FoldRc(pub Uuid);
+
+impl Command for FoldRc {
+    type Output = i64;
+    fn family(&self) -> &'static Family {
+        &OUTSIDE
+    }
+    fn verb(&self) -> &'static str {
+        "fold"
+    }
+    async fn anchor<S: Session>(&self, _tx: &mut Tx<'_, S>, _b: &Binding) -> Result<(), CmdError> {
+        Ok(())
+    }
+    async fn may_disclose<S: Session>(&self, _tx: &mut Tx<'_, S>, _b: &Binding, _o: &i64) -> Result<bool, CmdError> {
+        Ok(true)
+    }
+    async fn execute<S: Session>(&self, tx: &mut Tx<'_, S>, b: &Binding) -> Result<Decided<i64>, CmdError> {
+        Ok(Decided::Applied(mailbox::fold_notices(tx, b.op.org, self.0).await?.folded as i64))
     }
 }
