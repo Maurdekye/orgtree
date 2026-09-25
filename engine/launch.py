@@ -375,6 +375,21 @@ def main() -> None:
                              separators=(",", ":")), flush=True)
         raise
     progress.report("lifetime-owned")
+    # PYPG PG-1: with ORGTREE_STORE=postgres the private database comes up
+    # (and is migrated) AFTER the root is proven ours and BEFORE the API
+    # loads; it goes down after the server exits. Inert otherwise. A refusal
+    # raises (no SQLite fallback); engine/pg_process.py says why and where.
+    from engine.pg_process import start_for_engine
+    database = start_for_engine(data, os.environ)
+    try:
+        _serve(data, progress, guardian_pid)
+    finally:
+        if database is not None:
+            database.stop()
+
+
+def _serve(data: Path, progress: Any, guardian_pid: int) -> None:
+    global _HUB_RUNTIME
     app, _token, data, port, stopping = load_app()
     from orgtree import startup
     startup.progress = progress.report
