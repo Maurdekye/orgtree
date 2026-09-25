@@ -107,10 +107,16 @@ class HeldDocLock:
 
 
 def stack_of(t) -> str:
+    """Every thread's stack that is inside orgtree code (the wait is on the
+    server thread, not the client's)."""
     import sys
     import traceback
-    f = sys._current_frames().get(t.ident)
-    return ''.join(traceback.format_stack(f)[-12:]) if f else '(thread gone)'
+    out = []
+    for ident, f in sys._current_frames().items():
+        st = traceback.format_stack(f)
+        if any('orgtree' + chr(92) in s or 'orgtree/' in s for s in st):
+            out.append(f'--- thread {ident}' + chr(10) + ''.join(st[-14:]))
+    return (chr(10)).join(out) or '(no orgtree thread)'
 
 
 def run_bg(fn):
@@ -167,7 +173,7 @@ class WatchdogDoor(unittest.TestCase):
     def dog(self, **kw) -> str:
         org = store.load_org(self.slug)
         r = org.watchdog_create('x', kw.pop('name', 'd'), 'command', 'echo hi',
-                                kw.pop('pattern', None), 60, kw.pop('notice', False),
+                                kw.pop('pattern', 'hi'), 60, kw.pop('notice', False),
                                 None, kw.pop('once', False))
         store.save_org(org)
         return str(r['id'])
