@@ -15084,11 +15084,19 @@ def org_op(slug: str, body: Op, request: Request) -> dict[str, Any]:
     # takes this as its explicit choice and re-asks nothing under the lock.
     _hire_harness = (new_hire_harness(body.tier, getattr(body, "harness", None))
                      if body.op == "hire" else None)
-    with store.DOC_LOCK:
-        result = _org_op_locked(slug, body, allow_raise=not pub,
-                                harness=_hire_harness)
+    if pgdoor.routed(body.op):
+        # PYPG: a family converted this op off DOC_LOCK (pgdoor.declare) —
+        # ONE row transaction, never under DOC_LOCK; the tail below is shared
+        result = _op_door(slug, body, allow_raise=not pub,
+                          harness=_hire_harness)
         if _archive_warnings and isinstance(result, dict):
             result.setdefault("warnings", []).extend(_archive_warnings)
+    else:
+        with store.DOC_LOCK:
+            result = _org_op_locked(slug, body, allow_raise=not pub,
+                                    harness=_hire_harness)
+            if _archive_warnings and isinstance(result, dict):
+                result.setdefault("warnings", []).extend(_archive_warnings)
     # FR-01 (redteam): retire/dissolve/delete must not orphan a running
     # remote-control server — reap any whose seat is gone or no longer live
     if body.op in ("retire", "dissolve", "delete", "rescind", "cheap_compact"):
@@ -15117,6 +15125,143 @@ def org_op(slug: str, body: Op, request: Request) -> dict[str, Any]:
     return result
 
 
+def _op_door(slug: str, body: "Op", allow_raise: bool,
+             harness: str | None) -> dict[str, Any]:
+    """A DECLARED operator op on the row-transaction door (pgdoor.op_tx):
+    the family body, then the step `_org_op_locked` runs for every op inside
+    its lock (the kiosk credit cap, holding `kiosk` FOR SHARE), then the
+    fan-out. The raise-ceiling decision reads the kiosk section, so it is
+    taken inside the transaction too."""
+    fam = pgdoor.BODIES[body.op]
+
+    def fn(tx: pgdoor.OpTx) -> Any:
+        k = tx.org.d.get("kiosk") or {}
+        tx.pre["rc"] = allow_raise and (bool(k.get("auto_raise"))
+                                        or body.raise_ceiling)
+        result = fam(tx)
+        kc = supervisor.kiosk_cfg(tx.org)
+        if kc and int(kc.get("credits") or 0) > 0 \
+                and body.op not in pgdoor.KIOSK_EXEMPT:
+            with pgdoor.join(slug, share_sections=["kiosk"]):
+                _kiosk_cap_check(tx.org)
+        return result
+
+    try:
+        result = pgdoor.op_tx(slug, body.op, body,
+                              body.model_dump(exclude={"op", "preview"},
+                                              exclude_none=True),
+                              fn, pre={"harness": harness})
+    except LedgerError as e:
+        raise HTTPException(422, str(e))
+    hub_changed(slug)
+    return cast("dict[str, Any]", result)
+
+
+def _op_hire(org: Org, body: "Op", rc: bool,
+             harness: str | None) -> dict[str, Any]:
+    """The operator hire (`POST /ops` op="hire"), lifted out of
+    `_org_op_locked` WHOLE so the DOC_LOCK cycle and the row-transaction
+    door (staffdoor.op_hire_body) run the same hire. Not a line of it
+    changed in the move."""
+    if body.tier is None or body.name is None:
+        raise LedgerError("hire needs tier and name")
+    provider_hire_gate(org, body.tier)
+    # state-audit F2 (user ruling 2026-09-12): ONE insert-superior
+    # implementation, shared with the agent door (`_hire_seat`,
+    # hire_type='superior'). The operator path used to reimplement
+    # the splice as hire-beside + reorder + move — a SECOND
+    # expression of one operation (D-182), and a subtly wrong one:
+    # when the draft's chosen scope was NARROWER than the anchor's,
+    # the `move` of the anchor under the new seat ran `_sweep_dirs`
+    # and silently CLAMPED the anchor's whole branch down to the new
+    # seat. `insert_parent` is the purpose-built verb that cannot do
+    # that — the inserted seat is given the anchor's own scope so
+    # child ⊆ parent holds, and its accounting is budget-neutral by
+    # construction. So an above-hire now hires UNDER the anchor and
+    # calls `insert_parent`, exactly as the agent door does.
+    _hire_parent = body.parent
+    _hire_dirs = body.add_dirs
+    _hire_tools = body.tools
+    _hire_vis = body.org_visibility
+    # state-review 2026-09-12: a draft that staged scope for an
+    # above-hire has it REPLACED by the anchor's below; insert_parent
+    # then compares the (already anchor-scoped) seat against the
+    # anchor and finds no difference, so its raises/removed warning
+    # never fires and the caller was told nothing. Name the dropped
+    # fields explicitly here so the disclosure survives (the agent
+    # door refuses these outright; the operator UI sends them, so it
+    # is told rather than refused).
+    _above_dropped = ([f for f in ("add_dirs", "tools",
+                                   "org_visibility", "permission_mode")
+                       if getattr(body, f, None) is not None]
+                      if body.above is not None else [])
+    if body.above is not None:
+        if org.node(body.above)["parent"] != body.parent:
+            raise LedgerError(
+                f"insert-superior: {body.above} does not report to "
+                f"{body.parent or 'the top level'}")
+        # pre-validate the destination (depth, lineage bearers, the
+        # top-level-is-user-only rule) before anything is created —
+        # the same gate the agent door runs
+        org.check_placement(body.actor, body.above, "superior")
+        # the inserted seat takes the ANCHOR's scope (child ⊆ parent):
+        # a draft's staged add_dirs/tools/visibility for an above-hire
+        # is dropped here, and insert_parent's own result warning says
+        # the seat holds the anchor's scope. Hire UNDER the anchor so
+        # insert_parent's "nid reports to target" precondition holds.
+        _tsc = org.node(body.above)["scope"]
+        _hire_parent = body.above
+        _hire_dirs = [dict(d) for d in _tsc["add_dirs"]]
+        _hire_tools = {**_tsc["tools"],
+                       "mcp": list(_tsc["tools"].get("mcp") or [])}
+        _hire_vis = _tsc.get("org_visibility", "full")
+    result = org.hire(body.actor, _hire_parent, body.tier,
+                      body.grant or 0, body.name, _hire_dirs,
+                      tools=_hire_tools, org_visibility=_hire_vis,
+                      charter=body.charter,
+                      external_handles=body.external_handles,
+                      raise_ceiling=rc,
+                      account=body.account,
+                      harness=harness)
+    if body.effort:
+        # applied WITH the hire, atomically (same save): the draft
+        # gear's effort used to ride a separate /scope call that the
+        # kiosk gateway 403s — a control that could never succeed
+        org.set_scope(body.actor, result["node"], effort=body.effort)
+    if body.prefer_reserve is not None:
+        # same atomic application for the pool order (item 12)
+        org.set_scope(body.actor, result["node"],
+                      prefer_reserve=body.prefer_reserve)
+    if body.account_fallback is not None:
+        org.set_scope(body.actor, result["node"],
+                      account_fallback=body.account_fallback)
+    if body.above is not None:
+        # the atomic splice: one save ⇒ one broadcast, the tree lands
+        # in its final shape, and a refused insertion strands nothing
+        # (§2b — insert_parent mutates only after every refusal).
+        _ins = org.insert_parent(body.actor, str(result["node"]),
+                                 body.above)
+        result["inserted_above"] = body.above
+        result["reports_to"] = _ins["under"] or "the top level"
+        result["grant"] = _ins["grant"]
+        result["spliced"] = body.above
+        result["warnings"] = [*result.get("warnings", []),
+                              *_ins.get("warnings", [])]
+        if _above_dropped:
+            # state-review: the disclosure insert_parent could not make
+            # (the seat already held the anchor's scope by the time it
+            # ran). Say what the caller asked for and did not get.
+            result.setdefault("warnings", []).append(
+                f"insert-superior seats the new agent in "
+                f"{body.above!r}'s position, so it holds that seat's "
+                f"folders, tools, visibility and permission mode — "
+                f"the {', '.join(_above_dropped)} you specified "
+                f"{'was' if len(_above_dropped) == 1 else 'were'} NOT "
+                f"applied. Retool it if it should hold less.")
+            result["scope_from_anchor"] = body.above
+    return result
+
+
 def _org_op_locked(slug: str, body: Op, allow_raise: bool = False,
                    harness: str | None = None) -> dict[str, Any]:
     try:
@@ -15130,102 +15275,7 @@ def _org_op_locked(slug: str, body: Op, allow_raise: bool = False,
     _op_unpark: str | None = None   # a node the switch's account choice un-parked (C)
     try:
         if body.op == "hire":
-            if body.tier is None or body.name is None:
-                raise LedgerError("hire needs tier and name")
-            provider_hire_gate(org, body.tier)
-            # state-audit F2 (user ruling 2026-09-12): ONE insert-superior
-            # implementation, shared with the agent door (`_hire_seat`,
-            # hire_type='superior'). The operator path used to reimplement
-            # the splice as hire-beside + reorder + move — a SECOND
-            # expression of one operation (D-182), and a subtly wrong one:
-            # when the draft's chosen scope was NARROWER than the anchor's,
-            # the `move` of the anchor under the new seat ran `_sweep_dirs`
-            # and silently CLAMPED the anchor's whole branch down to the new
-            # seat. `insert_parent` is the purpose-built verb that cannot do
-            # that — the inserted seat is given the anchor's own scope so
-            # child ⊆ parent holds, and its accounting is budget-neutral by
-            # construction. So an above-hire now hires UNDER the anchor and
-            # calls `insert_parent`, exactly as the agent door does.
-            _hire_parent = body.parent
-            _hire_dirs = body.add_dirs
-            _hire_tools = body.tools
-            _hire_vis = body.org_visibility
-            # state-review 2026-09-12: a draft that staged scope for an
-            # above-hire has it REPLACED by the anchor's below; insert_parent
-            # then compares the (already anchor-scoped) seat against the
-            # anchor and finds no difference, so its raises/removed warning
-            # never fires and the caller was told nothing. Name the dropped
-            # fields explicitly here so the disclosure survives (the agent
-            # door refuses these outright; the operator UI sends them, so it
-            # is told rather than refused).
-            _above_dropped = ([f for f in ("add_dirs", "tools",
-                                           "org_visibility", "permission_mode")
-                               if getattr(body, f, None) is not None]
-                              if body.above is not None else [])
-            if body.above is not None:
-                if org.node(body.above)["parent"] != body.parent:
-                    raise LedgerError(
-                        f"insert-superior: {body.above} does not report to "
-                        f"{body.parent or 'the top level'}")
-                # pre-validate the destination (depth, lineage bearers, the
-                # top-level-is-user-only rule) before anything is created —
-                # the same gate the agent door runs
-                org.check_placement(body.actor, body.above, "superior")
-                # the inserted seat takes the ANCHOR's scope (child ⊆ parent):
-                # a draft's staged add_dirs/tools/visibility for an above-hire
-                # is dropped here, and insert_parent's own result warning says
-                # the seat holds the anchor's scope. Hire UNDER the anchor so
-                # insert_parent's "nid reports to target" precondition holds.
-                _tsc = org.node(body.above)["scope"]
-                _hire_parent = body.above
-                _hire_dirs = [dict(d) for d in _tsc["add_dirs"]]
-                _hire_tools = {**_tsc["tools"],
-                               "mcp": list(_tsc["tools"].get("mcp") or [])}
-                _hire_vis = _tsc.get("org_visibility", "full")
-            result = org.hire(body.actor, _hire_parent, body.tier,
-                              body.grant or 0, body.name, _hire_dirs,
-                              tools=_hire_tools, org_visibility=_hire_vis,
-                              charter=body.charter,
-                              external_handles=body.external_handles,
-                              raise_ceiling=rc,
-                              account=body.account,
-                              harness=harness)
-            if body.effort:
-                # applied WITH the hire, atomically (same save): the draft
-                # gear's effort used to ride a separate /scope call that the
-                # kiosk gateway 403s — a control that could never succeed
-                org.set_scope(body.actor, result["node"], effort=body.effort)
-            if body.prefer_reserve is not None:
-                # same atomic application for the pool order (item 12)
-                org.set_scope(body.actor, result["node"],
-                              prefer_reserve=body.prefer_reserve)
-            if body.account_fallback is not None:
-                org.set_scope(body.actor, result["node"],
-                              account_fallback=body.account_fallback)
-            if body.above is not None:
-                # the atomic splice: one save ⇒ one broadcast, the tree lands
-                # in its final shape, and a refused insertion strands nothing
-                # (§2b — insert_parent mutates only after every refusal).
-                _ins = org.insert_parent(body.actor, str(result["node"]),
-                                         body.above)
-                result["inserted_above"] = body.above
-                result["reports_to"] = _ins["under"] or "the top level"
-                result["grant"] = _ins["grant"]
-                result["spliced"] = body.above
-                result["warnings"] = [*result.get("warnings", []),
-                                      *_ins.get("warnings", [])]
-                if _above_dropped:
-                    # state-review: the disclosure insert_parent could not make
-                    # (the seat already held the anchor's scope by the time it
-                    # ran). Say what the caller asked for and did not get.
-                    result.setdefault("warnings", []).append(
-                        f"insert-superior seats the new agent in "
-                        f"{body.above!r}'s position, so it holds that seat's "
-                        f"folders, tools, visibility and permission mode — "
-                        f"the {', '.join(_above_dropped)} you specified "
-                        f"{'was' if len(_above_dropped) == 1 else 'were'} NOT "
-                        f"applied. Retool it if it should hold less.")
-                    result["scope_from_anchor"] = body.above
+            result = _op_hire(org, body, rc, harness)
         # body.node is Optional on the wire (hire has none); the target ops
         # take str because Org.node(None) already raises LedgerError → 422,
         # hence the arg-type ignores below rather than a behavior-changing check
