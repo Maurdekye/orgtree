@@ -140,3 +140,42 @@ def hire_body(tx: pgdoor.AgentTx) -> Any:
 
 
 pgdoor.declare("orgtree_hire", hire_spec, body=hire_body)
+
+
+# ------------------------------------------------ the operator's hire (op)
+
+def op_hire_rows(org: Any, body: Any) -> pgdoor.TxSpec:
+    """The rows the operator's hire (`POST /ops` op="hire") holds: the same
+    rule as the agent hire, with the destination being the anchor for an
+    insert-above (`above`, which the hire goes UNDER before the splice) and
+    `parent` otherwise (None = the top level). The acting identity is
+    `body.actor` (the user, or an agent acting through the operator door)."""
+    dest = body.above if getattr(body, "above", None) is not None else body.parent
+    return hire_rows(org, str(body.actor),
+                     {"target": dest or USER, "name": body.name or ""})
+
+
+def op_hire_spec(snapshot: Any, body: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
+    """The callable spec registered for the `hire` op."""
+    return op_hire_rows(snapshot, body)
+
+
+def op_hire_body(tx: pgdoor.OpTx) -> Any:
+    """The `hire` op on the door: exactly `api._op_hire` (the hire, the
+    atomic effort / pool-order / fallback scope, the insert-above splice) on
+    the locked rows, re-deriving them first so a taken name or a moved tree
+    widens before anything is written. A user FABLE hire also rewrites every
+    node's `limit_locked` (clear_fable_lock); the door's refusal-driven
+    widening takes those rows on its second run."""
+    from . import api
+    need = op_hire_rows(tx.org, tx.body)
+    missing = [n for n in need.nodes if n not in tx.spec.nodes]
+    if missing:
+        raise pgdoor.Widen(nodes=missing)
+    result = api._op_hire(tx.org, tx.body, bool(tx.pre.get("rc")),
+                          tx.pre.get("harness"))
+    check_created(tx.spec, str(result.get("node") or ""))
+    return result
+
+
+pgdoor.declare("hire", op_hire_spec, body=op_hire_body)
