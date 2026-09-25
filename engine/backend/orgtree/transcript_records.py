@@ -440,22 +440,32 @@ def incarnation(org, nid):
     """
     if org.node(nid).get('transcript_incarnation'):
         return org.node(nid)['transcript_incarnation']
-    from . import reply_events, store
+    from . import orgtx, reply_events, store
     identity = reply_events.incarnation(org, nid)
-    with store.DOC_LOCK:
-        persisted = Path(store.org_path(org.d['slug'])).exists()
-        current = store.load_org(org.d['slug']) if persisted else org
-        had = bool(current.node(nid).get('transcript_incarnation'))
-        value = current.node(nid).setdefault('transcript_incarnation', identity)
-        if persisted and not had:
-            # save only a real mint — a value another pass minted since our
-            # fast-path miss needs no rewrite
-            store.save_org(current)
-        if not getattr(org, '_shared_snapshot', False):
-            # never stamp a shared snapshot (store.cached_org — read-only by
-            # contract, perf-review round 2); the mint's save bumps the seq
-            # and the next cached_org() reload carries the value
-            org.node(nid)['transcript_incarnation'] = value
+    persisted = Path(store.org_path(org.d['slug'])).exists()
+    if not persisted or getattr(store.DOC_LOCK, '_is_owned', lambda: False)():
+        # PG-3r: an unsaved org, or a caller still inside a legacy DOC_LOCK
+        # hold, keeps the legacy mint: that caller's resident document is the
+        # one it will save, and an org_tx here would race its later save of
+        # the same node row.
+        with store.DOC_LOCK:
+            current = store.load_org(org.d['slug']) if persisted else org
+            had = bool(current.node(nid).get('transcript_incarnation'))
+            value = current.node(nid).setdefault('transcript_incarnation', identity)
+            if persisted and not had:
+                # save only a real mint — a value another pass minted since our
+                # fast-path miss needs no rewrite
+                store.save_org(current)
+    else:
+        # PG-3r: the mint is one row transaction on the node row it reads
+        # and writes; a value another pass minted first is kept, not rewritten.
+        with orgtx.org_tx(org.d['slug'], nodes=[nid]) as tx:
+            value = tx.org.node(nid).setdefault('transcript_incarnation', identity)
+    if not getattr(org, '_shared_snapshot', False):
+        # never stamp a shared snapshot (store.cached_org — read-only by
+        # contract, perf-review round 2); the mint's save bumps the seq
+        # and the next cached_org() reload carries the value
+        org.node(nid)['transcript_incarnation'] = value
     return value
 
 
