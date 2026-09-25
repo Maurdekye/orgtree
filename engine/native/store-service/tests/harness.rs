@@ -123,3 +123,37 @@ fn declared_contacts_have_the_oracle_shape() {
     }
     assert_eq!(d["receipt.lookup"]["relations"]["operation_receipts"]["required"], true);
 }
+
+
+/// WS7 protocol amendment: a hold can name the attempt it applies to.
+#[tokio::test]
+async fn attempt_specific_holds_match_only_their_attempt() {
+    let s = HarnessState::new();
+    let plan = json!({"type": "plan", "run_id": "r", "controls": [], "holds": [
+        {"op_tag": "t", "point": "x.y.fail", "action": "fail_next", "sqlstate": "40001", "timeout_ms": 5, "attempt": 1}]});
+    assert!(s.install_plan(&plan).is_empty());
+    let op = op();
+    let at_attempt = |n: u32| {
+        let s = s.clone();
+        let op = op.clone();
+        async move {
+            let p = PausePoint { name: "x.y.fail", family: "x", verb: "y", op: &op, op_tag: Some("t"), attempt: n, backend_pid: Some(7) };
+            s.at(&p).await
+        }
+    };
+    assert_eq!(at_attempt(1).await, HookAction::FailNext("40001".into()));
+    assert_eq!(at_attempt(2).await, HookAction::Continue, "the retry is not failed again");
+}
+
+#[test]
+fn an_attemptless_hold_beside_an_attempted_one_is_ambiguous() {
+    let s = HarnessState::new();
+    let plan = json!({"type": "plan", "run_id": "r", "controls": [], "holds": [
+        {"op_tag": "t", "point": "a.b.c", "action": "hold", "timeout_ms": 5},
+        {"op_tag": "t", "point": "a.b.c", "action": "hold", "timeout_ms": 5, "attempt": 2}]});
+    let e = s.install_plan(&plan);
+    assert!(e.iter().any(|x| x.contains("ambiguous")), "{e:?}");
+    let bad = json!({"type": "plan", "run_id": "r", "controls": [], "holds": [
+        {"op_tag": "t", "point": "a.b.c", "action": "hold", "timeout_ms": 5, "attempt": 0}]});
+    assert!(!s.install_plan(&bad).is_empty());
+}

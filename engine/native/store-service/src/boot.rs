@@ -7,9 +7,11 @@
 //!   password travels through the host's environment or command line. Only
 //!   the runtime role is used.
 //! * Identity: the attach descriptor's `root_id` must equal the prototype
-//!   marker's, and the server's `orgtree.instance_token` setting (set by the
-//!   custodian at init) must equal the descriptor's `instance_token`, so a
-//!   foreign or replaced server on that port is refused.
+//!   marker's, and the server must answer — as the runtime role — with the
+//!   descriptor's `instance_token` (GUC `orgtree.instance_token`), `root_id`
+//!   (GUC `orgtree.root_id`) and `system_identifier`
+//!   (`pg_control_system()`), the three values WS1 verified the runtime role
+//!   can read. A foreign or replaced server on that port is refused.
 //! * Ready: after the service descriptor is written, ONE stdout line
 //!   `{"type":"ready",...}`; nothing else ever goes to stdout.
 
@@ -22,12 +24,15 @@ use orgtree_store::conn::{PgConfig, Secret};
 pub const ATTACH_SCHEMA: &str = "orgtree.p03.pg-runtime/v1";
 pub const RUNTIME_ROLE: &str = "orgtree_runtime";
 pub const APP_DB: &str = "orgtree";
-pub const IDENTITY_SQL: &str = "SELECT coalesce(current_setting('orgtree.instance_token', true), '')";
+pub const IDENTITY_SQL: &str = "SELECT coalesce(current_setting('orgtree.instance_token', true), ''), \
+    coalesce(current_setting('orgtree.root_id', true), ''), \
+    (SELECT system_identifier::text FROM pg_control_system())";
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Attach {
     pub root_id: String,
     pub instance_token: String,
+    pub system_identifier: String,
     pub host: String,
     pub port: u16,
 }
@@ -48,7 +53,7 @@ pub fn parse_attach(text: &str) -> Result<Attach, String> {
     if host != "127.0.0.1" {
         return Err(format!("pg-attach.json names host {host}: only loopback is accepted"));
     }
-    Ok(Attach { root_id: s("root_id")?, instance_token: s("instance_token")?, host, port })
+    Ok(Attach { root_id: s("root_id")?, instance_token: s("instance_token")?, system_identifier: s("system_identifier")?, host, port })
 }
 
 /// The runtime role's password from `credentials.json` (role → password).
@@ -72,10 +77,24 @@ pub fn config_from_root(root: &Path, marker_root_id: &str) -> Result<(PgConfig, 
     Ok((cfg, attach))
 }
 
-/// The server's identity answer must equal the descriptor's token.
-pub fn check_identity(server_token: &str, attach: &Attach) -> Result<(), String> {
-    if server_token.is_empty() || server_token != attach.instance_token {
-        return Err("the server on the attach port is not this root's instance (instance_token mismatch)".into());
+/// What the server reported about itself.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ServerIdentity {
+    pub instance_token: String,
+    pub root_id: String,
+    pub system_identifier: String,
+}
+
+/// All three must equal the descriptor's values; an empty answer never passes.
+pub fn check_identity(server: &ServerIdentity, attach: &Attach) -> Result<(), String> {
+    for (what, got, want) in [
+        ("instance_token", &server.instance_token, &attach.instance_token),
+        ("root_id", &server.root_id, &attach.root_id),
+        ("system_identifier", &server.system_identifier, &attach.system_identifier),
+    ] {
+        if got.is_empty() || got != want {
+            return Err(format!("the server on the attach port is not this root's instance ({what} mismatch)"));
+        }
     }
     Ok(())
 }

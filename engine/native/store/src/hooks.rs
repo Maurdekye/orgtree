@@ -42,6 +42,13 @@ pub enum EventKind<'a> {
     ControlExecuted { id: &'a str },
     Pause { point: &'a str },
     Lookup { answer: &'static str },
+    /// A named marker a family emits for a step that is not a statement or a
+    /// pause point (e.g. WS5's fake-provider input step), additive.
+    Mark { name: &'a str },
+    /// Ids linking this operation to the other steps of one workflow (WS7,
+    /// PROFILING test 2): opaque ids only, never content. Emitted right after
+    /// `Admitted` and again with `Outcome`.
+    CausalRefs { refs: &'a [String] },
     /// The rows of `trace.xact_stats` (qualification builds), emitted right
     /// after that statement: the server-side relation set for this attempt.
     XactStats { tables: &'a [XactTable] },

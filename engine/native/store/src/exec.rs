@@ -247,6 +247,12 @@ pub trait Command: Send + Sync {
     fn anchor<S: Session>(&self, tx: &mut Tx<'_, S>, b: &Binding) -> impl Future<Output = Result<(), CmdError>> + Send;
     /// May the current caller see a replayed projection? (v6 I05)
     fn may_disclose<S: Session>(&self, tx: &mut Tx<'_, S>, b: &Binding, stored: &Self::Output) -> impl Future<Output = Result<bool, CmdError>> + Send;
+    /// Opaque ids (e.g. an original message id, a batch id) that link this
+    /// operation to the other steps of one workflow in the trace. Ids only,
+    /// never content. Default: none.
+    fn causal_refs(&self) -> Vec<String> {
+        Vec::new()
+    }
     /// Read set → decide → apply (C6).
     fn execute<S: Session>(&self, tx: &mut Tx<'_, S>, b: &Binding) -> impl Future<Output = Result<Decided<Self::Output>, CmdError>> + Send;
 }
@@ -620,9 +626,13 @@ impl<C: Connector> Executor<C> {
         let mut resolving = false;
         let mut prev_now: Option<i64> = None;
         let mut last_sqlstate: Option<String> = None;
+        let refs = cmd.causal_refs();
         {
             let s = Scope { hooks: &self.hooks, family: family.name, verb: cmd.verb(), op: Some(&binding.op), op_tag: binding.op_tag.as_deref(), attempt: 0 };
             s.emit(EventKind::Admitted, false);
+            if !refs.is_empty() {
+                s.emit(EventKind::CausalRefs { refs: &refs }, false);
+            }
         }
         for attempt in 1..=self.cfg.max_attempts {
             let step = {
@@ -648,7 +658,9 @@ impl<C: Connector> Executor<C> {
                 // claim INSERT waits for the original's backend to finish). An
                 // anchor must never answer for an operation that may have
                 // committed (review finding 1; v6 I04/I05).
-                if resolving {
+                // (the Q-C4.anchor_refuses_first control restores the old order,
+                // which also had no resolution probe)
+                if resolving && !controls::fire(&Scope { hooks: &self.hooks, family: family.name, verb: cmd.verb(), op: Some(&binding.op), op_tag: binding.op_tag.as_deref(), attempt }, "Q-C4.anchor_refuses_first") {
                     let s = Scope { hooks: &self.hooks, family: family.name, verb: cmd.verb(), op: Some(&binding.op), op_tag: binding.op_tag.as_deref(), attempt };
                     match self.resolve(&mut *conn, cmd, &binding, attempt).await {
                         Resolution::Committed(o) => {
@@ -680,6 +692,9 @@ impl<C: Connector> Executor<C> {
             match step {
                 Step::Done(o) => {
                     scope.emit(EventKind::Outcome { outcome: o.name() }, false);
+                    if !refs.is_empty() {
+                        scope.emit(EventKind::CausalRefs { refs: &refs }, false);
+                    }
                     return Ok(o);
                 }
                 Step::Fatal(e) => {
@@ -766,7 +781,23 @@ impl<C: Connector> Executor<C> {
             tx.xact_baseline = Some(xact_tables(&rows));
         }
         db!(tx.pause("begin").await, false);
-        cmd!(cmd.anchor(&mut tx, b).await);
+        // Freeze amendment 2 (lead decision 3): the anchor TAKES its locks
+        // first (C4 step 1) but a refusal is only RECORDED here. The receipt
+        // claim decides first: a committed receipt replays whatever the
+        // verdict (r7 C1, v6 I05); only a new execution is refused.
+        let verdict: Option<Refusal> = match cmd.anchor(&mut tx, b).await {
+            Ok(()) => None,
+            Err(CmdError::Refused(r)) => Some(r),
+            Err(e) => return self.fail(&mut tx, family, e, claimed, false).await,
+        };
+        // Q-C4 unsafe control: the old order — the anchor refuses before the
+        // claim, so a committed operation can be answered "refused".
+        if let Some(r) = &verdict {
+            if controls::fire(&tx.scope(), "Q-C4.anchor_refuses_first") {
+                self.rollback(&mut tx).await;
+                return Step::Done(Outcome::Refused(r.clone()));
+            }
+        }
         // Q-C1 unsafe control: a per-organization lock taken by every command,
         // which makes writers of different rows wait on each other.
         if controls::fire(&tx.scope(), "Q-C1.org_wide_lock") {
@@ -807,6 +838,12 @@ impl<C: Connector> Executor<C> {
                 };
             }
             db!(tx.pause("after_claim").await, false);
+        }
+        // No committed receipt: now the anchor's verdict applies (E-D5: the
+        // rollback removes the claim; nothing is written).
+        if let Some(r) = verdict {
+            self.rollback(&mut tx).await;
+            return Step::Done(Outcome::Refused(r));
         }
 
         let decided = cmd!(cmd.execute(&mut tx, b).await);

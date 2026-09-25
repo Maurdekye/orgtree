@@ -34,11 +34,15 @@ struct Hold {
     ms: Option<u64>,
 }
 
+/// `(op_tag, point, attempt)`; `attempt: None` = every attempt (protocol v1
+/// amendment by WS7: a hold may name the attempt it applies to).
+type HoldKey = (String, String, Option<u32>);
+
 #[derive(Default)]
 struct Plan {
-    holds: HashMap<(String, String), Hold>,
+    holds: HashMap<HoldKey, Hold>,
     controls: HashSet<String>,
-    released: HashSet<(String, String)>,
+    released: HashSet<HoldKey>,
 }
 
 /// Shared by the executor's hooks and the harness connection.
@@ -70,6 +74,16 @@ impl HarnessState {
             let point = h.get("point").and_then(Value::as_str).unwrap_or("").to_string();
             let action = h.get("action").and_then(Value::as_str).unwrap_or("").to_string();
             let timeout_ms = h.get("timeout_ms").and_then(Value::as_u64).unwrap_or(0);
+            let attempt = match h.get("attempt") {
+                None | Some(Value::Null) => None,
+                Some(a) => match a.as_u64().and_then(|n| u32::try_from(n).ok()).filter(|n| *n >= 1) {
+                    Some(n) => Some(n),
+                    None => {
+                        errors.push(format!("hold attempt must be an integer >= 1: {h}"));
+                        continue;
+                    }
+                },
+            };
             if op_tag.is_empty() || point.is_empty() || timeout_ms == 0 {
                 errors.push(format!("hold needs op_tag, point and a positive timeout_ms: {h}"));
                 continue;
@@ -84,8 +98,14 @@ impl HarnessState {
                 sqlstate: h.get("sqlstate").and_then(Value::as_str).map(str::to_string),
                 ms: h.get("ms").and_then(Value::as_u64),
             };
-            if holds.insert((op_tag.clone(), point.clone()), hold).is_some() {
-                errors.push(format!("two holds for ({op_tag}, {point})"));
+            if holds.insert((op_tag.clone(), point.clone(), attempt), hold).is_some() {
+                errors.push(format!("two holds for ({op_tag}, {point}, {attempt:?})"));
+            }
+        }
+        // an every-attempt hold beside an attempt-specific one is ambiguous
+        for (tag, point, att) in holds.keys() {
+            if att.is_some() && holds.contains_key(&(tag.clone(), point.clone(), None)) {
+                errors.push(format!("ambiguous holds for ({tag}, {point}): one without an attempt and one for attempt {att:?}"));
             }
         }
         let controls: HashSet<String> =
@@ -96,9 +116,16 @@ impl HarnessState {
         errors
     }
 
-    fn release(&self, op_tag: &str, point: &str) {
-        self.plan.lock().unwrap().released.insert((op_tag.to_string(), point.to_string()));
+    /// `attempt: None` releases whichever attempt of `(op_tag, point)` is
+    /// waiting or arrives next.
+    fn release(&self, op_tag: &str, point: &str, attempt: Option<u32>) {
+        self.plan.lock().unwrap().released.insert((op_tag.to_string(), point.to_string(), attempt));
         self.release.notify_waiters();
+    }
+
+    fn take_release(&self, tag: &str, point: &str, attempt: u32) -> bool {
+        let mut g = self.plan.lock().unwrap();
+        g.released.remove(&(tag.to_string(), point.to_string(), Some(attempt))) || g.released.remove(&(tag.to_string(), point.to_string(), None))
     }
 }
 
@@ -110,8 +137,13 @@ impl PauseHook for HarnessState {
     fn at<'a>(&'a self, p: &'a PausePoint<'a>) -> BoxFuture<'a, HookAction> {
         Box::pin(async move {
             let Some(tag) = p.op_tag else { return HookAction::Continue };
-            let key = (tag.to_string(), p.name.to_string());
-            let hold = self.plan.lock().unwrap().holds.get(&key).cloned();
+            let hold = {
+                let g = self.plan.lock().unwrap();
+                g.holds
+                    .get(&(tag.to_string(), p.name.to_string(), Some(p.attempt)))
+                    .or_else(|| g.holds.get(&(tag.to_string(), p.name.to_string(), None)))
+                    .cloned()
+            };
             let Some(hold) = hold else { return HookAction::Continue };
             self.send(json!({
                 "type": "arrived", "point": p.name, "op_tag": tag, "operation_id": operation_id(p.op),
@@ -123,7 +155,7 @@ impl PauseHook for HarnessState {
                     let deadline = tokio::time::Instant::now() + Duration::from_millis(hold.timeout_ms);
                     loop {
                         let notified = self.release.notified();
-                        if self.plan.lock().unwrap().released.remove(&key) {
+                        if self.take_release(tag, p.name, p.attempt) {
                             return HookAction::Continue;
                         }
                         if tokio::time::timeout_at(deadline, notified).await.is_err() {
@@ -183,7 +215,8 @@ pub async fn serve(listener: TcpListener, token: Arc<String>, state: Arc<Harness
                 Some("release") => {
                     let tag = frame.get("op_tag").and_then(Value::as_str).unwrap_or("");
                     let point = frame.get("point").and_then(Value::as_str).unwrap_or("");
-                    state.release(tag, point);
+                    let attempt = frame.get("attempt").and_then(Value::as_u64).and_then(|n| u32::try_from(n).ok());
+                    state.release(tag, point, attempt);
                 }
                 Some("finish") => state.send(json!({"type": "finished", "streams": [], "records": []})),
                 other => state.send(json!({"type": "error", "detail": format!("unexpected frame {other:?}")})),
