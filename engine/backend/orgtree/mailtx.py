@@ -107,6 +107,12 @@ def confirm_rows(nid: str) -> dict[str, list[Any]]:
     return {"nodes": [nid], "sections": ["delivering", "mail_transitions"]}
 
 
+def reclaim_rows(nid: str) -> dict[str, list[Any]]:
+    """Folding undelivered batches back: the journal and reclaim receipts,
+    the pending boxes and notices they return to, and the node row."""
+    return {"nodes": [nid], "sections": ["delivering", "mail_transitions", "mail", "notices"]}
+
+
 class NothingToCommit(Exception):
     """Raised inside a mail transaction whose operation found nothing to do:
     it rolls the transaction back, as the DOC_LOCK path's early return
