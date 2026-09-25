@@ -6608,30 +6608,187 @@ def _quick_staff_undo(slug: str, wid: str, request_id: str, nid: str,
     means another writer has moved the item since, and their state wins; the
     caller still reports the failure, it simply does not rewrite somebody
     else's docket row."""
+    if pgdoor.routed("quick_staff_undo"):
+        # PYPG (PG-3b): one row transaction instead of DOC_LOCK
+        try:
+            return bool(pgdoor.op_tx(
+                slug, "quick_staff_undo", None,
+                {"wid": wid, "request_id": request_id, "nid": nid,
+                 "undo": undo}, pgdoor.BODIES["quick_staff_undo"]))
+        except pgdoor._Replay:
+            return False
     with store.DOC_LOCK:
         org = store.load_org(slug)
-        try:
-            item = org._work_find(wid)[0]
-        except LedgerError:
+        if not _quick_staff_undo_locked(org, wid, request_id, nid, undo):
             return False
-        receipts = item.get("quick_staff_receipts") or {}
-        if request_id not in receipts or int(item.get("rev") or 0) != int(undo["rev"]):
-            return False
-        flag = item.get("manual_attention")
-        org.work_update(USER, wid, undo["done"], undo["next"],
-                        status=undo["status"], owner=undo["owner"] or None,
-                        expected_rev=int(undo["rev"]))
-        item = org._work_find(wid)[0]
-        # restore OUR OWN clear verbatim: the forward update dropped a standing
-        # manual flag because every update restates it, and putting the stored
-        # record back is not a fresh raise (no `manual_attention_rev` bump, no
-        # re-ping of a reason the user may have dismissed)
-        item["manual_attention"] = undo["attention"] if flag is None else flag
-        (item.get("quick_staff_receipts") or {}).pop(request_id, None)
-        if undo.get("mail"):
-            _retract_mail(org, nid, str(undo["mail"]))
         store.save_org(org)
     return True
+
+
+def _quick_staff_undo_locked(org: Org, wid: str, request_id: str, nid: str,
+                             undo: dict[str, Any]) -> bool:
+    """`_quick_staff_undo` on the locked document, lifted out WHOLE for the
+    row door (PG-3b). False = declined, and nothing was written."""
+    try:
+        item = org._work_find(wid)[0]
+    except LedgerError:
+        return False
+    receipts = item.get("quick_staff_receipts") or {}
+    if request_id not in receipts or int(item.get("rev") or 0) != int(undo["rev"]):
+        return False
+    flag = item.get("manual_attention")
+    org.work_update(USER, wid, undo["done"], undo["next"],
+                    status=undo["status"], owner=undo["owner"] or None,
+                    expected_rev=int(undo["rev"]))
+    item = org._work_find(wid)[0]
+    # restore OUR OWN clear verbatim: the forward update dropped a standing
+    # manual flag because every update restates it, and putting the stored
+    # record back is not a fresh raise (no `manual_attention_rev` bump, no
+    # re-ping of a reason the user may have dismissed)
+    item["manual_attention"] = undo["attention"] if flag is None else flag
+    (item.get("quick_staff_receipts") or {}).pop(request_id, None)
+    if undo.get("mail"):
+        _retract_mail(org, nid, str(undo["mail"]))
+    return True
+
+
+def _quick_staff_locked(org: Org, slug: str, wid: str,
+                        body: "QuickStaffSelection", request_id: str,
+                        selection: dict[str, Any], snap: Any,
+                        harness: str | None, drive: list[str]
+                        ) -> tuple[dict[str, Any], dict[str, Any] | None, bool]:
+    """Everything `quick_staff_select` does to the locked document, lifted out
+    WHOLE (not a line of its logic changed) so the DOC_LOCK cycle and the row
+    door (PG-3b, staffdoor) run the same staffing. Returns (result, undo,
+    replayed): a replayed receipt changed nothing, so it is neither saved nor
+    driven."""
+    from . import quickstaff
+    undo: dict[str, Any] | None = None
+    _work_identity_ready(org, slug)
+    item = org._work_find(wid)[0]
+    receipts = item.get("quick_staff_receipts") or {}
+    previous = receipts.get(request_id)
+    if previous:
+        if previous["selection"] != selection:
+            raise LedgerError("That staffing request id already belongs to a different selection.")
+        return {**previous["result"], "replayed": True}, None, True
+    item, ctx = quickstaff.context(org, wid)
+    if any(selection[k] != ctx[k] for k in ("mode", "configured_mode", "owner")):
+        raise LedgerError("The staffing behavior or assignee changed. Reopen the ticket menu to see where staffing will happen.")
+    if body.effort is not None and not body.tier:
+        raise LedgerError("Select a model before choosing an effort.")
+    if ctx["mode"] != "request" and not body.tier:
+        raise LedgerError("Immediate staffing requires a model. Reopen Staff… and select one.")
+    if body.account and not body.tier:
+        raise LedgerError("Select a model before choosing an account.")
+    if (body.account and ctx["mode"] == "request"
+            and not appsettings.quick_staff_request_accounts()):
+        # Request staffing hands the choice to the assignee, which hires
+        # on its own authority. Naming an account here would look like a
+        # binding and bind nothing — unless the user has turned on
+        # "Include account selection when requesting staffing", which
+        # carries the account as an explicit SUGGESTION in the request.
+        raise LedgerError("Request staffing cannot pin an account — the "
+                          "assignee makes that choice when it hires.")
+    if body.tier:
+        chosen = quickstaff.check_choice(org, item, ctx, body.tier,
+                                         account=body.account, snap=snap)
+        if body.effort is not None:
+            efforts = (chosen["efforts"] if chosen is not None
+                       else quickstaff.supported_efforts(body.tier, snap))
+            if body.effort not in efforts:
+                raise LedgerError("That effort is not currently supported by this model. Reopen Staff….")
+    if ctx["mode"] == "request":
+        nid = str(ctx["owner"]["node"])
+        text = f"Please staff the docket ticket {item['slug']} ({item['title']})."
+        if body.tier:
+            text += f" Suggested model: {body.tier}."
+        if body.effort is not None:
+            text += f" Suggested effort: {body.effort}."
+        if body.account:
+            # A suggestion, not a binding: the assignee hires on its own
+            # authority and may choose differently.
+            text += f" Suggested account: {body.account}."
+        # everything the undo needs, read BEFORE the first mutation
+        undo = {"status": item.get("status"),
+                "done": list(item.get("done_so_far") or []),
+                "next": list(item.get("working_on_next") or []),
+                "owner": str((item.get("owner") or {}).get("node") or ""),
+                "attention": item.get("manual_attention"),
+                "node": nid}
+        org.work_update(USER, wid, item.get("done_so_far") or [],
+            item.get("working_on_next") or ["Staff the ticket."], status="open")
+        mailed = org.post_mail(USER, nid, text, kind="request", typed=True)
+        if not mailed.get("deferred"):
+            drive.append(nid)
+        undo["mail"] = mailed.get("id")
+        result = {"message": f"Staffing requested from {nid}"
+                  + (f" (suggested account {body.account})" if body.account else "")
+                  + "; ticket moved to Open.",
+                  "requested_from": nid, "mail": mailed.get("id")}
+    else:
+        # Keep the assignee that owned the ticket before the immediate
+        # update.  Once _staff_call hands the item to the new seat,
+        # item['owner'] no longer identifies the recipient.  This is
+        # deliberately limited to under-assignee staffing: top-level
+        # fallback has no existing assignee beneath whom the seat was
+        # placed, and request mode leaves the assignment unchanged.
+        previous_assignee = (str(ctx["owner"].get("node") or "")
+                             if ctx["mode"] == "under_assignee" else "")
+        args = quickstaff.staff_args(org, item, ctx, str(body.tier),
+                                     body.effort, body.account)
+        result = _staff_call(org, slug, USER, args, drive, None, [],
+                             harness)
+        result["message"] = f"Staffed {result['node']} " + (
+            "at top level" if ctx["mode"] == "top_level" else f"under {ctx['owner']['node']}") + (
+            f" on {body.account}" if body.account else "") + "; ticket moved to Open."
+        if previous_assignee:
+            notice = (f"[QUICK STAFFING · {item['slug']} "
+                      f'\"{str(item.get("title") or "")[:80]}\"]\n'
+                      "The user initiated immediate staffing beneath "
+                      f"you, and {result['node']} is now staffed under "
+                      "you. Selected model: "
+                      f"{body.tier}.")
+            if body.effort is not None:
+                notice += f" Selected effort: {body.effort}."
+            if body.account:
+                notice += f" Selected account: {body.account}."
+            # This is part of the same in-memory transaction as the
+            # successful staffing. Refusals and failures above never
+            # reach this point, so they cannot emit a false-success
+            # notice. Do not grant a reply audience for an automatic
+            # notice.
+            org.post_mail(USER, previous_assignee, notice, "notice",
+                          typed=True, grant_reply_audience=False)
+            result["assignee_notified"] = previous_assignee
+    # Receipts commit WITH the request/seat and status. Retries after a
+    # lost response or restart cannot create another agent or request.
+    item = org._work_find(wid)[0]
+    receipts = item.setdefault("quick_staff_receipts", {})
+    receipts[request_id] = {"selection": selection, "result": result}
+    if undo is not None:
+        # the rev the undo is allowed to rewrite, and nothing else
+        undo["rev"] = int(item.get("rev") or 0)
+    return result, undo, False
+
+
+def _quick_staff_door(slug: str, wid: str, body: "QuickStaffSelection",
+                      request_id: str, selection: dict[str, Any], snap: Any,
+                      harness: str | None, drive: list[str]
+                      ) -> tuple[dict[str, Any], dict[str, Any] | None, bool]:
+    """`_quick_staff_locked` as ONE row transaction (pgdoor.op_tx, rows from
+    staffdoor.quick_staff_spec). The wake-ups join `drive` only after the
+    commit, so a rolled-back attempt drives nobody."""
+    try:
+        result, undo, woken = pgdoor.op_tx(
+            slug, "quick_staff", body, {"wid": wid},
+            pgdoor.BODIES["quick_staff"],
+            pre={"request_id": request_id, "selection": selection,
+                 "snap": snap, "harness": harness})
+    except pgdoor._Replay as r:
+        return r.payload, None, True
+    drive.extend(woken)
+    return result, undo, False
 
 
 @app.post("/api/orgs/{slug}/work-items/{wid}/quick-staff")
@@ -6660,114 +6817,21 @@ def quick_staff_select(slug: str, wid: str, body: QuickStaffSelection) -> dict[s
         # new OpenRouter agent's harness spawns a Codex process, and provider
         # reads never happen under the document lock. See `new_hire_harness`.
         _hire_harness = new_hire_harness(body.tier)
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
-            _work_identity_ready(org, slug)
-            item = org._work_find(wid)[0]
-            receipts = item.get("quick_staff_receipts") or {}
-            previous = receipts.get(request_id)
-            if previous:
-                if previous["selection"] != selection:
-                    raise LedgerError("That staffing request id already belongs to a different selection.")
-                return {**previous["result"], "replayed": True}
-            item, ctx = quickstaff.context(org, wid)
-            if any(selection[k] != ctx[k] for k in ("mode", "configured_mode", "owner")):
-                raise LedgerError("The staffing behavior or assignee changed. Reopen the ticket menu to see where staffing will happen.")
-            if body.effort is not None and not body.tier:
-                raise LedgerError("Select a model before choosing an effort.")
-            if ctx["mode"] != "request" and not body.tier:
-                raise LedgerError("Immediate staffing requires a model. Reopen Staff… and select one.")
-            if body.account and not body.tier:
-                raise LedgerError("Select a model before choosing an account.")
-            if (body.account and ctx["mode"] == "request"
-                    and not appsettings.quick_staff_request_accounts()):
-                # Request staffing hands the choice to the assignee, which hires
-                # on its own authority. Naming an account here would look like a
-                # binding and bind nothing — unless the user has turned on
-                # "Include account selection when requesting staffing", which
-                # carries the account as an explicit SUGGESTION in the request.
-                raise LedgerError("Request staffing cannot pin an account — the "
-                                  "assignee makes that choice when it hires.")
-            if body.tier:
-                chosen = quickstaff.check_choice(org, item, ctx, body.tier,
-                                                 account=body.account, snap=snap)
-                if body.effort is not None:
-                    efforts = (chosen["efforts"] if chosen is not None
-                               else quickstaff.supported_efforts(body.tier, snap))
-                    if body.effort not in efforts:
-                        raise LedgerError("That effort is not currently supported by this model. Reopen Staff….")
-            if ctx["mode"] == "request":
-                nid = str(ctx["owner"]["node"])
-                text = f"Please staff the docket ticket {item['slug']} ({item['title']})."
-                if body.tier:
-                    text += f" Suggested model: {body.tier}."
-                if body.effort is not None:
-                    text += f" Suggested effort: {body.effort}."
-                if body.account:
-                    # A suggestion, not a binding: the assignee hires on its own
-                    # authority and may choose differently.
-                    text += f" Suggested account: {body.account}."
-                # everything the undo needs, read BEFORE the first mutation
-                undo = {"status": item.get("status"),
-                        "done": list(item.get("done_so_far") or []),
-                        "next": list(item.get("working_on_next") or []),
-                        "owner": str((item.get("owner") or {}).get("node") or ""),
-                        "attention": item.get("manual_attention"),
-                        "node": nid}
-                org.work_update(USER, wid, item.get("done_so_far") or [],
-                    item.get("working_on_next") or ["Staff the ticket."], status="open")
-                mailed = org.post_mail(USER, nid, text, kind="request", typed=True)
-                if not mailed.get("deferred"):
-                    drive.append(nid)
-                undo["mail"] = mailed.get("id")
-                result = {"message": f"Staffing requested from {nid}"
-                          + (f" (suggested account {body.account})" if body.account else "")
-                          + "; ticket moved to Open.",
-                          "requested_from": nid, "mail": mailed.get("id")}
-            else:
-                # Keep the assignee that owned the ticket before the immediate
-                # update.  Once _staff_call hands the item to the new seat,
-                # item['owner'] no longer identifies the recipient.  This is
-                # deliberately limited to under-assignee staffing: top-level
-                # fallback has no existing assignee beneath whom the seat was
-                # placed, and request mode leaves the assignment unchanged.
-                previous_assignee = (str(ctx["owner"].get("node") or "")
-                                     if ctx["mode"] == "under_assignee" else "")
-                args = quickstaff.staff_args(org, item, ctx, str(body.tier),
-                                             body.effort, body.account)
-                result = _staff_call(org, slug, USER, args, drive, None, [],
-                                     _hire_harness)
-                result["message"] = f"Staffed {result['node']} " + (
-                    "at top level" if ctx["mode"] == "top_level" else f"under {ctx['owner']['node']}") + (
-                    f" on {body.account}" if body.account else "") + "; ticket moved to Open."
-                if previous_assignee:
-                    notice = (f"[QUICK STAFFING · {item['slug']} "
-                              f'\"{str(item.get("title") or "")[:80]}\"]\n'
-                              "The user initiated immediate staffing beneath "
-                              f"you, and {result['node']} is now staffed under "
-                              "you. Selected model: "
-                              f"{body.tier}.")
-                    if body.effort is not None:
-                        notice += f" Selected effort: {body.effort}."
-                    if body.account:
-                        notice += f" Selected account: {body.account}."
-                    # This is part of the same in-memory transaction as the
-                    # successful staffing. Refusals and failures above never
-                    # reach this point, so they cannot emit a false-success
-                    # notice. Do not grant a reply audience for an automatic
-                    # notice.
-                    org.post_mail(USER, previous_assignee, notice, "notice",
-                                  typed=True, grant_reply_audience=False)
-                    result["assignee_notified"] = previous_assignee
-            # Receipts commit WITH the request/seat and status. Retries after a
-            # lost response or restart cannot create another agent or request.
-            item = org._work_find(wid)[0]
-            receipts = item.setdefault("quick_staff_receipts", {})
-            receipts[request_id] = {"selection": selection, "result": result}
-            store.save_org(org)
-            if undo is not None:
-                # the rev the undo is allowed to rewrite, and nothing else
-                undo["rev"] = int(item.get("rev") or 0)
+        if pgdoor.routed("quick_staff"):
+            # PYPG (PG-3b): one row transaction instead of DOC_LOCK
+            result, undo, replayed = _quick_staff_door(
+                slug, wid, body, request_id, selection, snap, _hire_harness,
+                drive)
+        else:
+            with store.DOC_LOCK:
+                org = store.load_org(slug)
+                result, undo, replayed = _quick_staff_locked(
+                    org, slug, wid, body, request_id, selection, snap,
+                    _hire_harness, drive)
+                if not replayed:
+                    store.save_org(org)
+        if replayed:
+            return result
     except (LedgerError, ValueError) as e:
         raise HTTPException(422, str(e)) from e
     hub_changed(slug)
