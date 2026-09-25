@@ -31,6 +31,8 @@
 //! location). That is the host mode in which a backend serves the prototype.
 //! Every other location is protected unconditionally.
 
+pub mod acl;
+
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt;
