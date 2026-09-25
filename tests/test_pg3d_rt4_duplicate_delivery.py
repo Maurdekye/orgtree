@@ -72,12 +72,17 @@ class Hold:
         self.release.wait(30)
 
 
+def _owns(tx: orgtx.OrgTx, sect: str) -> bool:
+    # the worker's own row of a split section (mailtx names ("mail", nid))
+    return sect + store.SPLIT_SEP + 'worker' in tx.lock_sections
+
+
 def is_confirm(tx: orgtx.OrgTx) -> bool:
-    return 'delivering' in tx.lock_sections and 'mail' not in tx.lock_sections
+    return _owns(tx, 'delivering') and not _owns(tx, 'mail')
 
 
 def is_reclaim(tx: orgtx.OrgTx) -> bool:
-    return 'delivering' in tx.lock_sections and 'mail' in tx.lock_sections
+    return _owns(tx, 'delivering') and _owns(tx, 'mail')
 
 
 class RT4DuplicateDelivery(unittest.TestCase):

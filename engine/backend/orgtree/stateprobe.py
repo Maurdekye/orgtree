@@ -177,11 +177,16 @@ class SaveChanges:
     section-granular read cache (Phase A) invalidates from."""
 
     __slots__ = ("doc_upserts", "doc_deletes", "node_updates", "node_inserts",
-                 "node_deletes", "log_sections", "log_rows", "dumped_bytes")
+                 "node_deletes", "log_sections", "log_rows", "dumped_bytes",
+                 "containers_created")
 
     def __init__(self) -> None:
         self.doc_upserts: list[str] = []
         self.doc_deletes: list[str] = []
+        #: PG-3d: split sections whose EMPTY container row this save created
+        #: (also in doc_upserts). Idempotent — any two creators write the
+        #: same "{}" — so a per-owner org_tx lock may do it.
+        self.containers_created: list[str] = []
         self.node_updates: list[str] = []
         self.node_inserts: list[str] = []
         self.node_deletes: list[str] = []
