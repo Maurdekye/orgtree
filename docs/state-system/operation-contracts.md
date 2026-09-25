@@ -353,8 +353,10 @@ from source and pinned by `tests/test_state_lifecycle_boundary.py` against
 native conversion, and P02, which probes the family after it lands). Nineteen dispatch branches that only
 these tools reach are mapped. The plan listed twenty entries: the external-chat server's `orgtree_list_orgs`
 card calls `GET /api/orgs`, a different handler, so it moves to the external-chat family (F4). The fixture
-records six legacy defects, among them that retire and dissolve interrupt the target's turn before the
-call can still be refused.
+records seven legacy defects, among them that retire and dissolve interrupt the target's turn before the
+call can still be refused, and that a move to the node's current parent answers before any authority
+check (tracked on backlogged retire-and-dissolve-interrupt-the-target-s-runni and
+lifecycle-tool-receipts-and-admission-keyed-rena).
 
 Of the 41 open dimension occurrences on the sixteen legacy-family contracts, 25 (9 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the

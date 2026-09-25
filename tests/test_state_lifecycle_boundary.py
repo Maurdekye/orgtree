@@ -291,6 +291,12 @@ class LifecycleBoundary(unittest.TestCase):
         self.assertEqual([(c.args[0], c.args[2]) for c in self.interrupt.call_args_list], [(self.slug, 'leaf')])
         self.assertEqual((self.reap.call_count, self.hub.call_count), (1, 1))
 
+    def test_retiring_an_archived_node_is_a_no_op(self):
+        self.retire_leaf()
+        r, changed, _, _ = self.act(self.agent('orgtree_retire', {'node': 'leaf'}, 'mid'))
+        self.assertEqual((r.status_code, r.json()['freed'], changed), (200, 0, []), r.text)
+        self.assertIn('leaf was already archived — nothing to do', r.json()['warnings'][0])
+
     def test_a_leaf_may_retire_itself_and_its_parent_is_told(self):
         _, _, after = self.ok(self.agent('orgtree_retire', {'node': 'leaf'}, 'leaf'), 'retire_self_leaf')
         self.assertEqual(after['nodes']['leaf']['state'], 'archived')
@@ -378,10 +384,39 @@ class LifecycleBoundary(unittest.TestCase):
         self.refused(self.agent('orgtree_move', {'node': 'leaf', 'new_parent': 'sib'}, 'mid'),
                      'mid has no authority over sib')
 
+    def test_a_same_parent_move_answers_any_caller_before_authority(self):
+        # recorded legacy defect 7 (lifecycle-tool-receipts-and-admission-keyed-rena, point 6): Org.move returns the
+        # same-parent no-op before promote/demote check authority, so an unrelated agent gets an accepted write cycle
+        # whose answer confirms the node's parent
+        for caller in ('top2', 'leaf'):
+            with self.subTest(caller=caller):
+                r, changed, _, _ = self.act(self.agent('orgtree_move', {'node': 'leaf', 'new_parent': 'mid'}, caller))
+                self.assertEqual((r.status_code, r.json()['moved'], r.json()['changed']), (200, False, False), r.text)
+                self.assertIn('leaf already reports to mid', r.json()['warnings'][0])
+                self.assertEqual((changed, self.hub.call_count), ([], 1))
+        r, changed, _, _ = self.act(self.keyed('orgtree_move', {'node': 'leaf', 'new_parent': 'mid'}, 'top2'))
+        self.assertEqual((r.status_code, set(changed)), (200, {'op_receipts', 'op_receipts_meta'}))
+        # the control: a real move by the same caller is refused
+        self.refused(self.agent('orgtree_move', {'node': 'leaf', 'new_parent': 'sib'}, 'top2'), 'has no authority over')
+
     def test_swap_exchanges_the_seats(self):
         _, _, after = self.ok(self.agent('orgtree_swap', {'a': 'mid', 'b': 'sib'}, 'top'), 'swap_ok')
         self.assertEqual(after['nodes']['leaf']['parent'], 'sib')         # the report stays with the seat
         self.refused(self.agent('orgtree_swap', {'a': 'mid', 'b': 'sib'}, 'mid'), 'mid has no authority over sib')
+
+    def test_swap_rules_of_its_own(self):
+        self.refused(self.agent('orgtree_swap', {'a': 'mid', 'b': 'mid'}, 'top'), 'a seat swap needs two different agents')
+        # a top-level party needs the user, even when the caller is that party
+        self.refused(self.agent('orgtree_swap', {'a': 'top', 'b': 'mid'}, 'top'), 'only the user reseats the top level')
+        # both parties must be live
+        org = store.load_org(self.slug)
+        org.retire('top', 'sib')
+        store.save_org(org)
+        self.refused(self.agent('orgtree_swap', {'a': 'mid', 'b': 'sib'}, 'top'), 'sib is archived, not live')
+        # both parties are checked with allow_self: an agent may swap itself with its own descendant
+        r, _, after, _ = self.act(self.agent('orgtree_swap', {'a': 'mid', 'b': 'leaf'}, 'mid'))
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual((after['nodes']['leaf']['parent'], after['nodes']['mid']['parent']), ('top', 'leaf'))
 
     def test_self_subjugation_promotes_the_target_with_its_team(self):
         r, _, after = self.ok(self.agent('orgtree_self_subjugate', {'target': 'leaf'}, 'mid'), 'subjugate_ok')

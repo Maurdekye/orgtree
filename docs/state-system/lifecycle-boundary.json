@@ -1,6 +1,6 @@
 {
   "schema": "orgtree.lifecycle-boundary/v1",
-  "source_contract_sha256": "eff83f0bcb3d4b8278148c702bceebdacf2fd321e6b31e8968b60a5a43d24b4d",
+  "source_contract_sha256": "6fc9ffe3d4d9ae44bed14fa49aed4fb71d52e3a2f5f96dfb02c452a06011b474",
   "qualification": {
     "runtime_census": false,
     "conversion_authorized": false
@@ -432,7 +432,8 @@
     "the retained-result allowlists of retire, dissolve, move, retool and swap name fields the result never carries as a scalar, so their receipts keep nothing",
     "the post-save remote reap names orgtree_rename, but the rename branch returns before it",
     "list_orgs is a read that takes the write lock, saves and broadcasts hub_changed",
-    "dissolve-all tells each later top-level seat that an earlier one was dissolved, then dissolves it in the same save"
+    "dissolve-all tells each later top-level seat that an earlier one was dissolved, then dissolves it in the same save",
+    "a move to the node's current parent answers its no-op before any authority check, so any caller gets an accepted write cycle that confirms the node's parent"
   ],
   "scope": "Legacy boundary of the org lifecycle and catalogue entry points (P01 F1) on disposable SQLite: the agent door's lifecycle tools and catalogue reads and the seven lifecycle operator routes. Turn delivery, the pre-archive interrupt, the remote reap, the transcript copy, manual compaction, provider discovery, the mail hub roster and the broadcasts are spies; the ledger, the doors, the receipts, save and reload are real. Legacy conformance evidence only: not a runtime census, not PostgreSQL or Rust qualification."
 }
