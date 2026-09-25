@@ -75,8 +75,17 @@ class HoldFirstCommit:
         self.release = threading.Event()
         self._c = threading.Lock()
         self.count = 0
+        # every transaction attempt passes before_lock once: two acquires
+        # declared exactly right make exactly two attempts. A declaration
+        # that is short a row still ends right — pgdoor widens and re-runs a
+        # refused write — so the attempt count is what exposes it.
+        self.attempts = 0
 
     def __call__(self, point, tx) -> None:
+        if point == 'before_lock':
+            with self._c:
+                self.attempts += 1
+            return
         if point != 'before_commit':
             return
         with self._c:
@@ -172,6 +181,7 @@ class OverlappingReservations(unittest.TestCase):
         held = [r for r in rows if r.get('resource') == 'landing:main' and r.get('state') == 'held']
         self.assertEqual([r['owner'] for r in held], ['x'])
         self.assertEqual(len(rows), 1)
+        self.assertEqual(hook.attempts, 2, 'a declaration short of a row needed a widening re-run')
 
     def test_rt8_control_share_locked_row_cannot_be_written(self) -> None:
         under = pgdoor.TxSpec(share_sections=('reservations', 'work_items'))
