@@ -31,10 +31,10 @@ orgtree-op-receipt-codec = { path = "../op-receipt-codec" }
 # rules) is the decide half of reallocate, the credit decision and preview
 # (r7 C6). In-repo path dependency; no third-party code.
 orgtree-funding-core = { path = "../funding-core" }
-# WS3a: the reviewed pure scope clamps (legacy _clamp_dirs/_clamp_tools/
-# _clamp_vis/_apply_ceiling/_check_tier_ceiling) are the decide half of the
-# new seat's scope (r7 C6). In-repo path dependency; no third-party code.
+# WS3b: the reviewed capability-containment decision (r7 §6.4 P3), reused for
+# the island movers' clamp; its JSON value model comes from backend-codec.
 orgtree-scope-clamp = { path = "../scope-clamp" }
+orgtree-backend-codec = { path = "../backend-codec" }
 
 [dev-dependencies]
 orgtree-store-schema = { path = "../store-schema" }

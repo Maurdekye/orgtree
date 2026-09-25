@@ -102,11 +102,6 @@ pub const PEERS_SQL: &str = "SELECT t.principal_id FROM topology_edges t JOIN au
 pub const TOP_PEERS_SQL: &str = "SELECT t.principal_id FROM topology_edges t JOIN authority_epoch e ON e.org_id = t.org_id AND e.principal_id = t.principal_id \
     JOIN agents a ON a.org_id = t.org_id AND a.principal_id = t.principal_id \
     WHERE t.org_id = $1 AND t.parent_id IS NULL AND e.lifecycle <> 'archived' ORDER BY t.ord, a.created_at";
-/// The children cap's count: legacy `org_children` (every child except an
-/// ARCHIVED lineage bearer).
-pub const ORG_CHILDREN_SQL: &str = "SELECT count(*)::bigint FROM topology_edges t JOIN authority_epoch e ON e.org_id = t.org_id AND e.principal_id = t.principal_id \
-    WHERE t.org_id = $1 AND t.parent_id = $2 \
-    AND NOT (e.lifecycle = 'archived' AND EXISTS (SELECT 1 FROM lineage_bearers b WHERE b.org_id = t.org_id AND b.bearer_id = t.principal_id))";
 pub const CLEAR_FABLE_SQL: &str = "UPDATE org_controls SET value = value - 'fable_lock', version = version + 1 WHERE org_id = $1 AND family = 'defaults'";
 
 /// Which door the call came through (the placement check and its words
@@ -255,7 +250,7 @@ pub async fn hire_in<S: Session>(
     // BEFORE any lock, at READ COMMITTED, and that count decides the cap.
     let early_kids: Option<i64> = match (unsafe_rc, dest) {
         (Some("Q-ST1.rc_count_first"), Some(d)) => {
-            let k = tx.exec("staffing.org_children", ORG_CHILDREN_SQL, &[Val::Uuid(org), Val::Uuid(d)]).await?.first().and_then(|r| r.first()).and_then(Val::as_int).unwrap_or(0);
+            let k = island::org_children(tx, org, Some(d)).await?;
             tx.pause("children_counted").await?;
             Some(k)
         }
@@ -392,7 +387,7 @@ pub async fn hire_in<S: Session>(
         if spec.org_visibility.is_none() {
             missing.push("org_visibility (self|team|subtree|full)");
         }
-        if !spec.charter.as_deref().is_some_and(|c| !c.trim().is_empty()) {
+        if spec.charter.as_deref().is_none_or(|c| c.trim().is_empty()) {
             missing.push("charter (the hire's role and standing instructions — write it in full)");
         }
         if !missing.is_empty() {
@@ -420,7 +415,7 @@ pub async fn hire_in<S: Session>(
         let max_children = island::cap(&ctl, "max_children").unwrap_or(MAX_CHILDREN);
         let kids = match early_kids {
             Some(k) => k,
-            None => tx.exec("staffing.org_children", ORG_CHILDREN_SQL, &[Val::Uuid(org), Val::Uuid(d)]).await?.first().and_then(|r| r.first()).and_then(Val::as_int).unwrap_or(0),
+            None => island::org_children(tx, org, Some(d)).await?,
         };
         if kids >= max_children {
             return refuse("invalid", format!("{dname} already has {max_children} reports (cap)"));

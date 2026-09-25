@@ -33,6 +33,7 @@ use crate::session::{DbError, Session};
 use crate::value::Val;
 use crate::Tx;
 
+pub mod clamp;
 pub mod declared;
 
 /// `23505` constraints an island family retries on, in addition to the
@@ -67,6 +68,11 @@ pub const LIVE_CHILDREN_SQL: &str = "SELECT count(*)::bigint FROM topology_edges
 pub const TOP_LIVE_SQL: &str = "SELECT count(*)::bigint FROM topology_edges t JOIN authority_epoch e \
     ON e.org_id = t.org_id AND e.principal_id = t.principal_id \
     WHERE t.org_id = $1 AND t.parent_id IS NULL AND e.lifecycle = 'live'";
+/// Legacy's children cap counts `org_children(parent)` (`ledger.py`): EVERY
+/// child whatever its state (live, archived, unrecoverable) EXCEPT an
+/// archived lineage bearer. A range predicate on the children index.
+pub const ORG_CHILDREN_SQL: &str = "SELECT count(*)::bigint FROM topology_edges t JOIN authority_epoch e     ON e.org_id = t.org_id AND e.principal_id = t.principal_id     WHERE t.org_id = $1 AND t.parent_id = $2 AND NOT (e.lifecycle = 'archived' AND EXISTS     (SELECT 1 FROM lineage_bearers l WHERE l.org_id = t.org_id AND l.bearer_id = t.principal_id))";
+pub const ORG_TOP_SQL: &str = "SELECT count(*)::bigint FROM topology_edges t JOIN authority_epoch e     ON e.org_id = t.org_id AND e.principal_id = t.principal_id     WHERE t.org_id = $1 AND t.parent_id IS NULL AND NOT (e.lifecycle = 'archived' AND EXISTS     (SELECT 1 FROM lineage_bearers l WHERE l.org_id = t.org_id AND l.bearer_id = t.principal_id))";
 pub const SCOPE_SHARE_SQL: &str = "SELECT depth, tools, folders, visibility, permission_mode, version FROM scope_rows \
     WHERE org_id = $1 AND principal_id = $2 FOR SHARE";
 pub const SCOPE_LOCK_SQL: &str = "SELECT depth, tools, folders, visibility, permission_mode, version FROM scope_rows \
@@ -289,6 +295,17 @@ pub async fn live_children<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, parent: Op
     let rows = match parent {
         Some(p) => tx.exec("island.live_children", LIVE_CHILDREN_SQL, &[Val::Uuid(org), Val::Uuid(p)]).await?,
         None => tx.exec("island.top_live", TOP_LIVE_SQL, &[Val::Uuid(org)]).await?,
+    };
+    Ok(rows.first().and_then(|r| r.first()).and_then(Val::as_int).unwrap_or(0))
+}
+
+/// The children cap's predicate, legacy's meaning (`org_children`): every
+/// child of `parent` (the top level when `None`) except an archived lineage
+/// bearer. (Found by WS3a: [`live_children`] undercounts against legacy.)
+pub async fn org_children<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, parent: Option<Uuid>) -> Result<i64, DbError> {
+    let rows = match parent {
+        Some(p) => tx.exec("island.org_children", ORG_CHILDREN_SQL, &[Val::Uuid(org), Val::Uuid(p)]).await?,
+        None => tx.exec("island.org_top", ORG_TOP_SQL, &[Val::Uuid(org)]).await?,
     };
     Ok(rows.first().and_then(|r| r.first()).and_then(Val::as_int).unwrap_or(0))
 }

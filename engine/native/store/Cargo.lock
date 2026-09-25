@@ -328,6 +328,7 @@ name = "orgtree-store"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "orgtree-backend-codec",
  "orgtree-funding-core",
  "orgtree-op-receipt-codec",
  "orgtree-scope-clamp",
