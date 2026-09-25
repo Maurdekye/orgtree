@@ -615,5 +615,102 @@ class Delete(unittest.TestCase):
         self.assertGreaterEqual(len(calls), 3)          # plan, refused body, rerun
 
 
+class Swap(unittest.TestCase):
+    """lifecycle_tx.swap_seats: the legacy `Org.swap_seats` on `_swap_rows`."""
+
+    def build(self, slug):
+        org = store.create_org(slug)
+        org.hire(ledger.USER, None, "luna", 8, "root")
+        org.hire(ledger.USER, "root", "luna", 3, "a")
+        org.hire(ledger.USER, "a", "luna", 0, "a1")
+        org.hire(ledger.USER, "root", "luna", 3, "b")
+        org.hire(ledger.USER, "b", "luna", 1, "b1")
+        org.hire(ledger.USER, "b1", "luna", 0, "b11")
+        store.save_org(org)
+
+    def setUp(self):
+        self.slug = "pg3a-sw-" + str(time.time_ns())
+        self.build(self.slug)
+
+    def tearDown(self):
+        store._POOL.close_all(self.slug)
+
+    def view(self, slug):
+        o = store.load_org(slug)
+        return ({k: (v["parent"], v["grant"], v.get("ui_order")) for k, v in o.nodes.items()},
+                sorted((x["grantee"], x["grantor"]) for x in o.d.get("audiences") or []),
+                sorted((k, len(v)) for k, v in (o.d.get("notices") or {}).items()),
+                [e["op"] for e in o.d["events"]][-2:])
+
+    def parity(self, actor, a, b):
+        twin = "pg3a-sw-twin-" + str(time.time_ns())
+        self.build(twin)
+        with store.DOC_LOCK:
+            o = store.load_org(twin)
+            legacy = o.swap_seats(actor, a, b)
+            store.save_org(o)
+        mine = lifecycle_tx.swap_seats(self.slug, actor, a, b)
+        self.assertEqual(mine, legacy)
+        self.assertEqual(self.view(self.slug), self.view(twin))
+        store._POOL.close_all(twin)
+        return mine
+
+    def test_siblings_exchange_seats_and_teams(self):
+        self.parity(ledger.USER, "a", "b")
+        o = store.load_org(self.slug)
+        self.assertEqual(o.node("a1")["parent"], "b")
+        self.assertEqual(o.node("b1")["parent"], "a")
+
+    def test_a_nested_non_adjacent_pair_keeps_an_audience(self):
+        r = self.parity(ledger.USER, "b", "b11")
+        self.assertTrue(r["audience_retained"])
+
+    def test_an_agent_swap_by_the_common_parent(self):
+        self.parity("root", "a1", "b1")
+
+    def test_plan_holds_both_subtrees_and_shares_the_parents(self):
+        o = store.load_org(self.slug)
+        upd, share = lifecycle_tx._swap_rows(o, ledger.USER, "a1", "b1")
+        self.assertEqual(upd, {"a1", "b1", "b11"})
+        self.assertEqual(share, {"a", "b", "root"})
+
+    def test_a_refused_swap_writes_nothing(self):
+        before = self.view(self.slug)
+        with self.assertRaises(ledger.LedgerError):
+            lifecycle_tx.swap_seats(self.slug, "a1", "b", "b1")   # no authority
+        self.assertEqual(self.view(self.slug), before)
+
+    def test_every_row_the_swap_writes_is_needed(self):
+        spec = lifecycle_tx.SPECS["swap_seats"]
+        for drop in ("audiences", "notices"):
+            smaller = lifecycle_tx.Spec(
+                sections=tuple(x for x in spec.sections if x != drop), logs=spec.logs)
+            with patch.dict(lifecycle_tx.SPECS, {"swap_seats": smaller}):
+                with self.assertRaises(orgtx.UnlockedWrite, msg=drop):
+                    lifecycle_tx.swap_seats(self.slug, ledger.USER, "b", "b11")
+        # a reparented child left out of the plan: the body re-derives the
+        # plan on the locked document and widens, so it can only be caught
+        # by opening the transaction without it directly
+        with self.assertRaises(orgtx.UnlockedWrite):
+            with halt.txn(self.slug, nodes=["a", "b", "b1", "b11"],
+                          share_nodes=["root"], sections=spec.sections,
+                          logs=spec.logs) as tx:
+                tx.org.swap_seats(ledger.USER, "a", "b")           # a1 moves too
+        self.assertEqual(store.load_org(self.slug).node("a1")["parent"], "a")
+
+    def test_a_stale_plan_widens(self):
+        real = lifecycle_tx._swap_rows
+        calls = []
+
+        def stale(org, actor, a, b):
+            u, s = real(org, actor, a, b)
+            calls.append(1)
+            return (u - {"a1"}, s) if len(calls) == 1 else (u, s)
+        with patch.object(lifecycle_tx, "_swap_rows", stale):
+            lifecycle_tx.swap_seats(self.slug, ledger.USER, "a", "b")
+        self.assertEqual(store.load_org(self.slug).node("a1")["parent"], "b")
+        self.assertGreaterEqual(len(calls), 3)
+
+
 if __name__ == "__main__":
     unittest.main()

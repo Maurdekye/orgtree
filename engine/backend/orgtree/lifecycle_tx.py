@@ -91,6 +91,17 @@ SPECS: dict[str, Spec] = {
                                    "tiers"),
                    logs=("events", "notice_log"),
                    notes="nodes = _rehire_rows(org, actor, nid)"),
+    # D-224 seat swap. Node rows from `_swap_rows`: both agents, their
+    # lineage stacks and both WHOLE subtrees FOR UPDATE (children are
+    # reparented, `_sweep_dirs` clamps scope down each branch); the two
+    # PARENTS FOR SHARE — `free(p)` is decided on, never written, and a hire
+    # under either parent locks it FOR UPDATE, so the two serialize; every
+    # ancestor chain (authority) and the actor FOR SHARE. The caps are not
+    # read (the shape is unchanged, so they hold by construction). Written
+    # sections: the audience sweep (+ the retained audience) and notices.
+    "swap_seats": Spec(sections=("audiences", "notices"),
+                       logs=("events", "notice_log"),
+                       notes="nodes/share_nodes = _swap_rows(org, actor, a, b)"),
 }
 
 
@@ -420,3 +431,32 @@ def delete(slug: str, actor: str, nid: str) -> dict[str, Any]:
             share |= w.share_nodes
     raise LedgerError(f"delete: the lock set kept growing after {MAX_WIDEN} "
                       "widenings — nothing was applied; retry")
+
+
+# ---------------------------------------------------------------- swap
+
+
+def _swap_rows(org, actor: str, a: str, b: str) -> tuple[set[str], set[str]]:
+    """(FOR UPDATE, FOR SHARE) node rows of `Org.swap_seats(actor, a, b)`."""
+    upd = {a, b}
+    for k in (a, b):
+        if k in org.nodes:
+            upd |= set(org._taken_with(k))
+    share: set[str] = set()
+    for k in (a, b):
+        share |= _anc(org, k)          # the parent is the first of these
+    if actor in org.nodes:
+        share.add(actor)
+    return upd, share - upd
+
+
+def swap_body(org, held_nodes, held_share, actor: str, a: str,
+              b: str) -> dict[str, Any]:
+    """The door body: a pure function of the locked `org`."""
+    _need(org, lambda o: _swap_rows(o, actor, a, b), held_nodes, held_share)
+    return org.swap_seats(actor, a, b)
+
+
+def swap_seats(slug: str, actor: str, a: str, b: str) -> dict[str, Any]:
+    return _run("swap_seats", slug, lambda o: _swap_rows(o, actor, a, b),
+                lambda org, hn, hs: swap_body(org, hn, hs, actor, a, b))
