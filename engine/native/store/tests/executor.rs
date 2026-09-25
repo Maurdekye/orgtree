@@ -418,3 +418,56 @@ fn xact_diff_keeps_only_this_transactions_counters() {
     let d = xact_diff(&base, &after);
     assert_eq!(d, vec![t("outgoing_intents", 1, 0)], "an earlier transaction's rows must not leak into this one");
 }
+
+/// Executor::read: one REPEATABLE READ READ ONLY snapshot, no receipt, never
+/// committed; a lost connection retries on a fresh session.
+mod reads {
+    use super::*;
+    use orgtree_store::read::Read;
+    use orgtree_store::{CmdError, Rows, Session, Tx, Val};
+
+    struct Count;
+    impl Read for Count {
+        type Output = i64;
+        fn family(&self) -> &'static str {
+            "inbox"
+        }
+        fn verb(&self) -> &'static str {
+            "list"
+        }
+        async fn run<S: Session>(&self, tx: &mut Tx<'_, S>) -> Result<i64, CmdError> {
+            let r = tx.exec("inbox.count", "SELECT count(*) FROM mailbox_messages", &[]).await?;
+            Ok(r.first().and_then(|x| x.first()).and_then(Val::as_int).unwrap_or(-1))
+        }
+    }
+
+    #[tokio::test]
+    async fn a_read_writes_no_receipt_and_never_commits() {
+        let db = FakeDb::new();
+        db.respond("inbox.count", |_| Ok(Rows::one(vec![Val::Int(3)])));
+        let (ex, _) = exec(&db);
+        assert_eq!(ex.read(&Count, org(), None).await.unwrap(), 3);
+        assert!(db.receipts().is_empty());
+        assert_eq!(db.count("commit"), 0, "a read closes its snapshot with ROLLBACK");
+        assert_eq!(db.count("receipt.claim"), 0);
+    }
+
+    #[tokio::test]
+    async fn a_lost_connection_retries_on_a_fresh_session() {
+        let db = FakeDb::new();
+        db.respond("inbox.count", |_| Ok(Rows::one(vec![Val::Int(3)])));
+        db.fault("inbox.count", 1, FaultKind::Error(DbError::lost()));
+        let (ex, trace) = exec(&db);
+        assert_eq!(ex.read(&Count, org(), None).await.unwrap(), 3);
+        assert!(trace.has("retry:connection_lost"));
+    }
+
+    #[tokio::test]
+    async fn other_errors_are_returned_not_retried() {
+        let db = FakeDb::new();
+        db.fault("inbox.count", 1, FaultKind::Error(DbError::sql("42P01")));
+        let (ex, _) = exec(&db);
+        assert!(matches!(ex.read(&Count, org(), None).await, Err(ExecError::Sql(_))));
+        assert_eq!(db.count("inbox.count"), 1);
+    }
+}
