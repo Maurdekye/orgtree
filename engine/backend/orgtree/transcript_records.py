@@ -442,11 +442,16 @@ def incarnation(org, nid):
         return org.node(nid)['transcript_incarnation']
     from . import orgtx, reply_events, store
     identity = reply_events.incarnation(org, nid)
-    if orgtx.current_tx(org.d['slug']) is not None:
-        # PG-3r: called with the Org of a transaction already open on this
-        # org: mint on THAT Org (the caller names nodes=[nid]) rather than a
-        # second org_tx (NestedTx) or DOC_LOCK after org_tx (forbidden).
-        return org.node(nid).setdefault('transcript_incarnation', identity)
+    tx = orgtx.current_tx(org.d['slug'])
+    if tx is not None:
+        # PG-3r: a transaction is already open on this org on this thread:
+        # mint on THE TRANSACTION'S Org (the caller names nodes=[nid]) rather
+        # than a second org_tx (NestedTx) or DOC_LOCK after org_tx
+        # (forbidden); memoize onto another caller Org like the other paths.
+        value = tx.org.node(nid).setdefault('transcript_incarnation', identity)
+        if org is not tx.org and not getattr(org, '_shared_snapshot', False):
+            org.node(nid)['transcript_incarnation'] = value
+        return value
     persisted = Path(store.org_path(org.d['slug'])).exists()
     if not persisted or getattr(store.DOC_LOCK, '_is_owned', lambda: False)():
         # PG-3r: an unsaved org, or a caller still inside a legacy DOC_LOCK

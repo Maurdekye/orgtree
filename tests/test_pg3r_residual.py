@@ -312,6 +312,20 @@ class TranscriptIncarnation(unittest.TestCase):
         self.assertEqual(after.node('a')['transcript_incarnation'], value)
         self.assertTrue(after.d['reply_incarnation'] and after.node('a')['reply_incarnation'])
 
+    def test_inside_an_open_org_tx_another_org_gets_the_committed_identity(self):
+        # review f1: a caller that passes an Org other than the transaction's
+        # (a read snapshot) must get the identity the transaction commits
+        from orgtree import reply_events, transcript_records
+        slug = _fresh_org('Tx Other Org')
+        with orgtx.org_tx(slug, nodes=['a'], sections=['reply_incarnation']) as tx:
+            snap = orgtx.org_read(slug)
+            reply = reply_events.incarnation(snap, 'a')
+            transcript = transcript_records.incarnation(snap, 'a')
+            self.assertEqual(reply, tx.d['reply_incarnation'] + ':' + tx.org.node('a')['reply_incarnation'])
+        after = store.load_org(slug)
+        self.assertEqual(reply, after.d['reply_incarnation'] + ':' + after.node('a')['reply_incarnation'])
+        self.assertEqual(transcript, after.node('a')['transcript_incarnation'])
+
     def test_a_caller_inside_a_legacy_hold_keeps_the_legacy_mint(self):
         from orgtree import transcript_records
         slug = _fresh_org('Held Incarnation Org')
