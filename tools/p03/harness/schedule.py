@@ -22,8 +22,9 @@ Event names used in scripts and intended orders:
   was never released); any error fails the run;
 - ``wait:<waiter>:<holder>``: OBSERVED (sampled from the database's lock view) that
   ``waiter``'s backend was waiting on ``holder``'s;
-- ``killed:<tag>``: the harness terminated the backend of ``tag``'s most recent
-  arrival (``pg_terminate_backend``; M1 §3: kill_backend is harness-side);
+- ``killed:<tag>`` (``@<n>`` when that arrival was attempt n >= 2): the harness
+  terminated the backend of ``tag``'s most recent arrival
+  (``pg_terminate_backend``; M1 §3: kill_backend is harness-side);
 - ``end:<tag>``: the operation finished (its outcome is in the trace).
 Each observed event gets the harness's own monotone sequence number, in the
 order the harness observed it. That order is the achieved order.
@@ -142,8 +143,8 @@ class _Recorder:
         self._seen: set[str] = set()
         self.pids: dict[int, str] = {}
         self.errors: list[str] = []
-        #: tag -> backend pid of its most recent arrival (what a "kill" step terminates)
-        self.arrived_pid: dict[str, int] = {}
+        #: tag -> (backend pid, attempt) of its most recent arrival (what "kill" terminates)
+        self.arrived_pid: dict[str, tuple[int, Any]] = {}
 
     def add(self, name: str, **detail: Any) -> None:
         if name in self._seen:
@@ -167,7 +168,7 @@ def _absorb(recorder: _Recorder, event: dict[str, Any]) -> None:
     if kind == "arrived":
         if isinstance(event.get("backend_pid"), int):
             recorder.pids[event["backend_pid"]] = event["op_tag"]
-            recorder.arrived_pid[event["op_tag"]] = event["backend_pid"]
+            recorder.arrived_pid[event["op_tag"]] = (event["backend_pid"], event.get("attempt"))
         recorder.add(event_name("arrived", event["op_tag"], event["point"], event.get("attempt")),
                      backend_pid=event.get("backend_pid"), attempt=event.get("attempt"))
     elif kind == "error":
@@ -271,14 +272,15 @@ def run_order(channel: Channel, schedule: Schedule, order: Order) -> RunResult:
                                f"waiting on {step[2]}")
                 break
         elif op == "kill":
-            pid = recorder.arrived_pid.get(step[1])
+            pid, attempt = recorder.arrived_pid.get(step[1], (None, None))
             if not pid:
                 reasons.append(f"cannot kill {step[1]}: no arrival reported its backend pid")
                 break
             if not channel.kill_backend(pid):
                 reasons.append(f"the backend of {step[1]} (pid {pid}) was not terminated")
                 break
-            recorder.add(f"killed:{step[1]}", backend_pid=pid)
+            at = "" if attempt in (None, 1) else f"@{attempt}"
+            recorder.add(f"killed:{step[1]}{at}", backend_pid=pid)
         elif op == "await_end":
             if not _await(channel, recorder, f"end:{step[1]}", schedule.step_timeout):
                 reasons.append(f"interleaving not achieved: {step[1]} never ended")
