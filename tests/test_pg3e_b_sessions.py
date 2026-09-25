@@ -226,8 +226,12 @@ class NeverWaitsOnDocLock(unittest.TestCase):
             def terminate(self):
                 pass
         with patch.object(supervisor.subprocess, "Popen", return_value=P()),                 patch.object(supervisor.time, "sleep"),                 patch.object(supervisor, "_leash"),                 patch.object(supervisor, "_claude_argv", return_value=["claude"]),                 patch.object(supervisor, "notify"),                 patch.object(supervisor.halt, "check"):
+            # `__wrapped__`: the body only. Its `@halt.worker` prologue and
+            # epilogue still take DOC_LOCK around (never across) the body —
+            # that registration is halt.py's, PG-3a's to convert.
             return self._assert_free_of_doc_lock(
-                lambda: supervisor._remote_control_start_owned(self.slug, "worker"))
+                lambda: supervisor._remote_control_start_owned.__wrapped__(
+                    self.slug, "worker"))
 
     def test_remote_control_start_parks_then_records_pid(self) -> None:
         try:
