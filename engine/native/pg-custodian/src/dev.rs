@@ -108,7 +108,9 @@ pub fn up(env: &Env, home: &Path, bin: &PgBin, agent: &str) -> Result<DevUp> {
         root: root.path().to_path_buf(),
         created,
         started,
-        env: cluster::urls(&root, &runtime)?,
+        // Passwords are printed ONLY by `dev env` / `urls` (lead ruling
+        // 2026-09-25); everything else shows the redacted form.
+        env: cluster::urls(&root, &runtime)?.into_iter().map(|(k, v)| (k, redact(&v))).collect(),
         ready: id.ready(),
         readiness_failures: id.readiness_failures,
         runtime,
@@ -188,6 +190,16 @@ pub fn status_all(env: &Env, home: &Path, bin: &PgBin) -> Result<AllStatus> {
         unlisted_postmasters: unlisted,
         commit_free_gb: win::free_commit_bytes().map(|b| b as f64 / 1e9).unwrap_or(-1.0),
     })
+}
+
+/// `postgresql://role:secret@host...` → `postgresql://role:***@host...`.
+/// Anything that does not parse as such is replaced whole.
+pub fn redact(url: &str) -> String {
+    let Some(rest) = url.strip_prefix("postgresql://") else { return "***".into() };
+    match (rest.find(':'), rest.find('@')) {
+        (Some(c), Some(a)) if c < a => format!("postgresql://{}:***{}", &rest[..c], &rest[a..]),
+        _ => "***".into(),
+    }
 }
 
 /// Render URLs for a shell: `ps` → `$env:X='...'`, `sh` → `export X='...'`,
