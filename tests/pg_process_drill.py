@@ -45,8 +45,11 @@ MIGRATIONS = {
 ENGINE = textwrap.dedent('''
     import json, os, sys, time
     from pathlib import Path
-    sys.path.insert(0, sys.argv[2])
+    # This checkout's backend FIRST: the bundled runtime's ._pth would
+    # otherwise supply the main checkout's (tests/import_provenance.py).
     sys.path.insert(0, sys.argv[3])
+    sys.path.insert(0, sys.argv[2])
+    sys.path.insert(0, os.path.join(sys.argv[2], "engine", "backend"))
     import pg_process_drill as drill
     from engine.process_lifetime import arm_process_lifetime
     from engine import pg_process as bracket
@@ -91,7 +94,7 @@ class StandIn:
         self.seen_conninfo = conninfo
         applied = []
         for name in sorted(MIGRATIONS):
-            r = custodian_json("psql", "--root", str(self.root), "--sql", MIGRATIONS[name])
+            r = custodian_json("psql", "--root", str(self.root), "--db", "orgtree", "--sql", MIGRATIONS[name])
             if not r.get("ok"):
                 raise RuntimeError(f"stand-in migration {name} failed: {r.get('code')}: {r.get('message')}")
             applied.append(name)
@@ -101,7 +104,7 @@ class StandIn:
 def runtime_sql(conninfo: str, sql: str) -> str:
     """Connect exactly as the engine would: the runtime role, SCRAM, the passfile."""
     psql = Path(os.environ["ORGTREE_P03_PG_BIN"]) / "psql.exe"
-    out = subprocess.run([str(psql), conninfo, "-X", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-c", sql],
+    out = subprocess.run([str(psql), conninfo, "-X", "-q", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-c", sql],
                          capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60,
                          env={k: v for k, v in os.environ.items() if not k.startswith("PG")})
     if out.returncode != 0:
