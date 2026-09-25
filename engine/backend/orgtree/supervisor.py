@@ -13700,37 +13700,39 @@ def _working_cache_read(slug: str, nid: str,
         with halt.slot(slug, nid, _working_cache_slots):
             if lease is not None and lease["cancel"].is_set():
                 return
-            with store.DOC_LOCK:
-                org = store.load_org(slug)
-                if (appsettings.working_checkups_enabled()
-                        or not _working_cache_due(org, nid)
-                        or not _working_cache_retry_due(slug, nid, time.time())):
-                    return
-                n = org.node(nid)
-                old_sid = n["session_id"]
-                tier = str(n.get("model") or "")
-                billed_key = bills_the_key(org)
-                env = spawn_env(org, tier=tier, nid=nid)
-                # metered ACCOUNT lane (2026-09-12): the keepalive's own env
-                # says which lane it warms — a key-account read banks to that
-                # row and keeps the key lane's TTL, same as a real turn.
-                _ka_served = served_metered_row(identity_in_env(env))
-                if _ka_served is not None:
-                    billed_key = True
-                # D-218: the keepalive rides the same unbounded deny render
-                # as a real turn, so it parks settings the same way — into
-                # its OWN file, so a racing real spawn never reads its hooks
-                cmd = spawn_argv(org, nid, _working_cache_cmd(org, nid),
-                                 purpose="keepalive")
-                try:
-                    cache_attempt = _cache_persistable(
-                        _cache_snapshot(org, nid, env=env))
-                except Exception:                               # noqa: BLE001
-                    # A maintenance request still does useful cache work even
-                    # when predictor metadata is temporarily unavailable.
-                    cache_attempt = None
-                cwd = scratch_dir(slug, nid)
-                troot = _transcript_root(org, nid)
+            # a lock-free snapshot (PG-3e-B): this block decides and builds
+            # the spawn but writes no org row; the busy/waiting check under
+            # _state_lock below is what orders it against a real turn
+            org = orgtx.org_read(slug)
+            if (appsettings.working_checkups_enabled()
+                    or not _working_cache_due(org, nid)
+                    or not _working_cache_retry_due(slug, nid, time.time())):
+                return
+            n = org.node(nid)
+            old_sid = n["session_id"]
+            tier = str(n.get("model") or "")
+            billed_key = bills_the_key(org)
+            env = spawn_env(org, tier=tier, nid=nid)
+            # metered ACCOUNT lane (2026-09-12): the keepalive's own env
+            # says which lane it warms — a key-account read banks to that
+            # row and keeps the key lane's TTL, same as a real turn.
+            _ka_served = served_metered_row(identity_in_env(env))
+            if _ka_served is not None:
+                billed_key = True
+            # D-218: the keepalive rides the same unbounded deny render
+            # as a real turn, so it parks settings the same way — into
+            # its OWN file, so a racing real spawn never reads its hooks
+            cmd = spawn_argv(org, nid, _working_cache_cmd(org, nid),
+                             purpose="keepalive")
+            try:
+                cache_attempt = _cache_persistable(
+                    _cache_snapshot(org, nid, env=env))
+            except Exception:                               # noqa: BLE001
+                # A maintenance request still does useful cache work even
+                # when predictor metadata is temporarily unavailable.
+                cache_attempt = None
+            cwd = scratch_dir(slug, nid)
+            troot = _transcript_root(org, nid)
             # The reservation check and Popen are one state-lock transaction.
             # A real turn either marks busy first (so no child starts), or
             # observes the published child and kills/waits it before resuming.
@@ -13828,8 +13830,10 @@ def _working_cache_read(slug: str, nid: str,
             spend_total = None
             kcfg = None
             try:
-                with store.DOC_LOCK:
-                    current = store.load_org(slug)
+                with orgtx.org_tx(slug, nodes=[nid],
+                                  sections=["api_cost_usd",
+                                            "deleted_cost_usd"]) as tx:
+                    current = tx.org
                     if nid in current.nodes:
                         n2 = current.node(nid)
                         if cost:
@@ -13847,7 +13851,7 @@ def _working_cache_read(slug: str, nid: str,
                             n2["cache_keepalive_at"] = now_iso()
                             cache_event = _cache_refresh_receipt(
                                 current, nid, cache_attempt, cache_usage)
-                        store.save_org(current)
+                        # unlocked reads for the advisory kiosk check below
                         spend_total = current.cost_total()
                         kcfg = kiosk_cfg(current)
                     elif cost:
@@ -13858,7 +13862,6 @@ def _working_cache_read(slug: str, nid: str,
                             _bank_api_cost(
                                 current, cost,
                                 served=(_ka_served or {}).get("id") or "")
-                        store.save_org(current)
             except LedgerError:
                 print(f"[orgtree] {slug}/{nid}: keepalive finished after org "
                       f"deletion (${cost:.4f} unrecorded)")

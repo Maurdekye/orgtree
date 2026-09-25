@@ -422,6 +422,32 @@ class LineageRepairs(unittest.TestCase):
         self.assertEqual(_node(self.slug, "worker@0")["bearer_state"], "lost")
 
 
+class WorkingCacheKeepalive(unittest.TestCase):
+    """_working_cache_read: a lock-free decision snapshot, then the cost and
+    freshness bank in one org_tx on the node."""
+
+    def setUp(self) -> None:
+        orgtx.use_backend(orgtx.SeamBackend())
+        self.slug = _org(_slug("ka"))
+
+    def test_keepalive_banks_cost_and_freshness_without_doc_lock(self) -> None:
+        class Proc:
+            returncode = 0
+
+            def communicate(self, input=None, timeout=None):
+                return ("{}", "")
+        sup = supervisor
+        with patch.object(sup.appsettings, "working_checkups_enabled", return_value=False),                 patch.object(sup, "_working_cache_due", return_value=True),                 patch.object(sup, "_working_cache_retry_due", return_value=True),                 patch.object(sup, "spawn_env", return_value={}),                 patch.object(sup, "spawn_argv", return_value=["claude"]),                 patch.object(sup, "_working_cache_cmd", return_value=[]),                 patch.object(sup, "_cache_snapshot", return_value={}),                 patch.object(sup, "_cache_persistable", return_value=None),                 patch.object(sup, "served_metered_row", return_value=None),                 patch.object(sup, "bills_the_key", return_value=False),                 patch.object(sup, "_leash"),                 patch.object(sup.subprocess, "Popen", return_value=Proc()),                 patch.object(sup, "_working_cache_result",
+                             return_value={"total_cost_usd": 0.25}),                 patch.object(sup, "_working_cache_fork_id", return_value="fork-ka"),                 patch.object(sup, "_cache_refresh_receipt", return_value=None):
+            with _Holder(lambda: store.DOC_LOCK):
+                done, out = _finishes(lambda: sup._working_cache_read(self.slug, "worker"))
+        self.assertTrue(done, "the keepalive waited on DOC_LOCK")
+        self.assertFalse(out and isinstance(out[0], BaseException), out)
+        n = _node(self.slug, "worker")
+        self.assertAlmostEqual(float(n.get("cost_usd") or 0), 0.25)
+        self.assertTrue(n.get("cache_keepalive_at"), "freshness was not recorded")
+
+
 class LocksOnlyItsOwnNode(unittest.TestCase):
     def setUp(self) -> None:
         orgtx.use_backend(orgtx.SeamBackend())
