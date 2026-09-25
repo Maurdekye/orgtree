@@ -28,6 +28,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from urllib.parse import urlsplit, urlunsplit
@@ -126,8 +127,14 @@ class _Rig:
 
     def __init__(self, on_change, *, catch_up: bool, poll_s: float) -> None:
         self.sessions: list = []
+        #: cleared = a reconnect waits here: the listener stays DOWN until the
+        #: test has made its commits (without this the 50 ms retry can be back
+        #: LISTENing before they land, and their NOTIFYs are simply delivered)
+        self.up = threading.Event()
+        self.up.set()
 
         def connect():
+            self.up.wait(30)
             s = pgfeed.psycopg_conn(os.environ["ORGTREE_PG_URL"])
             self.sessions.append(s)
             return s
@@ -170,12 +177,16 @@ class Rt9Live(unittest.TestCase):
         n = _rev(slug)
         self.assertTrue(_wait(lambda: r.feed.last_seen(slug) == n or not r.feed.catch_up_enabled))
         notes_before = r.feed.stats.notifications
+        sessions_before = len(r.sessions)
+        r.up.clear()                              # hold the reconnect ...
         killed = r.kill_listener()
         self.assertTrue(_wait(lambda: r.feed.stats.reconnects >= 1), "the kill was not seen")
         # two commits by another session while this listener's session is gone
         _foreign_rename(slug, "down-1")
         last = _foreign_rename(slug, "down-2")
         self.assertEqual(last, n + 2)
+        self.assertEqual(len(r.sessions), sessions_before, "a session opened while held")
+        r.up.set()                                # ... and only now let it back
         self.assertTrue(_wait(lambda: len(r.sessions) >= 2 and r.feed.stats.catchups >= 2),
                         "the listener never reconnected")
         self.assertNotEqual(r.pid(), killed, "the reconnect reused the killed backend")
