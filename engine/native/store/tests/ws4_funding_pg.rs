@@ -766,3 +766,29 @@ async fn q_op2_control_no_capacity_lock_spends_the_last_credit_twice() {
     let v = funding_violations().await;
     assert!(v.iter().any(|s| s.starts_with("alpha: obligations")), "control executed but alpha's last credit was not spent twice: {v:?}");
 }
+
+// ================================================================ Q-C12 (b) control site (WS3b's schedule)
+
+async fn requests_version(x: Uuid) -> i64 {
+    count(&format!("SELECT requests_version FROM authority_epoch WHERE principal_id = '{x}'")).await
+}
+
+/// WS3b races the real retire against this filing; here only the control
+/// site itself is proven: armed, the filing applies WITHOUT touching the
+/// asker's authority-epoch row; unarmed, it bumps it.
+#[tokio::test]
+#[ignore = "needs the WS4 dev cluster; run through p03-run.ps1"]
+async fn q_c12_control_site_filing_skips_epoch_bump() {
+    reset().await;
+    let x = executor(vec![]);
+    let v0 = requests_version(e()).await;
+    file(&x, e(), 60, "c12-safe").await;
+    assert_eq!(requests_version(e()).await, v0 + 1, "the safe filing did not bump the asker's epoch row");
+    assert!(!x.ev.has("control_executed:Q-C12.filing_skips_epoch_bump"));
+    reset().await;
+    let x = executor(vec!["Q-C12.filing_skips_epoch_bump"]);
+    let v0 = requests_version(e()).await;
+    file(&x, e(), 60, "c12-unsafe").await;
+    assert!(x.ev.has("control_executed:Q-C12.filing_skips_epoch_bump"), "control did not record that it executed");
+    assert_eq!(requests_version(e()).await, v0, "control executed but the epoch row was still bumped");
+}

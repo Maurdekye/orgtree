@@ -76,6 +76,7 @@ pub const CONTROLS: &[&str] = &[
     "Q-FD4.skip_one_hop_update",
     "Q-FD5.no_kiosk_pool_row",
     "Q-OP2.no_capacity_lock",
+    "Q-C12.filing_skips_epoch_bump",
 ];
 
 /// Family-specific pause points.
@@ -965,9 +966,15 @@ impl Command for CreditRequest {
         if ks.first().and_then(|r| r.first()) == Some(&Val::Bool(true)) {
             return Err(CmdError::Refused(Refusal::new("killswitch", "the organization's killswitch is engaged")));
         }
-        let bumped = tx.exec("funding.request_bump", REQUEST_BUMP_SQL, &[Val::Uuid(org), Val::Uuid(id), Val::Int(generation)]).await?;
-        if bumped.is_empty() {
-            return Err(CmdError::Refused(Refusal::new("not_live", format!("{} is not live", id))));
+        // Q-C12 (b)'s unsafe control (WS3b's schedule, id shared with its
+        // ask and scope-request filings): the filing skips its update of the
+        // asker's authority-epoch row, so a racing retire neither waits for
+        // it nor sees it
+        if !controls::fire(&tx.scope(), "Q-C12.filing_skips_epoch_bump") {
+            let bumped = tx.exec("funding.request_bump", REQUEST_BUMP_SQL, &[Val::Uuid(org), Val::Uuid(id), Val::Int(generation)]).await?;
+            if bumped.is_empty() {
+                return Err(CmdError::Refused(Refusal::new("not_live", format!("{} is not live", id))));
+            }
         }
         Ok(())
     }
