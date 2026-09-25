@@ -47,10 +47,11 @@ class Hook(unittest.TestCase):
         store.save_org(org)
         pgdoor.use_org_tx(None)
         self.saved = (dict(pgdoor.LOCKS), dict(pgdoor.BODIES))
-        self.sent, self.thens, self.runs = [], [], 0
+        self.sent, self.thens, self.runs, self.hub = [], [], 0, []
         self.p = [patch.object(supervisor, 'send_message',
                                lambda slug, t, *a, **k: self.sent.append(t) or {}),
-                  patch.object(api, 'hub_changed', lambda *a, **k: None)]
+                  patch.object(api, 'hub_changed',
+                               lambda *a, **k: self.hub.append(1))]
         for x in self.p:
             x.start()
 
@@ -96,6 +97,43 @@ class Hook(unittest.TestCase):
         self.assertEqual(self.sent, ['boss'])          # driven once, after
         self.assertEqual(len(self.thens), 1)
         self.assertIs(self.thens[0], r)
+
+    def test_replay_runs_no_tail_and_saves_nothing(self):
+        """A replayed key: the cycle returns the receipt BEFORE its epilogue,
+        so the door must too — no drive, no hub fan-out, no then, no save."""
+        self.declare(self.good)
+        # PG-0's SeamBackend heals an org with one plain save on its FIRST
+        # transaction in the process (orgtx._heal); take that first
+        pgdoor.run(self.slug, pgdoor.TxSpec(), lambda h: None)
+        r0 = self.rev()
+        saves = []
+        real_save = store.save_org
+        with patch.object(api, '_op_admit', lambda org, body, a: {
+                    'replay': {'replayed': True, 'receipt': {'id': 'r1'}}}), \
+                patch.object(store, 'save_org',
+                             lambda *a, **k: saves.append(1) or real_save(*a, **k)):
+            r = self.call()
+        self.assertTrue(r['replayed'])
+        self.assertEqual(self.runs, 0)
+        self.assertEqual((self.sent, self.thens, self.hub, saves), ([], [], [], []))
+        self.assertEqual(self.rev(), r0)
+
+    def test_kiosk_cap_is_checked_unless_the_tool_is_exempt(self):
+        org = store.load_org(self.slug)
+        org.d['kiosk'] = {'credits': 1}            # holdings (20) exceed it
+        store.save_org(org)
+        self.declare(self.good)
+        with self.assertRaises(HTTPException) as cm:
+            self.call()
+        self.assertEqual(cm.exception.status_code, 422)
+        self.assertIn('kiosk credit cap', cm.exception.detail)
+        pgdoor.LOCKS.pop(TOOL)
+        pgdoor.BODIES.pop(TOOL)
+        pgdoor.declare(TOOL, pgdoor.TxSpec(), body=self.good, kiosk_exempt=True)
+        try:
+            self.assertTrue(self.call()['ok'])
+        finally:
+            pgdoor.KIOSK_EXEMPT.discard(TOOL)
 
     def test_refusal_is_422_and_commits_nothing(self):
         def bad(tx):

@@ -11203,11 +11203,8 @@ def _agent_door(body: AgentCall, a: dict[str, Any],
             if routed and not result.get("deferred"):
                 tx.after.drive.append(str(routed))
         k = supervisor.kiosk_cfg(tx.org)
-        # PG-3c (lead decision 18.8): tools proven unable to move top-level
-        # holdings skip the cap (rcdoor.KIOSK_EXEMPT; the same rule as the
-        # cycle's epilogue, proof in tests/test_pg3c_kiosk_exempt.py)
         if k and int(k.get("credits") or 0) > 0 \
-                and body.tool not in rcdoor.KIOSK_EXEMPT:
+                and body.tool not in pgdoor.KIOSK_EXEMPT:
             # the cap is a decision on the kiosk section: hold it
             with pgdoor.join(body.org, share_sections=["kiosk"]):
                 _kiosk_cap_check(tx.org)
@@ -11243,6 +11240,10 @@ def _agent_door(body: AgentCall, a: dict[str, Any],
                                      on_commit=witness)
     except LedgerError as e:
         raise HTTPException(422, str(e))
+    if after.replayed:
+        # a replayed key: nothing ran and nothing committed, so NOTHING of
+        # the post-commit tail runs either (the cycle returns it the same way)
+        return result
     if "account" in notify:
         supervisor.notify(body.org, notify["account"], "account")
     if "unpark" in notify:
@@ -12758,9 +12759,10 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                     drive.append(str(routed))
             # PG-3c (lead decision 18.8): the kiosk cap reads EVERY live node
             # (Org.audit), which no row lock covers. Tools proven unable to
-            # change top-level holdings skip it (rcdoor.KIOSK_EXEMPT; proof:
-            # tests/test_pg3c_kiosk_exempt.py); everything else keeps it.
-            if body.tool not in rcdoor.KIOSK_EXEMPT:
+            # change top-level holdings skip it (pgdoor.KIOSK_EXEMPT, the ONE
+            # list the door reads too, filled by pgdoor.declare(kiosk_exempt=);
+            # proof: tests/test_pg3c_kiosk_exempt.py); everything else keeps it.
+            if body.tool not in pgdoor.KIOSK_EXEMPT:
                 _kiosk_cap_check(org)
             selection = result.pop("_account_selection", None)
             if selection is not None:

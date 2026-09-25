@@ -383,9 +383,15 @@ class AgentTxTest(unittest.TestCase):
 
     def test_replay_returns_receipt_and_runs_nothing(self):
         self.call(Body(op_key='k1'))
-        r = self.call(Body(op_key='k1'))
+        commits = self.fs.commits
+        after = pgdoor.After()
+        after.drive.append('stale')           # must not survive the replay
+        r = self.call(Body(op_key='k1'), after=after)
         self.assertTrue(r['replayed'])
         self.assertEqual((self.ran, self.n()), (1, 1))
+        self.assertEqual(self.fs.commits, commits)   # rolled back, NOT saved
+        self.assertTrue(after.replayed)
+        self.assertEqual(after.drive, [])
 
     def test_receipt_failure_rolls_back_the_effect(self):
         """If filing the receipt fails, the effect must not commit: one

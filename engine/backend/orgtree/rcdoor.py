@@ -370,13 +370,18 @@ def declare_all() -> None:
     host's bash; and the supervisor's `_wd_*` writers are sequenced with
     PG-3e-A, plan decision 14) — its rows are declared here for when it
     moves, but with no body it is not routed."""
-    pgdoor.declare("orgtree_reallocate", reallocate_spec, body=_reallocate_body)
-    pgdoor.declare("orgtree_request_credits", request_spec, body=_request_body)
-    pgdoor.declare("orgtree_status", status_spec, body=_status_body)
-    pgdoor.declare("orgtree_reservation", reservation_spec,
-                   body=_reservation_body)
-    pgdoor.declare("orgtree_resource_reservation", reservation_spec,
-                   body=_reservation_body)
+    for name, spec, body in (
+            ("orgtree_reallocate", reallocate_spec, _reallocate_body),
+            ("orgtree_request_credits", request_spec, _request_body),
+            ("orgtree_status", status_spec, _status_body),
+            ("orgtree_reservation", reservation_spec, _reservation_body),
+            ("orgtree_resource_reservation", reservation_spec,
+             _reservation_body),
+            # rows only, no body: stays on the cycle, but its kiosk
+            # exemption must reach pgdoor's one list
+            ("orgtree_watchdog", watchdog_spec, None)):
+        pgdoor.declare(name, spec, body=body,
+                       kiosk_exempt=name in KIOSK_EXEMPT)
 
 
 declare_all()
