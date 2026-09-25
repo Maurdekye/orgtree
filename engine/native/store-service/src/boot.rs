@@ -105,3 +105,27 @@ pub fn ready_line(pid: u32, port: u16, service_incarnation: &str, descriptor: &P
            "descriptor": descriptor.display().to_string()})
     .to_string()
 }
+
+/// Upper bound for a `--*-timeout-ms` flag: one hour.
+pub const MAX_TIMEOUT_MS: u64 = 3_600_000;
+
+/// Apply one `--lock-timeout-ms` / `--statement-timeout-ms` /
+/// `--idle-in-transaction-timeout-ms` flag (review N3). The value must be a
+/// whole number of milliseconds in `1..=MAX_TIMEOUT_MS`: a timeout can be
+/// raised for a WS7 schedule but never switched off (review F4). A refused
+/// flag leaves `cfg` unchanged.
+pub fn set_timeout(cfg: &mut orgtree_store::ExecConfig, flag: &str, value: Option<&str>) -> Result<(), String> {
+    let v = value.ok_or_else(|| format!("{flag} needs a value in milliseconds"))?;
+    let ms: u64 = v.parse().map_err(|_| format!("{flag}: {v:?} is not a whole number of milliseconds"))?;
+    if ms == 0 || ms > MAX_TIMEOUT_MS {
+        return Err(format!("{flag}: {ms} is outside 1..={MAX_TIMEOUT_MS} (a timeout cannot be switched off)"));
+    }
+    let slot = match flag {
+        "--lock-timeout-ms" => &mut cfg.lock_timeout_ms,
+        "--statement-timeout-ms" => &mut cfg.statement_timeout_ms,
+        "--idle-in-transaction-timeout-ms" => &mut cfg.idle_in_transaction_timeout_ms,
+        other => return Err(format!("unknown timeout flag {other}")),
+    };
+    *slot = Some(ms);
+    Ok(())
+}
