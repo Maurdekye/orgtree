@@ -6174,7 +6174,7 @@ def credit_request_decide(slug: str, body: CreditDecision) -> dict[str, Any]:
 
     def _decide(tx: Any) -> dict[str, Any]:
         org = tx.org
-        rcdoor.require(tx.spec, rcdoor.decide_rows(org, body.id))
+        rcdoor.hold(slug, rcdoor.decide_rows(org, body.id))
         req = org.credit_request_action(body.id, body.action,
                                         granted=body.granted)
         _kiosk_cap_check(org)
@@ -11159,7 +11159,11 @@ def _agent_door(body: AgentCall, a: dict[str, Any],
             if routed and not result.get("deferred"):
                 tx.after.drive.append(str(routed))
         k = supervisor.kiosk_cfg(tx.org)
-        if k and int(k.get("credits") or 0) > 0:
+        # PG-3c (lead decision 18.8): tools proven unable to move top-level
+        # holdings skip the cap (rcdoor.KIOSK_EXEMPT; the same rule as the
+        # cycle's epilogue, proof in tests/test_pg3c_kiosk_exempt.py)
+        if k and int(k.get("credits") or 0) > 0 \
+                and body.tool not in rcdoor.KIOSK_EXEMPT:
             # the cap is a decision on the kiosk section: hold it
             with pgdoor.join(body.org, share_sections=["kiosk"]):
                 _kiosk_cap_check(tx.org)
