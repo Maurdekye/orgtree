@@ -1,0 +1,16 @@
+[package]
+name = "orgtree-ws6-spike"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "THROWAWAY P03 WS6 spike: go/no-go for pg_walstream as the pgoutput client. Not for landing."
+license = "MIT"
+
+[dependencies]
+pg_walstream = "=0.9.0"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+tokio-postgres = "=0.7.18"
+anyhow = "1"
+
+[profile.dev]
+debug = 0
