@@ -82,6 +82,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, model_validator
 
 from . import account_fallback as accountfallback
+from . import orgtx
 from . import crashreports
 from . import events
 from . import registry
@@ -6422,13 +6423,14 @@ def document_mockup(slug: str, did: str, request: Request) -> Response:
 @app.delete("/api/orgs/{slug}/documents/{did}")
 def document_dismiss(slug: str, did: str) -> dict[str, Any]:
     """FR-03: the card's ✕ — remove a presented document."""
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-            r = org.dismiss_document(did)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
-        store.save_org(org)
+    # PG-3r: one row transaction; the dismissal edits the `documents` log and
+    # appends its `present_dismissed` event. A refusal rolls back.
+    from . import orgtx
+    try:
+        with orgtx.org_tx(slug, logs=["documents", "events"]) as tx:
+            r = tx.org.dismiss_document(did)
+    except LedgerError as e:
+        raise HTTPException(404, str(e))
     hub_changed(slug)
     return {"ok": True, "node": r["node"]}
 
@@ -8722,6 +8724,20 @@ def _continue_lock(slug: str, nid: str) -> threading.Lock:
         return _continue_locks.setdefault((slug, nid), threading.Lock())
 
 
+def unstick_rows(slug: str, nid: str) -> dict[str, Any]:
+    """PG-3r: the org_tx names for `Org.unstick(actor, nid)`. It writes the
+    seat's node row, the org-wide `fable_lock`, the `policy.unstuck` notice
+    and its log lines; it clears `fable_lock` only when no OTHER node is
+    limit-locked, and checks the actor's authority up the chain, so every
+    other node row is read for that decision (FOR SHARE). A node created
+    after the pre-read is born without `limit_locked`, so it cannot change
+    the decision. Reused by any door that unsticks (node_unstick's owner)."""
+    others = [k for k in orgtx.org_read(slug).nodes if k != nid]
+    return {"nodes": [nid], "share_nodes": others,
+            "sections": ["fable_lock", "notices"], "share_sections": ["spend_frozen"],
+            "logs": ["notice_log", "events"]}
+
+
 def _continue_on_account(slug: str, nid: str, account: str, *, actor: str,
                          via: str, banner: str, retry_hint: str,
                          sender: str | None = None) -> dict[str, Any]:
@@ -8767,23 +8783,25 @@ def _continue_on_account(slug: str, nid: str, account: str, *, actor: str,
         raise HTTPException(409, f"{nid} is already being continued on another "
                                  f"account; that operation is still running")
     try:
-        with store.DOC_LOCK:
-            try:
-                org = store.load_org(slug)
-                node = org.node(nid)
-            except LedgerError as e:
-                raise HTTPException(404, str(e)) from e
-            if not accountfallback.manual_only(org, nid):
-                # covers: not frozen any more, automatic fallback on, busy,
-                # already switching, or a freeze another account cannot clear
-                raise HTTPException(
-                    409, f"{nid} cannot be continued on another account right "
-                         f"now — it is not frozen in a way a different account "
-                         f"would clear, or automatic account fallback is on")
-            rows = registry.list_accounts(org=slug)
-            offered = {str(r["id"]) for r in
-                       accountfallback.replacements(org, nid, rows)}
-            tier = str(node.get("model") or "")
+        # PG-3r: the eligibility gate is a lock-free coherent read; the
+        # switch itself (assign_account) and the release below are the
+        # writes, each in its own row transaction.
+        try:
+            org = orgtx.org_read(slug)
+            node = org.node(nid)
+        except LedgerError as e:
+            raise HTTPException(404, str(e)) from e
+        if not accountfallback.manual_only(org, nid):
+            # covers: not frozen any more, automatic fallback on, busy,
+            # already switching, or a freeze another account cannot clear
+            raise HTTPException(
+                409, f"{nid} cannot be continued on another account right "
+                     f"now — it is not frozen in a way a different account "
+                     f"would clear, or automatic account fallback is on")
+        rows = registry.list_accounts(org=slug)
+        offered = {str(r["id"]) for r in
+                   accountfallback.replacements(org, nid, rows)}
+        tier = str(node.get("model") or "")
         if account not in offered:
             raise HTTPException(
                 422, f"{account!r} is not an alternative account for {nid} — "
@@ -8809,26 +8827,24 @@ def _continue_on_account(slug: str, nid: str, account: str, *, actor: str,
                                      f"and unchanged: {e}") from e
         # …switched. From here the agent IS on the new account whatever else
         # happens, so every exit below says so.
-        with store.DOC_LOCK:
-            try:
-                org = store.load_org(slug)
-                # the ACTOR, not USER: `unstuck.by` is the audit record of who
-                # released this seat, and an agent's rescue must not be filed
-                # under the user's name. The authority re-check it performs is
-                # the same strict-descent one the agent door already passed.
-                released = org.unstick(actor, nid)
-                store.save_org(org)
-            except LedgerError as e:
-                return {"switched": True, "resumed": False,
-                        "state": "switched_not_resumed", "account": account,
-                        "disclosure": disclosure,
-                        "error": str(e),
-                        "agent": "idle",
-                        "retry": retry_hint,
-                        "status": f"{nid} is now on {account} but is STILL "
-                                  f"FROZEN — releasing it failed ({e}). Its "
-                                  f"held work has not resumed and it is IDLE; "
-                                  f"use {retry_hint} to finish the move."}
+        try:
+            # the ACTOR, not USER: `unstuck.by` is the audit record of who
+            # released this seat, and an agent's rescue must not be filed
+            # under the user's name. The authority re-check it performs is
+            # the same strict-descent one the agent door already passed.
+            with orgtx.org_tx(slug, **unstick_rows(slug, nid)) as tx:
+                released = tx.org.unstick(actor, nid)
+        except LedgerError as e:
+            return {"switched": True, "resumed": False,
+                    "state": "switched_not_resumed", "account": account,
+                    "disclosure": disclosure,
+                    "error": str(e),
+                    "agent": "idle",
+                    "retry": retry_hint,
+                    "status": f"{nid} is now on {account} but is STILL "
+                              f"FROZEN — releasing it failed ({e}). Its "
+                              f"held work has not resumed and it is IDLE; "
+                              f"use {retry_hint} to finish the move."}
         # ⚠ WHETHER IT IS RUNNING IS READ, NOT ASSUMED. Releasing a freeze is
         # not the only hold on a seat: a HALTED node (and the docket's own
         # workaround halted one) takes the replay into its durable queue and
@@ -10593,14 +10609,15 @@ def _forced_self_restart(body: AgentCall, a: dict[str, Any]) -> dict[str, Any]:
     reason = str(a.get("reason") or "")
     if target not in ("org", "mailhub", "both"):
         raise HTTPException(422, "target must be org|mailhub|both")
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-            org.node(nid)
-            org.self_restart_gate(nid, force=True, reason=reason)
-        except LedgerError as e:
-            raise HTTPException(422, str(e))
-        store.save_org(org)
+    # PG-3r: the gate reads the caller's row and the audience/kiosk sections
+    # for its authority decision and appends its `self_restart` event.
+    try:
+        with orgtx.org_tx(slug, share_nodes=[nid], share_sections=["audiences", "kiosk"],
+                          logs=["events"]) as tx:
+            tx.org.node(nid)
+            tx.org.self_restart_gate(nid, force=True, reason=reason)
+    except LedgerError as e:
+        raise HTTPException(422, str(e))
     # ⚠ the mailhub leg never had a mid-turn precondition — it rebuilds a
     # container and no agent turn runs through it — so there is nothing for
     # force to force. Stopping the machine for it would be pure damage.
@@ -10612,12 +10629,11 @@ def _forced_self_restart(body: AgentCall, a: dict[str, Any]) -> dict[str, Any]:
     r = supervisor.launch_self_restart(slug, nid, target,
                                        force=True, quiesced=q)
     if q:
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
-            org.log_forced_restart(
+        # PG-3r: the cost record is one appended event.
+        with orgtx.org_tx(slug, logs=["events"]) as tx:
+            tx.org.log_forced_restart(
                 nid, cast("list[str]", q.get("cut") or []),
                 cast("list[str]", q.get("not_settled") or []))
-            store.save_org(org)
     hub_changed(slug)
     return r
 
