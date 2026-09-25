@@ -1,0 +1,14 @@
+[package]
+name = "orgtree-store-trace"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "P03 WS7 contact-trace collector: orgtree.p03-trace/v1 records, bounded per-stream buffers with sequence numbers and loss counters, and the SQL-text relation/lock-mode deriver"
+license = "MIT"
+
+[lib]
+path = "src/lib.rs"
+
+# No third-party dependencies: the records are written as JSON by hand
+# (src/json.rs), so this crate adds nothing to engine/native/store/DEPENDENCIES.md.
+[dependencies]
