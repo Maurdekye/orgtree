@@ -99,13 +99,15 @@ class ForcedInterleaving(unittest.TestCase):
         """The meta-control: the barrier is gone, so the interleaving is not forced."""
         result = run_order(FakeExecutor(OPS, barriers=False), schedule(1.0), SAFE)
         self.assertEqual(result.verdict, FAILED)
-        self.assertTrue(any("interleaving not achieved" in r for r in result.reasons),
-                        result.reasons)
+        # the FIRST unreached point is what fails the run, and the run stops there
+        self.assertEqual(result.reasons[0], f"interleaving not achieved: A never reached {WRITE}")
         self.assertIsNone(result.pass_condition_held)
 
     def test_build_without_pause_points_is_refused(self):
         result = run_order(FakeExecutor(OPS, qualification=False), schedule(), SAFE)
         self.assertEqual(result.verdict, REFUSED)
+        self.assertIn("the build reports no qualification pause points: refusing to drive it",
+                      result.reasons)
         self.assertEqual(result.records, [])
 
     def test_plan_naming_an_unknown_point_is_refused(self):
@@ -147,6 +149,18 @@ class UnsafeControls(unittest.TestCase):
         self.assertEqual(verdict["verdict"], "FAILED")
         self.assertTrue(any("not a valid control run" in r for r in verdict["reasons"]))
 
+    def test_control_that_ran_but_broke_nothing_is_a_failed_control(self):
+        """It ran, in its order, on a complete run, but the schedule still passed."""
+        lenient = schedule()
+        lenient.pass_condition = lambda _r, _a, final: final["rows"].get("counter", 0) >= 1
+        result = run_order(FakeExecutor(OPS, controls={CONTROL_ID}), lenient, OVERTAKE)
+        self.assertIs(result.pass_condition_held, True, result.reasons)
+        verdict = ctl.control_verdict(CONTROL, result)
+        self.assertEqual(verdict["verdict"], "FAILED")
+        self.assertGreaterEqual(verdict["executed_records"], 1)
+        self.assertIn("the schedule's pass condition still held: the control did not break it",
+                      verdict["reasons"])
+
     def test_registry_refuses_duplicates_and_empty_fields(self):
         reg = ctl.Registry()
         reg.register(CONTROL)
@@ -168,7 +182,9 @@ class Checkers(unittest.TestCase):
         gap = [self.rec(1), self.rec(3, "stream_end", last_seq=3, clean=True)]
         self.assertFalse(stream_health(gap, ["s"])["complete"])
         self.assertFalse(stream_health(ok, [])["complete"])            # manifest names nothing
-        self.assertFalse(stream_health(ok, ["s", "silent"])["complete"])  # a stream never spoke
+        silent = stream_health(ok, ["s", "silent"])                  # a stream never spoke
+        self.assertFalse(silent["complete"])
+        self.assertIn("no records at all", silent["streams"]["silent"]["problems"])
         self.assertFalse(stream_health(ok + [dict(self.rec(1), stream="stray")], ["s"])["complete"])
 
     def test_compare_catches_a_reversed_order(self):
