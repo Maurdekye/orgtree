@@ -6070,10 +6070,10 @@ def _validate_steer_actor(request: Request | None, slug: str, nid: str) -> None:
     valid = False
     if isinstance(identity, (tuple, list)) and len(identity) == 4 and tuple(identity[:2]) == (slug, nid):
         try:
-            with store.DOC_LOCK:
-                node = store.load_org(slug).node(nid)
-                valid = (node.get("state") == "live" and int(node.get("generation", 0)) == identity[2]
-                         and str(node.get("seat_id") or "") == identity[3])
+            # PG-3e-A: a pure read — one coherent lock-free org_read
+            node = orgtx.org_read(slug).node(nid)
+            valid = (node.get("state") == "live" and int(node.get("generation", 0)) == identity[2]
+                     and str(node.get("seat_id") or "") == identity[3])
         except (KeyError, ValueError, OSError):
             pass
     if not valid:
@@ -9275,13 +9275,16 @@ def node_unstick(slug: str, nid: str) -> dict[str, Any]:
     kept replay texts (or a nudge), exactly as ▶ resume would have. This
     endpoint is loopback-admin like every other user control; there is
     deliberately NO agent verb for it."""
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-            r = org.unstick(USER, nid)
-        except LedgerError as e:
-            raise HTTPException(422, str(e))
-        store.save_org(org)
+    # PG-3e-A: one halt transaction on the agent's row, the org fable_lock
+    # (released when this was its last holder; the Fable escalation writes
+    # the same row, so the two are ordered), and the notice/event it writes.
+    try:
+        with supervisor.halt.txn(slug, nodes=[nid],
+                                 sections=["fable_lock", "notices"],
+                                 logs=["events", "notice_log"]) as _us_tx:
+            r = _us_tx.org.unstick(USER, nid)
+    except LedgerError as e:
+        raise HTTPException(422, str(e))
     if r.get("released"):
         texts = cast("list[str]", r.get("resume_texts") or []) or [
             "(orgtree) The user manually UNSTUCK you (override) — handle "
