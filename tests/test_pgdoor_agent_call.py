@@ -83,6 +83,100 @@ class Hook(unittest.TestCase):
     def rev(self):
         return orgtx.backend().revision(self.slug)
 
+    # ---------------------------------------------------------------- D1
+    # Review D1 / plan decision 26: no code path may ACQUIRE DOC_LOCK while it
+    # holds org_tx row locks. A body that leaves an `_account_selection` makes
+    # the door bind the account inside its transaction — through
+    # supervisor.assign_account, which took `with store.DOC_LOCK`.
+
+    def _account_tool(self):
+        from orgtree import registry
+        row = registry.create_account(
+            'claude', 't', {'kind': 'managed',
+                            'path': os.path.join(_root.name, f'acct-{self.slug}')})
+        org = store.load_org(self.slug)
+        org.node('worker')['model'] = 'opus'
+        store.save_org(org)
+
+        def body(tx):
+            self.runs += 1
+            return {'ok': True,
+                    '_account_selection': ('worker', row['id'], 'manual')}
+        pgdoor.LOCKS.pop(TOOL, None)
+        pgdoor.BODIES.pop(TOOL, None)
+        pgdoor.declare(TOOL, pgdoor.TxSpec(logs=('events',)), body=body)
+        return row['id']
+
+    def test_account_binding_takes_no_doc_lock_inside_the_transaction(self):
+        rid = self._account_tool()
+        real, inside = store.DOC_LOCK, []
+
+        class Probe:
+            """DOC_LOCK, recording every acquisition made while a door
+            transaction is open on this context."""
+            def _mark(self):
+                if pgdoor._CURRENT.get() is not None:
+                    inside.append(1)
+
+            def __enter__(self):
+                self._mark()
+                return real.__enter__()
+
+            def __exit__(self, *e):
+                return real.__exit__(*e)
+
+            def acquire(self, *a, **k):
+                self._mark()
+                return real.acquire(*a, **k)
+
+            def release(self):
+                return real.release()
+
+        with patch.object(store, 'DOC_LOCK', Probe()):
+            r = self.call()
+        self.assertEqual(r['account'], rid)
+        self.assertEqual(store.load_org(self.slug).node('worker').get('account'), rid)
+        self.assertEqual(self.runs, 1)
+        self.assertEqual(inside, [], 'DOC_LOCK acquired under the row locks')
+
+    def test_account_binding_does_not_wait_for_a_doc_lock_holder(self):
+        """The deadlock's mechanism (review P7), deterministic: another thread
+        holds DOC_LOCK. A door call that needs it would block until release —
+        and a legacy holder waiting on the door's row would never release."""
+        import threading
+        fence = getattr(orgtx, 'TRANSITION_FENCE', None)
+        if fence is not None:
+            orgtx.TRANSITION_FENCE = False       # the fence takes it BEFORE rows
+            self.addCleanup(setattr, orgtx, 'TRANSITION_FENCE', fence)
+        rid = self._account_tool()
+        held, release, done, out = (threading.Event(), threading.Event(),
+                                    threading.Event(), {})
+
+        def holder():
+            with store.DOC_LOCK:
+                held.set()
+                release.wait(10)
+
+        def caller():
+            try:
+                out['r'] = self.call()
+            except BaseException as e:      # noqa: BLE001
+                out['e'] = e
+            done.set()
+
+        h = threading.Thread(target=holder, daemon=True)
+        h.start()
+        self.assertTrue(held.wait(5))
+        c = threading.Thread(target=caller, daemon=True)
+        c.start()
+        finished = done.wait(3)
+        release.set()
+        c.join(10)
+        h.join(10)
+        self.assertTrue(finished, 'the door call waited for DOC_LOCK')
+        self.assertNotIn('e', out, out.get('e'))
+        self.assertEqual(out['r']['account'], rid)
+
     def test_declared_tool_runs_on_the_door_not_the_cycle(self):
         self.declare(self.good)
         r0 = self.rev()
