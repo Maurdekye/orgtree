@@ -78,6 +78,9 @@ pub struct DevUp {
     pub started: bool,
     pub runtime: RuntimeRecord,
     pub ready: bool,
+    pub qual_logging_configured: bool,
+    pub qual_logging_effective: bool,
+    pub qual_log_dir: PathBuf,
     pub readiness_failures: Vec<String>,
     pub env: BTreeMap<String, String>,
 }
@@ -85,7 +88,7 @@ pub struct DevUp {
 /// Mark (if new), initialize (if absent), start (if stopped) and identify the
 /// agent's cluster, then return its URLs. A cluster that is already running
 /// is identified, never trusted by port or PID alone.
-pub fn up(env: &Env, home: &Path, bin: &PgBin, agent: &str) -> Result<DevUp> {
+pub fn up(env: &Env, home: &Path, bin: &PgBin, agent: &str, qual_logging: Option<bool>) -> Result<DevUp> {
     let path = agent_root(home, agent)?;
     let (root, created) = match guard::validate_root(&path, env) {
         Ok(r) => (r, false),
@@ -96,6 +99,12 @@ pub fn up(env: &Env, home: &Path, bin: &PgBin, agent: &str) -> Result<DevUp> {
         cluster::init(&root, bin, &InitOptions::default())?;
     }
     let started = !matches!(cluster::state(&root, bin)?, ClusterState::Running { .. });
+    if let Some(want) = qual_logging {
+        if cluster::qual_logging_configured(&root) != want {
+            // Refuses while running: the switch needs a restart.
+            cluster::set_qual_logging(&root, bin, want)?;
+        }
+    }
     if started {
         cluster::start(&root, bin, Some(port_for(agent)))?;
     }
@@ -112,6 +121,9 @@ pub fn up(env: &Env, home: &Path, bin: &PgBin, agent: &str) -> Result<DevUp> {
         // 2026-09-25); everything else shows the redacted form.
         env: cluster::urls(&root, &runtime)?.into_iter().map(|(k, v)| (k, redact(&v))).collect(),
         ready: id.ready(),
+        qual_logging_configured: id.qual_logging_configured,
+        qual_logging_effective: id.qual_logging_effective,
+        qual_log_dir: root.path().join(cluster::QUAL_LOG_DIR),
         readiness_failures: id.readiness_failures,
         runtime,
     })
@@ -128,6 +140,7 @@ pub struct ClusterListing {
     pub state: serde_json::Value,
     pub port: Option<u16>,
     pub postmaster_pid: Option<u32>,
+    pub qual_logging_configured: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -150,6 +163,7 @@ pub fn status_all(env: &Env, home: &Path, bin: &PgBin) -> Result<AllStatus> {
         names.sort_by_key(|e| e.file_name());
         for e in names {
             let agent = e.file_name().to_string_lossy().to_string();
+            let qual = guard::validate_root(&e.path(), env).ok().map(|r| cluster::qual_logging_configured(&r));
             let (state, port, pid) = match guard::validate_root(&e.path(), env).and_then(|r| cluster::state(&r, bin)) {
                 Ok(ClusterState::Running { postmaster_pid, runtime, .. }) => {
                     listed_pids.push(postmaster_pid);
@@ -158,7 +172,7 @@ pub fn status_all(env: &Env, home: &Path, bin: &PgBin) -> Result<AllStatus> {
                 Ok(s) => (serde_json::to_value(&s).map(|v| v["state"].clone()).unwrap_or_default(), None, None),
                 Err(err) => (serde_json::json!({"refused": err.code, "message": err.message}), None, None),
             };
-            clusters.push(ClusterListing { agent, root: e.path(), state, port, postmaster_pid: pid });
+            clusters.push(ClusterListing { agent, root: e.path(), state, port, postmaster_pid: pid, qual_logging_configured: qual });
         }
     }
     // A postmaster is a postgres.exe whose parent is not a postgres.exe.
