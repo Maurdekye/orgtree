@@ -35,6 +35,7 @@ pub mod sent;
 pub mod session;
 pub mod status;
 pub mod value;
+pub mod work;
 
 #[cfg(any(test, feature = "fake"))]
 pub mod fake;

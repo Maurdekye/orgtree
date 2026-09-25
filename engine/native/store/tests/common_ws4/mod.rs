@@ -1,0 +1,415 @@
+#![allow(dead_code)]
+//! Shared fixture for WS4's database-backed tests (`ws4_*_pg.rs`): the schema
+//! reset on THIS agent's disposable cluster, a small organization with
+//! funding, an executor on the runtime role with a pause hook that holds by
+//! point name (reads mint their own operation key), armed controls, a trace
+//! recorder, and admin-side probes.
+//!
+//! Every DB test is `#[ignore]` and runs ONLY through the P03 run lock
+//! (`artifacts\machine-test-run\p03-run.ps1` → `artifacts\run-pg.ps1`). A
+//! missing URL PANICS: a skipped DB test must never read as a pass.
+
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use orgtree_store::conn::{Factory, PgConfig};
+use orgtree_store::hooks::{BoxFuture, ControlPlan, EventKind, HookAction, Hooks, PauseHook, PausePoint, TraceEvent, TraceSink};
+use orgtree_store::{Binding, CmdError, Command, Decided, ExecConfig, Executor, Family, Isolation, KeyNamespace, OpIdentity, Principal, Refusal, Session, Tx, Uuid};
+use tokio::sync::{mpsc, Semaphore};
+
+const OWN_CLUSTER: &str = "\\artifacts\\p03-db\\p03-ws4-rcfamilies\\";
+
+pub fn url(name: &str) -> String {
+    std::env::var(name).unwrap_or_else(|_| panic!("{name} is not set: this DB test did NOT run (use run-pg.ps1 through p03-run.ps1)"))
+}
+
+pub fn org() -> Uuid {
+    Uuid::from_u128(0x0000_0000_0000_4000_8000_0000_0000_4004)
+}
+fn agent_id(n: u128) -> Uuid {
+    Uuid::from_u128(0x0000_0000_0000_4000_8000_0000_0004_a000 + n)
+}
+/// alpha: top level, grant 100
+pub fn a() -> Uuid {
+    agent_id(1)
+}
+/// bravo: child of alpha, grant 20
+pub fn b() -> Uuid {
+    agent_id(2)
+}
+/// charlie: child of bravo, grant 5
+pub fn c() -> Uuid {
+    agent_id(3)
+}
+/// delta: child of alpha, grant 10
+pub fn d() -> Uuid {
+    agent_id(4)
+}
+/// echo: top level, grant 50
+pub fn e() -> Uuid {
+    agent_id(5)
+}
+pub fn name_of(x: Uuid) -> &'static str {
+    match x {
+        _ if x == a() => "alpha",
+        _ if x == b() => "bravo",
+        _ if x == c() => "charlie",
+        _ if x == d() => "delta",
+        _ if x == e() => "echo",
+        _ => "?",
+    }
+}
+pub fn mb(agent: Uuid) -> Uuid {
+    Uuid::from_u128(agent.as_u128() + 0x100)
+}
+pub fn user_mb() -> Uuid {
+    Uuid::from_u128(0x0000_0000_0000_4000_8000_0000_0004_b0b0)
+}
+pub fn incarnation() -> Uuid {
+    Uuid::from_u128(0x4c)
+}
+pub fn new_id() -> Uuid {
+    Uuid::new_v4()
+}
+
+/// Seat price per tier, in hundredths (catalog version 1): opus 3.00.
+pub const OPUS_CENTI: i64 = 300;
+
+async fn admin() -> tokio_postgres::Client {
+    let (admin, conn) = tokio_postgres::connect(&url("P03_PG_ADMIN_URL"), tokio_postgres::NoTls).await.expect("admin connect");
+    tokio::spawn(async move {
+        let _ = conn.await;
+    });
+    admin
+}
+
+/// Rebuild the schema from every migration and seed the fixture org:
+/// alpha(100) → {bravo(20) → charlie(5), delta(10)}; echo(50). Every seat is
+/// opus (3.00). Capacity rows hold each payer's live child aggregate.
+pub async fn reset() {
+    let admin = admin().await;
+    let dir: String = admin.query_one("SHOW data_directory", &[]).await.unwrap().get(0);
+    assert!(
+        dir.replace('/', "\\").to_ascii_lowercase().contains(&OWN_CLUSTER.to_ascii_lowercase()),
+        "refusing to rebuild a cluster that is not this agent's disposable one: {dir}"
+    );
+    admin.batch_execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;").await.unwrap();
+    for m in orgtree_store_schema::MIGRATIONS {
+        let sql = orgtree_store_schema::normalized(m.sql);
+        admin.batch_execute(&format!("BEGIN;\n{sql}\nCOMMIT;")).await.unwrap_or_else(|e| panic!("{}: {e:?}", m.file));
+    }
+    admin
+        .execute("INSERT INTO store_incarnation (database_id, incarnation) VALUES ($1, $2)", &[&Uuid::from_u128(0xdb4), &incarnation()])
+        .await
+        .unwrap();
+    let o = org();
+    let mut sql = format!(
+        "INSERT INTO organizations (org_id, slug, created_at) VALUES ('{o}', 'p03-ws4', now());
+         INSERT INTO org_controls (org_id, family, value) VALUES
+           ('{o}', 'killswitch', '{{}}'), ('{o}', 'extern_holders', '{{\"multi_holder\": false}}'),
+           ('{o}', 'restriction_epoch', '{{}}'), ('{o}', 'kiosk', '{{}}'), ('{o}', 'caps', '{{}}'),
+           ('{o}', 'cascade', '{{}}'), ('{o}', 'defaults', '{{}}'), ('{o}', 'directories', '{{}}');
+         INSERT INTO mailboxes (org_id, mailbox_id, owner_kind, owner_id, incarnation, state) VALUES ('{o}', '{u}', 'user', NULL, 1, 'open');
+         INSERT INTO catalog_current (org_id, catalog_version) VALUES ('{o}', 1);
+         INSERT INTO price_catalog (org_id, catalog_version, tier, seat_centi) VALUES ('{o}', 1, 'opus', {OPUS_CENTI}), ('{o}', 1, 'sonnet', 100);",
+        u = user_mb()
+    );
+    for (id, name, parent, grant) in [
+        (a(), "alpha", None, 10_000),
+        (b(), "bravo", Some(a()), 2_000),
+        (c(), "charlie", Some(b()), 500),
+        (d(), "delta", Some(a()), 1_000),
+        (e(), "echo", None, 5_000),
+    ] {
+        let p = parent.map(|p| format!("'{p}'")).unwrap_or_else(|| "NULL".into());
+        sql.push_str(&format!(
+            "INSERT INTO agents (org_id, principal_id, name, seat_id, tier, created_at) VALUES ('{o}', '{id}', '{name}', gen_random_uuid(), 'opus', now());
+             INSERT INTO agent_names (org_id, name, principal_id, kind) VALUES ('{o}', '{name}', '{id}', 'active');
+             INSERT INTO authority_epoch (org_id, principal_id, lifecycle, generation) VALUES ('{o}', '{id}', 'live', 1);
+             INSERT INTO topology_edges (org_id, principal_id, parent_id) VALUES ('{o}', '{id}', {p});
+             INSERT INTO scope_rows (org_id, principal_id, depth, visibility, permission_mode) VALUES ('{o}', '{id}', 0, 'team', 'default');
+             INSERT INTO runtime_state (org_id, principal_id, updated_at) VALUES ('{o}', '{id}', now());
+             INSERT INTO status_rows (org_id, principal_id) VALUES ('{o}', '{id}');
+             INSERT INTO issuer_capacity (org_id, principal_id) VALUES ('{o}', '{id}');
+             INSERT INTO funding_edges (org_id, child_id, issuer_id, tier, grant_centi) VALUES ('{o}', '{id}', {p}, 'opus', {grant});
+             INSERT INTO mailboxes (org_id, mailbox_id, owner_kind, owner_id, incarnation, state) VALUES ('{o}', '{m}', 'agent', '{id}', 1, 'open');",
+            m = mb(id)
+        ));
+    }
+    // capacity aggregates = live children (grant sum, seats per tier)
+    sql.push_str(&format!(
+        "UPDATE issuer_capacity ic SET child_grants_centi = s.g, child_seats = jsonb_build_object('opus', s.n)
+           FROM (SELECT issuer_id, sum(grant_centi)::bigint AS g, count(*) AS n FROM funding_edges WHERE org_id = '{o}' AND issuer_id IS NOT NULL GROUP BY issuer_id) s
+          WHERE ic.org_id = '{o}' AND ic.principal_id = s.issuer_id;"
+    ));
+    admin.batch_execute(&sql).await.unwrap();
+}
+
+pub async fn admin_exec(sql: &str) {
+    admin().await.batch_execute(sql).await.unwrap_or_else(|e| panic!("{sql}: {e:?}"));
+}
+
+pub async fn count(sql: &str) -> i64 {
+    admin().await.query_one(sql, &[]).await.unwrap_or_else(|e| panic!("{sql}: {e:?}")).get(0)
+}
+
+pub async fn text(sql: &str) -> String {
+    admin().await.query_one(sql, &[]).await.unwrap_or_else(|e| panic!("{sql}: {e:?}")).get(0)
+}
+
+pub async fn opt_text(sql: &str) -> Option<String> {
+    admin().await.query_one(sql, &[]).await.unwrap_or_else(|e| panic!("{sql}: {e:?}")).get(0)
+}
+
+pub async fn uuid_of(sql: &str) -> Option<Uuid> {
+    admin().await.query_one(sql, &[]).await.unwrap_or_else(|e| panic!("{sql}: {e:?}")).get(0)
+}
+
+// ---------------------------------------------------------------- hooks
+
+/// Holds and actions keyed by the FULL point name `<family>.<verb>.<point>`
+/// and optionally an operation key (None = the first operation to arrive).
+#[derive(Default)]
+pub struct Script {
+    actions: Mutex<HashMap<(Option<String>, String), HookAction>>,
+    holds: Mutex<HashMap<(Option<String>, String), (mpsc::UnboundedSender<u32>, Arc<Semaphore>)>>,
+}
+
+pub struct Held {
+    pub arrived: mpsc::UnboundedReceiver<u32>,
+    pub release: Arc<Semaphore>,
+}
+
+impl Held {
+    /// Wait for the planned point; its absence fails the run.
+    pub async fn arrive(&mut self) -> u32 {
+        tokio::time::timeout(Duration::from_secs(20), self.arrived.recv())
+            .await
+            .expect("planned point never reached: interleaving not achieved")
+            .expect("hold channel closed")
+    }
+    pub fn go(&self) {
+        self.release.add_permits(1);
+    }
+}
+
+impl Script {
+    pub fn act(&self, key: Option<&str>, point: &str, a: HookAction) {
+        self.actions.lock().unwrap().insert((key.map(str::to_string), point.into()), a);
+    }
+    pub fn hold(&self, key: Option<&str>, point: &str) -> Held {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let sem = Arc::new(Semaphore::new(0));
+        self.holds.lock().unwrap().insert((key.map(str::to_string), point.into()), (tx, sem.clone()));
+        Held { arrived: rx, release: sem }
+    }
+}
+
+impl PauseHook for Script {
+    fn at<'a>(&'a self, p: &'a PausePoint<'a>) -> BoxFuture<'a, HookAction> {
+        let keyed = (Some(p.op.key.clone()), p.name.to_string());
+        let any = (None, p.name.to_string());
+        let action = {
+            let mut g = self.actions.lock().unwrap();
+            g.remove(&keyed).or_else(|| g.remove(&any))
+        };
+        let hold = {
+            let mut g = self.holds.lock().unwrap();
+            g.remove(&keyed).or_else(|| g.remove(&any))
+        };
+        let attempt = p.attempt;
+        Box::pin(async move {
+            if let Some((arrived, sem)) = hold {
+                let _ = arrived.send(attempt);
+                let _ = sem.acquire().await.map(|p| p.forget());
+            }
+            action.unwrap_or(HookAction::Continue)
+        })
+    }
+}
+
+pub struct Arm(pub Vec<&'static str>);
+impl ControlPlan for Arm {
+    fn armed(&self, id: &str, _: &OpIdentity, _: Option<&str>) -> bool {
+        self.0.contains(&id)
+    }
+}
+
+/// A compact trace: control executions, retries, statement errors, commits
+/// and outcomes, each with its operation key, in emission order.
+#[derive(Default)]
+pub struct Events(pub Mutex<Vec<String>>);
+impl TraceSink for Events {
+    fn event(&self, e: &TraceEvent<'_>) {
+        let key = e.op.map(|o| o.key.clone()).unwrap_or_default();
+        let s = match &e.kind {
+            EventKind::ControlExecuted { id } => format!("control_executed:{id}"),
+            EventKind::Retry { reason, sqlstate, constraint } => format!("retry:{}.{}:{key}:{reason}:{}:{}", e.family, e.verb, sqlstate.unwrap_or("-"), constraint.unwrap_or("-")),
+            EventKind::Statement { label, sqlstate: Some(s), .. } => format!("stmt_err:{label}:{s}"),
+            EventKind::Commit { .. } => format!("commit:{}.{}:{key}", e.family, e.verb),
+            EventKind::Outcome { outcome } => format!("outcome:{}.{}:{key}:{outcome}", e.family, e.verb),
+            _ => return,
+        };
+        self.0.lock().unwrap().push(s);
+    }
+}
+impl Events {
+    pub fn has(&self, s: &str) -> bool {
+        self.0.lock().unwrap().iter().any(|e| e == s)
+    }
+    pub fn any(&self, prefix: &str) -> bool {
+        self.0.lock().unwrap().iter().any(|e| e.starts_with(prefix))
+    }
+    pub fn count_prefix(&self, prefix: &str) -> usize {
+        self.0.lock().unwrap().iter().filter(|e| e.starts_with(prefix)).count()
+    }
+    pub fn pos(&self, s: &str) -> Option<usize> {
+        self.0.lock().unwrap().iter().position(|e| e == s)
+    }
+    pub fn dump(&self) -> String {
+        self.0.lock().unwrap().join("\n")
+    }
+}
+
+pub struct Ex {
+    pub ex: Executor<Factory>,
+    pub ev: Arc<Events>,
+    pub script: Arc<Script>,
+}
+
+pub fn executor(controls: Vec<&'static str>) -> Ex {
+    let cfg = PgConfig::from_url(&url("P03_PG_RUNTIME_URL")).unwrap();
+    let ev = Arc::new(Events::default());
+    let script = Arc::new(Script::default());
+    let mut h = Hooks::with_trace(ev.clone());
+    h.pause = Some(script.clone());
+    h.controls = Some(Arc::new(Arm(controls)));
+    let ex = Executor::new(
+        Factory::new(cfg.clone(), "executor", h.clone()),
+        8,
+        Factory::new(cfg, "lookup", h.clone()),
+        2,
+        ExecConfig { max_attempts: 8, backoff_base: Duration::from_millis(1), backoff_cap: Duration::from_millis(5), lock_timeout_ms: Some(10_000) },
+        h,
+    );
+    Ex { ex, ev, script }
+}
+
+// ---------------------------------------------------------------- bindings
+
+pub fn agent_binding(agent: Uuid, key: &str) -> Binding {
+    Binding {
+        principal: Principal::Agent { id: agent, generation: 1 },
+        acting: None,
+        op: OpIdentity { org: org(), ns: KeyNamespace::Agent { principal: agent }, key: key.into(), fingerprint: format!("fp-{key}"), fingerprint_codec: "legacy-1", caller_keyed: true },
+        db_incarnation: incarnation(),
+        op_tag: None,
+    }
+}
+
+pub fn user_binding(key: &str) -> Binding {
+    Binding {
+        principal: Principal::User,
+        acting: None,
+        op: OpIdentity { org: org(), ns: KeyNamespace::Minted, key: key.into(), fingerprint: format!("fp-{key}"), fingerprint_codec: "none", caller_keyed: false },
+        db_incarnation: incarnation(),
+        op_tag: None,
+    }
+}
+
+pub fn system_binding(key: &str) -> Binding {
+    Binding {
+        principal: Principal::System,
+        acting: None,
+        op: OpIdentity { org: org(), ns: KeyNamespace::Minted, key: key.into(), fingerprint: "sys".into(), fingerprint_codec: "none", caller_keyed: false },
+        db_incarnation: incarnation(),
+        op_tag: None,
+    }
+}
+
+// ---------------------------------------------------------------- schedule-grade racing writers
+//
+// Stand-ins for WS3's island writers, with the real SQL and the real lock set
+// of the rows WS4's schedules race (SLICE-VERBS C; every result that depends
+// on them says "schedule-grade").
+
+static ISLAND: Family = Family { name: "sg.island", isolation: Isolation::Serializable, retry_unique: &[] };
+static OUTSIDE: Family = Family { name: "sg.outside", isolation: Isolation::ReadCommitted, retry_unique: &[] };
+
+pub enum Racer {
+    /// A move of `node` under `new_parent` (SERIALIZABLE; updates the moved
+    /// node's edge row, as r7 C3 requires).
+    Move { node: Uuid, new_parent: Option<Uuid> },
+    /// A retire of `node`: its authority-epoch row FOR NO KEY UPDATE, then
+    /// archived (SERIALIZABLE; P7 moots pending requests).
+    Retire { node: Uuid },
+    /// A halt of `node` (READ COMMITTED; updates the authority-epoch row).
+    Halt { node: Uuid },
+}
+
+impl Command for Racer {
+    type Output = ();
+    fn family(&self) -> &'static Family {
+        match self {
+            Racer::Halt { .. } => &OUTSIDE,
+            _ => &ISLAND,
+        }
+    }
+    fn verb(&self) -> &'static str {
+        match self {
+            Racer::Move { .. } => "move",
+            Racer::Retire { .. } => "retire",
+            Racer::Halt { .. } => "halt",
+        }
+    }
+    async fn anchor<S: Session>(&self, _tx: &mut Tx<'_, S>, _b: &Binding) -> Result<(), CmdError> {
+        Ok(())
+    }
+    async fn may_disclose<S: Session>(&self, _tx: &mut Tx<'_, S>, _b: &Binding, _o: &()) -> Result<bool, CmdError> {
+        Ok(true)
+    }
+    async fn execute<S: Session>(&self, tx: &mut Tx<'_, S>, b: &Binding) -> Result<Decided<()>, CmdError> {
+        use orgtree_store::Val;
+        let org = b.op.org;
+        match self {
+            Racer::Move { node, new_parent } => {
+                tx.exec("sg.move.edge", "UPDATE topology_edges SET parent_id = $3, version = version + 1 WHERE org_id = $1 AND principal_id = $2", &[Val::Uuid(org), Val::Uuid(*node), Val::opt_uuid(*new_parent)]).await?;
+            }
+            Racer::Retire { node } => {
+                let r = tx.exec("sg.retire.lock_epoch", "SELECT lifecycle FROM authority_epoch WHERE org_id = $1 AND principal_id = $2 FOR NO KEY UPDATE", &[Val::Uuid(org), Val::Uuid(*node)]).await?;
+                if r.first().and_then(|r| r.first()).and_then(Val::as_text) != Some("live") {
+                    return Ok(Decided::Refused(Refusal::new("not_live", "already archived")));
+                }
+                tx.exec("sg.retire.archive", "UPDATE authority_epoch SET lifecycle = 'archived', version = version + 1 WHERE org_id = $1 AND principal_id = $2", &[Val::Uuid(org), Val::Uuid(*node)]).await?;
+                tx.exec("sg.retire.moot", "UPDATE request_batches SET state = 'moot' WHERE org_id = $1 AND asker_id = $2 AND state = 'pending'", &[Val::Uuid(org), Val::Uuid(*node)]).await?;
+            }
+            Racer::Halt { node } => {
+                tx.exec("sg.halt.epoch", "UPDATE authority_epoch SET halted = true, version = version + 1 WHERE org_id = $1 AND principal_id = $2", &[Val::Uuid(org), Val::Uuid(*node)]).await?;
+            }
+        }
+        Ok(Decided::Applied(()))
+    }
+}
+
+/// Run `f` while `h` holds its operation (after the planned point is
+/// reached), keep holding for `hold_ms`, then release. Returns `f`'s output
+/// and whether `f` finished BEFORE the release — i.e. did not wait on the
+/// held transaction. Nothing is cancelled: a waiting `f` completes after the
+/// release, so no connection is dropped mid-transaction.
+pub async fn while_held<F: std::future::Future>(h: &mut Held, hold_ms: u64, f: F) -> (F::Output, bool) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    h.arrive().await;
+    let released = AtomicBool::new(false);
+    let run = async {
+        let o = f.await;
+        (o, !released.load(Ordering::SeqCst))
+    };
+    let rel = async {
+        tokio::time::sleep(Duration::from_millis(hold_ms)).await;
+        released.store(true, Ordering::SeqCst);
+        h.go();
+    };
+    let (out, ()) = tokio::join!(run, rel);
+    out
+}
