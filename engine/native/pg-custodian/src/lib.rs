@@ -17,6 +17,7 @@
 //! WS6's catalog.
 
 pub mod acl;
+pub mod backup;
 pub mod cluster;
 pub mod dev;
 pub mod error;

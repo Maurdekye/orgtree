@@ -3,6 +3,7 @@
 //! The one exception is `dev env`, which prints shell assignments.
 
 use orgtree_pg_custodian::cluster::{self, ClusterState, InitOptions, PgBin};
+use orgtree_pg_custodian::backup;
 use orgtree_pg_custodian::dev;
 use orgtree_pg_custodian::migrate;
 use orgtree_pg_custodian::guard::{self, process_env, Env};
@@ -47,6 +48,10 @@ root commands:
               process family to exit [--timeout SECS, default 600]
               [--force: terminate surviving postgres.exe]
   destroy     delete a STOPPED prototype root entirely
+  backup      --out <new folder>: pg_dump of one exported snapshot + a content
+              manifest (row count and digest per table) from the SAME snapshot
+  restore     --from <backup folder>: into this root's running, EMPTY cluster,
+              one transaction, content verified, then a NEW store incarnation
   qual-logging --qual-logging on|off   set the qualification-logging switch
               on a STOPPED cluster (jsonlog, log_statement=all, bind values
               never logged, files under <root>/qual-logs)
@@ -73,6 +78,8 @@ struct Args {
     immediate: bool,
     force: bool,
     timeout: Option<u64>,
+    out: Option<PathBuf>,
+    from: Option<PathBuf>,
 }
 
 fn parse() -> Result<Args> {
@@ -109,6 +116,8 @@ fn parse() -> Result<Args> {
             }
             "--immediate" => a.immediate = true,
             "--force" => a.force = true,
+            "--out" => a.out = Some(PathBuf::from(val("--out")?)),
+            "--from" => a.from = Some(PathBuf::from(val("--from")?)),
             "--timeout" => {
                 a.timeout = Some(val("--timeout")?.parse().map_err(|_| CustodianError::new("cli.usage", "--timeout takes seconds"))?)
             }
@@ -233,6 +242,14 @@ fn run(a: Args) -> Result<Out> {
         "attach" => {
             let (rt, id) = cluster::attach(&r, &b)?;
             json!({"attached": true, "identification": id, "runtime": rt})
+        }
+        "backup" => {
+            let out = a.out.clone().ok_or_else(|| CustodianError::new("cli.usage", "backup needs --out <new folder>"))?;
+            json!({"backup": backup::backup(&r, &b, &out, &env)?})
+        }
+        "restore" => {
+            let from = a.from.clone().ok_or_else(|| CustodianError::new("cli.usage", "restore needs --from <backup folder>"))?;
+            json!({"restore": backup::restore(&r, &b, &from)?})
         }
         "migrate" => run_migrate(&a, &r, &b)?,
         "check-writer" => run_check_writer(&a, &r, &b)?,
