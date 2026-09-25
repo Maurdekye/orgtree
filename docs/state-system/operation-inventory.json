@@ -313,7 +313,7 @@
     },
     {
       "path": "engine/backend/orgtree/ledger.py",
-      "normalized_source_sha256": "685b4ad4b4fadfda282f08e3e334918fca706bd466d720d0aa001bf51bee27bb"
+      "normalized_source_sha256": "d9e3d0a6d534f2f9f91f04040258d1c4711e74cc72d31f48aab8ad4c5cc7f902"
     },
     {
       "path": "engine/backend/orgtree/lifecycle.py",

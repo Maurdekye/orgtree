@@ -552,6 +552,37 @@ tree still serves `external_handles` as stored data, the public scrub drops it, 
 Every moved span was re-anchored by exact text. The three regions the stage edited were re-derived: `post_mail`'s
 `@ext:`/`@mcp:` block, the `orgtree_message` dispatch branch and the `Op` body.
 
+742 is thirty-eight more than that 704 (P01 F8, p01-f8-contracts-for-the-git-workspace-routes-21). The rise is
+expected. 21 entries and 4 dispatch branches are mapped, and each new contract opens conflicts, wire and
+instrumentation. F8 contracts the 21 git workspace routes (`gitapi.py`) on a new `git-workspace.*` facet family:
+- the repository list, discovery, registration, forget and selection;
+- the observation, the worktree inventory, the setup and cleanup plans and the cleanup unlink;
+- the repository settings (read and write) and the ticket links;
+- the history snapshot and pages and a worktree's changes;
+- fetch, watch, push and pull.
+The four `gitworkspace` branches that only these routes reach (`operate` on push and pull, and the cleanup unlink)
+map under rule 1.
+
+They are pinned by `tests/test_state_git_workspace_boundary.py` against `docs/state-system/git-workspace-boundary.json`
+(48 cases). The cases run against REAL git, recorded in the fixture as git 2.52.0.windows.1, confined by the
+coordinator's ruling (decision 1 on the F8 item):
+- every case uses a fresh repository set inside the test's temp root, and its remote is a local bare repository;
+- an audit hook installed first allows only `git` with its cwd inside the root, the isolated environment present and
+  no URL scheme in any argument, and it refuses and records anything else;
+- every git launch runs with no system config, a global config inside the root that has no credential helper and an
+  empty hooks directory, and HOME inside the root.
+The hook sees only Python's own launches, not git's child processes; the isolated configuration is what keeps the
+user's config, credential manager and hooks out of those. Each route's git subcommands are pinned. Only one pin
+depends on git's output format: register's refusal of a directory outside any repository.
+
+No route writes the org document. The writes land in the machine-wide registry `<DATA_ROOT>/git-workspace.json` and in
+the repositories: fetch, push and pull. A refused fetch still records its failed attempt in the registry.
+
+Recorded legacy defect (docket the-desktop-app-still-serves-the-git-workspace-r): the desktop app serves every one of
+these routes. `desktop_policy.install_routes` filters route paths for `/git/`, but the bundled FastAPI 0.141.1 registers
+the included git router as one `_IncludedRouter` entry with no path, which the filter keeps. Entries contracted: 113 of
+187.
+
 Of the 41 open dimension occurrences on the sixteen legacy-family contracts, 25 (9 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the
 native-design citation; those figures were already stale after S2d, which left 45

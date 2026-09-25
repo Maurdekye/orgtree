@@ -1,6 +1,6 @@
 {
   "schema": "orgtree.state-operation-contracts/v1",
-  "source_inventory_sha256": "dda50f27c29474b82519fb4858d7b0fce377c0794208a8b47a46cd7b71ce1ff8",
+  "source_inventory_sha256": "353eafa65fb3ff9e3b116ef89a3b077244b8b9606d256618a066e6cbc918b1a7",
   "qualification": {
     "runtime_census": false,
     "conversion_authorized": false
@@ -3103,7 +3103,7 @@
           "path": "engine/backend/orgtree/ledger.py",
           "start": 7555,
           "end": 7666,
-          "sha256": "74b4d77644204da3969d19e0ba68edb53b008d2fb7a9afbe84a6be2418affb54"
+          "sha256": "19a2b453264c4785440337cc8c30b71a7d9ba7eb3835107c7b448ff33a764bbd"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
@@ -3509,7 +3509,7 @@
           "path": "engine/backend/orgtree/ledger.py",
           "start": 7555,
           "end": 7666,
-          "sha256": "74b4d77644204da3969d19e0ba68edb53b008d2fb7a9afbe84a6be2418affb54"
+          "sha256": "19a2b453264c4785440337cc8c30b71a7d9ba7eb3835107c7b448ff33a764bbd"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
@@ -8132,7 +8132,7 @@
           "path": "engine/backend/orgtree/ledger.py",
           "start": 7555,
           "end": 7954,
-          "sha256": "73691be64a65f5209c3ee2b9525ad3d951a189ab1d90700c21bc1a84c6de4d70"
+          "sha256": "94e9fa6cd63d9ec05ddeb276daa76ad345b65a1a69e68b1f40c00798b525ee84"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
@@ -11519,6 +11519,351 @@
           "sha256": "d2bd345e3b09cd7a424bb8d96891de3046f2574367ffcc11eee2ba56cafc05d2"
         }
       ]
+    },
+    "git-workspace.authority": {
+      "dimension": "authority",
+      "status": "specified",
+      "facts": [
+        "Every route is an operator route: the router's dependency (gitapi.operator) refuses a kiosk or bridge caller 403 ('Git workspace is available only to the host operator') (source), and the desktop TokenGate of both current launch paths admits the operator and refuses an agent credential 401. PROFILES: desktop_policy.install_routes, which engine.launch runs under the desktop-managed profile it sets, is meant to strip every /git/ route, but the bundled FastAPI (0.141.1) registers the included git router as one _IncludedRouter entry with no path, which that filter keeps; so the desktop app serves every one of these routes exactly as the router alone does (recorded legacy defect, docket the-desktop-app-still-serves-the-git-workspace-r). Pinned by tests/test_state_git_workspace_boundary.py against docs/state-system/git-workspace-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 17,
+          "end": 19,
+          "sha256": "614c031e0d462ec4eaeb1efdea71f1936a91dbe507a014d4a07dd681b7da1e55"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_policy.py",
+          "start": 19,
+          "end": 23,
+          "sha256": "93fb92b8dfe87c447a573b846bd1dbac03c815a0276d61df06bbefb92600ee6a"
+        },
+        {
+          "path": "engine/launch.py",
+          "start": 156,
+          "end": 195,
+          "sha256": "7fcd8231057ad57fa6da4a66acc584dccc25d9e5dd93afd51c6827163446f580"
+        }
+      ]
+    },
+    "git-workspace.reads": {
+      "dimension": "reads",
+      "status": "specified",
+      "facts": [
+        "The routes read the machine-wide repository registry <DATA_ROOT>/git-workspace.json (gitsettings.load) and, for links and item titles, the org document (gitworkspace.org_facts under the document lock). Every git read runs through gitrunner.run with hooks and normal validation enabled, optional locks off, no pager or colour and GIT_TERMINAL_PROMPT=0. The registered root is re-identified with rev-parse on every call and a moved or replaced directory is refused 409. discover scans the org's roots (workspace, folders, registered repositories and, outside a sandbox, the nodes' scratch folders) or one scan directory inside them, two levels deep and at most 200 directories, skipping .git, node_modules, .venv and reparse points, and reports one candidate per common directory: a checkout and its linked worktrees collapse into one, named after whichever the scan reached last. observation reads the refs and the remote configuration (ref identity and freshness) and answers busy rather than wait; inventory lists the worktrees with their change state; settings reads the refs, remotes, saved trunk and remote, the org's work items and the links; snapshot builds and caches a history snapshot (a token with a TTL) that history pages through with an HMAC-signed cursor; changes reads one worktree's status and diffs under the repository lock and refuses a checkout that moved meanwhile 409. setup and cleanup-preview are plans: setup never writes repository metadata (git_metadata_write false) and cleanup-preview marks every candidate that is not a registered owned link as preserved. The git launches of each route are pinned. Pinned by tests/test_state_git_workspace_boundary.py against docs/state-system/git-workspace-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 92,
+          "end": 96,
+          "sha256": "cbf6f5198ac84015dc1a464fe8e38ea21a88a8e78ef0b2ac1a1dfb6f9abd1ddc"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 99,
+          "end": 108,
+          "sha256": "8a41e0682765e2aecbbb2d77b8baf973173f570586c6b016b5a5405b330b56a4"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 111,
+          "end": 142,
+          "sha256": "d9755507aff5c4b720dedc4abb924722d64829f9af3d04b572109fae6d0ca6d4"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 167,
+          "end": 174,
+          "sha256": "03b9a628657d577b8f01ef7f0ab6b4c48002b564b5490ac1bde478ceb98976f3"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 970,
+          "end": 980,
+          "sha256": "5f7cf845e86fc1f2d9fe4377207b173a4720271f1441e0a191d211259e5ea5b3"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 802,
+          "end": 964,
+          "sha256": "1b091fd1765977e05d47532e462418311f6c4b78bfa47c2a1e42ffea6a6daa1f"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 751,
+          "end": 761,
+          "sha256": "8619708ab16b18ebb482aa423e628fe28bb54dabfeee108cbdad87302780b3ea"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 578,
+          "end": 641,
+          "sha256": "f21a4608086a296c3bf2af68514bcf940a4f634a4f5309a2363eb16889ca2cc6"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 350,
+          "end": 428,
+          "sha256": "26e2cb2af64a28d8bc554c011a5a06293790dc91b741d92f83a9af4292c7fa7d"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 437,
+          "end": 471,
+          "sha256": "87d485142e01b84628658c4470d98b200b29f80afbee888a66540d74bec90c3b"
+        },
+        {
+          "path": "engine/backend/orgtree/gitrunner.py",
+          "start": 51,
+          "end": 97,
+          "sha256": "32cdd5378a0a82bf600377f6b13224e73d3857873032bd079cd5792a3697e87c"
+        }
+      ]
+    },
+    "git-workspace.writes": {
+      "dimension": "writes",
+      "status": "specified",
+      "facts": [
+        "register, forget, select, the settings write, link and unlink write only the registry file, atomically and with a revision counter (the settings write is compare-and-set on it). register adds or joins a repository record and selects it for the org; forget removes the org from it, with its links and selection, and the record once no org is left; no route writes the org document. fetch runs git fetch (no tags, no submodules, no FETCH_HEAD, prune) for the selected remote's head refspecs and records the attempt in the registry's observations, a refused fetch included (the failure is recorded before the 422). push re-checks the captured branch against the snapshot, requires it ahead and not diverged and the remote unchanged (ls-remote), pushes the captured branch tip to its upstream and confirms with a second ls-remote, moving the remote's refs and the local tracking ref. pull requires exactly one clean checkout of the branch, fetches, re-checks that nothing moved, and fast-forwards with merge --ff-only. watch starts a background fetch only when periodic fetch is explicitly enabled in the app settings (off by default: the pinned watch starts nothing). cleanup-unlink re-derives the preview at the mutation boundary and unlinks only validated owned reparse points, on confirm. Pinned by tests/test_state_git_workspace_boundary.py against docs/state-system/git-workspace-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitsettings.py",
+          "start": 56,
+          "end": 75,
+          "sha256": "a6107532eec331e9fb3902b271afc901c1666ec18c098f394344a6cb4d65c419"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 145,
+          "end": 164,
+          "sha256": "2020b85860322d66d1c98da711adfcf0f6c5d635922df078df6842ae2b1a7333"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 1013,
+          "end": 1025,
+          "sha256": "399bfc6b8031f04f05ab8ed8da0a08f48c4cc3be4e00076e0e0956748b6efd61"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 1038,
+          "end": 1069,
+          "sha256": "b51c986bf10d8498313e4721e4b7f52482aae8bfeb32866eb12a160835a31454"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 1072,
+          "end": 1093,
+          "sha256": "4cbf220876e67d6fdbb3032845507bcd41a71c7c22c44b88d674da02abe67e34"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 1112,
+          "end": 1200,
+          "sha256": "d9c7002d7d1933a29c0414f3e992403bb13fb188ba2dbe3aff93608378eed73f"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 1214,
+          "end": 1233,
+          "sha256": "d2212713753712712362829a7355775b84af923589434b918fc0f6736d3bfea1"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 474,
+          "end": 519,
+          "sha256": "41faa659e2b0b05ca1bf15e7d7f9b65145ee50abe79f30b736bc0f4a134f913d"
+        }
+      ]
+    },
+    "git-workspace.predicates": {
+      "dimension": "predicates",
+      "status": "specified",
+      "facts": [
+        "An unknown org answers 404 (register first identifies the path with git, then refuses the org), a repository not registered for the org 404 and a moved or replaced repository 409. discover refuses a scan directory outside the org's roots 403. register refuses a missing directory 422 ('Choose an existing repository directory') and a directory outside any repository with git's own message 422 (output-format dependent: the pinned text is the recorded git version's). setup refuses a non-directory, a worktree of another repository, an unsupported package manager and every dependency_source 422: the route never passes the shared-dependency opt-in, so the junction command (cmd /c mklink /J) is unreachable through it. cleanup refuses a root that is not a registered worktree 404, an unlink without a preview or with another worktree's preview 422 and a dirty or active worktree 422. The settings write refuses an unsupported key 422, an unknown remote or trunk 422 and a stale revision 409; link refuses an unknown branch or docket item 422. snapshot refuses a branch selection that is not a list of refs 422 and more than 40 branches 422; history refuses a malformed or forged cursor 422 and an expired snapshot 409; changes refuses an unknown worktree 404. fetch refuses a missing, unsupported or mis-mapped remote 422 and a busy repository 409; push and pull refuse an expired snapshot 409, a branch that changed 409, a push that is not ahead 422 and a pull whose checkout is dirty, mid-operation or diverged 422. Pinned by tests/test_state_git_workspace_boundary.py against docs/state-system/git-workspace-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 145,
+          "end": 164,
+          "sha256": "2020b85860322d66d1c98da711adfcf0f6c5d635922df078df6842ae2b1a7333"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 111,
+          "end": 142,
+          "sha256": "d9755507aff5c4b720dedc4abb924722d64829f9af3d04b572109fae6d0ca6d4"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 350,
+          "end": 428,
+          "sha256": "26e2cb2af64a28d8bc554c011a5a06293790dc91b741d92f83a9af4292c7fa7d"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 983,
+          "end": 993,
+          "sha256": "447364e50939564fa235da0cc53904057cc2b806f60a8285c1d0df83e63a8ba3"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 996,
+          "end": 1010,
+          "sha256": "affdc539929e780721be919f9a3831731f8d7923cc18eea75901ad143f3c226d"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 751,
+          "end": 761,
+          "sha256": "8619708ab16b18ebb482aa423e628fe28bb54dabfeee108cbdad87302780b3ea"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 1028,
+          "end": 1035,
+          "sha256": "f8290f2dd1af392d2569c5df45ad3b7a1e16242f7b3c2c0f4b7db2c0fe72ba8d"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 1038,
+          "end": 1069,
+          "sha256": "b51c986bf10d8498313e4721e4b7f52482aae8bfeb32866eb12a160835a31454"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 1112,
+          "end": 1200,
+          "sha256": "d9c7002d7d1933a29c0414f3e992403bb13fb188ba2dbe3aff93608378eed73f"
+        },
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 260,
+          "end": 268,
+          "sha256": "d41291761b25d12395e96b95dd764c660923ce4af7f9fb4d7112a951c74701ed"
+        },
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 192,
+          "end": 222,
+          "sha256": "23e7cfa1121a3d1182a48c182cc286993a4bd73aa7b6c5a5581fc17b9df4c642"
+        }
+      ]
+    },
+    "git-workspace.conflicts": {
+      "dimension": "conflicts",
+      "status": "unresolved",
+      "facts": [
+        "The registry file is one machine-wide store shared by every org, written outside any org transaction under its own lock and revision; a repository's operations serialize on a lock per common directory, and observation, fetch, push and pull answer busy or refuse rather than wait (source)."
+      ],
+      "open_questions": [
+        "Implement and qualify native transactions for the git workspace writes: the registry file shared by every org and the repository operations against concurrent writers.",
+        "Owner: P03 (native design and qualification). Closes with: a native design qualified by two orgs writing the registry at once and a fetch racing a push on one repository. Not coverable at P01 from available evidence: no native build exists, and P01 has not cited a native design section for these operations."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitsettings.py",
+          "start": 56,
+          "end": 75,
+          "sha256": "a6107532eec331e9fb3902b271afc901c1666ec18c098f394344a6cb4d65c419"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 970,
+          "end": 980,
+          "sha256": "5f7cf845e86fc1f2d9fe4377207b173a4720271f1441e0a191d211259e5ea5b3"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 1096,
+          "end": 1109,
+          "sha256": "c83319d20638174a6f76bbfa1961aa720dec8c0fea7e89f2a7d36629252cb5b3"
+        }
+      ]
+    },
+    "git-workspace.wire": {
+      "dimension": "wire",
+      "status": "unresolved",
+      "facts": [
+        "The shapes are fixtured in docs/state-system/git-workspace-boundary.json per case."
+      ],
+      "open_questions": [
+        "Carry the fixtured git-workspace shapes to the native/Rust door and decide each recorded legacy defect.",
+        "Owner: the native/Rust conversion, from the P03 prototype onward. Closes with: the fixtured shapes passing against the native and Rust builds. Not coverable at P01 from available evidence: no native or Rust build exists to run the fixtures against."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 98,
+          "end": 113,
+          "sha256": "a4d47206132db4abcdb4484bcb09079a65aa049ae7ce55df4a092c04b207d2de"
+        }
+      ]
+    },
+    "git-workspace.receipt": {
+      "dimension": "receipt",
+      "status": "specified",
+      "facts": [
+        "The routes take no operation key and file no receipt. Pinned by tests/test_state_git_workspace_boundary.py against docs/state-system/git-workspace-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 98,
+          "end": 113,
+          "sha256": "a4d47206132db4abcdb4484bcb09079a65aa049ae7ce55df4a092c04b207d2de"
+        }
+      ]
+    },
+    "git-workspace.effects": {
+      "dimension": "effects",
+      "status": "specified",
+      "facts": [
+        "No route drives, notifies or broadcasts: the effects are git processes, the repositories and the registry file. Every git launch goes through gitrunner.run, bounded by a timeout and an output cap and stopped with taskkill on Windows when either is exceeded; setup's junction command is never reached through the route. Pinned by tests/test_state_git_workspace_boundary.py against docs/state-system/git-workspace-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitrunner.py",
+          "start": 51,
+          "end": 97,
+          "sha256": "32cdd5378a0a82bf600377f6b13224e73d3857873032bd079cd5792a3697e87c"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 350,
+          "end": 428,
+          "sha256": "26e2cb2af64a28d8bc554c011a5a06293790dc91b741d92f83a9af4292c7fa7d"
+        }
+      ]
+    },
+    "git-workspace.instrumentation": {
+      "dimension": "instrumentation",
+      "status": "unresolved",
+      "facts": [
+        "The access middleware labels each route. No P02 per-operation record covers this family yet."
+      ],
+      "open_questions": [
+        "Observe every git workspace route with the P02 per-operation probe: actual contacts per outcome, cold and warm, refusals included (the registry file and the git processes are outside the org stores).",
+        "Owner: P02 (p02-contacts-opus55; coordinator ruling Q6 on p01-f1-contracts-for-the-org-lifecycle-and-catal: probed after this family lands). Closes with: a loss-accounted P02 record per row. Not coverable at P01 from available evidence: P01 does not run the P02 probe, and no P02 record covers this family yet."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 98,
+          "end": 113,
+          "sha256": "a4d47206132db4abcdb4484bcb09079a65aa049ae7ce55df4a092c04b207d2de"
+        }
+      ]
     }
   },
   "contracts": {
@@ -14080,7 +14425,7 @@
           "path": "engine/backend/orgtree/ledger.py",
           "start": 7555,
           "end": 7954,
-          "sha256": "73691be64a65f5209c3ee2b9525ad3d951a189ab1d90700c21bc1a84c6de4d70"
+          "sha256": "94e9fa6cd63d9ec05ddeb276daa76ad345b65a1a69e68b1f40c00798b525ee84"
         }
       ],
       "domain_mode": "write"
@@ -17359,7 +17704,7 @@
           "path": "engine/backend/orgtree/ledger.py",
           "start": 7555,
           "end": 7954,
-          "sha256": "73691be64a65f5209c3ee2b9525ad3d951a189ab1d90700c21bc1a84c6de4d70"
+          "sha256": "94e9fa6cd63d9ec05ddeb276daa76ad345b65a1a69e68b1f40c00798b525ee84"
         }
       ],
       "domain_mode": "write"
@@ -21883,6 +22228,1383 @@
         }
       ],
       "domain_mode": "write"
+    },
+    "git-workspace.repositories": {
+      "entry_ids": [
+        "2a2ef8f2c4f0ad133537dffbed8182b3aa37cd9dbffb567cdd075256e5ea74a2"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "git-workspace.authority"
+        ],
+        "reads": [
+          "git-workspace.reads"
+        ],
+        "writes": [
+          "git-workspace.writes"
+        ],
+        "predicates": [
+          "git-workspace.predicates"
+        ],
+        "conflicts": [
+          "git-workspace.conflicts"
+        ],
+        "wire": [
+          "git-workspace.wire"
+        ],
+        "receipt": [
+          "git-workspace.receipt"
+        ],
+        "effects": [
+          "git-workspace.effects"
+        ],
+        "instrumentation": [
+          "git-workspace.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 98,
+          "end": 98,
+          "sha256": "bbdafce4f5a594908fc83715a3a298739b6caf36279eba25e7271e6dd7c56b70"
+        },
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 98,
+          "end": 113,
+          "sha256": "a4d47206132db4abcdb4484bcb09079a65aa049ae7ce55df4a092c04b207d2de"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 711,
+          "end": 733,
+          "sha256": "b0c40dff2708fa598a4a1be17e56ed5c7692e3f494d99748bc9ca90fc4fbe57c"
+        }
+      ],
+      "domain_mode": "read"
+    },
+    "git-workspace.discover": {
+      "entry_ids": [
+        "319abaf2a15d51bded12baf6f555d588d8ba707f4493cf0621375e091f9ef42a"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "git-workspace.authority"
+        ],
+        "reads": [
+          "git-workspace.reads"
+        ],
+        "writes": [
+          "git-workspace.writes"
+        ],
+        "predicates": [
+          "git-workspace.predicates"
+        ],
+        "conflicts": [
+          "git-workspace.conflicts"
+        ],
+        "wire": [
+          "git-workspace.wire"
+        ],
+        "receipt": [
+          "git-workspace.receipt"
+        ],
+        "effects": [
+          "git-workspace.effects"
+        ],
+        "instrumentation": [
+          "git-workspace.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 116,
+          "end": 116,
+          "sha256": "e1850799eb86d7fdd4e51f11116afc4570322fec77d4af4b939a3d67318784e6"
+        },
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 116,
+          "end": 119,
+          "sha256": "81bd43e2be5a83448c584b25d31cb80d0007a12a9d2c339fc23d91e4c73c6d6b"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 111,
+          "end": 142,
+          "sha256": "d9755507aff5c4b720dedc4abb924722d64829f9af3d04b572109fae6d0ca6d4"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 99,
+          "end": 108,
+          "sha256": "8a41e0682765e2aecbbb2d77b8baf973173f570586c6b016b5a5405b330b56a4"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 81,
+          "end": 89,
+          "sha256": "e8803ee2a6a040c6bb3ad6c0f1abe2a37937ab3e84bc155e70ad9361cd0bb809"
+        }
+      ],
+      "domain_mode": "read"
+    },
+    "git-workspace.register": {
+      "entry_ids": [
+        "e2adf989a8a39b0b0e6fa4542e1e6805d03acdc64fc604ab7f03f6a286f7b7ab"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "git-workspace.authority"
+        ],
+        "reads": [
+          "git-workspace.reads"
+        ],
+        "writes": [
+          "git-workspace.writes"
+        ],
+        "predicates": [
+          "git-workspace.predicates"
+        ],
+        "conflicts": [
+          "git-workspace.conflicts"
+        ],
+        "wire": [
+          "git-workspace.wire"
+        ],
+        "receipt": [
+          "git-workspace.receipt"
+        ],
+        "effects": [
+          "git-workspace.effects"
+        ],
+        "instrumentation": [
+          "git-workspace.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 122,
+          "end": 122,
+          "sha256": "1f795dec98f3742c33fb30087ac1e96b85b12841adb07f044744407a86fa7565"
+        },
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 122,
+          "end": 126,
+          "sha256": "8ca3f9ed9ba54f1d661d2e982d1c8e59686448f176cba7c54ccbbbfebf9a563d"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 145,
+          "end": 164,
+          "sha256": "2020b85860322d66d1c98da711adfcf0f6c5d635922df078df6842ae2b1a7333"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 81,
+          "end": 89,
+          "sha256": "e8803ee2a6a040c6bb3ad6c0f1abe2a37937ab3e84bc155e70ad9361cd0bb809"
+        },
+        {
+          "path": "engine/backend/orgtree/gitsettings.py",
+          "start": 56,
+          "end": 75,
+          "sha256": "a6107532eec331e9fb3902b271afc901c1666ec18c098f394344a6cb4d65c419"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "git-workspace.forget": {
+      "entry_ids": [
+        "a6e786143607b807f018f975c896f5da86231500029dd00eff4006ee7b215ef9"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "git-workspace.authority"
+        ],
+        "reads": [
+          "git-workspace.reads"
+        ],
+        "writes": [
+          "git-workspace.writes"
+        ],
+        "predicates": [
+          "git-workspace.predicates"
+        ],
+        "conflicts": [
+          "git-workspace.conflicts"
+        ],
+        "wire": [
+          "git-workspace.wire"
+        ],
+        "receipt": [
+          "git-workspace.receipt"
+        ],
+        "effects": [
+          "git-workspace.effects"
+        ],
+        "instrumentation": [
+          "git-workspace.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 129,
+          "end": 129,
+          "sha256": "0834cc121172ba53cfe1ebd46e65fd8029afa516b3808b16f63d58e776365ef5"
+        },
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 129,
+          "end": 133,
+          "sha256": "590c424299fceb84af63861c73f7811e4073d05a1995b9a094c8faf1108f1fe7"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 1013,
+          "end": 1025,
+          "sha256": "399bfc6b8031f04f05ab8ed8da0a08f48c4cc3be4e00076e0e0956748b6efd61"
+        },
+        {
+          "path": "engine/backend/orgtree/gitsettings.py",
+          "start": 56,
+          "end": 75,
+          "sha256": "a6107532eec331e9fb3902b271afc901c1666ec18c098f394344a6cb4d65c419"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "git-workspace.select": {
+      "entry_ids": [
+        "05118ec2fbb105294649c8e603a043df5b3995c0a2cc6f82553f1660524338e5"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "git-workspace.authority"
+        ],
+        "reads": [
+          "git-workspace.reads"
+        ],
+        "writes": [
+          "git-workspace.writes"
+        ],
+        "predicates": [
+          "git-workspace.predicates"
+        ],
+        "conflicts": [
+          "git-workspace.conflicts"
+        ],
+        "wire": [
+          "git-workspace.wire"
+        ],
+        "receipt": [
+          "git-workspace.receipt"
+        ],
+        "effects": [
+          "git-workspace.effects"
+        ],
+        "instrumentation": [
+          "git-workspace.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 136,
+          "end": 136,
+          "sha256": "279ed8497aff98b3c446597ac78dae1b2d44096271d896843325c3c7be32e7f6"
+        },
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 136,
+          "end": 141,
+          "sha256": "c4e4722de95152a929c98a63dc624a824c08ac4051e64e2c71f9dbf92fd2abf8"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 167,
+          "end": 174,
+          "sha256": "03b9a628657d577b8f01ef7f0ab6b4c48002b564b5490ac1bde478ceb98976f3"
+        },
+        {
+          "path": "engine/backend/orgtree/gitsettings.py",
+          "start": 56,
+          "end": 75,
+          "sha256": "a6107532eec331e9fb3902b271afc901c1666ec18c098f394344a6cb4d65c419"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "git-workspace.observation": {
+      "entry_ids": [
+        "9ae6b29b14fdd1c59e3cf902094b6c8c44dc177ea4c00ec8070b70e6f2cbc849"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "git-workspace.authority"
+        ],
+        "reads": [
+          "git-workspace.reads"
+        ],
+        "writes": [
+          "git-workspace.writes"
+        ],
+        "predicates": [
+          "git-workspace.predicates"
+        ],
+        "conflicts": [
+          "git-workspace.conflicts"
+        ],
+        "wire": [
+          "git-workspace.wire"
+        ],
+        "receipt": [
+          "git-workspace.receipt"
+        ],
+        "effects": [
+          "git-workspace.effects"
+        ],
+        "instrumentation": [
+          "git-workspace.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 144,
+          "end": 144,
+          "sha256": "200d02647cb4826140365f2fc71d7c2c078e8f7a7286db619fe006c0d3a967ee"
+        },
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 144,
+          "end": 147,
+          "sha256": "39194c80ccb55a4f480c2d9f4ada5779723d1f726f2c736aa57abc4dd04b989f"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 970,
+          "end": 980,
+          "sha256": "5f7cf845e86fc1f2d9fe4377207b173a4720271f1441e0a191d211259e5ea5b3"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 690,
+          "end": 708,
+          "sha256": "c091c0d92fcd6ecd1624cac69c4008bfda416db4c0ca125c758c9c5f75c39e3f"
+        }
+      ],
+      "domain_mode": "read"
+    },
+    "git-workspace.inventory": {
+      "entry_ids": [
+        "cd2a08ef854f3de44d70c612271b9e83f21d559716753f19132433690d587cbf"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "git-workspace.authority"
+        ],
+        "reads": [
+          "git-workspace.reads"
+        ],
+        "writes": [
+          "git-workspace.writes"
+        ],
+        "predicates": [
+          "git-workspace.predicates"
+        ],
+        "conflicts": [
+          "git-workspace.conflicts"
+        ],
+        "wire": [
+          "git-workspace.wire"
+        ],
+        "receipt": [
+          "git-workspace.receipt"
+        ],
+        "effects": [
+          "git-workspace.effects"
+        ],
+        "instrumentation": [
+          "git-workspace.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 150,
+          "end": 150,
+          "sha256": "01c9d849f379d6b2bbea11e69ca81d0a90a4874f614f2564d940a84fce274eef"
+        },
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 150,
+          "end": 157,
+          "sha256": "9930c321a42becb5667dc8ff7a6b02cf05deb9fc4604939a5195a6150818cc10"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 277,
+          "end": 319,
+          "sha256": "2a1da674897ca9f55da872d197d4387c73e0adbce857d4617db7feecc6578f42"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 211,
+          "end": 231,
+          "sha256": "63b715aca876e45717971228d5b55ac1798fbb23a6e4c1aef30382a16a5d7ace"
+        }
+      ],
+      "domain_mode": "read"
+    },
+    "git-workspace.setup": {
+      "entry_ids": [
+        "61d96f5916bfadb01d22730a63017e231a1499a7a3e6850f0e26d8611b6741b5"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "git-workspace.authority"
+        ],
+        "reads": [
+          "git-workspace.reads"
+        ],
+        "writes": [
+          "git-workspace.writes"
+        ],
+        "predicates": [
+          "git-workspace.predicates"
+        ],
+        "conflicts": [
+          "git-workspace.conflicts"
+        ],
+        "wire": [
+          "git-workspace.wire"
+        ],
+        "receipt": [
+          "git-workspace.receipt"
+        ],
+        "effects": [
+          "git-workspace.effects"
+        ],
+        "instrumentation": [
+          "git-workspace.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 160,
+          "end": 160,
+          "sha256": "7ec01e0e31c7c7e6d581fdbd968746336da98f1948ee4167286b52da3519cdf2"
+        },
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 160,
+          "end": 166,
+          "sha256": "7ece36f1427178ade3217464f5fa52be5047fade8faeee5823b0e32da84f1c5a"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 350,
+          "end": 428,
+          "sha256": "26e2cb2af64a28d8bc554c011a5a06293790dc91b741d92f83a9af4292c7fa7d"
+        }
+      ],
+      "domain_mode": "read"
+    },
+    "git-workspace.cleanup-preview": {
+      "entry_ids": [
+        "2565ad659bfbf0c7516cf39ab6d9112f28a5ba0b8e1e538efb6e5b1c4444e0a3"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "git-workspace.authority"
+        ],
+        "reads": [
+          "git-workspace.reads"
+        ],
+        "writes": [
+          "git-workspace.writes"
+        ],
+        "predicates": [
+          "git-workspace.predicates"
+        ],
+        "conflicts": [
+          "git-workspace.conflicts"
+        ],
+        "wire": [
+          "git-workspace.wire"
+        ],
+        "receipt": [
+          "git-workspace.receipt"
+        ],
+        "effects": [
+          "git-workspace.effects"
+        ],
+        "instrumentation": [
+          "git-workspace.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 169,
+          "end": 169,
+          "sha256": "8d700b9e585bcabc5014a097e7b70312ae4f72cd3c0ff4e18592d1e8a4431b25"
+        },
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 169,
+          "end": 189,
+          "sha256": "df67055d6e42bb7caa36ad56bbb80eebe60e3a38d6687bfc080db91c15e69060"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 437,
+          "end": 471,
+          "sha256": "87d485142e01b84628658c4470d98b200b29f80afbee888a66540d74bec90c3b"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 578,
+          "end": 641,
+          "sha256": "f21a4608086a296c3bf2af68514bcf940a4f634a4f5309a2363eb16889ca2cc6"
+        }
+      ],
+      "domain_mode": "read"
+    },
+    "git-workspace.cleanup-unlink": {
+      "entry_ids": [
+        "210def498a20e610d55a90cb48b6320ccb51577670a32a36f93039698cd4736e"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "git-workspace.authority"
+        ],
+        "reads": [
+          "git-workspace.reads"
+        ],
+        "writes": [
+          "git-workspace.writes"
+        ],
+        "predicates": [
+          "git-workspace.predicates"
+        ],
+        "conflicts": [
+          "git-workspace.conflicts"
+        ],
+        "wire": [
+          "git-workspace.wire"
+        ],
+        "receipt": [
+          "git-workspace.receipt"
+        ],
+        "effects": [
+          "git-workspace.effects"
+        ],
+        "instrumentation": [
+          "git-workspace.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 192,
+          "end": 192,
+          "sha256": "b348ba6bb6441a14a982e9f5dedb53d9bc9b750406d09e6beffc71fa37118336"
+        },
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 192,
+          "end": 222,
+          "sha256": "23e7cfa1121a3d1182a48c182cc286993a4bd73aa7b6c5a5581fc17b9df4c642"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 474,
+          "end": 519,
+          "sha256": "41faa659e2b0b05ca1bf15e7d7f9b65145ee50abe79f30b736bc0f4a134f913d"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "git-workspace.settings": {
+      "entry_ids": [
+        "633bd7d90368fa5ba4dfad06d345470364a5c93473df5330544125e6693398bd"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "git-workspace.authority"
+        ],
+        "reads": [
+          "git-workspace.reads"
+        ],
+        "writes": [
+          "git-workspace.writes"
+        ],
+        "predicates": [
+          "git-workspace.predicates"
+        ],
+        "conflicts": [
+          "git-workspace.conflicts"
+        ],
+        "wire": [
+          "git-workspace.wire"
+        ],
+        "receipt": [
+          "git-workspace.receipt"
+        ],
+        "effects": [
+          "git-workspace.effects"
+        ],
+        "instrumentation": [
+          "git-workspace.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 225,
+          "end": 225,
+          "sha256": "91450e68b56f7e87a3f3f2d37f5eb6e76a0fef7c289ed0bb59b8374ccb65fd85"
+        },
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 225,
+          "end": 236,
+          "sha256": "49659ffc091dc2d8ea993846b3e092b4112c6986af6af3c36bab890499a3e0ff"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 665,
+          "end": 676,
+          "sha256": "12fdb1696c92c4d4cc82e6a15634950d109c212202f69d6851f0b5c62730e45a"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 181,
+          "end": 204,
+          "sha256": "fc0c7258ae10b996b196fff8ac024df101abde9b87044759efa21d8caf94ebb3"
+        }
+      ],
+      "domain_mode": "read"
+    },
+    "git-workspace.settings-write": {
+      "entry_ids": [
+        "bb69df4523410c5764377968e50dfb4d2e9e07714ca6f02ce109eaa57ab8fdf8"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "git-workspace.authority"
+        ],
+        "reads": [
+          "git-workspace.reads"
+        ],
+        "writes": [
+          "git-workspace.writes"
+        ],
+        "predicates": [
+          "git-workspace.predicates"
+        ],
+        "conflicts": [
+          "git-workspace.conflicts"
+        ],
+        "wire": [
+          "git-workspace.wire"
+        ],
+        "receipt": [
+          "git-workspace.receipt"
+        ],
+        "effects": [
+          "git-workspace.effects"
+        ],
+        "instrumentation": [
+          "git-workspace.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 239,
+          "end": 239,
+          "sha256": "f234c4a6a47360d2cf220d329c3c7a6732fa2f1ab60913f29ac00f40ea360907"
+        },
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 239,
+          "end": 243,
+          "sha256": "60f900eb69cc2696f4e4adc98d47c867eef7f94f1dae9bf6f58dd286b3cf0509"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 983,
+          "end": 993,
+          "sha256": "447364e50939564fa235da0cc53904057cc2b806f60a8285c1d0df83e63a8ba3"
+        },
+        {
+          "path": "engine/backend/orgtree/gitsettings.py",
+          "start": 56,
+          "end": 75,
+          "sha256": "a6107532eec331e9fb3902b271afc901c1666ec18c098f394344a6cb4d65c419"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "git-workspace.link": {
+      "entry_ids": [
+        "8c00802a413da7d6807fb50de083cb85a6aee37632dcc813065fb57c0846e121"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "git-workspace.authority"
+        ],
+        "reads": [
+          "git-workspace.reads"
+        ],
+        "writes": [
+          "git-workspace.writes"
+        ],
+        "predicates": [
+          "git-workspace.predicates"
+        ],
+        "conflicts": [
+          "git-workspace.conflicts"
+        ],
+        "wire": [
+          "git-workspace.wire"
+        ],
+        "receipt": [
+          "git-workspace.receipt"
+        ],
+        "effects": [
+          "git-workspace.effects"
+        ],
+        "instrumentation": [
+          "git-workspace.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 246,
+          "end": 246,
+          "sha256": "e89484f49a897dc85c06eaeaf9c23b24a4854a3dd4dac28fb26c32965abf1aa6"
+        },
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 246,
+          "end": 250,
+          "sha256": "f12482c2cdc2cf114a730d11f45bb15f43e39185086fbe9152eae498ff9134f8"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 996,
+          "end": 1010,
+          "sha256": "affdc539929e780721be919f9a3831731f8d7923cc18eea75901ad143f3c226d"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "git-workspace.unlink": {
+      "entry_ids": [
+        "a73690cecbcf698b1f4ca2f6265931b81e0a650ae435b4cbb8a8a38f63804ff4"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "git-workspace.authority"
+        ],
+        "reads": [
+          "git-workspace.reads"
+        ],
+        "writes": [
+          "git-workspace.writes"
+        ],
+        "predicates": [
+          "git-workspace.predicates"
+        ],
+        "conflicts": [
+          "git-workspace.conflicts"
+        ],
+        "wire": [
+          "git-workspace.wire"
+        ],
+        "receipt": [
+          "git-workspace.receipt"
+        ],
+        "effects": [
+          "git-workspace.effects"
+        ],
+        "instrumentation": [
+          "git-workspace.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 253,
+          "end": 253,
+          "sha256": "b81bb280b51c3a1ea4d202734767082441918fb6321d1233f31fc1fe7e76d96c"
+        },
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 253,
+          "end": 257,
+          "sha256": "1151c44e039e1876c65aa0690954ed40607e1cef0f214f94152b31b8550724de"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 996,
+          "end": 1010,
+          "sha256": "affdc539929e780721be919f9a3831731f8d7923cc18eea75901ad143f3c226d"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "git-workspace.snapshot": {
+      "entry_ids": [
+        "7bb90315dbd4c2884d7e78c99448a7313fb597e59ed8810107320268fcf68773"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "git-workspace.authority"
+        ],
+        "reads": [
+          "git-workspace.reads"
+        ],
+        "writes": [
+          "git-workspace.writes"
+        ],
+        "predicates": [
+          "git-workspace.predicates"
+        ],
+        "conflicts": [
+          "git-workspace.conflicts"
+        ],
+        "wire": [
+          "git-workspace.wire"
+        ],
+        "receipt": [
+          "git-workspace.receipt"
+        ],
+        "effects": [
+          "git-workspace.effects"
+        ],
+        "instrumentation": [
+          "git-workspace.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 260,
+          "end": 260,
+          "sha256": "2379ffa11e115e22ff3467bf697a2ef1260d004ac33594938173214af7bf39eb"
+        },
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 260,
+          "end": 268,
+          "sha256": "d41291761b25d12395e96b95dd764c660923ce4af7f9fb4d7112a951c74701ed"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 802,
+          "end": 964,
+          "sha256": "1b091fd1765977e05d47532e462418311f6c4b78bfa47c2a1e42ffea6a6daa1f"
+        }
+      ],
+      "domain_mode": "read"
+    },
+    "git-workspace.history": {
+      "entry_ids": [
+        "4acc5598d91cb7a46c28d47d4456e3981b32d33bb35845357d685d2264c4bad5"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "git-workspace.authority"
+        ],
+        "reads": [
+          "git-workspace.reads"
+        ],
+        "writes": [
+          "git-workspace.writes"
+        ],
+        "predicates": [
+          "git-workspace.predicates"
+        ],
+        "conflicts": [
+          "git-workspace.conflicts"
+        ],
+        "wire": [
+          "git-workspace.wire"
+        ],
+        "receipt": [
+          "git-workspace.receipt"
+        ],
+        "effects": [
+          "git-workspace.effects"
+        ],
+        "instrumentation": [
+          "git-workspace.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 271,
+          "end": 271,
+          "sha256": "f99c3e1c8b5ed819116065d93b4851124ebe330f0e964aa3899c13bcbd26518e"
+        },
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 271,
+          "end": 274,
+          "sha256": "dff809f7e0ada26e2d57e9de39421f8e73495b128aec16bb9927c6fff79be2f0"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 751,
+          "end": 761,
+          "sha256": "8619708ab16b18ebb482aa423e628fe28bb54dabfeee108cbdad87302780b3ea"
+        }
+      ],
+      "domain_mode": "read"
+    },
+    "git-workspace.changes": {
+      "entry_ids": [
+        "f88bf4dbf45d02a42d65c835c0cdc56bf8c4cae5c85e7490ea2fb5c4e9748016"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "git-workspace.authority"
+        ],
+        "reads": [
+          "git-workspace.reads"
+        ],
+        "writes": [
+          "git-workspace.writes"
+        ],
+        "predicates": [
+          "git-workspace.predicates"
+        ],
+        "conflicts": [
+          "git-workspace.conflicts"
+        ],
+        "wire": [
+          "git-workspace.wire"
+        ],
+        "receipt": [
+          "git-workspace.receipt"
+        ],
+        "effects": [
+          "git-workspace.effects"
+        ],
+        "instrumentation": [
+          "git-workspace.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 277,
+          "end": 277,
+          "sha256": "6b78948c10f8dc34ad47d97cd3f6a4621221d4f3db830ac16f090d0b1e16cbbd"
+        },
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 277,
+          "end": 289,
+          "sha256": "c20c43272830fee439f9862600e65b565d27ea3dc4283ec90051edde46eb94f8"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 578,
+          "end": 641,
+          "sha256": "f21a4608086a296c3bf2af68514bcf940a4f634a4f5309a2363eb16889ca2cc6"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 211,
+          "end": 231,
+          "sha256": "63b715aca876e45717971228d5b55ac1798fbb23a6e4c1aef30382a16a5d7ace"
+        }
+      ],
+      "domain_mode": "read"
+    },
+    "git-workspace.fetch": {
+      "entry_ids": [
+        "191025332555ef6087d053aa5598d6bc2f82cea61329fd10018ca1f90d81a639"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "git-workspace.authority"
+        ],
+        "reads": [
+          "git-workspace.reads"
+        ],
+        "writes": [
+          "git-workspace.writes"
+        ],
+        "predicates": [
+          "git-workspace.predicates"
+        ],
+        "conflicts": [
+          "git-workspace.conflicts"
+        ],
+        "wire": [
+          "git-workspace.wire"
+        ],
+        "receipt": [
+          "git-workspace.receipt"
+        ],
+        "effects": [
+          "git-workspace.effects"
+        ],
+        "instrumentation": [
+          "git-workspace.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 292,
+          "end": 292,
+          "sha256": "e6ef55cce438b30792862e8671bc9b9e3a76c73ab8f6d6adf6fc618f21e84143"
+        },
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 292,
+          "end": 295,
+          "sha256": "1da3b6906df712210c2ed2b20ac892767da9e680a1c30f60606e66f8d792241e"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 1096,
+          "end": 1109,
+          "sha256": "c83319d20638174a6f76bbfa1961aa720dec8c0fea7e89f2a7d36629252cb5b3"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 1072,
+          "end": 1093,
+          "sha256": "4cbf220876e67d6fdbb3032845507bcd41a71c7c22c44b88d674da02abe67e34"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 1038,
+          "end": 1069,
+          "sha256": "b51c986bf10d8498313e4721e4b7f52482aae8bfeb32866eb12a160835a31454"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "git-workspace.watch": {
+      "entry_ids": [
+        "81820b2d602ba6cd990b141d1b339cb4c847492457900f42500e26c739b60cb0"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "git-workspace.authority"
+        ],
+        "reads": [
+          "git-workspace.reads"
+        ],
+        "writes": [
+          "git-workspace.writes"
+        ],
+        "predicates": [
+          "git-workspace.predicates"
+        ],
+        "conflicts": [
+          "git-workspace.conflicts"
+        ],
+        "wire": [
+          "git-workspace.wire"
+        ],
+        "receipt": [
+          "git-workspace.receipt"
+        ],
+        "effects": [
+          "git-workspace.effects"
+        ],
+        "instrumentation": [
+          "git-workspace.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 298,
+          "end": 298,
+          "sha256": "c1912930f3b05f6fd9c287900a33a64e7d288d424d36ba15f6e772635879723b"
+        },
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 298,
+          "end": 301,
+          "sha256": "ebac1076af4bfb6fc200b1c2e7a246344550ec30830956b87fea513e7c660f29"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 1214,
+          "end": 1233,
+          "sha256": "d2212713753712712362829a7355775b84af923589434b918fc0f6736d3bfea1"
+        }
+      ],
+      "domain_mode": "conditional_write"
+    },
+    "git-workspace.push": {
+      "entry_ids": [
+        "77f29053733e06648fa8e36de14e2a1c2c218734acf22c7fd6fa71d422f64db1"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "git-workspace.authority"
+        ],
+        "reads": [
+          "git-workspace.reads"
+        ],
+        "writes": [
+          "git-workspace.writes"
+        ],
+        "predicates": [
+          "git-workspace.predicates"
+        ],
+        "conflicts": [
+          "git-workspace.conflicts"
+        ],
+        "wire": [
+          "git-workspace.wire"
+        ],
+        "receipt": [
+          "git-workspace.receipt"
+        ],
+        "effects": [
+          "git-workspace.effects"
+        ],
+        "instrumentation": [
+          "git-workspace.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 304,
+          "end": 304,
+          "sha256": "38d56a893df98ac5178517c0b3d7b772d559f9105fae7cd0a723ff792a4566b5"
+        },
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 304,
+          "end": 307,
+          "sha256": "58dc749c8ede95e89bce31752ee179212224b3affb29a87f21b1fd433e39cfcb"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 1112,
+          "end": 1200,
+          "sha256": "d9c7002d7d1933a29c0414f3e992403bb13fb188ba2dbe3aff93608378eed73f"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 1028,
+          "end": 1035,
+          "sha256": "f8290f2dd1af392d2569c5df45ad3b7a1e16242f7b3c2c0f4b7db2c0fe72ba8d"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "git-workspace.pull": {
+      "entry_ids": [
+        "e663042cc6ae1c63a8429218fae25cb7a6c3f4048797d857125fa61499e0c72b"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "git-workspace.authority"
+        ],
+        "reads": [
+          "git-workspace.reads"
+        ],
+        "writes": [
+          "git-workspace.writes"
+        ],
+        "predicates": [
+          "git-workspace.predicates"
+        ],
+        "conflicts": [
+          "git-workspace.conflicts"
+        ],
+        "wire": [
+          "git-workspace.wire"
+        ],
+        "receipt": [
+          "git-workspace.receipt"
+        ],
+        "effects": [
+          "git-workspace.effects"
+        ],
+        "instrumentation": [
+          "git-workspace.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 310,
+          "end": 310,
+          "sha256": "e7d0814f5594d2478462654964906085176eb6607f6fe07576b5f30e44112a5d"
+        },
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 310,
+          "end": 313,
+          "sha256": "b5ba5de6633237b522c746d1c06e960204ff23fc491dc6dd917c905ff9f86654"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 1112,
+          "end": 1200,
+          "sha256": "d9c7002d7d1933a29c0414f3e992403bb13fb188ba2dbe3aff93608378eed73f"
+        },
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 1072,
+          "end": 1093,
+          "sha256": "4cbf220876e67d6fdbb3032845507bcd41a71c7c22c44b88d674da02abe67e34"
+        }
+      ],
+      "domain_mode": "write"
     }
   },
   "wire_cases": [
@@ -23528,6 +25250,153 @@
       "entry_id": "6bf10642dcf4dc6d3681e9c16558ae637a1d1ae08e03599a8721a11c89c0dcda",
       "args": {},
       "contract": "org-admin.sweep",
+      "domain_mode": "write"
+    },
+    {
+      "name": "GET /repositories:git-workspace.repositories",
+      "entry_id": "2a2ef8f2c4f0ad133537dffbed8182b3aa37cd9dbffb567cdd075256e5ea74a2",
+      "args": {},
+      "contract": "git-workspace.repositories",
+      "domain_mode": "read"
+    },
+    {
+      "name": "POST /discover:git-workspace.discover",
+      "entry_id": "319abaf2a15d51bded12baf6f555d588d8ba707f4493cf0621375e091f9ef42a",
+      "args": {},
+      "contract": "git-workspace.discover",
+      "domain_mode": "read"
+    },
+    {
+      "name": "POST /repositories:git-workspace.register",
+      "entry_id": "e2adf989a8a39b0b0e6fa4542e1e6805d03acdc64fc604ab7f03f6a286f7b7ab",
+      "args": {},
+      "contract": "git-workspace.register",
+      "domain_mode": "write"
+    },
+    {
+      "name": "DELETE /{rid}/registration:git-workspace.forget",
+      "entry_id": "a6e786143607b807f018f975c896f5da86231500029dd00eff4006ee7b215ef9",
+      "args": {},
+      "contract": "git-workspace.forget",
+      "domain_mode": "write"
+    },
+    {
+      "name": "POST /{rid}/selection:git-workspace.select",
+      "entry_id": "05118ec2fbb105294649c8e603a043df5b3995c0a2cc6f82553f1660524338e5",
+      "args": {},
+      "contract": "git-workspace.select",
+      "domain_mode": "write"
+    },
+    {
+      "name": "GET /{rid}/observation:git-workspace.observation",
+      "entry_id": "9ae6b29b14fdd1c59e3cf902094b6c8c44dc177ea4c00ec8070b70e6f2cbc849",
+      "args": {},
+      "contract": "git-workspace.observation",
+      "domain_mode": "read"
+    },
+    {
+      "name": "GET /{rid}/inventory:git-workspace.inventory",
+      "entry_id": "cd2a08ef854f3de44d70c612271b9e83f21d559716753f19132433690d587cbf",
+      "args": {},
+      "contract": "git-workspace.inventory",
+      "domain_mode": "read"
+    },
+    {
+      "name": "POST /{rid}/setup:git-workspace.setup",
+      "entry_id": "61d96f5916bfadb01d22730a63017e231a1499a7a3e6850f0e26d8611b6741b5",
+      "args": {},
+      "contract": "git-workspace.setup",
+      "domain_mode": "read"
+    },
+    {
+      "name": "POST /{rid}/cleanup-preview:git-workspace.cleanup-preview",
+      "entry_id": "2565ad659bfbf0c7516cf39ab6d9112f28a5ba0b8e1e538efb6e5b1c4444e0a3",
+      "args": {},
+      "contract": "git-workspace.cleanup-preview",
+      "domain_mode": "read"
+    },
+    {
+      "name": "POST /{rid}/cleanup-unlink:git-workspace.cleanup-unlink",
+      "entry_id": "210def498a20e610d55a90cb48b6320ccb51577670a32a36f93039698cd4736e",
+      "args": {},
+      "contract": "git-workspace.cleanup-unlink",
+      "domain_mode": "write"
+    },
+    {
+      "name": "GET /{rid}/settings:git-workspace.settings",
+      "entry_id": "633bd7d90368fa5ba4dfad06d345470364a5c93473df5330544125e6693398bd",
+      "args": {},
+      "contract": "git-workspace.settings",
+      "domain_mode": "read"
+    },
+    {
+      "name": "PATCH /{rid}/settings:git-workspace.settings-write",
+      "entry_id": "bb69df4523410c5764377968e50dfb4d2e9e07714ca6f02ce109eaa57ab8fdf8",
+      "args": {},
+      "contract": "git-workspace.settings-write",
+      "domain_mode": "write"
+    },
+    {
+      "name": "POST /{rid}/links:git-workspace.link",
+      "entry_id": "8c00802a413da7d6807fb50de083cb85a6aee37632dcc813065fb57c0846e121",
+      "args": {},
+      "contract": "git-workspace.link",
+      "domain_mode": "write"
+    },
+    {
+      "name": "DELETE /{rid}/links:git-workspace.unlink",
+      "entry_id": "a73690cecbcf698b1f4ca2f6265931b81e0a650ae435b4cbb8a8a38f63804ff4",
+      "args": {},
+      "contract": "git-workspace.unlink",
+      "domain_mode": "write"
+    },
+    {
+      "name": "GET /{rid}/snapshot:git-workspace.snapshot",
+      "entry_id": "7bb90315dbd4c2884d7e78c99448a7313fb597e59ed8810107320268fcf68773",
+      "args": {},
+      "contract": "git-workspace.snapshot",
+      "domain_mode": "read"
+    },
+    {
+      "name": "GET /{rid}/history:git-workspace.history",
+      "entry_id": "4acc5598d91cb7a46c28d47d4456e3981b32d33bb35845357d685d2264c4bad5",
+      "args": {},
+      "contract": "git-workspace.history",
+      "domain_mode": "read"
+    },
+    {
+      "name": "GET /{rid}/worktrees/{wid}/changes:git-workspace.changes",
+      "entry_id": "f88bf4dbf45d02a42d65c835c0cdc56bf8c4cae5c85e7490ea2fb5c4e9748016",
+      "args": {},
+      "contract": "git-workspace.changes",
+      "domain_mode": "read"
+    },
+    {
+      "name": "POST /{rid}/fetch:git-workspace.fetch",
+      "entry_id": "191025332555ef6087d053aa5598d6bc2f82cea61329fd10018ca1f90d81a639",
+      "args": {},
+      "contract": "git-workspace.fetch",
+      "domain_mode": "write"
+    },
+    {
+      "name": "POST /{rid}/watch:git-workspace.watch",
+      "entry_id": "81820b2d602ba6cd990b141d1b339cb4c847492457900f42500e26c739b60cb0",
+      "args": {},
+      "contract": "git-workspace.watch",
+      "domain_mode": "conditional_write"
+    },
+    {
+      "name": "POST /{rid}/push:git-workspace.push",
+      "entry_id": "77f29053733e06648fa8e36de14e2a1c2c218734acf22c7fd6fa71d422f64db1",
+      "args": {},
+      "contract": "git-workspace.push",
+      "domain_mode": "write"
+    },
+    {
+      "name": "POST /{rid}/pull:git-workspace.pull",
+      "entry_id": "e663042cc6ae1c63a8429218fae25cb7a6c3f4048797d857125fa61499e0c72b",
+      "args": {},
+      "contract": "git-workspace.pull",
       "domain_mode": "write"
     }
   ],
@@ -25616,150 +27485,339 @@
     },
     {
       "id": "2a2ef8f2c4f0ad133537dffbed8182b3aa37cd9dbffb567cdd075256e5ea74a2",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "git-workspace.repositories"
+      ],
+      "reason": "GET /repositories: git-workspace.repositories (P01 F8).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 98,
+          "end": 98,
+          "sha256": "bbdafce4f5a594908fc83715a3a298739b6caf36279eba25e7271e6dd7c56b70"
+        }
+      ]
     },
     {
       "id": "319abaf2a15d51bded12baf6f555d588d8ba707f4493cf0621375e091f9ef42a",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "git-workspace.discover"
+      ],
+      "reason": "POST /discover: git-workspace.discover (P01 F8).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 116,
+          "end": 116,
+          "sha256": "e1850799eb86d7fdd4e51f11116afc4570322fec77d4af4b939a3d67318784e6"
+        }
+      ]
     },
     {
       "id": "e2adf989a8a39b0b0e6fa4542e1e6805d03acdc64fc604ab7f03f6a286f7b7ab",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "git-workspace.register"
+      ],
+      "reason": "POST /repositories: git-workspace.register (P01 F8).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 122,
+          "end": 122,
+          "sha256": "1f795dec98f3742c33fb30087ac1e96b85b12841adb07f044744407a86fa7565"
+        }
+      ]
     },
     {
       "id": "a6e786143607b807f018f975c896f5da86231500029dd00eff4006ee7b215ef9",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "git-workspace.forget"
+      ],
+      "reason": "DELETE /{rid}/registration: git-workspace.forget (P01 F8).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 129,
+          "end": 129,
+          "sha256": "0834cc121172ba53cfe1ebd46e65fd8029afa516b3808b16f63d58e776365ef5"
+        }
+      ]
     },
     {
       "id": "05118ec2fbb105294649c8e603a043df5b3995c0a2cc6f82553f1660524338e5",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "git-workspace.select"
+      ],
+      "reason": "POST /{rid}/selection: git-workspace.select (P01 F8).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 136,
+          "end": 136,
+          "sha256": "279ed8497aff98b3c446597ac78dae1b2d44096271d896843325c3c7be32e7f6"
+        }
+      ]
     },
     {
       "id": "9ae6b29b14fdd1c59e3cf902094b6c8c44dc177ea4c00ec8070b70e6f2cbc849",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "git-workspace.observation"
+      ],
+      "reason": "GET /{rid}/observation: git-workspace.observation (P01 F8).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 144,
+          "end": 144,
+          "sha256": "200d02647cb4826140365f2fc71d7c2c078e8f7a7286db619fe006c0d3a967ee"
+        }
+      ]
     },
     {
       "id": "cd2a08ef854f3de44d70c612271b9e83f21d559716753f19132433690d587cbf",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "git-workspace.inventory"
+      ],
+      "reason": "GET /{rid}/inventory: git-workspace.inventory (P01 F8).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 150,
+          "end": 150,
+          "sha256": "01c9d849f379d6b2bbea11e69ca81d0a90a4874f614f2564d940a84fce274eef"
+        }
+      ]
     },
     {
       "id": "61d96f5916bfadb01d22730a63017e231a1499a7a3e6850f0e26d8611b6741b5",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "git-workspace.setup"
+      ],
+      "reason": "POST /{rid}/setup: git-workspace.setup (P01 F8).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 160,
+          "end": 160,
+          "sha256": "7ec01e0e31c7c7e6d581fdbd968746336da98f1948ee4167286b52da3519cdf2"
+        }
+      ]
     },
     {
       "id": "2565ad659bfbf0c7516cf39ab6d9112f28a5ba0b8e1e538efb6e5b1c4444e0a3",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "git-workspace.cleanup-preview"
+      ],
+      "reason": "POST /{rid}/cleanup-preview: git-workspace.cleanup-preview (P01 F8).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 169,
+          "end": 169,
+          "sha256": "8d700b9e585bcabc5014a097e7b70312ae4f72cd3c0ff4e18592d1e8a4431b25"
+        }
+      ]
     },
     {
       "id": "210def498a20e610d55a90cb48b6320ccb51577670a32a36f93039698cd4736e",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "git-workspace.cleanup-unlink"
+      ],
+      "reason": "POST /{rid}/cleanup-unlink: git-workspace.cleanup-unlink (P01 F8).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 192,
+          "end": 192,
+          "sha256": "b348ba6bb6441a14a982e9f5dedb53d9bc9b750406d09e6beffc71fa37118336"
+        }
+      ]
     },
     {
       "id": "633bd7d90368fa5ba4dfad06d345470364a5c93473df5330544125e6693398bd",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "git-workspace.settings"
+      ],
+      "reason": "GET /{rid}/settings: git-workspace.settings (P01 F8).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 225,
+          "end": 225,
+          "sha256": "91450e68b56f7e87a3f3f2d37f5eb6e76a0fef7c289ed0bb59b8374ccb65fd85"
+        }
+      ]
     },
     {
       "id": "bb69df4523410c5764377968e50dfb4d2e9e07714ca6f02ce109eaa57ab8fdf8",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "git-workspace.settings-write"
+      ],
+      "reason": "PATCH /{rid}/settings: git-workspace.settings-write (P01 F8).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 239,
+          "end": 239,
+          "sha256": "f234c4a6a47360d2cf220d329c3c7a6732fa2f1ab60913f29ac00f40ea360907"
+        }
+      ]
     },
     {
       "id": "8c00802a413da7d6807fb50de083cb85a6aee37632dcc813065fb57c0846e121",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "git-workspace.link"
+      ],
+      "reason": "POST /{rid}/links: git-workspace.link (P01 F8).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 246,
+          "end": 246,
+          "sha256": "e89484f49a897dc85c06eaeaf9c23b24a4854a3dd4dac28fb26c32965abf1aa6"
+        }
+      ]
     },
     {
       "id": "a73690cecbcf698b1f4ca2f6265931b81e0a650ae435b4cbb8a8a38f63804ff4",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "git-workspace.unlink"
+      ],
+      "reason": "DELETE /{rid}/links: git-workspace.unlink (P01 F8).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 253,
+          "end": 253,
+          "sha256": "b81bb280b51c3a1ea4d202734767082441918fb6321d1233f31fc1fe7e76d96c"
+        }
+      ]
     },
     {
       "id": "7bb90315dbd4c2884d7e78c99448a7313fb597e59ed8810107320268fcf68773",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "git-workspace.snapshot"
+      ],
+      "reason": "GET /{rid}/snapshot: git-workspace.snapshot (P01 F8).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 260,
+          "end": 260,
+          "sha256": "2379ffa11e115e22ff3467bf697a2ef1260d004ac33594938173214af7bf39eb"
+        }
+      ]
     },
     {
       "id": "4acc5598d91cb7a46c28d47d4456e3981b32d33bb35845357d685d2264c4bad5",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "git-workspace.history"
+      ],
+      "reason": "GET /{rid}/history: git-workspace.history (P01 F8).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 271,
+          "end": 271,
+          "sha256": "f99c3e1c8b5ed819116065d93b4851124ebe330f0e964aa3899c13bcbd26518e"
+        }
+      ]
     },
     {
       "id": "f88bf4dbf45d02a42d65c835c0cdc56bf8c4cae5c85e7490ea2fb5c4e9748016",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "git-workspace.changes"
+      ],
+      "reason": "GET /{rid}/worktrees/{wid}/changes: git-workspace.changes (P01 F8).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 277,
+          "end": 277,
+          "sha256": "6b78948c10f8dc34ad47d97cd3f6a4621221d4f3db830ac16f090d0b1e16cbbd"
+        }
+      ]
     },
     {
       "id": "191025332555ef6087d053aa5598d6bc2f82cea61329fd10018ca1f90d81a639",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "git-workspace.fetch"
+      ],
+      "reason": "POST /{rid}/fetch: git-workspace.fetch (P01 F8).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 292,
+          "end": 292,
+          "sha256": "e6ef55cce438b30792862e8671bc9b9e3a76c73ab8f6d6adf6fc618f21e84143"
+        }
+      ]
     },
     {
       "id": "81820b2d602ba6cd990b141d1b339cb4c847492457900f42500e26c739b60cb0",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "git-workspace.watch"
+      ],
+      "reason": "POST /{rid}/watch: git-workspace.watch (P01 F8).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 298,
+          "end": 298,
+          "sha256": "c1912930f3b05f6fd9c287900a33a64e7d288d424d36ba15f6e772635879723b"
+        }
+      ]
     },
     {
       "id": "77f29053733e06648fa8e36de14e2a1c2c218734acf22c7fd6fa71d422f64db1",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "git-workspace.push"
+      ],
+      "reason": "POST /{rid}/push: git-workspace.push (P01 F8).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 304,
+          "end": 304,
+          "sha256": "38d56a893df98ac5178517c0b3d7b772d559f9105fae7cd0a723ff792a4566b5"
+        }
+      ]
     },
     {
       "id": "e663042cc6ae1c63a8429218fae25cb7a6c3f4048797d857125fa61499e0c72b",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "git-workspace.pull"
+      ],
+      "reason": "POST /{rid}/pull: git-workspace.pull (P01 F8).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitapi.py",
+          "start": 310,
+          "end": 310,
+          "sha256": "e7d0814f5594d2478462654964906085176eb6607f6fe07576b5f30e44112a5d"
+        }
+      ]
     },
     {
       "id": "fc8af560bf21a773ffc60f91437e3d5b4ecd85cab7051fed1b45da5001638c4a",
@@ -29372,31 +31430,68 @@
     },
     {
       "id": "58da65a18f085e5bb2a3d1fecfd1fd052d3e6951c39801e905cf1b07b8874004",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W8): the worktree-cleanup unlink of a validated reparse point, reached by the uncontracted git workspace route POST /{rid}/cleanup-unlink (gitapi.py). A registered repository or worktree may sit inside an agent's scratch root (gitworkspace.roots includes it), which is org material, so this is not clearly outside org state. Owner: the git workspace feature.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "git-workspace.cleanup-unlink"
+      ],
+      "reason": "The unlink_validated_reparse_point branch on unlink in gitworkspace, reached only by the git workspace route(s) git-workspace.cleanup-unlink (P01 F8, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 482,
+          "end": 482,
+          "sha256": "9b44c67c7d4c948772e2b73e08b61a56910b9e9bb7eee9d33b411909ceb2d965"
+        }
+      ]
     },
     {
       "id": "0e8a172bf571cfa9e30d97a3fb4c99b319bd92fd1cd02555b897e453ca3a7eeb",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W8): git push or pull on a registered repository (gitworkspace.operate), reached by the uncontracted git workspace route POST /{rid}/push or /{rid}/pull (gitapi.py). A registered repository or worktree may sit inside an agent's scratch root (gitworkspace.roots includes it), which is org material, so this is not clearly outside org state. Owner: the git workspace feature.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "git-workspace.push",
+        "git-workspace.pull"
+      ],
+      "reason": "The operate branch on push/pull in gitworkspace, reached only by the git workspace route(s) git-workspace.push, git-workspace.pull (P01 F8, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 1114,
+          "end": 1114,
+          "sha256": "898794c8462791a993a9abc430a49c2b9e59d240b65d75e25ceafded64363555"
+        }
+      ]
     },
     {
       "id": "6aaa161906764388aebef0b520cc79ef260e73d0c4696b442e83f6aea72096c6",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W8): git push on a registered repository (gitworkspace.operate), reached by the uncontracted git workspace route POST /{rid}/push (gitapi.py). A registered repository or worktree may sit inside an agent's scratch root (gitworkspace.roots includes it), which is org material, so this is not clearly outside org state. Owner: the git workspace feature.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "git-workspace.push"
+      ],
+      "reason": "The operate branch on push in gitworkspace, reached only by the git workspace route(s) git-workspace.push (P01 F8, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 1136,
+          "end": 1136,
+          "sha256": "02c4acc2b83235d76b9c16aa164eeb58131ee42061c03e0301efbe45389f7364"
+        }
+      ]
     },
     {
       "id": "9d9efff24162e08b828ce7d8b721240064138a5e14e38e62314f164bf7598bb5",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W8): git push on a registered repository (gitworkspace.operate), reached by the uncontracted git workspace route POST /{rid}/push (gitapi.py). A registered repository or worktree may sit inside an agent's scratch root (gitworkspace.roots includes it), which is org material, so this is not clearly outside org state. Owner: the git workspace feature.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "git-workspace.push"
+      ],
+      "reason": "The operate branch on push in gitworkspace, reached only by the git workspace route(s) git-workspace.push (P01 F8, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/gitworkspace.py",
+          "start": 1140,
+          "end": 1140,
+          "sha256": "d97da54dc6fb37f263a20d88ab76833e602b11b0cf4025ebf2ad4d9210b89df6"
+        }
+      ]
     },
     {
       "id": "49035ed0f05c2e5848a7e3a07c7c9733133ab16ff577350973fc3a5a8f109c20",

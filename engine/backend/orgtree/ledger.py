@@ -7603,10 +7603,10 @@ class Org:
                 # is an explicit attempt to clear an individual override.
                 ("clear_prefer_reserve",
                  True if clear_prefer_reserve else None),
-                # a handle is an outbound-mail PRIVILEGE (the post_mail
-                # per-address bypass), so self-granting one would let a node
-                # hand itself a channel out of the org — the exact thing the
-                # audience system exists to gate. Superior-only, always.
+                # external_handles are retired (norm_extern_handles refuses
+                # any entry; [] may still clear a pre-retirement value). Kept
+                # superior-only, so a node cannot clear its own record.
+                # (Retired with the external-chat MCP server, 2026-09-25.)
                 ("external_handles", external_handles)) if v is not None]
             if offered:
                 raise LedgerError(
@@ -7911,8 +7911,8 @@ class Org:
         if want_handles is not None:
             # REPLACE, like the other list-valued scope fields — [] clears.
             # The grant lives on the NODE (not `sc`) to match hire(), which is
-            # also what makes it ride the seat across retire/rehire, and what
-            # `post_mail`'s bypass and the supervisor's handles_line both read.
+            # also what makes it ride the seat across retire/rehire. Nothing
+            # reads it for authority since the 2026-09-25 retirement.
             if want_handles:
                 n["external_handles"] = want_handles
             else:
