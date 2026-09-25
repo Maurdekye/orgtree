@@ -181,7 +181,10 @@ class DiskMigrationFlip(unittest.TestCase):
         try:
             with patch.object(disk, 'create'), patch.object(sandbox, '_docker', return_value=ok), \
                     patch.object(sandbox, 'ensure_image', return_value='img'), \
-                    patch.object(disk, 'windows_sub', return_value='Z:\\\\new-ws'):
+                    patch.object(disk, 'windows_sub', return_value='Z:\\\\new-ws'), \
+                    patch.object(disk, 'mount_path', return_value='/mnt/probe/orgtree-disk/x'):
+                # mount_path is patched too: unpatched it shells out to `wsl` on the host
+                # (disk.mount_root), which took 1-2 s idle and passed the 5 s bound under load.
                 finished, _ = _while_doc_lock_is_held(lambda: sandbox.migrate_to_disk(store.load_org(slug)))
         finally:
             orgtx.commit_listeners.remove(seen.append)
