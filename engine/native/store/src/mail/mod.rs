@@ -11,3 +11,4 @@ pub mod doors;
 pub mod human;
 pub mod inbox;
 pub mod recovery;
+pub mod declared;
