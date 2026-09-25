@@ -575,6 +575,7 @@ def worker(fn):
         key = (slug, nid)
         st = sup.state(slug, nid)
         turn = fn.__name__ in ("_run_turn", "_run_one_turn") and bool(args)
+        mine = None
         with _reg:
             _workers[key] = _workers.get(key, 0) + 1
             _worker_states.setdefault(key, []).append(st)
@@ -586,11 +587,15 @@ def worker(fn):
                         c = old
                     st["halt_pending_carrier"] = c
                     st["halt_carrier_id"] = c.get("_halt_id")
+                mine = c
         if _node(slug, nid) and blocked(slug, nid):
             try:
-                # a turn's own carrier was made pending above, so this
-                # retains it with everything else queued on the runtime
+                # the turn's OWN carrier is retained explicitly: the pending
+                # slot is one per runtime, and a concurrent worker on the
+                # same agent may already have replaced it
                 with txn(slug, nodes=[nid]) as tx:
+                    if mine is not None:
+                        retain(tx.org, nid, [mine])
                     _capture(tx.org, nid, st)
             finally:
                 with _reg:
