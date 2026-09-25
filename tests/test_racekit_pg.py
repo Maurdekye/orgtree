@@ -45,6 +45,12 @@ import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside thi
 
 from orgtree import orgtx, store  # noqa: E402
 
+# PG-0b turns the transition fence ON by default (plan decision 19). This suite
+# proves ROW-lock behaviour (converted writers that do not wait on DOC_LOCK),
+# which the fence would serialize away; the fence has its own tests
+# (test_orgtx / test_pgstore TransitionFence).
+orgtx.TRANSITION_FENCE = False
+
 
 def tearDownModule() -> None:
     if URL:
