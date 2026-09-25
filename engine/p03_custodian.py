@@ -186,14 +186,16 @@ def database_down(exe: Path, root: Path, env: Mapping[str, str], workdir: Path) 
 
 class StoreService:
     """WS2's store service (call shape agreed with p03-ws2-storecore 2026-09-25):
-    ``--root``; one ready line on stdout after it wrote its owner-only
-    descriptor; exits on stdin EOF; nothing but that line on stdout."""
+    ``--root <root> --exit-on-stdin-eof``; one ready line on stdout after it
+    wrote its owner-only descriptor; exits on stdin EOF; nothing but that line
+    on stdout."""
 
     def __init__(self, exe: Path, root: Path, env: Mapping[str, str], workdir: Path) -> None:
         cmd = [sys.executable, str(exe)] if exe.suffix.lower() == ".py" else [str(exe)]
         self.err_path = workdir / f"store-service-{os.getpid()}.log"
         self.err = open(self.err_path, "ab")
-        self.proc = subprocess.Popen([*cmd, "--root", str(root)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        # --exit-on-stdin-eof: the service follows its host when the host dies.
+        self.proc = subprocess.Popen([*cmd, "--root", str(root), "--exit-on-stdin-eof"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                      stderr=self.err, env=dict(env),
                                      creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         self.ready: dict[str, Any] = {}
