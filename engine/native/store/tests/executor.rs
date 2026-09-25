@@ -347,3 +347,63 @@ async fn the_pool_is_bounded() {
     drop(a);
     assert!(tokio::time::timeout(std::time::Duration::from_millis(50), pool.get()).await.is_ok());
 }
+
+/// WS5's application-level retry: same identity, fresh clock, bounded, and
+/// traced with its true cause (no invented SQLSTATE).
+mod retry_attempt {
+    use super::*;
+    use orgtree_store::{Binding, CmdError, Command, Decided, Family, Session, Tx};
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    struct AskRetry {
+        times: u32,
+        seen: AtomicU32,
+    }
+
+    impl Command for AskRetry {
+        type Output = i64;
+        fn family(&self) -> &'static Family {
+            &FAM
+        }
+        fn verb(&self) -> &'static str {
+            "ask_retry"
+        }
+        async fn anchor<S: Session>(&self, _tx: &mut Tx<'_, S>, _b: &Binding) -> Result<(), CmdError> {
+            Ok(())
+        }
+        async fn may_disclose<S: Session>(&self, _tx: &mut Tx<'_, S>, _b: &Binding, _o: &i64) -> Result<bool, CmdError> {
+            Ok(true)
+        }
+        async fn execute<S: Session>(&self, tx: &mut Tx<'_, S>, _b: &Binding) -> Result<Decided<i64>, CmdError> {
+            let t = tx.now().await?;
+            tx.exec("fake.insert:rows", "INSERT ...", &[orgtree_store::Val::Int(t)]).await?;
+            if self.seen.fetch_add(1, Ordering::SeqCst) < self.times {
+                return Err(CmdError::RetryAttempt { cause: "route_needs_grant_lock" });
+            }
+            Ok(Decided::Applied(t))
+        }
+    }
+
+    #[tokio::test]
+    async fn a_requested_retry_reruns_with_the_same_key_and_a_fresh_clock() {
+        let db = FakeDb::new();
+        let (ex, trace) = exec(&db);
+        let cmd = AskRetry { times: 1, seen: AtomicU32::new(0) };
+        let o = ex.run(&cmd, &binding("k1", "fp1")).await.unwrap();
+        let Outcome::Applied(t) = o else { panic!("{o:?}") };
+        assert_eq!(t, 1_700_000_000_000_000 + 2_000_000, "the second attempt read a fresh clock");
+        assert_eq!(claim_keys(&db), vec!["k1", "k1"]);
+        assert_eq!(db.rows("rows").len(), 1, "the first attempt's write was rolled back");
+        assert!(trace.has("retry:route_needs_grant_lock"));
+    }
+
+    #[tokio::test]
+    async fn requested_retries_are_bounded_and_invent_no_sqlstate() {
+        let db = FakeDb::new();
+        let (ex, _) = exec(&db);
+        let cmd = AskRetry { times: 99, seen: AtomicU32::new(0) };
+        let o = ex.run(&cmd, &binding("k1", "fp1")).await.unwrap();
+        assert_eq!(o, Outcome::RetryExhausted { attempts: 5, last_sqlstate: None });
+        assert!(db.receipts().is_empty());
+    }
+}
