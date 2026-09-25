@@ -2,22 +2,26 @@
 meta-controls fail.
 
 Everything here runs against ``tools/p03/harness/fake_executor.py``, an
-in-process fake that speaks the pause-point contract: no database, no product
-code. The schedule is a lost-update race on one counter. The safe operation
-reads the counter under an exclusive row lock held to commit; its unsafe control
-(``FAKE-LU.control``) skips that lock.
+in-process fake that speaks the harness protocol (``protocol.py``,
+``orgtree.p03-harness/v1``): no database, no product code. The schedule
+``Q-FAKE1`` is a lost-update race on one counter. The safe operation reads the
+counter under an exclusive row lock held to commit; its unsafe control
+``Q-FAKE1.skip_row_lock`` skips that lock, and only a run whose plan ARMS it
+fires it.
 
 What must hold:
 - the safe build, in the intended order (A holds before its write, B is SEEN
   waiting on A), PASSES;
 - a removed barrier, a build without pause points, a plan naming an unknown
-  point, an unclean stream tail and a dropped record each turn the run into
-  FAILED or REFUSED, never PASSED (r7 §8.1: a run whose interleaving is not the
-  one intended is a failed run);
-- the control, switched on, runs in its own order (B overtakes A), breaks the
-  pass condition, and is ACCEPTED only because it recorded that it ran. The same
-  control silenced, or the control order run on the safe build, is a FAILED
-  control (r7 §8.1, S3 §7, gate G3).
+  point or arming an unknown control, an unclean stream tail and a dropped
+  record each turn the run into FAILED or REFUSED, never PASSED (r7 §8.1: a run
+  whose interleaving is not the one intended is a failed run);
+- the control, armed, runs in its own order (B overtakes A), breaks the pass
+  condition, and is ACCEPTED only because it recorded that it ran. The same
+  control silenced, the control's order run unarmed, or an armed control that
+  breaks nothing is a FAILED control (r7 §8.1, S3 §7, gate G3);
+- an injected 40001 is retried as a new attempt and seen in the trace;
+- the protocol refuses malformed frames and executor-side kill_backend.
 """
 from __future__ import annotations
 
@@ -29,6 +33,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
 from p03.harness import controls as ctl  # noqa: E402
+from p03.harness import protocol  # noqa: E402
 from p03.harness.fake_executor import FakeExecutor, Stmt  # noqa: E402
 from p03.harness.schedule import (FAILED, PASSED, REFUSED, Order, Schedule,  # noqa: E402
                                   compare, run_order)
@@ -36,15 +41,15 @@ from p03.harness.trace import stream_health  # noqa: E402
 
 KIND = "counter.increment"
 WRITE = f"{KIND}.stmt.write.before"
-CONTROL_ID = "FAKE-LU.control"
+CONTROL_ID = "Q-FAKE1.skip_row_lock"
 
 
-def _read(rows, ctx, _args):
+def _read(rows, ctx, _writes, _args):
     ctx["v"] = rows.get("counter", 0)
 
 
-def _write(rows, ctx, _args):
-    rows["counter"] = ctx["v"] + 1
+def _write(_rows, ctx, writes, _args):
+    writes["counter"] = ctx["v"] + 1
 
 
 OPS = {KIND: [Stmt("read", ("counters",), "read", lock="counter:1", apply=_read,
@@ -58,22 +63,22 @@ SAFE = Order(
     intended=[("before", f"arrived:A:{WRITE}", "wait:B:A"), ("before", "end:A", "end:B"),
               ("outcome", "A", "commit"), ("outcome", "B", "commit")])
 
-OVERTAKE = Order(
-    "b-overtakes-a",
-    script=[("start", "A"), ("arrive", "A", WRITE), ("start", "B"), ("await_end", "B"),
-            ("release", "A", WRITE), ("await_end", "A")],
-    intended=[("before", f"arrived:A:{WRITE}", "end:B"), ("before", "end:B", "end:A"),
-              ("absent", "wait:B:A")])
+OVERTAKE_SCRIPT = [("start", "A"), ("arrive", "A", WRITE), ("start", "B"), ("await_end", "B"),
+                   ("release", "A", WRITE), ("await_end", "A")]
+OVERTAKE_INTENDED = [("before", f"arrived:A:{WRITE}", "end:B"), ("before", "end:B", "end:A"),
+                     ("absent", "wait:B:A")]
+OVERTAKE = Order("b-overtakes-a", OVERTAKE_SCRIPT, OVERTAKE_INTENDED, controls=[CONTROL_ID])
+OVERTAKE_UNARMED = Order("b-overtakes-a-unarmed", OVERTAKE_SCRIPT, OVERTAKE_INTENDED)
 
 
 def schedule(timeout: float = 3.0) -> Schedule:
-    return Schedule("FAKE-LU", {"A": (KIND, {}), "B": (KIND, {})}, [SAFE, OVERTAKE],
+    return Schedule("Q-FAKE1", {"A": (KIND, {}), "B": (KIND, {})}, [SAFE, OVERTAKE],
                     pass_condition=lambda _r, _a, final: final["rows"].get("counter") == 2,
                     step_timeout=timeout, plan_timeout=timeout)
 
 
-CONTROL = ctl.Control(CONTROL_ID, "FAKE-LU", "fake: controls={'FAKE-LU.control'}",
-                      "fake_executor.FakeExecutor._run (the skipped _take)",
+CONTROL = ctl.Control(CONTROL_ID, "Q-FAKE1", "plan controls: [Q-FAKE1.skip_row_lock]",
+                      "fake_executor.FakeExecutor._attempt (the skipped _take)",
                       "the read skips its exclusive row lock")
 
 
@@ -110,11 +115,15 @@ class ForcedInterleaving(unittest.TestCase):
                       result.reasons)
         self.assertEqual(result.records, [])
 
-    def test_plan_naming_an_unknown_point_is_refused(self):
-        bad = Order("typo", [("start", "A"), ("arrive", "A", f"{KIND}.stmt.wirte.before")], [])
-        result = run_order(FakeExecutor(OPS), schedule(), bad)
+    def test_plan_naming_an_unknown_point_or_control_is_refused(self):
+        typo = Order("typo", [("start", "A"), ("arrive", "A", f"{KIND}.stmt.wirte.before")], [])
+        result = run_order(FakeExecutor(OPS), schedule(), typo)
         self.assertEqual(result.verdict, REFUSED)
-        self.assertTrue(any("does not have" in r for r in result.reasons))
+        self.assertTrue(any("pause points the build does not have" in r for r in result.reasons))
+        ghost = Order("ghost", SAFE.script, SAFE.intended, controls=["Q-FAKE1.not_built"])
+        result = run_order(FakeExecutor(OPS), schedule(), ghost)
+        self.assertEqual(result.verdict, REFUSED)
+        self.assertTrue(any("arms controls the build does not have" in r for r in result.reasons))
 
     def test_unclean_tail_or_dropped_record_is_incomplete(self):
         for kw in ({"unclean_tail": True}, {"drop_records": 1}):
@@ -124,10 +133,23 @@ class ForcedInterleaving(unittest.TestCase):
                 self.assertFalse(result.health["complete"])
                 self.assertTrue(any("incomplete-contact" in r for r in result.reasons))
 
+    def test_injected_serialization_failure_is_retried_and_traced(self):
+        retry = Order(
+            "a-fails-40001-once", [("start", "A"), ("await_end", "A")],
+            [("outcome", "A", "commit"), ("sqlstate", "A", "40001")],
+            faults=[{"op_tag": "A", "point": WRITE, "action": "fail_next", "sqlstate": "40001"}])
+        one = Schedule("Q-FAKE1", {"A": (KIND, {})}, [retry],
+                       pass_condition=lambda _r, _a, final: final["rows"].get("counter") == 1)
+        result = run_order(FakeExecutor(OPS), one, retry)
+        self.assertEqual(result.verdict, PASSED, result.reasons)
+        kinds = [(r["kind"], r.get("attempt")) for r in result.records
+                 if r["kind"] in ("tx_end", "retry")]
+        self.assertEqual(kinds, [("tx_end", 1), ("retry", 2), ("tx_end", 2)])
+
 
 class UnsafeControls(unittest.TestCase):
     def test_control_that_ran_and_broke_the_schedule_is_accepted(self):
-        result = run_order(FakeExecutor(OPS, controls={CONTROL_ID}), schedule(), OVERTAKE)
+        result = run_order(FakeExecutor(OPS), schedule(), OVERTAKE)
         self.assertIs(result.pass_condition_held, False, result.reasons)
         verdict = ctl.control_verdict(CONTROL, result)
         self.assertEqual(verdict["verdict"], "ACCEPTED", verdict["reasons"])
@@ -135,25 +157,25 @@ class UnsafeControls(unittest.TestCase):
 
     def test_silent_control_is_a_failed_control(self):
         """It broke the schedule, but nothing shows it RAN: that is not evidence."""
-        result = run_order(FakeExecutor(OPS, controls={CONTROL_ID}, silent_controls=True),
-                           schedule(), OVERTAKE)
+        result = run_order(FakeExecutor(OPS, silent_controls=True), schedule(), OVERTAKE)
         self.assertIs(result.pass_condition_held, False)
         verdict = ctl.control_verdict(CONTROL, result)
         self.assertEqual(verdict["verdict"], "FAILED")
         self.assertIn("control did not run: no control_executed record", verdict["reasons"])
 
-    def test_control_order_on_the_safe_build_is_a_failed_control(self):
-        """Without the unsafe switch B waits, so the control's order is never achieved."""
-        result = run_order(FakeExecutor(OPS), schedule(1.0), OVERTAKE)
+    def test_control_order_unarmed_is_a_failed_control(self):
+        """Not armed, the lock is taken and B waits, so the control's order never happens."""
+        result = run_order(FakeExecutor(OPS), schedule(1.0), OVERTAKE_UNARMED)
         verdict = ctl.control_verdict(CONTROL, result)
         self.assertEqual(verdict["verdict"], "FAILED")
         self.assertTrue(any("not a valid control run" in r for r in verdict["reasons"]))
+        self.assertIn("control did not run: no control_executed record", verdict["reasons"])
 
     def test_control_that_ran_but_broke_nothing_is_a_failed_control(self):
         """It ran, in its order, on a complete run, but the schedule still passed."""
         lenient = schedule()
         lenient.pass_condition = lambda _r, _a, final: final["rows"].get("counter", 0) >= 1
-        result = run_order(FakeExecutor(OPS, controls={CONTROL_ID}), lenient, OVERTAKE)
+        result = run_order(FakeExecutor(OPS), lenient, OVERTAKE)
         self.assertIs(result.pass_condition_held, True, result.reasons)
         verdict = ctl.control_verdict(CONTROL, result)
         self.assertEqual(verdict["verdict"], "FAILED")
@@ -167,8 +189,45 @@ class UnsafeControls(unittest.TestCase):
         with self.assertRaises(ValueError):
             reg.register(CONTROL)
         with self.assertRaises(ValueError):
-            reg.register(ctl.Control("X.control", "X", "", "site", "wording"))
-        self.assertEqual([c.control_id for c in reg.for_schedule("FAKE-LU")], [CONTROL_ID])
+            reg.register(ctl.Control("Q-X1.y", "Q-X1", "", "site", "wording"))
+        self.assertEqual([c.control_id for c in reg.for_schedule("Q-FAKE1")], [CONTROL_ID])
+
+
+class Protocol(unittest.TestCase):
+    PLAN = {"type": "plan", "run_id": "r", "controls": [CONTROL_ID],
+            "holds": [{"op_tag": "A", "point": WRITE, "action": "hold", "timeout_ms": 1000}]}
+
+    def test_frames_round_trip(self):
+        frame, rest = protocol.decode(protocol.encode(self.PLAN) + b"xx")
+        self.assertEqual((frame, rest), (self.PLAN, b"xx"))
+        self.assertEqual(protocol.decode(protocol.encode(self.PLAN)[:-1])[0], None)
+
+    def test_malformed_frames_are_refused(self):
+        bad = [
+            {"type": "plan", "run_id": "r", "controls": [], "holds": [
+                {"op_tag": "A", "point": WRITE, "action": "kill_backend", "timeout_ms": 1}]},
+            {"type": "plan", "run_id": "r", "controls": [], "holds": [
+                {"op_tag": "A", "point": WRITE, "action": "fail_next", "timeout_ms": 1}]},
+            {"type": "plan", "run_id": "r", "controls": ["not-a-control"], "holds": []},
+            {"type": "plan", "run_id": "r", "controls": [], "holds": [
+                {"op_tag": "A", "point": WRITE, "action": "hold", "timeout_ms": 1},
+                {"op_tag": "A", "point": WRITE, "action": "hold", "timeout_ms": 1}]},
+            {"type": "hello", "token": "t", "protocol": "something-else"},
+            {"type": "handshake", "protocol": protocol.PROTOCOL, "qualification": "yes",
+             "build_sha": "x", "points": [], "controls": []},
+            {"type": "nonsense"},
+        ]
+        for frame in bad:
+            with self.subTest(frame=frame):
+                self.assertTrue(protocol.frame_errors(frame))
+                with self.assertRaises(ValueError):
+                    protocol.encode(frame)
+
+    def test_every_operation_has_the_generic_points(self):
+        self.assertEqual(protocol.generic_points("staffing.hire")[:2],
+                         ["staffing.hire.admitted", "staffing.hire.begin"])
+        self.assertIn("staffing.hire.stmt.probe.before",
+                      protocol.generic_points("staffing.hire", ["probe"]))
 
 
 class Checkers(unittest.TestCase):

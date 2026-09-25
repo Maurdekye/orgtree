@@ -1,4 +1,4 @@
-"""An in-process FAKE executor that speaks the pause-point contract (WS7 design §1).
+"""An in-process FAKE executor that speaks the harness protocol (``protocol.py``).
 
 Test scaffolding for the harness, NEVER product evidence: it has no SQL, no
 PostgreSQL and no isolation levels. It exists so the harness's own verdict
@@ -8,8 +8,8 @@ lands:
 - a build without qualification points is refused;
 - a removed barrier (``barriers=False``) must turn a schedule into FAILED
   ("interleaving not achieved"), never PASSED;
-- a control switched on WITHOUT its executed record (``silent_controls``) must be
-  a FAILED control;
+- a control armed WITHOUT its executed record (``silent_controls``) must be a
+  FAILED control;
 - an unflushed stream tail (``unclean_tail``) or a dropped record
   (``drop_records``) must make the run incomplete-contact.
 
@@ -17,9 +17,13 @@ Model: each operation runs in its own thread as one "transaction" on one fake
 backend pid. Its statements are declared per op kind. A statement with a
 ``lock`` key takes an exclusive row lock held until commit (like SELECT ... FOR
 UPDATE); a second holder WAITS, and ``sample_waits`` reports it as the lock view
-would. Values live in a dict ``rows``. The generic pause points are
-``<kind>.begin``, ``<kind>.stmt.<label>.before`` / ``.after``,
-``<kind>.before_commit`` and ``<kind>.after_commit``.
+would. Values live in a dict ``rows``, updated only at commit from the
+operation's write set, so a rolled-back attempt leaves nothing. Points follow
+the protocol's generic set (``protocol.GENERIC_POINTS``) plus
+``stmt.<label>.before``/``.after``. Actions: ``hold``, ``fail_next`` (the next
+statement fails with that SQLSTATE; 40001/40P01 are retried as a new attempt,
+anything else ends the operation in ``error``), ``drop_conn`` (the outcome is
+``unknown``) and ``sleep``. A control fires only if the run's plan ARMS it.
 """
 from __future__ import annotations
 
@@ -30,7 +34,11 @@ import threading
 import time
 from typing import Any, Callable
 
+from .protocol import GENERIC_POINTS, PROTOCOL, frame_errors, generic_points
 from .trace import SCHEMA
+
+RETRYABLE = ("40001", "40P01")
+MAX_ATTEMPTS = 3
 
 
 @dataclass(frozen=True)
@@ -40,9 +48,9 @@ class Stmt:
     mode: str
     #: exclusive row lock key taken by this statement (None: no lock)
     lock: "str | None" = None
-    #: (rows, ctx, args) -> None: the statement's effect on the fake rows
-    apply: "Callable[[dict, dict, dict], None] | None" = None
-    #: a control that, when switched on, makes this statement skip its lock
+    #: (rows, ctx, writes, args) -> None: reads ``rows``, stages writes in ``writes``
+    apply: "Callable[[dict, dict, dict, dict], None] | None" = None
+    #: a control id (``<schedule>.<variant>``) that, when armed, skips the lock
     skip_lock_control: "str | None" = None
 
 
@@ -55,55 +63,70 @@ class _Stream:
 
     def emit(self, kind: str, **fields: Any) -> dict[str, Any]:
         with self._lock:
-            rec = {"schema": SCHEMA, "stream": self.name, "seq": next(self._seq),
+            seq = next(self._seq)
+            if kind == "stream_end":
+                fields["last_seq"] = seq
+            rec = {"schema": SCHEMA, "stream": self.name, "seq": seq,
                    "mono_ns": time.monotonic_ns(), "kind": kind, **fields}
             self.records.append(rec)
             return rec
 
 
+class _Abort(Exception):
+    def __init__(self, sqlstate: str, outcome: str = "rollback") -> None:
+        super().__init__(sqlstate)
+        self.sqlstate, self.outcome = sqlstate, outcome
+
+
 class FakeExecutor:
     def __init__(self, op_kinds: dict[str, list[Stmt]], *, qualification: bool = True,
-                 barriers: bool = True, controls: "set[str] | None" = None,
-                 silent_controls: bool = False, unclean_tail: bool = False,
-                 drop_records: int = 0, run_id: str = "fake-run") -> None:
+                 barriers: bool = True, silent_controls: bool = False,
+                 unclean_tail: bool = False, drop_records: int = 0) -> None:
         self.op_kinds = op_kinds
         self.qualification = qualification
         self.barriers = barriers
-        self.controls = set(controls or ())
         self.silent_controls = silent_controls
         self.unclean_tail = unclean_tail
         self.drop_records = drop_records
-        self.run_id = run_id
         self.rows: dict[str, Any] = {}
         self.stream = _Stream("fake-executor")
         self._events: "queue.Queue[dict[str, Any]]" = queue.Queue()
-        self._plan: dict[tuple[str, str], dict[str, Any]] = {}
+        self._holds: dict[tuple[str, str], dict[str, Any]] = {}
         self._gates: dict[tuple[str, str], threading.Event] = {}
-        self._locks: dict[str, int] = {}          # lock key -> holder pid
-        self._waiting: dict[int, tuple[int, str]] = {}  # waiter pid -> (holder pid, key)
+        self._armed: set[str] = set()
+        self._run_id = ""
+        self._locks: dict[str, int] = {}                 # lock key -> holder pid
+        self._waiting: dict[int, tuple[int, str]] = {}   # waiter pid -> (holder pid, key)
         self._cv = threading.Condition()
         self._pids = itertools.count(40001)
         self._threads: list[threading.Thread] = []
         self._rows_lock = threading.Lock()
 
-    # -- the contract -------------------------------------------------------
+    # -- the protocol ---------------------------------------------------------
     def points(self) -> list[str]:
-        out = []
+        out: list[str] = []
         for kind, stmts in self.op_kinds.items():
-            out += [f"{kind}.begin", f"{kind}.before_commit", f"{kind}.after_commit"]
-            for s in stmts:
-                out += [f"{kind}.stmt.{s.label}.before", f"{kind}.stmt.{s.label}.after"]
+            out += generic_points(kind, [s.label for s in stmts])
         return out
 
-    def handshake(self) -> dict[str, Any]:
-        return {"qualification": self.qualification, "build": "fake",
-                "points": self.points() if self.qualification else [],
-                "controls": sorted(self.controls)}
+    def controls(self) -> list[str]:
+        return sorted({s.skip_lock_control for stmts in self.op_kinds.values()
+                       for s in stmts if s.skip_lock_control})
 
-    def install_plan(self, plan: list[dict[str, Any]]) -> None:
-        for p in plan:
-            key = (p["op_tag"], p["point"])
-            self._plan[key] = p
+    def handshake(self) -> dict[str, Any]:
+        return {"type": "handshake", "protocol": PROTOCOL, "qualification": self.qualification,
+                "build_sha": "fake", "points": self.points() if self.qualification else [],
+                "controls": self.controls() if self.qualification else []}
+
+    def install_plan(self, plan: dict[str, Any]) -> None:
+        errors = frame_errors(plan)
+        if errors:
+            raise ValueError("; ".join(errors))
+        self._run_id = plan["run_id"]
+        self._armed = set(plan["controls"])
+        for h in plan["holds"]:
+            key = (h["op_tag"], h["point"])
+            self._holds[key] = h
             self._gates[key] = threading.Event()
 
     def start(self, tag: str, op_kind: str, args: dict[str, Any]) -> None:
@@ -133,32 +156,47 @@ class FakeExecutor:
             gate.set()
         for t in self._threads:
             t.join(timeout)
-        records = list(self.stream.records)
         if self.drop_records:
             self.stream.emit("drop", count=self.drop_records)
-        end = self.stream.emit("stream_end", last_seq=0, clean=not self.unclean_tail)
-        end["last_seq"] = end["seq"]
-        records = list(self.stream.records)
+        self.stream.emit("stream_end", clean=not self.unclean_tail)
         events = []
         while True:
             try:
                 events.append(self._events.get_nowait())
             except queue.Empty:
                 break
-        return {"records": records, "streams": [self.stream.name], "events": events,
-                "rows": dict(self.rows)}
+        return {"type": "finished", "records": list(self.stream.records),
+                "streams": [self.stream.name], "events": events, "rows": dict(self.rows)}
 
     # -- one operation --------------------------------------------------------
-    def _point(self, tag: str, op_id: str, attempt: int, pid: int, point: str) -> None:
+    def _fire(self, control_id: "str | None", tag: str, op_id: str) -> bool:
+        """``controls::fire``: true only for a control the plan armed; records it at the site."""
+        if not control_id or control_id not in self._armed:
+            return False
+        if not self.silent_controls:
+            self.stream.emit("control_executed", control_id=control_id, operation_id=op_id,
+                             op_tag=tag)
+        return True
+
+    def _point(self, tag: str, op_id: str, attempt: int, pid: int, point: str,
+               pending: dict[str, Any]) -> None:
         if not self.barriers:
             return
-        plan = self._plan.get((tag, point))
-        if plan is None or plan.get("action") != "hold":
+        h = self._holds.get((tag, point))
+        if h is None:
             return
-        rec = self.stream.emit("arrived", point=point, op_tag=tag, operation_id=op_id,
-                               attempt=attempt, backend_pid=pid)
-        self._events.put(rec)
-        self._gates[(tag, point)].wait(timeout=float(plan.get("timeout_s", 5.0)) + 5.0)
+        action = h["action"]
+        if action == "hold":
+            rec = self.stream.emit("arrived", point=point, op_tag=tag, operation_id=op_id,
+                                   attempt=attempt, backend_pid=pid, txid_if_assigned=None)
+            self._events.put(rec)
+            self._gates[(tag, point)].wait(timeout=h["timeout_ms"] / 1000 + 5.0)
+        elif action == "fail_next" and attempt == 1:
+            pending["sqlstate"] = h["sqlstate"]
+        elif action == "drop_conn" and attempt == 1:
+            raise _Abort("08006", outcome="unknown")
+        elif action == "sleep":
+            time.sleep(h["ms"] / 1000)
 
     def _take(self, key: str, pid: int) -> None:
         with self._cv:
@@ -174,39 +212,64 @@ class FakeExecutor:
                 del self._locks[k]
             self._cv.notify_all()
 
-    def _run(self, tag: str, kind: str, args: dict[str, Any]) -> None:
-        op_id = f"op-{tag}"
-        pid = next(self._pids)
-        attempt = 1
+    def _attempt(self, tag: str, kind: str, args: dict[str, Any], op_id: str, pid: int,
+                 attempt: int) -> None:
         emit = self.stream.emit
-        begin = emit("op_begin", run_id=self.run_id, operation_id=op_id, attempt=attempt,
-                     op_kind=kind, op_tag=tag, backend_pid=pid)
-        self._events.put(begin)
+        pending: dict[str, Any] = {}
+        point = lambda name: self._point(tag, op_id, attempt, pid, f"{kind}.{name}", pending)  # noqa: E731
         emit("tx_begin", operation_id=op_id, attempt=attempt, conn_id=f"c{pid}",
              backend_pid=pid, isolation="fake", factory="fake-pool")
-        self._point(tag, op_id, attempt, pid, f"{kind}.begin")
+        for name in GENERIC_POINTS[1:4]:        # begin, after_anchor, after_claim
+            point(name)
         ctx: dict[str, Any] = {}
+        writes: dict[str, Any] = {}
         for s in self.op_kinds[kind]:
-            self._point(tag, op_id, attempt, pid, f"{kind}.stmt.{s.label}.before")
-            if s.lock:
-                if s.skip_lock_control and s.skip_lock_control in self.controls:
-                    if not self.silent_controls:
-                        emit("control_executed", control_id=s.skip_lock_control,
-                             operation_id=op_id, op_tag=tag)
-                else:
-                    self._take(s.lock, pid)
-            if s.apply:
+            point(f"stmt.{s.label}.before")
+            if s.lock and not self._fire(s.skip_lock_control, tag, op_id):
+                self._take(s.lock, pid)
+            code = pending.pop("sqlstate", "00000")
+            if code == "00000" and s.apply:
                 with self._rows_lock:
-                    s.apply(self.rows, ctx, args)
-            emit("stmt", operation_id=op_id, attempt=attempt, conn_id=f"c{pid}", backend_pid=pid,
-                 stmt_label=s.label, fingerprint=f"fake:{kind}:{s.label}", mode=s.mode,
-                 relations=list(s.relations), sqlstate="00000")
-            self._point(tag, op_id, attempt, pid, f"{kind}.stmt.{s.label}.after")
-        self._point(tag, op_id, attempt, pid, f"{kind}.before_commit")
+                    s.apply(self.rows, ctx, writes, args)
+            emit("stmt", operation_id=op_id, attempt=attempt, conn_id=f"c{pid}",
+                 backend_pid=pid, stmt_label=s.label, fingerprint=f"fake:{kind}:{s.label}",
+                 mode=s.mode, relations=list(s.relations), sqlstate=code)
+            if code != "00000":
+                raise _Abort(code)
+            point(f"stmt.{s.label}.after")
+        point("before_commit")
+        with self._rows_lock:
+            self.rows.update(writes)
         self._release_all(pid)
         emit("tx_end", operation_id=op_id, attempt=attempt, conn_id=f"c{pid}", backend_pid=pid,
              outcome="commit", sqlstate="00000")
-        self._point(tag, op_id, attempt, pid, f"{kind}.after_commit")
-        end = emit("op_end", operation_id=op_id, attempt=attempt, outcome="commit",
-                   contacts=len(self.op_kinds[kind]), op_tag=tag)
-        self._events.put(end)
+        point("after_commit")
+        point("before_effects")
+
+    def _run(self, tag: str, kind: str, args: dict[str, Any]) -> None:
+        op_id = f"op-{tag}"
+        pid = next(self._pids)
+        emit = self.stream.emit
+        self._events.put(emit("op_begin", run_id=self._run_id, operation_id=op_id, attempt=1,
+                              op_kind=kind, op_tag=tag, backend_pid=pid))
+        self._point(tag, op_id, 1, pid, f"{kind}.admitted", {})
+        outcome, attempt = "error", 1
+        while attempt <= MAX_ATTEMPTS:
+            try:
+                self._attempt(tag, kind, args, op_id, pid, attempt)
+                outcome = "commit"
+                break
+            except _Abort as abort:
+                self._release_all(pid)
+                emit("tx_end", operation_id=op_id, attempt=attempt, conn_id=f"c{pid}",
+                     backend_pid=pid, outcome=abort.outcome, sqlstate=abort.sqlstate)
+                if abort.sqlstate in RETRYABLE and attempt < MAX_ATTEMPTS:
+                    emit("retry", operation_id=op_id, attempt=attempt + 1,
+                         retry_cause="serialization" if abort.sqlstate == "40001" else "deadlock",
+                         sqlstate=abort.sqlstate)
+                    attempt += 1
+                    continue
+                outcome = abort.outcome if abort.outcome == "unknown" else "error"
+                break
+        self._events.put(emit("op_end", operation_id=op_id, attempt=attempt, outcome=outcome,
+                              contacts=len(self.op_kinds[kind]), op_tag=tag))
