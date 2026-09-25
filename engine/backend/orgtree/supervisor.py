@@ -9970,18 +9970,18 @@ def manual_list(slug: str, nid: str, generation: int, *, cursor: Any = None,
     Loads and classifies; writes nothing, mints nothing, wakes nothing. The
     states come from `mailruntime.self_view`, the same classification the
     reclaim uses, never from the busy bit."""
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
-        refused = _manual_identity_refusal(org, nid, generation)
-        if refused is not None:
-            return refused
-        st = state(slug, nid)
-        with _state_lock:
-            facts = mailruntime.runtime_facts(st)
-        states, _ = mailruntime.self_view(org, nid, facts,
-                                          now=time.time() if now is None else now)
-        return inbox.build_list(org, nid, states, generation=generation,
-                                cursor=cursor, limit=limit)
+    # PG-3d: a lock-free coherent read (org_read), not DOC_LOCK
+    org = orgtx.org_read(slug)
+    refused = _manual_identity_refusal(org, nid, generation)
+    if refused is not None:
+        return refused
+    st = state(slug, nid)
+    with _state_lock:
+        facts = mailruntime.runtime_facts(st)
+    states, _ = mailruntime.self_view(org, nid, facts,
+                                      now=time.time() if now is None else now)
+    return inbox.build_list(org, nid, states, generation=generation,
+                            cursor=cursor, limit=limit)
 
 
 def _manual_attempts(org: Org, nid: str) -> dict[str, dict[str, Any]]:
@@ -10643,12 +10643,13 @@ def scan_manual_records(slug: str, nid: str) -> dict[str, int]:
     resolves a failed save from positive records only."""
     counts = {"candidates": 0, "complete": 0}
     try:
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
-            found = _manual_candidates(org, nid)
-            if not found:
-                return counts
-            incarnation = _transcript_incarnation(org, nid)
+        # PG-3d: a lock-free read; the confirmation below is its own
+        # row transaction (_confirm_delivered)
+        org = orgtx.org_read(slug)
+        found = _manual_candidates(org, nid)
+        if not found:
+            return counts
+        incarnation = _transcript_incarnation(org, nid)
         counts["candidates"] = len(found)
         toks = _manual_complete_toks(slug, nid, found, incarnation)
         counts["complete"] = len(toks)
