@@ -101,6 +101,29 @@ class HireDoor(unittest.TestCase):
         self.assertEqual(len(self.runs), 1)
         self.assertGreater(store.load_org(self.slug).node('mid')['grant'], before)
 
+    def test_name_taken_after_the_snapshot_widens_not_refuses(self):
+        """The spec is computed from an UNLOCKED snapshot. Hand the door a
+        snapshot from before a racing hire took the name: the locked
+        document gives the new seat `kid-2`, which the spec did not name.
+        The body must widen and succeed — not refuse a legitimate hire."""
+        stale = store.load_org(self.slug)
+        org = store.load_org(self.slug)
+        org.hire('mid', 'mid', 'luna', 0, 'kid', add_dirs=[], tools=T,
+                 org_visibility='full', charter='c')       # the racer
+        self.p[-1].stop()                                  # allow this save
+        store.save_org(org)
+        self.p[-1].start()
+        pgdoor.use_org_tx(None, snapshot=lambda slug: stale)
+        try:
+            r = self.hire('mid', name='kid')
+        finally:
+            pgdoor.use_org_tx(None)
+        self.assertEqual(r['node'], 'kid-2')
+        # the re-derivation widened BEFORE the hire ran: the hire itself ran
+        # once, on the widened rows (without it: hire, then check_created
+        # refuses a row the tx does not hold — a 422 for a legitimate hire)
+        self.assertEqual(len(self.runs), 1)
+
     def test_refused_hire_is_422_and_commits_nothing(self):
         r0 = self.rev()
         with self.assertRaises(HTTPException) as cm:
