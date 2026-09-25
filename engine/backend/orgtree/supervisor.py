@@ -23420,19 +23420,19 @@ def _run_one_turn_recorded(slug: str, nid: str,
             # state-review 2026-09-12.
             _belt_owned = True
             try:
-                with store.DOC_LOCK:
-                    _bo = store.load_org(slug)
-                    _bn = _bo.node(nid) if nid in _bo.nodes else None
-                    _belt_owned = bool(
-                        _bn is None
-                        or _bn.get("halt")
-                        or _bn.get("frozen")
-                        or _bn.get("limit_locked")
-                        or _bn.get("remote_controlled")
-                        or _bn["state"] != "live"
-                        or _bo.d.get("spend_frozen")
-                        or (_bo.d.get("storage_blocked")
-                            and sbx.on_disk(slug)))
+                # PG-3e-A: a pure read — one coherent lock-free `org_read`.
+                _bo = orgtx.org_read(slug)
+                _bn = _bo.node(nid) if nid in _bo.nodes else None
+                _belt_owned = bool(
+                    _bn is None
+                    or _bn.get("halt")
+                    or _bn.get("frozen")
+                    or _bn.get("limit_locked")
+                    or _bn.get("remote_controlled")
+                    or _bn["state"] != "live"
+                    or _bo.d.get("spend_frozen")
+                    or (_bo.d.get("storage_blocked")
+                        and sbx.on_disk(slug)))
             except Exception:                                # noqa: BLE001
                 _belt_owned = True
             if not _belt_owned:
