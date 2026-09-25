@@ -9840,11 +9840,9 @@ def reclaim_orphans(slug: str, nid: str, *, org: Org | None = None,
     out: dict[str, Any] = {"folded": frozenset(), "refused": {},
                           "eligible": frozenset(), "saved": False,
                           "outcome": "unchanged", "resolved": {}}
-    with (store.DOC_LOCK if org is None else _already_locked()):
-        if org is None:
-            org = store.load_org(slug)
-        if _reclaim_blocked(org, nid):
-            return out
+    def fold(org: Org) -> dict[str, Any] | None:
+        """Select, fence and fold on `org`; returns the receipt (None when
+        nothing folded). Saves nothing."""
         receipt = None
         with _state_lock:
             out["resolved"] = mailruntime.resolve_reclaims(org, st, nid=nid)
@@ -9862,49 +9860,79 @@ def reclaim_orphans(slug: str, nid: str, *, org: Org | None = None,
                     org, nid, safe, operation=lifecycle.new_operation("mail-reclaim"))
                 mailruntime.fence(st, safe)
                 st.setdefault("mail_reclaim_intents", {})[receipt["operation"]] = receipt
-                try:
-                    folded, _ = _fold_back_locked(org, nid, only_toks=safe)
-                    if folded != safe:
-                        raise RuntimeError("ownership changed before the reclaim fold")
-                    mailruntime.write_reclaim_receipt(org, receipt)
-                    mailruntime.compact_receipts(org, st, nid,
-                                                 keep=(receipt["operation"],))
-                    out["folded"] = folded
-                except BaseException:
-                    # Nothing was saved. Discard the caller's document and let
-                    # the next fresh read settle this intent; do not reuse it.
-                    raise
+                # an exception here means nothing was saved: the caller's
+                # document (or the transaction) is discarded
+                folded, _ = _fold_back_locked(org, nid, only_toks=safe)
+                if folded != safe:
+                    raise RuntimeError("ownership changed before the reclaim fold")
+                mailruntime.write_reclaim_receipt(org, receipt)
+                mailruntime.compact_receipts(org, st, nid,
+                                             keep=(receipt["operation"],))
+                out["folded"] = folded
+        return receipt
+
+    def resolve_unknown(receipt: dict[str, Any], read: Callable[[], Org]) -> None:
+        """The save may have raised before or after its commit. A new
+        document is essential: the partially mutated RAM copy proves
+        neither. Keep the fence when the durable read also fails."""
         try:
-            if mutate is not None:
-                mutate(org)
-            if receipt is not None or mutate is not None:
-                store.save_org(org)
-                out["saved"] = True
-                out["outcome"] = "committed"
+            fresh = read()
+        except Exception:
+            out["outcome"] = "ambiguous"
+            raise
+        with _state_lock:
+            outcomes = mailruntime.resolve_reclaims(fresh, st, nid=nid)
+        out["outcome"] = outcomes.get(receipt["operation"], "ambiguous")
+        if out["outcome"] != "committed":
+            raise   # the save's own exception (called from its handler)
+        out["saved"] = True
+
+    receipt: dict[str, Any] | None = None
+    if org is None:
+        # PG-3d: a row transaction on that node's row, the pending boxes, the
+        # delivery journal and notices, not DOC_LOCK
+        try:
+            with orgtx.org_tx(slug, **mailtx.reclaim_rows(nid)) as tx:
+                if _reclaim_blocked(tx.org, nid):
+                    raise mailtx.NothingToCommit
+                receipt = fold(tx.org)
+                if mutate is not None:
+                    mutate(tx.org)
+                if receipt is None and mutate is None:
+                    raise mailtx.NothingToCommit
+            out["saved"] = True
+            out["outcome"] = "committed"
+        except mailtx.NothingToCommit:
+            return out
+        except orgtx.UnlockedWrite:
+            raise
         except Exception:
             if receipt is None:
                 raise
-            # Save may have raised either before commit or after commit. A new
-            # document is essential: the partially mutated RAM copy proves
-            # neither. Keep the fence when the durable read also fails.
+            resolve_unknown(receipt, lambda: orgtx.org_read(slug))
+    else:
+        with _already_locked():
+            if _reclaim_blocked(org, nid):
+                return out
+            receipt = fold(org)
             try:
-                fresh = store.load_org(slug)
+                if mutate is not None:
+                    mutate(org)
+                if receipt is not None or mutate is not None:
+                    store.save_org(org)
+                    out["saved"] = True
+                    out["outcome"] = "committed"
             except Exception:
-                out["outcome"] = "ambiguous"
-                raise
-            with _state_lock:
-                outcomes = mailruntime.resolve_reclaims(fresh, st, nid=nid)
-            out["outcome"] = outcomes.get(receipt["operation"], "ambiguous")
-            if out["outcome"] != "committed":
-                raise
-            out["saved"] = True
-        if receipt is not None and out["saved"]:
-            with _state_lock:
-                mailruntime.note_reclaimed(st, receipt["before"])
-                mailruntime.unfence(st, receipt["before"])
-                st.get("mail_reclaim_intents", {}).pop(receipt["operation"], None)
-                _retry_mail_publications(st)
-        return out
+                if receipt is None:
+                    raise
+                resolve_unknown(receipt, lambda: store.load_org(slug))
+    if receipt is not None and out["saved"]:
+        with _state_lock:
+            mailruntime.note_reclaimed(st, receipt["before"])
+            mailruntime.unfence(st, receipt["before"])
+            st.get("mail_reclaim_intents", {}).pop(receipt["operation"], None)
+            _retry_mail_publications(st)
+    return out
 
 
 def _fold_back_undelivered(slug: str, nid: str,
