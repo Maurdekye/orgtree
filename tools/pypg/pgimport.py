@@ -1,4 +1,4 @@
-"""PYPG PG-2: import every org from its SQLite ``.db`` (or legacy ``.json``)
+"""PYPG PG-2 (tools/pypg/pgimport.py): import every org from its SQLite ``.db`` (or legacy ``.json``)
 into PostgreSQL, with counts and checksums, leaving the old files untouched.
 
 THE PROBLEM. The alpha switches org storage to PostgreSQL (user decision 31).
@@ -25,6 +25,10 @@ five SQLite tables ``doc``, ``nodes``, ``log_d``, ``log_l`` and ``meta``
    run again (RT10).
 
 The dry run (:func:`dry_run`) does 1-3 for every org and changes nothing.
+
+WHY A TOOL, NOT ENGINE CODE. The import runs once, offline, with the engine
+STOPPED, and only coordinator-opus runs it against a real root. Nothing in
+the engine imports it, so it adds no runtime storage path.
 The cutover (:func:`write_cutover`) happens only after a complete, verified
 import with no refusals.
 
@@ -45,11 +49,15 @@ import os
 from pathlib import Path
 import re
 import sqlite3
+import sys
 import tempfile
 import time
 from typing import Any, Iterable, Iterator, Mapping, Protocol
 
-from . import store
+_REPO = Path(__file__).resolve().parents[2]
+if str(_REPO / "engine" / "backend") not in sys.path:
+    sys.path.insert(0, str(_REPO / "engine" / "backend"))
+from orgtree import store  # noqa: E402  (after the backend is on the path)
 
 SCHEMA = "orgtree.pgimport/v1"
 TABLES: tuple[str, ...] = ("doc", "nodes", "log_d", "log_l", "meta")
