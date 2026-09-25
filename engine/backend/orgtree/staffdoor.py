@@ -310,7 +310,12 @@ pgdoor.declare("quick_staff", quick_staff_spec, body=quick_staff_body)
 
 def quick_staff_undo_rows(org: Any, undo: dict[str, Any]) -> pgdoor.TxSpec:
     """The undo's rows: the docket, the request's recipient (its mail is
-    retracted) and the owner being restored (an ownership write notifies)."""
+    retracted) and the owner being restored (an ownership write notifies).
+    ⚠ The two NODE rows are held conservatively: measured today the undo
+    changes neither (the retraction edits the org-wide `mail` section, and a
+    request never changes the owner), so no outcome test can tell them apart
+    from nothing (mutant Q7 survives by construction). They are kept because
+    the mailbox is that node's, and WS5's mail split makes it a per-node row."""
     nodes = tuple(dict.fromkeys(
         n for n in (str(undo.get("node") or ""), str(undo.get("owner") or ""))
         if n and n in org.nodes))
