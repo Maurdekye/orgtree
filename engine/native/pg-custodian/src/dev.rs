@@ -165,9 +165,11 @@ pub fn status_all(env: &Env, home: &Path, bin: &PgBin) -> Result<AllStatus> {
             let agent = e.file_name().to_string_lossy().to_string();
             let qual = guard::validate_root(&e.path(), env).ok().map(|r| cluster::qual_logging_configured(&r));
             let (state, port, pid) = match guard::validate_root(&e.path(), env).and_then(|r| cluster::state(&r, bin)) {
-                Ok(ClusterState::Running { postmaster_pid, runtime, .. }) => {
+                Ok(ClusterState::Running { postmaster_pid, runtime, pm_status, .. }) => {
                     listed_pids.push(postmaster_pid);
-                    (serde_json::json!("running"), runtime.map(|r| r.port), Some(postmaster_pid))
+                    // "stopping" while a shutdown checkpoint runs.
+                    let word = if pm_status.as_deref() == Some("stopping") { "stopping" } else { "running" };
+                    (serde_json::json!(word), runtime.map(|r| r.port), Some(postmaster_pid))
                 }
                 Ok(s) => (serde_json::to_value(&s).map(|v| v["state"].clone()).unwrap_or_default(), None, None),
                 Err(err) => (serde_json::json!({"refused": err.code, "message": err.message}), None, None),
