@@ -309,6 +309,23 @@ def set_identity(account_id: str, identity: dict[str, Any]) -> None:
         save(doc)
 
 
+#: Accounts a removal is in progress on (PG-3f, lead decision 32). While an id
+#: is here `validate_binding` refuses it, so no new binding to the row can
+#: start while `account_removal` moves the old ones off it. Kept in memory,
+#: not in the registry file: a crash mid-removal must not leave an account
+#: that can never be bound again.
+_removing: set[str] = set()
+
+
+def set_removing(account_id: str, removing: bool) -> None:
+    """Mark or unmark `account_id` as being removed (see `_removing`)."""
+    with _lock:
+        if removing:
+            _removing.add(account_id)
+        else:
+            _removing.discard(account_id)
+
+
 def remove_account(account_id: str) -> bool:
     """Raw removal. Binding checks (refuse while agents are bound) live at
     the API layer where org documents are reachable — S5, not here."""
@@ -482,7 +499,7 @@ def validate_binding(org_slug: str, tier: str,
     pass what the other refuses, and being the user does not bypass it).
 
     Three checks, in refusal order:
-      1. the account exists;
+      1. the account exists, and no removal is in progress on it;
       2. AVAILABILITY — an org-key row (origin_org) is bindable only within
          its origin org (user ruling 18:38Z, the declared exception);
       3. PROVIDER COMPATIBILITY — the account's provider must equal
@@ -496,6 +513,11 @@ def validate_binding(org_slug: str, tier: str,
     except UnknownAccount:
         raise BindingRefused(
             f"no account {account_id!r} is registered") from None
+    with _lock:
+        removing = row["id"] in _removing
+    if removing:
+        raise BindingRefused(
+            f"account {row['id']} is being removed — choose another account")
     scope = str(row.get("origin_org") or "")
     if scope and scope != org_slug:
         raise BindingRefused(
