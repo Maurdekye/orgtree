@@ -147,7 +147,8 @@ def decide_rows(org: Any, rid: str) -> pgdoor.TxSpec:
     nid = str(req.get("node") or "") if req else ""
     parts = [_spec(sections=(REQUESTS,), logs=("events",))]
     if nid:
-        parts += [reallocate_rows(org, USER, nid), _mail(nid, USER)]
+        # the user SENDS the decision mail: its outbox is in the send logs
+        parts += [reallocate_rows(org, USER, nid), _mail(nid)]
     return union(*parts)
 
 
@@ -224,3 +225,33 @@ def declare_all() -> None:
     pgdoor.declare("orgtree_reservation", reservation_spec)
     pgdoor.declare("orgtree_resource_reservation", reservation_spec)
     pgdoor.declare("orgtree_watchdog", watchdog_spec)
+
+
+# ------------------------------------------------------ operator doors
+
+def run_op(slug: str, spec: pgdoor.TxSpec, fn: Any) -> Any:
+    """Run an OPERATOR door body `fn(tx)` in one `org_tx` on `spec`, re-running
+    with the widened set when the body raises `pgdoor.Widen` (the tree moved
+    since the snapshot the spec came from). `tx` is orgtx's OrgTx: the locked
+    Org is `tx.org`, and `tx.spec` is set to the rows held so a body can
+    `require()` against them. Same contract as pgdoor.op_tx, on orgtx
+    directly (pgdoor's production seam is not installed on this branch)."""
+    from . import orgtx
+    widens = 0
+    while True:
+        spec = pgdoor._norm(spec)   # pyright: ignore[reportPrivateUsage]
+        try:
+            with orgtx.org_tx(slug, nodes=list(spec.nodes),
+                              sections=list(spec.sections),
+                              share_nodes=list(spec.share_nodes),
+                              share_sections=list(spec.share_sections),
+                              logs=list(spec.logs)) as tx:
+                tx.spec = spec      # type: ignore[attr-defined]
+                return fn(tx)
+        except pgdoor.Widen as w:
+            widens += 1
+            if widens > pgdoor.MAX_WIDEN:
+                from .ledger import LedgerError
+                raise LedgerError("rcdoor: the lock set kept growing — nothing "
+                                  "was applied; retry") from w
+            spec = spec.widened(w)
