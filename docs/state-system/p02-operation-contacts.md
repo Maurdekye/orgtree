@@ -60,6 +60,21 @@ synthetic data; none is fixed here. P01 and P05 should cite these rows.
 - **An `@org:` send from the org inbox writes the other org's store**; to a
   sealed kiosk it reads the other store and only warns.
 
+## Reads that start a process (recorded, not fixed)
+
+- **An admin disk read on an org whose virtual disk is configured but not
+  mounted starts `wsl.exe`** (P01 F6, below). `GET /api/orgs/{slug}/disk`
+  and `/disk/dir` reach `disk.is_mounted` (through `usage` / `enumerate`),
+  and `/disk/file` reaches `disk.windows_path` (through `_disk_rel`). Both
+  call `disk.mount_path` → `mount_root()`, and `distro()`: the first run is
+  `wsl -l -q`, then `mount_root()` runs
+  `wsl -d <docker-desktop distro> -e sh -c "mkdir -p /mnt/host/wsl/orgtree-disk"`,
+  a WRITE inside the real distro (both are cached per process after the
+  first success). The probe's guard refuses the first process start, so
+  these rows answer 500 here; P01's unguarded fixture pins 503 / 404. The
+  material rows `sandbox:on-disk` reach the same `windows_path` start
+  (below).
+
 ## Where each number comes from
 
 | Source | What it is |
@@ -1523,7 +1538,8 @@ after a garbage collection.
     `org-read.net` (the org's identity, hubs and autoconnect);
   - the repeat rows (`:repeat`, `:chat-repeat`) write nothing;
   - a chat read refused 422 for a bad cursor still writes the node's row,
-    because the mint runs before the cursor check.
+    because the mint runs before the cursor check; its repeat
+    (`refusal:chat-bad-cursor:repeat`) is 422 again and writes nothing.
 - **Variants** (warm): chat of a node with no transcript, a kiosk's `/net`,
   a scratch file, the last N events, one aggregate collection, and the orgmd
   of an org with no workspace and of a 70000-character one.
@@ -1531,13 +1547,23 @@ after a garbage collection.
   cursor above): unknown nodes and orgs, path escapes, a missing file or
   path, a tool result with no image, a node with no transcript, an unknown
   history collection, a bad history cursor, an unsupported aggregate, the
-  unmounted disk (503), the frozen-profile bridge credential (503 for an org
-  that is not sandboxed, 404 for a missing one), and an agent credential
-  (401, before any attempt is recorded).
+  frozen-profile bridge credential (503 for an org that is not sandboxed,
+  404 for a missing one), and an agent credential (401, before any attempt
+  is recorded).
+- **The unmounted disk starts a process** (`refusal:disk-list-unmounted`,
+  `refusal:disk-dir-unmounted`, `refusal:disk-file-missing`): on an org whose
+  disk is configured but not mounted, the three disk reads shell out to WSL
+  (`wsl -l -q`, and `mount_root`'s `mkdir -p` inside the Docker Desktop
+  distro; see "Reads that start a process" at the top). The guard refuses
+  the process start, so these rows answer **500 here**; P01's unguarded
+  fixture pins 503 / 404. Each row declares exactly
+  `guard:process/subprocess.Popen`, and the test asserts it is the row's only
+  guard refusal. What the product does past that refused start is not
+  measured.
 - **Open file handles:** the scratch-file, tool-image and orgmd reads each
   raise an "unclosed file" ResourceWarning. The file stays open until
-  garbage collection. The tests pin those rows at one or more and the events,
-  chat and aggregate rows at zero.
+  garbage collection. The tests pin those rows at one or more, and the
+  events, chat, aggregate and scratch-listing rows at zero.
 - **Locality:** every statement runs on the org's own store (no F6 read
   leaves its org). The only agent row a read writes is the node it mints, and
   `or-third` is never touched. The control `control:org-read-third-agent`
@@ -1551,7 +1577,7 @@ first open question, not the Owner line.
 
 | Facet | Closing clause | Status | Rows |
 |---|---|---|---|
-| `org-read.instrumentation` | a loss-accounted P02 record per row (open question: actual contacts per outcome, cold and warm, refusals included; the chat reads touch three sidecars) | partly | covered: all 15 reads cold and warm, per-row loss zero; the writing reads as write rows on the first call and the repeat; the chat sidecars; the open file handles counted; org-level locality (all statements org-local) and agent-level locality (only the minted node written); `control:org-read-third-agent` flagged. NOT covered: the success paths of the bridge credential and the three disk reads (they need a sandboxed org with a mounted disk; the rows are their standard answers); P03 native negative controls |
+| `org-read.instrumentation` | a loss-accounted P02 record per row (open question: actual contacts per outcome, cold and warm, refusals included; the chat reads touch three sidecars) | partly | covered: all 15 reads cold and warm, per-row loss zero; the writing reads as write rows on the first call and the repeat; the chat sidecars; the open file handles counted; org-level locality (all statements org-local) and agent-level locality (only the minted node written); `control:org-read-third-agent` flagged; the unmounted-disk rows (`refusal:disk-list-unmounted`, `refusal:disk-dir-unmounted`, `refusal:disk-file-missing`) up to the refused `wsl.exe` start (500 here, where P01's unguarded fixture pins 503 / 404). NOT covered: the success paths of the bridge credential and the three disk reads (they need a sandboxed org with a mounted disk; the rows are their standard answers); the unmounted-disk reads' contacts past the refused process start (the WSL commands and `mount_root`'s `mkdir -p` in the distro); P03 native negative controls |
 
 Owned elsewhere, with no rows added: `org-read.conflicts` and
 `org-read.wire`.
@@ -1589,7 +1615,11 @@ Owned elsewhere, with no rows added: `org-read.conflicts` and
   contact.
 - **Attribution is by time window.** Work a background thread does while an
   operation runs is credited to that operation. Late contacts after the
-  census record is sealed appear in the window's `db_late`.
+  census record is sealed appear in the window's `db_late`. The same holds for
+  `resource_warnings`: `warnings.catch_warnings` is process-wide, so an
+  "unclosed file" warning finalized on another thread during a row (a
+  supervisor background thread, for example) would be counted against that
+  row.
 - **Synthetic fixtures,** one per family, in one process on one machine. This
   is not a complete coverage claim for any contract, and it is not observed
   live behaviour.

@@ -2346,6 +2346,10 @@ class OperationContacts(unittest.TestCase):
         self.assertEqual(cursor["http_status"], 422)
         self.assertTrue(self.primary_written(cursor))
         self.assertEqual(cursor["agents"]["physical_written"], ["or-cursor"])
+        # the repeat of the refused read: still 422, and nothing left to mint
+        [again] = self.rows(variant="refusal:chat-bad-cursor:repeat", condition="warm")
+        self.assertEqual((again["http_status"], self.primary_written(again)), (422, []))
+        self.assertEqual(again["agents"]["physical_written"], [])
 
     def test_open_file_handles_are_counted(self):
         """The scratch, tool-image and orgmd reads open a file and do not close
@@ -2357,7 +2361,8 @@ class OperationContacts(unittest.TestCase):
             for r in self.rows(variant=variant):
                 with self.subTest(leak=variant, condition=r["condition"]):
                     self.assertGreaterEqual(r["resource_warnings"], 1)
-        for variant in ("org-read.events", "org-read.chat", "org-read.aggregates"):
+        for variant in ("org-read.events", "org-read.chat", "org-read.aggregates",
+                        "org-read.scratch"):
             for r in self.rows(variant=variant):
                 with self.subTest(clean=variant, condition=r["condition"]):
                     self.assertEqual(r["resource_warnings"], 0)
@@ -2381,8 +2386,9 @@ class OperationContacts(unittest.TestCase):
                     and r["variant"] != "refusal:chat-bad-cursor"]
         # 10 cold/warm standard answers of the bridge and disk reads, 2 on the
         # unmounted disk, 25 in the refusal table, the frozen-profile bridge
-        # read of a missing org, and the agent token
-        self.assertEqual(len(refusals), 39)
+        # read of a missing org, the agent token, and the repeat bad-cursor chat
+        # read (its first call is the recorded legacy write)
+        self.assertEqual(len(refusals), 40)
         for r in refusals:
             with self.subTest(variant=r["variant"], condition=r["condition"]):
                 self.assertGreaterEqual(r["http_status"], 400)

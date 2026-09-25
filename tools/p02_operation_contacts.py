@@ -3249,6 +3249,10 @@ class Probe:
         route("org-read.chat", "refusal:chat-bad-cursor", "warm", f"{base}/nodes/or-cursor/chat",
               params={"before": "garbage"}, args={"node": "or-cursor"},
               refusal="422 invalid cursor (legacy: after the mint, which writes)")
+        # ... and the repeat: the node is minted, so the same refusal writes nothing
+        route("org-read.chat", "refusal:chat-bad-cursor:repeat", "warm",
+              f"{base}/nodes/or-cursor/chat", params={"before": "garbage"},
+              args={"node": "or-cursor"}, refusal="422 invalid cursor (the node is already minted)")
         for contract, variant, path, params, slug, refusal in (
                 ("org-read.chat", "refusal:chat-ghost", f"{base}/nodes/ghost/chat", None, s,
                  "404 no such node"),
