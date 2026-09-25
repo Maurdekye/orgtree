@@ -181,12 +181,21 @@ class Drills(unittest.TestCase):
         self.assertEqual(record["backend"], "postgres")
         self.assertEqual(sorted(p.name for p in (root / "orgs").iterdir()), ["acme.pg", "beta.pg"])
         self.assertEqual(digest_tree(root / "pre-postgres" / "orgs"), sources, "the old files moved unchanged")
+        # A cutover that stopped after the record: one file back in orgs/.
+        # The engine refuses, naming the re-run; the re-run moves only it.
+        os.rename(root / "pre-postgres" / "orgs" / "beta.json", root / "orgs" / "beta.json")
+        engine_env = {k: v for k, v in env.items() if k != bracket.STORE_ENV}
+        engine_env["ORGTREE_DATA"] = str(root)
+        with self.assertRaisesRegex(bracket.BracketError, "did not finish: orgs/ still holds beta.json") as half:
+            bracket.start_for_engine(root, dict(engine_env))
+        self.assertIn("pgimport.py import --root", str(half.exception))
+        again_code, again = self.import_cli(root, env)
+        self.assertEqual((again_code, again.get("kind"), again.get("moved")), (0, "cutover_completed", ["beta.json"]))
+        self.assertEqual(digest_tree(root / "pre-postgres" / "orgs"), sources)
         again_code, again = self.import_cli(root, env)
         self.assertEqual((again_code, again.get("kind"), again.get("moved")), (0, "cutover_completed", []))
 
         # The ENGINE: ORGTREE_STORE unset, so the record decides.
-        engine_env = {k: v for k, v in env.items() if k != bracket.STORE_ENV}
-        engine_env["ORGTREE_DATA"] = str(root)
         owned = bracket.start_for_engine(root, engine_env)
         try:
             self.assertEqual(owned.product, product)
@@ -212,7 +221,7 @@ class Drills(unittest.TestCase):
                 "engine": {"action": owned.database is None and "stopped", "mode": "product" if product else "prototype",
                            "migration_applied": owned.migration["applied"], "runtime_role": who,
                            "next_seq": new, "imported_max_seq": top},
-                "acme_equal_to_sqlite": True, "stop": stopped}
+                "acme_equal_to_sqlite": True, "half_cutover_refused_then_finished": True, "stop": stopped}
 
     def test_prototype_root_import_cutover_and_engine_start(self) -> None:
         root = Path(tempfile.gettempdir()) / f"orgtree-p03-pg12-proto-{os.getpid()}-{time.monotonic_ns() % 100000}"
