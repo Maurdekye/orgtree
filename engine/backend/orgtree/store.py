@@ -1270,7 +1270,9 @@ class _Pool:
             yield conn
             # a transaction still open on check-in is a bug in the caller;
             # never pool it — roll back and drop the connection
-            keep = not conn.in_transaction
+            # postgres: never idle per slug — PgConn.close() hands the server
+            # connection to pgstore's one process-wide pool instead
+            keep = not conn.in_transaction and STORE_BACKEND != "postgres"
         finally:
             with self._lock:
                 self._busy[slug] = self._busy.get(slug, 1) - 1
