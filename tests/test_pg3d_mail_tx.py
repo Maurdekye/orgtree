@@ -195,6 +195,48 @@ class MailTx(unittest.TestCase):
         self.assertTrue(any('hello org' in e for e in inbox), inbox)
         self.assertTrue(any('org to org' in e for e in inbox), inbox)
 
+    def test_org_send_crash_between_the_two_commits_then_retry_no_loss_no_duplicate(self) -> None:
+        # plan decision 38: the destination commits first under its receipt,
+        # the source records the send after; a crash between them + a retry
+        # with the same op_key must leave exactly one delivery and one record
+        dst = store.create_org(f'{self.slug}dst')
+        dst.hire(ledger.USER, None, 'haiku', 0, 'holder')
+        store.save_org(dst)
+        dslug = dst.d['slug']
+        real_log = ledger.Org._org_inbox_log
+        crashes = {'n': 0}
+
+        def crash_once(org, direction, *a, **kw):
+            if direction == 'out' and crashes['n'] == 0:
+                crashes['n'] += 1
+                raise RuntimeError('crash between the destination and the source commit')
+            return real_log(org, direction, *a, **kw)
+
+        def outs() -> list:
+            return [e for e in store.load_org(self.slug).d['org_inbox']
+                    if e.get('dir') == 'out' and e.get('body') == 'cross-org hello']
+
+        def copies() -> int:
+            return sum(1 for m in (store.load_org(dslug).d.get('mail') or {}).get('holder') or []
+                       if m.get('body') == 'cross-org hello')
+
+        send = {'to': f'@org:{dslug}', 'body': 'cross-org hello', 'op_key': 'retry-key-1'}
+        client = TestClient(app, raise_server_exceptions=False)
+        with patch.object(supervisor, 'send_message', return_value={'accepted': True}), \
+                patch.object(ledger.Org, '_org_inbox_log', crash_once):
+            r1 = client.post(f'/api/orgs/{self.slug}/org_inbox/send', headers=HEADERS, json=send)
+            self.assertEqual(crashes['n'], 1, 'the crash was never injected')
+            self.assertEqual(r1.status_code, 500, r1.text)
+            self.assertEqual(copies(), 1, 'the destination committed before the crash')
+            self.assertEqual(outs(), [], 'the source must not have recorded the send')
+            r2 = client.post(f'/api/orgs/{self.slug}/org_inbox/send', headers=HEADERS, json=send)
+            self.assertEqual(r2.status_code, 200, r2.text)
+            r3 = client.post(f'/api/orgs/{self.slug}/org_inbox/send', headers=HEADERS, json=send)
+            self.assertEqual(r3.status_code, 200, r3.text)
+        self.assertEqual(copies(), 1, 'no duplicate delivery on retry')
+        self.assertEqual(len(outs()), 1, 'the send recorded exactly once')
+        self.assertEqual(r2.json()['id'], r3.json()['id'])
+
     def test_inbound_retries_when_the_holders_moved(self) -> None:
         real = orgtx.org_read
         calls = {'n': 0, 'stale': 0}
