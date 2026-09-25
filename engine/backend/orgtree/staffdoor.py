@@ -179,3 +179,64 @@ def op_hire_body(tx: pgdoor.OpTx) -> Any:
 
 
 pgdoor.declare("hire", op_hire_spec, body=op_hire_body)
+
+
+# ------------------------------------------- orgtree_staff (hire mode only)
+
+def _staff_on_door(a: dict[str, Any]) -> bool:
+    """Only the HIRE mode is PG-3b's: the rehire mode (and its pre-lock
+    rename) belongs to PG-3a and keeps the DOC_LOCK cycle until they route it."""
+    from . import api
+    return api._staff_mode(a) == "hire"
+
+
+def _item_owner(org: Any, slug: str) -> str | None:
+    try:
+        it, _archived = org._work_find(slug)
+    except LedgerError:
+        return None
+    o = it.get("owner")
+    return str(o.get("node") if isinstance(o, dict) else o or "") or None
+
+
+def staff_rows(org: Any, actor: str, a: dict[str, Any]) -> pgdoor.TxSpec:
+    """The hire's rows, plus the docket: `work_items` (a single row per org
+    today — PG-3w's layout), and on an update the item's CURRENT owner, who
+    is sent the handover notice (measured: that node's `mail_seq` changes).
+    Participants who are noticed are rarer and ride the door's widening."""
+    h = hire_rows(org, actor, a)
+    nodes = h.nodes
+    slug = str(a.get("slug") or "").strip()
+    if slug:
+        prev = _item_owner(org, slug)
+        if prev and prev in org.nodes:
+            nodes = nodes + (prev,)
+    return pgdoor.TxSpec(nodes=nodes, sections=h.sections + ("work_items",),
+                         share_sections=h.share_sections, logs=h.logs)
+
+
+def staff_spec(snapshot: Any, body: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
+    return staff_rows(snapshot, body.node, a)
+
+
+def staff_body(tx: pgdoor.AgentTx) -> Any:
+    """`orgtree_staff` in hire mode on the door: exactly `api._staff_call`
+    (the seat via `_hire_seat`, then the docket create/update with that seat
+    as owner, the assignment notice) on the locked rows. Known impurity:
+    `_staff_call` fires `mail_notify` (a UI animation signal, no state) inside
+    the transaction, so a re-run may fire it twice — harmless."""
+    from . import api
+    a = tx.args
+    need = staff_rows(tx.org, tx.node, a)
+    missing = [n for n in need.nodes if n not in tx.spec.nodes]
+    if missing:
+        raise pgdoor.Widen(nodes=missing)
+    drive: list[str] = []
+    result = api._staff_call(tx.org, tx.call.org, tx.node, a, drive, None, [],
+                             tx.pre.get("harness"))
+    check_created(tx.spec, str(result.get("node") or ""))
+    tx.after.drive.extend(drive)
+    return result
+
+
+pgdoor.declare("orgtree_staff", staff_spec, body=staff_body, when=_staff_on_door)
