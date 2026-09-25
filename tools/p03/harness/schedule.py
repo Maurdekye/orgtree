@@ -28,6 +28,15 @@ Event names used in scripts and intended orders:
 - ``end:<tag>``: the operation finished (its outcome is in the trace).
 Each observed event gets the harness's own monotone sequence number, in the
 order the harness observed it. That order is the achieved order.
+
+Where a hold sits relative to the snapshot (relayed from WS4, 2026-09-25; WS2's
+executor): every transaction runs ``set_config`` (its timeouts) right after
+BEGIN, so under REPEATABLE READ and SERIALIZABLE the snapshot is already fixed
+when the operation reaches its ``<kind>.begin`` point. A hold meant to let a
+writer commit BEFORE an operation's snapshot must sit before that transaction
+starts (``<kind>.admitted``, or simply not starting the operation yet); holds at
+``begin`` and later are all after the snapshot. The fake executor has no
+isolation levels and cannot show the difference.
 """
 from __future__ import annotations
 
