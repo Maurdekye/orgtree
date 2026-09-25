@@ -74,6 +74,7 @@ import time
 from typing import Any, Iterator
 
 from . import store, agentauth
+from . import orgtx
 
 # ── knobs ──────────────────────────────────────────────────────────────────
 # how often the keeper re-checks every live agent's hash even with no poke.
@@ -1467,11 +1468,16 @@ def process_control(slug: str, nid: str, action: str,
     expected: WarmProcess | None = None
     killed = False
     try:
-        # DOC_LOCK serializes this admission with retire/rename/freeze writes;
-        # state is then reserved before the flag or pool is changed. A turn
-        # that reached the state lock first wins and this request refuses.
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
+        # The node row and the gates it is decided on are read FOR SHARE
+        # (PG-3e-B): a retire/rename/freeze of this node locks it FOR UPDATE,
+        # so it orders before or after this admission, never through it —
+        # what DOC_LOCK did. State is then reserved before the flag or pool
+        # is changed. A turn that reached the state lock first wins and this
+        # request refuses. No org row is written here.
+        with orgtx.org_tx(slug, share_nodes=[nid],
+                          share_sections=["delivering", "spend_frozen",
+                                          "storage_blocked"]) as tx:
+            org = tx.org
             n = org.node(nid)
             status = process_control_status(org, nid)
             paused = bool(status["paused"])
@@ -2786,8 +2792,10 @@ def _prewarm_node(org: Any, nid: str, why: str) -> None:
     @halt.callback(slug, nid)
     def run() -> None:
         with halt.slot(slug, nid, _spawn_gate):
-            with store.DOC_LOCK:
-                fresh = store.load_org(slug)
+            # halt is decided on the node row, read FOR SHARE (PG-3e-B): a
+            # halt locks it FOR UPDATE and commits `halting` first
+            with orgtx.org_tx(slug, share_nodes=[nid]) as tx:
+                fresh = tx.org
                 if nid not in fresh.nodes or fresh.node(nid).get("halt") or _busy(slug, nid):
                     return
             nwp = _spawn_for(fresh, nid, why)
@@ -2795,8 +2803,11 @@ def _prewarm_node(org: Any, nid: str, why: str) -> None:
             return
         parked = False
         try:
-            with store.DOC_LOCK:
-                current = store.load_org(slug)
+            # parked under the node's row lock (FOR SHARE), so a halt either
+            # commits first and this sees it, or waits and then finds the
+            # parked process in the pool to kill
+            with orgtx.org_tx(slug, share_nodes=[nid]) as tx:
+                current = tx.org
                 if nid in current.nodes and not current.node(nid).get("halt"):
                     with _pool_lock:
                         if _pool.get((slug, nid)) is None and not _busy(slug, nid):
