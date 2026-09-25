@@ -149,7 +149,7 @@ class WorkDoor(unittest.TestCase):
         a = {'action': 'create', 'title': 'Unswept call',
              'objective': 'Problem: a. Solution: b.'}
         with patch.dict(pgdoor.BEFORE):
-            del pgdoor.BEFORE[workdoor.TOOL]
+            pgdoor.BEFORE.pop(workdoor.TOOL, None)
             pgdoor.agent_tx(call, a, pgdoor.BODIES[workdoor.TOOL],
                             admit=lambda o, b, x: None, file=lambda *x: None,
                             spec=workdoor.spec(None, call, a))
