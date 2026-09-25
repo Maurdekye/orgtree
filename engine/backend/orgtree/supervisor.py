@@ -32870,17 +32870,15 @@ def _wd_stop_epoch_of(slug: str) -> int:
 def _wd_pause(slug: str, wid: str, why: str) -> None:
     """Persist an engine-side pause with its reason, so `resume` is an
     informed choice rather than a guess (the reason clears on resume)."""
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-            w = org._watchdog(wid)
+    try:  # PG-3e-A: the watchdogs section only
+        with halt.txn(slug, sections=["watchdogs"]) as _wd_tx:
+            w = _wd_tx.org._watchdog(wid)
             if w.get("state") != "armed":
                 return
             w["state"] = "paused"
             w["paused_why"] = why
-            store.save_org(org)
-        except LedgerError:
-            return
+    except LedgerError:
+        return
 
 
 def _wd_fire(slug: str, wid: str, name: str, lines: list[str],
@@ -33352,8 +33350,8 @@ def _wd_tick() -> None:
                 _wd_cmd_submit(slug, w, org, now_t)
                 continue
             lines, hw, seen = _wd_check_poll(slug, w, org)
-            with store.DOC_LOCK:
-                o2 = store.load_org(slug)
+            with halt.txn(slug, sections=["watchdogs"]) as _wd_tx:  # PG-3e-A
+                o2 = _wd_tx.org
                 try:
                     w2 = o2._watchdog(wid)
                 except LedgerError:
@@ -33365,7 +33363,6 @@ def _wd_tick() -> None:
                     # that goes quiet, resumes and goes quiet again is
                     # reported both times (D-176)
                     w2.pop("alerted_why", None)
-                store.save_org(o2)
                 lost = wd_subject_lost(w2)
             if lines:
                 _wd_fire(slug, wid, str(w["name"]), lines)
@@ -33420,15 +33417,13 @@ def _wd_ensure_stream(slug: str, org: Org, w: dict[str, Any],
         _wd_fire(slug, key[1], str(w["name"]),
                  tail + [f"(stream exited with code {code})"],
                  prefix=" STREAM EXITED —")
-        with store.DOC_LOCK:
-            try:
-                o2 = store.load_org(slug)
-                w2 = o2._watchdog(key[1])
+        try:  # PG-3e-A: the watchdogs section only
+            with halt.txn(slug, sections=["watchdogs"]) as _wd_tx:
+                w2 = _wd_tx.org._watchdog(key[1])
                 w2["state"] = "exited"
                 w2["exit"] = {"code": code, "at": now_iso()}
-                store.save_org(o2)
-            except LedgerError:
-                pass
+        except LedgerError:
+            pass
         return
     # not running — spawn + reader
     try:
@@ -33477,19 +33472,17 @@ def _wd_stream_stats(slug: str, wid: str, ent: dict[str, Any]) -> None:
         if seen == ent["pushed"] or time.time() - float(ent["pushed_at"]) < 60:
             return
         ent["pushed"], ent["pushed_at"] = seen, time.time()
-    with store.DOC_LOCK:
-        try:
-            o2 = store.load_org(slug)
-            w2 = o2._watchdog(wid)
-        except LedgerError:
-            return
-        w2["last_check"] = now_iso()
-        w2["_last_check_ts"] = time.time()
-        # for a stream, "checks" are OUTPUT LINES READ — the same question
-        # (has this dog had anything to work with?) asked of a listener
-        w2["checks_run"] = seen
-        w2["last_output"] = line
-        store.save_org(o2)
+    try:  # PG-3e-A: the watchdogs section only
+        with halt.txn(slug, sections=["watchdogs"]) as _wd_tx:
+            w2 = _wd_tx.org._watchdog(wid)
+            w2["last_check"] = now_iso()
+            w2["_last_check_ts"] = time.time()
+            # for a stream, "checks" are OUTPUT LINES READ — the same question
+            # (has this dog had anything to work with?) asked of a listener
+            w2["checks_run"] = seen
+            w2["last_output"] = line
+    except LedgerError:
+        return
 
 
 def _wd_reap_stream(key: tuple[str, str]) -> None:
