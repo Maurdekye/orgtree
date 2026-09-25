@@ -38,6 +38,7 @@ pub mod retry;
 pub mod runtime;
 pub mod sent;
 pub mod session;
+pub mod staffing;
 pub mod status;
 pub mod strict;
 pub mod value;
