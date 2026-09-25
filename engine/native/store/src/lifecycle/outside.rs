@@ -32,6 +32,10 @@ use crate::value::Val;
 use crate::Tx;
 
 pub const HALT_SQL: &str = "UPDATE authority_epoch SET halted = $3, version = version + 1 WHERE org_id = $1 AND principal_id = $2";
+/// Halt's turn fence: the seat's live claims stop (admitted/active →
+/// settling; deferred → refused). Unhalt starts nothing (v6 I10).
+pub const HALT_CLAIMS_SQL: &str = "UPDATE runtime_claims SET state = CASE WHEN state = 'deferred' THEN 'refused' ELSE 'settling' END \
+    WHERE org_id = $1 AND principal_id = $2 AND state IN ('admitted', 'active', 'deferred') RETURNING claim_id";
 pub const CONTROL_LOCK_SQL: &str = "SELECT version, value FROM org_controls WHERE org_id = $1 AND family = $2 FOR NO KEY UPDATE";
 pub const CONTROL_WRITE_SQL: &str = "UPDATE org_controls SET value = $3, version = version + 1 WHERE org_id = $1 AND family = $2";
 pub const CONTROL_INSERT_SQL: &str = "INSERT INTO org_controls (org_id, family, value) VALUES ($1, $2, $3)";
@@ -90,6 +94,17 @@ impl Command for Outside {
                         if e.live() && e.halted != halt {
                             tx.exec("halt.write", HALT_SQL, &[Val::Uuid(org), Val::Uuid(*x), Val::Bool(halt)]).await?;
                             n += 1;
+                        }
+                        if halt && e.live() {
+                            // The turn fence (lead's "halt during a turn"): in
+                            // THIS transaction, after the epoch row is ours, a
+                            // turn of the seat that is admitted or running stops
+                            // taking new work (WS5's ClaimInput requires state
+                            // 'admitted' on a row it locks FOR NO KEY UPDATE) and a
+                            // deferred one is refused. READ COMMITTED: an
+                            // admission that held the epoch FOR SHARE committed
+                            // before this statement, so its claim is seen here.
+                            tx.exec("halt.fence_claims", HALT_CLAIMS_SQL, &[Val::Uuid(org), Val::Uuid(*x)]).await?;
                         }
                     }
                     if halt && n > 0 {
