@@ -27,6 +27,7 @@ pub mod lookup;
 pub mod mail;
 pub mod pg;
 pub mod pool;
+pub mod preview;
 pub mod read;
 pub mod receipts;
 pub mod reservation;

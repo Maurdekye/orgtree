@@ -166,7 +166,7 @@ pub struct Member {
     pub parent: Option<Uuid>,
 }
 
-async fn member<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, who: Uuid) -> Result<Option<Member>, CmdError> {
+pub async fn member<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, who: Uuid) -> Result<Option<Member>, CmdError> {
     let rows = tx.exec("strict.member", MEMBER_SQL, &[Val::Uuid(org), Val::Uuid(who)]).await?;
     Ok(rows.first().map(|r| Member {
         name: r.first().and_then(Val::as_text).unwrap_or("").to_string(),
@@ -182,7 +182,7 @@ async fn member<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, who: Uuid) -> Result<
 
 /// The caller's membership as a C5 read checks it: live, current generation,
 /// not halted.
-fn caller_ok(m: &Option<Member>, generation: i64) -> Result<Member, Refusal> {
+pub fn caller_ok(m: &Option<Member>, generation: i64) -> Result<Member, Refusal> {
     match m {
         Some(m) if m.lifecycle == "live" && m.generation == generation && !m.halted => Ok(m.clone()),
         Some(m) if m.halted => Err(Refusal::new("halted", "the caller is halted")),
@@ -223,7 +223,7 @@ async fn descendants<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, root: Uuid, arch
 
 /// The visible set (r7 §5.2 / legacy `_visible_ids`), in tree order. `Err`
 /// names a node whose stored visibility is not recognized (D9).
-async fn visible_ids<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, me: Uuid, m: &Member, archived: bool) -> Result<Result<(String, Vec<Uuid>), Refusal>, CmdError> {
+pub async fn visible_ids<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, me: Uuid, m: &Member, archived: bool) -> Result<Result<(String, Vec<Uuid>), Refusal>, CmdError> {
     let raw = m.visibility.clone().unwrap_or_else(|| "full".into());
     let vis = match raw.as_str() {
         "self" | "team" | "subtree" | "full" => raw.clone(),
@@ -370,6 +370,28 @@ pub async fn project_node<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, id: Uuid, p
         "last_status": last.map(|s| json!({"status": s.get("status"), "at": s.get("at")})),
         "mail_blocked": Value::Null,
     })))
+}
+
+/// Every node in tree order (the operator's full view).
+pub async fn all_ids<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, archived: bool) -> Result<Vec<Uuid>, CmdError> {
+    let mut v = Vec::new();
+    for r in uuids(&tx.exec("strict.roots", ROOTS_SQL, &[Val::Uuid(org), Val::Bool(archived)]).await?) {
+        v.push(r);
+        descendants(tx, org, r, archived, &mut v).await?;
+    }
+    Ok(v)
+}
+
+/// The `diagnostic.inspect` answer for a set of ids (legacy `inspect_state`'s shape).
+pub async fn project_set<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, actor: &str, vis: &str, ids: &[Uuid]) -> Result<Value, CmdError> {
+    let prices = prices(tx, org).await?;
+    let mut nodes = Vec::new();
+    for id in ids {
+        if let Some(n) = project_node(tx, org, *id, &prices, true).await? {
+            nodes.push(n);
+        }
+    }
+    Ok(json!({"actor": actor, "visibility": vis, "nodes": nodes}))
 }
 
 // ---------------------------------------------------------------- diagnostic.inspect

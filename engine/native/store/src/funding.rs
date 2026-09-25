@@ -576,6 +576,23 @@ pub async fn apply<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, l: &Loaded, plan: 
     Ok(Ok(()))
 }
 
+/// The kiosk-cap check [`apply`] makes (E8), read WITHOUT the pool lock:
+/// preview's copy of it, so a preview refuses exactly where the real
+/// command would (r7 D10).
+pub async fn kiosk_check_unlocked<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, l: &Loaded, plan: &Plan) -> Result<Option<Refusal>, CmdError> {
+    let top_delta: i64 = plan.changes.iter().filter(|(id, _, _)| l.parents.get(id).copied().flatten().is_none()).map(|(_, o, n)| n - o).sum();
+    if top_delta == 0 {
+        return Ok(None);
+    }
+    let rows = tx.exec("funding.kiosk_read", "SELECT pool_centi, top_grants_centi, top_seats FROM kiosk_pool WHERE org_id = $1", &[Val::Uuid(org)]).await?;
+    let Some(r) = rows.first() else { return Ok(None) };
+    let pool = r.first().and_then(Val::as_int).unwrap_or(0);
+    let grants = r.get(1).and_then(Val::as_int).unwrap_or(0) + top_delta;
+    let seats = r.get(2).and_then(Val::as_json).cloned().unwrap_or(Value::Null);
+    let held = grants + priced(&seats, &l.prices);
+    Ok((pool > 0 && held > pool).then(|| kiosk_refusal(pool, held)))
+}
+
 /// A System notice into `to`'s notice box (Sent, E1; no pair, no wake).
 async fn notify<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, to: Uuid, kind: &str, body: &str) -> Result<(), CmdError> {
     let mb = tx.exec("funding.notice_mailbox", sent::RECIPIENT_MAILBOX_SQL, &[Val::Uuid(org), Val::Uuid(to)]).await?;
