@@ -100,6 +100,19 @@ def retract_rows(nid: str) -> dict[str, list[Any]]:
     return {"sections": ["mail"], "logs": [("mail_log", nid)]}
 
 
+def confirm_rows(nid: str) -> dict[str, list[Any]]:
+    """Confirming a delivered batch: the delivery journal, the reclaim
+    receipts (`mail_transitions`) and the node row (its `mail_drain` demand
+    and `halt_queue`)."""
+    return {"nodes": [nid], "sections": ["delivering", "mail_transitions"]}
+
+
+class NothingToCommit(Exception):
+    """Raised inside a mail transaction whose operation found nothing to do:
+    it rolls the transaction back, as the DOC_LOCK path's early return
+    without a save did."""
+
+
 @contextlib.contextmanager
 def org_of(slug: str, **rows: Any) -> Iterator[Org]:
     """`org_tx` yielding the Org itself: the drop-in for a
