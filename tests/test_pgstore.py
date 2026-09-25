@@ -241,6 +241,21 @@ class OrgTxOnPostgres(unittest.TestCase):
         self.assertEqual(errs, [])
         self.assertEqual(_node(self.slug, 'a')['n'], 20)
 
+    def test_legacy_save_cannot_overwrite_an_org_tx_commit(self) -> None:
+        legacy = store.load_org(self.slug)            # baselines taken now
+        with orgtx.org_tx(self.slug, nodes=['a']) as tx:
+            tx.d['nodes']['a']['name'] = 'from-tx'
+        legacy.d['nodes']['a']['name'] = 'from-legacy'
+        legacy.d['nodes']['b']['name'] = 'also-legacy'
+        with self.assertRaises(store.StaleWrite):
+            store.save_org(legacy)
+        self.assertEqual(_node(self.slug, 'a')['name'], 'from-tx')
+        self.assertEqual(_node(self.slug, 'b')['name'], 'b')     # rolled back whole
+        other = store.load_org(self.slug)
+        other.d['nodes']['b']['name'] = 'fresh'
+        store.save_org(other)                                    # fresh baseline: fine
+        self.assertEqual(_node(self.slug, 'b')['name'], 'fresh')
+
     def test_rt6_lost_commit_retry_has_one_outcome(self) -> None:
         os.environ['ORGTREE_ORGTX_TEST_HOOKS'] = '1'
         lost = {'armed': True}

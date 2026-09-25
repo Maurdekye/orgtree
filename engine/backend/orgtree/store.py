@@ -2805,6 +2805,28 @@ def _write_lazy(conn: sqlite3.Connection, sect: str, value: Any,
     return None
 
 
+#: PG-0: COMPARE-AND-SET row writes. While DOC_LOCK and `org_tx` coexist
+#: (PYPG §3 step 6), a legacy save can hold a baseline for a row that an
+#: org_tx has since changed; a plain `UPDATE … WHERE id=?` would silently
+#: overwrite that commit. With this on, an UPDATE or DELETE of an existing doc
+#: section or node row applies only if the row still holds the baseline this
+#: save loaded, and otherwise the whole save rolls back with `StaleWrite`. On
+#: for postgres; `ORGTREE_ROW_CAS=1/0` overrides (the SQLite fake tests use it).
+_ROW_CAS = os.environ.get("ORGTREE_ROW_CAS",
+                          "1" if STORE_BACKEND == "postgres" else "0").strip() == "1"
+
+
+class StaleWrite(LedgerError):
+    """A save's row changed under it since it was loaded (another writer —
+    an org_tx — committed it). Nothing was written; reload and retry."""
+
+
+def _cas(conn: sqlite3.Connection, sql: str, params: tuple[Any, ...], what: str) -> None:
+    if conn.execute(sql, params).rowcount != 1:
+        raise StaleWrite(f"{what} changed since this save loaded it "
+                         "(another writer committed it); nothing was written")
+
+
 def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None,
                changes: SaveChanges | None = None
                ) -> tuple[dict[str, str], dict[str, str], dict[str, Any], list[str]]:
@@ -2858,12 +2880,20 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
         if changes is not None:
             changes.dumped_bytes += len(s)
         if snap_doc is None or snap_doc.get(k) != s:
-            conn.execute(_UPSERT_DOC, (k, s))
+            if _ROW_CAS and snap_doc is not None and k in snap_doc:
+                _cas(conn, "UPDATE doc SET val=? WHERE key=? AND val=?",
+                     (s, k, snap_doc[k]), f"section {k!r}")
+            else:
+                conn.execute(_UPSERT_DOC, (k, s))
             if changes is not None:
                 changes.doc_upserts.append(k)
     known_doc = set(snap_doc) if snap_doc is not None else db_doc_keys
     for k in known_doc - set(new_doc) - LAZY_SECTIONS - set(ROWED):
-        conn.execute("DELETE FROM doc WHERE key=?", (k,))
+        if _ROW_CAS and snap_doc is not None and k in snap_doc:
+            _cas(conn, "DELETE FROM doc WHERE key=? AND val=?",
+                 (k, snap_doc[k]), f"section {k!r}")
+        else:
+            conn.execute("DELETE FROM doc WHERE key=?", (k,))
         if changes is not None:
             changes.doc_deletes.append(k)
 
@@ -2910,7 +2940,12 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
                 changes.dumped_bytes += len(s)
             if nid in known_ids:
                 if snap_nodes is None or db_ids is not None or snap_nodes.get(nid) != s:
-                    conn.execute("UPDATE nodes SET val=? WHERE id=?", (s, nid))
+                    if _ROW_CAS and snap_nodes is not None and db_ids is None \
+                            and nid in snap_nodes:
+                        _cas(conn, "UPDATE nodes SET val=? WHERE id=? AND val=?",
+                             (s, nid, snap_nodes[nid]), f"node {nid!r}")
+                    else:
+                        conn.execute("UPDATE nodes SET val=? WHERE id=?", (s, nid))
                     if changes is not None:
                         changes.node_updates.append(nid)
             else:
@@ -2920,7 +2955,12 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
                 if changes is not None:
                     changes.node_inserts.append(nid)
         for nid in known_ids - set(new_nodes):
-            conn.execute("DELETE FROM nodes WHERE id=?", (nid,))
+            if _ROW_CAS and snap_nodes is not None and db_ids is None \
+                    and nid in snap_nodes:
+                _cas(conn, "DELETE FROM nodes WHERE id=? AND val=?",
+                     (nid, snap_nodes[nid]), f"node {nid!r}")
+            else:
+                conn.execute("DELETE FROM nodes WHERE id=?", (nid,))
             if changes is not None:
                 changes.node_deletes.append(nid)
         if not has_nodes_key:
