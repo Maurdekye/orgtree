@@ -151,7 +151,7 @@ async fn main() {
         let hs = serde_json::json!({
             "type": "handshake", "protocol": orgtree_store_service::harness::PROTOCOL, "qualification": true,
             "build_sha": option_env!("ORGTREE_BUILD_SHA").unwrap_or("unknown"),
-            "points": handler::points(), "controls": handler::CONTROLS, "declared": handler::declared(),
+            "points": handler::points(), "controls": handler::controls(), "declared": handler::declared(),
         });
         tokio::spawn(orgtree_store_service::harness::serve(harness_listener, harness_token, harness_state, hs));
     }
