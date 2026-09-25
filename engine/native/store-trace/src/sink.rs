@@ -45,10 +45,13 @@ fn opt_int(v: Option<i64>) -> Value {
 }
 
 /// FNV-1a 64 over the whitespace-normalized SQL: a stable, value-free fingerprint.
+/// Leading and trailing whitespace are dropped: the server log's extended-protocol
+/// lines keep a trailing space the executor's text may not have (measured on a WS1
+/// dev cluster, tools/p03/probes/serverlog_probe.py).
 pub fn fingerprint(sql: &str) -> String {
     let mut h: u64 = 0xcbf29ce484222325;
     let mut prev_space = true;
-    for c in sql.chars() {
+    for c in sql.trim_end().chars() {
         let c = if c.is_whitespace() { ' ' } else { c.to_ascii_lowercase() };
         if c == ' ' && prev_space {
             continue;

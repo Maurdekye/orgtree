@@ -49,12 +49,13 @@ def fingerprint(sql: str) -> str:
     """FNV-1a 64 over the whitespace-collapsed, ASCII-lowercased SQL.
 
     Byte-for-byte the algorithm of ``engine/native/store-trace/src/sink.rs``
-    ``fingerprint``: whitespace runs become one space, leading whitespace is
-    dropped, a trailing single space is kept, ASCII letters are lowercased,
+    ``fingerprint``: whitespace runs become one space, leading and trailing
+    whitespace are dropped (the server log's extended-protocol lines keep a
+    trailing space: measured, serverlog_probe.py), ASCII letters are lowercased,
     and the UTF-8 bytes are hashed."""
     h = 0xcbf29ce484222325
     prev_space = True
-    for ch in sql:
+    for ch in sql.rstrip():
         c = " " if ch.isspace() else (ch.lower() if ch.isascii() else ch)
         if c == " " and prev_space:
             continue
