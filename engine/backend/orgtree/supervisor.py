@@ -28977,7 +28977,8 @@ def _invariant_sweep_org(slug: str) -> None:
 
     Rides the auto-resume loop (one pass per org per 30 s, already wrapped in
     survive-anything). Off-lock drives after the save. Never raises."""
-    from .ledger import _PROVIDER_SCOPED_FREEZE_FLAGS
+    from .ledger import (_PROVIDER_SCOPED_FREEZE_FLAGS,
+                         retag_legacy_spend_freeze)
     known = set(_PROVIDER_SCOPED_FREEZE_FLAGS) | {"spend"}
     announce: list[tuple[str, str, str, str]] = []   # nid, name, sup, body
     rc_cleared: list[tuple[str, bool, str | None]] = []   # nid, had_mail, sid
@@ -29021,6 +29022,10 @@ def _invariant_sweep_org(slug: str) -> None:
                     for k in bad:
                         q[k] = fz.pop(k)
                     fz["_quarantined_at"] = now_iso()
+                    # the load-heal retags a flagless `error` record as a
+                    # spend freeze; commit that form, or the heal rides the
+                    # next org_tx on this org and is refused as unlocked
+                    retag_legacy_spend_freeze(fz)
                     announce.append((
                         nid, name, sup,
                         f"{name}'s freeze carried an unrecognised flag "

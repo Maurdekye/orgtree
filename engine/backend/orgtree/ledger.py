@@ -596,6 +596,29 @@ _PROVIDER_SCOPED_FREEZE_FLAGS: Final = ("limit", "connection", "on_fallback",
                                         "untrusted")
 
 
+def retag_legacy_spend_freeze(fz: Any) -> bool:
+    """Re-tag a pre-№41 spend freeze (the usage-limit keys `error` with no
+    `until` and no True kind flag) as `spend`, so clear_hard_freeze("spend")
+    actually clears it. Every `Org` load applies it; a writer that leaves a
+    record in this shape (the invariant sweep's quarantine) applies it too, so
+    the row it commits is already at the load-heal fixed point. True if it
+    changed the record.
+
+    ⚠ `until_ts` is checked as well as `until`: the CLI's usual wording
+    carries only an epoch, so a genuine usage-limit freeze routinely has a
+    machine time and no human one. Together with the `limit` kind flag
+    (FrozenInfo) this stops the retag eating a real usage-limit freeze and
+    making it permanently unresumable."""
+    if (isinstance(fz, dict) and fz.get("error") and not fz.get("until")
+            and not fz.get("until_ts") and not fz.get("resume_texts")
+            and not any(v is True for v in fz.values())):
+        fz["spend"] = True
+        fz["spend_error"] = fz.pop("error")
+        fz.pop("until", None)
+        return True
+    return False
+
+
 def freeze_describes_provider(fz: FrozenInfo) -> bool:
     """Is this freeze ABOUT the node's provider/session — a usage limit, a
     network drop, or an auth rejection (`cause` is a string, never a flag, so
@@ -1200,18 +1223,7 @@ class Org:
         # re-tag them so clear_hard_freeze("spend") actually clears them
         # instead of leaving a stale-reason freeze the API reports as cleared
         for n in self.nodes.values():
-            fz = n.get("frozen")
-            # ⚠ `until_ts` is checked as well as `until`: the CLI's usual
-            # wording carries only an epoch, so a genuine usage-limit freeze
-            # routinely has a machine time and no human one. Together with the
-            # `limit` kind flag (FrozenInfo) this stops the retag eating a real
-            # usage-limit freeze and making it permanently unresumable.
-            if (isinstance(fz, dict) and fz.get("error") and not fz.get("until")
-                    and not fz.get("until_ts") and not fz.get("resume_texts")
-                    and not any(v is True for v in fz.values())):
-                fz["spend"] = True
-                fz["spend_error"] = fz.pop("error")
-                fz.pop("until", None)
+            retag_legacy_spend_freeze(n.get("frozen"))
         # FABLE-2 (redteam + user report 2026-08-06): a fable_lock that
         # recorded a reset time releases itself once it passes — the same
         # rule the per-node freeze follows. (The timeless-waits-for-the-user

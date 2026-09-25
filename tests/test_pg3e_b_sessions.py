@@ -617,5 +617,39 @@ class RemoteReapInsideASave(unittest.TestCase):
         self.assertIn((self.slug, "worker"), supervisor._remote_procs)
 
 
+
+class InvariantSweepCommitsTheHealedRow(unittest.TestCase):
+    """The sweep's quarantine leaves a flagless `error` freeze, which every
+    load retags as a spend freeze. The sweep must commit that retagged form:
+    otherwise the heal rides the NEXT org_tx on the org (its own announcement
+    first) and is refused as an unlocked write of a row it never named."""
+
+    def setUp(self) -> None:
+        orgtx.use_backend(orgtx.SeamBackend())
+        self.slug = _org(_slug("sweep"))
+        _set(self.slug, "worker", frozen={"error": "x", "bogus_kind": True,
+                                          "at": "2026-09-12T00:00:00Z"})
+
+    def test_quarantine_commits_the_retag_and_the_org_stays_writable(self) -> None:
+        # PG-3e-A's wake-stamp pre-save hook is scoped to the tx's own rows on
+        # its branch (ff81b6a), not yet on this one; keep it out of the way
+        hooks = [h for h in store.pre_save_hooks
+                 if getattr(h, "__name__", "") != "_stamp_wakes_on_save"]
+        with patch.object(store, "pre_save_hooks", hooks):
+            supervisor._invariant_sweep_org(self.slug)
+            fz = _node(self.slug, "worker")["frozen"]
+            self.assertEqual(fz.get("_quarantined"), {"bogus_kind": True})
+            self.assertIs(fz.get("spend"), True, f"not retagged: {fz}")
+            self.assertEqual(fz.get("spend_error"), "x")
+            self.assertNotIn("error", fz)
+            # the top-level node's finding reached the user
+            log = store.load_org(self.slug).d.get("user_mail_log") or []
+            self.assertTrue(any("bogus_kind" in str(m.get("body") or "")
+                                for m in log), "the announcement was lost")
+            # and an unrelated row transaction still commits
+            with orgtx.org_tx(self.slug, nodes=["other"]) as tx:
+                tx.org.node("other")["note"] = "after"
+        self.assertEqual(_node(self.slug, "other").get("note"), "after")
+
 if __name__ == "__main__":
     unittest.main()
