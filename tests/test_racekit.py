@@ -142,7 +142,7 @@ class RaceKit(unittest.TestCase):
                 race.join(a)
 
     def test_blocked_on_a_free_row_fails(self) -> None:
-        with racekit.Race(wait=1.0) as race:
+        with racekit.Race(wait=0.5) as race:
             a = race.actor('A', self.bump, 'a')
             b = race.actor('B', self.bump, 'b')
             ga = race.hold(a, 'after_lock')

@@ -168,8 +168,11 @@ class Actor:
 
 
 class Race:
-    def __init__(self, wait: float = WAIT_S):
+    def __init__(self, wait: float = WAIT_S, hold: float | None = None):
+        # `wait` bounds each step the TEST waits for; `hold` bounds how long a
+        # gate holds an actor, and outlasts several steps by default
         self.wait = wait
+        self.hold_s = 3 * wait if hold is None else hold
         self.facts: dict[str, str] = {}
         self.events: list[tuple[str, str]] = []
         self.blocked_on: dict[str, str] = {}
@@ -214,7 +217,7 @@ class Race:
             if g.fired != 1:
                 problems.append(f"{g!r} did not fire exactly once — the interleaving it forces did not happen")
             if g.timed_out:
-                problems.append(f"{g!r} was never released within {self.wait}s")
+                problems.append(f"{g!r} was never released within {self.hold_s}s")
         for a in self._actors.values():
             if not a.thread.ident:
                 problems.append(f"{a!r} was never started")
@@ -295,7 +298,7 @@ class Race:
         if a is None:
             return
         g = self._event(a, point)
-        if g is not None and not g.released.wait(self.wait):
+        if g is not None and not g.released.wait(self.hold_s):
             g.timed_out = True
             raise RaceFailure(f"{g!r} was never released")
 
