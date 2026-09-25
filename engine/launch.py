@@ -374,7 +374,7 @@ def main() -> None:
                               "reason": str(exc)[:300]},
                              separators=(",", ":")), flush=True)
         raise
-    progress.report("lifetime-owned")
+    progress.report("lifetime-owned"); _own_database(data)  # PYPG PG-1, below
     app, _token, data, port, stopping = load_app()
     from orgtree import startup
     startup.progress = progress.report
@@ -424,6 +424,21 @@ def main() -> None:
         asyncio.run(serve())
     finally:
         hub.stop()
+
+
+def _own_database(data: Path) -> None:
+    """PYPG PG-1: with ORGTREE_STORE=postgres, bring the private database up
+    (and migrate it) AFTER the root is proven ours and BEFORE the API loads;
+    stop it at interpreter exit, which follows every normal or failed end of
+    ``main`` (a forced kill takes it with the guardian's Job instead). Inert
+    otherwise. A refusal raises: there is no SQLite fallback. Kept to one call
+    in ``main`` so the P01 inventory's sites there do not move.
+    engine/pg_process.py says why and where."""
+    import atexit  # noqa: PLC0415  (a top-level import would move main's lines)
+    from engine.pg_process import start_for_engine
+    database = start_for_engine(data, os.environ)
+    if database is not None:
+        atexit.register(database.stop)
 
 
 if __name__ == "__main__":

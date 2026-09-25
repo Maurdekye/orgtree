@@ -1,0 +1,44 @@
+[package]
+name = "orgtree-pg-custodian"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "P03 custodian: the one component allowed to create, start, stop and identify a disposable private PostgreSQL cluster under an explicit prototype root"
+license = "MIT"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "pg-custodian"
+path = "src/main.rs"
+
+[features]
+# Builds WS1's unsafe controls (src/controls.rs). Never in a product build;
+# the name is the M1 contract's single qualification feature.
+qualification = []
+
+# Every dependency is listed with its version, licence and purpose in
+# DEPENDENCIES.md. Adding one here without a row there is a review finding.
+[dependencies]
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.150"
+# In-repo, dependency-free sha256: the SAME implementation WS2's
+# store-schema uses for its migration checksums, so both hash identically.
+orgtree-op-receipt-codec = { path = "../op-receipt-codec" }
+# The shared prototype-root guard (one definition with WS2's store service).
+orgtree-prototype-guard = { path = "../prototype-guard" }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Security_Cryptography",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Console",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_IO",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+] }
