@@ -3407,15 +3407,31 @@ def org_settings(slug: str, body: Settings) -> dict[str, Any]:
     """Org-level knobs. Folder holdings (org_dirs) are edited from the eye's
     gear panel: the workspace is permanent; additions apply to FUTURE hires;
     removals revoke everywhere; rw→ro downgrades propagate to every grant."""
-    with store.DOC_LOCK:
-        return _org_settings_locked(slug, body)
+    return _org_settings_locked(slug, body)
 
 
 def _org_settings_locked(slug: str, body: Settings) -> dict[str, Any]:
+    """PG-3f: one org_tx over the settings sections (FOR UPDATE — hire and
+    staffing hold them FOR SHARE, the phantom rule) and, when the body
+    sweeps the fleet (an org_dirs edit revokes/downgrades every grant; a
+    fable-lock clear touches every node), every node row. Never DOC_LOCK.
+    The name is kept: callers and tests reach it directly."""
+    from . import settingstx
+    all_nodes = body.org_dirs is not None or bool(body.clear_fable_lock)
     try:
-        org = store.load_org(slug)
+        res = settingstx.settings_tx(
+            slug, lambda tx: _org_settings_apply(tx.org, body),
+            all_nodes=all_nodes, sections=settingstx.SETTINGS_SECTIONS,
+            share_sections=settingstx.SETTINGS_SHARE,
+            logs=settingstx.SETTINGS_LOGS)
     except LedgerError as e:
         raise HTTPException(404, str(e))
+    hub_changed(slug)
+    net.kick()
+    return res
+
+
+def _org_settings_apply(org: Org, body: Settings) -> dict[str, Any]:
     ws = org.d.get("workspace")
     warnings: list[str] = []
     if body.org_dirs is not None:
@@ -3635,9 +3651,6 @@ def _org_settings_locked(slug: str, body: Settings) -> dict[str, Any]:
             if k not in addr_now \
                     or (cells.get(k) or {}).get("address") != addr_now[k]:
                 cells.pop(k, None)
-    store.save_org(org)
-    hub_changed(slug)
-    net.kick()
     return {"dirs": org.d["dirs"], "warnings": warnings}
 
 
@@ -3780,7 +3793,14 @@ def org_hire_defaults(slug: str, body: HireDefaults,
     a default is a pre-filled grant, so the ceiling clamps it like any grant.
     The rest of /settings (org folders, caps, policies) stays admin-only."""
     pub = bool(_public_slug(request))
-    with _entry_ledger_422(store.write_org(slug)) as org:
+    # PG-3f: the default sections FOR UPDATE (hire holds them FOR SHARE), the
+    # kiosk ceiling FOR SHARE; never DOC_LOCK
+    from . import orgtx, settingstx
+    with _entry_ledger_422(cast("AbstractContextManager[Any]", orgtx.org_tx(
+            slug, sections=settingstx.DEFAULTS_SECTIONS,
+            share_sections=["kiosk"],
+            logs=settingstx.SETTINGS_LOGS))) as tx:
+        org = tx.org
         try:
             rc = (not pub) and (bool((org.d.get("kiosk") or {}).get("auto_raise"))
                                 or body.raise_ceiling)
@@ -3791,7 +3811,6 @@ def org_hire_defaults(slug: str, body: HireDefaults,
                 raise_ceiling=rc)
         except LedgerError as e:
             raise HTTPException(422, str(e))
-        store.save_org(org)
     if pub and isinstance(result, dict):
         result.pop("bridge", None)
     hub_changed(slug)

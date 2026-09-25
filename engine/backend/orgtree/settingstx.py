@@ -34,6 +34,28 @@ KIOSK_SECTIONS = ("kiosk", "spend_frozen", "notices")
 KIOSK_SHARE = ("tiers", "deleted_cost_usd", "mail")
 KIOSK_LOGS = ("events", "notice_log")
 
+#: every doc section POST /settings may write (api._org_settings_apply and
+#: the ledger methods it calls: set_hire_defaults, clear_fable_lock,
+#: revoke_dir's notices). Locked FOR UPDATE on every call: a settings save is
+#: rare, and the lock set must not depend on which knobs a body happens to
+#: carry for the phantom rule to hold.
+SETTINGS_SECTIONS = (
+    "dirs", "max_top_grant", "default_top_grant", "compact_at", "fable_lock",
+    "fable_limit_policy", "fable_filter_policy", "fable_filter_model",
+    "default_tools", "default_visibility", "permission_mode",
+    "default_account", "default_effort", "account_fallback_default",
+    "auto_resume", "auto_resume_compact", "org_inbox_multi_holder",
+    "external_inbox_multi_holder", "cascade_hire", "cascade_alloc",
+    "auto_cheap_compact", "headless", "net_autoconnect", "net_hubs",
+    "net_spool", "net_state", "notices")
+#: read for a decision, never written: the kiosk (ceiling, headless refusal,
+#: net sealing) and the audiences the multi-holder refusal counts
+SETTINGS_SHARE = ("kiosk", "audiences")
+SETTINGS_LOGS = ("events", "notice_log")
+#: what POST /defaults writes (Org.set_hire_defaults)
+DEFAULTS_SECTIONS = ("default_tools", "default_visibility", "permission_mode",
+                     "default_account")
+
 #: how often a hire may slip in between the listing and the lock before we
 #: give up (each retry re-lists; one retry is already rare)
 RETRIES = 5
@@ -69,3 +91,17 @@ def whole_org_tx(slug: str, fn: Callable[[orgtx.OrgTx], T], *,
         # empty; list again
     raise NodesGrew(f"{slug!r}: nodes kept appearing while locking the org; "
                     "retry the request")
+
+
+def settings_tx(slug: str, fn: Callable[[orgtx.OrgTx], T], *, all_nodes: bool,
+                sections: Iterable[str] = (),
+                share_sections: Iterable[str] = (),
+                logs: Iterable[orgtx.LogName] = ()) -> T:
+    """`whole_org_tx` when the body sweeps the fleet, else one org_tx on the
+    named sections alone (node rows are then only READ, for warnings)."""
+    if all_nodes:
+        return whole_org_tx(slug, fn, sections=sections,
+                            share_sections=share_sections, logs=logs)
+    with orgtx.org_tx(slug, sections=sections, share_sections=share_sections,
+                      logs=logs) as tx:
+        return fn(tx)
