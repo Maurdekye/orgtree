@@ -42,6 +42,28 @@ pub fn validate_root(path: &Path, env: &Env) -> Result<PrototypeRoot> {
     Ok(shared::validate_root(path, env)?)
 }
 
+/// The engine's own data root (`--product`); see the shared crate's
+/// `product` module for every rule.
+pub fn validate_product_root(path: &Path, env: &Env) -> Result<PrototypeRoot> {
+    Ok(shared::validate_product_root(path, env)?)
+}
+
+/// Bind the engine's own data root for product mode (`bind-product`).
+pub fn bind_product_root(path: &Path, env: &Env) -> Result<PrototypeRoot> {
+    let id = || crate::win::random_hex(16).map_err(|e| shared::GuardError::new("product.random", e.message));
+    let by = format!("pg-custodian {}", env!("CARGO_PKG_VERSION"));
+    Ok(shared::bind_product_root(path, env, id, crate::now_unix(), &by)?)
+}
+
+/// Refuse an operation that deletes or overwrites a root's data on a
+/// product root (the user's own data is never disposable).
+pub fn refuse_product(root: &PrototypeRoot, what: &str) -> Result<()> {
+    if root.is_product() {
+        return Err(CustodianError::new("product.refused", format!("{what} is never run on the engine's own data root {}", root.path().display())));
+    }
+    Ok(())
+}
+
 /// Mark a new, empty folder as a disposable prototype root.
 pub fn init_root(path: &Path, env: &Env) -> Result<PrototypeRoot> {
     let _ = check_location(path, env)?;
