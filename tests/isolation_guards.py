@@ -211,7 +211,7 @@ WAKE_ENTRY_POINTS = (
     "interorg_send", "immediate_command", "recover_lost_generation",
     "start_watchdog_engine", "start_auto_resume_loop", "start_usage_warm_loop",
     "start_storage_watchdog", "start_steer_late_watchdog",
-    "start_prime_restart_engine", "start_extern_sweeper", "start_cred_watcher",
+    "start_prime_restart_engine", "start_cred_watcher",
     "start_working_cache_keeper",
 )
 

@@ -638,7 +638,12 @@ _SUSPICIOUS_ASK_MARKUP_RE = re.compile(
     r'<(?:\w+:)?parameter\s+name="|<(?:\w+:)?invoke\s+name="', re.IGNORECASE)
 
 
-MAX_EXTERN_HANDLES: Final = 8
+#: The refusal for a NEW response-handle grant (coordinator ruling
+#: 2026-09-25, stage 2 of the @mcp: retirement). A handle was an
+#: @mcp:<peer> address, and that transport no longer exists.
+HANDLES_RETIRED: Final = ("external_handles are retired with the @mcp: "
+                          "address form — outside chats reach orgs through "
+                          "the mail hub (@net:<slug>)")
 
 
 def stamp_handles(n: Any, handles: list[str]) -> None:
@@ -656,31 +661,18 @@ def stamp_handles(n: Any, handles: list[str]) -> None:
 
 
 def norm_extern_handles(raw: Iterable[Any] | None, *, where: str) -> list[str]:
-    """Validate + dedupe a set of @mcp:<peer> response handles canonically.
+    """The one gate for @mcp:<peer> response handles, shared by hire() and
+    set_scope() so the grant paths cannot drift. `where` names the calling op
+    in refusals ("hire" / "retool").
 
-    Shared by hire() and set_scope() so the two grant paths cannot drift: a
-    handle is a per-address post_mail bypass, and a rule enforced at hire but
-    not at attach would be a hole in exactly the same privilege. Only the
-    @mcp: form is grantable — it names ONE concrete extern peer, so the bypass
-    stays scoped to a single mailbox rather than "speak for the org anywhere".
-    `where` names the calling op in refusals ("hire" / "retool")."""
-    handles: list[str] = []
-    for h in raw or []:
-        h = str(h).strip()
-        if not (h.startswith("@mcp:")
-                and re.fullmatch(r"[A-Za-z0-9._-]{1,64}", h[5:])):
-            raise LedgerError(
-                f"external_handles entries must be @mcp:<peer> addresses "
-                f"(got {h!r}) — each scopes this {where}'s outbound mail to "
-                f"that exact extern peer")
-        if h not in handles:
-            handles.append(h)
-    if len(handles) > MAX_EXTERN_HANDLES:
-        raise LedgerError(
-            f"at most {MAX_EXTERN_HANDLES} external_handles per {where}")
-    # Handle order grants no mail authority and controls no routing. It does
-    # render into identity_prompt, so retain a stable set representation.
-    return sorted(handles)
+    RETIRED with @mcp: (coordinator ruling 2026-09-25, stage 2): every NEW
+    grant — any entry at all — is refused. An EMPTY list still returns [] so
+    an explicit retool can clear what a node stored before the retirement;
+    that removes data only on request. Otherwise stored handles stay on the
+    node and are IGNORED: no mail bypass, no prompt line, no sweeper."""
+    if list(raw or []):
+        raise LedgerError(f"{HANDLES_RETIRED} (refused on {where})")
+    return []
 
 
 def slugify(name: str) -> str:
@@ -3392,13 +3384,11 @@ class Org:
             # with the cross-gaps auto-bridge: a top-level agent COULD grant
             # itself the audience, so a top-level send without one is granted
             # and succeeds in the same call rather than being refused.
-            # External-handle bypass (user feature 2026-08-20): a node that
-            # HOLDS this exact address (hire-time external_handles — e.g. the
-            # in-game Prompt Wizard's response panel) answers it from ANY
-            # depth. The bypass is per-address, and the row below carries
-            # by=sender — a handle send never speaks broadly for the org.
-            held_handle = to in (self.node(sender).get("external_handles") or [])
-            if not held_handle and not self._has_audience(sender, EXTERN):
+            # (The external-handle bypass — a node holding an @mcp: address
+            # answering it from any depth — went with @mcp: on 2026-09-25.
+            # Stored handles are ignored; every outside send needs the
+            # audience.)
+            if not self._has_audience(sender, EXTERN):
                 if self.node(sender)["parent"] is None:
                     if not self.multi_holder_enabled:
                         for h in [a for a in self.d["audiences"] if a["grantor"] == EXTERN]:
@@ -3434,11 +3424,8 @@ class Org:
                 raise LedgerError("that network address is this organization "
                                   "itself")
             # actual delivery rides the bridge (supervisor/api) — the ledger
-            # authorizes and records the correspondence. A held-handle send is
-            # `attributed`: the peer is the sender's own channel, so unlike
-            # org-voice mail its `by` IS exposed on the extern read surface.
-            oid = self._org_inbox_log("out", to, body, by=sender,
-                                      attributed=held_handle)
+            # authorizes and records the correspondence.
+            oid = self._org_inbox_log("out", to, body, by=sender)
             self._log("mail", sender, {"to": to, "kind": kind,
                       "gist": body.strip().splitlines()[0][:80] if body.strip()
                       else ""}, [])
@@ -3866,61 +3853,6 @@ class Org:
         return any(a["grantee"] == grantee and a["grantor"] == grantor
                    for a in self.d["audiences"])
 
-    def handle_attached_at(self, nid: str, handle: str) -> str:
-        """D-166: when this handle was bound to this node.
-
-        Attach time lives on the NODE, not in the machine-wide sightings file,
-        because that is whose fact it is — and because inferring it from the
-        peer store cannot tell a handle that has sat there for a week from one
-        re-attached a second ago, which made re-attached handles get swept on
-        the next tick.
-
-        A handle with no stamp predates D-166; it is stamped on first sight so
-        it gets a full grace period rather than being detached on the strength
-        of no evidence at all. Mutates when it stamps — the caller saves."""
-        n = self.node(nid)
-        at = (n.get("external_handles_at") or {}).get(handle)
-        if not at:
-            at = now()
-            n.setdefault("external_handles_at", {})[handle] = at
-        return str(at)
-
-    def detach_extern_handle(self, nid: str, handle: str, *,
-                             last_seen: str | None,
-                             silent_s: float, threshold_s: float) -> bool:
-        """D-166: drop a response handle whose peer has gone silent. Returns
-        False if it was already gone (the sweep races nothing, but a retool
-        between load and save would otherwise raise).
-
-        The detach IS the whole fix. The identity prompt is a pure function of
-        the node doc and is rebuilt every turn, so removing the handle here
-        removes the line from the agent's next prompt — and that is the only
-        thing that works: a compacted agent knows the channel only through
-        that line, so it cannot be TOLD the channel died. It can miss a
-        notice; it cannot read a line that is gone.
-
-        The event is the operator's answer to "why did my channel drop" — a
-        detach nobody can explain afterwards is its own small phantom, so it
-        carries the handle, the last sighting and the threshold that fired."""
-        n = self.node(nid)
-        handles = list(n.get("external_handles") or [])
-        if handle not in handles:
-            return False
-        handles.remove(handle)
-        if handles:
-            n["external_handles"] = handles
-        else:
-            n.pop("external_handles", None)
-        # the stamp goes with the handle, so a re-attach starts a fresh clock
-        stamp_handles(n, handles)
-        self._log("extern_handle_detached", SYSTEM, {
-            "node": nid, "handle": handle,
-            "last_seen": last_seen or "never",
-            "silent_s": round(silent_s),
-            "threshold_s": round(threshold_s),
-        }, [])
-        return True
-
     # ------------------------------------------------ the org inbox (user spec)
     # Outside parties (chatq sessions, other orgs) see ONE recipient: the org.
     # Their mail lands here; every live top-level agent and every org-inbox
@@ -3984,14 +3916,12 @@ class Org:
         return first
 
     def _org_inbox_log(self, direction: Literal["in", "out"], peer: str, body: str,
-                       by: str | None = None, attributed: bool = False) -> str:
+                       by: str | None = None) -> str:
         log = self.d.setdefault("org_inbox", [])
         e: OrgInboxEntry = {"id": uuid.uuid4().hex[:8], "dir": direction, "peer": peer,
                             "body": body[:20000], "at": now()}
         if by:
             e["by"] = by      # internal attribution only — outbound speaks as the org
-        if attributed:
-            e["attributed"] = True  # held-handle send: the peer MAY see `by`
         log.append(e)
 
         return e["id"]
@@ -11711,12 +11641,11 @@ class Org:
                            if n.get("frozen") else None),
                 "audiences_held": [a["grantor"] for a in self.d["audiences"]
                                    if a["grantee"] == nid],
-                # outward @mcp: channels this node may answer directly. Read
-                # so a client that OWNS a handle (the in-game panel) can find
-                # the one already bound to an agent instead of minting a
-                # second. ⚠ _scrub_public drops this: the peer id is the only
-                # credential /api/extern/{peer}/messages asks for, so handing
-                # it to a kiosk visitor would hand them the conversation.
+                # @mcp: response handles STORED on this node before @mcp:
+                # was retired (2026-09-25). Served as stored data only —
+                # nothing honours them any more — and never cleared on load
+                # (no silent data rewrite). ⚠ _scrub_public still drops this
+                # for kiosk visitors: a peer id is an outside channel's name.
                 "external_handles": n.get("external_handles") or [],
                 # F-04/F-05: the ask card this node's desk shows — open, or
                 # freshly nulled (the nulled card carries its reason)

@@ -1552,7 +1552,6 @@ def _recover_startup() -> None:
     net.start_net_client()
     supervisor.start_cred_watcher()
     supervisor.start_watchdog_engine()
-    supervisor.start_extern_sweeper()
     supervisor.start_steer_late_watchdog()
     supervisor.maildrain.start()
     from . import toolwait
@@ -3800,9 +3799,9 @@ class Scope(Body):
     clear_account_fallback: bool = False  # inherit the org default
     # {enabled?, occ?} per-node cache-protection override; {} clears to inherit
     auto_cheap_compact: dict[str, Any] | None = None
-    # post-hire @mcp:<peer> response handles (2026-08-22). REPLACES the node's
-    # set; [] clears. Read the current set off the org tree first if you mean
-    # to ADD one. Superior-only — a handle is an outbound-mail bypass.
+    # post-hire @mcp:<peer> response handles — RETIRED with @mcp: on
+    # 2026-09-25: any entry is refused (ledger.HANDLES_RETIRED); [] still
+    # clears what a node stored before the retirement.
     external_handles: list[str] | None = None
     raise_ceiling: bool = False             # the one-action bridge (spec §1)
 
@@ -11798,47 +11797,6 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                 if delivered and delivered.startswith("@org:"):
                     # outbound to ANOTHER ORG's inbox — direct
                     org_send = (delivered[5:], a.get("body", ""))
-                elif delivered and delivered.startswith("@mcp:"):
-                    # a polling external chat: the org-inbox entry IS the
-                    # delivery — the peer reads it via the extern MCP server.
-                    #
-                    # D-166: so "delivered" was never true here, and the agent
-                    # acted on it. @mcp: is a PULL transport — the row is
-                    # FILED and a peer may or may not ever collect it; a send
-                    # into a handle whose panel closed returned exactly the
-                    # same cheerful 200 as one into a live channel, and the
-                    # agent had nothing it could ever act on. Say what really
-                    # happened instead, and — when we have a sighting to go on
-                    # — say how long the silence has run.
-                    #
-                    # ⚠ Rewritten HERE, after the branch above has already
-                    # routed, and never in post_mail: the elif chain below
-                    # tests `delivered is not None`, so a False from the
-                    # ledger would fall through it into mail_notify() and
-                    # drive.append(False).
-                    seen = store.extern_last_seen(delivered)
-                    silent_h = ((time.time() - store._epoch(seen)) / 3600
-                                if seen else 0.0)
-                    result["filed"] = delivered
-                    result["delivered"] = False
-                    if seen is None:
-                        result["status"] = (
-                            f"filed for {delivered} — but that peer has NEVER "
-                            f"polled this machine, so nothing is known to be "
-                            f"listening. It is a pull transport: nobody is "
-                            f"pushed to. Do not treat this as an answer "
-                            f"delivered.")
-                    elif silent_h >= 1:
-                        result["status"] = (
-                            f"filed for {delivered} — last heard from it "
-                            f"{silent_h:.1f}h ago (at {seen}). It collects on "
-                            f"its own schedule; if that silence looks wrong, "
-                            f"the channel may be gone.")
-                    else:
-                        result["status"] = (
-                            f"filed for {delivered} — it was polling recently "
-                            f"(last seen {seen}), so it should collect this. "
-                            f"Delivery is still its choice, not ours.")
                 elif delivered and delivered.startswith("@net:"):
                     # F-06: stage the spool entry on the SAME loaded org — it
                     # rides this block's save, so the org-inbox row and the
@@ -14084,8 +14042,8 @@ class Op(Body):
     charter: str | None = None    # hire — short standing role card
     add_dirs: list[Any] | None = None  # hire — [{path, mode}] or bare paths
     tools: dict[str, Any] | None = None  # hire — {bash, web, edit, subagents, mcp: []}
-    # hire — @mcp:<peer> addresses the hire may answer directly from any depth
-    # (per-address post_mail bypass, by=sender attribution); Prompt Wizard panels
+    # hire — @mcp:<peer> response handles: RETIRED with @mcp: on 2026-09-25;
+    # any entry is refused (ledger.HANDLES_RETIRED)
     external_handles: list[str] | None = None
     # FR-25 insert-superior: hire + splice as ONE op — the fresh node takes
     # this anchor's slot among its siblings and the anchor is reparented
