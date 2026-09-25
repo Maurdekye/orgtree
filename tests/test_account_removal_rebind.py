@@ -541,7 +541,12 @@ class AccountRemovalTests(unittest.TestCase):
         self.assertFalse(t.is_alive(), "removal never finished")
         self.assertNotIn("account", self.store.load_org("rm-rowlock").node("old"))
 
-    def test_an_unrelated_seat_does_not_stop_the_removal(self):
+    def test_an_unrelated_seat_holds_only_the_final_check(self):
+        # the MIGRATION does not wait for a seat it does not bind: it commits
+        # while "root" is held. Only the final re-read (every node row, so an
+        # in-flight binder is seen — decision 32) waits, and the row is
+        # removed the moment the holder lets go.
+        import time
         self._fence(False)
         from engine.backend.orgtree import orgtx
         row = self._row()
@@ -549,12 +554,26 @@ class AccountRemovalTests(unittest.TestCase):
         release, holder = self._hold(
             lambda: orgtx.org_tx("rm-unrel", nodes=["root"]))
         try:
-            done, out, _ = self._in_thread(lambda: self._remove(row["id"]), 5.0)
+            done, out, t = self._in_thread(lambda: self._remove(row["id"]), 0.2)
+            migrated = False
+            deadline = time.monotonic() + 5
+            while not migrated and time.monotonic() < deadline:
+                migrated = "account" not in self.store.load_org(
+                    "rm-unrel").node("old")
+                time.sleep(0.02)
+            self.assertTrue(migrated, "the migration waited for an unrelated seat")
+            self.assertFalse(done or not t.is_alive(),
+                             "the final check did not wait for the held seat")
+            self.assertEqual(self.registry.get_account(row["id"])["id"],
+                             row["id"])
         finally:
             release.set()
             holder.join(10)
-        self.assertTrue(done, "an unrelated seat row blocked the removal")
+        t.join(10)
+        self.assertFalse(t.is_alive(), "removal never finished")
         self.assertNotIsInstance(out[0], BaseException, out)
+        with self.assertRaises(self.registry.UnknownAccount):
+            self.registry.get_account(row["id"])
 
     def test_a_binding_made_during_the_removal_keeps_the_account(self):
         self._fence(False)
