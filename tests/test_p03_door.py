@@ -51,6 +51,7 @@ class Base(unittest.TestCase):
             "LOCALAPPDATA": str(self.base / "local"),
             "ProgramFiles": str(self.base / "pf"),
         }
+        self.recorded: list[tuple] = []
 
     def tearDown(self) -> None:
         self._tmp.cleanup()
@@ -67,7 +68,12 @@ class Base(unittest.TestCase):
         if proto is not None:
             env[p03_door.ENV_VAR] = str(proto)
         app = FakeApp()
-        return p03_door.install(app, data, env), app
+        # never the real event log from a test
+        return p03_door.install(app, data, env, record=self.record), app
+
+    def record(self, component, reason, **fields) -> bool:
+        self.recorded.append((component, reason, fields))
+        return True
 
 
 class Inert(Base):
@@ -266,6 +272,72 @@ class NonDriveRefusal(Base):
         ok, app = self.install(verbatim, verbatim)
         self.assertTrue(ok, "a \\\\?\\C:\\ path is a drive-letter path")
         self.assertEqual(len(app.installed), 1)
+
+
+class RefusalRecord(Base):
+    """Review N2: once the variable is set, a refusal and an inert outcome are
+    both recorded (the event log in production; a fake here)."""
+
+    def test_nothing_is_recorded_without_the_variable(self):
+        self.install(None, self.base / "anything")
+        self.assertEqual(self.recorded, [])
+
+    def test_a_refusal_is_recorded_and_still_raised(self):
+        live = self.base / "appdata" / "Orgtree v2" / "data"
+        with self.assertRaises(p03_door.LiveRootRefused) as cm:
+            self.install(live, live)
+        self.assertEqual(len(self.recorded), 1)
+        component, reason, fields = self.recorded[0]
+        self.assertEqual((component, reason), ("p03_door", str(cm.exception)))
+        self.assertEqual(fields, {"data_root": str(live), "prototype_root": str(live)})
+
+    def test_an_inert_outcome_with_the_variable_set_is_recorded_as_inert(self):
+        proto = self.base / "proto"
+        self.mark(proto)
+        self.install(proto, self.base / "other")
+        proto2 = self.base / "unmarked"
+        proto2.mkdir()
+        self.install(proto2, proto2)
+        self.assertEqual([(c, f.get("inert")) for c, _r, f in self.recorded], [("p03_door", True)] * 2)
+        self.assertIn("not the backend's data root", self.recorded[0][1])
+        self.assertIn(p03_door.MARKER_FILE, self.recorded[1][1])
+
+    def test_an_active_root_records_nothing(self):
+        proto = self.base / "proto"
+        self.mark(proto)
+        self.assertTrue(self.install(proto, proto)[0])
+        self.assertEqual(self.recorded, [])
+
+
+class RefusalHelper(unittest.TestCase):
+    def setUp(self) -> None:
+        from orgtree import p03_refusal
+        self.m = p03_refusal
+        self.written: list[tuple] = []
+
+    def writer(self, text, event_id, event_type):
+        self.written.append((json.loads(text), event_id, event_type))
+        return True
+
+    def test_the_event_text_and_ids(self):
+        self.assertTrue(self.m.record_refusal("p03_door", "why", writer=self.writer, data_root="D:\\x"))
+        self.assertTrue(self.m.record_refusal("p03_bracket", "inert why", inert=True, writer=self.writer, pid=7))
+        (first, id1, t1), (second, id2, t2) = self.written
+        self.assertEqual(first, {"schema": "orgtree.p03.refusal/v1", "component": "p03_door", "refused": "why",
+                                 "data_root": "D:\\x", "pid": os.getpid()})
+        self.assertEqual((id1, t1), (1, self.m.EVENTLOG_ERROR_TYPE))
+        self.assertEqual((second["pid"], id2, t2), (7, 2, self.m.EVENTLOG_WARNING_TYPE))
+
+    def test_best_effort_never_raises(self):
+        def broken(*_):
+            raise OSError("event log unavailable")
+        self.assertFalse(self.m.record_refusal("p03_door", "why", writer=broken))
+        self.assertFalse(self.m.record_refusal("not-a-component", "why", writer=self.writer))
+        self.assertEqual(self.written, [])
+
+    def test_a_huge_reason_is_cut_to_fit_one_event(self):
+        self.m.record_refusal("p03_door", "x" * 100_000, writer=self.writer)
+        self.assertTrue(self.written[0][0]["refused"].endswith("[cut]"))
 
 
 class ApiEdit(unittest.TestCase):
