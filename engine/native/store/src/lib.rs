@@ -18,22 +18,29 @@
 //! real database, the store-service binary. Passing these tests proves the
 //! executor's decision logic over a fake session, not PostgreSQL behaviour.
 
+pub mod charter;
 pub mod claims;
 pub mod conn;
 pub mod exec;
+pub mod funding;
 pub mod hooks;
 pub mod lookup;
 pub mod mail;
 pub mod pg;
 pub mod pool;
+pub mod preview;
 pub mod read;
 pub mod receipts;
+pub mod reservation;
 pub mod restrict;
 pub mod retry;
 pub mod runtime;
 pub mod sent;
 pub mod session;
+pub mod status;
+pub mod strict;
 pub mod value;
+pub mod work;
 
 #[cfg(any(test, feature = "fake"))]
 pub mod fake;

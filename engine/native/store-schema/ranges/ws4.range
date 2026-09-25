@@ -1,0 +1,18 @@
+# WS4 (p03-ws4-rcfamilies): READ COMMITTED families, strict reads and
+# preview, migrations 0200-0299.
+# Format (read by build.rs): `key = value`; list keys take space-separated
+# names and may repeat (values append). A range lists ONLY its own entries.
+# Checksums of this range's migrations: ranges/ws4.sha256.
+
+name = WS4
+first = 200
+last = 299
+
+# every table this range's migrations CREATE (checked against the DDL)
+tables = status_rows transcript_entries transcript_identities
+
+# publication (CONTRACT-M1 §7)
+published = status_rows transcript_entries transcript_identities
+
+# lint inputs (R9): transcript entries are appended per turn
+high_rate = transcript_entries
