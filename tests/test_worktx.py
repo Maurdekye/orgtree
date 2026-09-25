@@ -144,6 +144,32 @@ class DocketOnOrgTx(Base):
         self.assertEqual(get(self.slug, self.item)[0]['owner']['node'], 'sub')
         self.assertEqual(len(attempts), 1)
 
+    def test_rows_for_predicts_common_actions_without_widening(self):
+        """The argument-derived prediction is exact for the frequent actions:
+        each commits on its FIRST attempt (a miss would show as a second
+        `after_lock`)."""
+        cases = [
+            ('evidence', {}, lambda o: o.work_evidence('own', self.item, 'note', 'e.txt', note='n')),
+            ('decision', {}, lambda o: o.work_decision('own', self.item, 'Ruled.')),
+            ('update', {}, lambda o: o.work_update('own', self.item, done_so_far=['d'],
+                                                   working_on_next=['n'])),
+            ('participants', {'add': ['boss']},
+             lambda o: o.work_participants('own', self.item, add=['boss'])),
+            ('assign', {'owner': 'sub'}, lambda o: o.work_assign('own', self.item, 'sub')),
+            ('create', {'participants': ['peer']},
+             lambda o: o.work_create('own', 'Predicted create',
+                                     objective='Problem: p. Solution: s.',
+                                     participants=['peer'])),
+        ]
+        for action, args, fn in cases:
+            with self.subTest(action=action):
+                attempts = []
+                orgtx.set_pause_hook(
+                    lambda p, tx: attempts.append(p) if p == 'after_lock' else None)
+                worktx.run(self.slug, fn, rows=worktx.rows_for(action, args))
+                orgtx.set_pause_hook(None)
+                self.assertEqual(len(attempts), 1, f'{action} widened: prediction missed a row')
+
     def test_refusal_naming_nothing_new_is_not_retried_forever(self):
         err = orgtx.UnlockedWrite("wrote rows it did not lock: section 'work_items'")
         self.assertEqual(worktx.refused_rows(err), [('section', 'work_items')])
