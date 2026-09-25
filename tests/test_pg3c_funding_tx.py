@@ -241,5 +241,61 @@ class LastCredit(unittest.TestCase):
         self.assertGreaterEqual(org.free('boss'), 0)
 
 
+class StaleSnapshot(unittest.TestCase):
+    """The declaration is computed from an UNLOCKED snapshot, so the tree can
+    move before the locks are held. rcdoor.require() re-derives the rows from
+    the locked document and widens; without it the body would write a row it
+    never locked. (Added after the mutation pass: 'require() never widens'
+    survived every other test.)"""
+
+    def setUp(self) -> None:
+        orgtx.use_backend(orgtx.SeamBackend())
+        pgdoor.use_org_tx(_seam, lambda e: isinstance(e, orgtx.Retryable),
+                          snapshot=lambda s: orgtx.org_read(s))
+        self.slug = 'pg3cstale'
+        org = store.create_org(self.slug)
+        org.hire(ledger.USER, None, 'haiku', 12, 'boss')
+        for name in ('p', 'q'):
+            org.hire('boss', 'boss', 'haiku', 0, name, add_dirs=[], tools=TOOLS,
+                     org_visibility='self', charter='a middle node')
+        org.hire('boss', 'p', 'haiku', 0, 'c1', add_dirs=[], tools=TOOLS,
+                 org_visibility='self', charter='a leaf')
+        store.save_org(org)
+
+    def test_a_tree_move_after_the_snapshot_widens_the_lock_set(self) -> None:
+        stale = orgtx.org_read(self.slug)
+        spec = rcdoor.reallocate_rows(stale, 'boss', 'c1')
+        self.assertEqual(spec.nodes, ('c1', 'p', 'boss'))
+        # the tree moves: c1 now reports to q, which has no free credit, so a
+        # raise of c1 bubbles through q and WRITES q's grant
+        org = store.load_org(self.slug)
+        org.move('boss', 'c1', 'q')
+        f = org.free('q')
+        if f >= 1:
+            org.reallocate('boss', 'q', -math.floor(f))
+        store.save_org(org)
+        org = store.load_org(self.slug)
+        self.assertEqual(org.node('c1')['parent'], 'q')
+        self.assertLess(org.free('q'), 1, 'fixture: q must not be able to pay alone')
+        q_before = org.node('q')['grant']
+        body = types.SimpleNamespace(org=self.slug, node='boss', tool='orgtree_reallocate',
+                                     op_key=None)
+        seen: list = []
+
+        def fn(tx):
+            seen.append(tx.spec.nodes)
+            rcdoor.require(tx.spec, rcdoor.reallocate_rows(tx.org, 'boss', 'c1'))
+            return tx.org.reallocate('boss', 'c1', 1)
+
+        r = pgdoor.agent_tx(body, {'node': 'c1', 'delta': 1}, fn, admit=_no_admit,
+                            file=_no_file, spec=spec)
+        self.assertEqual(r['grant'], 1)
+        self.assertEqual(len(seen), 2, f'expected one widening re-run, saw {seen}')
+        self.assertIn('q', seen[1])
+        org = store.load_org(self.slug)
+        self.assertGreater(org.node('q')['grant'], q_before, 'the raise bubbled through q')
+        self.assertGreaterEqual(org.free('q'), 0)
+
+
 if __name__ == '__main__':
     unittest.main()
