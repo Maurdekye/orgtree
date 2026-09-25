@@ -87,6 +87,10 @@ MUTANTS = [
      "                if got != expect(role) {",
      "                if false && got != expect(role) {",
      ["--test", "readiness"], False),
+    ("qual.check_skips_bind_setting", "src/cluster.rs",
+     '            ("log_parameter_max_length", "0"),\n            ("log_parameter_max_length_on_error", "0"),\n        ] {\n            if get(k) != want {',
+     '            ("log_parameter_max_length_on_error", "0"),\n        ] {\n            if get(k) != want {',
+     ["--test", "readiness"], False),
     ("family.ignore_creation_time", "src/win.rs",
      "&& c >= p && child.pid != parent.pid,",
      "&& child.pid != parent.pid && (c, p) == (c, p),",
@@ -110,6 +114,14 @@ MUTANTS = [
     ("stop.skip_family_wait", "src/cluster.rs",
      "                let ex = h.wait_exit(left);",
      "                let ex = { let _ = left; true };",
+     ["--test", "smoke_cluster", "--", "--ignored", "--test-threads=1", "dev_cluster"], True),
+    ("start.pipe_inherited", "src/cluster.rs",
+     "    win::stop_std_handle_inheritance();\n",
+     "",
+     ["--test", "smoke_cluster", "--", "--ignored", "--test-threads=1", "dev_cli"], True),
+    ("qual.bind_values_logged", "src/cluster.rs",
+     '        ("log_parameter_max_length", "0".to_string()),',
+     '        ("log_parameter_max_length", "-1".to_string()),',
      ["--test", "smoke_cluster", "--", "--ignored", "--test-threads=1", "dev_cluster"], True),
     # Misconfigures the real cluster; the smoke test's `ready()` must notice.
     ("config.prepared_transactions_5", "src/cluster.rs",
@@ -152,8 +164,20 @@ def main() -> int:
             mutated = mutated.replace("\n", "\r\n")
         path.write_bytes(mutated.encode("utf-8"))
         try:
-            proc = subprocess.run(["cargo", "test", *targs], cwd=CRATE, capture_output=True, text=True)
-            out = proc.stdout + proc.stderr
+            # Output goes to a FILE, not a pipe: a postmaster a failing test
+            # leaves behind must not be able to hold our pipe open (that hung
+            # the gated run at b50745c). The timeout turns any hang into a
+            # recorded verdict.
+            out_path = CRATE.parent.parent.parent / "artifacts" / f"mutant-{mid}.log"
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                with open(out_path, "w", encoding="utf-8") as fh:
+                    proc = subprocess.run(["cargo", "test", *targs], cwd=CRATE, stdout=fh, stderr=subprocess.STDOUT,
+                                          stdin=subprocess.DEVNULL, timeout=900)
+            except subprocess.TimeoutExpired:
+                results.append({"mutant": mid, "verdict": "TIMEOUT", "log": str(out_path)})
+                continue
+            out = out_path.read_text(encoding="utf-8", errors="replace")
             compiled = "error[" not in out and "could not compile" not in out
             failed = [l.split(" ")[1] for l in out.splitlines() if l.startswith("test ") and l.rstrip().endswith("FAILED")]
             if not compiled:

@@ -38,6 +38,34 @@ fn fresh_root(tag: &str) -> PathBuf {
     ))
 }
 
+/// On panic, stop whatever cluster the test left running, with pg_ctl
+/// directly (a mutant may have broken the custodian's own stop), so a failed
+/// run never leaves an orphan postmaster holding the caller's pipes.
+struct StopOnPanic {
+    data: PathBuf,
+    pg_ctl: PathBuf,
+}
+
+impl StopOnPanic {
+    fn new(root: &std::path::Path, b: &PgBin) -> Self {
+        Self { data: root.join("pg").join("cluster").join("data"), pg_ctl: b.exe("pg_ctl") }
+    }
+}
+
+impl Drop for StopOnPanic {
+    fn drop(&mut self) {
+        if std::thread::panicking() && self.data.join("postmaster.pid").exists() {
+            let _ = std::process::Command::new(&self.pg_ctl)
+                .args(["stop", "-m", "immediate", "-w", "-D"])
+                .arg(&self.data)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
+        }
+    }
+}
+
 fn expect_code<T: std::fmt::Debug>(r: orgtree_pg_custodian::Result<T>, code: &str) -> String {
     match r {
         Ok(v) => panic!("expected refusal {code}, got Ok({v:?})"),
@@ -59,6 +87,7 @@ fn dev_cluster_lifecycle() {
 
     let root_path = fresh_root("smoke");
     let root = guard::init_root(&root_path, &env).unwrap();
+    let _cleanup = StopOnPanic::new(root.path(), &b);
     let inst = cluster::init(&root, &b, &InitOptions::default()).unwrap();
     assert!(inst.system_identifier.len() >= 15, "system_identifier {:?}", inst.system_identifier);
     match cluster::state(&root, &b).unwrap() {
@@ -150,14 +179,51 @@ fn dev_cluster_lifecycle() {
     assert!(!root.path().join("pg").join("cluster").join("runtime.json").exists());
 
     // Restart keeps the identity and the data; immediate stop also cleans up.
+    // This restart also runs with the qualification-logging switch ON.
+    assert!(!cluster::qual_logging_configured(&root));
+    assert!(cluster::set_qual_logging(&root, &b, true).unwrap());
     let rt2 = cluster::start(&root, &b, None).unwrap();
+    expect_code(cluster::set_qual_logging(&root, &b, false), "qual_logging.running");
     let rows = cluster::psql(&b, &rt2, "postgres", "select count(*) from smoke").unwrap();
     assert_eq!(rows, vec![vec!["1000".to_string()]]);
     let (_, id2) = cluster::identify(&root, &b).unwrap();
     assert_eq!(id2.system_identifier, inst.system_identifier);
+    assert!(id2.qual_logging_configured && id2.qual_logging_effective, "{id2:?}");
+    assert!(id2.ready(), "readiness with qualification logging: {:?}", id2.readiness_failures);
+    // One statement text that must be logged, one bind value that must not.
+    let tag = orgtree_pg_custodian::win::random_hex(6).unwrap();
+    let visible = format!("VISIBLE_MARKER_{tag}");
+    let secret = format!("BIND_SECRET_{tag}");
+    let script = root_path.join("bind.sql");
+    std::fs::write(&script, format!("select '{visible}' as v;\nselect $1::text as s \\bind {secret} \\g\n")).unwrap();
+    let out = cluster::child(&b.exe("psql"))
+        .args(["-X", "-q", "-A", "-t", "-w", "-v", "ON_ERROR_STOP=1", "-d"])
+        .arg(rt2.conninfo("postgres"))
+        .arg("-f")
+        .arg(&script)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(String::from_utf8_lossy(&out.stdout).contains(&secret), "the bound query must really have run");
     let stop2 = cluster::stop(&root, &b, true, false).unwrap();
     assert!(stop2.family.iter().all(|m| m.exited));
-    checks.push(json!({"check": "restart keeps identity and data; immediate stop exits family"}));
+    let mut logged = String::new();
+    let mut files = 0;
+    for e in std::fs::read_dir(root.path().join(cluster::QUAL_LOG_DIR)).unwrap() {
+        let p = e.unwrap().path();
+        files += 1;
+        logged.push_str(&String::from_utf8_lossy(&std::fs::read(&p).unwrap()));
+    }
+    assert!(files > 0 && logged.contains(&visible), "qualification log did not record the marker statement ({files} files)");
+    assert!(logged.contains("\"message\":\"statement: "), "not jsonlog statement records");
+    assert!(!logged.contains(&secret), "a bind value reached the qualification log");
+    assert!(cluster::set_qual_logging(&root, &b, false).unwrap());
+    assert!(!cluster::qual_logging_configured(&root));
+    checks.push(json!({
+        "check": "restart keeps identity and data; qualification logging records statements but no bind values; immediate stop exits family",
+        "qual_log_files": files,
+        "qual_log_bytes": logged.len(),
+    }));
 
     cluster::destroy(&root, &b).unwrap();
     assert!(!root_path.exists());
@@ -180,6 +246,101 @@ fn dev_cluster_lifecycle() {
     );
 }
 
+/// Run the real CLI with stdout/stderr CAPTURED through pipes, as any
+/// harness would. Before the handle fix, `start` hung its caller: the
+/// postmaster inherited the pipe and EOF never came. A 90 s ceiling turns a
+/// hang into a failure instead of a stuck run.
+fn cli(home: &std::path::Path, b: &PgBin, args: &[&str]) -> (serde_json::Value, String) {
+    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_pg-custodian"));
+    cmd.args(args)
+        .arg("--pg-bin")
+        .arg(&b.dir)
+        .env("ORGTREE_P03_HOME", home)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let (tx, rx) = std::sync::mpsc::channel();
+    let child = cmd.spawn().unwrap();
+    std::thread::spawn(move || {
+        let _ = tx.send(child.wait_with_output());
+    });
+    let out = rx
+        .recv_timeout(std::time::Duration::from_secs(90))
+        .unwrap_or_else(|_| panic!("pg-custodian {args:?} did not return EOF within 90 s (inherited pipe?)"))
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout).to_string();
+    let v = serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
+    (v, text)
+}
+
+#[test]
+#[ignore = "starts a real PostgreSQL cluster through the CLI; run under the P03 machine-test-run gate"]
+fn dev_cli_end_to_end_with_captured_output() {
+    let b = bin();
+    // A throwaway "repo home" so this never touches the shared artifacts/p03-db.
+    let home = fresh_root("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let agent = format!("smoke-{}", orgtree_pg_custodian::win::random_hex(3).unwrap());
+    let root = home.join("artifacts").join("p03-db").join(&agent);
+    let _cleanup = StopOnPanic { data: root.join("pg").join("cluster").join("data"), pg_ctl: b.exe("pg_ctl") };
+
+    let (up, raw) = cli(&home, &b, &["dev", "up", "--agent", &agent]);
+    assert_eq!(up["ok"], json!(true), "{raw}");
+    let port = orgtree_pg_custodian::dev::port_for(&agent);
+    assert_eq!(up["dev"]["runtime"]["port"], json!(port), "{raw}");
+    assert_eq!(up["dev"]["ready"], json!(true), "{raw}");
+    assert_eq!(up["dev"]["qual_logging_configured"], json!(false), "{raw}");
+    assert!(raw.contains(":***@"), "dev up must print redacted URLs: {raw}");
+
+    // Second `up` attaches to the running cluster by identity, not by port.
+    let (again, raw) = cli(&home, &b, &["dev", "up", "--agent", &agent]);
+    assert_eq!(again["dev"]["started"], json!(false), "{raw}");
+
+    // `dev env` is the only place a password is printed; use its URLs.
+    let (_, envtext) = cli(&home, &b, &["dev", "env", "--agent", &agent, "--shell", "plain"]);
+    let urls: std::collections::BTreeMap<String, String> = envtext
+        .lines()
+        .filter_map(|l| l.split_once('='))
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+    assert_eq!(urls.len(), 3, "{envtext}");
+    for (var, role) in [("P03_PG_ADMIN_URL", "orgtree_admin"), ("P03_PG_RUNTIME_URL", "orgtree_runtime")] {
+        let out = cluster::child(&b.exe("psql"))
+            .args(["-X", "-A", "-t", "-w", "-c", "select current_user || '/' || current_database()"])
+            .arg(&urls[var])
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{var}: {}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), format!("{role}/orgtree"));
+    }
+    // The replication URL opens a replication connection.
+    let out = cluster::child(&b.exe("psql"))
+        .args(["-X", "-A", "-t", "-w", "-c", "IDENTIFY_SYSTEM"])
+        .arg(format!("{}&replication=database", urls["P03_PG_REPL_URL"]))
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "IDENTIFY_SYSTEM: {}", String::from_utf8_lossy(&out.stderr));
+
+    let (all, raw) = cli(&home, &b, &["dev", "status", "--all"]);
+    assert_eq!(all["all"]["running"], json!(1), "{raw}");
+    assert_eq!(all["all"]["clusters"][0]["agent"], json!(agent), "{raw}");
+
+    // Switching qualification logging while running is refused.
+    let (q, raw) = cli(&home, &b, &["dev", "up", "--agent", &agent, "--qual-logging", "on"]);
+    assert_eq!(q["code"], json!("qual_logging.running"), "{raw}");
+
+    let (down, raw) = cli(&home, &b, &["dev", "down", "--agent", &agent]);
+    assert_eq!(down["ok"], json!(true), "{raw}");
+    assert!(!root.join("pg").join("cluster").join("data").join("postmaster.pid").exists());
+    let (st, raw) = cli(&home, &b, &["dev", "status", "--agent", &agent]);
+    assert_eq!(st["cluster"]["state"], json!("stopped"), "{raw}");
+    let (d, raw) = cli(&home, &b, &["dev", "destroy", "--agent", &agent]);
+    assert_eq!(d["ok"], json!(true), "{raw}");
+    assert!(!root.exists());
+    std::fs::remove_dir_all(&home).unwrap();
+    println!("P03-WS1-CLI-RESULT ok: dev up/up/env/status --all/down/status/destroy via captured pipes; port {port}; 3 URLs connect");
+}
+
 #[test]
 #[ignore = "runs initdb; run under the P03 machine-test-run gate"]
 fn init_killed_before_commit_leaves_only_quarantine() {
@@ -187,6 +348,7 @@ fn init_killed_before_commit_leaves_only_quarantine() {
     let b = bin();
     let root_path = fresh_root("abort");
     let root = guard::init_root(&root_path, &env).unwrap();
+    let _cleanup = StopOnPanic::new(root.path(), &b);
     std::env::set_var(ABORT_BEFORE_COMMIT_ENV, "1");
     let r = cluster::init(&root, &b, &InitOptions::default());
     std::env::remove_var(ABORT_BEFORE_COMMIT_ENV);

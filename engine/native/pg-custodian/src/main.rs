@@ -11,6 +11,7 @@ use std::path::PathBuf;
 
 const USAGE: &str = "usage:
   pg-custodian dev <up|down|status|env|destroy> --agent <name> [--shell ps|sh|plain]
+                   [--qual-logging on|off]   (up only; applies at start, off by default)
   pg-custodian dev status --all
   pg-custodian <command> --root <dir> [options]
 
@@ -33,6 +34,9 @@ root commands:
   stop        pg_ctl stop -m fast (or --immediate), then wait for the owned
               process family to exit [--force: terminate surviving postgres.exe]
   destroy     delete a STOPPED prototype root entirely
+  qual-logging --qual-logging on|off   set the qualification-logging switch
+              on a STOPPED cluster (jsonlog, log_statement=all, bind values
+              never logged, files under <root>/qual-logs)
 
 options:
   --pg-bin <dir>   PostgreSQL bin (default: env ORGTREE_P03_PG_BIN, else
@@ -50,6 +54,7 @@ struct Args {
     db: Option<String>,
     shell: Option<String>,
     all: bool,
+    qual_logging: Option<bool>,
     immediate: bool,
     force: bool,
 }
@@ -73,6 +78,13 @@ fn parse() -> Result<Args> {
             "--sql" => a.sql = Some(val("--sql")?),
             "--db" => a.db = Some(val("--db")?),
             "--shell" => a.shell = Some(val("--shell")?),
+            "--qual-logging" => {
+                a.qual_logging = Some(match val("--qual-logging")?.as_str() {
+                    "on" => true,
+                    "off" => false,
+                    _ => return Err(CustodianError::new("cli.usage", "--qual-logging takes on or off")),
+                })
+            }
             "--all" => a.all = true,
             "--immediate" => a.immediate = true,
             "--force" => a.force = true,
@@ -113,14 +125,20 @@ fn run_dev(a: &Args, env: &Env) -> Result<Out> {
     }
     let agent = a.agent.clone().ok_or_else(|| CustodianError::new("cli.usage", format!("dev {sub} needs --agent\n{USAGE}")))?;
     match sub {
-        "up" => Ok(Out::Json(json!({"dev": dev::up(env, &home, &b, &agent)?}))),
+        "up" => Ok(Out::Json(json!({"dev": dev::up(env, &home, &b, &agent, a.qual_logging)?}))),
         "down" => {
             let r = dev::root_for(env, &home, &agent)?;
             Ok(Out::Json(json!({"agent": agent, "stop": cluster::stop(&r, &b, a.immediate, a.force)?})))
         }
         "status" => {
             let r = dev::root_for(env, &home, &agent)?;
-            Ok(Out::Json(json!({"agent": agent, "root": r.path(), "port": dev::port_for(&agent), "cluster": cluster::state(&r, &b)?})))
+            Ok(Out::Json(json!({
+                "agent": agent,
+                "root": r.path(),
+                "port": dev::port_for(&agent),
+                "qual_logging_configured": cluster::qual_logging_configured(&r),
+                "cluster": cluster::state(&r, &b)?,
+            })))
         }
         "env" => {
             let r = dev::root_for(env, &home, &agent)?;
@@ -158,7 +176,16 @@ fn run(a: Args) -> Result<Out> {
             let (rt, id) = identified(&r, &b)?;
             json!({"identity_ok": id.identity_ok(), "ready": id.ready(), "identification": id, "runtime": rt})
         }
-        "status" => json!({"root": r.path(), "root_id": r.root_id(), "cluster": cluster::state(&r, &b)?}),
+        "status" => json!({
+            "root": r.path(),
+            "root_id": r.root_id(),
+            "qual_logging_configured": cluster::qual_logging_configured(&r),
+            "cluster": cluster::state(&r, &b)?,
+        }),
+        "qual-logging" => {
+            let on = a.qual_logging.ok_or_else(|| CustodianError::new("cli.usage", "qual-logging needs --qual-logging on|off"))?;
+            json!({"changed": cluster::set_qual_logging(&r, &b, on)?, "qual_logging_configured": on})
+        }
         "urls" => {
             let (rt, _) = identified(&r, &b)?;
             json!({"urls": cluster::urls(&r, &rt)?})
