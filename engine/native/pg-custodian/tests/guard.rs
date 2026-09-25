@@ -111,6 +111,21 @@ fn spelling_tricks_do_not_escape_the_protected_check() {
 }
 
 #[test]
+fn spelling_tricks_against_a_protected_folder_that_does_not_exist_yet() {
+    // Resolution cannot normalize a missing folder, so the lexical form alone
+    // must catch case and trailing-dot variants (the legacy ~/orgtree folder
+    // may well not exist on a machine).
+    let s = Sandbox::new("missing");
+    let home = PathBuf::from(&s.env["USERPROFILE"]);
+    assert!(!home.join("orgtree").exists());
+    let mut env = Env::new();
+    env.insert("ORGTREE_AGENT_LEGACY_DATA".into(), s.env["ORGTREE_AGENT_LEGACY_DATA"].clone());
+    for p in [home.join("ORGTREE").join("x"), home.join("orgtree.").join("x"), home.join("OrgTree .").join("x")] {
+        assert_eq!(code_of(guard::check_location(&p, &env)), "root.protected", "{}", p.display());
+    }
+}
+
+#[test]
 fn every_protected_variable_is_honoured_on_its_own() {
     // Each protected location, alone in the environment, must refuse.
     let s = Sandbox::new("each");
@@ -205,7 +220,9 @@ fn shape_rules() {
     assert_eq!(code_of(guard::check_location(Path::new("C:relative"), &s.env)), "root.not_absolute");
     assert_eq!(code_of(guard::check_location(Path::new("C:\\"), &s.env)), "root.too_shallow");
     assert_eq!(code_of(guard::check_location(Path::new("C:\\onlyone"), &s.env)), "root.too_shallow");
-    assert_eq!(code_of(guard::check_location(Path::new("\\\\server\\share\\a\\b"), &s.env)), "root.device_or_unc");
+    // Loopback host on purpose: under a mutant that stops refusing UNC, the
+    // resolve step would touch this path, and it must not leave the machine.
+    assert_eq!(code_of(guard::check_location(Path::new("\\\\127.0.0.1\\no-such-share-p03\\a\\b"), &s.env)), "root.device_or_unc");
     assert_eq!(code_of(guard::check_location(Path::new("\\\\.\\pipe\\x\\y"), &s.env)), "root.device_or_unc");
     assert_eq!(code_of(guard::check_location(Path::new("\\\\?\\UNC\\server\\share\\a"), &s.env)), "root.device_or_unc");
 }
