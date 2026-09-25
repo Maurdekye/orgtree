@@ -42,8 +42,9 @@ class Reached(RuntimeError):
 class DrainTxTests(unittest.TestCase):
 
     def setUp(self):
-        self.slug = 'drain-' + self._testMethodName.replace('_', '-')[-24:]
+        self.slug = 'drain-' + self._testMethodName[5:].replace('_', '-')[-24:].strip('-')
         org = store.create_org(self.slug)
+        store.load_org(self.slug)  # the slug round-trips, or setUp fails here
         org.hire(ledger.USER, None, 'opus', 0, 'worker')
         m = org.post_mail(ledger.USER, 'worker', 'hello from the user')
         self.mail_id = str(m['id'])
@@ -96,9 +97,19 @@ class DrainTxTests(unittest.TestCase):
         self.assertEqual(len(drains), 1, [c.changes for c in self.commits])
 
     def test_an_unlocked_mailbox_write_is_refused(self):
-        with patch.object(sup, 'ADMISSION_WRITE_SECTIONS',
-                          ('delivering', 'notices')):
+        real = sup._admission_rows
+
+        def without_mail(slug, nid, *, compact=False):
+            rows = real(slug, nid, compact=compact)
+            if not compact:
+                rows['sections'] = [s for s in rows['sections'] if s != 'mail']
+                self.stripped += 1
+            return rows
+        self.stripped = 0
+        with patch.object(sup, '_admission_rows', side_effect=without_mail):
             self.admit()
+        self.assertEqual(self.stripped, 1, 'the drain transaction never asked '
+                                           'for its rows: the control did not run')
         self.assertEqual(self.reached, 0,
                          'the drain committed without locking `mail`')
         org = store.load_org(self.slug)
