@@ -41,6 +41,12 @@ KINDS: dict[str, tuple[str, ...]] = {
     "control_executed": ("control_id", "operation_id", "op_tag"),
     "pause": ("point",),
     "lookup": ("answer",),
+    # a family's marker for a step that is no statement and no hookable point
+    # (WS2 EventKind::Mark, e.g. WS5's runtime.turn.provider_input.begin/.end)
+    "mark": ("name",),
+    # opaque ids linking one workflow instance's steps (WS2 EventKind::CausalRefs,
+    # after op_begin and after op_end): PROFILING test 2's grouping evidence
+    "causal_refs": ("operation_id", "refs"),
     # the harness's own records
     "arrived": ("point", "op_tag", "operation_id", "attempt", "backend_pid"),
     "release": ("point", "op_tag"),

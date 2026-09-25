@@ -57,7 +57,7 @@ fn incarnation() -> Uuid {
 static STATUS: Family = Family { name: "status", isolation: Isolation::ReadCommitted, retry_unique: &[] };
 const ANCHOR: &str = "SELECT lifecycle, generation FROM authority_epoch WHERE org_id = $1 AND principal_id = $2 FOR SHARE";
 const LOCK_OWN: &str = "SELECT version FROM runtime_state WHERE org_id = $1 AND principal_id = $2 FOR NO KEY UPDATE";
-const UPDATE: &str = "UPDATE runtime_state SET status = $3, version = version + 1, \
+const UPDATE: &str = "UPDATE runtime_state SET busy = ($3 <> ''), version = version + 1, \
      updated_at = to_timestamp($4::double precision / 1000000) WHERE org_id = $1 AND principal_id = $2 RETURNING version";
 const INTENT: &str = "INSERT INTO outgoing_intents (org_id, intent_id, kind, source_ref, dest_ref, due_at, created_at) \
      VALUES ($1, gen_random_uuid(), 'notify', $2, NULL, now(), now())";
@@ -213,7 +213,7 @@ async fn scenario(name: &str, armed: Vec<&'static str>, mixed: bool, known: &BTr
             1, // ONE pooled connection: both operations run on the same pid
             Factory::new(cfg, "lookup", h.clone()),
             1,
-            ExecConfig { max_attempts: 3, backoff_base: Duration::from_millis(1), backoff_cap: Duration::from_millis(5), lock_timeout_ms: None },
+            ExecConfig { max_attempts: 3, backoff_base: Duration::from_millis(1), backoff_cap: Duration::from_millis(5), ..ExecConfig::default() },
             h,
         );
         let o = ex.run(&SetStatus("one"), &binding(&key(), "A")).await;

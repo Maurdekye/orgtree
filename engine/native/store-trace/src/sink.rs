@@ -224,6 +224,15 @@ impl TraceSink for Collector {
             EventKind::Lookup { answer } => {
                 self.push(e, "lookup", vec![("answer".into(), s(answer))]);
             }
+            EventKind::Mark { name } => {
+                // ordering evidence that is not a hookable point (WS5's provider-input step)
+                self.push(e, "mark", vec![("name".into(), s(name))]);
+            }
+            EventKind::CausalRefs { refs } => {
+                // opaque ids linking one workflow's steps (PROFILING test 2); ids only by
+                // WS2's contract, never content
+                self.push(e, "causal_refs", vec![("refs".into(), Value::List(refs.iter().map(|r| s(r)).collect()))]);
+            }
             EventKind::XactLocks { locks } => {
                 // the backend's own relation locks before COMMIT: the server-side row-lock
                 // FAMILY cross-check (lead ruling, decision 4)
