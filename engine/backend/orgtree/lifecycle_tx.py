@@ -536,3 +536,43 @@ def set_scope(slug: str, actor: str, nid: str, may_raise: bool = True,
             share |= w.share_nodes
     raise LedgerError(f"set_scope: the lock set kept growing after {MAX_WIDEN} "
                       "widenings — nothing was applied; retry")
+
+
+# ---------------------------------------------------------------- move batch
+# D-224 ③ `Org.move_batch`: up to 20 ordinary moves, all or nothing, each
+# validated against the tree the EARLIER steps left. So its rows are the
+# union of every step's `_move_rows`, each computed on the tree as it stands
+# at that step: the plan REPLAYS the batch on a private copy of the document.
+# A step that refuses ends the replay (the batch refuses there and writes
+# nothing). Sections are move's own.
+
+
+def _move_batch_rows(org, actor: str, moves: list[tuple[str, str | None]]
+                     ) -> tuple[set[str], set[str]]:
+    import copy as _copy
+    sim = type(org)(_copy.deepcopy(org.d))
+    upd: set[str] = set()
+    share: set[str] = set()
+    for n, p in moves:
+        u, s = _move_rows(sim, actor, n, p)
+        upd |= u
+        share |= s
+        try:
+            sim.move(actor, n, p)
+        except LedgerError:
+            break
+    return upd, share - upd
+
+
+def move_batch_body(org, held_nodes, held_share, actor: str,
+                    moves: list[tuple[str, str | None]]) -> dict[str, Any]:
+    """The door body: a pure function of the locked `org`."""
+    _need(org, lambda o: _move_batch_rows(o, actor, moves), held_nodes, held_share)
+    return org.move_batch(actor, moves)
+
+
+def move_batch(slug: str, actor: str, moves: list[tuple[str, str | None]]
+               ) -> dict[str, Any]:
+    mv = [(str(n or ""), (p or None)) for n, p in moves]
+    return _run("move", slug, lambda o: _move_batch_rows(o, actor, mv),
+                lambda org, hn, hs: move_batch_body(org, hn, hs, actor, mv))

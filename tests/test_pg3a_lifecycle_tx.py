@@ -853,5 +853,81 @@ class Scope(unittest.TestCase):
         self.assertEqual(self.view(self.slug), before)
 
 
+class MoveBatch(unittest.TestCase):
+    """lifecycle_tx.move_batch: the legacy `Org.move_batch` on the replayed
+    union of each step's move rows."""
+
+    def build(self, slug):
+        org = store.create_org(slug)
+        org.hire(ledger.USER, None, "luna", 8, "root")
+        org.hire(ledger.USER, "root", "luna", 3, "a")
+        org.hire(ledger.USER, "root", "luna", 3, "b")
+        org.hire(ledger.USER, "a", "luna", 0, "a1")
+        org.hire(ledger.USER, "b", "luna", 0, "b1")
+        org.hire(ledger.USER, "b1", "luna", 0, "b11")
+        store.save_org(org)
+
+    def setUp(self):
+        self.slug = "pg3a-mb-" + str(time.time_ns())
+        self.build(self.slug)
+
+    def tearDown(self):
+        store._POOL.close_all(self.slug)
+
+    def view(self, slug):
+        o = store.load_org(slug)
+        return ({k: (v["parent"], v["grant"]) for k, v in o.nodes.items()},
+                [e["op"] for e in o.d["events"]][-3:])
+
+    def parity(self, actor, moves):
+        twin = "pg3a-mb-twin-" + str(time.time_ns())
+        self.build(twin)
+        with store.DOC_LOCK:
+            o = store.load_org(twin)
+            legacy = o.move_batch(actor, moves)
+            store.save_org(o)
+        mine = lifecycle_tx.move_batch(self.slug, actor, moves)
+        self.assertEqual(mine, legacy)
+        self.assertEqual(self.view(self.slug), self.view(twin))
+        store._POOL.close_all(twin)
+        return mine
+
+    def test_a_position_swap_keeping_each_team(self):
+        self.parity(ledger.USER, [("a1", "b"), ("b1", "a")])
+        o = store.load_org(self.slug)
+        self.assertEqual((o.node("a1")["parent"], o.node("b1")["parent"]), ("b", "a"))
+        self.assertEqual(o.node("b11")["parent"], "b1")
+
+    def test_a_later_step_depends_on_an_earlier_one(self):
+        # step 2 moves b11 under a1, which only sits under b after step 1:
+        # its rows (the acquire leg through b) come from the REPLAYED tree
+        o = store.load_org(self.slug)
+        upd, _share = lifecycle_tx._move_batch_rows(
+            o, ledger.USER, [("a1", "b"), ("b11", "a1")])
+        self.assertTrue({"a1", "b", "b11", "b1"} <= upd)
+        self.parity(ledger.USER, [("a1", "b"), ("b11", "a1")])
+
+    def test_a_refused_step_writes_nothing(self):
+        before = self.view(self.slug)
+        with self.assertRaises(ledger.LedgerError):
+            lifecycle_tx.move_batch(self.slug, ledger.USER,
+                                    [("a1", "b"), ("b", "b11")])   # a cycle
+        self.assertEqual(self.view(self.slug), before)
+
+    def test_a_step_row_left_out_is_refused(self):
+        # the first step's rows only: the second step's writes are unlocked.
+        # The body re-derives and widens, so this is caught at the org_tx
+        # itself, the way the other exactness tests reach it
+        o = store.load_org(self.slug)
+        u, s = lifecycle_tx._move_rows(o, ledger.USER, "a1", "b")
+        spec = lifecycle_tx.SPECS["move"]
+        with self.assertRaises(orgtx.UnlockedWrite):
+            with halt.txn(self.slug, nodes=u, share_nodes=s - u,
+                          sections=spec.sections, share_sections=spec.share_sections,
+                          logs=spec.logs) as tx:
+                tx.org.move_batch(ledger.USER, [("a1", "b"), ("b11", "a")])
+        self.assertEqual(store.load_org(self.slug).node("a1")["parent"], "a")
+
+
 if __name__ == "__main__":
     unittest.main()
