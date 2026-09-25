@@ -1366,8 +1366,8 @@ def _external_candidates(name: str) -> dict[str, list[str]]:
     the redteam): the outside knowledge the hermetic ledger cannot hold.
     `org` = local orgs whose slug matches exactly (sealed kiosks answer like
     nonexistent orgs, same as interorg_send); `net` = hub peers whose full
-    slug OR leading name segment matches. The @mcp: tier lives in the org's
-    own correspondence log, resolved ledger-side."""
+    slug OR leading name segment matches. (There is no @mcp: tier any more:
+    retired 2026-09-25 with the external-chat MCP server.)"""
     out: dict[str, list[str]] = {"org": [], "net": []}
     try:
         for o in store.list_orgs():
@@ -3171,9 +3171,10 @@ def _scrub_public(tree: dict[str, Any]) -> None:
 
     def walk(n: dict[str, Any]) -> None:
         n.pop("session_id", None)              # row-level field: safe to pop
-        # an @mcp: peer id is a bearer credential, not a label: anyone holding
-        # it can GET /api/extern/{peer}/messages and read that channel. Kiosk
-        # visitors get the org, never its outside channels.
+        # an @mcp: peer id was a bearer credential, not a label: anyone
+        # holding it could read that channel through the (now retired)
+        # external-chat routes. Kiosk visitors get the org, never its
+        # outside channels.
         n.pop("external_handles", None)
         sc: dict[str, Any] = n.get("scope") or {}
         if sc.get("add_dirs"):
@@ -8934,154 +8935,6 @@ def user_inbox_read(slug: str, body: InboxRead) -> dict[str, Any]:
     return {"read": len(read)}
 
 
-# ------------------------------------------------ external chats (no chatq)
-# The extern MCP server (externtool.py) gives any outside Claude Code session
-# a peer identity (@mcp:<id>) and three verbs against org inboxes: send, read
-# what's addressed to me, and wait for a response — a full Q&A loop with an
-# org, no chatq required. chatq stays relevant only when the ORG must wake an
-# external chat unprompted.
-_PEER_RE = re.compile(r"[A-Za-z0-9._-]{1,64}")
-
-
-class ExternSend(Body):
-    org: str
-    body: str
-    attachments: list[str] = []   # absolute local paths (extern peers are local)
-
-
-def _extern_peer(peer: str) -> str:
-    if not _PEER_RE.fullmatch(peer):
-        raise HTTPException(422, "peer id must be 1-64 chars of [A-Za-z0-9._-]")
-    return f"@mcp:{peer}"
-
-
-@app.post("/api/extern/{peer}/send")
-def extern_send(peer: str, body: ExternSend) -> dict[str, Any]:
-    addr = _extern_peer(peer)
-    store.extern_seen(addr)          # D-166: reaching in is evidence of life
-    if not body.body.strip():
-        raise HTTPException(422, "empty message")
-    # attachments (user spec 2026-07-31): absolute paths on this machine —
-    # extern peers are local sessions. Validated here; copied into every
-    # recipient's uploads/ by deliver_org_inbox.
-    atts: list[str] = []
-    for p in (body.attachments or [])[:10]:
-        p = str(p)
-        if not os.path.isfile(p):
-            raise HTTPException(422, f"attachment not found: {p}")
-        if os.path.getsize(p) > 25 * 1048576:
-            raise HTTPException(413, f"attachment over the 25 MB cap: {p}")
-        atts.append(p)
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(body.org)
-        except LedgerError:
-            org = None
-        # sealed kiosks must be INDISTINGUISHABLE from nonexistent orgs out
-        # here (review finding: a 403 vs 404 split let an outside peer
-        # enumerate the kiosk roster the org listing deliberately withholds)
-        if org is None or org.is_kiosk:
-            raise HTTPException(404, f"no organization named {body.org!r}")
-    delivered = supervisor.deliver_org_inbox(body.org, addr, body.body,
-                                             attachments=atts or None)
-    return {"delivered": delivered or ["(user inbox — no live agents)"]}
-
-
-def _extern_scan(addr: str, org_slug: str | None, after: str | None,
-                 fresh_only: bool = False) -> list[dict[str, Any]]:
-    """Replies addressed to `addr`. `fresh_only` (the wait path, №5): with no
-    explicit cursor, only replies newer than the peer's own LAST message to
-    that org count — a wait for question ② must never be satisfied by the
-    answer to question ①. The read path stays full-history (freeform flow:
-    the org may reply any time, any number of times)."""
-    out: list[dict[str, Any]] = []
-    with store.DOC_LOCK:
-        for o in store.list_orgs():
-            if org_slug and o["slug"] != org_slug:
-                continue
-            try:
-                org = store.load_org(o["slug"])
-            except LedgerError:
-                continue
-            if org.is_kiosk:
-                # unreachable today (kiosk inboxes can hold no "out" entries —
-                # the ledger seals every inbound/outbound path), but the seal
-                # belongs on THIS path too, locally, not as a 3-file argument
-                continue
-            entries = org.d.get("org_inbox", [])
-            floor = after
-            if not floor and fresh_only:
-                # timestamps are millisecond-resolution now (user ruling), so
-                # the floor is simply the peer's own latest message to the org
-                mine = [e.get("at", "") for e in entries
-                        if e.get("peer") == addr and e.get("dir") == "in"]
-                if not mine:
-                    # the peer's own inbound was trimmed (the 200-entry log
-                    # cap) or never existed — nothing is provably fresh, and
-                    # a collapsed floor would hand back the whole history:
-                    # exactly what fresh_only exists to prevent (review P1)
-                    continue
-                floor = max(mine)
-            for e in entries:
-                if e.get("peer") == addr and e.get("dir") == "out" \
-                        and (not floor or e.get("at", "") > floor):
-                    # org-voice mail stays anonymous (§8 pins that `by` never
-                    # leaks) — but a held-handle send (external_handles) spoke
-                    # to its OWN channel and carries the sender's name for the
-                    # panel to render
-                    by = e.get("by") if e.get("attributed") else None
-                    out.append({"org": o["slug"], "id": e["id"],
-                                "at": e["at"], "body": e["body"],
-                                **({"by": by} if by else {})})
-    out.sort(key=lambda x: x["at"])
-    return out
-
-
-@app.get("/api/extern/{peer}/messages")
-def extern_messages(peer: str, org: str | None = None,
-                    after: str | None = None) -> dict[str, Any]:
-    addr = _extern_peer(peer)
-    store.extern_seen(addr)          # D-166: a READ is a sighting too — it is
-    # the only heartbeat a peer that never sends anything ever produces
-    msgs = _extern_scan(addr, org, after)
-    # the cursor rides every reply (review P1): pass it back as `after` and a
-    # repeat wait/read can never re-deliver what this call already handed over
-    return {"messages": msgs, **({"cursor": msgs[-1]["at"]} if msgs else {})}
-
-
-@app.get("/api/extern/{peer}/wait")
-async def extern_wait(peer: str, org: str | None = None,
-                      after: str | None = None, timeout: int = 25) -> dict[str, Any]:
-    """Long-poll: block until an org replies to this peer (or timeout).
-    Rescans (DOC_LOCK + org-doc reads) only when store.REVISION moved —
-    review finding: parked waiters were paying a full scan every second
-    under the same lock the turn machinery serialises on."""
-    addr = _extern_peer(peer)
-    store.extern_seen(addr)          # D-166: the listener's own heartbeat —
-    # recorded on ARRIVAL, not on return, so a peer that waits the full window
-    # and gets nothing still counts as alive
-    deadline = time.monotonic() + min(max(timeout, 1), 55)
-    rev = None
-    # This one KEEPS `async`: the whole point of a long poll is to suspend
-    # without holding a thread, and `asyncio.sleep` is a genuine await. But
-    # `_extern_scan` takes DOC_LOCK and reads org documents, and doing that on
-    # the event loop froze every other request and every websocket frame for
-    # its duration -- No.22's rule, and a parked waiter can sit here for 55
-    # seconds rescanning. So the scan goes to the threadpool and only the
-    # sleep stays on the loop.
-    from fastapi.concurrency import run_in_threadpool
-    while True:
-        if rev != store.REVISION:
-            rev = store.REVISION
-            msgs = await run_in_threadpool(_extern_scan, addr, org, after,
-                                           fresh_only=True)
-            if msgs:
-                return {"messages": msgs, "cursor": msgs[-1]["at"]}
-        if time.monotonic() >= deadline:
-            return {"messages": []}
-        await asyncio.sleep(1.0)
-
-
 @app.get("/api/orgs/{slug}/org_inbox")
 def org_inbox_entries(slug: str, request: Request = cast(Request, None)) -> dict[str, Any]:
     """The org mailbox itself — fetched when the modal OPENS, not on every poll.
@@ -9242,9 +9095,12 @@ def org_inbox_send(slug: str, body: OrgInboxSend,
         # user ruling 2026-08-05: @ext: retired with chatq — refuse loudly
         raise HTTPException(422, "the @ext: address form is retired — reach "
                                  "chats through the mail hub (@net:<slug>)")
-    if not to.startswith(("@org:", "@mcp:", "@net:")):
+    if to.startswith("@mcp:"):
+        # user ruling 2026-09-25: retired with the external-chat MCP server
+        raise HTTPException(422, ledger_mod.MCP_RETIRED)
+    if not to.startswith(("@org:", "@net:")):
         raise HTTPException(422, "recipient must be an outside address "
-                                 "(@org:/@mcp:/@net:)")
+                                 "(@org:/@net:)")
     paths: list[str] = []
     for sid in body.attachments[:10]:
         staged = _COMPOSE_STAGE.get(sid)
@@ -9252,10 +9108,6 @@ def org_inbox_send(slug: str, body: OrgInboxSend,
             raise HTTPException(422, f"staged attachment {sid!r} not found — "
                                      f"re-upload and retry")
         paths.append(staged[1])
-    if paths and to.startswith("@mcp:"):
-        # ruled 2026-08-05: that transport is text-only
-        raise HTTPException(422, "attachments ride @net: and @org: mail "
-                                 "only — @mcp: is a text-only transport")
     warnings: list[str] = []
     with store.DOC_LOCK:
         try:
@@ -9307,7 +9159,6 @@ def org_inbox_send(slug: str, body: OrgInboxSend,
                 os.remove(p)
             except OSError:
                 pass
-    # @mcp: — the org-inbox entry IS the delivery; the peer polls
     hub_changed(slug)
     return {"id": oid, "warnings": warnings}
 

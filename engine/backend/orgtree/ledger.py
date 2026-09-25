@@ -458,6 +458,14 @@ _ORDINARY_OF: Final[dict[str, str]] = {
 }
 
 
+#: The refusal for a NEW send to an @mcp: address (user ruling 2026-09-25:
+#: the external-chat MCP server is retired; outside chats use the mail hub
+#: exclusively). One string for every door — the agent send in `post_mail`
+#: and the user's outside-mail compose route — so they cannot drift.
+MCP_RETIRED: Final = ("the @mcp: address form is retired — reach outside "
+                      "chats through the mail hub (@net:<slug>)")
+
+
 def actor_of(who: str) -> dict[str, str]:
     """The canonical `actor` for a validated sender id (design I3): the user, the
     engine's own hand, an outside peer, or an agent node."""
@@ -2111,24 +2119,21 @@ class Org:
 
         `outward` (post_mail only — user ruling 2026-08-05, relayed): a bare
         name that is NO node here auto-resolves to the fewest-hop outside
-        transport. @org: (a local org) and @mcp: (a polling external chat)
-        are MUTUALLY EXCLUSIVE tiers and either outranks the hub; only when
-        neither matches does the name go out as @net:. Ambiguity — two
-        candidates anywhere short of the hub tier, or two hub clients —
-        REFUSES and names the candidates; it never guesses. Explicit
-        prefixes keep working as disambiguators. Internal names always win:
-        an agent addressing a colleague is never hijacked by an org that
-        happens to share the name."""
+        transport. @org: (a local org) outranks the hub; only when it does
+        not match does the name go out as @net:. @mcp: is no longer a tier
+        (user ruling 2026-09-25: outside chats use the mail hub exclusively),
+        so an old @mcp: correspondent in the org inbox never captures a bare
+        name. Ambiguity — two candidates anywhere short of the hub tier, or
+        two hub clients — REFUSES and names the candidates; it never guesses.
+        Explicit prefixes keep working as disambiguators. Internal names
+        always win: an agent addressing a colleague is never hijacked by an
+        org that happens to share the name."""
         if to == "user" and "user" not in self.nodes:
             return USER
         if (outward and to and not to.startswith("@")
                 and to != USER and to not in self.nodes):
             cand = external_candidates(to)
             near = [f"@org:{s}" for s in cand.get("org") or []]
-            near += sorted({
-                e["peer"] for e in self.d.get("org_inbox") or []
-                if str(e.get("peer", "")).startswith("@mcp:")
-                and e["peer"][5:] == to})
             hub = [f"@net:{s}" for s in cand.get("net") or []]
             if len(near) == 1:
                 return near[0]
@@ -3363,11 +3368,16 @@ class Org:
                 "the mail hub: @net:<slug> (orgtree_list_orgs shows hub "
                 "peers) — or just the bare name; transport resolves "
                 "automatically")
-        if to.startswith(("@org:", "@mcp:", "@net:")):
-            # outbound to the OUTSIDE WORLD — another
-            # org's inbox (@org:), a polling external chat on the extern MCP
-            # server (@mcp: — no push transport; the peer reads the org inbox),
-            # or an org on another machine via the mail hub (@net: — spooled
+        if to.startswith("@mcp:"):
+            # user ruling 2026-09-25: the external-chat MCP server (externtool)
+            # is RETIRED and outside chats use the mail hub exclusively. Its
+            # read routes are gone, so an @mcp: row could never be collected —
+            # refuse loudly, exactly as @ext: above. Historical @mcp: rows
+            # stay readable; only NEW sends refuse.
+            raise LedgerError(MCP_RETIRED)
+        if to.startswith(("@org:", "@net:")):
+            # outbound to the OUTSIDE WORLD — another org's inbox (@org:), or
+            # an org on another machine via the mail hub (@net: — spooled
             # and shipped by the net daemon; the row below carries delivery
             # states).
             # Org-inbox model (user spec): the reply speaks for the ORG as a
@@ -3524,7 +3534,7 @@ class Org:
         # ⚠ It names ONLY the address the sender itself supplied and
         # enumerates nothing: "no agent by that name" must not become a way
         # to probe an org's membership. `_resolve_recipient(outward=True)`
-        # has already had its chance at @org:/@mcp:/@net:, so by here the
+        # has already had its chance at @org:/@net:, so by here the
         # name is neither a node here nor a resolvable outside party.
         if to not in self.nodes:
             raise LedgerError(
@@ -3534,7 +3544,7 @@ class Org:
                 f"read it: this is a failed send, not a deferred one. Check "
                 f"the name with orgtree_chart (include_archived=true also "
                 f"lists retired agents), or address an outside party with an "
-                f"explicit @org: / @mcp: / @net: prefix.")
+                f"explicit @org: / @net: prefix.")
         target = self.node(to)
         if target["state"] == "unrecoverable":
             # A REFUSAL, not a deferral: unlike an archived node there is no
