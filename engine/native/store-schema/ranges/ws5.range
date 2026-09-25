@@ -1,0 +1,17 @@
+# WS5 (p03-ws5-mail): mail semantics, migrations 0300-0399.
+# Format (read by build.rs): `key = value`; list keys take space-separated
+# names and may repeat (values append). A range lists ONLY its own entries.
+# Checksums of this range's migrations: ranges/ws5.sha256.
+
+name = WS5
+first = 300
+last = 399
+
+# every table this range's migrations CREATE (checked against the DDL)
+tables = mail_input_batches extern_handles
+
+# publication (CONTRACT-M1 §7)
+published = mail_input_batches extern_handles
+
+# lint inputs (R9): runtime input batches are written per delivered turn
+high_rate = mail_input_batches

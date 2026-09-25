@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use orgtree_store::conn::{Factory, PgConfig};
 use orgtree_store::hooks::{BoxFuture, ControlPlan, EventKind, HookAction, Hooks, PauseHook, PausePoint, TraceEvent, TraceSink};
-pub use orgtree_store::mail::doors::{AgentSend, SendResult, Target};
+pub use orgtree_store::mail::doors::{AgentSend, Target};
 use orgtree_store::mail::mailbox;
 pub use orgtree_store::sent::{Destination, MailSource, SendRequest};
 use orgtree_store::sent::{self, SendError};

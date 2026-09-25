@@ -182,6 +182,11 @@ pub enum CmdError {
     /// SQLSTATE is invented (WS5: a grant-bearing send whose anchored route
     /// disagrees with its unlocked prediction; lead ack 2026-09-25).
     RetryAttempt { cause: &'static str },
+    /// A domain refusal decided in `anchor` (caller not live, stale
+    /// generation, halted, killswitch) or in `execute`: roll back — nothing is
+    /// written, not even the receipt (E-D5) — and answer `Outcome::Refused`.
+    /// Never retried. (`Decided::Refused` from `execute` is equivalent.)
+    Refused(Refusal),
 }
 
 impl From<DbError> for CmdError {
@@ -864,6 +869,10 @@ impl<C: Connector> Executor<C> {
                 Step::Fatal(ExecError::Defect(m))
             }
             CmdError::Db(e) => self.classify(tx, family, e, claimed, claim_phase, true).await,
+            CmdError::Refused(r) => {
+                self.rollback(tx).await;
+                Step::Done(Outcome::Refused(r))
+            }
             CmdError::RetryAttempt { cause } => {
                 self.rollback(tx).await;
                 Step::Retry { err: None, reason: cause, now: tx.now, claimed }
