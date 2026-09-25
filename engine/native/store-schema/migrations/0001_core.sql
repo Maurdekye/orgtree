@@ -207,7 +207,9 @@ CREATE TABLE operation_receipts (
     decided_at         timestamptz NULL,
     CONSTRAINT operation_receipts_original_key PRIMARY KEY (org_id, ns_kind, ns_id, op_key),
     CONSTRAINT operation_receipts_id UNIQUE (receipt_id),
-    CONSTRAINT operation_receipts_org_fk FOREIGN KEY (org_id) REFERENCES organizations (org_id),
+    -- NO foreign key to organizations: every committed transaction inserts
+    -- here, and an FK would take FOR KEY SHARE on the one org row each time
+    -- (MultiXact fan-in on an org-wide row; lead ruling F2 on CONTRACT-M1 r2).
     CONSTRAINT operation_receipts_ns_kind CHECK (ns_kind IN ('agent', 'quick_staff', 'operator', 'minted')),
     CONSTRAINT operation_receipts_state CHECK (state IN ('claimed', 'applied', 'fenced', 'compensated')),
     CONSTRAINT operation_receipts_key_len CHECK (octet_length(op_key) BETWEEN 1 AND 200),
@@ -263,7 +265,7 @@ CREATE TABLE runtime_inflight (
     service_incarnation  uuid        NOT NULL,
     admitted_at          timestamptz NOT NULL,
     CONSTRAINT runtime_inflight_pk PRIMARY KEY (org_id, ns_kind, ns_id, op_key, service_incarnation),
-    CONSTRAINT runtime_inflight_org_fk FOREIGN KEY (org_id) REFERENCES organizations (org_id),
+    -- no FK to organizations: high-rate table (F2)
     CONSTRAINT runtime_inflight_service_fk FOREIGN KEY (service_incarnation)
         REFERENCES service_incarnations (incarnation_id)
 );
@@ -272,6 +274,12 @@ CREATE INDEX runtime_inflight_by_service ON runtime_inflight (service_incarnatio
 -- r7 C5 restriction consumers. One registration row per read-service
 -- incarnation per org; a narrowing transaction inserts one obligation per
 -- registered service in the SAME transaction; Effective = all acknowledged.
+--
+-- Ordering registration against capture (CONTRACT-M1 §6, lead ruling F1):
+-- the org's org_controls row family='restriction_epoch' is taken FOR SHARE
+-- by every narrowing writer BEFORE it reads read_service_registrations, and
+-- FOR NO KEY UPDATE (with a version bump) by a registration, which is rare.
+-- Narrowing writers therefore never block each other.
 CREATE TABLE read_service_registrations (
     org_id               uuid        NOT NULL,
     service_incarnation  uuid        NOT NULL,
@@ -292,9 +300,10 @@ CREATE TABLE restrictions (
     committed_at    timestamptz NOT NULL,
     effective_at    timestamptz NULL,
     CONSTRAINT restrictions_pk PRIMARY KEY (org_id, restriction_id),
-    CONSTRAINT restrictions_org_fk FOREIGN KEY (org_id) REFERENCES organizations (org_id),
-    CONSTRAINT restrictions_epoch UNIQUE (org_id, epoch)
+    CONSTRAINT restrictions_org_fk FOREIGN KEY (org_id) REFERENCES organizations (org_id)
 );
+-- `epoch` is the restriction_epoch version the narrowing writer observed,
+-- not a counter: several restrictions may share one.
 
 CREATE TABLE restriction_obligations (
     org_id               uuid        NOT NULL,

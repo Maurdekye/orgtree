@@ -56,6 +56,12 @@ fn the_real_schema_parses_fully_and_passes_every_lint() {
         assert!(!t.constraints.is_empty(), "{} parsed with no constraints", t.name);
     }
     assert!(s.indexes.len() >= 20, "indexes parsed: {}", s.indexes.len());
+    // F2/F3 pins: the removed foreign keys stay removed
+    let names: BTreeSet<String> = s.object_names().into_iter().map(|(_, n)| n).collect();
+    for gone in ["operation_receipts_org_fk", "runtime_inflight_org_fk", "mail_sent_org_fk",
+                 "outgoing_intents_org_fk", "mail_sent_dest_mailbox_fk", "restrictions_epoch"] {
+        assert!(!names.contains(gone), "{gone} must not exist (lead rulings F1-F3)");
+    }
     let findings = lint(&s);
     assert!(findings.is_empty(), "{:#?}", findings);
 }
@@ -167,6 +173,49 @@ fn control_r6_fk_without_org_id() {
 fn control_r7_unnamed_inline_constraint() {
     let bad = GOOD.replace("amount_centi bigint NOT NULL", "amount_centi bigint NOT NULL CHECK (amount_centi >= 0)");
     assert_eq!(findings_for(&bad), vec!["R7-named"]);
+}
+
+#[test]
+fn control_r9_high_rate_table_references_org_row() {
+    let bad = "CREATE TABLE mail_sent ( org_id uuid NOT NULL, message_id uuid NOT NULL, \
+               CONSTRAINT mail_sent_pk PRIMARY KEY (org_id, message_id), \
+               CONSTRAINT mail_sent_org_fk FOREIGN KEY (org_id) REFERENCES organizations (org_id) );";
+    assert_eq!(findings_for(bad), vec!["R9-hot-fk"]);
+}
+
+#[test]
+fn control_r10_source_side_references_receiver_head() {
+    let bad = "CREATE TABLE mail_sent ( org_id uuid NOT NULL, message_id uuid NOT NULL, dest_mailbox_id uuid NULL, \
+               CONSTRAINT mail_sent_pk PRIMARY KEY (org_id, message_id), \
+               CONSTRAINT mail_sent_dest_fk FOREIGN KEY (org_id, dest_mailbox_id) REFERENCES mailboxes (org_id, mailbox_id) );";
+    assert_eq!(findings_for(bad), vec!["R10-head-fk"]);
+}
+
+/// Every function and trigger in the migrations is declared for WS7's
+/// statement/relation map (lead note N1), and nothing declared is missing.
+#[test]
+fn server_side_statements_are_declared() {
+    use orgtree_store_schema::lint::{split_statements, strip_comments};
+    use orgtree_store_schema::DECLARED_SERVER_SIDE;
+    let mut found = BTreeSet::new();
+    for m in MIGRATIONS {
+        for stmt in split_statements(&strip_comments(m.sql)) {
+            let w: Vec<&str> = stmt.split_whitespace().collect();
+            let up: Vec<String> = w.iter().map(|x| x.to_ascii_uppercase()).collect();
+            if up.len() > 2 && up[0] == "CREATE" && up[1] == "FUNCTION" {
+                found.insert(format!("function {}", w[2].split('(').next().unwrap()));
+            } else if up.len() > 2 && up[0] == "CREATE" && up[1] == "TRIGGER" {
+                found.insert(format!("trigger {}", w[2]));
+            } else if up.len() > 3 && up[0] == "CREATE" && up[1] == "CONSTRAINT" && up[2] == "TRIGGER" {
+                found.insert(format!("trigger {}", w[3]));
+            }
+        }
+    }
+    assert!(found.len() >= 3, "parsed too few server-side objects: {found:?}");
+    let declared: BTreeSet<String> = DECLARED_SERVER_SIDE.iter().map(|d| d.0.to_string()).collect();
+    // the trigger FUNCTION is covered by its trigger's declaration
+    let found: BTreeSet<String> = found.into_iter().filter(|f| f != "function operation_receipts_refuse_claimed").collect();
+    assert_eq!(found, declared);
 }
 
 #[test]
