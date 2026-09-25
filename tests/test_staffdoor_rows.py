@@ -19,7 +19,8 @@ _root = tempfile.TemporaryDirectory(prefix='staffdoor-rows-')
 os.environ['ORGTREE_DATA'] = _root.name
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine/backend'))
 import import_provenance  # noqa: F401,E402
-from orgtree import ledger, pgdoor, staffdoor, store  # noqa: E402
+from unittest.mock import patch  # noqa: E402
+from orgtree import api, ledger, pgdoor, staffdoor, store  # noqa: E402
 
 U = ledger.USER
 T = {'bash': False, 'web': False, 'edit': False, 'subagents': False, 'mcp': []}
@@ -108,6 +109,43 @@ class RowAudit(unittest.TestCase):
         a = {'target': U, 'name': 'solo', 'grant': 3}
         d = self.audit(U, a, lambda o: o.hire(U, None, 'luna', 3, 'solo'))
         self.assertEqual(d['changed'], ['solo'])
+
+    # ------------------------------------- the FULL agent hire (the door's)
+    def seat(self, actor, a):
+        """api._hire_seat exactly as agent_call runs it: the hire, the scope
+        fields, the audiences and the kickoff (`drive` is consumed after the
+        commit, so it is not a row). The provider gate is a machine read that
+        runs before the transaction, so it is stubbed here."""
+        drive = []
+
+        def run(o):
+            with patch.object(api, 'provider_hire_gate', lambda *x, **k: None):
+                self.res = api._hire_seat(o, self.slug, actor, a, drive, None)
+
+        d = self.audit(actor, a, run)
+        self.assertEqual(drive, [self.res['node']])
+        return d
+
+    FULL = {'tools': T, 'add_dirs': [], 'org_visibility': 'full',
+            'charter': 'c', 'tier': 'luna', 'kickoff': 'go',
+            'permission_mode': 'plan', 'effort': 'high'}
+
+    def test_full_hire_with_kickoff_and_scope(self):
+        d = self.seat('mid', dict(self.FULL, name='kid', grant=1))
+        self.assertEqual(d['changed'], ['kid'])
+        self.assertIn('mail', d['sections'])            # the kickoff
+
+    def test_full_hire_into_the_chain(self):
+        d = self.seat('root', dict(self.FULL, name='kid', grant=6,
+                                   target='peer'))
+        self.assertIn('mid', d['changed'])
+
+    def test_full_superior_insertion(self):
+        d = self.seat('root', {'name': 'boss2', 'tier': 'luna',
+                               'target': 'peer', 'hire_type': 'superior',
+                               'charter': 'c', 'kickoff': 'go'})
+        self.assertIn('peer', d['changed'])
+        self.assertEqual(self.org.node('peer')['parent'], 'boss2')
 
     # -------------------------------------------------- body-side helpers
     def test_require_rows_widens_when_the_name_was_taken_meanwhile(self):

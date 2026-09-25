@@ -17,7 +17,9 @@ changes a row this declaration does not hold FOR UPDATE):
     `Widen` and the door re-runs with the right row.
   · the org settings a hire decides on — FOR SHARE, so a settings writer
     (FOR UPDATE) cannot change a cap between our check and our commit.
-  · the append-only logs a hire writes.
+  · the append-only logs a hire writes, and the single-row doc sections it
+    rewrites (the org-wide `mail` and `notices` queues, `audiences`,
+    `lifecycle`) FOR UPDATE.
 
 The children scan and the name probe iterate every node; that needs
 `org_tx`'s all-nodes read (WS2, `nodes=ALL`), not a lock on every node.
@@ -37,9 +39,14 @@ HIRE_SETTINGS = (
     "dirs", "default_tools", "default_visibility", "permission_mode", "kiosk",
     "default_account", "slug", "fable_lock",
 )
-# the append-only sections one hire writes (measured: events, notice_log,
-# notices for the lifecycle.hired notices to parent and peers)
-HIRE_LOGS = ("events", "notice_log", "notices")
+# What a full agent hire (api._hire_seat, incl. _seat_finish and a kickoff)
+# writes, MEASURED on a throwaway org (scratch probe_hire_seat_rows.py):
+#   · append-only logs (store.LIST_LOGS / DICT_LOGS — one row per entry):
+HIRE_LOGS = ("events", "notice_log", "mail_log")
+#   · single-row doc sections, rewritten whole — so FOR UPDATE, and every
+#     other writer of them in the org queues behind a hire (`mail` and
+#     `notices` are the org-wide mutable queues: see store.py §3.2):
+HIRE_SECTIONS = ("notices", "mail", "audiences", "lifecycle")
 
 
 def new_node_id(org: Any, name: str) -> str:
@@ -83,8 +90,8 @@ def hire_rows(org: Any, actor: str, a: dict[str, Any]) -> pgdoor.TxSpec:
     name = str(a.get("name") or "")
     if name:
         nodes.append(new_node_id(org, name))
-    return pgdoor.TxSpec(nodes=tuple(nodes), share_sections=HIRE_SETTINGS,
-                         logs=HIRE_LOGS)
+    return pgdoor.TxSpec(nodes=tuple(nodes), sections=HIRE_SECTIONS,
+                         share_sections=HIRE_SETTINGS, logs=HIRE_LOGS)
 
 
 def hire_spec(snapshot: Any, body: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
