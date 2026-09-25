@@ -43,6 +43,17 @@ pub enum EventKind<'a> {
     /// The rows of `trace.xact_stats` (qualification builds), emitted right
     /// after that statement: the server-side relation set for this attempt.
     XactStats { tables: &'a [XactTable] },
+    /// The rows of `trace.xact_locks` (qualification builds): granted
+    /// relation-level locks this backend holds on store tables before COMMIT.
+    XactLocks { locks: &'a [XactLock] },
+}
+
+/// One granted relation lock from `pg_locks` (index relations excluded).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct XactLock {
+    pub relname: String,
+    /// e.g. `RowShareLock`, `RowExclusiveLock`.
+    pub mode: String,
 }
 
 /// One row of `pg_stat_xact_user_tables` for the current transaction.

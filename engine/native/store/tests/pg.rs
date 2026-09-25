@@ -207,6 +207,13 @@ impl TraceSink for Events {
             EventKind::Retry { reason, sqlstate, .. } => format!("retry:{reason}:{}", sqlstate.unwrap_or("-")),
             EventKind::Statement { label, sqlstate: Some(s), .. } => format!("stmt_err:{label}:{s}"),
             EventKind::XactStats { tables } => format!("xact_stats:{}", tables.len()),
+            EventKind::XactLocks { locks } => {
+                let mut g = self.0.lock().unwrap();
+                for l in locks.iter() {
+                    g.push(format!("xact_lock:{}:{}", l.relname, l.mode));
+                }
+                return;
+            }
             _ => return,
         };
         self.0.lock().unwrap().push(s);
@@ -646,4 +653,9 @@ async fn xact_stats_reports_the_relations_the_attempt_touched() {
     let (ex, ev) = executor(script, vec![]);
     ex.run(&SetStatus { status: "x", serializable: false }, &binding(&key())).await.unwrap();
     assert!(ev.0.lock().unwrap().iter().any(|e| e.starts_with("xact_stats:") && e != "xact_stats:0"), "{:?}", ev.0.lock().unwrap());
+    // the anchor's FOR SHARE shows as a RowShareLock on authority_epoch; the
+    // writes show RowExclusiveLock; no index relation is listed
+    assert!(ev.has("xact_lock:authority_epoch:RowShareLock"), "{:?}", ev.0.lock().unwrap());
+    assert!(ev.has("xact_lock:runtime_state:RowExclusiveLock"), "{:?}", ev.0.lock().unwrap());
+    assert!(!ev.0.lock().unwrap().iter().any(|e| e.starts_with("xact_lock:") && e.contains("_pk")), "{:?}", ev.0.lock().unwrap());
 }
