@@ -43,14 +43,16 @@ class ContractCoverage(unittest.TestCase):
         self.assertGreater(result["summary"]["storage"]["pending"], 0)
         # THE one registry-wide tripwire (review of S3 candidate 1): every candidate
         # that maps a witness or adds a contract moves these numbers here, and only here.
-        self.assertEqual(result["contracts"], 75)
+        self.assertEqual(result["contracts"], 97)
         self.assertEqual((result["summary"]["entries"]["mapped"], result["summary"]["dispatch"]["mapped"],
-                          result["summary"]["storage"]["mapped"]), (49, 93, 0))
+                          result["summary"]["storage"]["mapped"]), (62, 119, 0))
         # 571 -> 590 (P01 F1): 19 entries and 19 dispatch witnesses mapped, 57 new open dimension occurrences
         # (conflicts, wire and instrumentation on each of the 19 lifecycle contracts), as the Q1 ruling expects
         # 590 -> 608 (P01 F1b): the operator door and 23 of its branches mapped, 42 new open dimension
         # occurrences (variant-conflicts, wire and variant-instrumentation on each of 14 contracts)
-        self.assertEqual(len(result["pending"]), 608)
+        # 608 -> 635 (P01 F3): 13 entries and 26 dispatch witnesses mapped, 66 new open dimension
+        # occurrences (conflicts, wire and instrumentation on each of 22 contracts)
+        self.assertEqual(len(result["pending"]), 635)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
@@ -288,7 +290,8 @@ class ContractCoverage(unittest.TestCase):
                     if s["source"]["symbol"] == "agent_call" and s["selector"] == "body.tool"
                     and rows[contracts.witness_id("dispatch", s)]["reason"].startswith("Stays pending (P01 W4): ")]
         # 40 -> 24: P01 F1 mapped the sixteen lifecycle and catalogue tool branches
-        self.assertEqual(len(branches), 24)
+        # 24 -> 17: P01 F3 mapped the seven ask, report, scope, watchdog and audience tool branches
+        self.assertEqual(len(branches), 17)
         for s in branches:
             r = rows[contracts.witness_id("dispatch", s)]
             with self.subTest(line=s["source"]["line"]):
@@ -298,7 +301,7 @@ class ContractCoverage(unittest.TestCase):
                 self.assertIn("Owner: ", r["reason"])
 
     W5_SYMBOLS = {"_work_mutate_action": 25, "_work_read_call": 6, "_work_expected_rev_route": 1,
-                  "_work_refuse_unused": 1, "Org._work_status_at": 3, "_attach_ref": 1}
+                  "_work_refuse_unused": 1, "Org._work_status_at": 3}      # _attach_ref mapped in P01 F3
     # P01 F1 mapped _op_post_expected and coverage's rehire branch, and P01 F1b every org_op, _org_op_locked
     # and operator-preview _apply branch, so no W6 row is left pending
     W6_SYMBOLS: dict[str, int] = {}
@@ -327,8 +330,9 @@ class ContractCoverage(unittest.TestCase):
                        if set(c["tools"]) == {"orgtree_reservation", "orgtree_resource_reservation"}}
         self.assertEqual((len(reservation), set(slice_row["contracts"])), (11, reservation))
 
-    W7_SYMBOLS = {"remote_control": 2, "user_audience": 3, "_desktop_relaunch_args": 1, "agent_call": 16,
-                  "request": 1, "Org.watchdog_action": 6, "Org.prime_restart_gate": 1}
+    # P01 F3 mapped user_audience, Org.watchdog_action and the seven watchdog/audience agent_call branches
+    W7_SYMBOLS = {"remote_control": 2, "_desktop_relaunch_args": 1, "agent_call": 9,
+                  "request": 1, "Org.prime_restart_gate": 1}
 
     def test_w7_last_dispatch_branches_name_their_owner_and_none_stays_generic(self):
         rows = {r["id"]: r for r in self.document["dispatch"]}
@@ -356,7 +360,8 @@ class ContractCoverage(unittest.TestCase):
     # p01-put-the-owner-of-the-35-older-pending-rows-i: every pending witness names its owner in the standard
     # form, except the concrete http, websocket and tool entries still on the generic reason (no owner by rule)
     # 194 -> 175: P01 F1 contracted 19 of them
-    GENERIC_PENDING_ENTRIES = 175
+    # 175 -> 162: P01 F3 contracted 13 of them
+    GENERIC_PENDING_ENTRIES = 162
 
     def test_every_pending_witness_names_its_owner_or_is_a_generic_entry_point(self):
         kinds = {s["site_id"]: s["kind"] for s in self.source["registrations"]}
@@ -424,6 +429,25 @@ class ContractCoverage(unittest.TestCase):
         self.assertEqual(found, self.F1B_MAPPED)
         [door] = [r for r in self.document["entries"] if r["id"].startswith("58c040d3")]
         self.assertEqual((door["disposition"], len(door["contracts"])), ("mapped", 16))
+
+    # P01 F3: the tool branches, the watchdog and audience action branches, the shared helpers whose callers are
+    # now all contracted
+    F3_MAPPED = {"agent_call": 14, "Org.watchdog_action": 6, "user_audience": 3, "_attach_ref": 1,
+                 "Org.credit_request_action": 2}
+
+    def test_f3_maps_the_request_branches(self):
+        rows = {r["id"]: r for r in self.document["dispatch"]}
+        found = {}
+        for s in self.source["dispatch_selectors"]:
+            r = rows[contracts.witness_id("dispatch", s)]
+            if "(P01 F3" in r["reason"]:
+                self.assertEqual(r["disposition"], "mapped")
+                found[s["source"]["symbol"]] = found.get(s["source"]["symbol"], 0) + 1
+        self.assertEqual(found, self.F3_MAPPED)
+        # the transcript's orgtree_present card stays pending on the desktop chat route
+        [card] = [rows[contracts.witness_id("dispatch", s)] for s in self.source["dispatch_selectors"]
+                  if s["source"]["symbol"] == "_read_chat_source" and s["values"] == ["orgtree_present"]]
+        self.assertEqual(card["disposition"], "pending")
 
     def test_contacts_is_specified_only_with_agent_level_mail_locality(self):
         # S2b ruling R1: org-store locality is not mail locality. contacts became
@@ -697,14 +721,15 @@ class ContractCoverage(unittest.TestCase):
 
     def test_mapping_a_helper_witness_early_is_caught(self):
         document = copy.deepcopy(self.document)
-        # credit_request_action's approve branch: the inbox batch submit is still uncontracted
+        # credit_request_action's approve branch is mapped (P01 F3 contracted the inbox batch submit);
+        # were that entry still pending, the mapped helper witness would be early
         row = next(r for r in document["dispatch"] if r["id"].startswith("c590e76e"))
-        self.assertEqual(row["disposition"], "pending")
-        action = next(r for r in document["facets"]["funding.predicates"]["source_refs"]
-                      if r["path"].endswith("ledger.py") and r["start"] == 9615)
-        row.update(disposition="mapped", contracts=["credits.decide"], reason="early", source_refs=[action])
-        self.assertTrue(self.validate(document)["valid"])     # the validator alone does not see it
-        self.assertEqual(self.early_helper_witnesses(document), {row["id"]})
+        self.assertEqual(row["disposition"], "mapped")
+        batch = next(r for r in document["entries"] if r["id"].startswith("16833d38"))
+        batch.update(disposition="pending", contracts=[], source_refs=[], reason="(control) not contracted")
+        both = {r["id"] for r in document["dispatch"] if r["id"].startswith(("c590e76e", "b62b2f45"))}
+        self.assertEqual(len(both), 2)
+        self.assertEqual(self.early_helper_witnesses(document), both)
 
     def test_each_required_dimension_is_enforced(self):
         for dimension in contracts.DIMENSIONS:

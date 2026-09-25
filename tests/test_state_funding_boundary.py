@@ -73,15 +73,16 @@ class BoundaryBinding(unittest.TestCase):
         for name in ('effects', 'reads', 'instrumentation'):
             self.assertEqual(registry['facets']['funding.' + name]['status'], 'specified', name)
 
-    def test_decision_branches_stay_pending_while_the_batch_submit_is_uncontracted(self):
+    def test_decision_branches_are_mapped_once_the_batch_submit_is_contracted(self):
         # S3 decision 5: Org.resolve_batch (the inbox batch submit) also reaches
-        # credit_request_action, and that entry has no contract yet
+        # credit_request_action; P01 F3 contracted that entry (asks.batch-resolve), so
+        # both branches are mapped to both callers
         registry = contracts.load(ROOT / 'docs/state-system/operation-contracts.json')
         rows = {r['id'][:8]: r for r in registry['dispatch']}
         for wid in ('c590e76e', 'b62b2f45'):
             with self.subTest(witness=wid):
-                self.assertEqual((rows[wid]['disposition'], rows[wid]['contracts']), ('pending', []))
-                self.assertIn('resolve_batch', rows[wid]['reason'])
+                self.assertEqual((rows[wid]['disposition'], rows[wid]['contracts']),
+                                 ('mapped', ['asks.batch-resolve', 'credits.decide']))
 
     def test_stale_incomplete_or_elevated_fixture_refuses(self):
         for edit in [lambda d: d['contracts'].pop('credits.decide'), lambda d: d.update(covered=True),

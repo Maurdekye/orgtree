@@ -1,0 +1,636 @@
+{
+  "schema": "orgtree.requests-boundary/v1",
+  "source_contract_sha256": "3cc2f8590475d0f1d3681b922f39b1ffe5921f8b361c429cb18bea4d9f3f9103",
+  "qualification": {
+    "runtime_census": false,
+    "conversion_authorized": false
+  },
+  "contracts": {
+    "asks.answer": "POST /api/orgs/{slug}/asks/{aid}/answer",
+    "asks.ask": "orgtree_ask",
+    "asks.batch-resolve": "POST /api/orgs/{slug}/nodes/{nid}/batch",
+    "asks.present": "orgtree_present",
+    "asks.request-scope": "orgtree_request_scope",
+    "asks.submit-report": "orgtree_submit_report",
+    "asks.withdraw": "orgtree_withdraw_ask",
+    "audiences.deny": "orgtree_audience action=deny",
+    "audiences.forward": "orgtree_audience action=forward",
+    "audiences.grant": "orgtree_audience action=grant",
+    "audiences.list": "GET /api/orgs/{slug}/audiences",
+    "audiences.operator-action": "POST /api/orgs/{slug}/audiences",
+    "audiences.request": "orgtree_audience action=request",
+    "audiences.revoke": "orgtree_audience action=revoke",
+    "lifecycle.operator-scope": "POST /api/orgs/{slug}/nodes/{nid}/scope",
+    "watchdogs.create": "orgtree_watchdog action=create",
+    "watchdogs.list": "orgtree_watchdog action=list",
+    "watchdogs.operator-action": "POST /api/orgs/{slug}/watchdogs",
+    "watchdogs.pause": "orgtree_watchdog action=pause",
+    "watchdogs.remove": "orgtree_watchdog action=remove",
+    "watchdogs.resume": "orgtree_watchdog action=resume",
+    "watchdogs.supersede": "orgtree_watchdog action=supersede"
+  },
+  "cases": {
+    "ask_top": {
+      "results": [
+        "asked",
+        "status"
+      ],
+      "sections": [
+        "asks",
+        "events"
+      ],
+      "told": {},
+      "mail": {}
+    },
+    "withdraw_ok": {
+      "results": [
+        "status",
+        "withdrawn"
+      ],
+      "sections": [
+        "asks",
+        "events"
+      ],
+      "told": {},
+      "mail": {}
+    },
+    "present_top": {
+      "results": [
+        "presented",
+        "ref",
+        "status",
+        "title"
+      ],
+      "sections": [
+        "documents",
+        "events"
+      ],
+      "told": {},
+      "mail": {}
+    },
+    "submit_leaf": {
+      "results": [
+        "artifacts",
+        "delivery_accepted",
+        "delivery_deferred",
+        "delivery_receipt",
+        "forwarded",
+        "mail",
+        "mail_id",
+        "mail_recipient",
+        "mail_ref",
+        "presentation",
+        "presentation_ref",
+        "ref",
+        "status",
+        "submitted",
+        "title"
+      ],
+      "sections": [
+        "events",
+        "lifecycle",
+        "mail",
+        "mail_log",
+        "nodes"
+      ],
+      "told": {},
+      "mail": {
+        "mid": [
+          [
+            "leaf",
+            "request"
+          ]
+        ]
+      }
+    },
+    "scope_top": {
+      "results": [
+        "requested",
+        "status"
+      ],
+      "sections": [
+        "events",
+        "scope_requests"
+      ],
+      "told": {},
+      "mail": {}
+    },
+    "wd_create": {
+      "results": [
+        "id",
+        "name",
+        "notice",
+        "once",
+        "shell",
+        "smoke",
+        "status"
+      ],
+      "sections": [
+        "events",
+        "lifecycle",
+        "watchdogs"
+      ],
+      "told": {},
+      "mail": {}
+    },
+    "wd_list": {
+      "results": [
+        "watchdogs"
+      ],
+      "sections": [],
+      "told": {},
+      "mail": {}
+    },
+    "wd_pause": {
+      "results": [
+        "id",
+        "name",
+        "state"
+      ],
+      "sections": [
+        "events",
+        "watchdogs"
+      ],
+      "told": {},
+      "mail": {}
+    },
+    "wd_resume": {
+      "results": [
+        "id",
+        "name",
+        "state"
+      ],
+      "sections": [
+        "events",
+        "watchdogs"
+      ],
+      "told": {},
+      "mail": {}
+    },
+    "wd_remove": {
+      "results": [
+        "id",
+        "name",
+        "state"
+      ],
+      "sections": [
+        "events",
+        "watchdogs"
+      ],
+      "told": {},
+      "mail": {}
+    },
+    "wd_supersede": {
+      "results": [
+        "id",
+        "name",
+        "reason",
+        "state"
+      ],
+      "sections": [
+        "events",
+        "lifecycle",
+        "watchdog_tombs",
+        "watchdogs"
+      ],
+      "told": {},
+      "mail": {}
+    },
+    "aud_request": {
+      "results": [
+        "currently_at",
+        "warnings"
+      ],
+      "sections": [
+        "audience_requests",
+        "events",
+        "lifecycle",
+        "mail",
+        "mail_log",
+        "nodes"
+      ],
+      "told": {},
+      "mail": {
+        "mid": [
+          [
+            "leaf",
+            "request"
+          ]
+        ]
+      }
+    },
+    "aud_forward": {
+      "results": [
+        "currently_at",
+        "warnings"
+      ],
+      "sections": [
+        "audience_requests",
+        "events",
+        "lifecycle",
+        "mail",
+        "mail_log",
+        "nodes"
+      ],
+      "told": {},
+      "mail": {
+        "top": [
+          [
+            "mid",
+            "request"
+          ]
+        ]
+      }
+    },
+    "aud_grant": {
+      "results": [
+        "warnings"
+      ],
+      "sections": [
+        "audience_requests",
+        "audiences",
+        "events",
+        "lifecycle",
+        "mail",
+        "mail_log",
+        "nodes"
+      ],
+      "told": {},
+      "mail": {
+        "leaf": [
+          [
+            "top",
+            "decision"
+          ]
+        ]
+      }
+    },
+    "aud_deny": {
+      "results": [
+        "warnings"
+      ],
+      "sections": [
+        "audience_requests",
+        "events",
+        "lifecycle",
+        "mail",
+        "mail_log",
+        "nodes"
+      ],
+      "told": {},
+      "mail": {
+        "leaf": [
+          [
+            "mid",
+            "decision"
+          ]
+        ]
+      }
+    },
+    "aud_revoke": {
+      "results": [
+        "warnings"
+      ],
+      "sections": [
+        "audiences",
+        "events",
+        "notice_log",
+        "notices"
+      ],
+      "told": {
+        "leaf": [
+          [
+            "access.audience_changed",
+            null
+          ]
+        ]
+      },
+      "mail": {}
+    },
+    "r_answer": {
+      "results": [
+        "answered",
+        "mail",
+        "node"
+      ],
+      "sections": [
+        "asks",
+        "events",
+        "lifecycle",
+        "mail",
+        "mail_log",
+        "nodes",
+        "user_outbox"
+      ],
+      "told": {},
+      "mail": {
+        "top": [
+          [
+            "@user",
+            "message"
+          ]
+        ]
+      }
+    },
+    "r_batch": {
+      "results": [
+        "resolved"
+      ],
+      "sections": [
+        "asks",
+        "events",
+        "lifecycle",
+        "mail",
+        "mail_log",
+        "nodes",
+        "user_outbox"
+      ],
+      "told": {},
+      "mail": {
+        "top": [
+          [
+            "@user",
+            "message"
+          ]
+        ]
+      }
+    },
+    "r_scope": {
+      "results": [
+        "scope",
+        "warnings"
+      ],
+      "sections": [
+        "events",
+        "nodes",
+        "notice_log",
+        "notices"
+      ],
+      "told": {
+        "leaf": [
+          [
+            "access.scope_changed",
+            null
+          ]
+        ]
+      },
+      "mail": {}
+    },
+    "r_wd_pause": {
+      "results": [
+        "id",
+        "name",
+        "state"
+      ],
+      "sections": [
+        "events",
+        "watchdogs"
+      ],
+      "told": {},
+      "mail": {}
+    },
+    "r_aud_grant": {
+      "results": [
+        "warnings"
+      ],
+      "sections": [
+        "audience_requests",
+        "audiences",
+        "events",
+        "notice_log",
+        "notices"
+      ],
+      "told": {
+        "top": [
+          [
+            "access.audience_changed",
+            null
+          ]
+        ],
+        "leaf": [
+          [
+            "access.audience_changed",
+            null
+          ]
+        ]
+      },
+      "mail": {}
+    },
+    "r_aud_list": {
+      "results": [
+        "audiences",
+        "requests"
+      ],
+      "sections": [],
+      "told": {},
+      "mail": {}
+    },
+    "ask_deep": {
+      "results": [
+        "deferred",
+        "routed",
+        "status"
+      ],
+      "sections": [
+        "events",
+        "lifecycle",
+        "mail",
+        "mail_log",
+        "nodes"
+      ],
+      "told": {},
+      "mail": {
+        "mid": [
+          [
+            "leaf",
+            "question"
+          ]
+        ]
+      }
+    },
+    "scope_deep": {
+      "results": [
+        "deferred",
+        "routed",
+        "status"
+      ],
+      "sections": [
+        "events",
+        "lifecycle",
+        "mail",
+        "mail_log",
+        "nodes"
+      ],
+      "told": {},
+      "mail": {
+        "mid": [
+          [
+            "leaf",
+            "request"
+          ]
+        ]
+      }
+    },
+    "submit_top": {
+      "results": [
+        "artifacts",
+        "delivery_accepted",
+        "delivery_deferred",
+        "delivery_receipt",
+        "forwarded",
+        "mail",
+        "mail_id",
+        "mail_recipient",
+        "mail_ref",
+        "presentation",
+        "presentation_ref",
+        "ref",
+        "status",
+        "submitted",
+        "title"
+      ],
+      "sections": [
+        "documents",
+        "events",
+        "lifecycle",
+        "user_inbox"
+      ],
+      "told": {},
+      "mail": {}
+    },
+    "r_dismiss": {
+      "results": [
+        "answered",
+        "mail",
+        "node"
+      ],
+      "sections": [
+        "asks",
+        "events",
+        "lifecycle",
+        "mail",
+        "mail_log",
+        "nodes",
+        "user_outbox"
+      ],
+      "told": {},
+      "mail": {
+        "top": [
+          [
+            "@user",
+            "message"
+          ]
+        ]
+      }
+    },
+    "r_aud_revoke": {
+      "results": [
+        "warnings"
+      ],
+      "sections": [
+        "audiences",
+        "events",
+        "notice_log",
+        "notices"
+      ],
+      "told": {
+        "leaf": [
+          [
+            "access.audience_changed",
+            null
+          ]
+        ]
+      },
+      "mail": {}
+    }
+  },
+  "case_of": {
+    "asks.ask": "ask_top",
+    "asks.withdraw": "withdraw_ok",
+    "asks.present": "present_top",
+    "asks.submit-report": "submit_leaf",
+    "asks.request-scope": "scope_top",
+    "watchdogs.create": "wd_create",
+    "watchdogs.list": "wd_list",
+    "watchdogs.pause": "wd_pause",
+    "watchdogs.resume": "wd_resume",
+    "watchdogs.remove": "wd_remove",
+    "watchdogs.supersede": "wd_supersede",
+    "audiences.request": "aud_request",
+    "audiences.forward": "aud_forward",
+    "audiences.grant": "aud_grant",
+    "audiences.deny": "aud_deny",
+    "audiences.revoke": "aud_revoke",
+    "asks.answer": "r_answer",
+    "asks.batch-resolve": "r_batch",
+    "lifecycle.operator-scope": "r_scope",
+    "watchdogs.operator-action": "r_wd_pause",
+    "audiences.operator-action": "r_aud_grant",
+    "audiences.list": "r_aud_list"
+  },
+  "receipts": {
+    "orgtree_ask": [
+      "transaction+post",
+      {}
+    ],
+    "orgtree_withdraw_ask": [
+      "transaction",
+      {}
+    ],
+    "orgtree_present": [
+      "transaction+post",
+      [
+        "presented"
+      ]
+    ],
+    "orgtree_submit_report": [
+      "transaction+post",
+      [
+        "delivery_accepted",
+        "delivery_deferred",
+        "forwarded",
+        "mail_id",
+        "mail_recipient",
+        "mail_ref",
+        "ref",
+        "submitted"
+      ]
+    ],
+    "orgtree_request_scope": [
+      "transaction+post",
+      {}
+    ],
+    "orgtree_watchdog:create": [
+      "transaction+post",
+      [
+        "id"
+      ]
+    ],
+    "orgtree_watchdog:list": [
+      "transaction",
+      {}
+    ],
+    "orgtree_watchdog:pause": [
+      "transaction",
+      [
+        "id",
+        "state"
+      ]
+    ],
+    "orgtree_audience:request": [
+      "transaction+post",
+      {}
+    ],
+    "orgtree_audience:grant": [
+      "transaction+post",
+      {}
+    ]
+  },
+  "legacy_defects": [
+    "a forwarded report mails the superior but drives nobody, although its class is TX_POST",
+    "a top-level caller's ask and scope request, withdraw_ask and every audience action keep nothing in their receipts",
+    "watchdog list is a read that saves, broadcasts and, keyed, files a receipt",
+    "the operator audience grant drives the grantee with 'You have new mail above.' although it posted no mail"
+  ],
+  "scope": "Legacy boundary of asks, reports, scope requests, watchdogs and audiences (P01 F3) on disposable SQLite: seven agent tools (per action for orgtree_watchdog and orgtree_audience) and six routes. Turn delivery, the smoke run and the broadcasts are spies; the doors, the ledger, the receipts, save and reload are real. Legacy conformance evidence only: not a runtime census, not PostgreSQL or Rust qualification."
+}

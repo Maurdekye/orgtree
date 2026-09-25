@@ -119,13 +119,14 @@ runtime probes remain unresolved. Material reads add two cards and two selectors
 diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
-Current totals are 75 contracts, 49 mapped registrations and 93 mapped
-dispatch witnesses. **608 obligations remain**: 266 registrations, 127 dispatch
-witnesses, 14 storage candidates and 201 unresolved dimension occurrences.
+Current totals are 97 contracts, 62 mapped registrations and 119 mapped
+dispatch witnesses. **635 obligations remain**: 253 registrations, 101 dispatch
+witnesses, 14 storage candidates and 267 unresolved dimension occurrences.
 From P01 F1 on, progress is reported as three numbers (coordinator ruling Q1, decision 1 on
-p01-f1-contracts-for-the-org-lifecycle-and-catal): **entries contracted 19/194** (of the concrete http,
+p01-f1-contracts-for-the-org-lifecycle-and-catal): **entries contracted 32/194** (of the concrete http,
 websocket and tool entries that were on the generic reason; F1b contracts none of them, since the
-operator door had its own reason), **201 open dimension occurrences** and **608 total pending**. Total pending RISES while the 194 are contracted, to about 790-1000 when all
+operator door had its own reason; F3 contracts thirteen), **267 open dimension occurrences** and
+**635 total pending**. Total pending RISES while the 194 are contracted, to about 790-1000 when all
 twelve families have landed, and that rise is expected: each new contract closes its entry but opens
 its own conflicts, wire and instrumentation dimensions until P03, the native conversion and P02 answer
 them.
@@ -367,6 +368,16 @@ rows that do not cover these operations, so the variants have their own unresolv
 `operator-ops.variant-conflicts` and `operator-ops.variant-instrumentation`. `tests/test_state_operator_
 variants_boundary.py` pins the facts against `docs/state-system/operator-variants-boundary.json`. The
 preview simulation's `move_batch` branch is mapped although no door admits that operation name.
+635 is twenty-seven more than that 608, and the rise is expected (P01 F3,
+p01-f3-contracts-for-asks-reports-scope-requests). F3 contracts asks, reports, scope requests, watchdogs and audiences: 22 contracts on
+thirteen entries, seven agent tools (orgtree_watchdog and orgtree_audience per action, S3 ruling 2) and six
+routes (the ask answer, the inbox batch, the operator's watchdog and audience actions, the audience list,
+and the operator scope route, which joins `lifecycle.*`), on three new facet families `asks.*`,
+`watchdogs.*` and `audiences.*`. `tests/test_state_requests_boundary.py` pins them against
+`docs/state-system/requests-boundary.json`. Contracting the inbox batch submit maps the two
+`credit_request_action` branches S3 decision 5 held back. Recorded legacy defects: a forwarded report mails
+the superior but wakes nobody; several receipts keep nothing; the watchdog list saves and broadcasts; the
+operator's audience grant wakes the grantee with "new mail" but posts none.
 
 Of the 41 open dimension occurrences on the sixteen legacy-family contracts, 25 (9 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the

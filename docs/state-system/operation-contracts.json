@@ -7973,7 +7973,8 @@
         "swap's own rules (Org.swap_seats): a swap of an agent with itself is refused ('a seat swap needs two different agents'); both parties must be live; when either party sits at the top level only the user may swap ('only the user reseats the top level …'), except through the internal voluntary-subjugation marker, which no API argument can set; a lineage bearer or a party with live lineage bearers is refused, and so is a swap that would land an agent on its own stack's branch or under an archived seat (source). Pinned by tests/test_state_lifecycle_boundary.py against docs/state-system/lifecycle-boundary.json, except the lineage and landing refusals.",
         "The door's identity check (api._agent_identity) refuses 403 a caller whose seat is archived or replaced ('authenticated seat is archived or replaced …') and a credential minted for an earlier session generation ('agent credential is stale: session generation changed …'). So after a dissolve the archived seats can no longer call, and after a cheap compaction the seat's pre-compaction credential is refused. Pinned.",
         "The two catalogue reads need only a known caller; list_tiers also needs a live one (org._require_live), and list_orgs, which runs inside the agent write cycle, takes the halt and killswitch refusals too. Pinned for the successful reads.",
-        "The seven routes are operator routes behind the desktop TokenGate (engine/launch.py): an agent credential is refused 401, and the operator acts as the user (ledger actor USER). repair-rename is the exception: its body names an actor (default the user) that must be the user or the renamed identity itself (Org.repair_rename_identity). account-assign leaves every account check to supervisor.assign_account's shared validator, so being the user does not bypass the account rules. Pinned for the 401 and the refusals; the actor rule of repair-rename is source."
+        "The seven routes are operator routes behind the desktop TokenGate (engine/launch.py): an agent credential is refused 401, and the operator acts as the user (ledger actor USER). repair-rename is the exception: its body names an actor (default the user) that must be the user or the renamed identity itself (Org.repair_rename_identity). account-assign leaves every account check to supervisor.assign_account's shared validator, so being the user does not bypass the account rules. Pinned for the 401 and the refusals; the actor rule of repair-rename is source.",
+        "lifecycle.operator-scope (POST /api/orgs/{slug}/nodes/{nid}/scope, P01 F3): the operator retools a node as the user (Org.set_scope with actor USER); a kiosk visitor's raise_ceiling is ignored (source). Pinned by tests/test_state_requests_boundary.py."
       ],
       "source_refs": [
         {
@@ -8041,6 +8042,12 @@
           "start": 5419,
           "end": 5434,
           "sha256": "af44225dec682ca1c94d50d046ff41ea40e967f545887883523c67ca0423774c"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3809,
+          "end": 3852,
+          "sha256": "8d651c0dedf8d1232b94d32a0d9705f27df4f2fec371ae58332323331814c7f0"
         }
       ],
       "open_questions": []
@@ -8050,7 +8057,8 @@
       "status": "specified",
       "facts": [
         "Every write-cycle tool (retool, retire, dissolve, cheap_compact, rehire, move, swap, self_subjugate, switch_model and list_orgs) loads the org document under DOC_LOCK through store.write_org (the resident write cycle); rename loads it under supervisor.rename_node's own DOC_LOCK, and list_tiers reads the shared snapshot (store.cached_org). Before the lock, retire and dissolve load the org once more for their authority pre-guard. Source.",
-        "Reads outside the org document: list_orgs reads every org's catalogue row (store.list_orgs, kiosk orgs dropped) and the mail hub roster (net.remote_peers); list_tiers reads provider discovery (_tier_discovery_payload, machine state behind its own cache, outside the lock); rename reads the turn state of every generation (supervisor.state) and refuses a busy one; switch_model reads the live busy state and the account registry (check_switch_account); a retool naming an account reads the registry (registry.validate_selection); compact reads the turn state and the org killswitch. Source; which of these contacts are org-local is the open instrumentation question."
+        "Reads outside the org document: list_orgs reads every org's catalogue row (store.list_orgs, kiosk orgs dropped) and the mail hub roster (net.remote_peers); list_tiers reads provider discovery (_tier_discovery_payload, machine state behind its own cache, outside the lock); rename reads the turn state of every generation (supervisor.state) and refuses a busy one; switch_model reads the live busy state and the account registry (check_switch_account); a retool naming an account reads the registry (registry.validate_selection); compact reads the turn state and the org killswitch. Source; which of these contacts are org-local is the open instrumentation question.",
+        "lifecycle.operator-scope loads the org in the resident write cycle (store.write_org) and reads the node's effective effort before an effort change (source)."
       ],
       "source_refs": [
         {
@@ -8088,6 +8096,12 @@
           "start": 12524,
           "end": 12663,
           "sha256": "0b4f342223744f3ca34d3bd3294b20818ce66c4bc0be2b4ceb57304c11e2c1b8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3809,
+          "end": 3852,
+          "sha256": "8d651c0dedf8d1232b94d32a0d9705f27df4f2fec371ae58332323331814c7f0"
         }
       ],
       "open_questions": []
@@ -8098,7 +8112,8 @@
       "facts": [
         "Measured with the committed document read cold (changed top-level sections): rename writes nodes, events and the renamed seat's notices (lifecycle.renamed); retool writes nodes and events (set_scope), and access.scope_changed to a target other than the caller; retire writes nodes and events, plus lifecycle.retired to the parent and peers other than the caller; dissolve writes nodes and events and lifecycle.dissolved to the parent and peers other than the caller (the dissolved subtree is told nothing); cheap_compact writes nodes (a knowledge bearer row nid@gen, a fresh session id, generation + 1), events, and the seat's own notices (its backlog folded into a context.notice_digest, then lifecycle.cheap_compacted); rehire writes nodes and events and lifecycle.rehired to the seat and to a parent and peers other than the caller; move writes nodes, events and lifecycle.moved to the old parent, the new parent and the node; swap writes nodes, events and lifecycle.seat_swapped to both parties and their reports; self_subjugate writes nodes, events and lifecycle.subtree_promoted to the new parent, the peers and the promoted target; switch_model writes nodes, events and lifecycle.model_switched to the node. Every changed notices section also changes notice_log. Pinned by tests/test_state_lifecycle_boundary.py against docs/state-system/lifecycle-boundary.json.",
         "No-ops and refusals write nothing: a retire of an already archived node, a rehire of a live node, a move to the current parent (result moved: false, changed: false) and a switch to the tier the node already runs; every refusal discards the unsaved document. The exception is a rehire with `name`: its rename runs before the transaction and survives a later refusal (source, as for staffing in rehire mode). A keyed call adds op_receipts and op_receipts_meta in the same save, except rename, list_orgs and list_tiers, which file no receipt. Pinned.",
-        "Routes: reorder writes only nodes (the siblings' ui_order reindexed; no event, no notice); dissolve-all dissolves every top-level seat in ONE save (nodes, one dissolve event per top-level seat, notices); account-assign writes the node's account binding through supervisor.assign_account; compact starts supervisor.manual_compact on a daemon thread and answers {started: true} before that thread writes anything (the fork, the successor session and the archived self are the thread's writes); lineage recover and drop-phantom write through supervisor.recover_lost_generation and drop_phantom_generation under DOC_LOCK; repair-rename moves documents[].node and the current-identity work-item fields and adds one rename_repair log line. Pinned for reorder, dissolve-all, the compact start and every refusal (which writes nothing); the account, lineage and repair success paths are source (they need a registered account, on-disk session files and a stranded record)."
+        "Routes: reorder writes only nodes (the siblings' ui_order reindexed; no event, no notice); dissolve-all dissolves every top-level seat in ONE save (nodes, one dissolve event per top-level seat, notices); account-assign writes the node's account binding through supervisor.assign_account; compact starts supervisor.manual_compact on a daemon thread and answers {started: true} before that thread writes anything (the fork, the successor session and the archived self are the thread's writes); lineage recover and drop-phantom write through supervisor.recover_lost_generation and drop_phantom_generation under DOC_LOCK; repair-rename moves documents[].node and the current-identity work-item fields and adds one rename_repair log line. Pinned for reorder, dissolve-all, the compact start and every refusal (which writes nothing); the account, lineage and repair success paths are source (they need a registered account, on-disk session files and a stranded record).",
+        "lifecycle.operator-scope writes nodes, events and access.scope_changed to the node; a refusal writes nothing. Pinned by tests/test_state_requests_boundary.py."
       ],
       "source_refs": [
         {
@@ -8190,6 +8205,12 @@
           "start": 9395,
           "end": 9561,
           "sha256": "034c65bbb36c03d7e667cef747f77c5b0c203d1bf1affde9f14945ad679fbafe"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3809,
+          "end": 3852,
+          "sha256": "8d651c0dedf8d1232b94d32a0d9705f27df4f2fec371ae58332323331814c7f0"
         }
       ],
       "open_questions": []
@@ -8200,7 +8221,8 @@
       "facts": [
         "Tool refusals (422 unless stated): rename 'the name X is already taken'; retool 'you may not rewrite your OWN charter' and granting a tool the caller does not hold ('… cannot grant it'); retire by the caller itself with live reports; move batches whose element is not an object with new_parent ('moves[i] must be an object …'); self_subjugate whose target is not a live descendant ('… is not a live descendant …'); switch_model to an unknown tier (the refusal lists the known tiers). Open background tasks refuse retire, dissolve and cheap_compact (source). Pinned, except the background-task refusals.",
         "Not refused, by the design motto: a retire of a node that is already archived (freed 0, '… was already archived — nothing to do'); a superior retiring a node with live reports gets a dissolve with a warning ('… retire became dissolve'); a rehire of a live node, a move to the current parent (for ANY caller: the no-op answers before the authority check, legacy defect 7) and a switch to the current tier succeed as no-ops with a warning. A switch asked for while the node is mid-turn is QUEUED (pending_switch) rather than applied, and asking for the current tier while one is queued cancels it (source). Pinned, except the queue.",
-        "Route refusals (422 unless stated): reorder with no sibling as before= or after=; compact of a node with no conversation yet (and, from source, of a node not live, a knowledge bearer, one just compacted, and 409 for remote control, a freeze, a halt, the killswitch or a busy turn); lineage recover of a row that is not a lost generation; drop-phantom of a row that is not a LOST one; repair-rename with no allowlist; account-assign naming an account that is not registered. Pinned for each named refusal; the other compact refusals are source."
+        "Route refusals (422 unless stated): reorder with no sibling as before= or after=; compact of a node with no conversation yet (and, from source, of a node not live, a knowledge bearer, one just compacted, and 409 for remote control, a freeze, a halt, the killswitch or a busy turn); lineage recover of a row that is not a lost generation; drop-phantom of a row that is not a LOST one; repair-rename with no allowlist; account-assign naming an account that is not registered. Pinned for each named refusal; the other compact refusals are source.",
+        "lifecycle.operator-scope takes set_scope's refusals, e.g. an unknown org_visibility ('org_visibility must be one of …'). Pinned by tests/test_state_requests_boundary.py."
       ],
       "source_refs": [
         {
@@ -8268,6 +8290,12 @@
           "start": 15312,
           "end": 15624,
           "sha256": "f318b97f9639fb06f8b3756a3ad37a9f1a490ed4c0c7796b5d2647980af209d8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3809,
+          "end": 3852,
+          "sha256": "8d651c0dedf8d1232b94d32a0d9705f27df4f2fec371ae58332323331814c7f0"
         }
       ],
       "open_questions": []
@@ -8346,7 +8374,8 @@
       "facts": [
         "Coverage classes (opreceipts.coverage): retire and dissolve PRE (their pre-archive interrupt runs before the lock); rehire TX_POST, or PRE when it carries `name`; retool and switch_model TX_POST; move, swap and self_subjugate TX; cheap_compact UNROLLED (the transcript copy inside the lock); rename, list_orgs and list_tiers NONE. A keyed call files its receipt in the same save as the effect; a replay of a filed key answers the replay envelope (replayed, op_id, outcome applied, the receipt) and writes and broadcasts nothing. The routes take no operation key. Pinned per tool.",
         "Retained result fields follow the per-tool allowlist, scalars only (opreceipts.result_slice). Recorded legacy defect: several allowlists name fields the result never carries, so the receipt keeps nothing — retire and dissolve keep (archived, node) but return freed, nodes and warnings; move keeps (moved), which only the no-op result carries; retool keeps (node, started, account) but returns scope; swap keeps (swapped), whose value is a list. What is kept: cheap_compact node and old_session, rehire node and started, switch_model queued, self_subjugate promoted, demoted and parent. Pinned.",
-        "Recorded legacy behaviour: rename returns before admission, so a keyed rename is executed with its key unexamined — a malformed op_key is not refused and no receipt is filed, and a lost answer cannot be looked up. Pinned."
+        "Recorded legacy behaviour: rename returns before admission, so a keyed rename is executed with its key unexamined — a malformed op_key is not refused and no receipt is filed, and a lost answer cannot be looked up. Pinned.",
+        "lifecycle.operator-scope files no receipt and takes no key. Pinned by tests/test_state_requests_boundary.py."
       ],
       "source_refs": [
         {
@@ -8384,6 +8413,12 @@
           "start": 11831,
           "end": 11845,
           "sha256": "6d6e90de70a545f4cc8f2bf9ddf48a34a218b2e4e3bd4574fe600952c66fa285"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3809,
+          "end": 3852,
+          "sha256": "8d651c0dedf8d1232b94d32a0d9705f27df4f2fec371ae58332323331814c7f0"
         }
       ],
       "open_questions": []
@@ -8395,7 +8430,8 @@
         "retire and dissolve call supervisor.interrupt_before_archive BEFORE the transaction, after only an authority pre-guard: it interrupts the target's in-flight turn and every live descendant's and waits for the turn boundary. Recorded legacy defect: a call refused after that point has already interrupted the target — pinned for a self-retire with live reports and for a keyed retire whose op_key is refused at admission.",
         "After the save: retire, dissolve and cheap_compact call supervisor.remote_reap(slug); cheap_compact calls supervisor.export_predecessor_transcript(org, node, old_sid, reason='cheap_compact') inside the lock; a rehire whose seat has waiting mail drives it once (supervisor.send_message, mail_ping, no ping_reason; the result says RUNNING), and otherwise nothing is driven and the result says IDLE. Recorded legacy defect: the post-save reap names orgtree_rename but the rename branch returns before it, so a rename never reaps. Pinned. From source: a cross-provider switch copies the transcript the same way and wakes a node whose stale freeze it cleared (drive_unfrozen_by_switch); a retool changing effort sends it live (send_live_effort); an account choice on retool or switch_model notifies after the save.",
         "Every accepted write-cycle call ends with exactly one hub_changed, including the no-ops (a rehire of a live node, a move to the current parent, a switch to the current tier) and list_orgs. Recorded legacy behaviour: list_orgs is a read that takes the write lock, saves and broadcasts. A replay broadcasts nothing. rename and list_tiers never call hub_changed; rename's broadcast is supervisor.notify(slug, new, 'renamed', …) after its own save. rename also kills the parked warm process of every generation (warmpool.kill_node) and moves the scratch directory and the CLI project directory before the save, rolling them back if the save fails (source). Pinned for the broadcasts.",
-        "Routes: reorder, dissolve-all, lineage recover and drop-phantom and repair-rename end with hub_changed (account-assign awaits hub.changed, source); compact starts a daemon thread running supervisor.manual_compact and broadcasts nothing itself. Recorded legacy behaviour: dissolve-all tells each later top-level seat that an earlier one was dissolved (lifecycle.dissolved, relation peer) and then dissolves it in the same save. Pinned, except account-assign."
+        "Routes: reorder, dissolve-all, lineage recover and drop-phantom and repair-rename end with hub_changed (account-assign awaits hub.changed, source); compact starts a daemon thread running supervisor.manual_compact and broadcasts nothing itself. Recorded legacy behaviour: dissolve-all tells each later top-level seat that an earlier one was dissolved (lifecycle.dissolved, relation peer) and then dissolves it in the same save. Pinned, except account-assign.",
+        "lifecycle.operator-scope makes NO explicit hub_changed call (store.save_org announces the write, source); an effort change is sent to a running turn after the save (send_live_effort). Pinned by tests/test_state_requests_boundary.py."
       ],
       "source_refs": [
         {
@@ -8457,6 +8493,12 @@
           "start": 10817,
           "end": 10826,
           "sha256": "7b31e542762264c6ba4659d5f20e3be9d9a810c1728ec203ce615c30d2524a46"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3809,
+          "end": 3852,
+          "sha256": "8d651c0dedf8d1232b94d32a0d9705f27df4f2fec371ae58332323331814c7f0"
         }
       ],
       "open_questions": []
@@ -8540,6 +8582,1276 @@
       "open_questions": [
         "Observe every F1b operator operation and the preview with the P02 per-operation probe: actual contacts per outcome, cold and warm, refusals included, and the org-level locality of each.",
         "Owner: P02 (p02-contacts-opus55; coordinator ruling Q6 on p01-f1-contracts-for-the-org-lifecycle-and-catal: probed after this family lands). Closes with: a loss-accounted P02 record per variant row. Not coverable at P01 from available evidence: P01 does not run the P02 probe, and no P02 record covers these variants yet."
+      ]
+    },
+    "asks.authority": {
+      "dimension": "authority",
+      "status": "specified",
+      "facts": [
+        "orgtree_ask, orgtree_request_scope, orgtree_present and orgtree_submit_report act for the calling agent itself. The gate is the user-mail gate: a top-level agent, or the holder of a user audience, reaches the user directly. Anyone else has an ask or a scope request ROUTED to its superior as mail rather than refused; a presentation is REFUSED ('presenting a document needs a DIRECT user audience …'); and a report is forwarded to the superior as a request with no presentation. orgtree_withdraw_ask withdraws only the caller's own open ask. Pinned by tests/test_state_requests_boundary.py against docs/state-system/requests-boundary.json for a top-level and a deep caller of each.",
+        "POST /api/orgs/{slug}/asks/{aid}/answer and POST /api/orgs/{slug}/nodes/{nid}/batch are operator routes behind the desktop TokenGate: the user answers or dismisses one ask by id, or resolves a node's whole request batch (question tabs, the credits tab and the scope items) in one submit. Pinned."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 268,
+          "end": 337,
+          "sha256": "7ab809e9e7a4ce39ca56b420be0bf7128281448a98f979b5a2b5dd549dbe8ba4"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 749,
+          "end": 759,
+          "sha256": "0abeb79f9af9c4665299dbcbeec5a12eb444f1a1d875c579fe7a2fbd379d38c5"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 890,
+          "end": 924,
+          "sha256": "75469e6fde9aafc840262dccbb8a7b712a5cd52bf080397fcffb5c8f7bc512c9"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 9848,
+          "end": 9980,
+          "sha256": "89973747828e37096819d6b4103e5eea393e1f8000c258390fba4290a382b3fc"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13265,
+          "end": 13348,
+          "sha256": "576416d2221df6c5454e6ef8ecbda482ad8d845c8cb9e0b8850079e032cc8560"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12882,
+          "end": 12890,
+          "sha256": "4df85e42ee64d2706e2ccc264d330b69e0ebdccd11e538e60598236e09c31efb"
+        }
+      ]
+    },
+    "asks.reads": {
+      "dimension": "reads",
+      "status": "specified",
+      "facts": [
+        "From source: the tools load the org under DOC_LOCK in the agent write cycle; the user-mail gate reads the caller's parent and its user audience (_has_audience); the answer route reads the ask by id and its revision; the batch route reads the node's open ask, its pending credit request and its pending scope request and their revisions; a report's artifact citations are read from the docket (_report_artifact_refs)."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 268,
+          "end": 337,
+          "sha256": "7ab809e9e7a4ce39ca56b420be0bf7128281448a98f979b5a2b5dd549dbe8ba4"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 749,
+          "end": 759,
+          "sha256": "0abeb79f9af9c4665299dbcbeec5a12eb444f1a1d875c579fe7a2fbd379d38c5"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 890,
+          "end": 924,
+          "sha256": "75469e6fde9aafc840262dccbb8a7b712a5cd52bf080397fcffb5c8f7bc512c9"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 9848,
+          "end": 9980,
+          "sha256": "89973747828e37096819d6b4103e5eea393e1f8000c258390fba4290a382b3fc"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13265,
+          "end": 13348,
+          "sha256": "576416d2221df6c5454e6ef8ecbda482ad8d845c8cb9e0b8850079e032cc8560"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12882,
+          "end": 12890,
+          "sha256": "4df85e42ee64d2706e2ccc264d330b69e0ebdccd11e538e60598236e09c31efb"
+        }
+      ]
+    },
+    "asks.writes": {
+      "dimension": "writes",
+      "status": "specified",
+      "facts": [
+        "Measured with the committed document read cold: a top-level ask writes asks and events; a deep ask writes the question as mail to the superior (mail, mail_log, lifecycle, nodes, events). A withdraw writes asks and events, and a withdraw with nothing open writes nothing. A presentation writes documents and events. A deep report writes the forwarding request mail to the superior (mail, mail_log, lifecycle, nodes, events); a top-level report writes documents, events, lifecycle and the user's inbox (user_inbox). A top-level scope request writes scope_requests and events; a deep one is routed like an ask. The answer route writes the ask's state, the answer as user mail to the asker (mail, mail_log, lifecycle, nodes), user_outbox and events, a dismissal the same; the batch route writes the same for an ask-only batch. Refusals write nothing. Pinned by tests/test_state_requests_boundary.py against docs/state-system/requests-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 268,
+          "end": 337,
+          "sha256": "7ab809e9e7a4ce39ca56b420be0bf7128281448a98f979b5a2b5dd549dbe8ba4"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 749,
+          "end": 759,
+          "sha256": "0abeb79f9af9c4665299dbcbeec5a12eb444f1a1d875c579fe7a2fbd379d38c5"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 890,
+          "end": 924,
+          "sha256": "75469e6fde9aafc840262dccbb8a7b712a5cd52bf080397fcffb5c8f7bc512c9"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 9848,
+          "end": 9980,
+          "sha256": "89973747828e37096819d6b4103e5eea393e1f8000c258390fba4290a382b3fc"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13265,
+          "end": 13348,
+          "sha256": "576416d2221df6c5454e6ef8ecbda482ad8d845c8cb9e0b8850079e032cc8560"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12882,
+          "end": 12890,
+          "sha256": "4df85e42ee64d2706e2ccc264d330b69e0ebdccd11e538e60598236e09c31efb"
+        }
+      ]
+    },
+    "asks.predicates": {
+      "dimension": "predicates",
+      "status": "specified",
+      "facts": [
+        "'a question is required'; 'items must be a non-empty list'; a deep presentation (above); an answer against a stale card revision ('the card changed after it rendered (answer against revision N, card at M) …'); a batch against a stale revision ('… a request was appended or amended …') and a batch for a node with nothing open ('X has no open request batch'). From source: a report needs a title and a body. Pinned by tests/test_state_requests_boundary.py against docs/state-system/requests-boundary.json, except the report clause."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 268,
+          "end": 337,
+          "sha256": "7ab809e9e7a4ce39ca56b420be0bf7128281448a98f979b5a2b5dd549dbe8ba4"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 749,
+          "end": 759,
+          "sha256": "0abeb79f9af9c4665299dbcbeec5a12eb444f1a1d875c579fe7a2fbd379d38c5"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 890,
+          "end": 924,
+          "sha256": "75469e6fde9aafc840262dccbb8a7b712a5cd52bf080397fcffb5c8f7bc512c9"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 9848,
+          "end": 9980,
+          "sha256": "89973747828e37096819d6b4103e5eea393e1f8000c258390fba4290a382b3fc"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13265,
+          "end": 13348,
+          "sha256": "576416d2221df6c5454e6ef8ecbda482ad8d845c8cb9e0b8850079e032cc8560"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12882,
+          "end": 12890,
+          "sha256": "4df85e42ee64d2706e2ccc264d330b69e0ebdccd11e538e60598236e09c31efb"
+        }
+      ]
+    },
+    "asks.conflicts": {
+      "dimension": "conflicts",
+      "status": "unresolved",
+      "facts": [
+        "Each tool is one whole-document write cycle under DOC_LOCK in the agent door; each route one load-mutate-save under the lock. The card revisions are compare-and-set stamps checked under the lock (source)."
+      ],
+      "open_questions": [
+        "Implement and qualify native transactions for the asks, reports and scope requests operations.",
+        "Owner: P03 (native design and qualification), with P05 for the refusal fixtures. Closes with: a native design for these operations qualified by concurrent requests against one agent and one card (an answer racing an amend, a grant racing a revoke). Not coverable at P01 from available evidence: no native build exists, and P01 has not cited a native design section for these operations."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 268,
+          "end": 337,
+          "sha256": "7ab809e9e7a4ce39ca56b420be0bf7128281448a98f979b5a2b5dd549dbe8ba4"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 749,
+          "end": 759,
+          "sha256": "0abeb79f9af9c4665299dbcbeec5a12eb444f1a1d875c579fe7a2fbd379d38c5"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 890,
+          "end": 924,
+          "sha256": "75469e6fde9aafc840262dccbb8a7b712a5cd52bf080397fcffb5c8f7bc512c9"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 9848,
+          "end": 9980,
+          "sha256": "89973747828e37096819d6b4103e5eea393e1f8000c258390fba4290a382b3fc"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13265,
+          "end": 13348,
+          "sha256": "576416d2221df6c5454e6ef8ecbda482ad8d845c8cb9e0b8850079e032cc8560"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12882,
+          "end": 12890,
+          "sha256": "4df85e42ee64d2706e2ccc264d330b69e0ebdccd11e538e60598236e09c31efb"
+        }
+      ]
+    },
+    "asks.wire": {
+      "dimension": "wire",
+      "status": "unresolved",
+      "facts": [
+        "The shapes are fixtured in docs/state-system/requests-boundary.json (result keys, changed sections and recipients per case) with the recorded legacy defects."
+      ],
+      "open_questions": [
+        "Carry the fixtured asks, reports and scope requests shapes to the native/Rust door and decide each recorded legacy defect.",
+        "Owner: the native/Rust conversion, from the P03 prototype onward. Closes with: the fixtured shapes passing against the native and Rust builds, with each recorded legacy defect reproduced deliberately or replaced. Not coverable at P01 from available evidence: no native or Rust build exists to run the fixtures against."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 268,
+          "end": 337,
+          "sha256": "7ab809e9e7a4ce39ca56b420be0bf7128281448a98f979b5a2b5dd549dbe8ba4"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 749,
+          "end": 759,
+          "sha256": "0abeb79f9af9c4665299dbcbeec5a12eb444f1a1d875c579fe7a2fbd379d38c5"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 890,
+          "end": 924,
+          "sha256": "75469e6fde9aafc840262dccbb8a7b712a5cd52bf080397fcffb5c8f7bc512c9"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 9848,
+          "end": 9980,
+          "sha256": "89973747828e37096819d6b4103e5eea393e1f8000c258390fba4290a382b3fc"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13265,
+          "end": 13348,
+          "sha256": "576416d2221df6c5454e6ef8ecbda482ad8d845c8cb9e0b8850079e032cc8560"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12882,
+          "end": 12890,
+          "sha256": "4df85e42ee64d2706e2ccc264d330b69e0ebdccd11e538e60598236e09c31efb"
+        }
+      ]
+    },
+    "asks.receipt": {
+      "dimension": "receipt",
+      "status": "specified",
+      "facts": [
+        "Coverage classes: orgtree_ask, orgtree_request_scope, orgtree_present and orgtree_submit_report TX_POST; orgtree_withdraw_ask TX. A keyed call files its receipt in the same save. What is kept: present keeps presented; submit_report keeps submitted, forwarded, mail_ref, mail_recipient, mail_id, delivery_accepted, delivery_deferred and ref. Recorded legacy defect: a top-level caller's ask and scope request keep nothing (their allowlist names id, routed and deferred, which that result does not carry), and withdraw_ask keeps nothing. The routes take no operation key. Pinned by tests/test_state_requests_boundary.py against docs/state-system/requests-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 268,
+          "end": 337,
+          "sha256": "7ab809e9e7a4ce39ca56b420be0bf7128281448a98f979b5a2b5dd549dbe8ba4"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 749,
+          "end": 759,
+          "sha256": "0abeb79f9af9c4665299dbcbeec5a12eb444f1a1d875c579fe7a2fbd379d38c5"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 890,
+          "end": 924,
+          "sha256": "75469e6fde9aafc840262dccbb8a7b712a5cd52bf080397fcffb5c8f7bc512c9"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 9848,
+          "end": 9980,
+          "sha256": "89973747828e37096819d6b4103e5eea393e1f8000c258390fba4290a382b3fc"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13265,
+          "end": 13348,
+          "sha256": "576416d2221df6c5454e6ef8ecbda482ad8d845c8cb9e0b8850079e032cc8560"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12882,
+          "end": 12890,
+          "sha256": "4df85e42ee64d2706e2ccc264d330b69e0ebdccd11e538e60598236e09c31efb"
+        }
+      ]
+    },
+    "asks.effects": {
+      "dimension": "effects",
+      "status": "specified",
+      "facts": [
+        "A routed ask or scope request drives the superior once after the save (supervisor.send_message, mail_ping, no ping_reason). Recorded legacy defect: a forwarded report mails the superior but drives NOBODY, although its coverage class is TX_POST and its result reports delivery_accepted. The answer and batch routes spark mail_notify(org, @user, asker) and drive the asker once (ping_reason ask_answer, wording differing for a dismissal; ping_reason batch). Every accepted tool call ends with one hub_changed, the withdraw no-op included; so do the two routes. Pinned by tests/test_state_requests_boundary.py against docs/state-system/requests-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 268,
+          "end": 337,
+          "sha256": "7ab809e9e7a4ce39ca56b420be0bf7128281448a98f979b5a2b5dd549dbe8ba4"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 749,
+          "end": 759,
+          "sha256": "0abeb79f9af9c4665299dbcbeec5a12eb444f1a1d875c579fe7a2fbd379d38c5"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 890,
+          "end": 924,
+          "sha256": "75469e6fde9aafc840262dccbb8a7b712a5cd52bf080397fcffb5c8f7bc512c9"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 9848,
+          "end": 9980,
+          "sha256": "89973747828e37096819d6b4103e5eea393e1f8000c258390fba4290a382b3fc"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13265,
+          "end": 13348,
+          "sha256": "576416d2221df6c5454e6ef8ecbda482ad8d845c8cb9e0b8850079e032cc8560"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12882,
+          "end": 12890,
+          "sha256": "4df85e42ee64d2706e2ccc264d330b69e0ebdccd11e538e60598236e09c31efb"
+        }
+      ]
+    },
+    "asks.instrumentation": {
+      "dimension": "instrumentation",
+      "status": "unresolved",
+      "facts": [
+        "The agent door labels each call (stateprobe.refine('tool:' + tool)); the routes are labelled by the access middleware. No P02 per-operation record covers this family yet."
+      ],
+      "open_questions": [
+        "Observe every asks, reports and scope requests operation with the P02 per-operation probe: actual contacts per outcome, cold and warm, refusals included.",
+        "Owner: P02 (p02-contacts-opus55; coordinator ruling Q6 on p01-f1-contracts-for-the-org-lifecycle-and-catal: probed after this family lands). Closes with: a loss-accounted P02 record per row. Not coverable at P01 from available evidence: P01 does not run the P02 probe, and no P02 record covers this family yet."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 268,
+          "end": 337,
+          "sha256": "7ab809e9e7a4ce39ca56b420be0bf7128281448a98f979b5a2b5dd549dbe8ba4"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 749,
+          "end": 759,
+          "sha256": "0abeb79f9af9c4665299dbcbeec5a12eb444f1a1d875c579fe7a2fbd379d38c5"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 890,
+          "end": 924,
+          "sha256": "75469e6fde9aafc840262dccbb8a7b712a5cd52bf080397fcffb5c8f7bc512c9"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 9848,
+          "end": 9980,
+          "sha256": "89973747828e37096819d6b4103e5eea393e1f8000c258390fba4290a382b3fc"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13265,
+          "end": 13348,
+          "sha256": "576416d2221df6c5454e6ef8ecbda482ad8d845c8cb9e0b8850079e032cc8560"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12882,
+          "end": 12890,
+          "sha256": "4df85e42ee64d2706e2ccc264d330b69e0ebdccd11e538e60598236e09c31efb"
+        }
+      ]
+    },
+    "watchdogs.authority": {
+      "dimension": "authority",
+      "status": "specified",
+      "facts": [
+        "orgtree_watchdog create makes a dog owned by the caller itself; list returns the caller's own dogs and those of its descendants; pause, resume, remove and supersede are open to the owner, any ancestor of the owner and the user ('X has no authority over <owner>' otherwise). POST /api/orgs/{slug}/watchdogs is the operator route and acts as the user. Pinned by tests/test_state_requests_boundary.py against docs/state-system/requests-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1073,
+          "end": 1150,
+          "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1073,
+          "end": 1150,
+          "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1073,
+          "end": 1150,
+          "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 8805,
+          "end": 8857,
+          "sha256": "1f3b0d5b27833eff08e8fb33ceda0178ef849efae744f0567a7639f0ce4f26c4"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12056,
+          "end": 12157,
+          "sha256": "6dd94c0414fef2b853a4cff3eb52f7c77d937abef4827ef9e46438e599e866c8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12846,
+          "end": 12876,
+          "sha256": "771cd7ec5a5477772208797b5b7aa80e1a81012511d0bc6d1ed8c837bd14a119"
+        }
+      ]
+    },
+    "watchdogs.reads": {
+      "dimension": "reads",
+      "status": "specified",
+      "facts": [
+        "From source: create checks a file target against the owner's roots (supervisor.wd_file_contained: the working folder, the workspace, folders it holds) and, for a command or stream dog, the owner's bash grant and a usable bash on the machine (supervisor.wd_bash_exe); list renders each row (supervisor.wd_list_row)."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1073,
+          "end": 1150,
+          "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1073,
+          "end": 1150,
+          "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1073,
+          "end": 1150,
+          "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 8805,
+          "end": 8857,
+          "sha256": "1f3b0d5b27833eff08e8fb33ceda0178ef849efae744f0567a7639f0ce4f26c4"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12056,
+          "end": 12157,
+          "sha256": "6dd94c0414fef2b853a4cff3eb52f7c77d937abef4827ef9e46438e599e866c8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12846,
+          "end": 12876,
+          "sha256": "771cd7ec5a5477772208797b5b7aa80e1a81012511d0bc6d1ed8c837bd14a119"
+        }
+      ]
+    },
+    "watchdogs.writes": {
+      "dimension": "writes",
+      "status": "specified",
+      "facts": [
+        "Measured cold: create writes watchdogs, lifecycle and events; pause, resume and remove write watchdogs and events; supersede writes watchdogs, watchdog_tombs, lifecycle and events; list writes nothing. Refusals write nothing. Pinned by tests/test_state_requests_boundary.py against docs/state-system/requests-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1073,
+          "end": 1150,
+          "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1073,
+          "end": 1150,
+          "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1073,
+          "end": 1150,
+          "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 8805,
+          "end": 8857,
+          "sha256": "1f3b0d5b27833eff08e8fb33ceda0178ef849efae744f0567a7639f0ce4f26c4"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12056,
+          "end": 12157,
+          "sha256": "6dd94c0414fef2b853a4cff3eb52f7c77d937abef4827ef9e46438e599e866c8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12846,
+          "end": 12876,
+          "sha256": "771cd7ec5a5477772208797b5b7aa80e1a81012511d0bc6d1ed8c837bd14a119"
+        }
+      ]
+    },
+    "watchdogs.predicates": {
+      "dimension": "predicates",
+      "status": "specified",
+      "facts": [
+        "kind must be one of file, command, process or stream; a command or stream dog needs the bash the owner holds; a file outside the owner's roots is refused; supersede needs a one-shot dog ('only a one-shot watchdog can be superseded …') and a reason; an unknown id is refused ('no watchdog …'). From source: sandboxed orgs watch files with stream dogs only, and shell='bash' refuses when no bash is found. Pinned by tests/test_state_requests_boundary.py against docs/state-system/requests-boundary.json, except the two source clauses."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1073,
+          "end": 1150,
+          "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1073,
+          "end": 1150,
+          "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1073,
+          "end": 1150,
+          "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 8805,
+          "end": 8857,
+          "sha256": "1f3b0d5b27833eff08e8fb33ceda0178ef849efae744f0567a7639f0ce4f26c4"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12056,
+          "end": 12157,
+          "sha256": "6dd94c0414fef2b853a4cff3eb52f7c77d937abef4827ef9e46438e599e866c8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12846,
+          "end": 12876,
+          "sha256": "771cd7ec5a5477772208797b5b7aa80e1a81012511d0bc6d1ed8c837bd14a119"
+        }
+      ]
+    },
+    "watchdogs.conflicts": {
+      "dimension": "conflicts",
+      "status": "unresolved",
+      "facts": [
+        "Each action is one whole-document write cycle under DOC_LOCK; create's smoke run is outside it, after the save (source)."
+      ],
+      "open_questions": [
+        "Implement and qualify native transactions for the watchdog operations.",
+        "Owner: P03 (native design and qualification), with P05 for the refusal fixtures. Closes with: a native design for these operations qualified by concurrent requests against one agent and one card (an answer racing an amend, a grant racing a revoke). Not coverable at P01 from available evidence: no native build exists, and P01 has not cited a native design section for these operations."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1073,
+          "end": 1150,
+          "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1073,
+          "end": 1150,
+          "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1073,
+          "end": 1150,
+          "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 8805,
+          "end": 8857,
+          "sha256": "1f3b0d5b27833eff08e8fb33ceda0178ef849efae744f0567a7639f0ce4f26c4"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12056,
+          "end": 12157,
+          "sha256": "6dd94c0414fef2b853a4cff3eb52f7c77d937abef4827ef9e46438e599e866c8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12846,
+          "end": 12876,
+          "sha256": "771cd7ec5a5477772208797b5b7aa80e1a81012511d0bc6d1ed8c837bd14a119"
+        }
+      ]
+    },
+    "watchdogs.wire": {
+      "dimension": "wire",
+      "status": "unresolved",
+      "facts": [
+        "The shapes are fixtured in docs/state-system/requests-boundary.json."
+      ],
+      "open_questions": [
+        "Carry the fixtured watchdog shapes to the native/Rust door and decide each recorded legacy defect.",
+        "Owner: the native/Rust conversion, from the P03 prototype onward. Closes with: the fixtured shapes passing against the native and Rust builds, with each recorded legacy defect reproduced deliberately or replaced. Not coverable at P01 from available evidence: no native or Rust build exists to run the fixtures against."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1073,
+          "end": 1150,
+          "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1073,
+          "end": 1150,
+          "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1073,
+          "end": 1150,
+          "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 8805,
+          "end": 8857,
+          "sha256": "1f3b0d5b27833eff08e8fb33ceda0178ef849efae744f0567a7639f0ce4f26c4"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12056,
+          "end": 12157,
+          "sha256": "6dd94c0414fef2b853a4cff3eb52f7c77d937abef4827ef9e46438e599e866c8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12846,
+          "end": 12876,
+          "sha256": "771cd7ec5a5477772208797b5b7aa80e1a81012511d0bc6d1ed8c837bd14a119"
+        }
+      ]
+    },
+    "watchdogs.receipt": {
+      "dimension": "receipt",
+      "status": "specified",
+      "facts": [
+        "Coverage: create TX_POST (its smoke run is after the commit); every other action TX. create keeps id; pause keeps id and state. Recorded legacy behaviour: list is a read, yet a keyed list files a receipt and every list call saves and broadcasts through the write cycle. The operator route takes no key. Pinned by tests/test_state_requests_boundary.py against docs/state-system/requests-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1073,
+          "end": 1150,
+          "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1073,
+          "end": 1150,
+          "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1073,
+          "end": 1150,
+          "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 8805,
+          "end": 8857,
+          "sha256": "1f3b0d5b27833eff08e8fb33ceda0178ef849efae744f0567a7639f0ce4f26c4"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12056,
+          "end": 12157,
+          "sha256": "6dd94c0414fef2b853a4cff3eb52f7c77d937abef4827ef9e46438e599e866c8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12846,
+          "end": 12876,
+          "sha256": "771cd7ec5a5477772208797b5b7aa80e1a81012511d0bc6d1ed8c837bd14a119"
+        }
+      ]
+    },
+    "watchdogs.effects": {
+      "dimension": "effects",
+      "status": "specified",
+      "facts": [
+        "create runs its target once after the lock (supervisor.wd_smoke, the engine's own runner) and returns that run as `smoke`; no other action has an effect outside the document. Every accepted call ends with one hub_changed, list included; the operator route too. The watchdog engine that fires dogs is not part of these contracts (its worker rows stay pending). Pinned by tests/test_state_requests_boundary.py against docs/state-system/requests-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1073,
+          "end": 1150,
+          "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1073,
+          "end": 1150,
+          "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1073,
+          "end": 1150,
+          "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 8805,
+          "end": 8857,
+          "sha256": "1f3b0d5b27833eff08e8fb33ceda0178ef849efae744f0567a7639f0ce4f26c4"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12056,
+          "end": 12157,
+          "sha256": "6dd94c0414fef2b853a4cff3eb52f7c77d937abef4827ef9e46438e599e866c8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12846,
+          "end": 12876,
+          "sha256": "771cd7ec5a5477772208797b5b7aa80e1a81012511d0bc6d1ed8c837bd14a119"
+        }
+      ]
+    },
+    "watchdogs.instrumentation": {
+      "dimension": "instrumentation",
+      "status": "unresolved",
+      "facts": [
+        "The agent door labels each call (stateprobe.refine('tool:' + tool)); the routes are labelled by the access middleware. No P02 per-operation record covers this family yet."
+      ],
+      "open_questions": [
+        "Observe every watchdog operation with the P02 per-operation probe: actual contacts per outcome, cold and warm, refusals included.",
+        "Owner: P02 (p02-contacts-opus55; coordinator ruling Q6 on p01-f1-contracts-for-the-org-lifecycle-and-catal: probed after this family lands). Closes with: a loss-accounted P02 record per row. Not coverable at P01 from available evidence: P01 does not run the P02 probe, and no P02 record covers this family yet."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1073,
+          "end": 1150,
+          "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1073,
+          "end": 1150,
+          "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1073,
+          "end": 1150,
+          "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 8805,
+          "end": 8857,
+          "sha256": "1f3b0d5b27833eff08e8fb33ceda0178ef849efae744f0567a7639f0ce4f26c4"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12056,
+          "end": 12157,
+          "sha256": "6dd94c0414fef2b853a4cff3eb52f7c77d937abef4827ef9e46438e599e866c8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12846,
+          "end": 12876,
+          "sha256": "771cd7ec5a5477772208797b5b7aa80e1a81012511d0bc6d1ed8c837bd14a119"
+        }
+      ]
+    },
+    "audiences.authority": {
+      "dimension": "authority",
+      "status": "specified",
+      "facts": [
+        "request: the requester's target must be one of its superiors or the user (a headless org refuses a user target, source); forward: the node the request currently awaits, or the user; grant: a superior grants an audience with itself, and a delegated grant may open its own ear, a live peer's or its direct superior's for a grantee in its subtree; the user's authority is unconditional; deny: the node holding the request; revoke: the grant's anchor (source). POST /api/orgs/{slug}/audiences acts as the user; GET /api/orgs/{slug}/audiences is an operator read. Pinned by tests/test_state_requests_boundary.py against docs/state-system/requests-boundary.json, except the headless and revoke clauses."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2013,
+          "end": 2038,
+          "sha256": "64f14dbea5b142623dbc2a7207217219e1c648c795a46121ad092e4c5454316b"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2013,
+          "end": 2038,
+          "sha256": "64f14dbea5b142623dbc2a7207217219e1c648c795a46121ad092e4c5454316b"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2013,
+          "end": 2038,
+          "sha256": "64f14dbea5b142623dbc2a7207217219e1c648c795a46121ad092e4c5454316b"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4082,
+          "end": 4163,
+          "sha256": "edf2cebcac60324d91cb1bd547f7b2251fff6f2c4a0191c7691f14f19c727ec7"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12714,
+          "end": 12732,
+          "sha256": "287d6259dbd1b2532ae8eb82866d49a99e3a80be62b2b3c099ee068cfc8135bf"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9617,
+          "end": 9639,
+          "sha256": "e1401fad8d17935aeabb8cd2d6e84e425a410f775bfd80913e77591cd11f2a75"
+        }
+      ]
+    },
+    "audiences.reads": {
+      "dimension": "reads",
+      "status": "specified",
+      "facts": [
+        "From source: the chain from requester to target (is_ancestor, parent), the open audience_requests row, the audiences list and the live peers; the list route loads the org without the lock (store.load_org) and returns audiences and requests as stored."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2013,
+          "end": 2038,
+          "sha256": "64f14dbea5b142623dbc2a7207217219e1c648c795a46121ad092e4c5454316b"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2013,
+          "end": 2038,
+          "sha256": "64f14dbea5b142623dbc2a7207217219e1c648c795a46121ad092e4c5454316b"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2013,
+          "end": 2038,
+          "sha256": "64f14dbea5b142623dbc2a7207217219e1c648c795a46121ad092e4c5454316b"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4082,
+          "end": 4163,
+          "sha256": "edf2cebcac60324d91cb1bd547f7b2251fff6f2c4a0191c7691f14f19c727ec7"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12714,
+          "end": 12732,
+          "sha256": "287d6259dbd1b2532ae8eb82866d49a99e3a80be62b2b3c099ee068cfc8135bf"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9617,
+          "end": 9639,
+          "sha256": "e1401fad8d17935aeabb8cd2d6e84e425a410f775bfd80913e77591cd11f2a75"
+        }
+      ]
+    },
+    "audiences.writes": {
+      "dimension": "writes",
+      "status": "specified",
+      "facts": [
+        "Measured cold: request writes audience_requests and the request mail to the next hop (mail, mail_log, lifecycle, nodes, events); forward moves the request and mails the next hop; an agent's grant writes audiences, resolves the request and mails the decision to the grantee; deny resolves the request and mails the decision; revoke writes audiences and tells the grantee (access.audience_changed); the operator route's grant writes audiences, audience_requests and access.audience_changed to both parties, and no mail. A request to the direct superior writes nothing (already reachable). Refusals write nothing. Pinned by tests/test_state_requests_boundary.py against docs/state-system/requests-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2013,
+          "end": 2038,
+          "sha256": "64f14dbea5b142623dbc2a7207217219e1c648c795a46121ad092e4c5454316b"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2013,
+          "end": 2038,
+          "sha256": "64f14dbea5b142623dbc2a7207217219e1c648c795a46121ad092e4c5454316b"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2013,
+          "end": 2038,
+          "sha256": "64f14dbea5b142623dbc2a7207217219e1c648c795a46121ad092e4c5454316b"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4082,
+          "end": 4163,
+          "sha256": "edf2cebcac60324d91cb1bd547f7b2251fff6f2c4a0191c7691f14f19c727ec7"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12714,
+          "end": 12732,
+          "sha256": "287d6259dbd1b2532ae8eb82866d49a99e3a80be62b2b3c099ee068cfc8135bf"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9617,
+          "end": 9639,
+          "sha256": "e1401fad8d17935aeabb8cd2d6e84e425a410f775bfd80913e77591cd11f2a75"
+        }
+      ]
+    },
+    "audiences.predicates": {
+      "dimension": "predicates",
+      "status": "specified",
+      "facts": [
+        "A request whose target is not in the requester's chain is refused; one aimed at the direct superior succeeds as a no-op ('you can already message them'); an unknown action is refused on the tool ('action must be request|forward|grant|deny|revoke') and on the route ('action must be grant|deny|revoke'). Pinned by tests/test_state_requests_boundary.py against docs/state-system/requests-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2013,
+          "end": 2038,
+          "sha256": "64f14dbea5b142623dbc2a7207217219e1c648c795a46121ad092e4c5454316b"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2013,
+          "end": 2038,
+          "sha256": "64f14dbea5b142623dbc2a7207217219e1c648c795a46121ad092e4c5454316b"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2013,
+          "end": 2038,
+          "sha256": "64f14dbea5b142623dbc2a7207217219e1c648c795a46121ad092e4c5454316b"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4082,
+          "end": 4163,
+          "sha256": "edf2cebcac60324d91cb1bd547f7b2251fff6f2c4a0191c7691f14f19c727ec7"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12714,
+          "end": 12732,
+          "sha256": "287d6259dbd1b2532ae8eb82866d49a99e3a80be62b2b3c099ee068cfc8135bf"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9617,
+          "end": 9639,
+          "sha256": "e1401fad8d17935aeabb8cd2d6e84e425a410f775bfd80913e77591cd11f2a75"
+        }
+      ]
+    },
+    "audiences.conflicts": {
+      "dimension": "conflicts",
+      "status": "unresolved",
+      "facts": [
+        "Each action is one whole-document write cycle under DOC_LOCK; the list route reads without the lock (source)."
+      ],
+      "open_questions": [
+        "Implement and qualify native transactions for the audience operations.",
+        "Owner: P03 (native design and qualification), with P05 for the refusal fixtures. Closes with: a native design for these operations qualified by concurrent requests against one agent and one card (an answer racing an amend, a grant racing a revoke). Not coverable at P01 from available evidence: no native build exists, and P01 has not cited a native design section for these operations."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2013,
+          "end": 2038,
+          "sha256": "64f14dbea5b142623dbc2a7207217219e1c648c795a46121ad092e4c5454316b"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2013,
+          "end": 2038,
+          "sha256": "64f14dbea5b142623dbc2a7207217219e1c648c795a46121ad092e4c5454316b"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2013,
+          "end": 2038,
+          "sha256": "64f14dbea5b142623dbc2a7207217219e1c648c795a46121ad092e4c5454316b"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4082,
+          "end": 4163,
+          "sha256": "edf2cebcac60324d91cb1bd547f7b2251fff6f2c4a0191c7691f14f19c727ec7"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12714,
+          "end": 12732,
+          "sha256": "287d6259dbd1b2532ae8eb82866d49a99e3a80be62b2b3c099ee068cfc8135bf"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9617,
+          "end": 9639,
+          "sha256": "e1401fad8d17935aeabb8cd2d6e84e425a410f775bfd80913e77591cd11f2a75"
+        }
+      ]
+    },
+    "audiences.wire": {
+      "dimension": "wire",
+      "status": "unresolved",
+      "facts": [
+        "The shapes are fixtured in docs/state-system/requests-boundary.json."
+      ],
+      "open_questions": [
+        "Carry the fixtured audience shapes to the native/Rust door and decide each recorded legacy defect.",
+        "Owner: the native/Rust conversion, from the P03 prototype onward. Closes with: the fixtured shapes passing against the native and Rust builds, with each recorded legacy defect reproduced deliberately or replaced. Not coverable at P01 from available evidence: no native or Rust build exists to run the fixtures against."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2013,
+          "end": 2038,
+          "sha256": "64f14dbea5b142623dbc2a7207217219e1c648c795a46121ad092e4c5454316b"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2013,
+          "end": 2038,
+          "sha256": "64f14dbea5b142623dbc2a7207217219e1c648c795a46121ad092e4c5454316b"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2013,
+          "end": 2038,
+          "sha256": "64f14dbea5b142623dbc2a7207217219e1c648c795a46121ad092e4c5454316b"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4082,
+          "end": 4163,
+          "sha256": "edf2cebcac60324d91cb1bd547f7b2251fff6f2c4a0191c7691f14f19c727ec7"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12714,
+          "end": 12732,
+          "sha256": "287d6259dbd1b2532ae8eb82866d49a99e3a80be62b2b3c099ee068cfc8135bf"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9617,
+          "end": 9639,
+          "sha256": "e1401fad8d17935aeabb8cd2d6e84e425a410f775bfd80913e77591cd11f2a75"
+        }
+      ]
+    },
+    "audiences.receipt": {
+      "dimension": "receipt",
+      "status": "specified",
+      "facts": [
+        "Coverage: TX_POST for every action. Recorded legacy defect: the allowlist names granted, revoked and routed, which the results do not carry, so the receipts keep nothing. The routes take no key. Pinned by tests/test_state_requests_boundary.py against docs/state-system/requests-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2013,
+          "end": 2038,
+          "sha256": "64f14dbea5b142623dbc2a7207217219e1c648c795a46121ad092e4c5454316b"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2013,
+          "end": 2038,
+          "sha256": "64f14dbea5b142623dbc2a7207217219e1c648c795a46121ad092e4c5454316b"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2013,
+          "end": 2038,
+          "sha256": "64f14dbea5b142623dbc2a7207217219e1c648c795a46121ad092e4c5454316b"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4082,
+          "end": 4163,
+          "sha256": "edf2cebcac60324d91cb1bd547f7b2251fff6f2c4a0191c7691f14f19c727ec7"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12714,
+          "end": 12732,
+          "sha256": "287d6259dbd1b2532ae8eb82866d49a99e3a80be62b2b3c099ee068cfc8135bf"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9617,
+          "end": 9639,
+          "sha256": "e1401fad8d17935aeabb8cd2d6e84e425a410f775bfd80913e77591cd11f2a75"
+        }
+      ]
+    },
+    "audiences.effects": {
+      "dimension": "effects",
+      "status": "specified",
+      "facts": [
+        "request, forward, grant and deny drive the next recipient once after the save (send_message, mail_ping); revoke drives nobody. Recorded legacy behaviour: the operator route's grant drives the grantee with '(orgtree) You have new mail above.' (ping_reason audience) although it posted only notices, no mail. Every accepted write ends with one hub_changed; the list route broadcasts nothing. Pinned by tests/test_state_requests_boundary.py against docs/state-system/requests-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2013,
+          "end": 2038,
+          "sha256": "64f14dbea5b142623dbc2a7207217219e1c648c795a46121ad092e4c5454316b"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2013,
+          "end": 2038,
+          "sha256": "64f14dbea5b142623dbc2a7207217219e1c648c795a46121ad092e4c5454316b"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2013,
+          "end": 2038,
+          "sha256": "64f14dbea5b142623dbc2a7207217219e1c648c795a46121ad092e4c5454316b"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4082,
+          "end": 4163,
+          "sha256": "edf2cebcac60324d91cb1bd547f7b2251fff6f2c4a0191c7691f14f19c727ec7"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12714,
+          "end": 12732,
+          "sha256": "287d6259dbd1b2532ae8eb82866d49a99e3a80be62b2b3c099ee068cfc8135bf"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9617,
+          "end": 9639,
+          "sha256": "e1401fad8d17935aeabb8cd2d6e84e425a410f775bfd80913e77591cd11f2a75"
+        }
+      ]
+    },
+    "audiences.instrumentation": {
+      "dimension": "instrumentation",
+      "status": "unresolved",
+      "facts": [
+        "The agent door labels each call (stateprobe.refine('tool:' + tool)); the routes are labelled by the access middleware. No P02 per-operation record covers this family yet."
+      ],
+      "open_questions": [
+        "Observe every audience operation with the P02 per-operation probe: actual contacts per outcome, cold and warm, refusals included.",
+        "Owner: P02 (p02-contacts-opus55; coordinator ruling Q6 on p01-f1-contracts-for-the-org-lifecycle-and-catal: probed after this family lands). Closes with: a loss-accounted P02 record per row. Not coverable at P01 from available evidence: P01 does not run the P02 probe, and no P02 record covers this family yet."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2013,
+          "end": 2038,
+          "sha256": "64f14dbea5b142623dbc2a7207217219e1c648c795a46121ad092e4c5454316b"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2013,
+          "end": 2038,
+          "sha256": "64f14dbea5b142623dbc2a7207217219e1c648c795a46121ad092e4c5454316b"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2013,
+          "end": 2038,
+          "sha256": "64f14dbea5b142623dbc2a7207217219e1c648c795a46121ad092e4c5454316b"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4082,
+          "end": 4163,
+          "sha256": "edf2cebcac60324d91cb1bd547f7b2251fff6f2c4a0191c7691f14f19c727ec7"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12714,
+          "end": 12732,
+          "sha256": "287d6259dbd1b2532ae8eb82866d49a99e3a80be62b2b3c099ee068cfc8135bf"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9617,
+          "end": 9639,
+          "sha256": "e1401fad8d17935aeabb8cd2d6e84e425a410f775bfd80913e77591cd11f2a75"
+        }
       ]
     }
   },
@@ -13200,6 +14512,1362 @@
         }
       ],
       "domain_mode": "read"
+    },
+    "asks.ask": {
+      "entry_ids": [
+        "64d79e5cda0a4eefa30caea3eca0f47d302299b822c7eaedcca46cccf80ccb61"
+      ],
+      "tools": [
+        "orgtree_ask"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "asks.authority"
+        ],
+        "reads": [
+          "asks.reads"
+        ],
+        "writes": [
+          "asks.writes"
+        ],
+        "predicates": [
+          "asks.predicates"
+        ],
+        "conflicts": [
+          "asks.conflicts"
+        ],
+        "wire": [
+          "asks.wire"
+        ],
+        "receipt": [
+          "asks.receipt"
+        ],
+        "effects": [
+          "asks.effects"
+        ],
+        "instrumentation": [
+          "asks.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 268,
+          "end": 337,
+          "sha256": "7ab809e9e7a4ce39ca56b420be0bf7128281448a98f979b5a2b5dd549dbe8ba4"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12165,
+          "end": 12174,
+          "sha256": "3134276577cf711f284d093aef1d406f990cde561ebef2c0614361de3d2fe756"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 9848,
+          "end": 9980,
+          "sha256": "89973747828e37096819d6b4103e5eea393e1f8000c258390fba4290a382b3fc"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "asks.withdraw": {
+      "entry_ids": [
+        "06e5004ad158ef4c71568d09c004ad1d4b0d3922e180fbbcb5eae51bb14bc193"
+      ],
+      "tools": [
+        "orgtree_withdraw_ask"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "asks.authority"
+        ],
+        "reads": [
+          "asks.reads"
+        ],
+        "writes": [
+          "asks.writes"
+        ],
+        "predicates": [
+          "asks.predicates"
+        ],
+        "conflicts": [
+          "asks.conflicts"
+        ],
+        "wire": [
+          "asks.wire"
+        ],
+        "receipt": [
+          "asks.receipt"
+        ],
+        "effects": [
+          "asks.effects"
+        ],
+        "instrumentation": [
+          "asks.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 749,
+          "end": 759,
+          "sha256": "0abeb79f9af9c4665299dbcbeec5a12eb444f1a1d875c579fe7a2fbd379d38c5"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12260,
+          "end": 12261,
+          "sha256": "9621ad64670625d8d9bd0d0fd5069885a7af127c36c250a600fa3b081d6b4327"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 10566,
+          "end": 10599,
+          "sha256": "d97e93e66a18ce9b3f4dcf2ca2f33af3e8b9653329c0a82f777c3860f3b93de1"
+        }
+      ],
+      "domain_mode": "conditional_write"
+    },
+    "asks.present": {
+      "entry_ids": [
+        "23044e0596acf65cd9df181daf0102f6ba7129a9fb27fc1f515f72f41f893263"
+      ],
+      "tools": [
+        "orgtree_present"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "asks.authority"
+        ],
+        "reads": [
+          "asks.reads"
+        ],
+        "writes": [
+          "asks.writes"
+        ],
+        "predicates": [
+          "asks.predicates"
+        ],
+        "conflicts": [
+          "asks.conflicts"
+        ],
+        "wire": [
+          "asks.wire"
+        ],
+        "receipt": [
+          "asks.receipt"
+        ],
+        "effects": [
+          "asks.effects"
+        ],
+        "instrumentation": [
+          "asks.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 890,
+          "end": 924,
+          "sha256": "75469e6fde9aafc840262dccbb8a7b712a5cd52bf080397fcffb5c8f7bc512c9"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12402,
+          "end": 12412,
+          "sha256": "63d516bdb63b8b0394ffa25a5e420ff1c94a63c8f05363c014b755e4122c59e8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13204,
+          "end": 13229,
+          "sha256": "c3f0745a3020d18f24c15a3b79f11199a21b9191c29a1336a01228f2d56205b6"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 10012,
+          "end": 10103,
+          "sha256": "4024c7a3c6b8fec2ee37efe9f15d2b4b5a4a4827cf17f5fb978aa0e850dcd48c"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "asks.submit-report": {
+      "entry_ids": [
+        "b680e9d093c84717b9ba519bbe79dbfac040fc3f13a6753bb68ce1af2ef78675"
+      ],
+      "tools": [
+        "orgtree_submit_report"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "asks.authority"
+        ],
+        "reads": [
+          "asks.reads"
+        ],
+        "writes": [
+          "asks.writes"
+        ],
+        "predicates": [
+          "asks.predicates"
+        ],
+        "conflicts": [
+          "asks.conflicts"
+        ],
+        "wire": [
+          "asks.wire"
+        ],
+        "receipt": [
+          "asks.receipt"
+        ],
+        "effects": [
+          "asks.effects"
+        ],
+        "instrumentation": [
+          "asks.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 925,
+          "end": 957,
+          "sha256": "ebdaa2d934feca98f0e6e529c5d4ff502ece1e02155af6af03ec7c70495430fd"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12402,
+          "end": 12412,
+          "sha256": "63d516bdb63b8b0394ffa25a5e420ff1c94a63c8f05363c014b755e4122c59e8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13265,
+          "end": 13348,
+          "sha256": "576416d2221df6c5454e6ef8ecbda482ad8d845c8cb9e0b8850079e032cc8560"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "asks.request-scope": {
+      "entry_ids": [
+        "e84b4b2469255eadf6da2112a8f46ba909b591f3a321fad9f3993478bce9340d"
+      ],
+      "tools": [
+        "orgtree_request_scope"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "asks.authority"
+        ],
+        "reads": [
+          "asks.reads"
+        ],
+        "writes": [
+          "asks.writes"
+        ],
+        "predicates": [
+          "asks.predicates"
+        ],
+        "conflicts": [
+          "asks.conflicts"
+        ],
+        "wire": [
+          "asks.wire"
+        ],
+        "receipt": [
+          "asks.receipt"
+        ],
+        "effects": [
+          "asks.effects"
+        ],
+        "instrumentation": [
+          "asks.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 980,
+          "end": 1026,
+          "sha256": "402edbd5e66edd1d5cbca0c7a33ce85b644d7c01a7a047b7758ebd738114f2df"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12158,
+          "end": 12164,
+          "sha256": "cdf1aff6d27e6d241ec196ed26113998ee79086d282b8d15ef6bdf8cb75ec010"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 8219,
+          "end": 8354,
+          "sha256": "0f3ae6bcd0d4a2adea0df62e69ff128bfaedbf4422d739e9ff60e9b8db60b02f"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "watchdogs.create": {
+      "entry_ids": [
+        "6577f91be0aab2250b49d7dc4c720a3eceb8c5a6a1c8889e0f839340981f86e3"
+      ],
+      "tools": [
+        "orgtree_watchdog"
+      ],
+      "action": "create",
+      "action_normalization": "str_or_empty",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "watchdogs.authority"
+        ],
+        "reads": [
+          "watchdogs.reads"
+        ],
+        "writes": [
+          "watchdogs.writes"
+        ],
+        "predicates": [
+          "watchdogs.predicates"
+        ],
+        "conflicts": [
+          "watchdogs.conflicts"
+        ],
+        "wire": [
+          "watchdogs.wire"
+        ],
+        "receipt": [
+          "watchdogs.receipt"
+        ],
+        "effects": [
+          "watchdogs.effects"
+        ],
+        "instrumentation": [
+          "watchdogs.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1073,
+          "end": 1150,
+          "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12056,
+          "end": 12157,
+          "sha256": "6dd94c0414fef2b853a4cff3eb52f7c77d937abef4827ef9e46438e599e866c8"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 8653,
+          "end": 8803,
+          "sha256": "7fc58fba0928ff8f5bf7389e3ff61568cb40eea673f039a5453c2f8a62ae2f3f"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 32331,
+          "end": 32435,
+          "sha256": "9078596f3dbfae3e17973e42b0a9545fcf1074c4ba441df424eb69090cc53ce2"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "watchdogs.list": {
+      "entry_ids": [
+        "6577f91be0aab2250b49d7dc4c720a3eceb8c5a6a1c8889e0f839340981f86e3"
+      ],
+      "tools": [
+        "orgtree_watchdog"
+      ],
+      "action": "list",
+      "action_normalization": "str_or_empty",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "watchdogs.authority"
+        ],
+        "reads": [
+          "watchdogs.reads"
+        ],
+        "writes": [
+          "watchdogs.writes"
+        ],
+        "predicates": [
+          "watchdogs.predicates"
+        ],
+        "conflicts": [
+          "watchdogs.conflicts"
+        ],
+        "wire": [
+          "watchdogs.wire"
+        ],
+        "receipt": [
+          "watchdogs.receipt"
+        ],
+        "effects": [
+          "watchdogs.effects"
+        ],
+        "instrumentation": [
+          "watchdogs.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1073,
+          "end": 1150,
+          "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12056,
+          "end": 12157,
+          "sha256": "6dd94c0414fef2b853a4cff3eb52f7c77d937abef4827ef9e46438e599e866c8"
+        }
+      ],
+      "domain_mode": "read"
+    },
+    "watchdogs.pause": {
+      "entry_ids": [
+        "6577f91be0aab2250b49d7dc4c720a3eceb8c5a6a1c8889e0f839340981f86e3"
+      ],
+      "tools": [
+        "orgtree_watchdog"
+      ],
+      "action": "pause",
+      "action_normalization": "str_or_empty",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "watchdogs.authority"
+        ],
+        "reads": [
+          "watchdogs.reads"
+        ],
+        "writes": [
+          "watchdogs.writes"
+        ],
+        "predicates": [
+          "watchdogs.predicates"
+        ],
+        "conflicts": [
+          "watchdogs.conflicts"
+        ],
+        "wire": [
+          "watchdogs.wire"
+        ],
+        "receipt": [
+          "watchdogs.receipt"
+        ],
+        "effects": [
+          "watchdogs.effects"
+        ],
+        "instrumentation": [
+          "watchdogs.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1073,
+          "end": 1150,
+          "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12056,
+          "end": 12157,
+          "sha256": "6dd94c0414fef2b853a4cff3eb52f7c77d937abef4827ef9e46438e599e866c8"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 8805,
+          "end": 8857,
+          "sha256": "1f3b0d5b27833eff08e8fb33ceda0178ef849efae744f0567a7639f0ce4f26c4"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "watchdogs.resume": {
+      "entry_ids": [
+        "6577f91be0aab2250b49d7dc4c720a3eceb8c5a6a1c8889e0f839340981f86e3"
+      ],
+      "tools": [
+        "orgtree_watchdog"
+      ],
+      "action": "resume",
+      "action_normalization": "str_or_empty",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "watchdogs.authority"
+        ],
+        "reads": [
+          "watchdogs.reads"
+        ],
+        "writes": [
+          "watchdogs.writes"
+        ],
+        "predicates": [
+          "watchdogs.predicates"
+        ],
+        "conflicts": [
+          "watchdogs.conflicts"
+        ],
+        "wire": [
+          "watchdogs.wire"
+        ],
+        "receipt": [
+          "watchdogs.receipt"
+        ],
+        "effects": [
+          "watchdogs.effects"
+        ],
+        "instrumentation": [
+          "watchdogs.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1073,
+          "end": 1150,
+          "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12056,
+          "end": 12157,
+          "sha256": "6dd94c0414fef2b853a4cff3eb52f7c77d937abef4827ef9e46438e599e866c8"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 8805,
+          "end": 8857,
+          "sha256": "1f3b0d5b27833eff08e8fb33ceda0178ef849efae744f0567a7639f0ce4f26c4"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "watchdogs.remove": {
+      "entry_ids": [
+        "6577f91be0aab2250b49d7dc4c720a3eceb8c5a6a1c8889e0f839340981f86e3"
+      ],
+      "tools": [
+        "orgtree_watchdog"
+      ],
+      "action": "remove",
+      "action_normalization": "str_or_empty",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "watchdogs.authority"
+        ],
+        "reads": [
+          "watchdogs.reads"
+        ],
+        "writes": [
+          "watchdogs.writes"
+        ],
+        "predicates": [
+          "watchdogs.predicates"
+        ],
+        "conflicts": [
+          "watchdogs.conflicts"
+        ],
+        "wire": [
+          "watchdogs.wire"
+        ],
+        "receipt": [
+          "watchdogs.receipt"
+        ],
+        "effects": [
+          "watchdogs.effects"
+        ],
+        "instrumentation": [
+          "watchdogs.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1073,
+          "end": 1150,
+          "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12056,
+          "end": 12157,
+          "sha256": "6dd94c0414fef2b853a4cff3eb52f7c77d937abef4827ef9e46438e599e866c8"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 8805,
+          "end": 8857,
+          "sha256": "1f3b0d5b27833eff08e8fb33ceda0178ef849efae744f0567a7639f0ce4f26c4"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "watchdogs.supersede": {
+      "entry_ids": [
+        "6577f91be0aab2250b49d7dc4c720a3eceb8c5a6a1c8889e0f839340981f86e3"
+      ],
+      "tools": [
+        "orgtree_watchdog"
+      ],
+      "action": "supersede",
+      "action_normalization": "str_or_empty",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "watchdogs.authority"
+        ],
+        "reads": [
+          "watchdogs.reads"
+        ],
+        "writes": [
+          "watchdogs.writes"
+        ],
+        "predicates": [
+          "watchdogs.predicates"
+        ],
+        "conflicts": [
+          "watchdogs.conflicts"
+        ],
+        "wire": [
+          "watchdogs.wire"
+        ],
+        "receipt": [
+          "watchdogs.receipt"
+        ],
+        "effects": [
+          "watchdogs.effects"
+        ],
+        "instrumentation": [
+          "watchdogs.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1073,
+          "end": 1150,
+          "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12056,
+          "end": 12157,
+          "sha256": "6dd94c0414fef2b853a4cff3eb52f7c77d937abef4827ef9e46438e599e866c8"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 8805,
+          "end": 8857,
+          "sha256": "1f3b0d5b27833eff08e8fb33ceda0178ef849efae744f0567a7639f0ce4f26c4"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "audiences.request": {
+      "entry_ids": [
+        "56a9e6d31826a496c0e0482833fedf11aa27e7d90dd08ca603bd40d819b47655"
+      ],
+      "tools": [
+        "orgtree_audience"
+      ],
+      "action": "request",
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "audiences.authority"
+        ],
+        "reads": [
+          "audiences.reads"
+        ],
+        "writes": [
+          "audiences.writes"
+        ],
+        "predicates": [
+          "audiences.predicates"
+        ],
+        "conflicts": [
+          "audiences.conflicts"
+        ],
+        "wire": [
+          "audiences.wire"
+        ],
+        "receipt": [
+          "audiences.receipt"
+        ],
+        "effects": [
+          "audiences.effects"
+        ],
+        "instrumentation": [
+          "audiences.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2013,
+          "end": 2038,
+          "sha256": "64f14dbea5b142623dbc2a7207217219e1c648c795a46121ad092e4c5454316b"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12714,
+          "end": 12732,
+          "sha256": "287d6259dbd1b2532ae8eb82866d49a99e3a80be62b2b3c099ee068cfc8135bf"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 3993,
+          "end": 4032,
+          "sha256": "7cbb613fa53c0d7f534a24325e5005472ef47f6ec9d07c8190c5d690ccdc891f"
+        }
+      ],
+      "domain_mode": "conditional_write"
+    },
+    "audiences.forward": {
+      "entry_ids": [
+        "56a9e6d31826a496c0e0482833fedf11aa27e7d90dd08ca603bd40d819b47655"
+      ],
+      "tools": [
+        "orgtree_audience"
+      ],
+      "action": "forward",
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "audiences.authority"
+        ],
+        "reads": [
+          "audiences.reads"
+        ],
+        "writes": [
+          "audiences.writes"
+        ],
+        "predicates": [
+          "audiences.predicates"
+        ],
+        "conflicts": [
+          "audiences.conflicts"
+        ],
+        "wire": [
+          "audiences.wire"
+        ],
+        "receipt": [
+          "audiences.receipt"
+        ],
+        "effects": [
+          "audiences.effects"
+        ],
+        "instrumentation": [
+          "audiences.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2013,
+          "end": 2038,
+          "sha256": "64f14dbea5b142623dbc2a7207217219e1c648c795a46121ad092e4c5454316b"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12714,
+          "end": 12732,
+          "sha256": "287d6259dbd1b2532ae8eb82866d49a99e3a80be62b2b3c099ee068cfc8135bf"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4041,
+          "end": 4074,
+          "sha256": "d8820e521cd1237cb459440ee89c0f9d15a253d7ba5b97ef8c4c5e5f47a8209b"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "audiences.grant": {
+      "entry_ids": [
+        "56a9e6d31826a496c0e0482833fedf11aa27e7d90dd08ca603bd40d819b47655"
+      ],
+      "tools": [
+        "orgtree_audience"
+      ],
+      "action": "grant",
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "audiences.authority"
+        ],
+        "reads": [
+          "audiences.reads"
+        ],
+        "writes": [
+          "audiences.writes"
+        ],
+        "predicates": [
+          "audiences.predicates"
+        ],
+        "conflicts": [
+          "audiences.conflicts"
+        ],
+        "wire": [
+          "audiences.wire"
+        ],
+        "receipt": [
+          "audiences.receipt"
+        ],
+        "effects": [
+          "audiences.effects"
+        ],
+        "instrumentation": [
+          "audiences.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2013,
+          "end": 2038,
+          "sha256": "64f14dbea5b142623dbc2a7207217219e1c648c795a46121ad092e4c5454316b"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12714,
+          "end": 12732,
+          "sha256": "287d6259dbd1b2532ae8eb82866d49a99e3a80be62b2b3c099ee068cfc8135bf"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4082,
+          "end": 4163,
+          "sha256": "edf2cebcac60324d91cb1bd547f7b2251fff6f2c4a0191c7691f14f19c727ec7"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "audiences.deny": {
+      "entry_ids": [
+        "56a9e6d31826a496c0e0482833fedf11aa27e7d90dd08ca603bd40d819b47655"
+      ],
+      "tools": [
+        "orgtree_audience"
+      ],
+      "action": "deny",
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "audiences.authority"
+        ],
+        "reads": [
+          "audiences.reads"
+        ],
+        "writes": [
+          "audiences.writes"
+        ],
+        "predicates": [
+          "audiences.predicates"
+        ],
+        "conflicts": [
+          "audiences.conflicts"
+        ],
+        "wire": [
+          "audiences.wire"
+        ],
+        "receipt": [
+          "audiences.receipt"
+        ],
+        "effects": [
+          "audiences.effects"
+        ],
+        "instrumentation": [
+          "audiences.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2013,
+          "end": 2038,
+          "sha256": "64f14dbea5b142623dbc2a7207217219e1c648c795a46121ad092e4c5454316b"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12714,
+          "end": 12732,
+          "sha256": "287d6259dbd1b2532ae8eb82866d49a99e3a80be62b2b3c099ee068cfc8135bf"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4264,
+          "end": 4279,
+          "sha256": "2f5acb600a24b6fef4e2cd8b0f363f7cf2132c397b34047b11216dcd72d204b4"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "audiences.revoke": {
+      "entry_ids": [
+        "56a9e6d31826a496c0e0482833fedf11aa27e7d90dd08ca603bd40d819b47655"
+      ],
+      "tools": [
+        "orgtree_audience"
+      ],
+      "action": "revoke",
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "audiences.authority"
+        ],
+        "reads": [
+          "audiences.reads"
+        ],
+        "writes": [
+          "audiences.writes"
+        ],
+        "predicates": [
+          "audiences.predicates"
+        ],
+        "conflicts": [
+          "audiences.conflicts"
+        ],
+        "wire": [
+          "audiences.wire"
+        ],
+        "receipt": [
+          "audiences.receipt"
+        ],
+        "effects": [
+          "audiences.effects"
+        ],
+        "instrumentation": [
+          "audiences.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2013,
+          "end": 2038,
+          "sha256": "64f14dbea5b142623dbc2a7207217219e1c648c795a46121ad092e4c5454316b"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12714,
+          "end": 12732,
+          "sha256": "287d6259dbd1b2532ae8eb82866d49a99e3a80be62b2b3c099ee068cfc8135bf"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4299,
+          "end": 4345,
+          "sha256": "356cddbfec83db7746b47e4b26d80412d8ce2c34129368ef436a8137eb1cbf9d"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "asks.answer": {
+      "entry_ids": [
+        "8590c9958de3edd53de690b008d2b6890b491b4eb4e1612d1ff71d6d6a34f76b"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "asks.authority"
+        ],
+        "reads": [
+          "asks.reads"
+        ],
+        "writes": [
+          "asks.writes"
+        ],
+        "predicates": [
+          "asks.predicates"
+        ],
+        "conflicts": [
+          "asks.conflicts"
+        ],
+        "wire": [
+          "asks.wire"
+        ],
+        "receipt": [
+          "asks.receipt"
+        ],
+        "effects": [
+          "asks.effects"
+        ],
+        "instrumentation": [
+          "asks.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8576,
+          "end": 8609,
+          "sha256": "905181b6e86b3c137d341c5d64fa6241994c2b8619cb9e575afb942db2002ff1"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 10257,
+          "end": 10353,
+          "sha256": "ef1f87d7b99c412775b3d07ea298d71b13cf0eed3163c51bf256c761e4e4b63b"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 10206,
+          "end": 10228,
+          "sha256": "12b4d9dab1d499b5d594fcd16b93ebed334ee2a75180a59bbd76d007f5ef33bd"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "asks.batch-resolve": {
+      "entry_ids": [
+        "16833d38b3e314ae747711a7664e829fdb0af4f1b6dfb928cf63dbefe7abc8b3"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "asks.authority"
+        ],
+        "reads": [
+          "asks.reads"
+        ],
+        "writes": [
+          "asks.writes"
+        ],
+        "predicates": [
+          "asks.predicates"
+        ],
+        "conflicts": [
+          "asks.conflicts"
+        ],
+        "wire": [
+          "asks.wire"
+        ],
+        "receipt": [
+          "asks.receipt"
+        ],
+        "effects": [
+          "asks.effects"
+        ],
+        "instrumentation": [
+          "asks.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8626,
+          "end": 8657,
+          "sha256": "35daec562327a152432d9b06d8e6f99211f8f555f30e43121e9e11805573d056"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 8356,
+          "end": 8591,
+          "sha256": "e3b4ffddc1467e135df11ba04c1efdd161abdf01e8b2d0e3dce4f2e6703d6096"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "lifecycle.operator-scope": {
+      "entry_ids": [
+        "cf7e024234ef90fa88e7aa48612d4320f349b690e520f9f086c4a2db7fdb9318"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "lifecycle.authority"
+        ],
+        "reads": [
+          "lifecycle.reads"
+        ],
+        "writes": [
+          "lifecycle.writes"
+        ],
+        "predicates": [
+          "lifecycle.predicates"
+        ],
+        "conflicts": [
+          "lifecycle.conflicts"
+        ],
+        "wire": [
+          "lifecycle.wire"
+        ],
+        "receipt": [
+          "lifecycle.receipt"
+        ],
+        "effects": [
+          "lifecycle.effects"
+        ],
+        "instrumentation": [
+          "lifecycle.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3809,
+          "end": 3852,
+          "sha256": "8d651c0dedf8d1232b94d32a0d9705f27df4f2fec371ae58332323331814c7f0"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 7615,
+          "end": 8014,
+          "sha256": "73691be64a65f5209c3ee2b9525ad3d951a189ab1d90700c21bc1a84c6de4d70"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "watchdogs.operator-action": {
+      "entry_ids": [
+        "5cba8f44c86953f612d4d32593649078c27e98a992d07ae5d6fecf48589be8a7"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "watchdogs.authority"
+        ],
+        "reads": [
+          "watchdogs.reads"
+        ],
+        "writes": [
+          "watchdogs.writes"
+        ],
+        "predicates": [
+          "watchdogs.predicates"
+        ],
+        "conflicts": [
+          "watchdogs.conflicts"
+        ],
+        "wire": [
+          "watchdogs.wire"
+        ],
+        "receipt": [
+          "watchdogs.receipt"
+        ],
+        "effects": [
+          "watchdogs.effects"
+        ],
+        "instrumentation": [
+          "watchdogs.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8666,
+          "end": 8677,
+          "sha256": "0768fc4deda8c6408bccdfa4d9d1068d2595cbb1d773dfe77261ee7cbd029cdd"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 8805,
+          "end": 8857,
+          "sha256": "1f3b0d5b27833eff08e8fb33ceda0178ef849efae744f0567a7639f0ce4f26c4"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "audiences.operator-action": {
+      "entry_ids": [
+        "263876d50f597b43b68dfe0d9910930bcc5393bbd0844e426a8fa20f14f7b3fa"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "audiences.authority"
+        ],
+        "reads": [
+          "audiences.reads"
+        ],
+        "writes": [
+          "audiences.writes"
+        ],
+        "predicates": [
+          "audiences.predicates"
+        ],
+        "conflicts": [
+          "audiences.conflicts"
+        ],
+        "wire": [
+          "audiences.wire"
+        ],
+        "receipt": [
+          "audiences.receipt"
+        ],
+        "effects": [
+          "audiences.effects"
+        ],
+        "instrumentation": [
+          "audiences.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9617,
+          "end": 9639,
+          "sha256": "e1401fad8d17935aeabb8cd2d6e84e425a410f775bfd80913e77591cd11f2a75"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4082,
+          "end": 4163,
+          "sha256": "edf2cebcac60324d91cb1bd547f7b2251fff6f2c4a0191c7691f14f19c727ec7"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4264,
+          "end": 4279,
+          "sha256": "2f5acb600a24b6fef4e2cd8b0f363f7cf2132c397b34047b11216dcd72d204b4"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4299,
+          "end": 4345,
+          "sha256": "356cddbfec83db7746b47e4b26d80412d8ce2c34129368ef436a8137eb1cbf9d"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "audiences.list": {
+      "entry_ids": [
+        "7ba759417153ee44cbd130685bd640fcf2e35f72d14ecee96fbbee949e6e9ffd"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "audiences.authority"
+        ],
+        "reads": [
+          "audiences.reads"
+        ],
+        "writes": [
+          "audiences.writes"
+        ],
+        "predicates": [
+          "audiences.predicates"
+        ],
+        "conflicts": [
+          "audiences.conflicts"
+        ],
+        "wire": [
+          "audiences.wire"
+        ],
+        "receipt": [
+          "audiences.receipt"
+        ],
+        "effects": [
+          "audiences.effects"
+        ],
+        "instrumentation": [
+          "audiences.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9642,
+          "end": 9649,
+          "sha256": "1f962abd609b262096eb740af014c1b6304fd347b242230321d1d2c964bcf1a8"
+        }
+      ],
+      "domain_mode": "read"
     }
   },
   "wire_cases": [
@@ -14162,6 +16830,182 @@
       },
       "contract": "operator.preview",
       "domain_mode": "read"
+    },
+    {
+      "name": "orgtree_ask:asks.ask",
+      "entry_id": "64d79e5cda0a4eefa30caea3eca0f47d302299b822c7eaedcca46cccf80ccb61",
+      "args": {},
+      "contract": "asks.ask",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_withdraw_ask:asks.withdraw",
+      "entry_id": "06e5004ad158ef4c71568d09c004ad1d4b0d3922e180fbbcb5eae51bb14bc193",
+      "args": {},
+      "contract": "asks.withdraw",
+      "domain_mode": "conditional_write"
+    },
+    {
+      "name": "orgtree_present:asks.present",
+      "entry_id": "23044e0596acf65cd9df181daf0102f6ba7129a9fb27fc1f515f72f41f893263",
+      "args": {},
+      "contract": "asks.present",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_submit_report:asks.submit-report",
+      "entry_id": "b680e9d093c84717b9ba519bbe79dbfac040fc3f13a6753bb68ce1af2ef78675",
+      "args": {},
+      "contract": "asks.submit-report",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_request_scope:asks.request-scope",
+      "entry_id": "e84b4b2469255eadf6da2112a8f46ba909b591f3a321fad9f3993478bce9340d",
+      "args": {},
+      "contract": "asks.request-scope",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_watchdog:watchdogs.create",
+      "entry_id": "6577f91be0aab2250b49d7dc4c720a3eceb8c5a6a1c8889e0f839340981f86e3",
+      "args": {
+        "action": "create"
+      },
+      "contract": "watchdogs.create",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_watchdog:watchdogs.list",
+      "entry_id": "6577f91be0aab2250b49d7dc4c720a3eceb8c5a6a1c8889e0f839340981f86e3",
+      "args": {
+        "action": "list"
+      },
+      "contract": "watchdogs.list",
+      "domain_mode": "read"
+    },
+    {
+      "name": "orgtree_watchdog:watchdogs.pause",
+      "entry_id": "6577f91be0aab2250b49d7dc4c720a3eceb8c5a6a1c8889e0f839340981f86e3",
+      "args": {
+        "action": "pause"
+      },
+      "contract": "watchdogs.pause",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_watchdog:watchdogs.resume",
+      "entry_id": "6577f91be0aab2250b49d7dc4c720a3eceb8c5a6a1c8889e0f839340981f86e3",
+      "args": {
+        "action": "resume"
+      },
+      "contract": "watchdogs.resume",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_watchdog:watchdogs.remove",
+      "entry_id": "6577f91be0aab2250b49d7dc4c720a3eceb8c5a6a1c8889e0f839340981f86e3",
+      "args": {
+        "action": "remove"
+      },
+      "contract": "watchdogs.remove",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_watchdog:watchdogs.supersede",
+      "entry_id": "6577f91be0aab2250b49d7dc4c720a3eceb8c5a6a1c8889e0f839340981f86e3",
+      "args": {
+        "action": "supersede"
+      },
+      "contract": "watchdogs.supersede",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_audience:audiences.request",
+      "entry_id": "56a9e6d31826a496c0e0482833fedf11aa27e7d90dd08ca603bd40d819b47655",
+      "args": {
+        "action": "request"
+      },
+      "contract": "audiences.request",
+      "domain_mode": "conditional_write"
+    },
+    {
+      "name": "orgtree_audience:audiences.forward",
+      "entry_id": "56a9e6d31826a496c0e0482833fedf11aa27e7d90dd08ca603bd40d819b47655",
+      "args": {
+        "action": "forward"
+      },
+      "contract": "audiences.forward",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_audience:audiences.grant",
+      "entry_id": "56a9e6d31826a496c0e0482833fedf11aa27e7d90dd08ca603bd40d819b47655",
+      "args": {
+        "action": "grant"
+      },
+      "contract": "audiences.grant",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_audience:audiences.deny",
+      "entry_id": "56a9e6d31826a496c0e0482833fedf11aa27e7d90dd08ca603bd40d819b47655",
+      "args": {
+        "action": "deny"
+      },
+      "contract": "audiences.deny",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_audience:audiences.revoke",
+      "entry_id": "56a9e6d31826a496c0e0482833fedf11aa27e7d90dd08ca603bd40d819b47655",
+      "args": {
+        "action": "revoke"
+      },
+      "contract": "audiences.revoke",
+      "domain_mode": "write"
+    },
+    {
+      "name": "ask_answer:asks.answer",
+      "entry_id": "8590c9958de3edd53de690b008d2b6890b491b4eb4e1612d1ff71d6d6a34f76b",
+      "args": {},
+      "contract": "asks.answer",
+      "domain_mode": "write"
+    },
+    {
+      "name": "batch_resolve:asks.batch-resolve",
+      "entry_id": "16833d38b3e314ae747711a7664e829fdb0af4f1b6dfb928cf63dbefe7abc8b3",
+      "args": {},
+      "contract": "asks.batch-resolve",
+      "domain_mode": "write"
+    },
+    {
+      "name": "node_scope:lifecycle.operator-scope",
+      "entry_id": "cf7e024234ef90fa88e7aa48612d4320f349b690e520f9f086c4a2db7fdb9318",
+      "args": {},
+      "contract": "lifecycle.operator-scope",
+      "domain_mode": "write"
+    },
+    {
+      "name": "watchdog_action:watchdogs.operator-action",
+      "entry_id": "5cba8f44c86953f612d4d32593649078c27e98a992d07ae5d6fecf48589be8a7",
+      "args": {},
+      "contract": "watchdogs.operator-action",
+      "domain_mode": "write"
+    },
+    {
+      "name": "user_audience:audiences.operator-action",
+      "entry_id": "263876d50f597b43b68dfe0d9910930bcc5393bbd0844e426a8fa20f14f7b3fa",
+      "args": {},
+      "contract": "audiences.operator-action",
+      "domain_mode": "write"
+    },
+    {
+      "name": "audiences_list:audiences.list",
+      "entry_id": "7ba759417153ee44cbd130685bd640fcf2e35f72d14ecee96fbbee949e6e9ffd",
+      "args": {},
+      "contract": "audiences.list",
+      "domain_mode": "read"
     }
   ],
   "limits": [
@@ -14484,10 +17328,19 @@
     },
     {
       "id": "cf7e024234ef90fa88e7aa48612d4320f349b690e520f9f086c4a2db7fdb9318",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.operator-scope"
+      ],
+      "reason": "POST /api/orgs/{slug}/nodes/{nid}/scope: lifecycle.operator-scope (P01 F3).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3809,
+          "end": 3809,
+          "sha256": "46a6fc4ae1312db165ced68026996babbb0dfe88d5b305b32f034f296b07a77a"
+        }
+      ]
     },
     {
       "id": "7ef25497a3d8ea1498921a0f8b6db1dcf76ad204acb06de7bb90117b4adfe3fe",
@@ -15200,24 +18053,51 @@
     },
     {
       "id": "8590c9958de3edd53de690b008d2b6890b491b4eb4e1612d1ff71d6d6a34f76b",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "asks.answer"
+      ],
+      "reason": "POST /api/orgs/{slug}/asks/{aid}/answer: asks.answer (P01 F3).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8576,
+          "end": 8576,
+          "sha256": "dd18c0e507aaa891e13803c023e7a36fd1a1f7339b93f73b46683bfc835e1d3b"
+        }
+      ]
     },
     {
       "id": "16833d38b3e314ae747711a7664e829fdb0af4f1b6dfb928cf63dbefe7abc8b3",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "asks.batch-resolve"
+      ],
+      "reason": "POST /api/orgs/{slug}/nodes/{nid}/batch: asks.batch-resolve (P01 F3).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8626,
+          "end": 8626,
+          "sha256": "86f3142114f7ef46bb58d7aa1eb7bff8f233ae998a134f1dba57975804b4aa4a"
+        }
+      ]
     },
     {
       "id": "5cba8f44c86953f612d4d32593649078c27e98a992d07ae5d6fecf48589be8a7",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "watchdogs.operator-action"
+      ],
+      "reason": "POST /api/orgs/{slug}/watchdogs: watchdogs.operator-action (P01 F3).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8666,
+          "end": 8666,
+          "sha256": "a49fd1e7871fd1b728e116d37a2991eedc320fa834977e2f6ed4ae4111db69de"
+        }
+      ]
     },
     {
       "id": "5d3cf53352f0b74d6a16375b7b80f4161a7e9f63fbe761ec41ccacdead8659b1",
@@ -15372,17 +18252,35 @@
     },
     {
       "id": "263876d50f597b43b68dfe0d9910930bcc5393bbd0844e426a8fa20f14f7b3fa",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "audiences.operator-action"
+      ],
+      "reason": "POST /api/orgs/{slug}/audiences: audiences.operator-action (P01 F3).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9617,
+          "end": 9617,
+          "sha256": "a3e40bf85b075f99643ea33edc897593c50adcf44ba26ba261e6bd3e5567b788"
+        }
+      ]
     },
     {
       "id": "7ba759417153ee44cbd130685bd640fcf2e35f72d14ecee96fbbee949e6e9ffd",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "audiences.list"
+      ],
+      "reason": "GET /api/orgs/{slug}/audiences: audiences.list (P01 F3).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9642,
+          "end": 9642,
+          "sha256": "2a2fb8e3a3a4b3619429f4258dfda3454245ecd2bad85bf42abfe5fc8d387322"
+        }
+      ]
     },
     {
       "id": "a2925cc2c681a54222e275e69ba6e5f1a133b94e34d08be545a0b5bbe012f0f9",
@@ -16082,10 +18980,19 @@
     },
     {
       "id": "64d79e5cda0a4eefa30caea3eca0f47d302299b822c7eaedcca46cccf80ccb61",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "asks.ask"
+      ],
+      "reason": "orgtree_ask tool card: asks.ask (P01 F3).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 268,
+          "end": 337,
+          "sha256": "7ab809e9e7a4ce39ca56b420be0bf7128281448a98f979b5a2b5dd549dbe8ba4"
+        }
+      ]
     },
     {
       "id": "53052a77187a9676a3c5b772ea0209d6483f16a972cb43b044699b822ee36690",
@@ -16096,10 +19003,19 @@
     },
     {
       "id": "06e5004ad158ef4c71568d09c004ad1d4b0d3922e180fbbcb5eae51bb14bc193",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "asks.withdraw"
+      ],
+      "reason": "orgtree_withdraw_ask tool card: asks.withdraw (P01 F3).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 749,
+          "end": 759,
+          "sha256": "0abeb79f9af9c4665299dbcbeec5a12eb444f1a1d875c579fe7a2fbd379d38c5"
+        }
+      ]
     },
     {
       "id": "5b0f355f7448167678b25e5f182b729b1000b9280ae687539c429081e8d9d2cc",
@@ -16124,17 +19040,35 @@
     },
     {
       "id": "23044e0596acf65cd9df181daf0102f6ba7129a9fb27fc1f515f72f41f893263",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "asks.present"
+      ],
+      "reason": "orgtree_present tool card: asks.present (P01 F3).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 890,
+          "end": 924,
+          "sha256": "75469e6fde9aafc840262dccbb8a7b712a5cd52bf080397fcffb5c8f7bc512c9"
+        }
+      ]
     },
     {
       "id": "b680e9d093c84717b9ba519bbe79dbfac040fc3f13a6753bb68ce1af2ef78675",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "asks.submit-report"
+      ],
+      "reason": "orgtree_submit_report tool card: asks.submit-report (P01 F3).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 925,
+          "end": 957,
+          "sha256": "ebdaa2d934feca98f0e6e529c5d4ff502ece1e02155af6af03ec7c70495430fd"
+        }
+      ]
     },
     {
       "id": "874075909d0f79e32921d46b2abd52c30c7076194d4c6fc443b57c0af364b97d",
@@ -16154,10 +19088,19 @@
     },
     {
       "id": "e84b4b2469255eadf6da2112a8f46ba909b591f3a321fad9f3993478bce9340d",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "asks.request-scope"
+      ],
+      "reason": "orgtree_request_scope tool card: asks.request-scope (P01 F3).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 980,
+          "end": 1026,
+          "sha256": "402edbd5e66edd1d5cbca0c7a33ce85b644d7c01a7a047b7758ebd738114f2df"
+        }
+      ]
     },
     {
       "id": "0ff225ac7f47f9c40d0cd0192543d5fbd1efd46c99e33759de62f15965315916",
@@ -16225,10 +19168,24 @@
     },
     {
       "id": "6577f91be0aab2250b49d7dc4c720a3eceb8c5a6a1c8889e0f839340981f86e3",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "watchdogs.create",
+        "watchdogs.list",
+        "watchdogs.pause",
+        "watchdogs.remove",
+        "watchdogs.resume",
+        "watchdogs.supersede"
+      ],
+      "reason": "orgtree_watchdog tool card: watchdogs.create, watchdogs.list, watchdogs.pause, watchdogs.remove, watchdogs.resume, watchdogs.supersede (P01 F3).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1073,
+          "end": 1150,
+          "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
+        }
+      ]
     },
     {
       "id": "cd474205d4794700dc5ebdff2e05a3d6d1790273a5ffaa74b8237f5641facff1",
@@ -16665,10 +19622,23 @@
     },
     {
       "id": "56a9e6d31826a496c0e0482833fedf11aa27e7d90dd08ca603bd40d819b47655",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "audiences.deny",
+        "audiences.forward",
+        "audiences.grant",
+        "audiences.request",
+        "audiences.revoke"
+      ],
+      "reason": "orgtree_audience tool card: audiences.deny, audiences.forward, audiences.grant, audiences.request, audiences.revoke (P01 F3).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2013,
+          "end": 2038,
+          "sha256": "64f14dbea5b142623dbc2a7207217219e1c648c795a46121ad092e4c5454316b"
+        }
+      ]
     },
     {
       "id": "e7f59429bccbadb81ad0e2807b29f5f44fed72b7ff0f104e25fb7ac57a122f06",
@@ -16953,21 +19923,21 @@
       "id": "1060aa344201ad0ccafc9aa3a108beb1399db748800ec2326a2fa99e087b7024",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Stays pending (P01 W3): the watchdog smoke reader collects a smoke run's stdout, whose result decides whether a watchdog is armed on the node. Owner: watchdogs (orgtree_watchdog, uncontracted).",
+      "reason": "Stays pending (P01 W3): the watchdog smoke reader collects a smoke run's stdout, whose result decides whether a watchdog is armed on the node. Owner: watchdogs (the engine is uncontracted; the orgtree_watchdog tool is contracted since P01 F3).",
       "source_refs": []
     },
     {
       "id": "bbfc2c1faa6fcbfa80c18e97391a221b7eaff99528c7786075933d9d7e22b8fc",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Stays pending (P01 W3): a watchdog's command run (_wd_run_command), whose firing mails its owner. Owner: watchdogs (orgtree_watchdog, uncontracted).",
+      "reason": "Stays pending (P01 W3): a watchdog's command run (_wd_run_command), whose firing mails its owner. Owner: watchdogs (the engine is uncontracted; the orgtree_watchdog tool is contracted since P01 F3).",
       "source_refs": []
     },
     {
       "id": "2f12dcf16490b9399034eb32be2356c11662e158bf3ce4c92bbdaa008970eeb1",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Stays pending (P01 W3): a watchdog stream reader buffers the watched stream's lines for the watchdog, whose firing mails its owner. Owner: watchdogs (orgtree_watchdog, uncontracted).",
+      "reason": "Stays pending (P01 W3): a watchdog stream reader buffers the watched stream's lines for the watchdog, whose firing mails its owner. Owner: watchdogs (the engine is uncontracted; the orgtree_watchdog tool is contracted since P01 F3).",
       "source_refs": []
     },
     {
@@ -16981,7 +19951,7 @@
       "id": "bfefd8a463bc764370753d2c0896f929ea360bb0973f57e8ad56ec85506b1c0c",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Stays pending (P01 W3): the watchdog engine (_wd_tick) evaluates the armed watchdogs and fires their mail. Owner: watchdogs (orgtree_watchdog, uncontracted).",
+      "reason": "Stays pending (P01 W3): the watchdog engine (_wd_tick) evaluates the armed watchdogs and fires their mail. Owner: watchdogs (the engine is uncontracted; the orgtree_watchdog tool is contracted since P01 F3).",
       "source_refs": []
     },
     {
@@ -17277,10 +20247,19 @@
     },
     {
       "id": "536a8465f8308baacfeb51bdd4a494e41187848f0ae66d04aee76b6a71b9b119",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W5): _attach_ref's orgtree_present branch stamps the presented document's reference onto the tool result that goes back to the agent, whose transcript transcript ingest copies into transcript_records (an org sidecar); orgtree_present has no contract. Owner: channels and mail (P07).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "asks.present"
+      ],
+      "reason": "_attach_ref's orgtree_present branch, reached only by the contracted presentation (P01 F3, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 7641,
+          "end": 7641,
+          "sha256": "b4e28a74e78faca6294121be4a150f26a5046ea8a96d7b265559ed5fb773677c"
+        }
+      ]
     },
     {
       "id": "11a94f315be0750bcadc28f78da486b3bb42ea521719d24f828da1e9b1a2fda0",
@@ -17515,24 +20494,51 @@
     },
     {
       "id": "834b0ee4071f2e5fbd62a69f64b6c889317114c0e879d3026aa17baaf597c681",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W7): the operator audience route's grant branch (POST /api/orgs/{slug}/audiences, api.user_audience), which changes who may address whom in the org; the route has no contract. Owner: channels and mail (P07).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "audiences.operator-action"
+      ],
+      "reason": "The operator audience route's grant branch (P01 F3, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9624,
+          "end": 9624,
+          "sha256": "10ba1f4a9a50c1a302641398d712d6973051a92aea7064a0f4d54533b09dadbb"
+        }
+      ]
     },
     {
       "id": "ac81945bf3dda03b44f2d53a38f571d255cc2735659b9590dfea16f0934d05d5",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W7): the operator audience route's deny branch (POST /api/orgs/{slug}/audiences, api.user_audience), which changes who may address whom in the org; the route has no contract. Owner: channels and mail (P07).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "audiences.operator-action"
+      ],
+      "reason": "The operator audience route's deny branch (P01 F3, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9626,
+          "end": 9626,
+          "sha256": "ed9e1d05b84640ca91463dca9b86ba5d833622f531ed7191cec7afddfbabb056"
+        }
+      ]
     },
     {
       "id": "9053fd9eabec0198983c2e4ee259f0ab407c7477c96ca31b0a316f3f58d9dbfc",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W7): the operator audience route's revoke branch (POST /api/orgs/{slug}/audiences, api.user_audience), which changes who may address whom in the org; the route has no contract. Owner: channels and mail (P07).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "audiences.operator-action"
+      ],
+      "reason": "The operator audience route's revoke branch (P01 F3, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9628,
+          "end": 9628,
+          "sha256": "c9536e9f2cbfc5aeb31e7fad3bbffe1a6395607f0934071ef94286a1bd0707f3"
+        }
+      ]
     },
     {
       "id": "273404a312f2c106f74f182bd840123a4db1c462e6991a3dcf4d1d425cd46b0d",
@@ -17940,38 +20946,88 @@
     },
     {
       "id": "9f616d574e3d3f1e9f13ea03a6107e55aa3494c2385c71dca143efeaaf9ffdff",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_watchdog (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: watchdogs (orgtree_watchdog, uncontracted).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "watchdogs.create",
+        "watchdogs.list",
+        "watchdogs.pause",
+        "watchdogs.remove",
+        "watchdogs.resume",
+        "watchdogs.supersede"
+      ],
+      "reason": "Exact orgtree_watchdog branch in the agent door, every contract it admits in P01 F3 (P01 F3, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12056,
+          "end": 12056,
+          "sha256": "6afb828cd0a56d6b627c3a9a7a22da5bfe75c677b4bd2669aaa9f3fe7951e2ac"
+        }
+      ]
     },
     {
       "id": "bb534dede44782a03867dafcbadd8e26b87c65c9e2bca5da7be1df9309f0dc59",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_watchdog create branch (agent_call); orgtree_watchdog has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: watchdogs (orgtree_watchdog, uncontracted).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "watchdogs.create"
+      ],
+      "reason": "The agent door's orgtree_watchdog create branch (P01 F3, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12058,
+          "end": 12058,
+          "sha256": "f611e808330e0938b112a6661c52d992e70b45f6516e09d63bb9314555e942b6"
+        }
+      ]
     },
     {
       "id": "d1823d55bdb20b4c2c98c18b588a05dbbebf1e9aa168ce92c4604d58c9f07c2a",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_watchdog list branch (agent_call); orgtree_watchdog has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: watchdogs (orgtree_watchdog, uncontracted).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "watchdogs.list"
+      ],
+      "reason": "The agent door's orgtree_watchdog list branch (P01 F3, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12133,
+          "end": 12133,
+          "sha256": "520106238ea2bf757809bb5d596580f1c707f787cfef10b6c687ed09bd086541"
+        }
+      ]
     },
     {
       "id": "2ab88ef1adc26e015ca02db3255992af2efa136a89cc534afe2a80414cb2abb8",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_request_scope (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: channels and mail (P07).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "asks.request-scope"
+      ],
+      "reason": "Exact orgtree_request_scope branch in the agent door, every contract it admits in P01 F3 (P01 F3, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12158,
+          "end": 12158,
+          "sha256": "a574a614ced1fdbaac8142efb2d583e0cd416d851201552d8ae3a3b857ed01fd"
+        }
+      ]
     },
     {
       "id": "69e034a6ebd862d6315b7d1ee387649dc904204fcee4b41dd7c2b0c1b46da0a3",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_ask (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: channels and mail (P07).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "asks.ask"
+      ],
+      "reason": "Exact orgtree_ask branch in the agent door, every contract it admits in P01 F3 (P01 F3, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12165,
+          "end": 12165,
+          "sha256": "b45575f3f4773f2529b48c9c0f02cfef5216053afb96558643710fba95f51399"
+        }
+      ]
     },
     {
       "id": "830e3c0edc27e3dadf4def3ed9452b98622c43a38d450f1c386f09cb1a379dd2",
@@ -18008,10 +21064,19 @@
     },
     {
       "id": "0abb82d2cd01ee1f9adb8992fe73ea8b8d90840e65039505c3ddb016219886c1",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_withdraw_ask (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: channels and mail (P07).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "asks.withdraw"
+      ],
+      "reason": "Exact orgtree_withdraw_ask branch in the agent door, every contract it admits in P01 F3 (P01 F3, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12260,
+          "end": 12260,
+          "sha256": "7d1c4565abd53e066cd34961b8f8eaef771556be9cbbd7b075450529a79ff27b"
+        }
+      ]
     },
     {
       "id": "04c9ab3044870c36cba0f56a9eecb2df6b01c540492bdaa15c8bc5db34bb9333",
@@ -18120,17 +21185,35 @@
     },
     {
       "id": "6d9eacaf8d2f4500e9e71a8489ce935e11a9597c5f8b97fe45d3100d9a4c972c",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_present (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: channels and mail (P07).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "asks.present"
+      ],
+      "reason": "Exact orgtree_present branch in the agent door, every contract it admits in P01 F3 (P01 F3, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12402,
+          "end": 12402,
+          "sha256": "fa3b9805c17e4f471dc45905f82627d8ab68b0f9704fb9a6e45ad9a5f5597751"
+        }
+      ]
     },
     {
       "id": "40ec444d8e18b87bbb5f804249df23e2a8587f5fdbba1bb11c161477da5d7b41",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_submit_report (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: channels and mail (P07).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "asks.submit-report"
+      ],
+      "reason": "Exact orgtree_submit_report branch in the agent door, every contract it admits in P01 F3 (P01 F3, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12405,
+          "end": 12405,
+          "sha256": "ec690143b94fc2ecfdbcae92e8dc22b8ba892755a0f4c0045bf8e720d88c7cf4"
+        }
+      ]
     },
     {
       "id": "0f898376168522ddf7f796e562f01e02280dbe47037219a47ac2e01d88a62a7c",
@@ -18366,45 +21449,103 @@
     },
     {
       "id": "ef44a5e34bc0196e92f3714034e7aa98a946f01a4a33fdd71861bd2efb53ae7d",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_audience (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: channels and mail (P07).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "audiences.deny",
+        "audiences.forward",
+        "audiences.grant",
+        "audiences.request",
+        "audiences.revoke"
+      ],
+      "reason": "Exact orgtree_audience branch in the agent door, every contract it admits in P01 F3 (P01 F3, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12714,
+          "end": 12714,
+          "sha256": "a825f76762144b1c16232f2827301ffcf91e307ebef4ec5d9b3c5868a5f77d1d"
+        }
+      ]
     },
     {
       "id": "8da59b4b566cf3fd710ac7f55e8e376ca7b3ffeebc8a7f1af50599ab9f5955b6",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_audience request branch (agent_call); orgtree_audience has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: channels and mail (P07).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "audiences.request"
+      ],
+      "reason": "The agent door's orgtree_audience request branch (P01 F3, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12716,
+          "end": 12716,
+          "sha256": "c6ca689044a365f2f6949fd71deaf0f9c90500e1eb620123ef21c0b28a00636a"
+        }
+      ]
     },
     {
       "id": "3d05c8106a4c83fc1785e00e12e6949f21a72b33c2ad53d88a97c4ff991f6988",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_audience forward branch (agent_call); orgtree_audience has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: channels and mail (P07).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "audiences.forward"
+      ],
+      "reason": "The agent door's orgtree_audience forward branch (P01 F3, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12719,
+          "end": 12719,
+          "sha256": "1965d8dbbd940728743cbfe7e1c7d993c9af76e23d19a2509a1ea6f4f100f4d6"
+        }
+      ]
     },
     {
       "id": "e49ee2b733933abc6b40bd236a1a068e730fc5f6b5f44504bc0bda3e093d3fb8",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_audience grant branch (agent_call); orgtree_audience has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: channels and mail (P07).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "audiences.grant"
+      ],
+      "reason": "The agent door's orgtree_audience grant branch (P01 F3, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12722,
+          "end": 12722,
+          "sha256": "d9908fc76520e2e4520e3316f656d1b1419c02cbdb84c6e607c8970bc8d300fa"
+        }
+      ]
     },
     {
       "id": "319734f90fd304402647ed10639aec430e391cabeb84f9598eaa32b2177316c3",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_audience deny branch (agent_call); orgtree_audience has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: channels and mail (P07).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "audiences.deny"
+      ],
+      "reason": "The agent door's orgtree_audience deny branch (P01 F3, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12725,
+          "end": 12725,
+          "sha256": "bca73819416272fe6414f41b63684a10d075751f04077a7a72cccd7ab741d2e3"
+        }
+      ]
     },
     {
       "id": "5566b814fb30076f31c9be21c609822168f2583d440c2fb6b19c2edc5ce42619",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_audience revoke branch (agent_call); orgtree_audience has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: channels and mail (P07).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "audiences.revoke"
+      ],
+      "reason": "The agent door's orgtree_audience revoke branch (P01 F3, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12728,
+          "end": 12728,
+          "sha256": "4b811d6c92985b3c0c55d923b0be5da3c753da5bd93a78211c871fc0893c58b7"
+        }
+      ]
     },
     {
       "id": "36cf02780b96c7092990a89da241de9b3e433baf9b42000fc7734f7e3bb8a8a1",
@@ -18933,59 +22074,139 @@
     },
     {
       "id": "cbf01e78136612fd811ec608d4e8b10fca1bc5171db62ebea9de28e9ffb48478",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W7): a watchdog's pause action (Org.watchdog_action in ledger.py), which changes the armed watchdog in the org. Owner: watchdogs (orgtree_watchdog, uncontracted).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "watchdogs.pause",
+        "watchdogs.operator-action"
+      ],
+      "reason": "Org.watchdog_action's pause branch, reached only by the agent tool and the operator watchdog route, both contracted (P01 F3, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 8812,
+          "end": 8812,
+          "sha256": "e6dc1c7983b9dd4abaadd651a3339411b9d85836aadd1a9ff087413fc4dddfd6"
+        }
+      ]
     },
     {
       "id": "ca0128cb1bc25e6732627cddeef5727d016c9fed404681c370a18db91facfa62",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W7): a watchdog's resume action (Org.watchdog_action in ledger.py), which changes the armed watchdog in the org. Owner: watchdogs (orgtree_watchdog, uncontracted).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "watchdogs.resume",
+        "watchdogs.operator-action"
+      ],
+      "reason": "Org.watchdog_action's resume branch, reached only by the agent tool and the operator watchdog route, both contracted (P01 F3, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 8814,
+          "end": 8814,
+          "sha256": "b38bff804a9f4e07a9624646b0eea23705f0d3b50dae0f6a89655d62c8e10c0e"
+        }
+      ]
     },
     {
       "id": "8905710915c3e872a6e74200a51d697175c6df40742f116b76d9d3d0daed03d1",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W7): a watchdog's remove action (Org.watchdog_action in ledger.py), which changes the armed watchdog in the org. Owner: watchdogs (orgtree_watchdog, uncontracted).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "watchdogs.remove",
+        "watchdogs.operator-action"
+      ],
+      "reason": "Org.watchdog_action's remove branch, reached only by the agent tool and the operator watchdog route, both contracted (P01 F3, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 8820,
+          "end": 8820,
+          "sha256": "c656e410a6ebdc4a78670d3f18b33646ef5025115fe2ac188a8d1ce9fe59dfbf"
+        }
+      ]
     },
     {
       "id": "e5e83816d5815452e44d4fa4011cf895275ee44aff5f735cc403c99cdc9cd54a",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W7): a watchdog's supersede action (Org.watchdog_action in ledger.py), which changes the armed watchdog in the org. Owner: watchdogs (orgtree_watchdog, uncontracted).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "watchdogs.supersede",
+        "watchdogs.operator-action"
+      ],
+      "reason": "Org.watchdog_action's supersede branch, reached only by the agent tool and the operator watchdog route, both contracted (P01 F3, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 8827,
+          "end": 8827,
+          "sha256": "d99201ea546dcc9efdb980bde86db685171498b7b276d7c32a5a38d2cd5ec21e"
+        }
+      ]
     },
     {
       "id": "39960932ccb28e9feb562b181c34be5dc73afb5436efc7e440efa8f66a3c0043",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W7): a watchdog's remove action (Org.watchdog_action in ledger.py), which changes the armed watchdog in the org. Owner: watchdogs (orgtree_watchdog, uncontracted).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "watchdogs.remove",
+        "watchdogs.operator-action"
+      ],
+      "reason": "Org.watchdog_action's remove branch, reached only by the agent tool and the operator watchdog route, both contracted (P01 F3, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 8854,
+          "end": 8854,
+          "sha256": "ad66593752f4c55d8775d3160b809e8530371ab109df6271408f55897b578de6"
+        }
+      ]
     },
     {
       "id": "a77dd5c397df8befedcd10496e59169352b13c59dd41a7a33f000feeffbd4603",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W7): a watchdog's supersede action (Org.watchdog_action in ledger.py), which changes the armed watchdog in the org. Owner: watchdogs (orgtree_watchdog, uncontracted).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "watchdogs.supersede",
+        "watchdogs.operator-action"
+      ],
+      "reason": "Org.watchdog_action's supersede branch, reached only by the agent tool and the operator watchdog route, both contracted (P01 F3, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 8855,
+          "end": 8855,
+          "sha256": "4caaf9019387ffade71131ba23b45b69bccd1021a9fed89a8db17624209c16a8"
+        }
+      ]
     },
     {
       "id": "b62b2f4544ee420c67682f4c15fa65b6d5fe249dc68782ad145f6305d5dfb99a",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "credit_request_action's action check (approve|deny): credits.decide (POST /api/orgs/{slug}/credit-requests) is contracted, but the inbox batch submit (POST /api/orgs/{slug}/nodes/{nid}/batch, Org.resolve_batch) reaches it too and is uncontracted, so it stays pending until that entry is contracted (S3 decision 5). Owner: channels and mail (P07), for the inbox batch submit (Org.resolve_batch).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "asks.batch-resolve",
+        "credits.decide"
+      ],
+      "reason": "credit_request_action's approve|deny check branch, reached by credits.decide and the inbox batch submit (asks.batch-resolve), both contracted (P01 F3, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 9627,
+          "end": 9627,
+          "sha256": "c6a31d91c7c64f66f7ab925d2aa13865ecba621516c9aedb86acfa56a801961e"
+        }
+      ]
     },
     {
       "id": "c590e76e7e2d20205c8ddb783eaad204ce29bacca1fd2b1f987e0740ad819537",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "credit_request_action's approve branch: credits.decide (POST /api/orgs/{slug}/credit-requests) is contracted, but the inbox batch submit (POST /api/orgs/{slug}/nodes/{nid}/batch, Org.resolve_batch) reaches it too and is uncontracted, so it stays pending until that entry is contracted (S3 decision 5). Owner: channels and mail (P07), for the inbox batch submit (Org.resolve_batch).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "asks.batch-resolve",
+        "credits.decide"
+      ],
+      "reason": "credit_request_action's approve branch, reached by credits.decide and the inbox batch submit (asks.batch-resolve), both contracted (P01 F3, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 9631,
+          "end": 9631,
+          "sha256": "09e1658bda53901a35e8023953609abfb4413692caa9d51a129856db3a501d9c"
+        }
+      ]
     },
     {
       "id": "2af0ce55aa8904c224dc811495bb194a2f7a51357cde6a6effe2afa54542f9a3",
@@ -19974,7 +23195,7 @@
       "id": "7e2342632e71afe6c4baa5118942e015b1eeb6d2d9db8a878c8c3dc513ed903b",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Stays pending (P01 S2k): the tool_waits sidecar (the journal of every managed-wait agent tool, mcptool.MANAGED_WAIT_TOOLS). P02's per-operation probe observes it under the three staffing contracts (orgtree_hire and orgtree_staff), but a shared site is mapped only once every operation reaching it has a contract (the rule for shared selectors, S3 decision 3), and the uncontracted managed-wait tools (orgtree_watchdog, orgtree_continue_on) and the backend-start recovery (toolwait.start) reach it; orgtree_rehire, orgtree_retire, orgtree_dissolve and orgtree_cheap_compact were contracted in P01 F1. Owner: watchdogs (orgtree_watchdog), with the runtime (P08) for orgtree_continue_on and toolwait.start.",
+      "reason": "Stays pending (P01 S2k): the tool_waits sidecar (the journal of every managed-wait agent tool, mcptool.MANAGED_WAIT_TOOLS). P02's per-operation probe observes it under the three staffing contracts (orgtree_hire and orgtree_staff), but a shared site is mapped only once every operation reaching it has a contract (the rule for shared selectors, S3 decision 3), and the uncontracted orgtree_continue_on and the backend-start recovery (toolwait.start) reach it; orgtree_rehire, orgtree_retire, orgtree_dissolve and orgtree_cheap_compact were contracted in P01 F1 and orgtree_watchdog in P01 F3. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
