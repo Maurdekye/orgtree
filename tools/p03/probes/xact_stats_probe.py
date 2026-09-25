@@ -21,7 +21,7 @@ Everything lives in a fresh schema ``p03_ws7_probe_<nonce>`` that the probe
 drops at the end. It refuses a non-loopback URL. It never reads or writes
 anything else. Run it under the P03 run lock (it is a PostgreSQL-backed test):
 
-    p03-run.ps1 -Agent <you> -Candidate <sha> -Run "python -I -B tools/p03/probes/xact_stats_probe.py --psql <psql.exe> --url <P03_PG_ADMIN_URL> --out <json>"
+    p03-run.ps1 -Agent <you> -Candidate <sha> -Run "python -I -B tools/p03/probes/xact_stats_probe.py --psql <psql.exe> --url-env P03_PG_ADMIN_URL --out <json>"
 
 The JSON it writes records the probe's commit, the psql and server versions, and
 per case what each source observed. It interprets nothing into a pass: the
@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -96,9 +97,23 @@ COMMIT;
 """
 
 
+def pg_env(url: str) -> dict[str, str]:
+    """The URL's parts as libpq environment variables: the password never appears
+    on a command line (the run-lock wrapper logs command lines to runs.jsonl)."""
+    u = urllib.parse.urlparse(url)
+    env = {k: v for k, v in os.environ.items() if not k.startswith("PG")}
+    env.update(PGHOST=u.hostname or "", PGPORT=str(u.port or 5432),
+               PGUSER=urllib.parse.unquote(u.username or ""),
+               PGPASSWORD=urllib.parse.unquote(u.password or ""),
+               PGDATABASE=(u.path or "/").lstrip("/"), PGSSLMODE="disable",
+               PGAPPNAME="p03-ws7-xact-stats-probe")
+    return env
+
+
 def psql(exe: str, url: str, sql: str) -> list[str]:
-    p = subprocess.run([exe, "-X", "-q", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-d", url],
-                       input=sql, capture_output=True, text=True, encoding="utf-8", timeout=60)
+    p = subprocess.run([exe, "-X", "-q", "-A", "-t", "-v", "ON_ERROR_STOP=1"],
+                       input=sql, capture_output=True, text=True, encoding="utf-8", timeout=60,
+                       env=pg_env(url))
     if p.returncode:
         raise RuntimeError(f"psql failed ({p.returncode}): {p.stderr.strip()[-800:]}")
     return p.stdout.splitlines()
@@ -145,9 +160,13 @@ def findings(results: dict[str, dict]) -> dict[str, str]:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--psql", required=True)
-    ap.add_argument("--url", required=True)
+    ap.add_argument("--url-env", required=True,
+                    help="NAME of the environment variable holding the URL (never the URL itself)")
     ap.add_argument("--out", required=True)
     args = ap.parse_args(argv)
+    args.url = os.environ.get(args.url_env) or ""
+    if not args.url:
+        raise SystemExit(f"environment variable {args.url_env} is empty")
     loopback_only(args.url)
     schema = f"p03_ws7_probe_{uuid.uuid4().hex[:10]}"
     commit = subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True).strip()
