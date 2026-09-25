@@ -19506,6 +19506,28 @@ def _admission_rows(slug: str, nid: str, *, compact: bool = False
             "share_sections": share, "logs": list(ADMISSION_COMPACT_LOGS)}
 
 
+@contextlib.contextmanager
+def _node_write(slug: str, nid: str, *, whole_org: bool = False
+                ) -> Iterator[Org]:
+    """PG-3e-A: a turn-path write to the agent's own row, yielding the Org.
+
+    Ordinarily one halt transaction on `nid`'s row (it commits when the block
+    ends). `whole_org=True` is the legacy whole-document path — DOC_LOCK, a
+    load and one save at the end — kept for the rare branches whose writes
+    cannot be bounded to named rows (the org-wide Fable escalation, which
+    touches every fable node and may dissolve subtrees). That is allowed
+    during the transition: unconverted code may hold DOC_LOCK, and org_tx
+    never waits on it."""
+    if whole_org:
+        with store.DOC_LOCK:
+            org = store.load_org(slug)
+            yield org
+            store.save_org(org)
+        return
+    with halt.txn(slug, nodes=[nid]) as tx:
+        yield tx.org
+
+
 def _admission_pred_locked(tx: orgtx.OrgTx, org: Org, nid: str) -> bool:
     """True when the row a cheap-compaction of `nid` would insert is locked."""
     gen = int(org.node(nid).get("generation") or 0)
@@ -22453,8 +22475,19 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     # clean-result gate. See `_parse_limit_reset_ts(trusted=…)`
                     _trusted_blob = not (agent_authored
                                          and err_blob is synth_limit_txt)
-                    with store.DOC_LOCK:
-                        o2 = store.load_org(slug)
+                    # PG-3e-A: the agent's row only, unless this limit may
+                    # escalate org-wide (`fable_limit_hit` below, on a trusted
+                    # Fable-tier wall), which stays on the whole-document path
+                    # (`_node_write`). Decided from the error text alone, NOT
+                    # from the model: the escalation reads the model off the
+                    # locked document, and a node whose model changed
+                    # mid-turn must not reach an org-wide write inside a
+                    # one-row transaction. A false positive only costs the
+                    # slower path.
+                    _fable_escalation = bool(
+                        _trusted_blob and _looks_like_fable_tier_limit(err_blob))
+                    with _node_write(slug, nid,
+                                     whole_org=_fable_escalation) as o2:
                         if nid in o2.nodes:
                             fz = _ensure_frozen(o2.node(nid))
                             # POSITIVE kind marker — see FrozenInfo.limit. A
@@ -22868,7 +22901,6 @@ def _run_one_turn_recorded(slug: str, nid: str,
                             # decides any fast wake from live toggles and
                             # registry marks, never from a stamped window.
                             fz.pop("on_fallback", None)
-                            store.save_org(o2)
                             _frozen_at = str(fz.get("at") or "") or None
                             # RECORDING ONLY: the record's own fields, read
                             # back after the save — never recomputed policy
