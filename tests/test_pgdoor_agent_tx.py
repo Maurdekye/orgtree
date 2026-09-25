@@ -266,9 +266,11 @@ class AgentTxTest(unittest.TestCase):
 
         def unhalt(tx):
             tx.org.node(W)['halt'] = False
+            self.assertEqual((tx.slug, tx.pre), (SLUG, {'x': 1}))
             return tx.op
 
-        self.assertEqual(pgdoor.op_tx(SLUG, 'unhalt', None, {}, unhalt), 'unhalt')
+        self.assertEqual(pgdoor.op_tx(SLUG, 'unhalt', None, {}, unhalt,
+                                      pre={'x': 1}), 'unhalt')
         self.assertFalse(self.fs.nodes[W]['halt'])
         self.assertEqual(self.fs.specs[-1], ((W,), (), (), ()))
         with self.assertRaisesRegex(LedgerError, 'no lock declaration'):
