@@ -9,7 +9,7 @@ use orgtree_store::{Connector, Executor, KeyNamespace, OpIdentity, Uuid};
 use crate::proto::{Handshake, Request, PROTOCOL};
 use crate::server::Handler;
 
-pub const VERBS: &[&str] = &["ping", "receipt.lookup"];
+pub const VERBS: &[&str] = &["ping", "receipt.lookup", "service.shutdown"];
 
 /// Generic executor points every family verb exposes (CONTRACT-M1 §5).
 pub const GENERIC_POINTS: &[&str] =
@@ -71,6 +71,8 @@ pub struct StoreHandler<C: Connector> {
     pub exec: Executor<C>,
     pub build_sha: String,
     pub service_incarnation: Uuid,
+    /// Notified by the authenticated `service.shutdown` verb.
+    pub shutdown: std::sync::Arc<tokio::sync::Notify>,
 }
 
 fn lookup_json(a: &LookupAnswer) -> Value {
@@ -140,6 +142,10 @@ impl<C: Connector + 'static> Handler for StoreHandler<C> {
         let r = match req.verb.as_str() {
             "ping" => Ok(json!({"pong": true, "service_incarnation": self.service_incarnation})),
             "receipt.lookup" => self.lookup(&req).await,
+            "service.shutdown" => {
+                self.shutdown.notify_one();
+                Ok(json!({"ok": true, "stopping": true}))
+            }
             other => Err(json!({"error": "unknown_verb", "verb": other})),
         };
         r.unwrap_or_else(|e| e)

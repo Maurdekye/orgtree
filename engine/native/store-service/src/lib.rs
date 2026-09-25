@@ -8,6 +8,7 @@
 //! * [`descriptor`]: the owner-only file the door reads (port + token).
 //! * [`handler`]: verb routing onto the executor.
 
+pub mod boot;
 pub mod descriptor;
 pub mod guard;
 pub mod handler;
