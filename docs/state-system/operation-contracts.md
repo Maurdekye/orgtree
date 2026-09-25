@@ -496,6 +496,14 @@ routes does NOT avoid reading every org: `store.list_orgs` reads and parses ever
 applies, and the filter skips only the second, per-org load. The corrected fact is pinned in
 `tests/test_state_exchange_boundary.py`.
 
+692 is unchanged by the P01 F4 instrumentation follow-up. P02's rows at v3 817c816 narrow
+`exchange.instrumentation`, marked "partly", from the whole family to two paths: the externtool verbs beyond
+their 401, and the `@net:` send against a live mail hub. The facet stays open because those paths are not only
+the P03 native controls (S2d decision 1). The rows cover all 15 contracts cold and warm, with 33 refusals. Only
+the org list, the extern scans (the org-filtered read included) and the `@org:` send touch another org, and a
+delivered `@org:` send writes it. The family's third-agent control fires, and no other row touches a third
+agent. Asserted in `tests/test_state_p02_contact_facets.py`.
+
 Of the 41 open dimension occurrences on the sixteen legacy-family contracts, 25 (9 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the
 native-design citation; those figures were already stale after S2d, which left 45

@@ -925,6 +925,51 @@ class ContactFacets(unittest.TestCase):
             kiosk = self.exact("control.kiosk", "control.kiosk:desktop-stripped", condition)
             self.assertEqual((kiosk["http_status"], self.written(kiosk)), (404, []))
 
+    # the rows that touch another org's store, and the refusals answered before any census attempt
+    EXCHANGE_CROSS_ORG = {"exchange.orgs-list", "exchange.extern-read", "exchange.extern-read:org-filter",
+                          "exchange.extern-wait", "exchange.extern-wait:timeout", "exchange.org-inbox-send:org",
+                          "exchange.org-inbox-send:org-attachment", "exchange.org-inbox-send:org-kiosk"}
+    EXCHANGE_PRE_CENSUS = {"refusal:route-no-token", "refusal:route-agent-token", "refusal:extern-no-token",
+                           "refusal:externtool-no-credential"}
+    FOREIGN_WRITE_SITES = ("orgtree.store:_write_doc", "orgtree.store:_write_log_rows", "orgtree.store:_save_sqlite")
+
+    def test_f4_exchange_contacts_and_org_locality(self):
+        names, rows = self.family_rows("exchange.instrumentation")
+        self.assertEqual(len(names), 15)
+        for name in names:
+            self.assertEqual({r["condition"] for r in rows if r["contract"] == name}, {"cold", "warm"}, name)
+        self.assertEqual(sum(r["variant"].startswith("refusal:") for r in rows), 33)
+        for r in rows:
+            with self.subTest(variant=r["variant"], condition=r["condition"]):
+                self.assertEqual(r["unknown_contacts"], [])
+                if r["variant"] in self.EXCHANGE_PRE_CENSUS:
+                    self.assertEqual((r["census"]["records"], r["http_status"]), (0, 401))
+                else:
+                    self.assertEqual((r["census"]["records"], r["harness"]["matches_census"]), (1, True))
+                # org-level locality: only the org list, the extern scans and the @org: send touch another org
+                self.assertEqual(self.foreign(r) > 0, r["variant"] in self.EXCHANGE_CROSS_ORG)
+                if r["variant"].startswith("refusal:"):
+                    self.assertEqual((self.written(r), r["agents"]["physical_written"], r["agents"]["logical"]),
+                                     ([], [], {}))
+                if r["variant"] != "control:exchange-third-agent":
+                    self.assertEqual((r["agents"]["third_agent_mail"], r["agents"]["third_agent_rows_written"]),
+                                     (0, 0))
+        [control] = [r for r in rows if r["variant"] == "control:exchange-third-agent"]
+        self.assertGreater(control["agents"]["third_agent_mail"], 0)
+        # a delivered @org: send WRITES the other org; one to a kiosk org only reads it, one to a missing org neither
+        for variant, writes in (("exchange.org-inbox-send:org", True), ("exchange.org-inbox-send:org-attachment", True),
+                                ("exchange.org-inbox-send:org-kiosk", False)):
+            sites = self.exact("exchange.org-inbox-send", variant, "warm")["harness"]["foreign_statement_sites"]
+            self.assertEqual(any(s in sites for s in self.FOREIGN_WRITE_SITES), writes, variant)
+        missing = self.exact("exchange.org-inbox-send", "exchange.org-inbox-send:org-missing", "warm")
+        self.assertEqual(self.foreign(missing), 0)
+        # the extern rows record the peer's sighting, refusals included, but not a bad peer id or a missing token
+        for r in rows:
+            if r["contract"].startswith("exchange.extern-"):
+                wrote = "data:other@orgtree.store:_peers_write" in r["audit"].get("file_write", {})
+                self.assertEqual(wrote, r["variant"] not in ("refusal:extern-send-bad-peer", "refusal:extern-no-token"),
+                                 (r["variant"], r["condition"]))
+
     QS_READS = ("quick-staff.options", "quick-staff.options-refresh", "quick-staff.preview",
                 "quick-staff.preview:under-assignee", "quick-staff.preview:top-level",
                 "quick-staff.select:replay", "quick-staff.select:under-assignee:replay",
