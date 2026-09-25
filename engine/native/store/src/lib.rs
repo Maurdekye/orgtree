@@ -33,6 +33,7 @@ pub mod retry;
 pub mod runtime;
 pub mod sent;
 pub mod session;
+pub mod status;
 pub mod value;
 
 #[cfg(any(test, feature = "fake"))]
