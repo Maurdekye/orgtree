@@ -1287,7 +1287,14 @@ pub fn stop_with(root: &PrototypeRoot, bin: &PgBin, immediate: bool, force: bool
     // so the process pg_ctl signals is exactly the one checked here.
     let verdict = match fam.iter().find(|(p, _)| p.pid == pm_pid).and_then(|(_, h)| h.as_ref()) {
         Some(h) => holder(&layout.data, bin, pm_pid, Some(h))?,
-        None => Holder::Foreign("the postmaster could not be opened".into()),
+        // It exited between state() and family(): nothing to stop, and it is
+        // not a foreign process either (review note on 7cca0b7).
+        None => {
+            return Err(CustodianError::new(
+                "stop.postmaster_exited",
+                format!("postmaster {pm_pid} exited before stop could open it; nothing was signalled (run status again)"),
+            ))
+        }
     };
     if verdict != Holder::Ours {
         return Err(CustodianError::new(
