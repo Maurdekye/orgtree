@@ -22,7 +22,6 @@ its HELD row.
 Run:  python tools/run-python-verification.py tests/test_pg3c_reservations_tx.py
 """
 
-import contextlib
 import os
 from pathlib import Path
 import tempfile
@@ -56,12 +55,6 @@ SHA_C, SHA_B = 'a' * 40, 'b' * 40
 def tearDownModule() -> None:
     orgtx.set_pause_hook(None)
     root.cleanup()
-
-
-@contextlib.contextmanager
-def _seam(slug, **rows):
-    with orgtx.org_tx(slug, **rows) as tx:
-        yield tx.org
 
 
 def _no_admit(org, body, a):
@@ -122,8 +115,7 @@ class OverlappingReservations(unittest.TestCase):
 
     def setUp(self) -> None:
         orgtx.use_backend(orgtx.SeamBackend())
-        pgdoor.use_org_tx(_seam, lambda e: isinstance(e, orgtx.Retryable),
-                          snapshot=lambda s: orgtx.org_read(s))
+        pgdoor.use_org_tx(None)   # PG-0's orgtx.org_tx, pgdoor's own retry/widen rules
         OverlappingReservations.n += 1
         self.slug = f'pg3cresv{OverlappingReservations.n}'
         org = store.create_org(self.slug)
@@ -183,6 +175,10 @@ class OverlappingReservations(unittest.TestCase):
 
     def test_rt8_control_share_locked_row_cannot_be_written(self) -> None:
         under = pgdoor.TxSpec(share_sections=('reservations', 'work_items'))
+        # pgdoor turns a refused write into a widening (the safety net); the
+        # control switches that off to prove the guard itself fires
+        pgdoor.use_org_tx(orgtx.org_tx, refused=lambda e: None)
+        self.addCleanup(pgdoor.use_org_tx, None)
         with self.assertRaises(orgtx.UnlockedWrite):
             acquire(self.slug, 'x', spec=under)
         self.assertEqual(self._rows(), [], 'CONTROL FAILED AS DESIGNED: nothing may land')

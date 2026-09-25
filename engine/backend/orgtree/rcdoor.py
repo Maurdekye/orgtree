@@ -232,57 +232,171 @@ def require(held: pgdoor.TxSpec, need: pgdoor.TxSpec) -> None:
         raise pgdoor.Widen(**{k: v for k, v in miss.items() if v})
 
 
+# ------------------------------------------------------ the door bodies
+#
+# Each body is the agent_call branch of the same tool, moved onto the door
+# (pgdoor.declare(..., body=)). It runs inside ONE org_tx, may re-run (widen,
+# retry), so nothing outside the document happens in it: wakes go in
+# `tx.after.drive`, and mail_notify and the like in `tx.after.then`, both of
+# which the door runs only after the commit. `api` is imported lazily — it
+# imports this module.
+
+def _reallocate_body(tx: Any) -> Any:
+    from . import api
+    a = tx.args
+    require(tx.spec, reallocate_rows(tx.org, tx.node, str(a.get("node") or "")))
+    return tx.org.reallocate(tx.node, a.get("node"),
+                             api._arg_num(a, "delta", 0))
+
+
+def _request_body(tx: Any) -> Any:
+    a = tx.args
+    require(tx.spec, request_rows(tx.org, tx.node))
+    return tx.org.request_credits(tx.node, a.get("new_limit"), a.get("reason"))
+
+
+def _status_body(tx: Any) -> Any:
+    from . import api, events, supervisor
+    from .ledger import actor_of
+    org, node, a = tx.org, tx.node, tx.args
+    status = a.get("status", "working")
+    summary = a.get("summary", "")
+    require(tx.spec, status_rows(org, node, str(status)))
+    # the orgtree_status branch of api.agent_call, unchanged: `done` is
+    # stored as idle, `blocked` is not collapsed; done/blocked reports to
+    # the superior as typed status mail
+    stored = "idle" if status == "done" else status
+    status_at = supervisor.now_iso()
+    org.node(node)["last_status"] = {"status": stored, "summary": summary,
+                                     "at": status_at}
+    if stored == "working":
+        org.node(node)["working_activity_at"] = status_at
+    else:
+        org.node(node).pop("working_activity_at", None)
+    result: dict[str, Any] = {"recorded": status}
+    if status in ("done", "blocked"):
+        parent = org.node(node)["parent"]
+        if parent:
+            r = org.post_mail(
+                node, parent, "", kind="status",
+                ev=events.mint("status.report", actor_of(node),
+                               org.node_ref(node),
+                               state=str(status), summary=str(summary)))
+            tx.after.then.append(
+                lambda _res, _p=parent: api.mail_notify(tx.call.org, node, _p))
+            tx.after.drive.append(parent)
+            result["reported_to"] = parent
+            result["delivered"] = parent
+            result["id"] = r.get("id")
+            result["warnings"] = r.get("warnings", [])
+        else:
+            result["reported_to"] = ("status chip only — report your "
+                                     "actual results to the user via "
+                                     "orgtree_message")
+    return result
+
+
+def _reservation_body(tx: Any) -> Any:
+    from . import api, reservations, supervisor
+    from .ledger import LedgerError
+    org, node, a = tx.org, tx.node, tx.args
+    succ_arg = str(a.get("successor") or "") or None
+    require(tx.spec, reservation_rows(
+        succ_arg if a.get("action") == "release" else None))
+    org._require_live(node)
+
+    def _item_visible(item: str) -> bool:
+        try:
+            org._work_get_for(node, item)
+            return True
+        except LedgerError:
+            return False
+
+    def _live_node(n: str) -> bool:
+        try:
+            return org.node(n).get("state") == "live"
+        except LedgerError:
+            return False
+
+    def _successor_allowed(n: str, item: str) -> bool:
+        if not item:
+            return False
+        try:
+            org._work_get_for(n, item)
+            return True
+        except LedgerError:
+            return False
+
+    try:
+        result = reservations.execute(
+            org.d, node, a, item_reader=_item_visible, node_exists=_live_node,
+            successor_allowed=_successor_allowed)
+    except reservations.ReservationError as e:
+        raise LedgerError(str(e)) from e
+    succ = str(result.get("notified") or "")
+    if succ:
+        # the successor the store chose must be one this tx holds the mail
+        # rows for; if the caller named none (or another), widen
+        require(tx.spec, reservation_rows(succ))
+        rid = str((result.get("reservation") or {}).get("id") or "")
+        posted = org.post_mail(
+            node, succ,
+            f"Reservation {rid} was released; its release receipt "
+            f"is {str(result.get('release_receipt') or '')}.",
+            "status")
+        slug = tx.call.org
+
+        def _after(res: Any, _s: str = succ,
+                   _wake: bool = not posted.get("deferred")) -> None:
+            api.mail_notify(slug, node, _s)
+            if _wake:
+                # the cycle's drive for a mail recipient (`mail_to`): the
+                # wake, plus the carrier note on the result
+                r = supervisor.send_message(
+                    slug, _s,
+                    "(orgtree) You have new mail above — handle it as "
+                    "appropriate, and use orgtree_status when your own task "
+                    "state changes.", mail_ping=True, sender=node,
+                    ping_reason="agent_mail")
+                if isinstance(res, dict):
+                    res["delivery"] = supervisor.delivery_note(slug, _s, r)
+        tx.after.then.append(_after)
+    return result
+
+
 def declare_all() -> None:
-    pgdoor.declare("orgtree_reallocate", reallocate_spec)
-    pgdoor.declare("orgtree_request_credits", request_spec)
-    pgdoor.declare("orgtree_status", status_spec)
-    pgdoor.declare("orgtree_reservation", reservation_spec)
-    pgdoor.declare("orgtree_resource_reservation", reservation_spec)
-    pgdoor.declare("orgtree_watchdog", watchdog_spec)
+    """Register PG-3c's agent tools on the door. `orgtree_watchdog` keeps the
+    DOC_LOCK cycle for now (its branch spawns a smoke run and checks the
+    host's bash; and the supervisor's `_wd_*` writers are sequenced with
+    PG-3e-A, plan decision 14) — its rows are declared here for when it
+    moves, but with no body it is not routed."""
+    pgdoor.declare("orgtree_reallocate", reallocate_spec, body=_reallocate_body)
+    pgdoor.declare("orgtree_request_credits", request_spec, body=_request_body)
+    pgdoor.declare("orgtree_status", status_spec, body=_status_body)
+    pgdoor.declare("orgtree_reservation", reservation_spec,
+                   body=_reservation_body)
+    pgdoor.declare("orgtree_resource_reservation", reservation_spec,
+                   body=_reservation_body)
+
+
+declare_all()
 
 
 # ------------------------------------------------------ operator doors
 
-def _log_key(x: Any) -> str:
-    return x if isinstance(x, str) else "/".join(x)
-
-
-def _norm(spec: pgdoor.TxSpec) -> pgdoor.TxSpec:
-    """pgdoor's rule (a row named both ways is held FOR UPDATE only;
-    ascending order) with logs sorted by a key that also orders the
-    `(section, owner)` dict-log names mail sends carry — pgdoor._norm's plain
-    `sorted()` raises TypeError on that mix (reported to WS3a)."""
-    ns = tuple(sorted(set(spec.nodes)))
-    ss = tuple(sorted(set(spec.sections)))
-    return pgdoor.TxSpec(ns, ss,
-                         tuple(sorted(set(spec.share_nodes) - set(ns))),
-                         tuple(sorted(set(spec.share_sections) - set(ss))),
-                         tuple(sorted(set(spec.logs), key=_log_key)))
-
-
 def run_op(slug: str, spec: pgdoor.TxSpec, fn: Any) -> Any:
-    """Run an OPERATOR door body `fn(tx)` in one `org_tx` on `spec`, re-running
-    with the widened set when the body raises `pgdoor.Widen` (the tree moved
-    since the snapshot the spec came from). `tx` is orgtx's OrgTx: the locked
-    Org is `tx.org`, and `tx.spec` is set to the rows held so a body can
-    `require()` against them. Same contract as pgdoor.op_tx, on orgtx
-    directly (pgdoor's production seam is not installed on this branch)."""
-    from . import orgtx
-    widens = 0
-    while True:
-        spec = _norm(spec)
-        try:
-            with orgtx.org_tx(slug, nodes=list(spec.nodes),
-                              sections=list(spec.sections),
-                              share_nodes=list(spec.share_nodes),
-                              share_sections=list(spec.share_sections),
-                              logs=list(spec.logs)) as tx:
-                tx.spec = spec      # type: ignore[attr-defined]
-                return fn(tx)
-        except pgdoor.Widen as w:
-            widens += 1
-            if widens > pgdoor.MAX_WIDEN:
-                from .ledger import LedgerError
-                raise LedgerError("rcdoor: the lock set kept growing — nothing "
-                                  "was applied; retry") from w
-            spec = spec.widened(w)
+    """An OPERATOR door (no caller row, no halt gate, no receipts): `fn(h)`
+    in one pgdoor transaction on `spec` — `h.org` is the locked Org — with
+    pgdoor's widening and retries. The body re-checks its rows with
+    `hold()`."""
+    return pgdoor.run(slug, spec, fn)
+
+
+def hold(slug: str, need: pgdoor.TxSpec) -> None:
+    """Inside a `run_op` body: every row in `need` must already be held, or
+    pgdoor widens and re-runs (pgdoor.join). Call it FIRST, re-deriving
+    `need` from the locked document."""
+    with pgdoor.join(slug, nodes=need.nodes, sections=need.sections,
+                     share_nodes=need.share_nodes,
+                     share_sections=need.share_sections, logs=need.logs):
+        pass
