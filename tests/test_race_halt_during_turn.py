@@ -261,18 +261,26 @@ class RaceHaltDuringTurn(unittest.TestCase):
         probes += 1
         self.assertEqual(r["deferred"], "halted")
         self.assertTrue(r["halting"])
-        # a fresh worker (a follow-up, a provider callback): returns without
-        # running
+        # a fresh turn worker (a follow-up turn): returns without running,
+        # its carrier retained
         ran = []
 
         @halt.worker
-        def follow_up(slug, nid, carrier):
+        def _run_one_turn(slug, nid, carrier):
             ran.append(carrier)
-        self.assertIsNone(follow_up(self.slug, self.nid, {"text": "third"}))
+        self.assertIsNone(_run_one_turn(self.slug, self.nid, {"text": "third"}))
+        probes += 1
+        # a provider callback: returns without running; its arguments are not
+        # user input, so nothing is retained for it
+
+        @halt.worker
+        def on_event(slug, nid, event):
+            ran.append(event)
+        self.assertIsNone(on_event(self.slug, self.nid, {"text": "event"}))
         probes += 1
         self.assertEqual(ran, [])
         self.assertEqual(self.bodies, 1)
-        self.assertEqual(probes, 2)
+        self.assertEqual(probes, 3)
         # still halting while the first body is inside
         self.assertEqual(self.durable_phase(), "halting")
         self.body_may_leave.set()
@@ -285,6 +293,7 @@ class RaceHaltDuringTurn(unittest.TestCase):
                  store.load_org(self.slug).node(self.nid).get("halt_queue") or []]
         self.assertIn("second", texts)
         self.assertIn("third", texts)
+        self.assertNotIn("event", texts)
         self.assert_clean()
 
 
