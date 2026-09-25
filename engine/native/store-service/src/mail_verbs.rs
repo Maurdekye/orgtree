@@ -14,7 +14,7 @@ use serde_json::{json, Value};
 
 use orgtree_store::mail::doors::{AgentSend, Target};
 use orgtree_store::mail::human::{self, HumanCommand, HumanSend, MarkRead};
-use orgtree_store::mail::{inbox, receive, recovery};
+use orgtree_store::mail::{inbox, receive, recovery, transport};
 use orgtree_store::runtime::{self, admit::FakeProvider};
 use orgtree_store::sent::MailClass;
 use orgtree_store::{Binding, Connector, Executor, KeyNamespace, OpIdentity, Outcome, Principal, Uuid};
@@ -33,6 +33,7 @@ pub const VERBS: &[&str] = &[
     // internal drivers (harness / background owners)
     "mail.deliver",
     "mail.recover",
+    "mail.dispatch",
     "runtime.turn",
 ];
 
@@ -156,6 +157,14 @@ pub async fn handle<C: Connector>(exec: &Executor<C>, req: &Request) -> Option<R
             run.await
         }
         "mail.recover" => recovery::recover(exec, org, &recovery::Sweep::default()).await.map(|r| json!(r)).map_err(store_err),
+        // P03: the FAKE transport only (nothing leaves the machine)
+        "mail.dispatch" => {
+            let fake = transport::FakeTransport::default();
+            transport::dispatch_one(exec, org, &fake, 30_000)
+                .await
+                .map(|d| json!(d.map(|d| json!({"message_id": d.claimed.message_id, "handle": d.claimed.handle, "sent": d.sent, "settled": d.settled}))))
+                .map_err(store_err)
+        }
         "runtime.turn" => {
             let run = async {
                 let t = runtime::run_turn(exec, org, uuid_arg(a, "seat")?, &FakeProvider { tamper: false }).await.map_err(store_err)?;

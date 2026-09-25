@@ -4415,7 +4415,8 @@ export function PendingGhostRow({ p, slug, nid, world, onOpen, replyAvailable,
  *
  *  ⚠ ELIGIBILITY IS TWO FACTS, and neither is the name matching:
  *  NAMESPACE — every party from outside the org enters with an `@ns:` prefix
- *  (`@mcp:`/`@org:`/`@net:`, the three call sites of `post_external_mail`)
+ *  (`@org:`/`@net:`, plus `@mcp:` on rows from before its 2026-09-25
+ *  retirement)
  *  plus the `@user`/`@system` sentinels, so the '@' test excludes outsiders by
  *  ORIGIN; and EXISTENCE — the tree on screen must hold the node.
  *  `test_external_mail.py §5` is the check on the boundary half. */

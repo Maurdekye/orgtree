@@ -14,7 +14,9 @@ nothing at all — unless every one of these holds:
 inside, or contains a live Orgtree location — ``%APPDATA%\\Orgtree v2`` (so
 ``%APPDATA%\\Orgtree v2\\data`` and everything under it), its
 ``%USERPROFILE%`` spelling, ``~/orgtree`` and the installed app folders —
-whatever the marker says (plan R11). It never silently installs there.
+whatever the marker says (plan R11). It never silently installs there. It also
+raises for ANY UNC or device path (``\\\\server\\share``, ``\\\\localhost\\C$``,
+``\\\\?\\UNC\\``, ``\\\\.\\``), typed or resolved, as WS1's Rust guard does.
 
 When active, requests for the slice's agent verbs (:data:`SLICE_TOOLS`) are
 forwarded to the Rust store service over its authenticated loopback channel;
@@ -138,9 +140,30 @@ def refuse_reparse_points(root: Path) -> None:
                 pass
 
 
+def refuse_unc(path: Any) -> None:
+    """Refuse a UNC or device path, typed or as it resolves (review N1): only
+    drive-letter paths, plain or ``\\\\?\\``-prefixed, may name a prototype root.
+    An admin-share alias such as ``\\\\localhost\\C$\\...`` reaches the live folder
+    under a name no prefix comparison sees; WS1's Rust guard refuses these
+    outright too."""
+    forms = [str(path).replace("/", "\\")]
+    try:
+        forms.append(str(Path(os.path.expanduser(forms[0])).resolve(strict=False)).replace("/", "\\"))
+    except OSError:
+        pass
+    for s in forms:
+        low = s.lower()
+        if low.startswith("\\\\?\\") and not low.startswith("\\\\?\\unc\\"):
+            low = low[4:]
+        if low.startswith("\\\\"):
+            raise LiveRootRefused(f"P03 hook refused: UNC or device path {s!r} (only drive-letter paths)")
+
+
 def refuse_live(path: Any, env: Mapping[str, str]) -> None:
-    """Raise :class:`LiveRootRefused` if ``path`` is, is inside, or contains a
-    live location — typed and canonical forms, on both sides."""
+    """Raise :class:`LiveRootRefused` if ``path`` is a UNC or device path, or
+    is, is inside, or contains a live location — typed and canonical forms,
+    on both sides."""
+    refuse_unc(path)
     _refuse_bad_name(path)
     forms = {_norm(path), os.path.abspath(str(path)).replace("/", "\\").lower().rstrip("\\")}
     for label, live in live_locations(env):

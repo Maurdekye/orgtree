@@ -1529,8 +1529,8 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
 // past correspondent in the log, deduped — plus a free-typed address (FR-07:
 // addressing must never require a live roster; the spool holds @net: mail
 // until the hub is reachable). The user bypasses the audience gate
-// (they outrank it); attachments stage first and are refused for the
-// text-only transports (@ext:/@mcp:) by the server with a clear message.
+// (they outrank it); attachments stage first. The retired forms (@ext:,
+// and @mcp: since 2026-09-25) are refused by the server with a clear message.
 /** How long a hub roster row may be silent before the compose picker
  *  stops presenting it as an ordinary recipient. Well inside the hub's
  *  own ORG_RETENTION_DAYS (45): the point is not to predict the prune,
@@ -1622,8 +1622,10 @@ function ComposeModal({ slug, net, entries, toast, close }: {
     for (const e of entries) {
       // @ext: correspondents are HISTORY only — the bridge is retired
       // (user ruling 2026-08-05); their rows stay readable but they are
-      // not addressable, so no chip
-      if (!e.peer.startsWith('@') || e.peer.startsWith('@ext:')) continue
+      // not addressable, so no chip. @mcp: followed on 2026-09-25 (the
+      // external-chat MCP server is retired; the server refuses new sends)
+      if (!e.peer.startsWith('@') || e.peer.startsWith('@ext:')
+        || e.peer.startsWith('@mcp:')) continue
       const ns = e.peer.slice(1, e.peer.indexOf(':'))
       const g = e.peer.startsWith('@net:')
         ? e.peer.slice(5).split('.')[1] ?? '?'
@@ -1753,7 +1755,7 @@ function ComposeModal({ slug, net, entries, toast, close }: {
             onClick={() => setOther((v) => !v)}>other address…</button>
         </div>
         {other && (
-          <input autoFocus placeholder="@net:slug / @org:slug / @mcp:id"
+          <input autoFocus placeholder="@net:slug / @org:slug"
             value={freeTo} onChange={(e) => setFreeTo(e.target.value)} />
         )}
         <textarea rows={5} placeholder="the message…" value={text}

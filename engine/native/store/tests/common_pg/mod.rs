@@ -145,11 +145,16 @@ pub struct Script {
     holds: Mutex<HashMap<(String, String), (mpsc::UnboundedSender<()>, Arc<Semaphore>)>>,
     /// Holds by FULL point name (any operation), for reads with minted keys.
     named: Mutex<HashMap<String, (mpsc::UnboundedSender<()>, Arc<Semaphore>)>>,
+    named_actions: Mutex<HashMap<String, HookAction>>,
 }
 
 impl Script {
     pub fn act(&self, key: &str, point: &str, a: HookAction) {
         self.actions.lock().unwrap().insert((key.into(), point.into()), a);
+    }
+    /// The first operation that reaches the full point `name` takes action `a`.
+    pub fn act_named(&self, name: &str, a: HookAction) {
+        self.named_actions.lock().unwrap().insert(name.into(), a);
     }
     /// Hold the first operation that reaches the full point `name`.
     pub fn hold_named(&self, name: &str) -> (mpsc::UnboundedReceiver<()>, Arc<Semaphore>) {
@@ -172,7 +177,7 @@ impl PauseHook for Script {
     fn at<'a>(&'a self, p: &'a PausePoint<'a>) -> BoxFuture<'a, HookAction> {
         let point = p.name.rsplit_once(&format!("{}.{}.", p.family, p.verb)).map(|x| x.1.to_string()).unwrap_or_default();
         let k = (p.op.key.clone(), point);
-        let action = self.actions.lock().unwrap().remove(&k);
+        let action = self.actions.lock().unwrap().remove(&k).or_else(|| self.named_actions.lock().unwrap().remove(p.name));
         let hold = self.holds.lock().unwrap().remove(&k).or_else(|| self.named.lock().unwrap().remove(p.name));
         Box::pin(async move {
             if let Some((arrived, sem)) = hold {
@@ -202,13 +207,18 @@ impl TraceSink for Events {
             EventKind::Statement { label, sqlstate: Some(s), .. } => format!("stmt_err:{label}:{s}"),
             EventKind::Statement { label, sqlstate: None, .. } => format!("stmt:{label}:{key}"),
             EventKind::Mark { name } => format!("mark:{name}"),
+            EventKind::CausalRefs { refs } => format!("causal:{}.{}:{key}:{}", e.family, e.verb, refs.join(",")),
             EventKind::Begin { .. } => format!("begin:{}.{}:{key}", e.family, e.verb),
             EventKind::Rollback => format!("rollback:{}.{}:{key}", e.family, e.verb),
             EventKind::Commit { .. } => format!("commit:{}.{}:{key}", e.family, e.verb),
             EventKind::Outcome { outcome } => format!("outcome:{}.{}:{key}:{outcome}", e.family, e.verb),
             _ => return,
         };
-        self.0.lock().unwrap().push(s);
+        let mut g = self.0.lock().unwrap();
+        if let EventKind::Retry { .. } = &e.kind {
+            g.push(format!("retry_op:{}.{}:{key}", e.family, e.verb));
+        }
+        g.push(s);
     }
 }
 impl Events {

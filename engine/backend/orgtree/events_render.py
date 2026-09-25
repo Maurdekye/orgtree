@@ -494,7 +494,7 @@ def _r_audience_changed(ev: _R) -> str:
         return (f"{who} granted you audience with the ORG INBOX: you now receive "
                 f"outside messages addressed to this organization (chatq sessions, "
                 f"other orgs) and may reply for it with orgtree_message to the "
-                f"sender's @org:/@mcp:/@net: address. Replies speak for the org as a "
+                f"sender's @org:/@net: address. Replies speak for the org as a "
                 f"whole — coordinate with the other recipients before answering.")
     if oc == "org_inbox_auto":
         return ("Outside mail arrived and no one held the ORG-INBOX audience, so it "

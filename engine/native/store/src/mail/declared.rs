@@ -184,6 +184,14 @@ pub fn declared() -> Value {
         }
         m.insert(format!("audiences.{verb}"), entry(rels, Some(if extra { "audiences.revoke" } else { "audiences.grant" }), "mail/audience.rs Audience (schedule-grade; r7 C2a P1)"));
     }
+    m.insert(
+        "mail.transport.claim".into(),
+        entry(vec![receipts(), ("transport_intents", rel(&["read", "for_update", "write"], true)), ("mail_sent", rel(R, true))], Some("exchange.extern-send"), "mail/transport.rs ClaimDispatch (fenced dispatch claim)"),
+    );
+    m.insert(
+        "mail.transport.settle".into(),
+        entry(vec![receipts(), ("transport_intents", rel(RW, true))], Some("exchange.extern-send"), "mail/transport.rs SettleDispatch (under the claim token)"),
+    );
     m.insert("mail.ack.ack".into(), entry(vec![receipts(), ("outgoing_intents", rel(RW, true))], None, "mail/receive.rs Ack (source settles its intent)"));
     m.insert(
         "mail.recovery.sweep".into(),
@@ -263,6 +271,7 @@ pub fn declared() -> Value {
     };
     m.insert("charter.capture".into(), capture("runtime/admit.rs Capture: WS5 STAND-IN for WS4's charter.capture (Q-CR r2 step 1)"));
     m.insert("charter.partial_recapture".into(), capture("runtime/admit.rs PartialRecapture: runs ONLY under Q-CR2.partial_recapture"));
+    m.insert("runtime.last_vector".into(), entry(vec![("runtime_claims", rel(R, true))], None, "runtime/admit.rs LastVector: runs ONLY under Q-CR3.cached_fallback"));
     Value::Object(m)
 }
 

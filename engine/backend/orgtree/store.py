@@ -86,7 +86,6 @@ import time
 from collections.abc import Callable, Generator, Iterable, Iterator
 from typing import Any, cast
 
-from datetime import datetime, timezone
 from . import census_contacts
 from . import devguard
 from . import profiling
@@ -462,7 +461,7 @@ _IO = _IOLatch()
 #
 # SQLITE-SPEC §5.1: the claim STAYS with the SQLite backend. The save became
 # atomic; the load→mutate→save cycle did not, and `.owner` also guards
-# `accounts.json`, `extern-peers.json`, `journals/` and the process table.
+# `accounts.json`, `journals/` and the process table.
 _owner_fd: int | None = None
 
 
@@ -5226,99 +5225,3 @@ def delete_org(slug: str) -> None:
         # and the section-granular snapshot must not either
         _invalidate_snapshot(slug)
         _bump_org_seq(slug)
-
-
-# ---------------------------------------------------- external peer sightings
-# D-166. `@mcp:` is a PULL transport: a peer is visible ONLY when it reaches
-# in — a poll, a wait, or a send. Nothing else on this machine knows whether
-# one is alive, which is why a response handle attached for a peer that later
-# died used to sit in an agent's system prompt for good, with the prompt still
-# telling the agent to answer there. This file IS that missing signal; it
-# exists for no other purpose.
-#
-# MACHINE-GLOBAL, not per-org, for three reasons: peer identity is
-# machine-level (`~/.orgtree/extern-id`), one peer talks to several orgs at
-# once, and `_extern_scan` already sweeps every org for it. Per-org would also
-# mean taking DOC_LOCK on every 25-second poll of every listener.
-#
-# This file holds EVIDENCE ONLY — one `last_seen` per peer, meaning "it
-# reached in at this time". It deliberately does NOT hold when a handle was
-# attached: that is a fact about a NODE, it lives on the node
-# (`external_handles_at`), and keeping it here could not distinguish a handle
-# that had sat unused for a week from one re-attached a second ago.
-_PEERS_FILE = "extern-peers.json"
-_peers_lock = threading.Lock()
-# a peer nobody has bound a handle to and nobody has heard from in this long
-# is just clutter; pruned on write so the file cannot grow without bound
-_PEER_FORGET_S = 90 * 86400
-
-
-def _peers_path(root: str | None = None) -> str:
-    return os.path.join(root or DATA_ROOT, _PEERS_FILE)
-
-
-def _peers_read() -> dict[str, dict[str, Any]]:
-    """Never raises: a corrupt or absent file reads as 'no sightings', which
-    fails SAFE — every clock restarts, so the worst case is a detach delayed
-    by one TTL, never a live handle dropped early."""
-    try:
-        with open(_peers_path(), encoding="utf-8") as f:
-            d = json.load(f)
-        return d if isinstance(d, dict) else {}
-    except (OSError, ValueError):
-        return {}
-
-
-def _peers_write(d: dict[str, dict[str, Any]]) -> None:
-    _assert_synced_data_root()
-    p = _peers_path()
-    cut = time.time() - _PEER_FORGET_S
-    keep = {k: v for k, v in d.items()
-            if max(_epoch(v.get("last_seen")), _epoch(v.get("first_observed"))) > cut}
-    os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(p) or ".", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(keep, f, indent=1)
-        os.replace(tmp, p)
-        tmp = ""
-    finally:
-        if tmp:
-            with contextlib.suppress(OSError):
-                os.remove(tmp)
-
-
-def _epoch(iso: Any) -> float:
-    """`ledger.now()` ISO-8601 → epoch seconds. That format is ALWAYS UTC with
-    a trailing Z, so it is parsed as UTC explicitly rather than through
-    `strptime`'s naive-local default — which would shift every reading by the
-    machine's offset and, east of UTC, make a fresh sighting look hours old.
-    0.0 for anything unparseable: reads as 'infinitely long ago', which is
-    safe for the forget-prune and is never on its own enough to detach."""
-    if not isinstance(iso, str) or not iso:
-        return 0.0
-    try:
-        return datetime.strptime(iso.replace("Z", ""), "%Y-%m-%dT%H:%M:%S.%f")             .replace(tzinfo=timezone.utc).timestamp()
-    except (ValueError, OverflowError):
-        return 0.0
-
-
-def extern_seen(addr: str) -> None:
-    """The peer reached in. Called from every inbound extern route — send,
-    read and wait alike, because all three prove the same thing."""
-    with _peers_lock:
-        d = _peers_read()
-        rec = d.setdefault(addr, {})
-        rec["last_seen"] = _now_iso()
-        _peers_write(d)
-
-
-def extern_last_seen(addr: str) -> str | None:
-    """The peer's last real sighting, or None if it has never reached in."""
-    return _peers_read().get(addr, {}).get("last_seen")
-
-
-def _now_iso() -> str:
-    """One timestamp shape across the whole system — reuse the ledger's, so a
-    sighting and a mail entry can never disagree about what time it is."""
-    return _ledger_now()

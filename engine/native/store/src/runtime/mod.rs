@@ -40,7 +40,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use crate::exec::{Binding, ExecError, Executor, OpIdentity, Outcome, Principal};
+use crate::exec::{Binding, ExecError, Executor, OpIdentity, Outcome, Principal, Refusal};
 use crate::hooks::{controls, Scope};
 use crate::session::Connector;
 use admit::{Admission, Admit, Capture, ClaimInput, ConfirmInput, FakeProvider, Settle, Vector, MAX_RECAPTURE};
@@ -101,20 +101,41 @@ async fn turn<C: Connector>(exec: &Executor<C>, org: uuid::Uuid, seat: uuid::Uui
     let turn_id = uuid::Uuid::new_v4();
     let (claim_id, consumed, vector) = loop {
         let partial = recaptures > 0 && last.is_some() && controls::fire(&scope, "Q-CR2.partial_recapture");
-        let captured = if partial {
+        let read = if partial {
             // Unsafe: re-read only the versions of the nodes already captured,
             // keeping the old chain membership and its charters.
-            exec.read(&admit::PartialRecapture { org, old: last.clone().unwrap() }, org, None).await?
+            exec.read(&admit::PartialRecapture { org, old: last.clone().unwrap() }, org, None).await
         } else {
-            exec.read(&Capture { org, seat, hold: None }, org, None).await?
+            exec.read(&Capture { org, seat, hold: None }, org, None).await
+        };
+        let captured = match read {
+            Ok(c) => Ok(c),
+            // Q-CR3 (a): a capture that failed with a serialization failure
+            // or a deadlock commits nothing; a COMPLETE recapture in a fresh
+            // snapshot follows (bounded, counted). A lost connection is
+            // already retried inside Executor::read (Q-CR3 (b)).
+            Err(ExecError::Sql(e)) if matches!(e.sqlstate(), Some("40001") | Some("40P01")) => Err(Refusal::new("capture_failed", "the capture failed and is retried")),
+            Err(e) => return Err(e),
         };
         let vector = match captured {
-            Ok(v) => v,
-            Err(r) => {
-                // Q-CR3 (c): fail closed. The unsafe control reuses the last vector.
-                match (&last, controls::fire(&scope, "Q-CR3.cached_fallback")) {
-                    (Some(v), true) => v.clone(),
-                    _ => return Ok(Turn::Refused { code: r.code, recaptures }),
+            Ok(Ok(v)) => v,
+            Err(r) if r.code == "capture_failed" && !controls::fire(&scope, "Q-CR3.cached_fallback") => {
+                recaptures += 1;
+                if recaptures >= MAX_RECAPTURE {
+                    return Ok(Turn::Refused { code: "recapture_exhausted".into(), recaptures });
+                }
+                continue;
+            }
+            Ok(Err(r)) | Err(r) => {
+                // Q-CR3 (c): fail closed. The unsafe control falls back to the
+                // seat's last admitted vector (T0's), and runs stale.
+                if controls::fire(&scope, "Q-CR3.cached_fallback") {
+                    match exec.read(&admit::LastVector { org, seat }, org, None).await? {
+                        Some(v) => v,
+                        None => return Ok(Turn::Refused { code: r.code, recaptures }),
+                    }
+                } else {
+                    return Ok(Turn::Refused { code: r.code, recaptures });
                 }
             }
         };

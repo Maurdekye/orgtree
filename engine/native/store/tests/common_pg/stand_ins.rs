@@ -45,6 +45,9 @@ pub enum Island {
     /// The notice fold leg of a session-replacing writer (cheap_compact,
     /// reseed, a cross-provider switch or account split): WS5's helper.
     Fold(Uuid),
+    /// A narrowing retool of a node: its scope row updated (version bump),
+    /// schedule-grade (Q-CR2 writer (ii)).
+    Narrow(Uuid),
 }
 
 async fn ancestors<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, mut n: Option<Uuid>) -> Result<Vec<Uuid>, CmdError> {
@@ -72,6 +75,7 @@ impl Command for Island {
             Island::Move { .. } => "move",
             Island::NamesakeHire { .. } => "hire",
             Island::Fold(_) => "fold",
+            Island::Narrow(_) => "narrow",
         }
     }
     async fn anchor<S: Session>(&self, _tx: &mut Tx<'_, S>, _b: &Binding) -> Result<(), CmdError> {
@@ -138,6 +142,10 @@ impl Command for Island {
                 }
                 tx.exec("island.reparent", REPARENT, &[Val::Uuid(org), Val::Uuid(*node), Val::opt_uuid(*new_parent)]).await?;
                 Ok(Decided::Applied(swept))
+            }
+            Island::Narrow(x) => {
+                tx.exec("island.narrow", "UPDATE scope_rows SET version = version + 1 WHERE org_id = $1 AND principal_id = $2", &[Val::Uuid(org), Val::Uuid(*x)]).await?;
+                Ok(Decided::Applied(1))
             }
             Island::Fold(x) => {
                 tx.exec("island.snapshot", READ_NODE, &[Val::Uuid(org), Val::Uuid(*x)]).await?;

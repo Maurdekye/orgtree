@@ -1,6 +1,6 @@
 {
   "schema": "orgtree.exchange-boundary/v1",
-  "source_contract_sha256": "872186be9b765e589417e6153a0ebf7f518d321825b329664275648dec0a7d67",
+  "source_contract_sha256": "74de0c2b01d4b4f5bf7a653842e45cb725eaee655e11cb6fc02829d74d35939a",
   "qualification": {
     "runtime_census": false,
     "conversion_authorized": false
@@ -9,18 +9,6 @@
     "exchange.orgs-list": [
       "93106cabc978",
       "5ffae5ae831e"
-    ],
-    "exchange.extern-send": [
-      "46c77bf435c8",
-      "e5f3ba53047f"
-    ],
-    "exchange.extern-read": [
-      "bd67a8f8c699",
-      "b55055872c65"
-    ],
-    "exchange.extern-wait": [
-      "3c120330bf4b",
-      "c4681825456a"
     ],
     "exchange.org-inbox-list": [
       "da19a2e41485"
@@ -66,218 +54,6 @@
       "sections_other": [],
       "files": {},
       "peer_seen": false,
-      "deliveries_added": 0,
-      "stage_added": 0,
-      "spies": {}
-    },
-    "extern_send": {
-      "status": 200,
-      "keys": [
-        "delivered"
-      ],
-      "detail": null,
-      "sections": [
-        "audiences",
-        "events",
-        "mail",
-        "mail_log",
-        "nodes",
-        "notice_log",
-        "notices",
-        "org_inbox"
-      ],
-      "sections_other": [],
-      "files": {},
-      "peer_seen": true,
-      "deliveries_added": 0,
-      "stage_added": 0,
-      "spies": {
-        "mail_spark": 1,
-        "send_message": 1
-      }
-    },
-    "extern_send_empty": {
-      "status": 422,
-      "keys": [
-        "detail"
-      ],
-      "detail": "empty message",
-      "sections": [],
-      "sections_other": [],
-      "files": {},
-      "peer_seen": true,
-      "deliveries_added": 0,
-      "stage_added": 0,
-      "spies": {}
-    },
-    "extern_send_bad_peer": {
-      "status": 422,
-      "keys": [
-        "detail"
-      ],
-      "detail": "peer id must be 1-64 chars of [A-Za-z0-9._-]",
-      "sections": [],
-      "sections_other": [],
-      "files": {},
-      "peer_seen": false,
-      "deliveries_added": 0,
-      "stage_added": 0,
-      "spies": {}
-    },
-    "extern_send_no_org": {
-      "status": 404,
-      "keys": [
-        "detail"
-      ],
-      "detail": "no organization named 'nope-org'",
-      "sections": [],
-      "sections_other": [],
-      "files": {},
-      "peer_seen": true,
-      "deliveries_added": 0,
-      "stage_added": 0,
-      "spies": {}
-    },
-    "extern_send_kiosk": {
-      "status": 404,
-      "keys": [
-        "detail"
-      ],
-      "detail": "no organization named '{other}'",
-      "sections": [],
-      "sections_other": [],
-      "files": {},
-      "peer_seen": true,
-      "deliveries_added": 0,
-      "stage_added": 0,
-      "spies": {}
-    },
-    "extern_send_att": {
-      "status": 200,
-      "keys": [
-        "delivered"
-      ],
-      "detail": null,
-      "sections": [
-        "audiences",
-        "events",
-        "mail",
-        "mail_log",
-        "nodes",
-        "notice_log",
-        "notices",
-        "org_inbox"
-      ],
-      "sections_other": [],
-      "files": {
-        "top": [
-          "uploads/note.txt"
-        ]
-      },
-      "peer_seen": true,
-      "deliveries_added": 0,
-      "stage_added": 0,
-      "spies": {
-        "mail_spark": 1,
-        "send_message": 1
-      }
-    },
-    "extern_send_att_missing": {
-      "status": 422,
-      "keys": [
-        "detail"
-      ],
-      "detail": "attachment not found: <path>",
-      "sections": [],
-      "sections_other": [],
-      "files": {},
-      "peer_seen": true,
-      "deliveries_added": 0,
-      "stage_added": 0,
-      "spies": {}
-    },
-    "extern_send_att_big": {
-      "status": 413,
-      "keys": [
-        "detail"
-      ],
-      "detail": "attachment over the 25 MB cap: <path>",
-      "sections": [],
-      "sections_other": [],
-      "files": {},
-      "peer_seen": true,
-      "deliveries_added": 0,
-      "stage_added": 0,
-      "spies": {}
-    },
-    "extern_messages": {
-      "status": 200,
-      "keys": [
-        "cursor",
-        "messages"
-      ],
-      "detail": null,
-      "sections": [],
-      "sections_other": [],
-      "files": {},
-      "peer_seen": true,
-      "deliveries_added": 0,
-      "stage_added": 0,
-      "spies": {}
-    },
-    "extern_messages_org": {
-      "status": 200,
-      "keys": [
-        "messages"
-      ],
-      "detail": null,
-      "sections": [],
-      "sections_other": [],
-      "files": {},
-      "peer_seen": true,
-      "deliveries_added": 0,
-      "stage_added": 0,
-      "spies": {}
-    },
-    "extern_messages_none": {
-      "status": 200,
-      "keys": [
-        "messages"
-      ],
-      "detail": null,
-      "sections": [],
-      "sections_other": [],
-      "files": {},
-      "peer_seen": true,
-      "deliveries_added": 0,
-      "stage_added": 0,
-      "spies": {}
-    },
-    "extern_wait_ready": {
-      "status": 200,
-      "keys": [
-        "cursor",
-        "messages"
-      ],
-      "detail": null,
-      "sections": [],
-      "sections_other": [],
-      "files": {},
-      "peer_seen": true,
-      "deliveries_added": 0,
-      "stage_added": 0,
-      "spies": {}
-    },
-    "extern_wait_timeout": {
-      "status": 200,
-      "keys": [
-        "messages"
-      ],
-      "detail": null,
-      "sections": [],
-      "sections_other": [],
-      "files": {},
-      "peer_seen": true,
       "deliveries_added": 0,
       "stage_added": 0,
       "spies": {}
@@ -463,24 +239,18 @@
       "spies": {}
     },
     "org_send_mcp": {
-      "status": 200,
+      "status": 422,
       "keys": [
-        "id",
-        "warnings"
+        "detail"
       ],
-      "detail": null,
-      "sections": [
-        "org_inbox"
-      ],
+      "detail": "the @mcp: address form is retired — reach outside chats through the mail hub (@net:<slug>)",
+      "sections": [],
       "sections_other": [],
       "files": {},
       "peer_seen": false,
       "deliveries_added": 0,
       "stage_added": 0,
-      "spies": {
-        "hub_changed": 1,
-        "mail_notify": 1
-      }
+      "spies": {}
     },
     "org_send_org": {
       "status": 200,
@@ -631,7 +401,7 @@
       "keys": [
         "detail"
       ],
-      "detail": "attachments ride @net: and @org: mail only — @mcp: is a text-only transport",
+      "detail": "the @mcp: address form is retired — reach outside chats through the mail hub (@net:<slug>)",
       "sections": [],
       "sections_other": [],
       "files": {},
@@ -904,20 +674,6 @@
       "stage_added": 0,
       "spies": {}
     },
-    "extern_no_token": {
-      "status": 401,
-      "keys": [
-        "detail"
-      ],
-      "detail": "missing authentication; provide a desktop or live agent credential",
-      "sections": [],
-      "sections_other": [],
-      "files": {},
-      "peer_seen": false,
-      "deliveries_added": 0,
-      "stage_added": 0,
-      "spies": {}
-    },
     "send_file": {
       "status": 200,
       "keys": [
@@ -1116,54 +872,8 @@
       "spies": {}
     }
   },
-  "externtool": {
-    "bare": {
-      "orgtree_list_orgs": {
-        "error": true,
-        "text": "{\"detail\": \"missing authentication; provide a desktop or live agent credential\"}"
-      },
-      "orgtree_send": {
-        "error": true,
-        "text": "{\"detail\": \"missing authentication; provide a desktop or live agent credential\"}"
-      },
-      "orgtree_read": {
-        "error": true,
-        "text": "{\"detail\": \"missing authentication; provide a desktop or live agent credential\"}"
-      },
-      "orgtree_wait": {
-        "error": true,
-        "text": "{\"detail\": \"missing authentication; provide a desktop or live agent credential\"}"
-      }
-    },
-    "token": {
-      "orgtree_list_orgs": {
-        "error": false,
-        "kiosk_hidden": true,
-        "main_listed": true,
-        "peer": "@mcp:probe.peer"
-      },
-      "orgtree_send": {
-        "error": false,
-        "keys": [
-          "delivered",
-          "your_peer_id"
-        ]
-      },
-      "orgtree_read": {
-        "error": false,
-        "messages": 1
-      },
-      "orgtree_wait": {
-        "error": false,
-        "messages": 1
-      }
-    }
-  },
   "legacy_defects": [
-    "the reply-events GET and DELETE answer a raw 500 'LedgerError: …' for an unknown org or node (docket reply-events-get-and-delete-answer-a-raw-500-for)",
-    "the extern messages and wait routes load every org on the machine under the document lock on each call, and wait returns at once whenever any org holds a fresh reply (docket external-chat-messages-and-wait-read-every-org-u)",
-    "extern send records the peer's sighting in the machine-wide extern-peers.json before it validates the body, the org or the attachments (same docket)",
-    "the external-chat MCP server sends no credential, so every externtool verb is refused 401 by the TokenGate of both current launch paths (reported to the coordinator by the P01 F4 item)"
+    "the reply-events GET and DELETE answer a raw 500 'LedgerError: …' for an unknown org or node (docket reply-events-get-and-delete-answer-a-raw-500-for)"
   ],
-  "scope": "Legacy boundary of the mail, inbox, file and external-chat entry points (P01 F4) on disposable SQLite. Drives, sparks, notices, broadcasts and the hub kick are spies; the routes, the ledger, the org inbox, extern-peers.json, file-deliveries.db, the compose stage and the scratch folders are real. Legacy conformance evidence only: not a runtime census, not PostgreSQL or Rust qualification."
+  "scope": "Legacy boundary of the mail, inbox and file entry points (P01 F4; the external-chat routes were retired) on disposable SQLite. Drives, sparks, notices, broadcasts and the hub kick are spies; the routes, the ledger, the org inbox, file-deliveries.db, the compose stage and the scratch folders are real. Legacy conformance evidence only: not a runtime census, not PostgreSQL or Rust qualification."
 }

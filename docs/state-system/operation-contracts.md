@@ -504,6 +504,90 @@ the org list, the extern scans (the org-filtered read included) and the `@org:` 
 delivered `@org:` send writes it. The family's third-agent control fires, and no other row touches a third
 agent. Asserted in `tests/test_state_p02_contact_facets.py`.
 
+714 is twenty-two more than that 692 (P01 F7, p01-f7-contracts-for-org-administration-11-route). The rise is
+expected: 11 entries are mapped and each new contract opens conflicts, wire and instrumentation. F7 contracts the
+11 org administration routes on a new `org-admin.*` facet family:
+- org create and delete;
+- settings and the hire defaults;
+- the org.md write and the bridge-credential rotation;
+- disk delete, resize and resize apply;
+- the legacy sweep preview and the sweep.
+
+They are pinned by `tests/test_state_org_admin_boundary.py` against `docs/state-system/org-admin-boundary.json`
+(67 cases). The WSL command runner is a recorded fake, a mounted org disk is a temp folder, and hub, net,
+sandbox, container and docker calls are spies. The desktop-managed profile refuses a kiosk or sandboxed create,
+so the standard-profile cases cover those branches. The frozen profile gates the rotation, which the probe
+reaches only as refusals.
+
+A refused settings call writes nothing, even when earlier fields had already been applied to the cached document:
+the outermost lock release discards a document that changed without a save. The sweep deletes the sandbox root,
+the org's host workspace and its scratch root.
+
+Recorded legacy defects (both docketed as org-admin-orgmd-put-reports-characters-as-bytes):
+- the org.md write reports the character count as `bytes`;
+- disk delete returns the raw OSError text, host path included, to admins and kiosk visitors alike.
+
+Entries contracted: 99 of 194.
+
+705 is nine fewer than that 714, because the user retired the external-chat MCP server (docket
+the-external-chat-mcp-server-cannot-reach-the-v2): outside chats use the mail hub only. externtool.py, its four tool
+cards and the three `/api/extern` routes are gone, so the inventory records 335 registrations, down from 342. The
+three `exchange.extern-*` contracts, their 7 entries and their 9 open dimension occurrences are retired with them, and
+`exchange.orgs-list` keeps only GET /api/orgs. A new `@mcp:` send is refused 422 (`ledger.MCP_RETIRED`), both in
+`post_mail` (right after the `@ext:` refusal) and in the org-inbox compose route (before the attachment checks).
+The agent-mail and exchange facts, and their fixtures, now say so. `exchange.instrumentation` narrows to the one
+path P02's rows still do not cover: the `@net:` send against a live mail hub. The facts are from P02's retirement
+commit, which records 12 exchange contracts and 27 refusals.
+
+The earlier paragraphs above describe the extern routes as they were when each family landed. Every registry span in
+the files the retirement edited was re-anchored by exact text. Spans whose text changed were re-derived, and the
+facts citing them were re-read. Entries contracted: 92 of 187 (the plan's 194 less the 7 retired entries, all of
+which F4 had contracted).
+
+704 is one fewer than that 705, from the external-chat retirement's second stage (same docket). New response-handle
+grants are refused, and the held-handle audience bypass, the sighting registry, the handle sweeper and the "filed"
+status are removed. The sweeper's worker registration goes, so the inventory records 334 registrations, and its
+pending entry row goes with it. `agent-mail.authority` loses the held-handle clause. The kept pieces stay true: the node
+tree still serves `external_handles` as stored data, the public scrub drops it, and the preview lists it as private.
+Every moved span was re-anchored by exact text. The three regions the stage edited were re-derived: `post_mail`'s
+`@ext:`/`@mcp:` block, the `orgtree_message` dispatch branch and the `Op` body.
+
+742 is thirty-eight more than that 704 (P01 F8, p01-f8-contracts-for-the-git-workspace-routes-21). The rise is
+expected. 21 entries and 4 dispatch branches are mapped, and each new contract opens conflicts, wire and
+instrumentation. F8 contracts the 21 git workspace routes (`gitapi.py`) on a new `git-workspace.*` facet family:
+- the repository list, discovery, registration, forget and selection;
+- the observation, the worktree inventory, the setup and cleanup plans and the cleanup unlink;
+- the repository settings (read and write) and the ticket links;
+- the history snapshot and pages and a worktree's changes;
+- fetch, watch, push and pull.
+The four `gitworkspace` branches that only these routes reach (`operate` on push and pull, and the cleanup unlink)
+map under rule 1.
+
+They are pinned by `tests/test_state_git_workspace_boundary.py` against `docs/state-system/git-workspace-boundary.json`
+(48 cases). The cases run against REAL git, recorded in the fixture as git 2.52.0.windows.1, confined by the
+coordinator's ruling (decision 1 on the F8 item):
+- every case uses a fresh repository set inside the test's temp root, and its remote is a local bare repository;
+- an audit hook installed first allows only `git` with its cwd inside the root, the isolated environment present and
+  no URL scheme in any argument, and it refuses and records anything else;
+- every git launch runs with no system config, a global config inside the root that has no credential helper and an
+  empty hooks directory, and HOME inside the root;
+- every git launch has GIT_CEILING_DIRECTORIES at the root's parent, so git run in a folder that is not a repository,
+  the root itself included, stops its upward search at the root instead of finding an enclosing repository outside it
+  (git never applies a ceiling to the folder it starts in, so a ceiling at the root would not cover a search starting
+  there); the hook refuses a launch without that ceiling, and a control shows this git honours it.
+The hook sees only Python's own launches, not git's child processes; the isolated configuration is what keeps the
+user's config, credential manager and hooks out of those. The module's teardown fails if anything was refused or if
+the cases ran without the hook seeing a single git launch. Each route's git subcommands are pinned. Only one pin
+depends on git's output format: register's refusal of a directory outside any repository.
+
+No route writes the org document. The writes land in the machine-wide registry `<DATA_ROOT>/git-workspace.json` and in
+the repositories: fetch, push and pull. A refused fetch still records its failed attempt in the registry.
+
+Recorded legacy defect (docket the-desktop-app-still-serves-the-git-workspace-r): the desktop app serves every one of
+these routes. `desktop_policy.install_routes` filters route paths for `/git/`, but the bundled FastAPI 0.141.1 registers
+the included git router as one `_IncludedRouter` entry with no path, which the filter keeps. Entries contracted: 113 of
+187.
+
 Of the 41 open dimension occurrences on the sixteen legacy-family contracts, 25 (9 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the
 native-design citation; those figures were already stale after S2d, which left 45

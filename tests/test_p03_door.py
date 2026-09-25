@@ -183,6 +183,51 @@ class SharedGuardRules(Base):
             p03_door.refuse_live(str(self.base / "bad|name"), self.env)
 
 
+class UncRefusal(Base):
+    """Review N1: an admin-share alias reaches the live folder under a name no
+    prefix comparison sees, so every UNC or device path is refused (parity
+    with WS1's Rust guard). Fails if refuse_unc is removed."""
+
+    def admin_share(self, p: Path, host: str) -> str:
+        drive, rest = os.path.splitdrive(str(p))
+        self.assertTrue(drive.endswith(":"), f"test folder {p} is not on a drive letter")
+        return f"\\\\{host}\\{drive[0]}${rest}"
+
+    def test_the_admin_share_alias_of_live_data_is_refused(self):
+        live = self.base / "appdata" / "Orgtree v2" / "data"
+        self.mark(live)
+        for host in ("localhost", "127.0.0.1"):
+            alias = self.admin_share(live, host)
+            with self.subTest(alias=alias):
+                with self.assertRaises(p03_door.LiveRootRefused):
+                    self.install(alias, alias)
+                with self.assertRaises(p03_door.LiveRootRefused):
+                    self.install(live, alias)  # as the data root only
+
+    def test_every_unc_and_device_form_is_refused(self):
+        proto = self.base / "proto"
+        self.mark(proto)
+        drive, rest = os.path.splitdrive(str(proto))
+        for form in (
+            self.admin_share(proto, "localhost"),
+            "\\\\server\\share\\proto",
+            "//localhost/" + drive[0] + "$" + rest.replace("\\", "/"),
+            "\\\\?\\UNC\\localhost\\" + drive[0] + "$" + rest,
+            "\\\\.\\" + str(proto),
+        ):
+            with self.subTest(form=form):
+                with self.assertRaises(p03_door.LiveRootRefused):
+                    p03_door.refuse_live(form, self.env)
+
+    def test_a_verbatim_drive_path_is_still_accepted(self):
+        proto = self.base / "proto"
+        self.mark(proto)
+        verbatim = "\\\\?\\" + str(proto)
+        ok, app = self.install(verbatim, verbatim)
+        self.assertTrue(ok, "a \\\\?\\C:\\ path is a drive-letter path, not UNC")
+        self.assertEqual(len(app.installed), 1)
+
+
 class ApiEdit(unittest.TestCase):
     def test_api_calls_install_exactly_once_with_the_data_root(self):
         src = (REPO / "engine" / "backend" / "orgtree" / "api.py").read_text(encoding="utf-8")

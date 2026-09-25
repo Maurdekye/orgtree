@@ -1,0 +1,1717 @@
+{
+  "schema": "orgtree.org-admin-boundary/v1",
+  "source_contract_sha256": "74de0c2b01d4b4f5bf7a653842e45cb725eaee655e11cb6fc02829d74d35939a",
+  "qualification": {
+    "runtime_census": false,
+    "conversion_authorized": false
+  },
+  "contracts": {
+    "org-admin.create": "02c9404c4f65",
+    "org-admin.delete": "ad058027db1a",
+    "org-admin.bridge-rotate": "3b17ebec1038",
+    "org-admin.settings": "10fe170d2570",
+    "org-admin.hire-defaults": "a6c3f38c3106",
+    "org-admin.orgmd-write": "930cb8d0181b",
+    "org-admin.disk-delete": "f096e38213dd",
+    "org-admin.disk-resize": "6efa8fe24f91",
+    "org-admin.disk-resize-apply": "11523cde8191",
+    "org-admin.sweep-preview": "f5c06e89664d",
+    "org-admin.sweep": "6bf10642dcf4"
+  },
+  "cases": {
+    "create": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "slug"
+      ],
+      "detail": null,
+      "sections": [],
+      "orgs": [
+        1,
+        0
+      ],
+      "born": [
+        "_actors_typed",
+        "_migrations",
+        "audience_requests",
+        "audiences",
+        "cascade_alloc",
+        "cascade_hire",
+        "compact_at",
+        "created",
+        "credit_requests",
+        "default_tools",
+        "default_top_grant",
+        "default_visibility",
+        "dirs",
+        "events",
+        "external_inbox_multi_holder",
+        "fable_filter_model",
+        "fable_filter_policy",
+        "fable_limit_policy",
+        "kiosk",
+        "max_top_grant",
+        "models",
+        "name",
+        "net_autoconnect",
+        "net_hubs",
+        "net_identity",
+        "nodes",
+        "org_inbox_multi_holder",
+        "permission_mode",
+        "slug",
+        "tiers",
+        "version",
+        "whole_grants_v1",
+        "workspace"
+      ],
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "create_defaults": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "slug"
+      ],
+      "detail": null,
+      "sections": [],
+      "orgs": [
+        1,
+        0
+      ],
+      "born": [
+        "_actors_typed",
+        "_migrations",
+        "audience_requests",
+        "audiences",
+        "cascade_alloc",
+        "cascade_hire",
+        "compact_at",
+        "created",
+        "credit_requests",
+        "default_tools",
+        "default_top_grant",
+        "default_visibility",
+        "dirs",
+        "events",
+        "external_inbox_multi_holder",
+        "fable_filter_model",
+        "fable_filter_policy",
+        "fable_limit_policy",
+        "kiosk",
+        "max_top_grant",
+        "models",
+        "name",
+        "net_autoconnect",
+        "net_hubs",
+        "net_identity",
+        "nodes",
+        "org_inbox_multi_holder",
+        "permission_mode",
+        "slug",
+        "tiers",
+        "version",
+        "whole_grants_v1",
+        "workspace"
+      ],
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "create_no_autoconnect": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "slug"
+      ],
+      "detail": null,
+      "sections": [],
+      "orgs": [
+        1,
+        0
+      ],
+      "born": [
+        "_actors_typed",
+        "_migrations",
+        "audience_requests",
+        "audiences",
+        "cascade_alloc",
+        "cascade_hire",
+        "compact_at",
+        "created",
+        "credit_requests",
+        "default_tools",
+        "default_top_grant",
+        "default_visibility",
+        "dirs",
+        "events",
+        "external_inbox_multi_holder",
+        "fable_filter_model",
+        "fable_filter_policy",
+        "fable_limit_policy",
+        "kiosk",
+        "max_top_grant",
+        "models",
+        "name",
+        "net_autoconnect",
+        "net_hubs",
+        "net_identity",
+        "nodes",
+        "org_inbox_multi_holder",
+        "permission_mode",
+        "slug",
+        "tiers",
+        "version",
+        "whole_grants_v1",
+        "workspace"
+      ],
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "create_kiosk": {
+      "status": 422,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "Not available in desktop MVP: kiosk",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "create_kiosk_bad_scope": {
+      "status": 422,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "Not available in desktop MVP: kiosk",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "create_kiosk_small_disk": {
+      "status": 422,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "Not available in desktop MVP: kiosk",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "create_sandbox": {
+      "status": 422,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "Not available in desktop MVP: sandbox, disk_mb",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "create_sandbox_small": {
+      "status": 422,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "Not available in desktop MVP: sandbox, disk_mb",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "create_kiosk_std": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "slug"
+      ],
+      "detail": null,
+      "sections": [],
+      "orgs": [
+        1,
+        0
+      ],
+      "born": [
+        "_actors_typed",
+        "_migrations",
+        "audience_requests",
+        "audiences",
+        "cascade_alloc",
+        "cascade_hire",
+        "compact_at",
+        "created",
+        "credit_requests",
+        "default_tools",
+        "default_top_grant",
+        "default_visibility",
+        "dirs",
+        "events",
+        "external_inbox_multi_holder",
+        "fable_filter_model",
+        "fable_filter_policy",
+        "fable_limit_policy",
+        "kiosk",
+        "max_top_grant",
+        "models",
+        "name",
+        "nodes",
+        "org_inbox_multi_holder",
+        "permission_mode",
+        "slug",
+        "tiers",
+        "version",
+        "whole_grants_v1",
+        "workspace"
+      ],
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "create_kiosk_sandbox_std": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "slug"
+      ],
+      "detail": null,
+      "sections": [],
+      "orgs": [
+        1,
+        0
+      ],
+      "born": [
+        "_actors_typed",
+        "_migrations",
+        "audience_requests",
+        "audiences",
+        "cascade_alloc",
+        "cascade_hire",
+        "compact_at",
+        "created",
+        "credit_requests",
+        "default_tools",
+        "default_top_grant",
+        "default_visibility",
+        "dirs",
+        "events",
+        "external_inbox_multi_holder",
+        "fable_filter_model",
+        "fable_filter_policy",
+        "fable_limit_policy",
+        "kiosk",
+        "max_top_grant",
+        "models",
+        "name",
+        "nodes",
+        "org_inbox_multi_holder",
+        "permission_mode",
+        "slug",
+        "tiers",
+        "version",
+        "whole_grants_v1",
+        "workspace"
+      ],
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {
+        "warm": 1
+      }
+    },
+    "create_kiosk_bad_scope_std": {
+      "status": 422,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "'int' object has no attribute 'get'",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [
+          "deleted/{slug}-kb2-{ts}.db"
+        ],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {
+        "unregister_org": 1
+      }
+    },
+    "create_kiosk_small_disk_std": {
+      "status": 422,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "sandboxed orgs ride a fixed-size disk with a 4096 MB minimum — set storage to at least 4096 MB",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "create_sandbox_std": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "slug"
+      ],
+      "detail": null,
+      "sections": [],
+      "orgs": [
+        1,
+        0
+      ],
+      "born": [
+        "_actors_typed",
+        "_migrations",
+        "audience_requests",
+        "audiences",
+        "cascade_alloc",
+        "cascade_hire",
+        "compact_at",
+        "created",
+        "credit_requests",
+        "default_tools",
+        "default_top_grant",
+        "default_visibility",
+        "dirs",
+        "events",
+        "external_inbox_multi_holder",
+        "fable_filter_model",
+        "fable_filter_policy",
+        "fable_limit_policy",
+        "kiosk",
+        "max_top_grant",
+        "models",
+        "name",
+        "net_autoconnect",
+        "net_hubs",
+        "net_identity",
+        "nodes",
+        "org_inbox_multi_holder",
+        "permission_mode",
+        "sandbox",
+        "slug",
+        "tiers",
+        "version",
+        "whole_grants_v1",
+        "workspace"
+      ],
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {
+        "warm": 1
+      }
+    },
+    "create_sandbox_small_std": {
+      "status": 422,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "sandboxed orgs ride a fixed-size disk with a 4096 MB minimum — set disk_mb to at least 4096",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "create_duplicate": {
+      "status": 400,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "org 'p01-f7-dup' already exists",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "create_bad_name": {
+      "status": 400,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "name is mandatory and must contain letters or digits (§4.7)",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "create_frozen_unsandboxed": {
+      "status": 422,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "the frozen deployment profile requires every org to be sandboxed — create this org with sandbox enabled",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "delete": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "net",
+        "ok"
+      ],
+      "detail": null,
+      "sections": "<removed>",
+      "orgs": [
+        0,
+        1
+      ],
+      "born": null,
+      "files": {
+        "added": [
+          "deleted/{slug}-{ts}.db"
+        ],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {
+        "forget_state": 1,
+        "remote_reap": 1,
+        "remove": 1,
+        "unregister_org": 1
+      }
+    },
+    "delete_missing": {
+      "status": 404,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "no such org: 'nope-org'",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "delete_twice": {
+      "status": 404,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "no such org: '{slug}'",
+      "sections": null,
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "rotate_standard": {
+      "status": 409,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "rotatable bridge credentials are active only in the frozen deployment profile",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "rotate_frozen": {
+      "status": 503,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "org '{slug}' is not sandboxed and gets no bridge credential",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "rotate_frozen_no_org": {
+      "status": 404,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "no such org: 'nope-org'",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "settings_caps": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "dirs",
+        "warnings"
+      ],
+      "detail": null,
+      "sections": [
+        "compact_at",
+        "default_top_grant",
+        "max_top_grant"
+      ],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {
+        "hub_changed": 1,
+        "kick": 1
+      }
+    },
+    "settings_refused_after_edits": {
+      "status": 422,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "fable cannot be used as the auto-autopsy model",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "settings_unknown_model": {
+      "status": 422,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "unknown model tier 'no-such-tier'",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "settings_org_dirs_remove": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "dirs",
+        "warnings"
+      ],
+      "detail": null,
+      "sections": [
+        "dirs",
+        "events",
+        "nodes"
+      ],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {
+        "hub_changed": 1,
+        "kick": 1
+      }
+    },
+    "settings_org_dirs_bad": {
+      "status": 422,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "org_dirs entries must be a path string or {path, mode} — got None",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "settings_refused_after_revoke": {
+      "status": 422,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "fable cannot be used as the auto-autopsy model",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "settings_clear_fable_lock": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "dirs",
+        "warnings"
+      ],
+      "detail": null,
+      "sections": [
+        "events",
+        "fable_lock",
+        "nodes",
+        "notice_log",
+        "notices"
+      ],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {
+        "hub_changed": 1,
+        "kick": 1
+      }
+    },
+    "settings_refused_after_lock_clear": {
+      "status": 422,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "fable cannot be used as the auto-autopsy model",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "settings_headless_lenient": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "dirs",
+        "warnings"
+      ],
+      "detail": null,
+      "sections": [
+        "auto_resume",
+        "headless"
+      ],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {
+        "hub_changed": 1,
+        "kick": 1
+      }
+    },
+    "settings_hire_defaults": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "dirs",
+        "warnings"
+      ],
+      "detail": null,
+      "sections": [
+        "default_effort",
+        "default_visibility",
+        "events"
+      ],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {
+        "hub_changed": 1,
+        "kick": 1
+      }
+    },
+    "settings_headless": {
+      "status": 422,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "headless refuses while fable_limit_policy and fable_filter_policy is 'halt' — a halted headless org is a dead org nobody will notice; switch the policy first",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "settings_headless_kiosk": {
+      "status": 422,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "a kiosk cannot run headless — it is sealed from the org mail that headless depends on",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "settings_net_hubs": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "dirs",
+        "warnings"
+      ],
+      "detail": null,
+      "sections": [
+        "net_autoconnect",
+        "net_hubs",
+        "net_spool"
+      ],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {
+        "hub_changed": 1,
+        "kick": 1
+      }
+    },
+    "settings_net_hubs_bad": {
+      "status": 422,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "net_hubs entries must be {id?, address, enabled?}",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "settings_net_kiosk": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "dirs",
+        "warnings"
+      ],
+      "detail": null,
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {
+        "hub_changed": 1,
+        "kick": 1
+      }
+    },
+    "settings_empty": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "dirs",
+        "warnings"
+      ],
+      "detail": null,
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {
+        "hub_changed": 1,
+        "kick": 1
+      }
+    },
+    "settings_no_org": {
+      "status": 404,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "no such org: 'nope-org'",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "defaults": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "default_account",
+        "default_tools",
+        "default_visibility",
+        "permission_mode",
+        "warnings"
+      ],
+      "detail": null,
+      "sections": [
+        "default_visibility",
+        "events"
+      ],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {
+        "hub_changed": 1
+      }
+    },
+    "defaults_bad": {
+      "status": 422,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "default_visibility must be one of ('self', 'team', 'subtree', 'full')",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "defaults_no_org": {
+      "status": 422,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "no such org: 'nope-org'",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "orgmd_put": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "bytes",
+        "chars",
+        "path",
+        "prompt_max",
+        "prompt_truncated"
+      ],
+      "detail": null,
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [
+          "workspaces/{slug}/CLAUDE.md"
+        ],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {
+        "changed": 1
+      }
+    },
+    "orgmd_put_unicode": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "bytes",
+        "chars",
+        "path",
+        "prompt_max",
+        "prompt_truncated"
+      ],
+      "detail": null,
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [
+          "workspaces/{slug}/CLAUDE.md"
+        ],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {
+        "changed": 1
+      }
+    },
+    "orgmd_put_long": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "bytes",
+        "chars",
+        "path",
+        "prompt_max",
+        "prompt_truncated",
+        "warnings"
+      ],
+      "detail": null,
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [
+          "workspaces/{slug}/CLAUDE.md"
+        ],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {
+        "changed": 1
+      }
+    },
+    "orgmd_put_no_workspace": {
+      "status": 422,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "org has no workspace",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "orgmd_put_no_org": {
+      "status": 404,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "no such org: 'nope-org'",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "disk_delete_none": {
+      "status": 409,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "this org has no virtual disk (not sandboxed, or not yet migrated)",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "disk_delete": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "blocked",
+        "full",
+        "results",
+        "total",
+        "used"
+      ],
+      "detail": null,
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {
+        "invalidate": 1,
+        "storage_check": 1
+      }
+    },
+    "disk_resize_none": {
+      "status": 409,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "this org has no virtual disk (not sandboxed, or not yet migrated)",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "disk_resize_grow": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "pending_mb",
+        "size_mb",
+        "total",
+        "used"
+      ],
+      "detail": null,
+      "sections": [
+        "disk"
+      ],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {
+        "grow": 1,
+        "storage_check": 1
+      }
+    },
+    "disk_resize_shrink": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "pending_mb",
+        "size_mb"
+      ],
+      "detail": null,
+      "sections": [
+        "disk"
+      ],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "disk_resize_floor": {
+      "status": 422,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "org disks have a 4096 MB minimum (the system seed and transcripts live inside the cap)",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "disk_resize_same": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "pending_mb",
+        "size_mb"
+      ],
+      "detail": null,
+      "sections": [
+        "disk"
+      ],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "disk_resize_cancel": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "pending_mb",
+        "size_mb"
+      ],
+      "detail": null,
+      "sections": [
+        "disk"
+      ],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "disk_resize_missing": {
+      "status": 422,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "size_mb required (or cancel: true)",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "disk_apply_none_pending": {
+      "status": 422,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "no pending resize",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "disk_apply": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "pending_mb",
+        "size_mb",
+        "total",
+        "used"
+      ],
+      "detail": null,
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {
+        "stop_container": 1,
+        "try_apply_pending_resize": 1
+      }
+    },
+    "disk_apply_kept": {
+      "status": 422,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "free 10 MB first",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {
+        "stop_container": 1,
+        "try_apply_pending_resize": 1
+      }
+    },
+    "disk_apply_no_disk": {
+      "status": 409,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "this org has no virtual disk (not sandboxed, or not yet migrated)",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "sweep_preview_unmounted": {
+      "status": 503,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "the org disk is not mounted — not touching its rollback backup",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "sweep_preview": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "host_bytes",
+        "host_dirs",
+        "total_bytes",
+        "volumes",
+        "volumes_bytes"
+      ],
+      "detail": null,
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {
+        "docker": 6
+      }
+    },
+    "sweep_unmounted": {
+      "status": 503,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "the org disk is not mounted — not touching its rollback backup",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "sweep": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "failures",
+        "removed_dirs",
+        "removed_volumes"
+      ],
+      "detail": null,
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {
+        "docker": 6
+      }
+    },
+    "sweep_no_disk": {
+      "status": 409,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "this org has no virtual disk (not sandboxed, or not yet migrated)",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    },
+    "agent_token": {
+      "status": 401,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "agent credential is invalid or expired; reconnect the agent session",
+      "sections": [],
+      "orgs": [
+        0,
+        0
+      ],
+      "born": null,
+      "files": {
+        "added": [],
+        "removed": [],
+        "changed": []
+      },
+      "spies": {}
+    }
+  },
+  "legacy_defects": [
+    "the org.md write reports the character count as `bytes`: ten 'é' answer bytes 10, where UTF-8 holds 20 (docket org-admin-orgmd-put-reports-characters-as-bytes)",
+    "disk delete reports an unlink failure with the raw OSError text, which carries the host's Windows path, to an admin and a kiosk visitor alike (the disk download route reduces host paths for visitors) (same docket)"
+  ],
+  "scope": "Legacy boundary of the org administration routes (P01 F7) on disposable SQLite. Hub, net, sandbox, container and docker calls are spies; the WSL command runner is a recorded fake and a mounted org disk a temp folder; the routes, the ledger, the store's create and delete, the defaults file, the workspace files and the host folders the sweep removes are real. Legacy conformance evidence only: not a runtime census, not PostgreSQL or Rust qualification."
+}
