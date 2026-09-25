@@ -33,8 +33,11 @@ use crate::Tx;
 
 pub mod declared;
 pub mod harness;
+pub mod outside;
 pub mod rehire;
 pub mod remove;
+pub mod rename;
+pub mod requests;
 pub mod retool;
 pub mod split;
 pub mod topo;
@@ -67,8 +70,15 @@ pub const CONTROLS: &[&str] = &[
     // r7 Q-C11 (e): the settings door lists nodes without first updating the
     // directory control row.
     "Q-C11.settings_no_control_update",
+    // r7 Q-C11 (e), hire side: the hire skips its share lock on the
+    // directory control row (fired in the namesake hire; WS3a's hire carries
+    // the same id if it runs (e)).
+    "Q-C11.hire_no_directories_share",
     // S3 Q-E2: the split runs READ COMMITTED outside the island.
     "Q-E2.split_read_committed",
+    // r7 Q-C12: the filing skips its update of the asker's epoch row
+    // (asks and scope requests here; the credit request is WS4's).
+    "Q-C12.filing_skips_epoch_bump",
     // S3 Q-E1 (a)/(b): WS5's controls, fired inside WS5's helpers (listed
     // in mail::mailbox::CONTROLS; not repeated here).
 ];

@@ -105,7 +105,10 @@ pub async fn namesake_hire_in<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, caller:
     } else if !caller.is_user_level() {
         return island::refuse("forbidden", "only the user hires at the top level");
     }
-    let controls = island::share_controls(tx, org, &["caps", "defaults", "directories", "kiosk"]).await?;
+    // r7 Q-C11 (e)'s hire-side control: the hire skips its share lock on the
+    // directory control row
+    let fams: &[&str] = if crate::hooks::controls::fire(&tx.scope(), "Q-C11.hire_no_directories_share") { &["caps", "defaults", "kiosk"] } else { &["caps", "defaults", "directories", "kiosk"] };
+    let controls = island::share_controls(tx, org, fams).await?;
     if let Some(max) = island::cap(&controls, "max_children") {
         if island::org_children(tx, org, parent).await? >= max {
             return island::refuse("children_cap", format!("the destination already has the maximum of {max} live reports"));
