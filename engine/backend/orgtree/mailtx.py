@@ -21,9 +21,12 @@ transaction and never take DOC_LOCK: they change the `org` they are given.
 Drives and wakes are fired by the caller AFTER the commit.
 
 WHAT IS LOCKED. The mutable mail queues (`mail`, `notices`, `delivering`)
-are whole-org doc sections in the seam's row layout, so a send locks the
-org's `mail` row, not only the recipient's box (PG-0's layout; a per-owner
-split would change only these helpers). `mail_log` is a dict log: naming
+are stored one row per owner (store.SPLIT_SECTIONS), so these helpers name
+`("mail", nid)` — that owner's queue — wherever the owner is known before
+the transaction: a send's recipients, and the one node a delivery confirms,
+folds back or retracts. A send still names the WHOLE `notices` section: it
+may notify the recipient's superior chain or a replaced audience holder,
+which only the body discovers. `mail_log` is a dict log: naming
 `("mail_log", owner)` lets the transaction edit that owner's rows, and
 appends take no lock. The recipient's node row carries `mail_seq` /
 `mailbox_id`.
@@ -38,10 +41,11 @@ from typing import Any
 from . import orgtx
 from .ledger import USER, Org
 
-#: Sections a send may write: the pending boxes, notices to a superior chain
-#: or a replaced holder, audience grants (reply / first contact / deep reach)
-#: and the per-operation lifecycle.
-SEND_SECTIONS: tuple[str, ...] = ("mail", "notices", "audiences", "lifecycle")
+#: Sections a send may write besides each recipient's own pending box
+#: (`("mail", nid)`, see `send_rows`): notices to a superior chain or a
+#: replaced holder, audience grants (reply / first contact / deep reach) and
+#: the per-operation lifecycle.
+SEND_SECTIONS: tuple[str, ...] = ("notices", "audiences", "lifecycle")
 
 #: Global list logs a send may append to.
 SEND_LOGS: tuple[str, ...] = ("events", "notice_log", "user_mail_log", "user_outbox",
@@ -68,10 +72,11 @@ def _dedupe(xs: Iterable[Any]) -> list[Any]:
 
 def send_rows(*recipients: str) -> dict[str, list[Any]]:
     """The `org_tx` names for a send (mail or notice) to `recipients`:
-    each agent recipient's node row and mail_log owner; the user inbox for
-    mail to the user."""
+    each agent recipient's node row, pending box and mail_log owner; the
+    user inbox for mail to the user. (A recipient here is a node id — which
+    is also its name, so `post_mail`'s resolution maps it to itself.)"""
     nodes = [r for r in recipients if r and r != USER and not r.startswith("@")]
-    sections = list(SEND_SECTIONS)
+    sections: list[Any] = [*SEND_SECTIONS, *(("mail", r) for r in nodes)]
     if USER in recipients:
         sections.append("user_inbox")
     logs: list[Any] = list(SEND_LOGS) + [("mail_log", r) for r in nodes]
@@ -104,20 +109,21 @@ def audience_rows(node: str) -> dict[str, list[Any]]:
 def retract_rows(nid: str) -> dict[str, list[Any]]:
     """Retracting one undrained mail: the pending boxes and that node's
     archive (the tombstone)."""
-    return {"sections": ["mail"], "logs": [("mail_log", nid)]}
+    return {"sections": [("mail", nid)], "logs": [("mail_log", nid)]}
 
 
 def confirm_rows(nid: str) -> dict[str, list[Any]]:
     """Confirming a delivered batch: the delivery journal, the reclaim
     receipts (`mail_transitions`) and the node row (its `mail_drain` demand
     and `halt_queue`)."""
-    return {"nodes": [nid], "sections": ["delivering", "mail_transitions"]}
+    return {"nodes": [nid], "sections": [("delivering", nid), "mail_transitions"]}
 
 
 def reclaim_rows(nid: str) -> dict[str, list[Any]]:
     """Folding undelivered batches back: the journal and reclaim receipts,
     the pending boxes and notices they return to, and the node row."""
-    return {"nodes": [nid], "sections": ["delivering", "mail_transitions", "mail", "notices"]}
+    return {"nodes": [nid], "sections": [("delivering", nid), "mail_transitions",
+                                         ("mail", nid), ("notices", nid)]}
 
 
 class NothingToCommit(Exception):
