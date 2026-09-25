@@ -318,6 +318,17 @@ class TheStaleDocumentHazard(Base):
         held.d.setdefault('mail', {}).setdefault('worker', []).append(self.caller_row())
 
         supervisor._fold_back_undelivered(self.slug, 'worker', only_toks=[tok])
+        if store.STORE_BACKEND == 'postgres':
+            # PG-0 compare-and-set (plan decision, lead 18:32Z): the stale
+            # section is REFUSED loudly instead of overwriting the fold
+            with self.assertRaises(store.StaleWrite):
+                store.save_org(held)
+            rows = self.box(org=self.durable())
+            self.assertNotIn('callers-own-row', self.ids(rows),
+                             'the refused save wrote nothing')
+            self.assertEqual([r['body'] for r in rows], ['one'],
+                             'and the recovered mail is where the fold put it')
+            return
         store.save_org(held)          # the caller commits its own transaction
 
         after = self.durable()

@@ -33,7 +33,8 @@ store.py's differ was re-implemented.
     transaction — and its locks — end only when org_tx commits.
 
 The driver is psycopg 3, imported only when this backend is selected.
-Connection URL: `ORGTREE_PG_URL` (set by PG-1's managed-process bracket).
+Connection: `ORGTREE_PG_CONNINFO` (a libpq string set by PG-1's managed-process
+bracket), else `ORGTREE_PG_URL` (tests and development).
 """
 
 from __future__ import annotations
