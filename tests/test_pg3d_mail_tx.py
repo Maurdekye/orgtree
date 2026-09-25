@@ -92,12 +92,17 @@ def call_with_timeout(fn, seconds: float = 20.0):
 
 
 class MailTx(unittest.TestCase):
+    n = 0
+
     def setUp(self) -> None:
         orgtx.use_backend(orgtx.SeamBackend())
-        self.slug = f'pg3d{self._testMethodName[-12:].replace("_", "")}'.lower()
+        MailTx.n += 1
+        self.slug = f'pg3dmail{MailTx.n}'
         org = store.create_org(self.slug)
         org.hire(ledger.USER, None, 'haiku', 0, 'boss')
-        org.hire('boss', 'boss', 'haiku', 0, 'deep')
+        org.hire('boss', 'boss', 'haiku', 0, 'deep', add_dirs=[],
+                 tools={'bash': False, 'web': False, 'edit': False, 'subagents': False, 'mcp': False},
+                 org_visibility='self', charter='a deep test agent')
         store.save_org(org)
         self.client = TestClient(app)
 
