@@ -14903,12 +14903,12 @@ def _run_turn(slug: str, nid: str, text: str | dict[str, Any]) -> None:
         _note_working_activity(slug, nid)
         proceed = _hold_for_deploy(slug, nid)
     except Exception:
-        with store.DOC_LOCK:
-            halt._capture(store.load_org(slug), nid, st)
+        # PG-3e-A: PG-3a's one-row capture transaction (retain into the tx,
+        # prune the runtime queues only after it commits).
+        halt._capture_tx(slug, nid, st)  # pyright: ignore[reportPrivateUsage]
         raise
     if not proceed:
-        with store.DOC_LOCK:
-            halt._capture(store.load_org(slug), nid, st)
+        halt._capture_tx(slug, nid, st)  # pyright: ignore[reportPrivateUsage]
         with _state_lock:
             st["live"] = [r for r in (st.get("live") or []) if r.get("sticky")]
             st["busy"] = False
@@ -14923,11 +14923,18 @@ def _run_turn(slug: str, nid: str, text: str | dict[str, Any]) -> None:
             _start_turn_worker(slug, nid, nxt)
             return
         drained += 1
-        with store.DOC_LOCK:
-            current_org = store.load_org(slug)
+        # PG-3e-A: the per-carrier re-check before the next unit of work, as
+        # one halt transaction on the agent's row (decision 2: a running
+        # turn's "start more work" point re-checks the locked row). It
+        # commits once when the block ends; the saves below are gone. The
+        # org-wide `desktop_import` section is locked only for a native-hold
+        # carrier, the one path that writes it.
+        _loop_sections = (["desktop_import"] if isinstance(nxt, dict)
+                          and nxt.get('_native_hold_id') else [])
+        with halt.txn(slug, nodes=[nid], sections=_loop_sections) as _loop_tx:
+            current_org = _loop_tx.org
             if current_org.node(nid).get("halt"):
                 halt.retain(current_org, nid, [nxt])
-                store.save_org(current_org)
                 return
             halt.restore_carriers(current_org, nid, nxt)
             owned = set(nxt.get('toks') or []) if isinstance(nxt, dict) else set()
@@ -14948,7 +14955,6 @@ def _run_turn(slug: str, nid: str, text: str | dict[str, Any]) -> None:
                         held.append(carrier)
                 current_org.node(nid).setdefault('inflight',{
                     'text':str(carrier.get('text') or ''),'view':str(carrier.get('view') or '')})
-                store.save_org(current_org)
                 with _state_lock:
                     if already_retained:
                         if not any(isinstance(c,dict) and c.get('_native_hold_id') == carrier['_native_hold_id'] for c in st['queue']):
@@ -14973,7 +14979,6 @@ def _run_turn(slug: str, nid: str, text: str | dict[str, Any]) -> None:
                     metadata.setdefault('recovery_intents',{}).setdefault(nid,dict(prior))
                 current_org.node(nid)['inflight'] = dict(nxt)
                 current_org.node(nid)['native_held_carriers'] = [c for c in held if c.get('_native_hold_id') != current_id]
-                store.save_org(current_org)
         carrier_probe_token = _carrier_limit_probe_token(nxt)
         # DO NOT WAKE AT ALL, rather than wake quietly: a mail pointer whose
         # box is already empty is dropped BEFORE the CLI is launched, so it
