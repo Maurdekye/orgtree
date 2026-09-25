@@ -35,10 +35,11 @@ from .ledger import USER, LedgerError, slugify
 # writer of any of these takes it FOR UPDATE, so a hire holding it FOR SHARE
 # cannot commit against a value that changed under it)
 HIRE_SETTINGS = (
-    "tiers", "max_depth", "max_children", "max_top_grant", "cascade_hire",
-    "dirs", "default_tools", "default_visibility", "permission_mode", "kiosk",
-    "default_account", "slug", "fable_lock",
-)
+    "tiers", "max_depth", "max_children", "max_top_grant", "default_top_grant",
+    "cascade_hire", "dirs", "default_tools", "default_visibility",
+    "permission_mode", "default_effort", "kiosk", "default_account", "slug",
+    "fable_lock",
+)  # agreed with pg-settings (PG-3f), whose writers take these FOR UPDATE
 # What a full agent hire (api._hire_seat, incl. _seat_finish and a kickoff)
 # writes, MEASURED on a throwaway org (scratch probe_hire_seat_rows.py):
 #   · append-only logs (store.LIST_LOGS / DICT_LOGS — one row per entry):
