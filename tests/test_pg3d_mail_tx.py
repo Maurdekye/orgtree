@@ -151,6 +151,30 @@ class MailTx(unittest.TestCase):
         d = store.load_org(self.slug).d
         self.assertFalse((d.get('mail') or {}).get('deep'), 'CONTROL FAILED AS DESIGNED: nothing may land')
 
+    def test_clear_reply_events_commits_the_new_incarnation_in_its_own_tx(self) -> None:
+        # plan decision 29: reply_events.clear() inside the route's org_tx
+        # must NOT save on its own — the transaction's one commit carries the
+        # cleared node row
+        from orgtree import reply_events
+        org = store.load_org(self.slug)
+        before = reply_events.incarnation(org, 'deep')
+        old_node = store.load_org(self.slug).d['nodes']['deep'].get('reply_incarnation')
+        saves: list[str] = []
+        real_save = store.save_org
+
+        def counting(o):
+            saves.append(o.d['slug'])
+            return real_save(o)
+        with patch.object(store, 'save_org', counting), DocLockHeld():
+            r = call_with_timeout(lambda: self.client.delete(
+                f'/api/orgs/{self.slug}/nodes/deep/reply-events', headers=HEADERS))
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(saves, [self.slug], 'exactly one save: the org_tx commit')
+        new_node = store.load_org(self.slug).d['nodes']['deep'].get('reply_incarnation')
+        self.assertTrue(new_node)
+        self.assertNotEqual(new_node, old_node)
+        self.assertNotEqual(reply_events.incarnation(store.load_org(self.slug), 'deep'), before)
+
     def test_read_marks_commit_without_doc_lock(self) -> None:
         org = store.load_org(self.slug)
         a = org.to_user_inbox({'id': 'u1', 'from': 'boss', 'at': '2026-09-25T00:00:01Z', 'body': 'one'})
