@@ -79,7 +79,7 @@ class BoundaryBinding(unittest.TestCase):
         # both branches are mapped to both callers
         registry = contracts.load(ROOT / 'docs/state-system/operation-contracts.json')
         rows = {r['id'][:8]: r for r in registry['dispatch']}
-        for wid in ('5d3ba8e6', '3404e049'):
+        for wid in ('0042c85a', 'dc6832d2'):
             with self.subTest(witness=wid):
                 self.assertEqual((rows[wid]['disposition'], rows[wid]['contracts']),
                                  ('mapped', ['asks.batch-resolve', 'credits.decide']))

@@ -544,6 +544,14 @@ the files the retirement edited was re-anchored by exact text. Spans whose text 
 facts citing them were re-read. Entries contracted: 92 of 187 (the plan's 194 less the 7 retired entries, all of
 which F4 had contracted).
 
+704 is one fewer than that 705, from the external-chat retirement's second stage (same docket). New response-handle
+grants are refused, and the held-handle audience bypass, the sighting registry, the handle sweeper and the "filed"
+status are removed. The sweeper's worker registration goes, so the inventory records 334 registrations, and its
+pending entry row goes with it. `agent-mail.authority` loses the held-handle clause. The kept pieces stay true: the node
+tree still serves `external_handles` as stored data, the public scrub drops it, and the preview lists it as private.
+Every moved span was re-anchored by exact text. The three regions the stage edited were re-derived: `post_mail`'s
+`@ext:`/`@mcp:` block, the `orgtree_message` dispatch branch and the `Op` body.
+
 Of the 41 open dimension occurrences on the sixteen legacy-family contracts, 25 (9 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the
 native-design citation; those figures were already stale after S2d, which left 45

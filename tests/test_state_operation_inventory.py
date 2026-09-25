@@ -327,7 +327,8 @@ def b():
         # agent door dispatches without any card (tool_verb), every body.tool operand resolved
         # 342 -> 335: the external-chat retirement (docket the-external-chat-mcp-server-cannot-reach-the-v2) removes
         # the three /api/extern routes and externtool.py's four tool cards
-        self.assertEqual(summary["registration_sites"], 335)
+        # 335 -> 334: the retirement's second stage removes the external-chat handle sweeper's worker
+        self.assertEqual(summary["registration_sites"], 334)
         self.assertEqual(summary["registration_kinds"]["task"], 13)
         self.assertEqual((summary["registration_kinds"]["tool"], summary["registration_kinds"]["tool_verb"],
                           summary["unresolved_tool_refs"]), (47, 7, 0))

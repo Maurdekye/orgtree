@@ -1,6 +1,6 @@
 {
   "schema": "orgtree.state-operation-contracts/v1",
-  "source_inventory_sha256": "2534745a85ccce4447e8eea964fa954c35e7968adc2faf4e5a13b95c8043a593",
+  "source_inventory_sha256": "32099215545936f7ed24490ac529ad4799981f952a7eb60b8871a145aca72519",
   "qualification": {
     "runtime_census": false,
     "conversion_authorized": false
@@ -5035,7 +5035,7 @@
         "Addressing (§7.2, Org.post_mail) for an in-org agent recipient: the sender may reach any descendant, its parent (one hop up), a sibling (same parent), or anyone whose audience it holds. Everything else is refused 422 '<sender> may not address <to> — …'. Pinned: a cousin and a grandparent are refused; a reply from a deep report succeeds once the sender holds the audience its superior's mail granted. A node may address itself: the sibling clause is trivially true for sender == target (recorded, D-165).",
         "§7.3: mail or a notice from an ancestor to a NON-child descendant that does not already hold the reverse audience grants the recipient an audience to reply to the sender directly (an 'audiences' row and the warning 'audience granted: <to> may now reply to <sender> directly'). Pinned for both tools; a second send grants nothing.",
         "The user: only a top-level agent, or a holder of a user audience, may message 'user'; others are refused 422. orgtree_send_notice refuses the user and every outside address.",
-        "Outside parties (@org: and @net:, orgtree_message only): only agents; never from a sealed kiosk (read from source, not exercised); the sender must hold the ORG-INBOX (EXTERN) audience or an exact held external handle. A top-level sender without it is auto-granted it by the send (with multi-holder off, every previous holder is revoked — read from source, not exercised); anyone else is refused 422. Addressing the org's own slug or own network identity is refused. The @ext: and @mcp: forms are retired and refuse 422, a new @mcp: send answering ledger.MCP_RETIRED before any audience or kiosk check (the external-chat server was retired by user ruling, docket the-external-chat-mcp-server-cannot-reach-the-v2; historical @mcp: rows stay readable). Pinned for @org: (top auto-grant, deep refused, self refused), @mcp: and @ext:."
+        "Outside parties (@org: and @net:, orgtree_message only): only agents; never from a sealed kiosk (read from source, not exercised); the sender must hold the ORG-INBOX (EXTERN) audience (the held-handle bypass left with the second stage of the external-chat retirement, docket the-external-chat-mcp-server-cannot-reach-the-v2, which also refuses every new response-handle grant). A top-level sender without it is auto-granted it by the send (with multi-holder off, every previous holder is revoked — read from source, not exercised); anyone else is refused 422. Addressing the org's own slug or own network identity is refused. The @ext: and @mcp: forms are retired and refuse 422, a new @mcp: send answering ledger.MCP_RETIRED before any audience or kiosk check (the external-chat server was retired by user ruling, docket the-external-chat-mcp-server-cannot-reach-the-v2; historical @mcp: rows stay readable). Pinned for @org: (top auto-grant, deep refused, self refused), @mcp: and @ext:."
       ],
       "source_refs": [
         {
@@ -10630,12 +10630,6 @@
       "open_questions": [],
       "source_refs": [
         {
-          "path": "engine/backend/orgtree/store.py",
-          "start": 5306,
-          "end": 5313,
-          "sha256": "9cde47018210911b109f36ddf6ddaf63b1b394b244f35dc97c6476a38885c191"
-        },
-        {
           "path": "engine/backend/orgtree/supervisor.py",
           "start": 28226,
           "end": 28301,
@@ -10760,12 +10754,6 @@
         "Owner: P03 (native design and qualification), with P07 for channels and mail. Closes with: a native design qualified by two orgs exchanging @org: mail concurrently and a waiter scanning during their saves. Not coverable at P01 from available evidence: no native build exists, and P01 has not cited a native design section for these operations."
       ],
       "source_refs": [
-        {
-          "path": "engine/backend/orgtree/store.py",
-          "start": 5306,
-          "end": 5313,
-          "sha256": "9cde47018210911b109f36ddf6ddaf63b1b394b244f35dc97c6476a38885c191"
-        },
         {
           "path": "engine/backend/orgtree/filedelivery.py",
           "start": 22,
@@ -26971,13 +26959,6 @@
       "source_refs": []
     },
     {
-      "id": "683ee8af12923d4424afcab4ee5fe834423fa2c9097d01502fd989dffb810840",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W3): the external-chat handle sweeper (sweep_extern_handles). Owner: external chat (P07).",
-      "source_refs": []
-    },
-    {
       "id": "bfefd8a463bc764370753d2c0896f929ea360bb0973f57e8ad56ec85506b1c0c",
       "disposition": "pending",
       "contracts": [],
@@ -27345,7 +27326,7 @@
   ],
   "dispatch": [
     {
-      "id": "dbf51bdedae3a67aaa3fd5502fb8966f079a5d69f205e59604576fc920986721",
+      "id": "2d06c2c2caf3ee1cf8fb2d55bcc0df75fe7c3eebcefdf9806886001db3881863",
       "disposition": "mapped",
       "contracts": [
         "control.remote-control"
@@ -27361,7 +27342,7 @@
       ]
     },
     {
-      "id": "fa7b92b8a33b35a3c2e36f9ff3e9097990521dbe616cc995c3b6857ad8c2d9b0",
+      "id": "8e4609b6df0fc34f8cc7f0aca4faf30476d81869edbfe68dd9c58209c313e3b9",
       "disposition": "mapped",
       "contracts": [
         "control.remote-control"
@@ -27377,7 +27358,7 @@
       ]
     },
     {
-      "id": "5c396f8ef978ae452f9c714234c3567bfbabffeb9d4895c103f74187318f0499",
+      "id": "8f05ba355ad3a004db835b3f1cfe797713884c89f4a8273c77cb1ff82c534a1a",
       "disposition": "mapped",
       "contracts": [
         "mail.message",
@@ -27395,7 +27376,7 @@
       ]
     },
     {
-      "id": "3520b818280ec374ecdbff6aea8d59f36bbb14917d90d3668b3b415d4935b5e8",
+      "id": "536a8465f8308baacfeb51bdd4a494e41187848f0ae66d04aee76b6a71b9b119",
       "disposition": "mapped",
       "contracts": [
         "asks.present"
@@ -27411,238 +27392,238 @@
       ]
     },
     {
-      "id": "7ebc95ea76c1def2a834ad252364272396e2384aa2999bcdeb21908a692c99ae",
+      "id": "11a94f315be0750bcadc28f78da486b3bb42ea521719d24f828da1e9b1a2fda0",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's receipt and rangediff branch (api._work_expected_rev_route). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "f88256cde02407909e4b47e80ce84e975cd5b94cb1d7ac59814dc1ee36c2b020",
+      "id": "8d08ecd764dbacd286f16b975b12cef76a80a0b51aeb839d13376dc469836448",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's evidence branch (api._work_refuse_unused). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "d57187e09e13ec875372ca7806005347a6c31ee9776b580023a31d8bbf20edf4",
+      "id": "69ed610420468507c67a16350af3ac99f786dbbb9417dbf2f6d5acb3df0f810e",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's receipt and rangediff branch (api._work_read_call). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "6a13daf5370f019ee87417963383c34c28b9725ea9d25dc43aaeb60fea5ab62c",
+      "id": "b029163c599de51c0d9a3fea3642b6d969c07b1d1dfbbd41c9c5e7518f0d68fc",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's rangediff branch (api._work_read_call). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "cac5270cfb78328e10011726da3188555de057a80363be22181207bbcd3f6bbe",
+      "id": "fbd30bbd5c07590b86bddd736e3b81e06befeba59bfb79f268e35ec7f95ea245",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's receipts and artifact_read branch (api._work_read_call). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "457e17f3b0b7eba2a85e1ea2928817b35c6aaac018591d89eba7dc51721639b0",
+      "id": "22ba2713d7d736e71ddf10fe0fd1de5ba5a5ae5761d81b56aeca4f86d1d04c55",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's receipts branch (api._work_read_call). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "d7c3c91d6572aa03808510467ce99417dc1890332d17a2d727f968591d7a3f32",
+      "id": "412cc02742c43429dcb32dd61eb6488c2aa55943616ae598d299a2328c1ccc54",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's verify branch (api._work_read_call). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "8a2e46d0bfb512df2d99c8462eb209210379e2199744ee6ca5c4034221a4e0a7",
+      "id": "6c3a64ed2aba73350eeb163faba20d8696859360eca7158bfed0c04a7eb2ff3b",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's list branch (api._work_read_call). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "f6b4ae24ed78fa32af927f63fd998df56e5cc6bcfbb91964dec792508fd5b236",
+      "id": "113b9bc78f4e52aa9b1e51277d53ab194c61b8d5765b667764f9d363ebb0013f",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's create branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "e6d11215cb094cc469f7bc337c6e667fa77b4a002d2a3ec7d1d8c59e4b3be844",
+      "id": "ca53a6f5ab65db338b734c370686ce536f9e90765623a442b88476a8b098bb14",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's update branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "42b6bf1f999d26ef2f3490e1f5f9121b8010c2216fbc7596f66d36e8667b40a2",
+      "id": "b392c583e10b557ee89db5b31370147304703a12fa7618c59d5c0d6cd9bfdfa3",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's addendum branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "e4fb35fae8f4daa44a741fa0bffc93d4fbb3668088b90ac8e7b9862cf280e277",
+      "id": "1511cfe3b1449b74afe72705c00ef359ae7e7251cbf81946b4230cd5fe8201ce",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's assign branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "82b8b5d40c6c895661d6c5969c32939157464c904a69da1fccde5f071198ec53",
+      "id": "9527e6e5d17717a990e4d07d4d35d211e1cb8021fcc79c3e803a21725beb9cd5",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's handoff and handoff_request branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "8b73682e1e972f96f82813e46484e81b5ada9a0fbdfc815dfcac93d65dcf26a3",
+      "id": "98b95ff8fe410ba69245b90d37df546019c8f6c7c3805242a4cbf8e23085a227",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's review branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "55306ffbc9821a54a6db4feea69882203944120113eb1c66848571e3db915afb",
+      "id": "b6ff1e0d2525b620b14ff8f3e29fbbf11239f5f4c632b9689af70c770675127c",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's verdict, candidate_verdict, integration_verdict and review_verdict branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "e84819f88849f080583a6a61fd89e73209068a214d2d25a7e8a186e778282208",
+      "id": "be8291225f0e68b1b9bda137e168826a2381a9a2eacd06f91e00a722b0a97368",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's review_request and review_seat_request branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "12d4b93d14863370608ae577547874326de410f388becd935b8535a12689d901",
+      "id": "0ef708f20ebd60ea1de5f2c6fe9d9079994ef7d558a3acf28602f9df8197faa9",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's review_grant and review_grants branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "ae3a9b9faba2548c9cac78f23abdcbaf904f10abb449f43b9c9c1ca32ab20b36",
+      "id": "db8c02772124308896913d9213b6df52838c4580e7c9138232ce0ba90f199a55",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's review_revoke and review_seat_revoke branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "eb9f6ae5dcaf4a9d3ec9645c539d7b3c8c727efef7cc7733e269ac78260a9541",
+      "id": "073ea6faf876c5e0bc767744d97826823bfce5299f1e05201cfec91ae824f025",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's participants branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "44d237332d645d640458df77aa6af4c6122afb51f3f71e269db3c72e973ded88",
+      "id": "3597754907b815c987962cba3eb26ebd68f3e47b2042870ef40f68e4f9e1e52a",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's evidence branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "aed6dcae2e156d657fc25e0042d11f840c14a509f6af9fd7c82b000eedbd5d07",
+      "id": "6ac647be37ebf954ff678237fc2d49f15078dc8c64501883cfb2df07a1627a0f",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's decision branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "d4f7701c8e6d900b4bf3df2cf4987b76763b01c7ebc49fe938d5c971017f5df6",
+      "id": "ee7c816b5e25c81a3d644feeee341e12e15418e387ac85e0090b31ff5b001c26",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's artifact branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "cad8accd4a5da12ea7918dcfdb2fffb67ec3f0073b947805ac3194790141ace6",
+      "id": "5185ebc43b601e9e862f6703e152877381ff804828bcf482aa55e4f42d84232e",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's grant branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "35086e8b9b517d408d2c28e9ef4d7e0342bd9bfc58a487fe6ce40415b8859be4",
+      "id": "f3d24589238d4fdd169d63969d290dc575029ee7ed269803a523af9da5ccf079",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's revoke branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "d34cc22ea2a324a8fb2bb09720690dceddf375e018a5a30cd2071f164c5956d5",
+      "id": "6c575db1e046d9eaa0dc3b4c57cff5d7c3c2b6e78a4a5ac44fef0f55e929bf7c",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's finding branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "55d0b8134700cb50b51efdf31d84ab4965f7a923fa19731b066aa7581548378b",
+      "id": "009181cb4662549db97eb442085d0dda57a64a88a3142aeb16eacc2e9136ff28",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's dispose branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "1f5efd686c354f509a090e36e159e62fbc3cae7aaa8d0fd282d4e0e7394b1ea7",
+      "id": "668a9db8d9962cd5704f3b210fe9e6abac1a3e8c90734751133e577dc0339d71",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's claim branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "2d98fdeba46f3a08df19c1df5e8c195086f0df001725444a104e0e7195155cff",
+      "id": "c72e82cc4521af3a1428d71f1dcb56a984ba2ec505c31ccc1dafa9ddbe4db395",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's check branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "269a19d91cfa92039ce55b2013c07c20021e1eb3a47af42b9e8698a6fdf4cb0e",
+      "id": "ca73b7fc11e937b866edf5fdff880257e4ff3b799bb0af8a484b2b94d9168dad",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's accept branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "759a7b210f13d662f91f90b59c66b244abfdf9fcf3abdb3ead8ea030d6b8f659",
+      "id": "a3a8f4f958ae2adc8e4edf741d1d3dc333b9025fb071aecb757b43e36182a986",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's archive branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "23f3d6524ed20f5213d6896d1235e771ebd3b214c327d1f8b76231ab1d029bfd",
+      "id": "7cb1ae2db492f3ada87213464b79ccef587e7f73bd604af495cff4a696cb33a5",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's move branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "540065c5415be244c5fe98231bd5584bf86b7d38b48697f0f0686bd80e62141f",
+      "id": "8aeef2f466503b42604c313afc286b8259c853e9121e25ceb5b1df8ef2186922",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's supersede branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "0c99635db2d42990ba661da0ca8c3b4901715b576764e5a032f2544203570f54",
+      "id": "386e8072aad9d4de367f06d7c9aabd2b0541108a7cee7cd61110f128dd72e21c",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's delete branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "5f8257d34bcf54abba2a6e0d58dc9603fabc09bc35ba3e0b332f2cab1fc31773",
+      "id": "ebeb17a9d8ee350f013489127b5c2659b860084bdac64503d989fbe753e23295",
       "disposition": "mapped",
       "contracts": [
         "audiences.operator-action"
@@ -27658,7 +27639,7 @@
       ]
     },
     {
-      "id": "66d02f40a607b1a4b676c4f963a60a6f034194ba09d6544f310959607479ca85",
+      "id": "f16c3b1aeb8059f75cf32f7d2d425521fb71a20f7f84291889a7155519d64fd2",
       "disposition": "mapped",
       "contracts": [
         "audiences.operator-action"
@@ -27674,7 +27655,7 @@
       ]
     },
     {
-      "id": "40b30ae10a63d9082e56bc2b47b2a107eaaa43fef93638363f47d04c14a4b8a1",
+      "id": "ef548e1aba8ac5e05d8a43bae2ebe9baec812bbe9b82dcad72f24fa025bc00b2",
       "disposition": "mapped",
       "contracts": [
         "audiences.operator-action"
@@ -27690,7 +27671,7 @@
       ]
     },
     {
-      "id": "a12c9732c40f811962092adc555eb123a27bf15dcb0da5fce9e0fc13d6da912b",
+      "id": "4352c36159c5f460d408d7f5393e06e1c44de0a1d463eda79b169987e13d8fd3",
       "disposition": "mapped",
       "contracts": [
         "relaunch.prime-relaunch-arm",
@@ -27709,7 +27690,7 @@
       ]
     },
     {
-      "id": "205e64c6dd92afbc780ce082ad7ada75e97f0983d9fa4709b6d04d34151cccd7",
+      "id": "a83c80c5c41ef4d3f28687b3a18ead77e98e7ddf7d336530c4de8f4cbfbadefc",
       "disposition": "mapped",
       "contracts": [
         "staffing.staff-create",
@@ -27727,7 +27708,7 @@
       ]
     },
     {
-      "id": "5ecf015ba4e9e82b9327b8e2502d09341dcf680a04fa2533a661436d0fbc8157",
+      "id": "64302bb204eb80dfdee6b6ef8a6cf56897c09d2b7010e5ce2021653041b29f29",
       "disposition": "mapped",
       "contracts": [
         "staffing.staff-update",
@@ -27744,7 +27725,7 @@
       ]
     },
     {
-      "id": "d0baf2843c68a4830bdfe64d5fbc4217c9ef7272af037d369e7795707eb92329",
+      "id": "cbb0ccdb24facf13ff0c75afb1b4f30ed089dc6f8b0d502dc50fc783297ffcc0",
       "disposition": "mapped",
       "contracts": [
         "staffing.staff-create"
@@ -27760,7 +27741,7 @@
       ]
     },
     {
-      "id": "4a4c196ed817cfde4dc2b7ecb230b98713bfe666fd2979d8d60875a05485fecf",
+      "id": "3939b78b03ba2a7ccc3211d3a2121a8bfd4db9a36a06292eec5d38b3a78e0ab7",
       "disposition": "mapped",
       "contracts": [
         "lifecycle.cheap-compact",
@@ -27778,7 +27759,7 @@
       ]
     },
     {
-      "id": "8c897e551f263e5f9e0dbfd0adbdc2abdb49edb2ee563275b85580f68973f17e",
+      "id": "7ab665ffe98be3391ffdf187ff946ee37bdd8698f4077d2c9ff02763837cda4d",
       "disposition": "mapped",
       "contracts": [
         "material.transcript"
@@ -27794,7 +27775,7 @@
       ]
     },
     {
-      "id": "fd0f899e429368d0f6c13885cd693c3585afece0728c61219b29495cf725f8e3",
+      "id": "78986ee4099da6945b0010e5d8fafa3fa452e2933665aabf8e27870308e92677",
       "disposition": "mapped",
       "contracts": [
         "exchange.send-file"
@@ -27810,7 +27791,7 @@
       ]
     },
     {
-      "id": "aa7c8c007e4dba41f2868aeb4a9ca9ff13a74bd0340de0efd2e4159e39835345",
+      "id": "c56fecdc8e3115acb315b18b00c8e2dcc47f52d24914092ffa132d39dcfc72bd",
       "disposition": "mapped",
       "contracts": [
         "exchange.send-file"
@@ -27826,7 +27807,7 @@
       ]
     },
     {
-      "id": "c473f835d0f068803a7fe1227f55448979e3e6231ac6705d70427c3eed6c19bb",
+      "id": "eb7d9e8f61de9458f74889a9f94ac1dd7e12613d521146295fe268bb6a6d1700",
       "disposition": "mapped",
       "contracts": [
         "control.self-restart"
@@ -27842,7 +27823,7 @@
       ]
     },
     {
-      "id": "f90460d73e92807b9548e309788cd9654934754df7e0d297300954f12cb6f7ff",
+      "id": "832a31b3601e2614819b5042f2c920dbcd7274476885a2d60f167b4be9ff7dde",
       "disposition": "mapped",
       "contracts": [
         "control.self-restart",
@@ -27859,14 +27840,14 @@
       ]
     },
     {
-      "id": "c7ca01e11dca1e6c4631f1f2ed249a24149026ce571b30bbd7d6da91a1e00188",
+      "id": "771cdfb2c155274a9be6d58f5687c39efa25dcb9340df91e8694827160874ee0",
       "disposition": "pending",
       "contracts": [],
       "reason": "Shared diagnostic/preview body.tool branch: diagnostic.inspect, diagnostic.capabilities and preview.agent are contracted; orgtree_operation_census (added by P02-A1, 286396e) is uncontracted, so the shared branch stays pending (S3 decision 3). Owner: P02 (the operation census).",
       "source_refs": []
     },
     {
-      "id": "08adde13958d659fa72a6e1f6083332d98b5e96faaaf2dfa9b7a4965f326b150",
+      "id": "ab9d76e23ea1912d114afbd1bf58c3191ad57c89ff5b0b3e3346b2284698de84",
       "disposition": "mapped",
       "contracts": [
         "diagnostic.inspect"
@@ -27882,7 +27863,7 @@
       ]
     },
     {
-      "id": "829225dc890f105efea22e4f5e75684917ac542cdf9aaa53f06809cfa4ed28ce",
+      "id": "df567d0c2d4a8c1f8a2cf1b19587e4c38f9ffd0bb1ec615a6832a33a7c0c4fd7",
       "disposition": "mapped",
       "contracts": [
         "diagnostic.capabilities"
@@ -27898,14 +27879,14 @@
       ]
     },
     {
-      "id": "bf7f08f7e911bf56a7c2d2d86a86f842884987d9bb718bd62145b1d5cb29fd2e",
+      "id": "f298f7fec0de0bc9bf5bd5d7bf4e79286b695675350122a578e378519ac20b06",
       "disposition": "pending",
       "contracts": [],
       "reason": "P02-A1: the new `body.tool == 'orgtree_operation_census'` dispatch branch in agent_call, which routes the agent read door to _census_agent_payload. No P01 contract describes it yet; recorded pending rather than mapped, because this stage authors no contract text. Owner: P02 (the operation census).",
       "source_refs": []
     },
     {
-      "id": "9068642b8fbfac8a6ca409b548c3c0f1de4e204682e51a0539b7bf9d99195657",
+      "id": "a63392fef8edbb424b143f173bf95cad102b2cc9826279f287b17dd3a36cae66",
       "disposition": "mapped",
       "contracts": [
         "catalogue.list-tiers",
@@ -27925,7 +27906,7 @@
       ]
     },
     {
-      "id": "75fcba48ee7dd562efafbbb2f056435ab8279a1c284a64fbcc255e05777d05d7",
+      "id": "b38e06d761a325fb57ad3b7acdbbdc2e5bc7dc7391f78bf66775fe8b9a64a76a",
       "disposition": "mapped",
       "contracts": [
         "catalogue.list-tiers"
@@ -27941,7 +27922,7 @@
       ]
     },
     {
-      "id": "f8b6efc71d8c6b8e2a482effe12d408ba6e80eea457d2e6db1cbc89cf5ca2dab",
+      "id": "441b496a184873381828423a9c8186255e4495fe89e62137f6264aaa821cf74b",
       "disposition": "mapped",
       "contracts": [
         "chart.read"
@@ -27957,7 +27938,7 @@
       ]
     },
     {
-      "id": "e9a5dd0ef49bf4ddd09dd8846fd8758c61f702f2d3f3f3c4f81bc04c9dd457e0",
+      "id": "b4ea6020bf80929ccc6d1e95ca595b34cb5fd5d9131c47a84a9829563cca6d8c",
       "disposition": "mapped",
       "contracts": [
         "exchange.send-file"
@@ -27973,7 +27954,7 @@
       ]
     },
     {
-      "id": "3e7facffe79dc595dd59e165d44088435732acc1c7498e61410817f4337acaae",
+      "id": "4bd9a4d3e6d9436b07606631eb77e2c71fad8763b7f7a82b6a72dd9de95bfde5",
       "disposition": "mapped",
       "contracts": [
         "material.transcript"
@@ -27989,14 +27970,14 @@
       ]
     },
     {
-      "id": "945543f32a23f7c48f59ce9c98764dc42e1b8b089725dba4523cc2598be4e6af",
+      "id": "58225fdcc05e1194f337c0de5c27eaedec2257ce6de1626ef459c02f8dc0d83e",
       "disposition": "pending",
       "contracts": [],
       "reason": "Exact orgtree_work selector in agent_call: pending with its card — the full orgtree_work card (36 actions) is the P05 work family and the action-coverage rule needs all 36 (S3 ruling 2); the prototype's item read is covered by work.item-list and work.item-get instead. Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "a892ecf2576ccd278fa0c041da6c2fe59f11bb7f6771a6ac0f17f4b5b541799d",
+      "id": "fa65e9c548a0c3e7172fd0d13784d460d8d76e399ad6d1996509bbcca2ba2ddb",
       "disposition": "mapped",
       "contracts": [
         "lifecycle.rename"
@@ -28012,7 +27993,7 @@
       ]
     },
     {
-      "id": "2a2d31535f16e12bbd5c4c1c09c81c8ce506cbda24943897bb1bfc72d460f30d",
+      "id": "eef29fc12a4dd27203cadee7623fe9c18d20e1dd2f57f1cb494152b624173082",
       "disposition": "mapped",
       "contracts": [
         "control.halt",
@@ -28029,7 +28010,7 @@
       ]
     },
     {
-      "id": "38c123bd6cc89fc47fa6040aa8e3b7423c1c9b20174ecbbc67e7cc8d9679196f",
+      "id": "7cb9af0ba5af94edaca119d2e799e3a4974e1d5d9068311871fc0b057bc0e025",
       "disposition": "mapped",
       "contracts": [
         "control.halt"
@@ -28045,7 +28026,7 @@
       ]
     },
     {
-      "id": "23813123d73966a1286964541890d47b25bfccc29c4980512e12d2a177387a39",
+      "id": "95b77a54d7862f56977816caa8bbff4c8c1cfef62c2801d3940d6ad8b40793bb",
       "disposition": "mapped",
       "contracts": [
         "control.continue-on"
@@ -28061,7 +28042,7 @@
       ]
     },
     {
-      "id": "03e1c146b57ed422aa07438f5c4018a00eb930b41f907003a103b22e88e162ec",
+      "id": "ecb24efb2ef67168d88731072e0a6001c430828e31b7fb7efd0f4454ec89d2ed",
       "disposition": "mapped",
       "contracts": [
         "lifecycle.rehire"
@@ -28077,7 +28058,7 @@
       ]
     },
     {
-      "id": "c5c9d3c97c6c34829705702173d50f297151f421f47b4e57230cdb8a9312eca6",
+      "id": "6cd15e1cbdc23c9efbb361434fb69e60ddde80731092effa259a231eec9dd471",
       "disposition": "mapped",
       "contracts": [
         "staffing.staff-create",
@@ -28094,7 +28075,7 @@
       ]
     },
     {
-      "id": "9f8ff08de07b190794ca762511c5995ecae93d9234f8245012e0be1deac815cf",
+      "id": "660559d0fa5bfc4c71b45372d6ccf3c0ae3bb2e3fc7705ef2813267e08b5d553",
       "disposition": "mapped",
       "contracts": [
         "lifecycle.dissolve",
@@ -28111,7 +28092,7 @@
       ]
     },
     {
-      "id": "a6ae8db280a00db2f8d39e7b1a21ae2dd58e43977f83cf5251a9f00bfa604a83",
+      "id": "e19b29c84cd006f05f16b82c452b561103db4335d1817a9d8c91b6589b26e657",
       "disposition": "mapped",
       "contracts": [
         "lifecycle.retire"
@@ -28127,7 +28108,7 @@
       ]
     },
     {
-      "id": "7c0fc13cc5ac1bb0490d9b6cac29d98c812b90dc626d64b3efbaeb4f2765e52f",
+      "id": "d537564cdc73a3ae79c54ce055eceaa5c2a03dc5f477d1fa390f260ceaab7f19",
       "disposition": "mapped",
       "contracts": [
         "staffing.hire",
@@ -28145,7 +28126,7 @@
       ]
     },
     {
-      "id": "ba011382c59a8a3d2826c3ff7e787d523cde4c416a550e2711efc14f1c8e2d2b",
+      "id": "471e1293eda49bb746089633fea59a2729c60b317b1dec7df023dade1c6876bf",
       "disposition": "mapped",
       "contracts": [
         "mail.message"
@@ -28161,7 +28142,7 @@
       ]
     },
     {
-      "id": "dd3b18aa184ff4b4389f695836c5fa3c273c85eaa5f4b338a45a4e233a5fa027",
+      "id": "306f98b8391d6c07a644f2874b96c7c5a06f0527419c37059c7b19c10c4f379d",
       "disposition": "mapped",
       "contracts": [
         "mail.notice"
@@ -28177,7 +28158,7 @@
       ]
     },
     {
-      "id": "b16d0de8d72922645b578779078826c2002722ff04120c8143bde83769a56837",
+      "id": "40c6c8a1ea4f8a6bd11f8c7cd70d6ad469f263bccd39a5c535b8f8be28f88609",
       "disposition": "mapped",
       "contracts": [
         "credits.request"
@@ -28193,7 +28174,7 @@
       ]
     },
     {
-      "id": "937735d36166af62de029fb8433de9884b3f2147a2013988ed44bbef7dedd3cc",
+      "id": "d4df7e29006192659a943e249bf1a4b82304fe172cc8da2be6727bd7c434da66",
       "disposition": "mapped",
       "contracts": [
         "watchdogs.create",
@@ -28214,7 +28195,7 @@
       ]
     },
     {
-      "id": "48d21d3719bdd3148ec909184aebcbab754cf92ff73883008e385a61f09eaca2",
+      "id": "26723d0a13b52dbb2371c82198ecd591c4b0518311e30d2ab3933ea05706bf07",
       "disposition": "mapped",
       "contracts": [
         "watchdogs.create"
@@ -28230,7 +28211,7 @@
       ]
     },
     {
-      "id": "2a5007f3ded8a579357b0449f8de4ed44097875ade1fd39b24b0ca2ff5a907c9",
+      "id": "0aa85d6a5f10d506de33160361178c2675ae19778cbb83b099fc9047c9cdf812",
       "disposition": "mapped",
       "contracts": [
         "watchdogs.list"
@@ -28246,7 +28227,7 @@
       ]
     },
     {
-      "id": "4af462e49da1e092f2fc163055a5e222c6a74565f18adc19d175d8a308aab9c4",
+      "id": "3ee0b513b0730a18f779c71c817f97595a6cb59ec22c3d173050010b1470630f",
       "disposition": "mapped",
       "contracts": [
         "asks.request-scope"
@@ -28262,7 +28243,7 @@
       ]
     },
     {
-      "id": "55d758f6a161392a17292e2253e059841a9519c0a081adff266952c24eac8e1e",
+      "id": "22b50369fdb557902b57c4cc5603418df4e493d172bf3e573fec38545539b49c",
       "disposition": "mapped",
       "contracts": [
         "asks.ask"
@@ -28278,14 +28259,14 @@
       ]
     },
     {
-      "id": "e5ea06eb90131c6af3046ad582a2ada4371d5624fd7baa841f375c52325cf4b0",
+      "id": "f797075ea3eaf54f373724485b43b333740d5cccc82f3a1ceeafdcbdc7246523",
       "disposition": "pending",
       "contracts": [],
       "reason": "Exact orgtree_work branch in the agent write cycle: pending with its card — the full orgtree_work card (36 actions) is the P05 work family and the action-coverage rule needs all 36 (S3 ruling 2); the prototype's item read is covered by work.item-list and work.item-get instead. Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "210312f51f0c27066588b618e792cfa725c6e5f6635c34634006698072748b95",
+      "id": "30f91acb5c92747f9eed3bbf24c8820db9e7c5cc033ce9aa657e49055f99a431",
       "disposition": "mapped",
       "contracts": [
         "reservation.list-read",
@@ -28311,7 +28292,7 @@
       ]
     },
     {
-      "id": "408deb28c047e100dbdc5a2597d08b0a3ef3574bd5ec50055c059ba3e88d0d59",
+      "id": "015d551082c3f4a2d0884358892468b05fc45d68a29ec24833b27d985252fd06",
       "disposition": "mapped",
       "contracts": [
         "asks.withdraw"
@@ -28327,7 +28308,7 @@
       ]
     },
     {
-      "id": "b0222c29f4c730df3ba70d559c845bacdf33976a09be4446af4ac9d8b54a910b",
+      "id": "de073cb92c6051fa4796ade74a8a1bfb963ab09dcc9874c76154e7af15c56dd6",
       "disposition": "mapped",
       "contracts": [
         "relaunch.self-relaunch"
@@ -28343,7 +28324,7 @@
       ]
     },
     {
-      "id": "c6577b904d1c768300c2d58f40533d8fd3d196f4109c2e65fed018d3625f5ad9",
+      "id": "6c79bb9db1cff2d078ab7c48b4265b24b427cc9c015daf6347e109143f04775a",
       "disposition": "mapped",
       "contracts": [
         "control.self-restart",
@@ -28360,7 +28341,7 @@
       ]
     },
     {
-      "id": "4a41f583965974934fe1841d24926e1da5b05a7dcbb88a3d7db92d0a9e235f2e",
+      "id": "92b9a071fa5c95ca47a05b0a97448c1cc3a5a448f4816d779d797a03a9d8ee52",
       "disposition": "mapped",
       "contracts": [
         "relaunch.self-update"
@@ -28376,7 +28357,7 @@
       ]
     },
     {
-      "id": "c08593eddca29fc5b7ff793be042ae68599b9bb8a483fe3c2e7f4f5ad35df4e7",
+      "id": "d0e13f665bb8810fba03274de6a07c78e6234b3ec96b4a6f57413fbf13d3bb48",
       "disposition": "mapped",
       "contracts": [
         "relaunch.prime-relaunch-arm",
@@ -28394,7 +28375,7 @@
       ]
     },
     {
-      "id": "869b0b7b14fbe1ef71592f9e4b9b29cea2ece9964b08878e2ea0df0703290788",
+      "id": "9cf7997c05b58d5b39a8e4a182fbeb43a5818f4be1e8d7b184ea6bbca4d5ba42",
       "disposition": "mapped",
       "contracts": [
         "relaunch.prime-relaunch-arm",
@@ -28412,7 +28393,7 @@
       ]
     },
     {
-      "id": "66302c38a00e3d52c61a489e609205e1bc637e7755b09f8a51f8355b30cd6258",
+      "id": "1da6b8301cd59f2bc236efe0612cfe698f49302e0b9ca5934e1ccb217cf75c3f",
       "disposition": "mapped",
       "contracts": [
         "relaunch.prime-relaunch-status"
@@ -28428,7 +28409,7 @@
       ]
     },
     {
-      "id": "fc1af9404a02ba0aabf708c42da22d38e4e2df0c17c04b5c9df2e9acaf1b9778",
+      "id": "1355ccfb80703cb5225b48e6eb7c1354d7531141d2e25383fb43204d049cfbe7",
       "disposition": "mapped",
       "contracts": [
         "relaunch.prime-relaunch-cancel"
@@ -28444,7 +28425,7 @@
       ]
     },
     {
-      "id": "73c8da7c3f0f1686b0524f481201c0ae48c1a3cb3fbb07a5ab22814e7b774e0f",
+      "id": "7006663d523bb0bbf793f75993aa71fc328bbb5d5e6278b4aa0b5a1a3eb399d1",
       "disposition": "mapped",
       "contracts": [
         "control.prime-restart-arm",
@@ -28462,7 +28443,7 @@
       ]
     },
     {
-      "id": "c20bd75d6828edd103b5b228b145a46635e9cf1fe19017f7aece3c06410a47e7",
+      "id": "2653ea4ff32d7fb64368ed37ec1b294deec9bc7c4a817a6279754b8c38c49d2a",
       "disposition": "mapped",
       "contracts": [
         "control.prime-restart-arm",
@@ -28480,7 +28461,7 @@
       ]
     },
     {
-      "id": "01145cb909be7fe6ae0f881164d5e8d0ddd8f7777c386343f1311d3d99f4f9c3",
+      "id": "fdc15d9165a7d8348e0eb1770ccaab91ace734a81c879aa18dac73044f050fb9",
       "disposition": "mapped",
       "contracts": [
         "control.prime-restart-status"
@@ -28496,7 +28477,7 @@
       ]
     },
     {
-      "id": "81ef69436eca862f4210414115d096e7c5492b961000dd794e8951b8961f0bde",
+      "id": "fe376e283409cd0cb0706a954a379eae3facd46debe137f6b43304d87b04e290",
       "disposition": "mapped",
       "contracts": [
         "control.prime-restart-cancel"
@@ -28512,7 +28493,7 @@
       ]
     },
     {
-      "id": "1c53f1d8432e72c9589e7f9805711e322308ffcc6ab4692a017adce57ab944ea",
+      "id": "b9e8d3cd844cc6be31c27d649be2eda4e300836f4498ba27404b03529ac96a01",
       "disposition": "mapped",
       "contracts": [
         "control.restart-wake-arm",
@@ -28530,7 +28511,7 @@
       ]
     },
     {
-      "id": "797500ded1a1f4b0c75521faff3b83f4a0606174b00d822e81574c7663e982fe",
+      "id": "1bc01b7c2eeafaec04bd07f490216c539b36ee9bf33d48d7017e0010f3f91d16",
       "disposition": "mapped",
       "contracts": [
         "control.restart-wake-arm",
@@ -28548,7 +28529,7 @@
       ]
     },
     {
-      "id": "112b93fb300b836c5336354b24771ae1ec68b0d6cd1b3df1e179c2367de58599",
+      "id": "6d58c5e9c0feb66d5776d20a3cd2e875f6848c594e61776040df4f6aa1a05bca",
       "disposition": "mapped",
       "contracts": [
         "control.restart-wake-status"
@@ -28564,7 +28545,7 @@
       ]
     },
     {
-      "id": "27fec285e94950d6db159ebed333aab8d1901724ffc7414d3d456eaeb71c98ad",
+      "id": "271988649939402fe8e3debbf44cb1a89f240eb0d4b330902a41b7304f171509",
       "disposition": "mapped",
       "contracts": [
         "control.restart-wake-cancel"
@@ -28580,7 +28561,7 @@
       ]
     },
     {
-      "id": "e17b102328d503170d4d5f8878b726a10494ea2dd1784b7f4b3356343ac949c1",
+      "id": "dca0be400ceee0e1904172bf2fdeb8173eef687dcb3900318d51fe04162c62f7",
       "disposition": "mapped",
       "contracts": [
         "asks.present"
@@ -28596,7 +28577,7 @@
       ]
     },
     {
-      "id": "02f15039eded595eeed4871a3c9a7903fc57999249db9d9e03bde7bfe1d7dc61",
+      "id": "b671d794f8601122b1481bd4492279874b011d71743aa4dbc5aba5a3792c1980",
       "disposition": "mapped",
       "contracts": [
         "asks.submit-report"
@@ -28612,7 +28593,7 @@
       ]
     },
     {
-      "id": "43f6ef14005a8ff200cb4be29b5aac80eab46da198abde3095fae83ee709532a",
+      "id": "5f101f69e7ca968946088cc669ab4bc05fd37495dbbb6893a8c8f435c1852f9f",
       "disposition": "mapped",
       "contracts": [
         "staffing.hire"
@@ -28628,14 +28609,14 @@
       ]
     },
     {
-      "id": "8850b5ecd605e829f49e06b7fd7c1ca12475b24e0d90059c3508aa0872baf32d",
+      "id": "3e8430cc82fb349728abf0d27f8f3291b4027145217a738019e8a769643d6131",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_account_assign (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
-      "id": "343b130eaa909951b5ab83d04932b501aeec6f34a098e72a02626da1867a5b13",
+      "id": "0b51ab52e02778aa0f6630dea12ecf44549df90dd6047c5cd265a31470a031b5",
       "disposition": "mapped",
       "contracts": [
         "lifecycle.retool"
@@ -28651,7 +28632,7 @@
       ]
     },
     {
-      "id": "87bf44fc03517a5bee252f09cc5e3c38e39eab7da4866e7a95e25155e0c40249",
+      "id": "cfc5ff9a36f34b6c6ef039821e62ef0ea410950e1ce91fde12ee0b23bfcea6f3",
       "disposition": "mapped",
       "contracts": [
         "lifecycle.retire"
@@ -28667,7 +28648,7 @@
       ]
     },
     {
-      "id": "5d936a661deb29ab03d359ce54e4825d8674c3ab349a6dd70e6f114b91b5a8f2",
+      "id": "133412546c2d6a5b4c34813e3f37830a148fca1d7f0445478f8454ba1b63e942",
       "disposition": "mapped",
       "contracts": [
         "lifecycle.cheap-compact"
@@ -28683,7 +28664,7 @@
       ]
     },
     {
-      "id": "07c289d201371e4731f2dcf60497b2a26d107adf884f77ae50d27fb13730ed26",
+      "id": "1fb02161b10a6bf96bc734ae34c99333b5485443a479fa5d8b208b64379bbe03",
       "disposition": "mapped",
       "contracts": [
         "lifecycle.rehire"
@@ -28699,7 +28680,7 @@
       ]
     },
     {
-      "id": "d77b9948e4e86ef4f89d29e50ec264b61d76703c10dfdf249874da72bd86813c",
+      "id": "2c6658764496a44717ebd1dbc44589041719afcd993d2abbf458b9b851f5e7c5",
       "disposition": "mapped",
       "contracts": [
         "staffing.staff-create",
@@ -28716,7 +28697,7 @@
       ]
     },
     {
-      "id": "ba8a18c0e69251955acc10d70f129b4b11ae231ce8100db30c4dbc5e6f782cfa",
+      "id": "10d393dcb9125eef195f0b87b0da735f309534955583ef2f66ea1406cf413665",
       "disposition": "mapped",
       "contracts": [
         "lifecycle.move"
@@ -28732,7 +28713,7 @@
       ]
     },
     {
-      "id": "a67f778a3f880a3774aa642b73ce47fb44acbc610efddd0b2164ad94236628c0",
+      "id": "08e4746bfc219397058856418647f070591cedf1825786ad69cfae0ec6f244b2",
       "disposition": "mapped",
       "contracts": [
         "lifecycle.swap"
@@ -28748,7 +28729,7 @@
       ]
     },
     {
-      "id": "094c9bdad094e85fc6a600c3eded9af643dcf5934b0c97a6bf42332508ca2871",
+      "id": "17c0adcf42e22d511f445612ee9e477823e94454d37022cda6870aac687c6215",
       "disposition": "mapped",
       "contracts": [
         "lifecycle.self-subjugate"
@@ -28764,7 +28745,7 @@
       ]
     },
     {
-      "id": "7aa3eb6ddb12754889652d56619bf72f61f8b0d5a24a5a6fe2f72473b8422928",
+      "id": "ac0404f06a1d138d94a57d7a35eda1ccd78f8aeaacbd441082f4b3d809c4f396",
       "disposition": "mapped",
       "contracts": [
         "catalogue.list-orgs"
@@ -28780,7 +28761,7 @@
       ]
     },
     {
-      "id": "aadd5e7266624db0e16d4dcdb27ec637da0290a14270fd9b01f95d6dd1caf74b",
+      "id": "d88bfedec6746cbafa2b41f8aab663d5c35561dcc265fddfcf22b0f23e4a0ee2",
       "disposition": "mapped",
       "contracts": [
         "lifecycle.dissolve"
@@ -28796,7 +28777,7 @@
       ]
     },
     {
-      "id": "046bc18c9cbc7284d68e1c96ad50a7a64ba3feb12b778a1f30e41d68d3dbb827",
+      "id": "51ccfa27de8e21997b82410640a8e0f00a460d81d52aed3b5deb8c41f7ed74a3",
       "disposition": "mapped",
       "contracts": [
         "credits.reallocate"
@@ -28812,7 +28793,7 @@
       ]
     },
     {
-      "id": "22bd704859a2bb50b0f636b9ccd2822d8c19c6e28a282ba5a46048479ad22315",
+      "id": "f55a64153d544f664123cb4c304862c3711d9ceac5a1738be922723b162095f4",
       "disposition": "mapped",
       "contracts": [
         "lifecycle.switch-model"
@@ -28828,7 +28809,7 @@
       ]
     },
     {
-      "id": "d6c2a82ce5b411fd00861b62ebd6e100edba21ce07aef1773305aaae910c2570",
+      "id": "8fdc82918881ca9f40cf951c6c79fb82f49a9f0e78dd2d50bc283fa11fd76c77",
       "disposition": "mapped",
       "contracts": [
         "status.report"
@@ -28844,7 +28825,7 @@
       ]
     },
     {
-      "id": "45a2b89e932f3b731c2aa05d6dabc0dbba7c698d9fe0ce938588cb4dc9762861",
+      "id": "132a2bc3bbef90bf4326f19c677c20bdfb21ff923c58769724bcd1baf7f1dc2c",
       "disposition": "mapped",
       "contracts": [
         "audiences.deny",
@@ -28864,7 +28845,7 @@
       ]
     },
     {
-      "id": "99a95b2b576a31b536c0db8d5523c00a9cf8a091d7a3b849376147284598200b",
+      "id": "1ec3e3cc921f7915a55c7a2a5d1ca2464807550aa393bb835e38d5a99f6b7248",
       "disposition": "mapped",
       "contracts": [
         "audiences.request"
@@ -28880,7 +28861,7 @@
       ]
     },
     {
-      "id": "172b49f4203c44edaaada2ec899213a4fab8efcb41d73c78775415a367b9a935",
+      "id": "6bfe929b09c06a3269accd4d7de039d231baba78bd4a93b8ed46bb4ed092f77c",
       "disposition": "mapped",
       "contracts": [
         "audiences.forward"
@@ -28896,7 +28877,7 @@
       ]
     },
     {
-      "id": "7db793016033267ac85ae355178714db82a5145fedee12c5e6139e6f40087c4e",
+      "id": "c9ab4397b2aa25cbf9eca98a10e69d3c75a734c932d67c86eec37e4ac0bd9a34",
       "disposition": "mapped",
       "contracts": [
         "audiences.grant"
@@ -28912,7 +28893,7 @@
       ]
     },
     {
-      "id": "593273d314d73220e99636981b5e49c70f3befb68cb9ef46de7d43117b0773bd",
+      "id": "978aef472420bcb4e7348c036b27ff4e76fc3014936f1451037f96db9eec8dd0",
       "disposition": "mapped",
       "contracts": [
         "audiences.deny"
@@ -28928,7 +28909,7 @@
       ]
     },
     {
-      "id": "b4274ad82e591d9b105b441571365ec0c72bb127ba6d7adb4f19531ffaeaacf6",
+      "id": "fb52b6a02608e5a62a1d3f3fb6779051922460e581df1674d84f81672f381d3d",
       "disposition": "mapped",
       "contracts": [
         "audiences.revoke"
@@ -28944,7 +28925,7 @@
       ]
     },
     {
-      "id": "575300f971468878368eeefd33a679d092a2b5f1c9ec056fe134c3ff8380d5e1",
+      "id": "9c11832949663a901eb94162aeddbb2a0824fbd0e2edf5c99911c2c7dd609c61",
       "disposition": "mapped",
       "contracts": [
         "control.interrupt"
@@ -28960,7 +28941,7 @@
       ]
     },
     {
-      "id": "ee45b9e4d42ebde8ce469fd6259c963dbe83fee27a1ddcbbad91fc8b604d3960",
+      "id": "66ae0881e29b1b164fc6189181765d37b40a49af61c6a6b944accce124ea8387",
       "disposition": "mapped",
       "contracts": [
         "control.unstick"
@@ -28976,7 +28957,7 @@
       ]
     },
     {
-      "id": "7541fe7c97297cbdd1bc5655fe019f8cf41a50490115a9d14f769a2804b0fc25",
+      "id": "c85f2b7d2c1948504b09e92badff4f3967bb56dcd8da4e49a4b4917aec74dae9",
       "disposition": "mapped",
       "contracts": [
         "lifecycle.cheap-compact",
@@ -28995,7 +28976,7 @@
       ]
     },
     {
-      "id": "00fa78d7f18c8afcfc715dced070e1ba84a4c95090208b5e17f695f98fed43bd",
+      "id": "0da6d29e72b9aed91395a24e859a07efacc6574d0af21018a5b269ccd28f74da",
       "disposition": "mapped",
       "contracts": [
         "operator.preview"
@@ -29011,7 +28992,7 @@
       ]
     },
     {
-      "id": "c592780864829ce1e2a0c58b0b1d96640ca715e9b8f65f7f067957386f50dfbe",
+      "id": "b294e3d427299f97ce92bb6b31c167ea5fdf9f9b03a259c03e29da12bd0b9779",
       "disposition": "mapped",
       "contracts": [
         "operator.rename"
@@ -29027,7 +29008,7 @@
       ]
     },
     {
-      "id": "5919a9df8fb9774e67184e96597887683619863cd4b7e6a79a89fe576244dfd5",
+      "id": "79b78538a907136cd511a308d69bceabd0cc8d39fe55027f0bcf85a40904c296",
       "disposition": "mapped",
       "contracts": [
         "operator.dissolve",
@@ -29045,7 +29026,7 @@
       ]
     },
     {
-      "id": "0e145f5ae59042c8baa63cad54768d0a7ed4db2bbb11fc89f55b591dff990a9f",
+      "id": "4dfa65980904ce562193b9599a4ae8e5e1adbbb0bd155b3d4115c854ae1a102b",
       "disposition": "mapped",
       "contracts": [
         "operator.dissolve",
@@ -29063,7 +29044,7 @@
       ]
     },
     {
-      "id": "441785c3819cfac89ce5fd6a6c1ce9e7a89af37c34050d134a37d5eade5dbe6a",
+      "id": "9a825d4ecca30a7e6e69ac3f0c17596285cae85f06f20afcd68675a09318ba77",
       "disposition": "mapped",
       "contracts": [
         "operator.hire"
@@ -29079,7 +29060,7 @@
       ]
     },
     {
-      "id": "2cbef0d03607191dbfec46baece2c0e589c14e1601a937ce54b20c22c6521bd6",
+      "id": "b0b1531d75305dc11318e2fff2235bf54bb23a54cd2bb23a76871333e153d101",
       "disposition": "mapped",
       "contracts": [
         "operator.cheap-compact",
@@ -29099,7 +29080,7 @@
       ]
     },
     {
-      "id": "dabf5918c5c3ebadd723ca72afefa3a12f330550535f3079c9826400621c8a28",
+      "id": "35610b1fdc4cc0d874516e241d88b2af665fbf71a9374a4770f87154163d7033",
       "disposition": "mapped",
       "contracts": [
         "operator.hire"
@@ -29115,7 +29096,7 @@
       ]
     },
     {
-      "id": "afbbcac0fa74294ce21e4d75060ba4fe211783cea413e9174c87aa1e5aef1ea6",
+      "id": "5e55b2b98d460e0b5dcc7c6044b99561dff9af8e0a2a21cbbf6727dde3b316c1",
       "disposition": "mapped",
       "contracts": [
         "operator.retire"
@@ -29131,7 +29112,7 @@
       ]
     },
     {
-      "id": "af7fa0b6566571326ca0d05ce0e7d0d79334dad3b1fff84d1a8d7a45361f833e",
+      "id": "b373ce22bf1b88a3e6d6ae5b2f393bb6d7f9691dfddcf703d7e603192dcba649",
       "disposition": "mapped",
       "contracts": [
         "operator.rescind"
@@ -29147,7 +29128,7 @@
       ]
     },
     {
-      "id": "ed05ac1ffac5c3dedea85290ed0a995e22eaebbff5cebdd83c8160336704ee71",
+      "id": "916bcb09733536a23a8984295a1cf2bf0d8754e6fc8767b168e3d0a11cfdc699",
       "disposition": "mapped",
       "contracts": [
         "operator.cheap-compact"
@@ -29163,7 +29144,7 @@
       ]
     },
     {
-      "id": "a2c46c414cd5fb69c71dc1bb8faac6331dd88e48a0680bfeaa60d43fa1b7331d",
+      "id": "9ba5299c8d167feef8b762ce7a71fcd1c5838e54992ebe36248a51f80abc88a9",
       "disposition": "mapped",
       "contracts": [
         "operator.rehire"
@@ -29179,7 +29160,7 @@
       ]
     },
     {
-      "id": "0ec6d6cfc33a9406a3ccad6e923fb25bd345400644004daedb83c1b0c9b99cc9",
+      "id": "04c6879f321305220d7fc7c57990524715f066f8a665fe6d91f5063c29465375",
       "disposition": "mapped",
       "contracts": [
         "operator.dissolve"
@@ -29195,7 +29176,7 @@
       ]
     },
     {
-      "id": "4cdbb884c86ceae1be025a4f643c385ef6b70b7ecf06a8cc9d0da98f29af1025",
+      "id": "8fcce48b5213ecf87f001fdd304a403c94f8454c705eb7cb8749f17f1b7f2c09",
       "disposition": "mapped",
       "contracts": [
         "operator.delete"
@@ -29211,7 +29192,7 @@
       ]
     },
     {
-      "id": "ef88b7361daef0b99a733c748352b70c64288f4837ae4aa7f993f71edf74e544",
+      "id": "d409a08eb2ca09cac221806475da0e6be7ea7b07dafbdaa327514e54b625b033",
       "disposition": "mapped",
       "contracts": [
         "operator.reallocate"
@@ -29227,7 +29208,7 @@
       ]
     },
     {
-      "id": "5cb9f770e35461af795e1322d809cebf1f4807d701c3062df892777042121f1a",
+      "id": "cd97be179026190a6ef1b55e247daa74d6de6a7a36b9decb07b9af091d7cd519",
       "disposition": "mapped",
       "contracts": [
         "operator.switch-model"
@@ -29243,7 +29224,7 @@
       ]
     },
     {
-      "id": "3b912c9a5fd7425a08d838cef547a2201b7cf0b130cbee56e8df0027d3b35a90",
+      "id": "708c2e3fde422a88f7999479fa37dba1c864987fa313f4720cb0c8603c422cfc",
       "disposition": "mapped",
       "contracts": [
         "operator.promote"
@@ -29259,7 +29240,7 @@
       ]
     },
     {
-      "id": "fd16dcb7d0d208c1ada190424afb31f673b96808c578a081e079d56a907d2ed7",
+      "id": "31f3ef4184615bfa5572f63b687e0c99a491b9986eb74f920ec7dabed56f0795",
       "disposition": "mapped",
       "contracts": [
         "operator.demote"
@@ -29275,7 +29256,7 @@
       ]
     },
     {
-      "id": "e4dc89acd3c136e9764fab2c7286c6f8f28ca780e292a1f761dde473e291b3d5",
+      "id": "23bf0564f44b29854e7ebb99e1172fae74653f54024eb7e109e6e7f25e125cb2",
       "disposition": "mapped",
       "contracts": [
         "operator.move"
@@ -29291,7 +29272,7 @@
       ]
     },
     {
-      "id": "34c689725af585123911ab0d1d70532de38a076fa63d523e7507674fc77196fe",
+      "id": "9ec3b686453d5a49d6745a187cdda43f963c2a49de3a8386deb3fb98b9787216",
       "disposition": "mapped",
       "contracts": [
         "operator.reseed"
@@ -29307,7 +29288,7 @@
       ]
     },
     {
-      "id": "a4860b2306afb090e31bdbc651267361b8f035c6efc8239ac0eef5a0afac8a95",
+      "id": "dc75db15ca80215dfd8423e6d2acba161ee71d86087925bb727e3b0ac76a2c09",
       "disposition": "mapped",
       "contracts": [
         "operator.revoke-dir"
@@ -29418,7 +29399,7 @@
       "source_refs": []
     },
     {
-      "id": "95888e8006eaca5d93b4769b26b9e011c6d7285cf6851b8768fc3232e6186a8c",
+      "id": "49035ed0f05c2e5848a7e3a07c7c9733133ab16ff577350973fc3a5a8f109c20",
       "disposition": "mapped",
       "contracts": [
         "watchdogs.pause",
@@ -29435,7 +29416,7 @@
       ]
     },
     {
-      "id": "e2f7a651a6422721e1665040f325216fe13ad01f8ec3e97186e2ca91be6c384a",
+      "id": "eb4e2b74c83779a8c3c589b75dbea15378128171b93df4281c0cced2afda35a4",
       "disposition": "mapped",
       "contracts": [
         "watchdogs.resume",
@@ -29452,7 +29433,7 @@
       ]
     },
     {
-      "id": "7c71a87d3aeb4189eaa201847dc57446c69f29e5f9be8ca2e3d227d7cf35c33e",
+      "id": "2f181d720e28646199c521a6efce7b8bd8797ec439450b45d38e4b41e618fb2b",
       "disposition": "mapped",
       "contracts": [
         "watchdogs.remove",
@@ -29469,7 +29450,7 @@
       ]
     },
     {
-      "id": "fe1167bd8f232d73fd12b2e095ba9c65747eb3bc5ae78a5d9af57a098c5ffd64",
+      "id": "576272df4676eaa966d21c128354c8bd65d1c568e0b060d1a0b1ed017fdea737",
       "disposition": "mapped",
       "contracts": [
         "watchdogs.supersede",
@@ -29486,7 +29467,7 @@
       ]
     },
     {
-      "id": "f6eb8c109fea73321130c748cd435e3f521abffb60963ff601b3d5904f301269",
+      "id": "2dcc2cd80e1f8c4bdfdab35d1ebc11e07900f3f49cf49a33948e1659442d293c",
       "disposition": "mapped",
       "contracts": [
         "watchdogs.remove",
@@ -29503,7 +29484,7 @@
       ]
     },
     {
-      "id": "7b29377b0c9d8e9cd9eeccff4398228c2b5fbe3bf923e85a44a4c9ee3352e73d",
+      "id": "3f826550663f7384e38eee9dd0347b4bf04469f2bafc3b134caacfe7acc9e2b8",
       "disposition": "mapped",
       "contracts": [
         "watchdogs.supersede",
@@ -29520,7 +29501,7 @@
       ]
     },
     {
-      "id": "3404e049410c25e55c7d15659e4213c0a67fd7ead886ba8a0157e574be9b5aee",
+      "id": "dc6832d221c982fd2299fb8e9156b73dc39ecef9442eb667367b989faf746034",
       "disposition": "mapped",
       "contracts": [
         "asks.batch-resolve",
@@ -29537,7 +29518,7 @@
       ]
     },
     {
-      "id": "5d3ba8e682bc82eea419384236716f15ccf45c76528636ab1ec9ce75b7ffe47b",
+      "id": "0042c85a90e3bfca191ac8960a62f8bae9b7349540435925df13e91a5050a43a",
       "disposition": "mapped",
       "contracts": [
         "asks.batch-resolve",
@@ -29554,7 +29535,7 @@
       ]
     },
     {
-      "id": "be5a35d216dc03c9e419ebf258db5b6d91ca9a89aedcfc846220614669e0e7a1",
+      "id": "685ccc6e68697b84f9c3bddde6cf03daec76f9a40cafd75bd3a2e3b720b67a66",
       "disposition": "mapped",
       "contracts": [
         "control.prime-restart-arm",
@@ -29571,21 +29552,21 @@
       ]
     },
     {
-      "id": "968017dbd390b27a3f8462f6c7b852713ed5dc377fc5bcbec83dda8e66899807",
+      "id": "9a654e14a7377556ea4db3d4dd6e4d2e74c2d74576ab47e04b2bed9a9eb5d15c",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's accept, reopen and supersede branch (Org._work_status_at in ledger.py, a docket status transition). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "b79786d2055c97f8b0295d0cd71e4337b4d7925080c6cdf9a20f06bc61ccda5e",
+      "id": "2f4c52a1ab35bd93cfb6215b2192fd01a0e178dff063ff15d0e982a96addee27",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's update branch (Org._work_status_at in ledger.py, a docket status transition). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "4396a95bf408726e385f5ba63af8fed17684ea21b24c9eea2204f33b1d6f2014",
+      "id": "0d6f395eb5632c7fe174384eaab69d2521a2e140ae3487e68bb427e6ec13084c",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's dismiss_attention branch (Org._work_status_at in ledger.py, a docket status transition). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
@@ -30289,7 +30270,7 @@
       ]
     },
     {
-      "id": "fea6ac4d65d7c5329b38755e6346a742974347424fe262bef4fe8e7f3288e9ee",
+      "id": "e0fad476c441da22467bd0abdae4b1112cd6274d9462a7ea3a0485b388ab32ac",
       "disposition": "mapped",
       "contracts": [
         "asks.present"
@@ -30305,7 +30286,7 @@
       ]
     },
     {
-      "id": "e12774a4490048f01b6534c92a3b48ca6b12cfb86c970b740662119c47e525f7",
+      "id": "71e0a0035442391212cfb39938ba2b57ed2fd5da28ec76cc3e7bd61ab0b9db51",
       "disposition": "mapped",
       "contracts": [
         "exchange.send-file"
@@ -30321,7 +30302,7 @@
       ]
     },
     {
-      "id": "ca3dd0e3913d0c51908f875f0bb5961948ae65d6491bf114feb5c261114a8ef0",
+      "id": "89c7583ae082f1b867228808cd6dea7b2fc3d94672a2cd57a1f8091102439577",
       "disposition": "mapped",
       "contracts": [
         "mail.message",
@@ -30339,7 +30320,7 @@
       ]
     },
     {
-      "id": "26eaf4984123a609dedc5b5dbb514d17df5f78220287a86822a2817d5a37f928",
+      "id": "c5c737b3851bcfaf00b5953eaa1c8046951a0119c9cbda144ce219c53f5f4cbc",
       "disposition": "pending",
       "contracts": [],
       "reason": "Shared transcript docket-button selector (orgtree_work, orgtree_staff): orgtree_staff is contracted, orgtree_work is not — the full orgtree_work card (36 actions) is the P05 work family and the action-coverage rule needs all 36 (S3 ruling 2); the prototype's item read is covered by work.item-list and work.item-get instead. Owner: P05 (the work family).",
@@ -30549,7 +30530,7 @@
       ]
     },
     {
-      "id": "183a15a487d2c829265f66734161f9cb65530ecd0d451d54e640f820dd9176c9",
+      "id": "81f527cf660683c546f58166eb84e502887a94b39155cf3af7189af514cfa4ee",
       "disposition": "pending",
       "contracts": [],
       "reason": "80b28bf (account capacity marks): the `body.tool == 'orgtree_account_mark'` dispatch branch in agent_call, which writes the machine account store and then the org log and receipt. No P01 contract describes it yet; recorded pending rather than mapped, because this stage authors no contract text. Owner: the runtime (P08).",
@@ -30688,7 +30669,7 @@
       ]
     },
     {
-      "id": "69c03d9bcc7feb05046e855f82c20b1e8fe1017eb4e65e3a7c77800248139eb2",
+      "id": "daadec2fa686be9d79edcfea380920eca176f2306b7ea6e0a2bd1f7e9881c2bf",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 S2k): the org store's own connection factory (every org document read and write). P02's per-operation probe observes it under 40 of the 42 contracts, but a shared site is mapped only once every operation reaching it has a contract (the rule for shared selectors, S3 decision 3), and uncontracted org routes load through it, for one the desktop's chat route (api.node_chat, store.load_org). Owner: P01 (every uncontracted org route that loads or saves the org).",
