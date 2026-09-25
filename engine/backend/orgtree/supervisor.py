@@ -44,7 +44,7 @@ from functools import wraps
 from pathlib import Path
 from typing import Any, Final, Protocol, cast
 
-from . import halt, inbox, maildrain
+from . import halt, inbox, maildrain, mailtx, orgtx
 from . import (accounts, agentauth, antigravity_limits, appsettings,
                cachecontinuity, clipin, codex_limits, codex_route, deployment,
                envelope, events, events_table, failfix, handoff, imgblock,
@@ -9642,25 +9642,37 @@ def _confirm_delivered(slug: str, nid: str, toks: Iterable[str], *,
     st = state(slug, nid)
     with _state_lock:
         st.setdefault("mail_confirmed", set()).update(drop)
-    net_ids = []
+    net_ids: list[str] = []
     try:
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
-            done = _confirm_locked(org, st, nid, drop, operation_kind=operation_kind)
-            if done is None:
-                return
-            receipt, net_ids = done
-            try:
-                store.save_org(org)
-            except Exception:
-                fresh = store.load_org(slug)
-                if mailruntime.reclaim_outcome(fresh, receipt) != "committed":
-                    raise
-                org = fresh
-            with _state_lock:
-                mailruntime.settle_confirmation(org, st, nid)
+        # PG-3d: a row transaction on that node's row and the delivery
+        # journal, not DOC_LOCK. A confirmation with nothing journaled rolls
+        # back (the old path returned without saving).
+        receipt: dict[str, Any] | None = None
+        try:
+            with orgtx.org_tx(slug, **mailtx.confirm_rows(nid)) as tx:
+                org = tx.org
+                done = _confirm_locked(org, st, nid, drop, operation_kind=operation_kind)
+                if done is None:
+                    raise mailtx.NothingToCommit
+                receipt, net_ids = done
+        except mailtx.NothingToCommit:
+            return
+        except orgtx.UnlockedWrite:
+            raise
+        except Exception:
+            # an unknown commit outcome: only a durable positive receipt
+            # clears the pending confirmation
+            if receipt is None:
+                raise
+            org = orgtx.org_read(slug)
+            if mailruntime.reclaim_outcome(org, receipt) != "committed":
+                raise
+        with _state_lock:
+            mailruntime.settle_confirmation(org, st, nid)
         if net_ids:
             net.note_read(slug, net_ids)
+    except orgtx.UnlockedWrite:
+        raise   # a missing row declaration is a bug, never a retryable miss
     except Exception:                                        # noqa: BLE001
         pass  # Keep pending confirmation; retry before any fold-back.
 
