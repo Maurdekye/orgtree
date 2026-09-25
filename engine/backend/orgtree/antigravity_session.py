@@ -109,6 +109,12 @@ def specification(org: Any, nid: str, *, write: bool = False) -> dict[str, Any]:
             "account": str(row["id"]) if row else sup._cache_antigravity_account_namespace()}
 
 
+#: PG-3r: what a lineage cut writes besides the seat and its bearer row
+#: (mirrors PG-3e-B's `_ASSIGN_SECTIONS` / `_ASSIGN_LOGS` in supervisor.py).
+_LINEAGE_SECTIONS = ("asks", "credit_requests", "scope_requests", "notices", "work_items")
+_LINEAGE_LOGS = ("events", "notice_log")
+
+
 def prepare_lineage(org: Any, nid: str, spec: dict[str, Any]) -> bool:
     """Automatic billing-route changes also preserve the old session."""
     from . import supervisor as sup
@@ -116,16 +122,28 @@ def prepare_lineage(org: Any, nid: str, spec: dict[str, Any]) -> bool:
     previous = n.get("antigravity_account") or sup._cache_antigravity_account_namespace()
     if not spec["conversation_id"] or previous == spec["account"]:
         return False
-    with store.DOC_LOCK:
-        current = store.load_org(org.d["slug"])
+    # PG-3r: the lineage cut is one row transaction over the seat, the
+    # `nid@<gen>` bearer row the archive inserts, and what the cut writes
+    # besides (asks mooting with the requests and work items it touches,
+    # the notice fold, the handoff notice). The same rows as PG-3e-B's
+    # account rebind (supervisor._assign_tx); keep the two sets together.
+    # The generation is read before the lock and re-checked under it.
+    from . import orgtx
+    slug = org.d["slug"]
+    gen = orgtx.org_read(slug).node(nid).get("generation", 0)
+    with orgtx.org_tx(slug, nodes=[nid, f"{nid}@{gen}"], sections=_LINEAGE_SECTIONS,
+                      logs=_LINEAGE_LOGS) as tx:
+        current = tx.org
+        if current.node(nid).get("generation", 0) != gen:
+            raise RuntimeError(f"{nid} changed generation while its billing route "
+                               f"change was prepared; nothing was changed")
         predecessor, old_sid = current._archive_session_in_place(nid)
         sup.export_predecessor_transcript(current, nid, old_sid=old_sid, reason="account_route")
         current._moot_asks(nid, "the provider billing account changed; its successor starts fresh")
         current._fold_notices(nid)
         current.node(nid).pop("antigravity_conversation", None)
         current.node(nid).pop("antigravity_account", None)
-        store.save_org(current)
-        org.d = current.d
+    org.d = current.d
     sup._log_turn_error(org.d["slug"], nid,
         f"Antigravity billing account changed. This session starts fresh; the previous conversation is preserved as {predecessor}.")
     return True

@@ -9,7 +9,9 @@ What these prove, on PG-0's SeamBackend fake over a throwaway SQLite root:
   * an applied pending shrink commits only the `disk` section, lock-free;
   * the reply and transcript incarnation mints are row transactions (reply
     ids, then the transcript id), keep a value once minted, and a caller
-    inside a legacy DOC_LOCK hold keeps the legacy mint.
+    inside a legacy DOC_LOCK hold keeps the legacy mint;
+  * an Antigravity billing-route change cuts the lineage in ONE row
+    transaction over the seat and its `nid@<gen>` bearer row, lock-free.
 
 Run:  python tools/run-python-verification.py tests/test_pg3r_residual.py
 """
@@ -170,6 +172,46 @@ class TranscriptIncarnation(unittest.TestCase):
             with store.DOC_LOCK:
                 value = transcript_records.incarnation(store.load_org(slug), 'a')
         self.assertEqual(store.load_org(slug).node('a')['transcript_incarnation'], value)
+
+
+class AntigravityLineage(unittest.TestCase):
+    def test_billing_route_change_is_one_row_transaction_over_seat_and_bearer(self):
+        from orgtree import antigravity_session, supervisor
+        slug = _fresh_org('Lineage Org')
+        org = store.load_org(slug)
+        org.node('a').update(antigravity_account='old-acct', antigravity_conversation='conv-1',
+                              session_id='sid-1')
+        store.save_org(org)
+        gen = store.load_org(slug).node('a').get('generation', 0)
+        seen = []
+        orgtx.commit_listeners.append(seen.append)
+        try:
+            with patch.object(supervisor, 'export_predecessor_transcript', return_value=None), \
+                    patch.object(supervisor, '_log_turn_error') as logged:
+                caller = store.load_org(slug)
+                finished, changed = _while_doc_lock_is_held(lambda: antigravity_session.prepare_lineage(
+                    caller, 'a', {'conversation_id': 'conv-1', 'account': 'new-acct'}))
+        finally:
+            orgtx.commit_listeners.remove(seen.append)
+        self.assertTrue(finished, 'the lineage cut waited on DOC_LOCK')
+        self.assertTrue(changed)
+        self.assertEqual(len(seen), 1)
+        logged.assert_called_once()
+        after = store.load_org(slug)
+        self.assertIn(f'a@{gen}', after.nodes, 'the bearer row the archive inserts')
+        self.assertNotIn('antigravity_account', after.node('a'))
+        self.assertNotIn('antigravity_conversation', after.node('a'))
+        self.assertIn(f'a@{gen}', caller.nodes, "the caller's org carries the committed document")
+
+    def test_unchanged_route_writes_nothing(self):
+        from orgtree import antigravity_session
+        slug = _fresh_org('Lineage Same Org')
+        org = store.load_org(slug)
+        org.node('a').update(antigravity_account='same', antigravity_conversation='conv-1')
+        store.save_org(org)
+        with patch.object(orgtx, 'org_tx', side_effect=AssertionError('no transaction for an unchanged route')):
+            self.assertFalse(antigravity_session.prepare_lineage(
+                store.load_org(slug), 'a', {'conversation_id': 'conv-1', 'account': 'same'}))
 
 
 if __name__ == '__main__':
