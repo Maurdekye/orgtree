@@ -323,11 +323,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "orgtree-store-schema"
+version = "0.1.0"
+dependencies = [
+ "orgtree-op-receipt-codec",
+]
+
+[[package]]
 name = "orgtree-store-trace"
 version = "0.1.0"
 dependencies = [
  "orgtree-store",
+ "orgtree-store-schema",
  "tokio",
+ "tokio-postgres",
 ]
 
 [[package]]
