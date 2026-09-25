@@ -5918,9 +5918,22 @@ def _stamp_wakes_on_save(org: Org) -> None:
     set — measured 8.8 MB re-serialized per one-field save at the API door.
     The walk therefore reads the backing dict directly and touches the
     barrier only for the rare node it actually stamps, so the scoped save
-    sees exactly those."""
+    sees exactly those.
+
+    ⚠ INSIDE AN org_tx COMMIT (PG-3e-A) it stamps only the node rows that
+    transaction locked FOR UPDATE: stamping any other frozen node would be a
+    write the transaction does not hold, and the whole commit would be
+    refused (`UnlockedWrite`). A frozen node outside the transaction was
+    stamped by its own freeze writer (every freeze writer runs this hook on
+    its own save) or is stamped by the scheduler tick's own transaction."""
+    tx = orgtx.current_tx(str(org.d.get("slug") or ""))
+    locked: frozenset[str] | None = None
+    if tx is not None and tx.org is org and not tx.all_nodes:
+        locked = tx.lock_nodes
     nodes = cast("dict[str, Any]", org.d.get("nodes") or {})
     for nid in list(dict.keys(nodes)):
+        if locked is not None and nid not in locked:
+            continue
         n = dict.__getitem__(nodes, nid)
         if not isinstance(n, dict) or not n.get("frozen"):
             continue
