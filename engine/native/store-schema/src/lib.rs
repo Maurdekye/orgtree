@@ -61,6 +61,8 @@ pub const MIGRATIONS: &[Migration] = &[
     migration!(6, "requests_charters_runtime", "0006_requests_charters_runtime.sql"),
     migration!(7, "publication", "0007_publication.sql"),
     migration!(8, "grants", "0008_grants.sql"),
+    // WS5 (0300-0399)
+    migration!(300, "mail_ws5", "0300_mail_ws5.sql"),
 ];
 
 /// Migration number ranges per workstream, so parallel branches never collide.
@@ -96,6 +98,8 @@ pub const ORG_WIDE_TABLES: &[&str] = &["organizations"];
 pub const HIGH_RATE_TABLES: &[&str] = &[
     "operation_receipts", "runtime_inflight", "mail_sent", "outgoing_intents",
     "transport_intents", "mailbox_messages", "work_item_versions",
+    // WS5
+    "mail_input_batches",
 ];
 
 /// Receiver HEAD rows (C2a P8), and the source-side tables that must never
@@ -132,6 +136,8 @@ pub const PUBLISHED: &[&str] = &[
     "mailboxes", "mail_sent", "mail_pair_highwater", "mailbox_messages",
     "outgoing_intents", "transport_intents",
     "request_batches", "charter_heads", "charter_versions", "runtime_claims", "folder_move_intents",
+    // WS5
+    "mail_input_batches", "extern_handles",
 ];
 
 /// Tables never published (CONTRACT-M1 §7).

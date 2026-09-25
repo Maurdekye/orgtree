@@ -8,17 +8,17 @@ use orgtree_store_schema::{
     RECEIPT_PUBLISHED_COLUMNS,
 };
 
-/// The table count the 0001-0007 files declare. A parser that silently finds
-/// nothing would make every lint below pass vacuously; this pins the work done.
-const EXPECTED_TABLES: usize = 39;
+/// The table count the migrations declare (0001-0007: 39; WS5 0300: 2). A
+/// parser that silently finds nothing would make every lint below pass
+/// vacuously; this pins the work done.
+const EXPECTED_TABLES: usize = 41;
 
 #[test]
-fn migrations_are_ascending_named_and_in_the_ws2_range() {
-    let (_, lo, hi) = RANGES.iter().find(|r| r.0 == "WS2").copied().unwrap();
+fn migrations_are_ascending_named_and_in_a_declared_range() {
     let mut prev = 0;
     for m in MIGRATIONS {
         assert!(m.version > prev, "{} not ascending", m.file);
-        assert!(m.version >= lo && m.version <= hi, "{} outside WS2 range", m.file);
+        assert!(RANGES.iter().any(|r| m.version >= r.1 && m.version <= r.2), "{} outside every workstream range", m.file);
         assert_eq!(m.file, format!("{:04}_{}.sql", m.version, m.name));
         assert!(!m.sql.trim().is_empty());
         prev = m.version;

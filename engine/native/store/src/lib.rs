@@ -10,7 +10,9 @@
 //! * [`hooks`]: trace sink (always), pause points and unsafe controls
 //!   (feature `qualification` only).
 //! * [`claims`]: the r7 C5 output-claim registry.
-//! * [`sent`]: the Sent interface stub WS5 fills in.
+//! * [`sent`]: the Sent interface (WS5): the source half of two-stage mail.
+//! * [`mail`]: the receiver half, the notice box and its fold, hints (WS5).
+//! * [`runtime`]: WS5's minimal runtime claims (kickoff, wake, admission).
 //!
 //! What is NOT here yet: the tokio-postgres session, receipt lookup against a
 //! real database, the store-service binary. Passing these tests proves the
@@ -21,11 +23,13 @@ pub mod conn;
 pub mod exec;
 pub mod hooks;
 pub mod lookup;
+pub mod mail;
 pub mod pg;
 pub mod pool;
 pub mod receipts;
 pub mod restrict;
 pub mod retry;
+pub mod runtime;
 pub mod sent;
 pub mod session;
 pub mod value;
