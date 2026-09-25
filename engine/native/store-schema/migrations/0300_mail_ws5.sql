@@ -1,6 +1,19 @@
 -- P03 WS5, part 1: mail semantics on the WS2 mail base (S3 E1, §4.5-4.7).
 -- WS5 range 0300-0399 (CONTRACT-M1 §7). Adds only columns, constraints and
 -- tables; renames nothing a consumer relies on.
+--
+-- Growth classes (v6 SCHEMA-CATALOG "Growth and query contracts"):
+--   mail_sent, mailbox_messages  retained user/resource history. Receiver rows
+--                                include `folded` notice tombstones and
+--                                `refused`/`cancelled` fences, which keep the
+--                                dedupe key fencing late redelivery. Removed
+--                                only by the mailbox's own delete (legacy
+--                                erase); retention is P06's. WS8 reports
+--                                growth in churn-then-settle.
+--   mail_input_batches           temporary-to-settle: one open batch per
+--                                mailbox, settled on confirm or abandon;
+--                                cleanup of settled rows is P08's.
+--   extern_handles               current entity-bound (dies with its agent).
 
 -- The mail class (CONTRACT-M1 §8 r5, lead ack A1): 'message' wakes the
 -- recipient; 'passive' is an agent's explicit notice (in mail, no wake);
@@ -14,6 +27,10 @@ ALTER TABLE mail_sent ADD CONSTRAINT mail_sent_urgent_reason CHECK (urgent = (ur
 -- A held-handle outside send is attributed to its sender (v6 matrix row
 -- "Agent to its exact held external handle").
 ALTER TABLE mail_sent ADD COLUMN attributed boolean NOT NULL DEFAULT false;
+-- v6 "Identity ... common to every variant": the captured display label of
+-- the resolved destination (its name at Sent time). Display only: delivery
+-- is keyed on the captured principal and mailbox, never on this label.
+ALTER TABLE mail_sent ADD COLUMN dest_label text COLLATE "C" NULL;
 -- The pair rule is DERIVED (lead ack A1 condition 2): pair_seq is set iff the
 -- source is an agent or the user, the class is message or passive, and the
 -- destination is a mailbox. It replaces WS2's mail_sent_pair_shape, which

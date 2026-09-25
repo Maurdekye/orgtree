@@ -290,8 +290,9 @@ pub const PAIR_SEQ_SQL: &str = "SELECT coalesce(max(pair_seq), 0) + 1 FROM mail_
 pub const INSERT_SENT_SQL: &str = "INSERT INTO mail_sent \
     (org_id, message_id, source_kind, source_id, dest_kind, dest_mailbox_id, dest_principal_id, \
      dest_mailbox_incarnation, dest_external, pair_seq, kind, urgent, urgent_reason, body, fingerprint, \
-     class, attributed, sent_at) \
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)";
+     class, attributed, sent_at, dest_label) \
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, \
+     (SELECT name FROM agents WHERE org_id = $1 AND principal_id = $7))";
 
 pub const INSERT_INTENT_SQL: &str = "INSERT INTO outgoing_intents \
     (org_id, intent_id, kind, source_ref, dest_ref, due_at, created_at) \
