@@ -1,0 +1,396 @@
+{
+  "schema": "orgtree.control-boundary/v1",
+  "source_contract_sha256": "52295f04ac60b48a2e501cc18fdcf4ef418b73784d65c802ba1f52a9abf008b2",
+  "qualification": {
+    "runtime_census": false,
+    "conversion_authorized": false
+  },
+  "contracts": {
+    "control.continue-on": "orgtree_continue_on",
+    "control.halt": "orgtree_halt",
+    "control.interrupt": "orgtree_interrupt",
+    "control.killswitch": "POST /api/orgs/{slug}/killswitch",
+    "control.killswitch-release": "POST /api/orgs/{slug}/killswitch/release",
+    "control.kiosk": "POST /api/orgs/{slug}/kiosk",
+    "control.op-continue-on": "POST /api/orgs/{slug}/nodes/{nid}/continue-on",
+    "control.op-halt": "POST /api/orgs/{slug}/nodes/{nid}/halt",
+    "control.op-interrupt": "POST /api/orgs/{slug}/nodes/{nid}/interrupt",
+    "control.op-process": "POST /api/orgs/{slug}/nodes/{nid}/process",
+    "control.op-unhalt": "POST /api/orgs/{slug}/nodes/{nid}/unhalt",
+    "control.op-unstick": "POST /api/orgs/{slug}/nodes/{nid}/unstick",
+    "control.prime-restart-arm": "orgtree_prime_restart action=arm",
+    "control.prime-restart-cancel": "orgtree_prime_restart action=cancel",
+    "control.prime-restart-status": "orgtree_prime_restart action=status",
+    "control.remote-control": "POST /api/orgs/{slug}/nodes/{nid}/remote-control",
+    "control.restart-wake-arm": "orgtree_restart_wake action=arm",
+    "control.restart-wake-cancel": "orgtree_restart_wake action=cancel",
+    "control.restart-wake-status": "orgtree_restart_wake action=status",
+    "control.resume": "POST /api/orgs/{slug}/resume",
+    "control.self-restart": "orgtree_self_restart",
+    "control.steer-ack": "POST /api/orgs/{slug}/nodes/{nid}/steer/ack",
+    "control.steer-claim": "POST /api/orgs/{slug}/nodes/{nid}/steer",
+    "control.steer-state": "GET /api/orgs/{slug}/nodes/{nid}/steer-state",
+    "control.unhalt": "orgtree_unhalt",
+    "control.unstick": "orgtree_unstick"
+  },
+  "cases": {
+    "t_interrupt": {
+      "results": [
+        "interrupted",
+        "reason"
+      ],
+      "sections": [],
+      "told": {}
+    },
+    "t_unstick_frozen": {
+      "results": [
+        "released",
+        "resume_texts",
+        "resume_views"
+      ],
+      "sections": [
+        "events",
+        "nodes",
+        "notice_log",
+        "notices"
+      ],
+      "told": {
+        "mid": [
+          [
+            "policy.unstuck",
+            null
+          ]
+        ]
+      }
+    },
+    "t_unstick_noop": {
+      "results": [
+        "released",
+        "status"
+      ],
+      "sections": [],
+      "told": {}
+    },
+    "t_halt": {
+      "results": [
+        "halted",
+        "node",
+        "queued",
+        "settled",
+        "status"
+      ],
+      "sections": [
+        "events",
+        "nodes"
+      ],
+      "told": {}
+    },
+    "t_halt_batch": {
+      "results": [
+        "batch",
+        "nodes"
+      ],
+      "sections": [
+        "events",
+        "nodes"
+      ],
+      "told": {}
+    },
+    "t_unhalt": {
+      "results": [
+        "delivery",
+        "node",
+        "unhalted"
+      ],
+      "sections": [
+        "events",
+        "nodes"
+      ],
+      "told": {}
+    },
+    "t_wake_arm": {
+      "results": [
+        "already_armed",
+        "armed",
+        "status",
+        "wake"
+      ],
+      "sections": [],
+      "told": {}
+    },
+    "t_wake_status": {
+      "results": [
+        "armed",
+        "running_build",
+        "status",
+        "wake"
+      ],
+      "sections": [],
+      "told": {}
+    },
+    "t_wake_cancel": {
+      "results": [
+        "cancelled",
+        "status",
+        "was"
+      ],
+      "sections": [],
+      "told": {}
+    },
+    "r_steer": {
+      "results": [
+        "legacy",
+        "messages"
+      ],
+      "sections": [],
+      "told": {}
+    },
+    "r_steer_ack": {
+      "results": [
+        "status"
+      ],
+      "sections": [],
+      "told": {}
+    },
+    "r_steer_state": {
+      "results": [
+        "busy",
+        "late_after",
+        "pending",
+        "polls",
+        "responding",
+        "wait"
+      ],
+      "sections": [],
+      "told": {}
+    },
+    "r_interrupt": {
+      "results": [
+        "interrupted",
+        "reason"
+      ],
+      "sections": [],
+      "told": {}
+    },
+    "r_interrupt_halted": {
+      "results": [
+        "halt",
+        "interrupted",
+        "reason"
+      ],
+      "sections": [],
+      "told": {}
+    },
+    "r_halt": {
+      "results": [
+        "halted",
+        "node",
+        "queued",
+        "settled",
+        "status"
+      ],
+      "sections": [
+        "events",
+        "nodes"
+      ],
+      "told": {}
+    },
+    "r_unhalt": {
+      "results": [
+        "delivery",
+        "node",
+        "unhalted"
+      ],
+      "sections": [
+        "events",
+        "nodes"
+      ],
+      "told": {}
+    },
+    "r_unhalt_not": {
+      "results": [
+        "node",
+        "status",
+        "unhalted"
+      ],
+      "sections": [],
+      "told": {}
+    },
+    "r_process": {
+      "results": [
+        "process"
+      ],
+      "sections": [],
+      "told": {}
+    },
+    "r_kill": {
+      "results": [
+        "already_latched",
+        "interrupted",
+        "latched",
+        "watchdogs_paused"
+      ],
+      "sections": [
+        "events",
+        "killswitch"
+      ],
+      "told": {}
+    },
+    "r_release": {
+      "results": [
+        "merged",
+        "released"
+      ],
+      "sections": [
+        "events",
+        "killswitch"
+      ],
+      "told": {}
+    },
+    "r_release_not": {
+      "results": [
+        "released",
+        "status"
+      ],
+      "sections": [],
+      "told": {}
+    },
+    "r_resume": {
+      "results": [
+        "resumed"
+      ],
+      "sections": [],
+      "told": {}
+    },
+    "r_remote_start": {
+      "results": [
+        "started"
+      ],
+      "sections": [],
+      "told": {}
+    },
+    "r_unstick": {
+      "results": [
+        "released",
+        "resume_texts",
+        "resume_views"
+      ],
+      "sections": [
+        "events",
+        "nodes",
+        "notice_log",
+        "notices"
+      ],
+      "told": {
+        "mid": [
+          [
+            "policy.unstuck",
+            null
+          ]
+        ]
+      }
+    },
+    "r_continue": {
+      "results": [
+        "switched"
+      ],
+      "sections": [],
+      "told": {}
+    },
+    "t_continue": {
+      "results": [
+        "switched"
+      ],
+      "sections": [],
+      "told": {}
+    },
+    "nd_self_restart": {
+      "results": [
+        "launched"
+      ],
+      "sections": [
+        "events"
+      ],
+      "told": {}
+    },
+    "nd_prime_arm": {
+      "results": [
+        "armed"
+      ],
+      "sections": [
+        "events"
+      ],
+      "told": {}
+    },
+    "nd_prime_cancel": {
+      "results": [
+        "cancelled"
+      ],
+      "sections": [
+        "events"
+      ],
+      "told": {}
+    },
+    "nd_prime_status": {
+      "results": [
+        "primed",
+        "status"
+      ],
+      "sections": [],
+      "told": {}
+    }
+  },
+  "receipts": {
+    "orgtree_interrupt": [
+      "unrolled_side_effect",
+      [
+        "interrupted"
+      ]
+    ],
+    "orgtree_unstick": [
+      "transaction+post",
+      []
+    ],
+    "orgtree_halt": [
+      "pre_transaction",
+      [
+        "halted",
+        "node",
+        "queued",
+        "settled"
+      ]
+    ],
+    "orgtree_unhalt": [
+      "pre_transaction",
+      [
+        "node",
+        "unhalted"
+      ]
+    ],
+    "orgtree_restart_wake": [
+      "unrolled_side_effect",
+      [
+        "armed"
+      ]
+    ],
+    "orgtree_prime_restart": [
+      "unrolled_side_effect",
+      [
+        "armed"
+      ]
+    ]
+  },
+  "profiles": {
+    "desktop_refusal": {
+      "orgtree_self_restart": "desktop-managed V2 renamed orgtree_self_restart to orgtree_self_relaunch; use orgtree_self_relaunch for an installed-app relaunch",
+      "orgtree_prime_restart": "desktop-managed V2 renamed orgtree_prime_restart to orgtree_prime_relaunch; use orgtree_prime_relaunch for an installed-app relaunch"
+    },
+    "desktop_stripped_routes": [
+      "POST /api/orgs/{slug}/kiosk"
+    ]
+  },
+  "legacy_defects": [
+    "unstick's receipt keeps nothing: its allowlist (released, warnings) names lists"
+  ],
+  "scope": "Legacy boundary of the run-control entry points (P01 F2) on disposable SQLite, per product profile. Every process effect is a spy: halt's cut, interrupts, the killswitch sweep, the warm-pool process control, remote control, the restart launch, the prime arm and cancel, and continue-on's provider read. The doors, the ledger, the halt record, the killswitch latch, the restart-wake sidecar, the receipts, save and reload are real. Legacy conformance evidence only: not a runtime census, not PostgreSQL or Rust qualification."
+}

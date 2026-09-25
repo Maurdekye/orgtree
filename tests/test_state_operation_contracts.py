@@ -43,16 +43,18 @@ class ContractCoverage(unittest.TestCase):
         self.assertGreater(result["summary"]["storage"]["pending"], 0)
         # THE one registry-wide tripwire (review of S3 candidate 1): every candidate
         # that maps a witness or adds a contract moves these numbers here, and only here.
-        self.assertEqual(result["contracts"], 97)
+        self.assertEqual(result["contracts"], 123)
         self.assertEqual((result["summary"]["entries"]["mapped"], result["summary"]["dispatch"]["mapped"],
-                          result["summary"]["storage"]["mapped"]), (62, 119, 0))
+                          result["summary"]["storage"]["mapped"]), (84, 147, 0))
         # 571 -> 590 (P01 F1): 19 entries and 19 dispatch witnesses mapped, 57 new open dimension occurrences
         # (conflicts, wire and instrumentation on each of the 19 lifecycle contracts), as the Q1 ruling expects
         # 590 -> 608 (P01 F1b): the operator door and 23 of its branches mapped, 42 new open dimension
         # occurrences (variant-conflicts, wire and variant-instrumentation on each of 14 contracts)
         # 608 -> 635 (P01 F3): 13 entries and 26 dispatch witnesses mapped, 66 new open dimension
         # occurrences (conflicts, wire and instrumentation on each of 22 contracts)
-        self.assertEqual(len(result["pending"]), 635)
+        # 635 -> 663 (P01 F2): 22 entries and 28 dispatch witnesses mapped, 78 new open dimension
+        # occurrences (conflicts, wire and instrumentation on each of 26 contracts)
+        self.assertEqual(len(result["pending"]), 663)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
@@ -147,8 +149,8 @@ class ContractCoverage(unittest.TestCase):
     # the client-process branches call inventoried routes (coordinator ruling, decision 2 on the W8 item)
     W8_EXCLUDED = {("mcptool.py", 2111), ("mcptool.py", 2113), ("mcptool.py", 2315),
                    ("externtool.py", 219), ("externtool.py", 232), ("externtool.py", 238), ("externtool.py", 244)}
-    W8_PENDING = ({("warmpool.py", n) for n in (1365, 1377, 1421, 1463, 1478, 1479, 1525, 1534, 1549, 1551, 1557, 1558)}
-                  | {("desktop_recovery.py", n) for n in (97, 99, 118, 120, 122, 124, 125)}
+    # P01 F2 mapped the twelve warmpool process-control rows (the process route is contracted)
+    W8_PENDING = ({("desktop_recovery.py", n) for n in (97, 99, 118, 120, 122, 124, 125)}
                   | {("gitworkspace.py", n) for n in (482, 1114, 1136, 1140)}
                   | {("supervisor.py", 35326), ("supervisor.py", 35351), ("toolwait.py", 88)})
     # the EXACT route each client-process exclusion calls (W8 review finding f1: 'a route' is not 'the route')
@@ -168,7 +170,7 @@ class ContractCoverage(unittest.TestCase):
             return (selectors[i]["path"].rsplit("/", 1)[1], selectors[i]["line"])
         self.assertEqual({at(i) for i, r in rows.items() if r["disposition"] == "excluded"}
                          & (self.W8_EXCLUDED | self.W8_PENDING), self.W8_EXCLUDED)
-        self.assertEqual(len(self.W8_PENDING), 26)
+        self.assertEqual(len(self.W8_PENDING), 14)
         # the ruling's condition: a client-process exclusion must cite the inventoried route it calls, and no other
         routes = {(r["source"]["path"].rsplit("/", 1)[1], r["source"]["line"]): r["selectors"]
                   for r in self.source["registrations"] if r["kind"] == "http"}
@@ -291,7 +293,8 @@ class ContractCoverage(unittest.TestCase):
                     and rows[contracts.witness_id("dispatch", s)]["reason"].startswith("Stays pending (P01 W4): ")]
         # 40 -> 24: P01 F1 mapped the sixteen lifecycle and catalogue tool branches
         # 24 -> 17: P01 F3 mapped the seven ask, report, scope, watchdog and audience tool branches
-        self.assertEqual(len(branches), 17)
+        # 17 -> 9: P01 F2 mapped the eight run-control tool branches
+        self.assertEqual(len(branches), 9)
         for s in branches:
             r = rows[contracts.witness_id("dispatch", s)]
             with self.subTest(line=s["source"]["line"]):
@@ -331,8 +334,9 @@ class ContractCoverage(unittest.TestCase):
         self.assertEqual((len(reservation), set(slice_row["contracts"])), (11, reservation))
 
     # P01 F3 mapped user_audience, Org.watchdog_action and the seven watchdog/audience agent_call branches
-    W7_SYMBOLS = {"remote_control": 2, "_desktop_relaunch_args": 1, "agent_call": 9,
-                  "request": 1, "Org.prime_restart_gate": 1}
+    # P01 F2 mapped remote_control and the prime_restart/restart_wake action branches; the prime_relaunch
+    # branches wait for the relaunch cards to be inventoried
+    W7_SYMBOLS = {"_desktop_relaunch_args": 1, "agent_call": 3, "request": 1, "Org.prime_restart_gate": 1}
 
     def test_w7_last_dispatch_branches_name_their_owner_and_none_stays_generic(self):
         rows = {r["id"]: r for r in self.document["dispatch"]}
@@ -361,7 +365,8 @@ class ContractCoverage(unittest.TestCase):
     # form, except the concrete http, websocket and tool entries still on the generic reason (no owner by rule)
     # 194 -> 175: P01 F1 contracted 19 of them
     # 175 -> 162: P01 F3 contracted 13 of them
-    GENERIC_PENDING_ENTRIES = 162
+    # 162 -> 140: P01 F2 contracted 22 of them
+    GENERIC_PENDING_ENTRIES = 140
 
     def test_every_pending_witness_names_its_owner_or_is_a_generic_entry_point(self):
         kinds = {s["site_id"]: s["kind"] for s in self.source["registrations"]}
@@ -448,6 +453,21 @@ class ContractCoverage(unittest.TestCase):
         [card] = [rows[contracts.witness_id("dispatch", s)] for s in self.source["dispatch_selectors"]
                   if s["source"]["symbol"] == "_read_chat_source" and s["values"] == ["orgtree_present"]]
         self.assertEqual(card["disposition"], "pending")
+
+    # P01 F2: the run-control tool and action branches, the remote-control route's branches and the warmpool
+    # process control (its status helper also serves the contracted tree and node-detail views)
+    F2_MAPPED = {"agent_call": 14, "remote_control": 2, "process_control": 9, "_control_result": 1,
+                 "process_control_status": 2}
+
+    def test_f2_maps_the_run_control_branches(self):
+        rows = {r["id"]: r for r in self.document["dispatch"]}
+        found = {}
+        for s in self.source["dispatch_selectors"]:
+            r = rows[contracts.witness_id("dispatch", s)]
+            if "(P01 F2, rule 1)" in r["reason"]:
+                self.assertEqual(r["disposition"], "mapped")
+                found[s["source"]["symbol"]] = found.get(s["source"]["symbol"], 0) + 1
+        self.assertEqual(found, self.F2_MAPPED)
 
     def test_contacts_is_specified_only_with_agent_level_mail_locality(self):
         # S2b ruling R1: org-store locality is not mail locality. contacts became

@@ -9853,6 +9853,348 @@
           "sha256": "e1401fad8d17935aeabb8cd2d6e84e425a410f775bfd80913e77591cd11f2a75"
         }
       ]
+    },
+    "control.authority": {
+      "dimension": "authority",
+      "status": "specified",
+      "facts": [
+        "Agent tools: interrupt, unstick, halt, unhalt and continue_on act only on the caller's subtree (Org._require_authority, no allow_self: 'X has no authority over Y'); continue_on also refuses the caller itself 403 ('you cannot choose your own account …'); halt and unhalt check every target of a `nodes` batch in one lock pass. restart_wake manages the caller or a live descendant ('you can only manage restart wake for yourself or your subordinates', 403). A halted caller, or any caller while the org killswitch is latched, is refused 409 before any tool runs. Pinned by tests/test_state_control_boundary.py against docs/state-system/control-boundary.json.",
+        "PROFILES (decision 1 on this item). Under the desktop-managed profile (ORGTREE_DESKTOP_MANAGED=1, which engine/launch.py sets) orgtree_self_restart and orgtree_prime_restart are refused 422 at the door, every action included ('desktop-managed V2 renamed … to orgtree_self_relaunch / orgtree_prime_relaunch …'). Under the non-desktop profile (e.g. the Windows service host) they take the machine-wide gate (Org.self_restart_gate / prime_restart_gate): only a top-level agent or a holder of a user audience ('a self-restart restarts the shared orgtree install for EVERY org …'); prime_restart status needs only a live caller; a frozen deployment profile refuses both 403 (source). Pinned by tests/test_state_control_boundary.py against docs/state-system/control-boundary.json, except the frozen profile.",
+        "Routes are operator routes behind the desktop TokenGate (an agent credential is refused 401) and act as the user; the steering routes additionally accept a hook call that carries the agent's own identity, which must name this live agent generation ('Steering credential does not name this live agent generation', 403, source). PROFILES: the kiosk route is REMOVED under the desktop-managed profile (desktop_policy.install_routes strips every path containing /kiosk, so it answers 405) and served under the non-desktop profile, where it refuses a non-kiosk org ('not a kiosk org …'). Pinned by tests/test_state_control_boundary.py against docs/state-system/control-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11290,
+          "end": 11295,
+          "sha256": "24fb1b215a1ca90da01d06ffbcec547f96015d884df313e19af49622ae40075a"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 2027,
+          "end": 2038,
+          "sha256": "5599fe66a1d8a44ad61a5ac3fc35810a848dadf78c1870477888701b6b19a1b4"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11335,
+          "end": 11362,
+          "sha256": "9233bf695148dc766b5af549b0e559a0b6f48c1630e31db3116d2c6150c62ba8"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 10383,
+          "end": 10406,
+          "sha256": "8d67d1f2d663b823886c9e76fd7080385da778da05903fabe90a4874830fa27d"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 10458,
+          "end": 10519,
+          "sha256": "7a3d0b16b2523e35e714617ced50b52ffe7164a6a355f0efc72826b2b977b03a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12375,
+          "end": 12401,
+          "sha256": "9e7f2def1360cae32364bb5121509823eefba350f7158af3a3c8525f1979728a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5786,
+          "end": 5800,
+          "sha256": "fa9ce350470077b81650174f5da9fbf4db843c7a8fb696376b4a6b319881469a"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_policy.py",
+          "start": 19,
+          "end": 23,
+          "sha256": "93fb92b8dfe87c447a573b846bd1dbac03c815a0276d61df06bbefb92600ee6a"
+        }
+      ]
+    },
+    "control.reads": {
+      "dimension": "reads",
+      "status": "specified",
+      "facts": [
+        "From source: the agent-door tools read the org in the write cycle (interrupt, unstick, the restart gates) or under their own DOC_LOCK (halt, unhalt, continue_on); interrupt reads the node's live turn state (supervisor.state: its process, codex or antigravity turn, admission and deploy-hold waits); halt reads the runtime owners of the node's turns; continue_on makes a LIVE provider read of the target account's capacity outside the lock (_continue_on_account); restart_wake reads its machine-wide sidecar (restart-wakes file under the data root); prime_restart status reads the machine-wide prime file; steer reads the node's steer store; steer-state reads the node's runtime state; resume reads every frozen node."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11555,
+          "end": 11613,
+          "sha256": "fb7cd0decdedaa89de482c6427c261cf88e75f57c7aeea45e5a334a8e5b31f5a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11677,
+          "end": 11737,
+          "sha256": "b610f6b38eedacbda0f718048c13c8659ab8bf33230c616bf379e85882cbe4eb"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 26748,
+          "end": 26862,
+          "sha256": "63ff3d7a61143da7393521e990089401b41a0e5ebffd11abd8228417000b8cf1"
+        },
+        {
+          "path": "engine/backend/orgtree/halt.py",
+          "start": 616,
+          "end": 629,
+          "sha256": "47b615429bc6d3ef20b0fd2cd71c843186618d67cc04ee4bf1521334552ff720"
+        },
+        {
+          "path": "engine/backend/orgtree/restart_wake.py",
+          "start": 108,
+          "end": 153,
+          "sha256": "89c6634771d21ddcd597cf4661fcd28f179e10670fb6f49e676b163081d92641"
+        }
+      ]
+    },
+    "control.writes": {
+      "dimension": "writes",
+      "status": "specified",
+      "facts": [
+        "Measured cold. halt writes nodes (the halt record, phase halting then halted) and events; unhalt writes nodes and events (a keyed unhalt also steer_attempts), and unhalt of a node that is not halted writes nothing; unstick of a frozen node writes nodes, events and policy.unstuck to the node, and of a node that is not stuck writes nothing ('… not stuck — nothing to release'); interrupt, continue_on (its switch is _continue_on_account's own two transactions, source), steer, steer-ack, steer-state, process, resume with nothing frozen and remote-control write nothing to the org document here; the killswitch latch writes killswitch and events (and pauses every armed watchdog in the same save), its release pops killswitch and writes events, and a release while nothing is latched writes nothing. restart_wake arm, cancel and status write NO org section: the wake lives in its own sidecar file. Non-desktop restart tools: self_restart and prime_restart arm or cancel write events (the gate's log row). The kiosk handler (non-desktop) writes kiosk (enable, token rotation, caps). Pinned by tests/test_state_control_boundary.py against docs/state-system/control-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/halt.py",
+          "start": 616,
+          "end": 629,
+          "sha256": "47b615429bc6d3ef20b0fd2cd71c843186618d67cc04ee4bf1521334552ff720"
+        },
+        {
+          "path": "engine/backend/orgtree/halt.py",
+          "start": 921,
+          "end": 952,
+          "sha256": "3798a6bf9e7eec4e6c456ebfb23e6ced0fb27e03cb0b93a3f801280ad459a5e7"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 10992,
+          "end": 11045,
+          "sha256": "4eca3255f90b3aea3db669d110f21429bb72ea7b8b3239e361eafa52bc06842b"
+        },
+        {
+          "path": "engine/backend/orgtree/halt.py",
+          "start": 1028,
+          "end": 1058,
+          "sha256": "e7e413eaafbf3b99f4865087991c2240d825612e731c99adb4b2c046ee6aeb7f"
+        },
+        {
+          "path": "engine/backend/orgtree/halt.py",
+          "start": 1061,
+          "end": 1079,
+          "sha256": "d05d40c0c12e720bc280747e9eb9e93a34af419344cd18fd6424659ffae8240f"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3646,
+          "end": 3749,
+          "sha256": "dd5d5c5074389c188233f132d27b5d38ac73d068d98670e5853cb0736c22992b"
+        }
+      ]
+    },
+    "control.predicates": {
+      "dimension": "predicates",
+      "status": "specified",
+      "facts": [
+        "prime_restart and restart_wake: an action other than arm, cancel or status is refused ('action must be arm|cancel|status'); an OMITTED action defaults to arm at the door (str(a.get('action') or 'arm')), which the selector cannot express, so the selector cases name the action; restart_wake refuses a mode other than one_shot. remote-control: the action must be start or stop. process: an unknown node is 404. resume: 409 while the killswitch is latched ('release it before resuming'). kiosk (non-desktop): the org must already be a kiosk, and a credits cap below the current top-level holdings is refused ('cap below current holdings …'). Pinned by tests/test_state_control_boundary.py against docs/state-system/control-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12323,
+          "end": 12374,
+          "sha256": "6a7223bf65f79d15610a22577415f8c31e1a33d14f8649d99ef584aac43b036e"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12375,
+          "end": 12401,
+          "sha256": "9e7f2def1360cae32364bb5121509823eefba350f7158af3a3c8525f1979728a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6199,
+          "end": 6217,
+          "sha256": "2c22ce1b241b2c51e1b5c86c62e33369fabd88b6a06d86b1158c8a6374bc021f"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5935,
+          "end": 5961,
+          "sha256": "fd42c9f032c98c15bf886156b28af2eaf5e59dc9df801f6312fd55ad0d2da571"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6117,
+          "end": 6134,
+          "sha256": "fe28b3cae80f54276c128685d613edca73b5bc079bf9405651757ca8e8197a5e"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3646,
+          "end": 3749,
+          "sha256": "dd5d5c5074389c188233f132d27b5d38ac73d068d98670e5853cb0736c22992b"
+        }
+      ]
+    },
+    "control.conflicts": {
+      "dimension": "conflicts",
+      "status": "unresolved",
+      "facts": [
+        "Halt, unhalt, continue_on and the killswitch own their saves outside the agent write cycle; interrupt and the process controls act on live processes with no document transaction at all; restart_wake and the primed restart write machine-wide sidecar files (source)."
+      ],
+      "open_questions": [
+        "Implement and qualify native transactions for the run-control operations, including how a halt, a killswitch and an interrupt order against a running turn and against the document.",
+        "Owner: P03 (native design and qualification), with P08 for the runtime. Closes with: a native design qualified by a halt racing a turn's own save and a killswitch racing a queued wake. Not coverable at P01 from available evidence: no native build exists, and P01 has not cited a native design section for these operations."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11555,
+          "end": 11613,
+          "sha256": "fb7cd0decdedaa89de482c6427c261cf88e75f57c7aeea45e5a334a8e5b31f5a"
+        },
+        {
+          "path": "engine/backend/orgtree/halt.py",
+          "start": 1028,
+          "end": 1058,
+          "sha256": "e7e413eaafbf3b99f4865087991c2240d825612e731c99adb4b2c046ee6aeb7f"
+        },
+        {
+          "path": "engine/backend/orgtree/restart_wake.py",
+          "start": 108,
+          "end": 153,
+          "sha256": "89c6634771d21ddcd597cf4661fcd28f179e10670fb6f49e676b163081d92641"
+        }
+      ]
+    },
+    "control.wire": {
+      "dimension": "wire",
+      "status": "unresolved",
+      "facts": [
+        "The shapes are fixtured in docs/state-system/control-boundary.json per case and per profile."
+      ],
+      "open_questions": [
+        "Carry the fixtured run-control shapes to the native/Rust door, per profile, and decide each recorded legacy defect.",
+        "Owner: the native/Rust conversion, from the P03 prototype onward. Closes with: the fixtured shapes passing against the native and Rust builds. Not coverable at P01 from available evidence: no native or Rust build exists to run the fixtures against."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11555,
+          "end": 11613,
+          "sha256": "fb7cd0decdedaa89de482c6427c261cf88e75f57c7aeea45e5a334a8e5b31f5a"
+        }
+      ]
+    },
+    "control.receipt": {
+      "dimension": "receipt",
+      "status": "specified",
+      "facts": [
+        "Coverage: interrupt, self_restart, prime_restart and restart_wake UNROLLED; halt, unhalt and continue_on PRE (their effect is outside the dispatch transaction and the receipt is filed afterwards in its own save); unstick TX_POST. Kept: interrupt keeps interrupted; halt keeps node, halted, settled and queued; unhalt keeps node and unhalted; restart_wake arm keeps armed; prime_restart arm keeps armed. Recorded legacy defect: unstick keeps nothing (its allowlist, released and warnings, names lists). The routes take no key. Pinned by tests/test_state_control_boundary.py against docs/state-system/control-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 298,
+          "end": 359,
+          "sha256": "13458480cac731080ddab1f8af69ff2a4b4590c8d0617297ce003f2933ae77f1"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11555,
+          "end": 11613,
+          "sha256": "fb7cd0decdedaa89de482c6427c261cf88e75f57c7aeea45e5a334a8e5b31f5a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11677,
+          "end": 11737,
+          "sha256": "b610f6b38eedacbda0f718048c13c8659ab8bf33230c616bf379e85882cbe4eb"
+        }
+      ]
+    },
+    "control.effects": {
+      "dimension": "effects",
+      "status": "specified",
+      "facts": [
+        "Process effects, observed through spies and described from source: interrupt calls supervisor.interrupt_turn (a control_request interrupt; the process stays alive); halt calls supervisor.halt.halt, which cuts the node's process trees (halt._cut) and notifies 'halting' then 'halted'; unhalt notifies 'unhalted' and merges retained carriers; the killswitch latch interrupts every turn (supervisor.interrupt_all) after its save; process calls warmpool.process_control; remote-control starts or stops `claude remote-control` for the node's session; continue_on hands the switch and release to _continue_on_account; self_restart launches the detached restart (supervisor.launch_self_restart); prime arm and cancel call arm_prime_restart and cancel_prime_restart. Pinned by tests/test_state_control_boundary.py against docs/state-system/control-boundary.json for the spy calls.",
+        "Wakes and broadcasts: unstick of a frozen node drives it with the freeze's resume texts (or the unstuck banner) and notifies 'turn_started'. On the agent door, interrupt, unstick, restart_wake and the non-desktop restart tools end with one hub_changed, while halt, unhalt and continue_on make none (they return from blocks before the dispatch's broadcast). Of the routes, unstick and remote-control end with one hub_changed; interrupt, halt, unhalt, process and the steering routes broadcast nothing; the killswitch, release, resume and continue-on routes await hub.changed instead, which the test does not observe (source). Pinned by tests/test_state_control_boundary.py against docs/state-system/control-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 26748,
+          "end": 26862,
+          "sha256": "63ff3d7a61143da7393521e990089401b41a0e5ebffd11abd8228417000b8cf1"
+        },
+        {
+          "path": "engine/backend/orgtree/halt.py",
+          "start": 616,
+          "end": 629,
+          "sha256": "47b615429bc6d3ef20b0fd2cd71c843186618d67cc04ee4bf1521334552ff720"
+        },
+        {
+          "path": "engine/backend/orgtree/halt.py",
+          "start": 1028,
+          "end": 1058,
+          "sha256": "e7e413eaafbf3b99f4865087991c2240d825612e731c99adb4b2c046ee6aeb7f"
+        },
+        {
+          "path": "engine/backend/orgtree/warmpool.py",
+          "start": 1460,
+          "end": 1565,
+          "sha256": "4f5ac353690231f207343fce38ee702c1a9df46fc87e8ea907251ce09215d763"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 26278,
+          "end": 26290,
+          "sha256": "b4a4a19fe29e63b38b2f57873b07cd8c23818874a92d86b3a1d6d34fb2f78e69"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12829,
+          "end": 12845,
+          "sha256": "9f87928f202b4c2afda6960546fd9501457035fe777aa3435efe4d4978bb10d3"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8680,
+          "end": 8705,
+          "sha256": "0e9bba0de9ae186118c65b06ce9ea794a4b500c53934c4a04f08a2c13e988441"
+        }
+      ]
+    },
+    "control.instrumentation": {
+      "dimension": "instrumentation",
+      "status": "unresolved",
+      "facts": [
+        "The agent door labels each call (stateprobe.refine('tool:' + tool)); the routes are labelled by the access middleware. No P02 per-operation record covers this family yet."
+      ],
+      "open_questions": [
+        "Observe every run-control operation with the P02 per-operation probe, including the process effects the P01 test replaces with spies.",
+        "Owner: P02 (p02-contacts-opus55; coordinator ruling Q6 on p01-f1-contracts-for-the-org-lifecycle-and-catal: probed after this family lands). Closes with: a loss-accounted P02 record per row. Not coverable at P01 from available evidence: P01 does not run the P02 probe, and no P02 record covers this family yet."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11290,
+          "end": 11295,
+          "sha256": "24fb1b215a1ca90da01d06ffbcec547f96015d884df313e19af49622ae40075a"
+        }
+      ]
     }
   },
   "contracts": {
@@ -15868,6 +16210,1592 @@
         }
       ],
       "domain_mode": "read"
+    },
+    "control.interrupt": {
+      "entry_ids": [
+        "d9dec10cb800b80b1cadadf48eba427bae9036dab086278d5715e4bd599910ba"
+      ],
+      "tools": [
+        "orgtree_interrupt"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "control.authority"
+        ],
+        "reads": [
+          "control.reads"
+        ],
+        "writes": [
+          "control.writes"
+        ],
+        "predicates": [
+          "control.predicates"
+        ],
+        "conflicts": [
+          "control.conflicts"
+        ],
+        "wire": [
+          "control.wire"
+        ],
+        "receipt": [
+          "control.receipt"
+        ],
+        "effects": [
+          "control.effects"
+        ],
+        "instrumentation": [
+          "control.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1707,
+          "end": 1719,
+          "sha256": "577c207ddf8c9ec562bc897770d40600c3bcc6da8bdf98e9156d58a5edc19ee7"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12733,
+          "end": 12746,
+          "sha256": "651ded4d1bdff5eb04f7696fd5eb1e15509bc7a1fa9700adb5e86f4559c41dfe"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 26748,
+          "end": 26862,
+          "sha256": "63ff3d7a61143da7393521e990089401b41a0e5ebffd11abd8228417000b8cf1"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "control.unstick": {
+      "entry_ids": [
+        "f33aebedd313c8408e132e14fa7cbbf053f1338348efb462a015ac4837285be0"
+      ],
+      "tools": [
+        "orgtree_unstick"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "control.authority"
+        ],
+        "reads": [
+          "control.reads"
+        ],
+        "writes": [
+          "control.writes"
+        ],
+        "predicates": [
+          "control.predicates"
+        ],
+        "conflicts": [
+          "control.conflicts"
+        ],
+        "wire": [
+          "control.wire"
+        ],
+        "receipt": [
+          "control.receipt"
+        ],
+        "effects": [
+          "control.effects"
+        ],
+        "instrumentation": [
+          "control.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1720,
+          "end": 1728,
+          "sha256": "b62a7117883f345b463b8e343124e25b49aeb74e3f7f49160433f60b63054b71"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12747,
+          "end": 12757,
+          "sha256": "0a968bb7325e8371b57695be0243aafe96e28825990d8662f135097c01d74208"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 10992,
+          "end": 11045,
+          "sha256": "4eca3255f90b3aea3db669d110f21429bb72ea7b8b3239e361eafa52bc06842b"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12829,
+          "end": 12845,
+          "sha256": "9f87928f202b4c2afda6960546fd9501457035fe777aa3435efe4d4978bb10d3"
+        }
+      ],
+      "domain_mode": "conditional_write"
+    },
+    "control.continue-on": {
+      "entry_ids": [
+        "1c3ed8d8dbd57194ab831c4109789cd7aae1fbeaffb42d8b890f9b9932b66f01"
+      ],
+      "tools": [
+        "orgtree_continue_on"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "control.authority"
+        ],
+        "reads": [
+          "control.reads"
+        ],
+        "writes": [
+          "control.writes"
+        ],
+        "predicates": [
+          "control.predicates"
+        ],
+        "conflicts": [
+          "control.conflicts"
+        ],
+        "wire": [
+          "control.wire"
+        ],
+        "receipt": [
+          "control.receipt"
+        ],
+        "effects": [
+          "control.effects"
+        ],
+        "instrumentation": [
+          "control.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1729,
+          "end": 1758,
+          "sha256": "3b8123e4ac442caef7892c13e553aed26ec5bc01a18a62dcafe74aafa0b146e5"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11677,
+          "end": 11737,
+          "sha256": "b610f6b38eedacbda0f718048c13c8659ab8bf33230c616bf379e85882cbe4eb"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8723,
+          "end": 8865,
+          "sha256": "d6db3a56d769883e22ba4b391b6eb2052723fc50d4ee88a4bc2805383de3b786"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "control.halt": {
+      "entry_ids": [
+        "e387285f43004de6e911f3f191b9547700f03a35689d45193fd928558d0f87b9"
+      ],
+      "tools": [
+        "orgtree_halt"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "control.authority"
+        ],
+        "reads": [
+          "control.reads"
+        ],
+        "writes": [
+          "control.writes"
+        ],
+        "predicates": [
+          "control.predicates"
+        ],
+        "conflicts": [
+          "control.conflicts"
+        ],
+        "wire": [
+          "control.wire"
+        ],
+        "receipt": [
+          "control.receipt"
+        ],
+        "effects": [
+          "control.effects"
+        ],
+        "instrumentation": [
+          "control.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1802,
+          "end": 1820,
+          "sha256": "87ec93125e22131e66280857cc9fd9e1b6c67ca68407025437d1150c5a9cc27e"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11555,
+          "end": 11613,
+          "sha256": "fb7cd0decdedaa89de482c6427c261cf88e75f57c7aeea45e5a334a8e5b31f5a"
+        },
+        {
+          "path": "engine/backend/orgtree/halt.py",
+          "start": 616,
+          "end": 629,
+          "sha256": "47b615429bc6d3ef20b0fd2cd71c843186618d67cc04ee4bf1521334552ff720"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "control.unhalt": {
+      "entry_ids": [
+        "e7c68748abbfd5c5e9c048bc0abd40d34f8cbc744054ad502016810a593126b0"
+      ],
+      "tools": [
+        "orgtree_unhalt"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "control.authority"
+        ],
+        "reads": [
+          "control.reads"
+        ],
+        "writes": [
+          "control.writes"
+        ],
+        "predicates": [
+          "control.predicates"
+        ],
+        "conflicts": [
+          "control.conflicts"
+        ],
+        "wire": [
+          "control.wire"
+        ],
+        "receipt": [
+          "control.receipt"
+        ],
+        "effects": [
+          "control.effects"
+        ],
+        "instrumentation": [
+          "control.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1821,
+          "end": 1836,
+          "sha256": "eef08798b0e6c8a19b2a523f7f4e9518c5e8311c54a22f12e1168c29704aec40"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11555,
+          "end": 11613,
+          "sha256": "fb7cd0decdedaa89de482c6427c261cf88e75f57c7aeea45e5a334a8e5b31f5a"
+        },
+        {
+          "path": "engine/backend/orgtree/halt.py",
+          "start": 921,
+          "end": 952,
+          "sha256": "3798a6bf9e7eec4e6c456ebfb23e6ced0fb27e03cb0b93a3f801280ad459a5e7"
+        }
+      ],
+      "domain_mode": "conditional_write"
+    },
+    "control.self-restart": {
+      "entry_ids": [
+        "5b0f355f7448167678b25e5f182b729b1000b9280ae687539c429081e8d9d2cc"
+      ],
+      "tools": [
+        "orgtree_self_restart"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "control.authority"
+        ],
+        "reads": [
+          "control.reads"
+        ],
+        "writes": [
+          "control.writes"
+        ],
+        "predicates": [
+          "control.predicates"
+        ],
+        "conflicts": [
+          "control.conflicts"
+        ],
+        "wire": [
+          "control.wire"
+        ],
+        "receipt": [
+          "control.receipt"
+        ],
+        "effects": [
+          "control.effects"
+        ],
+        "instrumentation": [
+          "control.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 760,
+          "end": 809,
+          "sha256": "aa41cc39268e72028be4a3881154cceb964df6466995b4dfa1218d6b6103c2bb"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11335,
+          "end": 11362,
+          "sha256": "9233bf695148dc766b5af549b0e559a0b6f48c1630e31db3116d2c6150c62ba8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12269,
+          "end": 12288,
+          "sha256": "6acd473c0d6ad18ff9037fef8067c29b42e99a2ff337f16b4fbc9fab453b4821"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 10383,
+          "end": 10406,
+          "sha256": "8d67d1f2d663b823886c9e76fd7080385da778da05903fabe90a4874830fa27d"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 29273,
+          "end": 29506,
+          "sha256": "00ebc0c209073eda2b30d3bb53b3257070a90399e7f00e2c27325c46fc1ebcba"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "control.prime-restart-arm": {
+      "entry_ids": [
+        "9e91b34fd633a10a4f3200f83f5967e05d9c9de60eb031ebc6c9fb843d14c62f"
+      ],
+      "tools": [
+        "orgtree_prime_restart"
+      ],
+      "action": "arm",
+      "action_normalization": "str_or_empty",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "control.authority"
+        ],
+        "reads": [
+          "control.reads"
+        ],
+        "writes": [
+          "control.writes"
+        ],
+        "predicates": [
+          "control.predicates"
+        ],
+        "conflicts": [
+          "control.conflicts"
+        ],
+        "wire": [
+          "control.wire"
+        ],
+        "receipt": [
+          "control.receipt"
+        ],
+        "effects": [
+          "control.effects"
+        ],
+        "instrumentation": [
+          "control.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 810,
+          "end": 859,
+          "sha256": "b05a7a151ddcd55fb2d1784180cd681a5ea102e32d823f4a1abff734b4fdb456"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11335,
+          "end": 11362,
+          "sha256": "9233bf695148dc766b5af549b0e559a0b6f48c1630e31db3116d2c6150c62ba8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12323,
+          "end": 12374,
+          "sha256": "6a7223bf65f79d15610a22577415f8c31e1a33d14f8649d99ef584aac43b036e"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 10458,
+          "end": 10519,
+          "sha256": "7a3d0b16b2523e35e714617ced50b52ffe7164a6a355f0efc72826b2b977b03a"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 29703,
+          "end": 29793,
+          "sha256": "c91a5099bb77e336dd40fe95172ef3715cbf8b9f2d8b785957c03cecb9f42b49"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "control.restart-wake-arm": {
+      "entry_ids": [
+        "711cf7f6858c6ec1a61c1cfd7e031942f0b48054e1779f80c3eddbd74564f101"
+      ],
+      "tools": [
+        "orgtree_restart_wake"
+      ],
+      "action": "arm",
+      "action_normalization": "str_or_empty",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "control.authority"
+        ],
+        "reads": [
+          "control.reads"
+        ],
+        "writes": [
+          "control.writes"
+        ],
+        "predicates": [
+          "control.predicates"
+        ],
+        "conflicts": [
+          "control.conflicts"
+        ],
+        "wire": [
+          "control.wire"
+        ],
+        "receipt": [
+          "control.receipt"
+        ],
+        "effects": [
+          "control.effects"
+        ],
+        "instrumentation": [
+          "control.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 860,
+          "end": 889,
+          "sha256": "264521f44d0ded9072a398e7522717bdc85a241eccb0a2521c1caaa56625a582"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12375,
+          "end": 12401,
+          "sha256": "9e7f2def1360cae32364bb5121509823eefba350f7158af3a3c8525f1979728a"
+        },
+        {
+          "path": "engine/backend/orgtree/restart_wake.py",
+          "start": 108,
+          "end": 153,
+          "sha256": "89c6634771d21ddcd597cf4661fcd28f179e10670fb6f49e676b163081d92641"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "control.prime-restart-cancel": {
+      "entry_ids": [
+        "9e91b34fd633a10a4f3200f83f5967e05d9c9de60eb031ebc6c9fb843d14c62f"
+      ],
+      "tools": [
+        "orgtree_prime_restart"
+      ],
+      "action": "cancel",
+      "action_normalization": "str_or_empty",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "control.authority"
+        ],
+        "reads": [
+          "control.reads"
+        ],
+        "writes": [
+          "control.writes"
+        ],
+        "predicates": [
+          "control.predicates"
+        ],
+        "conflicts": [
+          "control.conflicts"
+        ],
+        "wire": [
+          "control.wire"
+        ],
+        "receipt": [
+          "control.receipt"
+        ],
+        "effects": [
+          "control.effects"
+        ],
+        "instrumentation": [
+          "control.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 810,
+          "end": 859,
+          "sha256": "b05a7a151ddcd55fb2d1784180cd681a5ea102e32d823f4a1abff734b4fdb456"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11335,
+          "end": 11362,
+          "sha256": "9233bf695148dc766b5af549b0e559a0b6f48c1630e31db3116d2c6150c62ba8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12323,
+          "end": 12374,
+          "sha256": "6a7223bf65f79d15610a22577415f8c31e1a33d14f8649d99ef584aac43b036e"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 10458,
+          "end": 10519,
+          "sha256": "7a3d0b16b2523e35e714617ced50b52ffe7164a6a355f0efc72826b2b977b03a"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 29796,
+          "end": 29822,
+          "sha256": "0a2e0e50a95cffa5dc9181c72a3187a4818de5dd274e8f5a179a64ec1e0371b9"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "control.restart-wake-cancel": {
+      "entry_ids": [
+        "711cf7f6858c6ec1a61c1cfd7e031942f0b48054e1779f80c3eddbd74564f101"
+      ],
+      "tools": [
+        "orgtree_restart_wake"
+      ],
+      "action": "cancel",
+      "action_normalization": "str_or_empty",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "control.authority"
+        ],
+        "reads": [
+          "control.reads"
+        ],
+        "writes": [
+          "control.writes"
+        ],
+        "predicates": [
+          "control.predicates"
+        ],
+        "conflicts": [
+          "control.conflicts"
+        ],
+        "wire": [
+          "control.wire"
+        ],
+        "receipt": [
+          "control.receipt"
+        ],
+        "effects": [
+          "control.effects"
+        ],
+        "instrumentation": [
+          "control.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 860,
+          "end": 889,
+          "sha256": "264521f44d0ded9072a398e7522717bdc85a241eccb0a2521c1caaa56625a582"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12375,
+          "end": 12401,
+          "sha256": "9e7f2def1360cae32364bb5121509823eefba350f7158af3a3c8525f1979728a"
+        },
+        {
+          "path": "engine/backend/orgtree/restart_wake.py",
+          "start": 156,
+          "end": 179,
+          "sha256": "2e94db75c3c3abc135efc210b5844f3575a8cc6f7c7d7407c73948c1e9bfc58c"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "control.prime-restart-status": {
+      "entry_ids": [
+        "9e91b34fd633a10a4f3200f83f5967e05d9c9de60eb031ebc6c9fb843d14c62f"
+      ],
+      "tools": [
+        "orgtree_prime_restart"
+      ],
+      "action": "status",
+      "action_normalization": "str_or_empty",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "control.authority"
+        ],
+        "reads": [
+          "control.reads"
+        ],
+        "writes": [
+          "control.writes"
+        ],
+        "predicates": [
+          "control.predicates"
+        ],
+        "conflicts": [
+          "control.conflicts"
+        ],
+        "wire": [
+          "control.wire"
+        ],
+        "receipt": [
+          "control.receipt"
+        ],
+        "effects": [
+          "control.effects"
+        ],
+        "instrumentation": [
+          "control.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 810,
+          "end": 859,
+          "sha256": "b05a7a151ddcd55fb2d1784180cd681a5ea102e32d823f4a1abff734b4fdb456"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11335,
+          "end": 11362,
+          "sha256": "9233bf695148dc766b5af549b0e559a0b6f48c1630e31db3116d2c6150c62ba8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12323,
+          "end": 12374,
+          "sha256": "6a7223bf65f79d15610a22577415f8c31e1a33d14f8649d99ef584aac43b036e"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 10458,
+          "end": 10519,
+          "sha256": "7a3d0b16b2523e35e714617ced50b52ffe7164a6a355f0efc72826b2b977b03a"
+        }
+      ],
+      "domain_mode": "read"
+    },
+    "control.restart-wake-status": {
+      "entry_ids": [
+        "711cf7f6858c6ec1a61c1cfd7e031942f0b48054e1779f80c3eddbd74564f101"
+      ],
+      "tools": [
+        "orgtree_restart_wake"
+      ],
+      "action": "status",
+      "action_normalization": "str_or_empty",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "control.authority"
+        ],
+        "reads": [
+          "control.reads"
+        ],
+        "writes": [
+          "control.writes"
+        ],
+        "predicates": [
+          "control.predicates"
+        ],
+        "conflicts": [
+          "control.conflicts"
+        ],
+        "wire": [
+          "control.wire"
+        ],
+        "receipt": [
+          "control.receipt"
+        ],
+        "effects": [
+          "control.effects"
+        ],
+        "instrumentation": [
+          "control.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 860,
+          "end": 889,
+          "sha256": "264521f44d0ded9072a398e7522717bdc85a241eccb0a2521c1caaa56625a582"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12375,
+          "end": 12401,
+          "sha256": "9e7f2def1360cae32364bb5121509823eefba350f7158af3a3c8525f1979728a"
+        },
+        {
+          "path": "engine/backend/orgtree/restart_wake.py",
+          "start": 182,
+          "end": 206,
+          "sha256": "6ecb3359ab60418b060c78c42f4715b055dcb11dbe49f7db2ed4b4adc861bb74"
+        }
+      ],
+      "domain_mode": "read"
+    },
+    "control.op-interrupt": {
+      "entry_ids": [
+        "8c4599768f149a4374be84ff315494ebc0e2faea2e02662c2561b6faec99a35f"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "control.authority"
+        ],
+        "reads": [
+          "control.reads"
+        ],
+        "writes": [
+          "control.writes"
+        ],
+        "predicates": [
+          "control.predicates"
+        ],
+        "conflicts": [
+          "control.conflicts"
+        ],
+        "wire": [
+          "control.wire"
+        ],
+        "receipt": [
+          "control.receipt"
+        ],
+        "effects": [
+          "control.effects"
+        ],
+        "instrumentation": [
+          "control.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5872,
+          "end": 5904,
+          "sha256": "285b258aaef84402970d41c9182fdddeaecbfebe3360a0055e779be102271258"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 26748,
+          "end": 26862,
+          "sha256": "63ff3d7a61143da7393521e990089401b41a0e5ebffd11abd8228417000b8cf1"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "control.op-halt": {
+      "entry_ids": [
+        "fcffe48a8e46ff524923eda7683546cd70918f0a899b635d1d91a5dee68d465f"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "control.authority"
+        ],
+        "reads": [
+          "control.reads"
+        ],
+        "writes": [
+          "control.writes"
+        ],
+        "predicates": [
+          "control.predicates"
+        ],
+        "conflicts": [
+          "control.conflicts"
+        ],
+        "wire": [
+          "control.wire"
+        ],
+        "receipt": [
+          "control.receipt"
+        ],
+        "effects": [
+          "control.effects"
+        ],
+        "instrumentation": [
+          "control.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5907,
+          "end": 5920,
+          "sha256": "43a5d805230fde18f44007a60b2b3c76ad23f07c6e2ed1f66cc260c7fa7f3c5e"
+        },
+        {
+          "path": "engine/backend/orgtree/halt.py",
+          "start": 616,
+          "end": 629,
+          "sha256": "47b615429bc6d3ef20b0fd2cd71c843186618d67cc04ee4bf1521334552ff720"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "control.op-unhalt": {
+      "entry_ids": [
+        "222ad338b7fb95cb11725c218862e0b6fbc083d59e8bdc202cc500e5881feb6f"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "control.authority"
+        ],
+        "reads": [
+          "control.reads"
+        ],
+        "writes": [
+          "control.writes"
+        ],
+        "predicates": [
+          "control.predicates"
+        ],
+        "conflicts": [
+          "control.conflicts"
+        ],
+        "wire": [
+          "control.wire"
+        ],
+        "receipt": [
+          "control.receipt"
+        ],
+        "effects": [
+          "control.effects"
+        ],
+        "instrumentation": [
+          "control.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5923,
+          "end": 5928,
+          "sha256": "5da347c512318f77d252c9ec7746dfd24919891706f8775c1ca5338f6ac73d2b"
+        },
+        {
+          "path": "engine/backend/orgtree/halt.py",
+          "start": 921,
+          "end": 952,
+          "sha256": "3798a6bf9e7eec4e6c456ebfb23e6ced0fb27e03cb0b93a3f801280ad459a5e7"
+        }
+      ],
+      "domain_mode": "conditional_write"
+    },
+    "control.op-process": {
+      "entry_ids": [
+        "1d38e4e56d19e3f2470576a665424fb86d3104a592ece9df4030102141acef56"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "control.authority"
+        ],
+        "reads": [
+          "control.reads"
+        ],
+        "writes": [
+          "control.writes"
+        ],
+        "predicates": [
+          "control.predicates"
+        ],
+        "conflicts": [
+          "control.conflicts"
+        ],
+        "wire": [
+          "control.wire"
+        ],
+        "receipt": [
+          "control.receipt"
+        ],
+        "effects": [
+          "control.effects"
+        ],
+        "instrumentation": [
+          "control.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5935,
+          "end": 5961,
+          "sha256": "fd42c9f032c98c15bf886156b28af2eaf5e59dc9df801f6312fd55ad0d2da571"
+        },
+        {
+          "path": "engine/backend/orgtree/warmpool.py",
+          "start": 1460,
+          "end": 1565,
+          "sha256": "4f5ac353690231f207343fce38ee702c1a9df46fc87e8ea907251ce09215d763"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "control.op-unstick": {
+      "entry_ids": [
+        "5d3cf53352f0b74d6a16375b7b80f4161a7e9f63fbe761ec41ccacdead8659b1"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "control.authority"
+        ],
+        "reads": [
+          "control.reads"
+        ],
+        "writes": [
+          "control.writes"
+        ],
+        "predicates": [
+          "control.predicates"
+        ],
+        "conflicts": [
+          "control.conflicts"
+        ],
+        "wire": [
+          "control.wire"
+        ],
+        "receipt": [
+          "control.receipt"
+        ],
+        "effects": [
+          "control.effects"
+        ],
+        "instrumentation": [
+          "control.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8680,
+          "end": 8705,
+          "sha256": "0e9bba0de9ae186118c65b06ce9ea794a4b500c53934c4a04f08a2c13e988441"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 10992,
+          "end": 11045,
+          "sha256": "4eca3255f90b3aea3db669d110f21429bb72ea7b8b3239e361eafa52bc06842b"
+        }
+      ],
+      "domain_mode": "conditional_write"
+    },
+    "control.op-continue-on": {
+      "entry_ids": [
+        "9b1bd6c9a9c102eba0074477c008e2e94b8fb7a82532f28cc3b175ab6dd515f6"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "control.authority"
+        ],
+        "reads": [
+          "control.reads"
+        ],
+        "writes": [
+          "control.writes"
+        ],
+        "predicates": [
+          "control.predicates"
+        ],
+        "conflicts": [
+          "control.conflicts"
+        ],
+        "wire": [
+          "control.wire"
+        ],
+        "receipt": [
+          "control.receipt"
+        ],
+        "effects": [
+          "control.effects"
+        ],
+        "instrumentation": [
+          "control.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8868,
+          "end": 8888,
+          "sha256": "e5279484c0970f1bc6dfa30f23c8f77b2f286998e656760e3ba970a9bf32e3b0"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8723,
+          "end": 8865,
+          "sha256": "d6db3a56d769883e22ba4b391b6eb2052723fc50d4ee88a4bc2805383de3b786"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "control.steer-claim": {
+      "entry_ids": [
+        "39c20a5ddb10b224df81d46e64328bcc7fe97af4c07d0a874debf5de13050381"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "control.authority"
+        ],
+        "reads": [
+          "control.reads"
+        ],
+        "writes": [
+          "control.writes"
+        ],
+        "predicates": [
+          "control.predicates"
+        ],
+        "conflicts": [
+          "control.conflicts"
+        ],
+        "wire": [
+          "control.wire"
+        ],
+        "receipt": [
+          "control.receipt"
+        ],
+        "effects": [
+          "control.effects"
+        ],
+        "instrumentation": [
+          "control.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5803,
+          "end": 5849,
+          "sha256": "7c0f5a418c29e1b0a99787bd938897e0599941a634cdcc13ed44358a613be99e"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 30553,
+          "end": 30604,
+          "sha256": "f5c3bb73c4a019483b1701545121581e7ecbe4ee6bba9c388c1ffea7fbf46a49"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 30728,
+          "end": 30822,
+          "sha256": "78163a35f158b8b671fe34d14c789454ca26e2199baa2e565a240db21c21e74e"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5786,
+          "end": 5800,
+          "sha256": "fa9ce350470077b81650174f5da9fbf4db843c7a8fb696376b4a6b319881469a"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "control.steer-ack": {
+      "entry_ids": [
+        "5f19f65bcebe87eb48f908a5303d0bcb620e4e329641140462b81f2931b9f087"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "control.authority"
+        ],
+        "reads": [
+          "control.reads"
+        ],
+        "writes": [
+          "control.writes"
+        ],
+        "predicates": [
+          "control.predicates"
+        ],
+        "conflicts": [
+          "control.conflicts"
+        ],
+        "wire": [
+          "control.wire"
+        ],
+        "receipt": [
+          "control.receipt"
+        ],
+        "effects": [
+          "control.effects"
+        ],
+        "instrumentation": [
+          "control.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5852,
+          "end": 5857,
+          "sha256": "2c37e14ab587a31a618fc6eec98b61404a8f6ad60d2c57909e377762168ad136"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 30842,
+          "end": 30870,
+          "sha256": "8084ab362e0b8885d508d68475150a97d627289fb5e9e44f56538dda39033e73"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "control.steer-state": {
+      "entry_ids": [
+        "90e71ac286a346fe4fd8b305a602a07b349c9f761e2d8f2c745d1f6ca6eab5b1"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "control.authority"
+        ],
+        "reads": [
+          "control.reads"
+        ],
+        "writes": [
+          "control.writes"
+        ],
+        "predicates": [
+          "control.predicates"
+        ],
+        "conflicts": [
+          "control.conflicts"
+        ],
+        "wire": [
+          "control.wire"
+        ],
+        "receipt": [
+          "control.receipt"
+        ],
+        "effects": [
+          "control.effects"
+        ],
+        "instrumentation": [
+          "control.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5860,
+          "end": 5869,
+          "sha256": "b173e69ea6a7339e330276196651dbc26bc8ed18296c1bdc59876eb3a78c70a5"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 31201,
+          "end": 31213,
+          "sha256": "d4cfde9b8c0247668ee7a63708899daed29d6d813c4dc19708f46916d5427346"
+        }
+      ],
+      "domain_mode": "read"
+    },
+    "control.killswitch": {
+      "entry_ids": [
+        "19069da4d0f84c432611edd3f3aaa2f89324a574281219f8c949d234e0c12cc9"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "control.authority"
+        ],
+        "reads": [
+          "control.reads"
+        ],
+        "writes": [
+          "control.writes"
+        ],
+        "predicates": [
+          "control.predicates"
+        ],
+        "conflicts": [
+          "control.conflicts"
+        ],
+        "wire": [
+          "control.wire"
+        ],
+        "receipt": [
+          "control.receipt"
+        ],
+        "effects": [
+          "control.effects"
+        ],
+        "instrumentation": [
+          "control.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6081,
+          "end": 6099,
+          "sha256": "2cab540ed541ea67bfdfe8cb0f9b80874f8fec7bf8461dc8a1884a5777396e67"
+        },
+        {
+          "path": "engine/backend/orgtree/halt.py",
+          "start": 1028,
+          "end": 1058,
+          "sha256": "e7e413eaafbf3b99f4865087991c2240d825612e731c99adb4b2c046ee6aeb7f"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "control.killswitch-release": {
+      "entry_ids": [
+        "6b623a53fbe47a7759c48c5dd76dd201eb9bf2a3041334d11b7f48aeac98097e"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "control.authority"
+        ],
+        "reads": [
+          "control.reads"
+        ],
+        "writes": [
+          "control.writes"
+        ],
+        "predicates": [
+          "control.predicates"
+        ],
+        "conflicts": [
+          "control.conflicts"
+        ],
+        "wire": [
+          "control.wire"
+        ],
+        "receipt": [
+          "control.receipt"
+        ],
+        "effects": [
+          "control.effects"
+        ],
+        "instrumentation": [
+          "control.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6102,
+          "end": 6114,
+          "sha256": "a6faf8da42113ca469b98d7ae290159e68f05fc6fda104901fc476a049962b77"
+        },
+        {
+          "path": "engine/backend/orgtree/halt.py",
+          "start": 1061,
+          "end": 1079,
+          "sha256": "d05d40c0c12e720bc280747e9eb9e93a34af419344cd18fd6424659ffae8240f"
+        }
+      ],
+      "domain_mode": "conditional_write"
+    },
+    "control.resume": {
+      "entry_ids": [
+        "a582cfea2debf74d02018466c5a1d5aa4cc93b0db63592d4a0bf9f0a19c5e618"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "control.authority"
+        ],
+        "reads": [
+          "control.reads"
+        ],
+        "writes": [
+          "control.writes"
+        ],
+        "predicates": [
+          "control.predicates"
+        ],
+        "conflicts": [
+          "control.conflicts"
+        ],
+        "wire": [
+          "control.wire"
+        ],
+        "receipt": [
+          "control.receipt"
+        ],
+        "effects": [
+          "control.effects"
+        ],
+        "instrumentation": [
+          "control.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6117,
+          "end": 6134,
+          "sha256": "fe28b3cae80f54276c128685d613edca73b5bc079bf9405651757ca8e8197a5e"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 28055,
+          "end": 28228,
+          "sha256": "b703d5396b79deebe8c03f41ad635a0a6d6ef549d9d5267c3519ff3c22a9853d"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "control.remote-control": {
+      "entry_ids": [
+        "7bf986a1c7352a126a73e18480353a9d514bbbb491ca08805330f77a9d00d86a"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "control.authority"
+        ],
+        "reads": [
+          "control.reads"
+        ],
+        "writes": [
+          "control.writes"
+        ],
+        "predicates": [
+          "control.predicates"
+        ],
+        "conflicts": [
+          "control.conflicts"
+        ],
+        "wire": [
+          "control.wire"
+        ],
+        "receipt": [
+          "control.receipt"
+        ],
+        "effects": [
+          "control.effects"
+        ],
+        "instrumentation": [
+          "control.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6199,
+          "end": 6217,
+          "sha256": "2c22ce1b241b2c51e1b5c86c62e33369fabd88b6a06d86b1158c8a6374bc021f"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 26278,
+          "end": 26290,
+          "sha256": "b4a4a19fe29e63b38b2f57873b07cd8c23818874a92d86b3a1d6d34fb2f78e69"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "control.kiosk": {
+      "entry_ids": [
+        "298626b210b4ed959f9131db158887c7950fdffa24a3a8bc1e8a63694b60f821"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "control.authority"
+        ],
+        "reads": [
+          "control.reads"
+        ],
+        "writes": [
+          "control.writes"
+        ],
+        "predicates": [
+          "control.predicates"
+        ],
+        "conflicts": [
+          "control.conflicts"
+        ],
+        "wire": [
+          "control.wire"
+        ],
+        "receipt": [
+          "control.receipt"
+        ],
+        "effects": [
+          "control.effects"
+        ],
+        "instrumentation": [
+          "control.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3646,
+          "end": 3749,
+          "sha256": "dd5d5c5074389c188233f132d27b5d38ac73d068d98670e5853cb0736c22992b"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_policy.py",
+          "start": 19,
+          "end": 23,
+          "sha256": "93fb92b8dfe87c447a573b846bd1dbac03c815a0276d61df06bbefb92600ee6a"
+        }
+      ],
+      "domain_mode": "write"
     }
   },
   "wire_cases": [
@@ -17006,6 +18934,200 @@
       "args": {},
       "contract": "audiences.list",
       "domain_mode": "read"
+    },
+    {
+      "name": "orgtree_interrupt:control.interrupt",
+      "entry_id": "d9dec10cb800b80b1cadadf48eba427bae9036dab086278d5715e4bd599910ba",
+      "args": {},
+      "contract": "control.interrupt",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_unstick:control.unstick",
+      "entry_id": "f33aebedd313c8408e132e14fa7cbbf053f1338348efb462a015ac4837285be0",
+      "args": {},
+      "contract": "control.unstick",
+      "domain_mode": "conditional_write"
+    },
+    {
+      "name": "orgtree_continue_on:control.continue-on",
+      "entry_id": "1c3ed8d8dbd57194ab831c4109789cd7aae1fbeaffb42d8b890f9b9932b66f01",
+      "args": {},
+      "contract": "control.continue-on",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_halt:control.halt",
+      "entry_id": "e387285f43004de6e911f3f191b9547700f03a35689d45193fd928558d0f87b9",
+      "args": {},
+      "contract": "control.halt",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_unhalt:control.unhalt",
+      "entry_id": "e7c68748abbfd5c5e9c048bc0abd40d34f8cbc744054ad502016810a593126b0",
+      "args": {},
+      "contract": "control.unhalt",
+      "domain_mode": "conditional_write"
+    },
+    {
+      "name": "orgtree_self_restart:control.self-restart",
+      "entry_id": "5b0f355f7448167678b25e5f182b729b1000b9280ae687539c429081e8d9d2cc",
+      "args": {},
+      "contract": "control.self-restart",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_prime_restart:control.prime-restart-arm",
+      "entry_id": "9e91b34fd633a10a4f3200f83f5967e05d9c9de60eb031ebc6c9fb843d14c62f",
+      "args": {
+        "action": "arm"
+      },
+      "contract": "control.prime-restart-arm",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_restart_wake:control.restart-wake-arm",
+      "entry_id": "711cf7f6858c6ec1a61c1cfd7e031942f0b48054e1779f80c3eddbd74564f101",
+      "args": {
+        "action": "arm"
+      },
+      "contract": "control.restart-wake-arm",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_prime_restart:control.prime-restart-cancel",
+      "entry_id": "9e91b34fd633a10a4f3200f83f5967e05d9c9de60eb031ebc6c9fb843d14c62f",
+      "args": {
+        "action": "cancel"
+      },
+      "contract": "control.prime-restart-cancel",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_restart_wake:control.restart-wake-cancel",
+      "entry_id": "711cf7f6858c6ec1a61c1cfd7e031942f0b48054e1779f80c3eddbd74564f101",
+      "args": {
+        "action": "cancel"
+      },
+      "contract": "control.restart-wake-cancel",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_prime_restart:control.prime-restart-status",
+      "entry_id": "9e91b34fd633a10a4f3200f83f5967e05d9c9de60eb031ebc6c9fb843d14c62f",
+      "args": {
+        "action": "status"
+      },
+      "contract": "control.prime-restart-status",
+      "domain_mode": "read"
+    },
+    {
+      "name": "orgtree_restart_wake:control.restart-wake-status",
+      "entry_id": "711cf7f6858c6ec1a61c1cfd7e031942f0b48054e1779f80c3eddbd74564f101",
+      "args": {
+        "action": "status"
+      },
+      "contract": "control.restart-wake-status",
+      "domain_mode": "read"
+    },
+    {
+      "name": "node_interrupt:control.op-interrupt",
+      "entry_id": "8c4599768f149a4374be84ff315494ebc0e2faea2e02662c2561b6faec99a35f",
+      "args": {},
+      "contract": "control.op-interrupt",
+      "domain_mode": "write"
+    },
+    {
+      "name": "node_halt:control.op-halt",
+      "entry_id": "fcffe48a8e46ff524923eda7683546cd70918f0a899b635d1d91a5dee68d465f",
+      "args": {},
+      "contract": "control.op-halt",
+      "domain_mode": "write"
+    },
+    {
+      "name": "node_unhalt:control.op-unhalt",
+      "entry_id": "222ad338b7fb95cb11725c218862e0b6fbc083d59e8bdc202cc500e5881feb6f",
+      "args": {},
+      "contract": "control.op-unhalt",
+      "domain_mode": "conditional_write"
+    },
+    {
+      "name": "node_process:control.op-process",
+      "entry_id": "1d38e4e56d19e3f2470576a665424fb86d3104a592ece9df4030102141acef56",
+      "args": {},
+      "contract": "control.op-process",
+      "domain_mode": "write"
+    },
+    {
+      "name": "node_unstick:control.op-unstick",
+      "entry_id": "5d3cf53352f0b74d6a16375b7b80f4161a7e9f63fbe761ec41ccacdead8659b1",
+      "args": {},
+      "contract": "control.op-unstick",
+      "domain_mode": "conditional_write"
+    },
+    {
+      "name": "node_continue_on:control.op-continue-on",
+      "entry_id": "9b1bd6c9a9c102eba0074477c008e2e94b8fb7a82532f28cc3b175ab6dd515f6",
+      "args": {},
+      "contract": "control.op-continue-on",
+      "domain_mode": "write"
+    },
+    {
+      "name": "node_steer:control.steer-claim",
+      "entry_id": "39c20a5ddb10b224df81d46e64328bcc7fe97af4c07d0a874debf5de13050381",
+      "args": {},
+      "contract": "control.steer-claim",
+      "domain_mode": "write"
+    },
+    {
+      "name": "node_steer_ack:control.steer-ack",
+      "entry_id": "5f19f65bcebe87eb48f908a5303d0bcb620e4e329641140462b81f2931b9f087",
+      "args": {},
+      "contract": "control.steer-ack",
+      "domain_mode": "write"
+    },
+    {
+      "name": "node_steer_state:control.steer-state",
+      "entry_id": "90e71ac286a346fe4fd8b305a602a07b349c9f761e2d8f2c745d1f6ca6eab5b1",
+      "args": {},
+      "contract": "control.steer-state",
+      "domain_mode": "read"
+    },
+    {
+      "name": "org_killswitch:control.killswitch",
+      "entry_id": "19069da4d0f84c432611edd3f3aaa2f89324a574281219f8c949d234e0c12cc9",
+      "args": {},
+      "contract": "control.killswitch",
+      "domain_mode": "write"
+    },
+    {
+      "name": "org_killswitch_release:control.killswitch-release",
+      "entry_id": "6b623a53fbe47a7759c48c5dd76dd201eb9bf2a3041334d11b7f48aeac98097e",
+      "args": {},
+      "contract": "control.killswitch-release",
+      "domain_mode": "conditional_write"
+    },
+    {
+      "name": "org_resume:control.resume",
+      "entry_id": "a582cfea2debf74d02018466c5a1d5aa4cc93b0db63592d4a0bf9f0a19c5e618",
+      "args": {},
+      "contract": "control.resume",
+      "domain_mode": "write"
+    },
+    {
+      "name": "remote_control:control.remote-control",
+      "entry_id": "7bf986a1c7352a126a73e18480353a9d514bbbb491ca08805330f77a9d00d86a",
+      "args": {},
+      "contract": "control.remote-control",
+      "domain_mode": "write"
+    },
+    {
+      "name": "org_kiosk:control.kiosk",
+      "entry_id": "298626b210b4ed959f9131db158887c7950fdffa24a3a8bc1e8a63694b60f821",
+      "args": {},
+      "contract": "control.kiosk",
+      "domain_mode": "write"
     }
   ],
   "limits": [
@@ -17314,10 +19436,19 @@
     },
     {
       "id": "298626b210b4ed959f9131db158887c7950fdffa24a3a8bc1e8a63694b60f821",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.kiosk"
+      ],
+      "reason": "POST /api/orgs/{slug}/kiosk: control.kiosk (P01 F2).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3646,
+          "end": 3646,
+          "sha256": "9cca61657afa34df256688d80238c2a5ca40de48e9c3b31e9cb6b0bf4765e758"
+        }
+      ]
     },
     {
       "id": "a6c3f38c31068b604de88b1e7bc52e42a4f0cbdf5421bb23c04306dc9b7ba692",
@@ -17679,52 +19810,115 @@
     },
     {
       "id": "39c20a5ddb10b224df81d46e64328bcc7fe97af4c07d0a874debf5de13050381",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.steer-claim"
+      ],
+      "reason": "POST /api/orgs/{slug}/nodes/{nid}/steer: control.steer-claim (P01 F2).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5803,
+          "end": 5803,
+          "sha256": "7c427caeb71541ffc117be4c9293c90190948b3dd9d12b46b1d891602103221a"
+        }
+      ]
     },
     {
       "id": "5f19f65bcebe87eb48f908a5303d0bcb620e4e329641140462b81f2931b9f087",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.steer-ack"
+      ],
+      "reason": "POST /api/orgs/{slug}/nodes/{nid}/steer/ack: control.steer-ack (P01 F2).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5852,
+          "end": 5852,
+          "sha256": "f31e127ca3e4c63d2cce3271d5d790aa0772b83b83a28060bc16d4385ae77daf"
+        }
+      ]
     },
     {
       "id": "90e71ac286a346fe4fd8b305a602a07b349c9f761e2d8f2c745d1f6ca6eab5b1",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.steer-state"
+      ],
+      "reason": "GET /api/orgs/{slug}/nodes/{nid}/steer-state: control.steer-state (P01 F2).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5860,
+          "end": 5860,
+          "sha256": "61842363a5826042aadf340eba9341b4fbe796fd2b7d6ecc86b04e1880df287b"
+        }
+      ]
     },
     {
       "id": "8c4599768f149a4374be84ff315494ebc0e2faea2e02662c2561b6faec99a35f",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.op-interrupt"
+      ],
+      "reason": "POST /api/orgs/{slug}/nodes/{nid}/interrupt: control.op-interrupt (P01 F2).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5872,
+          "end": 5872,
+          "sha256": "90c1d8062e7104daf92e6aaa1fbce0b87398329735b79c3ed9525c8d2fa37af2"
+        }
+      ]
     },
     {
       "id": "fcffe48a8e46ff524923eda7683546cd70918f0a899b635d1d91a5dee68d465f",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.op-halt"
+      ],
+      "reason": "POST /api/orgs/{slug}/nodes/{nid}/halt: control.op-halt (P01 F2).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5907,
+          "end": 5907,
+          "sha256": "9aac1f616784fcd4ad5e82e3dfb44c6cbc9e7b292252af515f2db6c0a331d63a"
+        }
+      ]
     },
     {
       "id": "222ad338b7fb95cb11725c218862e0b6fbc083d59e8bdc202cc500e5881feb6f",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.op-unhalt"
+      ],
+      "reason": "POST /api/orgs/{slug}/nodes/{nid}/unhalt: control.op-unhalt (P01 F2).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5923,
+          "end": 5923,
+          "sha256": "4d1703cfb1961e5038b061c51b0d3ae1c415e906b9ae5e2b9238090b942eb751"
+        }
+      ]
     },
     {
       "id": "1d38e4e56d19e3f2470576a665424fb86d3104a592ece9df4030102141acef56",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.op-process"
+      ],
+      "reason": "POST /api/orgs/{slug}/nodes/{nid}/process: control.op-process (P01 F2).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5935,
+          "end": 5935,
+          "sha256": "0a10b8e226877e0da3b1a8eaa10968e1a1d0362030f2fc5ef785e4dd277aed6c"
+        }
+      ]
     },
     {
       "id": "d607b55b58da547e339a0d6332bbcc91dbbb4d2c1e2d2de9f5e2e0d536a15aee",
@@ -17799,24 +19993,51 @@
     },
     {
       "id": "19069da4d0f84c432611edd3f3aaa2f89324a574281219f8c949d234e0c12cc9",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.killswitch"
+      ],
+      "reason": "POST /api/orgs/{slug}/killswitch: control.killswitch (P01 F2).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6081,
+          "end": 6081,
+          "sha256": "22c14e9bd5ee820dd41dc747ce8a756b0c557f56c1bfec601dade0a323f24a2c"
+        }
+      ]
     },
     {
       "id": "6b623a53fbe47a7759c48c5dd76dd201eb9bf2a3041334d11b7f48aeac98097e",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.killswitch-release"
+      ],
+      "reason": "POST /api/orgs/{slug}/killswitch/release: control.killswitch-release (P01 F2).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6102,
+          "end": 6102,
+          "sha256": "d0cd190b186906278a1f349b7b3f6136b1fa6057f36b49ba5e4ab7994c9261c9"
+        }
+      ]
     },
     {
       "id": "a582cfea2debf74d02018466c5a1d5aa4cc93b0db63592d4a0bf9f0a19c5e618",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.resume"
+      ],
+      "reason": "POST /api/orgs/{slug}/resume: control.resume (P01 F2).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6117,
+          "end": 6117,
+          "sha256": "a89d2163b402a2f6b10201dd759840fffd9e458091692e7ef26f3b0171c3fcbb"
+        }
+      ]
     },
     {
       "id": "a1dca24432d9b810d711a3afc1c2bbde140876c0f16b6286bc8012207b20e7ed",
@@ -17836,10 +20057,19 @@
     },
     {
       "id": "7bf986a1c7352a126a73e18480353a9d514bbbb491ca08805330f77a9d00d86a",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.remote-control"
+      ],
+      "reason": "POST /api/orgs/{slug}/nodes/{nid}/remote-control: control.remote-control (P01 F2).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6199,
+          "end": 6199,
+          "sha256": "bffaa89d9c384601ee142b0bdca460ffa27e47160562992a8858cad682f0fe87"
+        }
+      ]
     },
     {
       "id": "4e35fa912e6696f01dc67bc343e3e3b50e15923abf60ca28c47e8161139b59d1",
@@ -18101,17 +20331,35 @@
     },
     {
       "id": "5d3cf53352f0b74d6a16375b7b80f4161a7e9f63fbe761ec41ccacdead8659b1",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.op-unstick"
+      ],
+      "reason": "POST /api/orgs/{slug}/nodes/{nid}/unstick: control.op-unstick (P01 F2).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8680,
+          "end": 8680,
+          "sha256": "a2394588efa9913a0258dc988de4d953defd9f1f620991da89cd895d186e3c2f"
+        }
+      ]
     },
     {
       "id": "9b1bd6c9a9c102eba0074477c008e2e94b8fb7a82532f28cc3b175ab6dd515f6",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.op-continue-on"
+      ],
+      "reason": "POST /api/orgs/{slug}/nodes/{nid}/continue-on: control.op-continue-on (P01 F2).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 8868,
+          "end": 8868,
+          "sha256": "5c8dccc873f796089fb958ce89bfb12410caefef53a1c0901c6802068efad249"
+        }
+      ]
     },
     {
       "id": "011a6cc53d0e1347ff006736506c05c2088b8f2859a84cfc14f468b5d58da3a9",
@@ -19019,24 +21267,55 @@
     },
     {
       "id": "5b0f355f7448167678b25e5f182b729b1000b9280ae687539c429081e8d9d2cc",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.self-restart"
+      ],
+      "reason": "orgtree_self_restart tool card: control.self-restart (P01 F2).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 760,
+          "end": 809,
+          "sha256": "aa41cc39268e72028be4a3881154cceb964df6466995b4dfa1218d6b6103c2bb"
+        }
+      ]
     },
     {
       "id": "9e91b34fd633a10a4f3200f83f5967e05d9c9de60eb031ebc6c9fb843d14c62f",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.prime-restart-arm",
+        "control.prime-restart-cancel",
+        "control.prime-restart-status"
+      ],
+      "reason": "orgtree_prime_restart tool card: control.prime-restart-arm, control.prime-restart-cancel, control.prime-restart-status (P01 F2).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 810,
+          "end": 859,
+          "sha256": "b05a7a151ddcd55fb2d1784180cd681a5ea102e32d823f4a1abff734b4fdb456"
+        }
+      ]
     },
     {
       "id": "711cf7f6858c6ec1a61c1cfd7e031942f0b48054e1779f80c3eddbd74564f101",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.restart-wake-arm",
+        "control.restart-wake-cancel",
+        "control.restart-wake-status"
+      ],
+      "reason": "orgtree_restart_wake tool card: control.restart-wake-arm, control.restart-wake-cancel, control.restart-wake-status (P01 F2).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 860,
+          "end": 889,
+          "sha256": "264521f44d0ded9072a398e7522717bdc85a241eccb0a2521c1caaa56625a582"
+        }
+      ]
     },
     {
       "id": "23044e0596acf65cd9df181daf0102f6ba7129a9fb27fc1f515f72f41f893263",
@@ -19382,38 +21661,83 @@
     },
     {
       "id": "d9dec10cb800b80b1cadadf48eba427bae9036dab086278d5715e4bd599910ba",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.interrupt"
+      ],
+      "reason": "orgtree_interrupt tool card: control.interrupt (P01 F2).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1707,
+          "end": 1719,
+          "sha256": "577c207ddf8c9ec562bc897770d40600c3bcc6da8bdf98e9156d58a5edc19ee7"
+        }
+      ]
     },
     {
       "id": "f33aebedd313c8408e132e14fa7cbbf053f1338348efb462a015ac4837285be0",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.unstick"
+      ],
+      "reason": "orgtree_unstick tool card: control.unstick (P01 F2).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1720,
+          "end": 1728,
+          "sha256": "b62a7117883f345b463b8e343124e25b49aeb74e3f7f49160433f60b63054b71"
+        }
+      ]
     },
     {
       "id": "1c3ed8d8dbd57194ab831c4109789cd7aae1fbeaffb42d8b890f9b9932b66f01",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.continue-on"
+      ],
+      "reason": "orgtree_continue_on tool card: control.continue-on (P01 F2).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1729,
+          "end": 1758,
+          "sha256": "3b8123e4ac442caef7892c13e553aed26ec5bc01a18a62dcafe74aafa0b146e5"
+        }
+      ]
     },
     {
       "id": "e387285f43004de6e911f3f191b9547700f03a35689d45193fd928558d0f87b9",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.halt"
+      ],
+      "reason": "orgtree_halt tool card: control.halt (P01 F2).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1802,
+          "end": 1820,
+          "sha256": "87ec93125e22131e66280857cc9fd9e1b6c67ca68407025437d1150c5a9cc27e"
+        }
+      ]
     },
     {
       "id": "e7c68748abbfd5c5e9c048bc0abd40d34f8cbc744054ad502016810a593126b0",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.unhalt"
+      ],
+      "reason": "orgtree_unhalt tool card: control.unhalt (P01 F2).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1821,
+          "end": 1836,
+          "sha256": "eef08798b0e6c8a19b2a523f7f4e9518c5e8311c54a22f12e1168c29704aec40"
+        }
+      ]
     },
     {
       "id": "18cf453dedf74bfbbc129e8436f08498ec4ac5e09a4e16bdbb68a44d8b55961c",
@@ -20215,17 +22539,35 @@
   "dispatch": [
     {
       "id": "2d06c2c2caf3ee1cf8fb2d55bcc0df75fe7c3eebcefdf9806886001db3881863",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W7): the remote-control route's start branch (POST /api/orgs/{slug}/nodes/{nid}/remote-control, api.remote_control), which starts or stops a remote-control session for the node's agent session; the route has no contract. Owner: the runtime (P08).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.remote-control"
+      ],
+      "reason": "The remote-control route's start branch (P01 F2, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6208,
+          "end": 6208,
+          "sha256": "341a6308ac46829a7e3e301acb8e4f0a37240f1710f32216a9196d6a7cffe6ec"
+        }
+      ]
     },
     {
       "id": "8e4609b6df0fc34f8cc7f0aca4faf30476d81869edbfe68dd9c58209c313e3b9",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W7): the remote-control route's stop branch (POST /api/orgs/{slug}/nodes/{nid}/remote-control, api.remote_control), which starts or stops a remote-control session for the node's agent session; the route has no contract. Owner: the runtime (P08).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.remote-control"
+      ],
+      "reason": "The remote-control route's stop branch (P01 F2, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6210,
+          "end": 6210,
+          "sha256": "7d0d6a66af114a02131d9c40eb5697a9d693bd58d708a55c74b171ea9d8d9a06"
+        }
+      ]
     },
     {
       "id": "8f05ba355ad3a004db835b3f1cfe797713884c89f4a8273c77cb1ff82c534a1a",
@@ -20544,7 +22886,7 @@
       "id": "273404a312f2c106f74f182bd840123a4db1c462e6991a3dcf4d1d425cd46b0d",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Stays pending (P01 W7): _desktop_relaunch_args's orgtree_self_relaunch branch validates a relaunch request's options before the relaunch writes the desktop maintenance record; orgtree_self_relaunch has no contract. Owner: the runtime (P08).",
+      "reason": "Stays pending (P01 W7): _desktop_relaunch_args's orgtree_self_relaunch branch validates a relaunch request's options before the relaunch writes the desktop maintenance record; orgtree_self_relaunch has no contract. Owner: the runtime (P08). (P01 F2: still pending because the desktop relaunch verbs orgtree_self_relaunch and orgtree_prime_relaunch reach it and their tool cards are not yet inventoried; item p01-inventory-misses-the-desktop-relaunch-tool-c.)",
       "source_refs": []
     },
     {
@@ -20648,16 +22990,25 @@
     },
     {
       "id": "cd162cb13bb17e9f48d5a776dc2abefcd7909372271c19d543793523028c0929",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_self_restart (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.self-restart"
+      ],
+      "reason": "Exact orgtree_self_restart branch in the agent door, every contract it admits in P01 F2 (P01 F2, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11352,
+          "end": 11352,
+          "sha256": "fc974562d6400fd8a4ef973812f3f0637d607a2547aeeef33cce67d2b2f69953"
+        }
+      ]
     },
     {
       "id": "e108fcd300df9a85955f7bcc61cf57e710b19c92712517cb5ab0ea43f27c8efc",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_self_restart and orgtree_self_update (agent_call, a shared branch for these tools); these tools have no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_self_restart and orgtree_self_update (agent_call, a shared branch for these tools); these tools have no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08). (P01 F2: orgtree_self_restart is contracted, but its deprecated alias orgtree_self_update still reaches this branch and has no tool card, so there is no entry to contract it on.)",
       "source_refs": []
     },
     {
@@ -20793,24 +23144,52 @@
     },
     {
       "id": "f476037f0c3b7c786de2095b7caad4bf576a05e3a24a8b872b6a3a80f6a1ed4e",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_halt and orgtree_unhalt (agent_call, a shared branch for these tools); these tools have no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.halt",
+        "control.unhalt"
+      ],
+      "reason": "Exact orgtree_halt and orgtree_unhalt branch in the agent door, every contract it admits in P01 F2 (P01 F2, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11555,
+          "end": 11555,
+          "sha256": "443c7adfef7c2d598a9a1e27121d27d4ef33efa10a20f64970a5a92585838ee3"
+        }
+      ]
     },
     {
       "id": "d41aa8fb12334cff2b7aee9db4718621606a94308cce29c4b71d775db1fe8aa4",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_halt (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.halt"
+      ],
+      "reason": "Exact orgtree_halt branch in the agent door, every contract it admits in P01 F2 (P01 F2, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11586,
+          "end": 11586,
+          "sha256": "d3cea5f9d02bfaf0534ca4ab01d6b097dbfb4436a12dd2d6a929c5f1fb87c53f"
+        }
+      ]
     },
     {
       "id": "7682f18af98472e7cf0c949b95e8908352e9352d6cd54205cf3027c93d099655",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_continue_on (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.continue-on"
+      ],
+      "reason": "Exact orgtree_continue_on branch in the agent door, every contract it admits in P01 F2 (P01 F2, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11677,
+          "end": 11677,
+          "sha256": "91a21d75a627175ddf551905019e3c40c14b0f533152a1f673cf117852abe1d3"
+        }
+      ]
     },
     {
       "id": "d1b6558d0f42f587be004b7684930d1a8c8313173b2d36a7c3b8d7e84baa568d",
@@ -21082,106 +23461,186 @@
       "id": "04c9ab3044870c36cba0f56a9eecb2df6b01c540492bdaa15c8bc5db34bb9333",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_self_relaunch (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_self_relaunch (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08). (P01 F2: still pending because the desktop relaunch verbs orgtree_self_relaunch and orgtree_prime_relaunch reach it and their tool cards are not yet inventoried; item p01-inventory-misses-the-desktop-relaunch-tool-c.)",
       "source_refs": []
     },
     {
       "id": "78bcf7d6e1d896289ac81dd76e82c9e19de38372978553721bc065e7bb1a929a",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_self_restart and orgtree_self_update (agent_call, a shared branch for these tools); these tools have no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_self_restart and orgtree_self_update (agent_call, a shared branch for these tools); these tools have no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08). (P01 F2: orgtree_self_restart is contracted, but its deprecated alias orgtree_self_update still reaches this branch and has no tool card, so there is no entry to contract it on.)",
       "source_refs": []
     },
     {
       "id": "7260ec6dfe6db59567f38a37ceb69e607e07e41eba9c4e3ebb8820939faa6a0c",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_self_update (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_self_update (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08). (P01 F2: orgtree_self_restart is contracted, but its deprecated alias orgtree_self_update still reaches this branch and has no tool card, so there is no entry to contract it on.)",
       "source_refs": []
     },
     {
       "id": "610bbe31f73f5199355498d73747cdb4cd0026eaa76af7cfe79f4eb6418255f3",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_prime_relaunch (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
+      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_prime_relaunch (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08). (P01 F2: still pending because the desktop relaunch verbs orgtree_self_relaunch and orgtree_prime_relaunch reach it and their tool cards are not yet inventoried; item p01-inventory-misses-the-desktop-relaunch-tool-c.)",
       "source_refs": []
     },
     {
       "id": "769e54da8999ddd0597f873c72fde6c7b93ba4113d1512ab38f9c36a7f4e23c8",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_prime_relaunch anything but arm, cancel and status branch (agent_call); orgtree_prime_relaunch has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
+      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_prime_relaunch anything but arm, cancel and status branch (agent_call); orgtree_prime_relaunch has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08). (P01 F2: still pending because the desktop relaunch verbs orgtree_self_relaunch and orgtree_prime_relaunch reach it and their tool cards are not yet inventoried; item p01-inventory-misses-the-desktop-relaunch-tool-c.)",
       "source_refs": []
     },
     {
       "id": "70240d31ff1df7a706888cdea98a26241b2bb370f20e1cfdef4567b4c9c8c032",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_prime_relaunch status branch (agent_call); orgtree_prime_relaunch has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
+      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_prime_relaunch status branch (agent_call); orgtree_prime_relaunch has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08). (P01 F2: still pending because the desktop relaunch verbs orgtree_self_relaunch and orgtree_prime_relaunch reach it and their tool cards are not yet inventoried; item p01-inventory-misses-the-desktop-relaunch-tool-c.)",
       "source_refs": []
     },
     {
       "id": "06b5828d8a1f9eff1d0c17e1644cf730514aec6a39de28d032b75adf1d8e0670",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_prime_relaunch cancel branch (agent_call); orgtree_prime_relaunch has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
+      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_prime_relaunch cancel branch (agent_call); orgtree_prime_relaunch has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08). (P01 F2: still pending because the desktop relaunch verbs orgtree_self_relaunch and orgtree_prime_relaunch reach it and their tool cards are not yet inventoried; item p01-inventory-misses-the-desktop-relaunch-tool-c.)",
       "source_refs": []
     },
     {
       "id": "6d6142e4adf54ad77e92975fb0678862ea22848d7cbb25700faa714cdde86aed",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_prime_restart (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.prime-restart-arm",
+        "control.prime-restart-cancel",
+        "control.prime-restart-status"
+      ],
+      "reason": "Exact orgtree_prime_restart branch in the agent door, every contract it admits in P01 F2 (P01 F2, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12323,
+          "end": 12323,
+          "sha256": "1ce8f685d8113dc7cbea3ffdf75f6536d2b6693d23b92bd685f6cb0c5708548d"
+        }
+      ]
     },
     {
       "id": "cf1a439ef09a0207053bcf28585b79204623d7a5a2f86592c368ade70078f620",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_prime_restart anything but arm, cancel and status branch (agent_call); orgtree_prime_restart has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.prime-restart-arm",
+        "control.prime-restart-cancel",
+        "control.prime-restart-status"
+      ],
+      "reason": "The agent door's orgtree_prime_restart unknown-action refusal branch (P01 F2, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12330,
+          "end": 12330,
+          "sha256": "da33fde02eaed5b680d6b048f5e20d494dfb59bea5a86f20e05f6d351ee79372"
+        }
+      ]
     },
     {
       "id": "953b464ebd720d2064d42812fa60fd4dcddc3bca8d5c8ab78969b5a1bf36ccb0",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_prime_restart status branch (agent_call); orgtree_prime_restart has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.prime-restart-status"
+      ],
+      "reason": "The agent door's orgtree_prime_restart status branch (P01 F2, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12333,
+          "end": 12333,
+          "sha256": "87caf2147d88680edfebd6b8b39a7fdee98da7b0712bf1eb0bdc2b42524b4434"
+        }
+      ]
     },
     {
       "id": "3461fa5f934279525316658435adf9e8e8caf39ea7775ba7e7769c31557918bf",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_prime_restart cancel branch (agent_call); orgtree_prime_restart has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.prime-restart-cancel"
+      ],
+      "reason": "The agent door's orgtree_prime_restart cancel branch (P01 F2, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12359,
+          "end": 12359,
+          "sha256": "3f45bfe3169cb8c3f47db83ddeaa5ddba933d8ee595e4d61901f06987bca22f1"
+        }
+      ]
     },
     {
       "id": "93a0645c57f856037785145b1024c1ac311b7c4156be99311dabe30ecff443c4",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_restart_wake (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.restart-wake-arm",
+        "control.restart-wake-cancel",
+        "control.restart-wake-status"
+      ],
+      "reason": "Exact orgtree_restart_wake branch in the agent door, every contract it admits in P01 F2 (P01 F2, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12375,
+          "end": 12375,
+          "sha256": "7e4b72899acef4f2811cdd1b17069113d2f0fed6fb8a73102f72d78840fe0be7"
+        }
+      ]
     },
     {
       "id": "e02bfe81313994ccc2c75f09775e1eb321add219e7f39943934fdc840c3befd7",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_restart_wake anything but arm, cancel and status branch (agent_call); orgtree_restart_wake has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.restart-wake-arm",
+        "control.restart-wake-cancel",
+        "control.restart-wake-status"
+      ],
+      "reason": "The agent door's orgtree_restart_wake unknown-action refusal branch (P01 F2, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12377,
+          "end": 12377,
+          "sha256": "da33fde02eaed5b680d6b048f5e20d494dfb59bea5a86f20e05f6d351ee79372"
+        }
+      ]
     },
     {
       "id": "8bcd3a38bd8aedd21d3d2df2f915282d92f7d3ae5089a491f06b5569f5c8fdf7",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_restart_wake status branch (agent_call); orgtree_restart_wake has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.restart-wake-status"
+      ],
+      "reason": "The agent door's orgtree_restart_wake status branch (P01 F2, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12388,
+          "end": 12388,
+          "sha256": "87caf2147d88680edfebd6b8b39a7fdee98da7b0712bf1eb0bdc2b42524b4434"
+        }
+      ]
     },
     {
       "id": "dbb8f2ff31c81be492047e2f91fef0d515d1bc0ab9a7f03c5553c8a65a5ed906",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_restart_wake cancel branch (agent_call); orgtree_restart_wake has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.restart-wake-cancel"
+      ],
+      "reason": "The agent door's orgtree_restart_wake cancel branch (P01 F2, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12390,
+          "end": 12390,
+          "sha256": "3f45bfe3169cb8c3f47db83ddeaa5ddba933d8ee595e4d61901f06987bca22f1"
+        }
+      ]
     },
     {
       "id": "6d9eacaf8d2f4500e9e71a8489ce935e11a9597c5f8b97fe45d3100d9a4c972c",
@@ -21549,17 +24008,35 @@
     },
     {
       "id": "36cf02780b96c7092990a89da241de9b3e433baf9b42000fc7734f7e3bb8a8a1",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_interrupt (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.interrupt"
+      ],
+      "reason": "Exact orgtree_interrupt branch in the agent door, every contract it admits in P01 F2 (P01 F2, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12733,
+          "end": 12733,
+          "sha256": "721797ea4b09da4c286e8ccc872812b982d234082495900acff2434fea7e76a2"
+        }
+      ]
     },
     {
       "id": "6f22c3af56661dc8ea2b0a6ea3f645a3b07119b771efae3cad69c72c19615aa1",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_unstick (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.unstick"
+      ],
+      "reason": "Exact orgtree_unstick branch in the agent door, every contract it admits in P01 F2 (P01 F2, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12747,
+          "end": 12747,
+          "sha256": "031f694722cb34fdd1c790537bfe60114c93704db6bd025ceea39ac3c42134a3"
+        }
+      ]
     },
     {
       "id": "5023cdbfc8eaa13c41065cb2cd8e15cb1ed382b59891d0c5726440f8bfec14e6",
@@ -21912,7 +24389,7 @@
       "id": "b07f7c84d90501c93280583285a1220a063a7ae2b9e396c380773f6601af4f19",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Stays pending (P01 W7): (review fix) desktop_maintenance.request's anything but restart and update branch refuses an unknown maintenance action before the request writes <DATA_ROOT>/desktop-maintenance.json, which the launcher's maintenance routes read. Under the desktop launcher it is installed at engine/launch.py:336 (desktop_maintenance.install rebinds supervisor.launch_self_restart to request and supervisor.arm_prime_restart to prime, which calls request), so /api/agent reaches it through orgtree_self_relaunch, orgtree_self_restart and orgtree_self_update and the prime restart tools. Owner: desktop maintenance with the runtime (P08).",
+      "reason": "Stays pending (P01 W7): (review fix) desktop_maintenance.request's anything but restart and update branch refuses an unknown maintenance action before the request writes <DATA_ROOT>/desktop-maintenance.json, which the launcher's maintenance routes read. Under the desktop launcher it is installed at engine/launch.py:336 (desktop_maintenance.install rebinds supervisor.launch_self_restart to request and supervisor.arm_prime_restart to prime, which calls request), so /api/agent reaches it through orgtree_self_relaunch, orgtree_self_restart and orgtree_self_update and the prime restart tools. Owner: desktop maintenance with the runtime (P08). (P01 F2: still pending because the desktop relaunch verbs orgtree_self_relaunch and orgtree_prime_relaunch reach it and their tool cards are not yet inventoried; item p01-inventory-misses-the-desktop-relaunch-tool-c.)",
       "source_refs": []
     },
     {
@@ -22212,7 +24689,7 @@
       "id": "2af0ce55aa8904c224dc811495bb194a2f7a51357cde6a6effe2afa54542f9a3",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Stays pending (P01 W7): the prime restart gate's arm action (Org.prime_restart_gate in ledger.py), which records a pending prime restart in the org. Owner: the runtime (P08).",
+      "reason": "Stays pending (P01 W7): the prime restart gate's arm action (Org.prime_restart_gate in ledger.py), which records a pending prime restart in the org. Owner: the runtime (P08). (P01 F2: still pending because the desktop relaunch verbs orgtree_self_relaunch and orgtree_prime_relaunch reach it and their tool cards are not yet inventoried; item p01-inventory-misses-the-desktop-relaunch-tool-c.)",
       "source_refs": []
     },
     {
@@ -22981,87 +25458,199 @@
     },
     {
       "id": "335791ec3a3f8bdab9f77aa4e76e4b01d653acebb90eba0093720906fd7efc81",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W8): warmpool.process_control_status reads a node's process-control state from the org; it serves both the uncontracted process control (api.node_process) and the tree view (api._org_view, under the contracted org.tree), and a shared witness maps only once every operation reaching it has a contract. Owner: the runtime (P08).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.op-process",
+        "org.node-detail",
+        "org.tree"
+      ],
+      "reason": "warmpool.process_control_status, reached by the process route and by _org_view (the tree and node-detail routes), all contracted (P01 F2, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/warmpool.py",
+          "start": 1365,
+          "end": 1365,
+          "sha256": "7999a89fb6e70957b594306ed00e2db7dceb456975c38654d6605cda8d4576f6"
+        }
+      ]
     },
     {
       "id": "1ff02d40a10d05851b0e9b901b818ff9d4fdc35fcbaab70729a5ece0537726c2",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W8): warmpool.process_control_status reads a node's process-control state from the org; it serves both the uncontracted process control (api.node_process) and the tree view (api._org_view, under the contracted org.tree), and a shared witness maps only once every operation reaching it has a contract. Owner: the runtime (P08).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.op-process",
+        "org.node-detail",
+        "org.tree"
+      ],
+      "reason": "warmpool.process_control_status, reached by the process route and by _org_view (the tree and node-detail routes), all contracted (P01 F2, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/warmpool.py",
+          "start": 1377,
+          "end": 1377,
+          "sha256": "8fc57bb2cf4e80fe534bef614dd5af27f90b629f1b95cc4317b593a8109bfe22"
+        }
+      ]
     },
     {
       "id": "17113e5dd39b4689ab72aabeb69241f1753c2f255537e375319e72c45498396e",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W8): the per-node process start/stop control, reached by the uncontracted route POST /api/orgs/{slug}/nodes/{nid}/process (api.node_process -> warmpool.process_control, which takes DOC_LOCK, loads the org and changes the node's warm-process flags). Org state. Owner: the runtime (P08).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.op-process"
+      ],
+      "reason": "warmpool.process_control, reached only by the process route (P01 F2, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/warmpool.py",
+          "start": 1421,
+          "end": 1421,
+          "sha256": "a8dd127d3e4cd44780d8e17c2fa40f0e9f4568e767e95ef8d24bcfe446898d0e"
+        }
+      ]
     },
     {
       "id": "b0b6ca1a7e463fa983ff4ce4c3df47a82c8fb08af1ff38dd79e4db8c6982f49c",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W8): the per-node process start/stop control, reached by the uncontracted route POST /api/orgs/{slug}/nodes/{nid}/process (api.node_process -> warmpool.process_control, which takes DOC_LOCK, loads the org and changes the node's warm-process flags). Org state. Owner: the runtime (P08).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.op-process"
+      ],
+      "reason": "warmpool.process_control, reached only by the process route (P01 F2, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/warmpool.py",
+          "start": 1463,
+          "end": 1463,
+          "sha256": "38b6059f2f1e5a831dbf101171e833c1afd200f8077a0397710a79cbcfa221f6"
+        }
+      ]
     },
     {
       "id": "540879425dfde2917f5f88b0b9290c52c8ea7498433b11a429376f9239153de5",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W8): the per-node process start/stop control, reached by the uncontracted route POST /api/orgs/{slug}/nodes/{nid}/process (api.node_process -> warmpool.process_control, which takes DOC_LOCK, loads the org and changes the node's warm-process flags). Org state. Owner: the runtime (P08).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.op-process"
+      ],
+      "reason": "warmpool.process_control, reached only by the process route (P01 F2, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/warmpool.py",
+          "start": 1478,
+          "end": 1478,
+          "sha256": "2c0af61f3ee8abe79b4baeebbefad535696d9c1f7a3135c46264bb94075ab909"
+        }
+      ]
     },
     {
       "id": "b42a8f58ac389314b5633a6434b8799236fdc615c28df75c083704fd6e3cfcba",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W8): the per-node process start/stop control, reached by the uncontracted route POST /api/orgs/{slug}/nodes/{nid}/process (api.node_process -> warmpool.process_control, which takes DOC_LOCK, loads the org and changes the node's warm-process flags). Org state. Owner: the runtime (P08).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.op-process"
+      ],
+      "reason": "warmpool.process_control, reached only by the process route (P01 F2, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/warmpool.py",
+          "start": 1479,
+          "end": 1479,
+          "sha256": "18aa6fdcd52598857b0fad0b39c6582a3ddc20ca2b1b092b0c143841e123d0f4"
+        }
+      ]
     },
     {
       "id": "6d65d353edebfc954c3f4b5d53628467195b492dc448d9b99df8d30d9650222c",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W8): the per-node process start/stop control, reached by the uncontracted route POST /api/orgs/{slug}/nodes/{nid}/process (api.node_process -> warmpool.process_control, which takes DOC_LOCK, loads the org and changes the node's warm-process flags). Org state. Owner: the runtime (P08).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.op-process"
+      ],
+      "reason": "warmpool.process_control, reached only by the process route (P01 F2, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/warmpool.py",
+          "start": 1525,
+          "end": 1525,
+          "sha256": "61437f90a87414e209837aa5db8cfd26a69493b188740e1d04329254045776a2"
+        }
+      ]
     },
     {
       "id": "fdd65426e4c599d0f4a93f91d7895431cd40d7188d96a594a5eaa3a13364c82b",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W8): the per-node process start/stop control, reached by the uncontracted route POST /api/orgs/{slug}/nodes/{nid}/process (api.node_process -> warmpool.process_control, which takes DOC_LOCK, loads the org and changes the node's warm-process flags). Org state. Owner: the runtime (P08).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.op-process"
+      ],
+      "reason": "warmpool.process_control, reached only by the process route (P01 F2, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/warmpool.py",
+          "start": 1534,
+          "end": 1534,
+          "sha256": "e75c5519d5663f406dfcc99570efb733b3502d42ace6056062836e307857a9ce"
+        }
+      ]
     },
     {
       "id": "580a9a3ab8e4ae0d727d056529ab26d738def81bc014d4e02b1275dab273d878",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W8): the per-node process start/stop control, reached by the uncontracted route POST /api/orgs/{slug}/nodes/{nid}/process (api.node_process -> warmpool.process_control, which takes DOC_LOCK, loads the org and changes the node's warm-process flags). Org state. Owner: the runtime (P08).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.op-process"
+      ],
+      "reason": "warmpool.process_control, reached only by the process route (P01 F2, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/warmpool.py",
+          "start": 1549,
+          "end": 1549,
+          "sha256": "b1c217e63c3fb57d181ec4bad93596a337e9547aac260cff9626023db767e8d3"
+        }
+      ]
     },
     {
       "id": "0adb8e66346820fed50f1abb6dfb8e89f28d445154a07260a7f06fac874e6b26",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W8): the per-node process start/stop control, reached by the uncontracted route POST /api/orgs/{slug}/nodes/{nid}/process (api.node_process -> warmpool.process_control, which takes DOC_LOCK, loads the org and changes the node's warm-process flags). Org state. Owner: the runtime (P08).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.op-process"
+      ],
+      "reason": "warmpool.process_control, reached only by the process route (P01 F2, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/warmpool.py",
+          "start": 1551,
+          "end": 1551,
+          "sha256": "9f344d552c004a7f0fc4fedff7f8d3c37a2b76622ee817cc2320625e12fb7614"
+        }
+      ]
     },
     {
       "id": "bf90c1c0600f8115587976c71f44c7cf6f33f8efe6c6e43a64db5605ac1661dd",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W8): the per-node process start/stop control, reached by the uncontracted route POST /api/orgs/{slug}/nodes/{nid}/process (api.node_process -> warmpool.process_control, which takes DOC_LOCK, loads the org and changes the node's warm-process flags). Org state. Owner: the runtime (P08).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.op-process"
+      ],
+      "reason": "warmpool.process_control, reached only by the process route (P01 F2, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/warmpool.py",
+          "start": 1557,
+          "end": 1557,
+          "sha256": "90484e7284d1dfdf7bbed90ed99bab9e8a41a6debbd391b1511ef9a0871a7eed"
+        }
+      ]
     },
     {
       "id": "72a5c6d3a540dbc241528c5b8653636136911f194c5a3efff7f680002b95f6c2",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W8): the per-node process start/stop control, reached by the uncontracted route POST /api/orgs/{slug}/nodes/{nid}/process (api.node_process -> warmpool.process_control, which takes DOC_LOCK, loads the org and changes the node's warm-process flags). Org state. Owner: the runtime (P08).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.op-process"
+      ],
+      "reason": "warmpool.process_control, reached only by the process route (P01 F2, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/warmpool.py",
+          "start": 1558,
+          "end": 1558,
+          "sha256": "22e46d190222231ce620f1c3187e6ae6bd04ea4a1d99bf13f6c8b1ea3c0b4f33"
+        }
+      ]
     },
     {
       "id": "1a92f1064a007be12ab7b57b2f974e92ba48a15b3749e66530d8be2976b1f550",
@@ -23195,7 +25784,7 @@
       "id": "7e2342632e71afe6c4baa5118942e015b1eeb6d2d9db8a878c8c3dc513ed903b",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Stays pending (P01 S2k): the tool_waits sidecar (the journal of every managed-wait agent tool, mcptool.MANAGED_WAIT_TOOLS). P02's per-operation probe observes it under the three staffing contracts (orgtree_hire and orgtree_staff), but a shared site is mapped only once every operation reaching it has a contract (the rule for shared selectors, S3 decision 3), and the uncontracted orgtree_continue_on and the backend-start recovery (toolwait.start) reach it; orgtree_rehire, orgtree_retire, orgtree_dissolve and orgtree_cheap_compact were contracted in P01 F1 and orgtree_watchdog in P01 F3. Owner: the runtime (P08).",
+      "reason": "Stays pending (P01 S2k): the tool_waits sidecar (the journal of every managed-wait agent tool, mcptool.MANAGED_WAIT_TOOLS). P02's per-operation probe observes it under the three staffing contracts (orgtree_hire and orgtree_staff), but a shared site is mapped only once every operation reaching it has a contract (the rule for shared selectors, S3 decision 3), and the backend-start recovery (toolwait.start), which is not an operation entry, reaches it; every managed-wait tool is contracted (P01 F1, F3 and F2). Owner: the runtime (P08).",
       "source_refs": []
     },
     {

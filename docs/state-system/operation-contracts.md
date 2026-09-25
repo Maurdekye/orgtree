@@ -119,14 +119,14 @@ runtime probes remain unresolved. Material reads add two cards and two selectors
 diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
-Current totals are 97 contracts, 62 mapped registrations and 119 mapped
-dispatch witnesses. **635 obligations remain**: 253 registrations, 101 dispatch
-witnesses, 14 storage candidates and 267 unresolved dimension occurrences.
+Current totals are 123 contracts, 84 mapped registrations and 147 mapped
+dispatch witnesses. **663 obligations remain**: 231 registrations, 73 dispatch
+witnesses, 14 storage candidates and 345 unresolved dimension occurrences.
 From P01 F1 on, progress is reported as three numbers (coordinator ruling Q1, decision 1 on
-p01-f1-contracts-for-the-org-lifecycle-and-catal): **entries contracted 32/194** (of the concrete http,
+p01-f1-contracts-for-the-org-lifecycle-and-catal): **entries contracted 54/194** (of the concrete http,
 websocket and tool entries that were on the generic reason; F1b contracts none of them, since the
-operator door had its own reason; F3 contracts thirteen), **267 open dimension occurrences** and
-**635 total pending**. Total pending RISES while the 194 are contracted, to about 790-1000 when all
+operator door had its own reason; F3 contracts thirteen; F2 twenty-two), **345 open dimension
+occurrences** and **663 total pending**. Total pending RISES while the 194 are contracted, to about 790-1000 when all
 twelve families have landed, and that rise is expected: each new contract closes its entry but opens
 its own conflicts, wire and instrumentation dimensions until P03, the native conversion and P02 answer
 them.
@@ -377,7 +377,20 @@ and the operator scope route, which joins `lifecycle.*`), on three new facet fam
 `docs/state-system/requests-boundary.json`. Contracting the inbox batch submit maps the two
 `credit_request_action` branches S3 decision 5 held back. Recorded legacy defects: a forwarded report mails
 the superior but wakes nobody; several receipts keep nothing; the watchdog list saves and broadcasts; the
-operator's audience grant wakes the grantee with "new mail" but posts none.
+operator's audience grant wakes the grantee with "new mail" but posts none (tracked on
+a-report-forwarded-to-the-superior-is-mailed-but, the-watchdog-list-saves-and-broadcasts-and-the-o and
+keyed-orgtree-request-credits-receipt-keeps-noth).
+663 is twenty-eight more than that 635, and the rise is expected (P01 F2,
+p01-f2-contracts-for-the-run-control-entry-point). F2 contracts the run-control entry points: 26 contracts on
+22 entries (interrupt, unstick, continue_on, halt, unhalt, self_restart, prime_restart and restart_wake per
+action, and fourteen operator routes) on the new `control.*` facets, pinned by
+`tests/test_state_control_boundary.py` against `docs/state-system/control-boundary.json` with every process
+effect replaced by a spy. Each contract states its behaviour per product profile where `desktop_policy` changes
+it (decision 1 on the F2 item): under the desktop-managed profile the standard restart tools are refused and
+the kiosk route is stripped (`desktop_policy.install_routes` also strips `/git/` and two account-key routes,
+which F8 and F10 will state). The branches the desktop relaunch verbs reach stay pending until their tool
+cards are inventoried (p01-inventory-misses-the-desktop-relaunch-tool-c), and three branches stay pending on
+the card-less `orgtree_self_update` alias.
 
 Of the 41 open dimension occurrences on the sixteen legacy-family contracts, 25 (9 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the
