@@ -37,6 +37,9 @@ SQLSTATES: dict[str, tuple[str, str]] = {
     "23505": ("unique_violation", "retry only if the family allowlists the constraint, else error"),
     "55P03": ("lock_not_available", "lock_timeout: retry with backoff, bounded"),
     "57014": ("query_canceled", "statement_timeout: the attempt fails, no silent retry"),
+    # a lost connection reaches the trace WITHOUT a SQLSTATE (measured live, fcb83e9:
+    # tx_end rollback + retry "connection_lost", sqlstate "unknown"); schedules assert
+    # the retry cause, not the code
     "57P01": ("admin_shutdown", "the connection is gone: resolve the attempt by its receipt"),
     "08006": ("connection_failure", "the connection is gone: resolve the attempt by its receipt"),
     "53300": ("too_many_connections", "admission failure before any statement: bounded retry"),
