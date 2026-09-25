@@ -524,7 +524,10 @@ class Delete(unittest.TestCase):
         with store.DOC_LOCK:
             o = store.load_org(slug)
             o.ask_user("a1", "still there?")
-            o.request_credits("a", 50, "more room")
+            # a pending credit row (only top-level agents may file one, so
+            # it is placed directly)
+            o.d.setdefault("credit_requests", []).append(
+                {"id": "c1", "node": "a", "amount": 50, "status": "pending"})
             o.work_create(ledger.USER, "an item", "why it exists", owner="a1")
             store.save_org(o)
 
