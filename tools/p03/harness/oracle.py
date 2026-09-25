@@ -105,7 +105,7 @@ def observed_contacts(records: Iterable[dict[str, Any]]) -> dict[tuple[str, int]
             ops[key] = {"op_kind": kind_of.get(r["operation_id"]),
                         "executor": defaultdict(set), "server": defaultdict(set),
                         "stmts": 0, "txs": 0, "committed": False, "unknown_modes": set(),
-                        "contacts": contacts.get(r["operation_id"])}
+                        "unresolved": set(), "contacts": contacts.get(r["operation_id"])}
         return ops[key]
 
     for r in records:
@@ -119,10 +119,20 @@ def observed_contacts(records: Iterable[dict[str, Any]]) -> dict[tuple[str, int]
                 slot(r)["committed"] = True
         elif k == "stmt":
             s = slot(r)
+            if r.get("infrastructure"):
+                continue        # the executor's own trace.*/exec.* statements (system views)
             s["stmts"] += 1
+            for name in r.get("unresolved") or []:
+                s["unresolved"].add(name)
             rels = r.get("relations")
             if rels == UNKNOWN:
                 s["executor"]["<unknown relations>"].add(r.get("mode"))
+                continue
+            per_rel = r.get("relation_modes")
+            if isinstance(per_rel, dict):
+                # the collector's derivation (store-trace sqlmap): modes per relation
+                for rel, modes in per_rel.items():
+                    s["executor"][rel].update(modes)
                 continue
             for rel in rels or []:
                 s["executor"][rel].add(r.get("mode"))
@@ -171,6 +181,9 @@ def q_c5(declared: dict[str, dict[str, Any]], records: list[dict[str, Any]],
                     failures.append(f"{where}: {source} observed {rel} as "
                                     f"{', '.join(sorted(extra))}, declared "
                                     f"{', '.join(sorted(spec[rel]['modes']))}")
+        if s["unresolved"]:
+            failures.append(f"{where}: statements name relations the deriver could not resolve: "
+                            f"{', '.join(sorted(s['unresolved']))}")
         if s["committed"]:
             missing = sorted(rel for rel, r in spec.items() if r["required"] and rel not in touched)
             if missing:

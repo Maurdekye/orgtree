@@ -62,7 +62,7 @@ SAFE = Order(
     script=[("start", "A"), ("arrive", "A", WRITE), ("start", "B"), ("await_wait", "B", "A"),
             ("release", "A", WRITE), ("await_end", "A"), ("await_end", "B")],
     intended=[("before", f"arrived:A:{WRITE}", "wait:B:A"), ("before", "end:A", "end:B"),
-              ("outcome", "A", "commit"), ("outcome", "B", "commit")])
+              ("outcome", "A", "applied"), ("outcome", "B", "applied")])
 
 OVERTAKE_SCRIPT = [("start", "A"), ("arrive", "A", WRITE), ("start", "B"), ("await_end", "B"),
                    ("release", "A", WRITE), ("await_end", "A")]
@@ -95,7 +95,7 @@ class ForcedInterleaving(unittest.TestCase):
     def test_completed_script_in_the_wrong_order_fails(self):
         """The script ran to the end, but what happened is not what was intended."""
         wrong = Order("claims-b-first", SAFE.script,
-                      [("before", "end:B", "end:A"), ("outcome", "A", "commit")])
+                      [("before", "end:B", "end:A"), ("outcome", "A", "applied")])
         result = run_order(FakeExecutor(OPS), schedule(), wrong)
         self.assertEqual(result.verdict, FAILED)
         self.assertIn("interleaving not achieved: end:B was not before end:A", result.reasons)
@@ -134,10 +134,17 @@ class ForcedInterleaving(unittest.TestCase):
                 self.assertFalse(result.health["complete"])
                 self.assertTrue(any("incomplete-contact" in r for r in result.reasons))
 
+    def test_a_stub_in_the_trace_fails_the_run(self):
+        """No schedule may be reported as passing against WS2's Sent stub (M1 §2 row 6)."""
+        result = run_order(FakeExecutor(OPS, stub=True), schedule(), SAFE)
+        self.assertEqual(result.verdict, FAILED)
+        self.assertIn("the trace contains stub events: no schedule may pass against a stub "
+                      "(M1 §2 row 6)", result.reasons)
+
     def test_injected_serialization_failure_is_retried_and_traced(self):
         retry = Order(
             "a-fails-40001-once", [("start", "A"), ("await_end", "A")],
-            [("outcome", "A", "commit"), ("sqlstate", "A", "40001")],
+            [("outcome", "A", "applied"), ("sqlstate", "A", "40001")],
             faults=[{"op_tag": "A", "point": WRITE, "action": "fail_next", "sqlstate": "40001"}])
         one = Schedule("Q-FAKE1", {"A": (KIND, {})}, [retry],
                        pass_condition=lambda _r, _a, final: final["rows"].get("counter") == 1)
@@ -204,7 +211,7 @@ EDIT_DECLARED = {EDIT: {"relations": {
     "items": {"modes": ["write"], "required": True},
     "item_participants": {"modes": ["read"], "required": False}},
     "p01_contract": "work.item-update", "source": "test"}}
-ONE_EDIT = Order("one-edit", [("start", "A"), ("await_end", "A")], [("outcome", "A", "commit")])
+ONE_EDIT = Order("one-edit", [("start", "A"), ("await_end", "A")], [("outcome", "A", "applied")])
 
 
 def edit_run(**fake):
@@ -271,6 +278,31 @@ class ContactOracle(unittest.TestCase):
                    for r in result.records]
         verdict = oracle.q_c5(EDIT_DECLARED, records, ["fake-pool"])
         self.assertEqual(list(verdict["unknown_modes"].values()), [["agents"]])
+
+    def test_collector_shaped_statements(self):
+        """store-trace's collector records relation_modes, unresolved names and
+        infrastructure statements; the oracle reads those, not the flat mode."""
+        result, _ = edit_run()
+        records = []
+        for r in result.records:
+            if r.get("stmt_label") == "anchor":
+                r = dict(r, relation_modes={"agents": ["read", "for_share"]}, relations=["agents"],
+                         lock_mode=None)
+            records.append(r)
+        self.assertEqual(oracle.q_c5(EDIT_DECLARED, records, ["fake-pool"])["verdict"], "PASSED")
+        widened = [dict(r, relation_modes={"agents": ["read", "for_update"]})
+                   if r.get("stmt_label") == "anchor" else r for r in records]
+        self.assertTrue(any("observed agents as for_update" in f for f in
+                            oracle.q_c5(EDIT_DECLARED, widened, ["fake-pool"])["failures"]))
+        unresolved = [dict(r, unresolved=["ghost"]) if r.get("stmt_label") == "write" else r
+                      for r in records]
+        self.assertTrue(any("could not resolve: ghost" in f for f in
+                            oracle.q_c5(EDIT_DECLARED, unresolved, ["fake-pool"])["failures"]))
+        infra = dict(records[0], kind="stmt", operation_id="op-A", attempt=1, backend_pid=1,
+                     stmt_label="trace.xact_stats", fingerprint="f", mode="read",
+                     relations=["pg_stat_xact_user_tables"], sqlstate="00000", infrastructure=True)
+        self.assertEqual(oracle.q_c5(EDIT_DECLARED, records + [infra], ["fake-pool"])["verdict"],
+                         "PASSED")
 
     def test_invalid_declared_table_is_refused(self):
         bad = {EDIT: {"relations": {"items": {"modes": ["write"]}}, "p01_contract": None,
