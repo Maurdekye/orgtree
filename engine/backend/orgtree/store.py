@@ -2981,8 +2981,12 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
                 if changes is not None:
                     changes.doc_upserts.append(k)
             else:
-                conn.execute("INSERT INTO doc(key,val) VALUES(?,?) "
-                             "ON CONFLICT(key) DO NOTHING", (k, default))
+                cur = conn.execute("INSERT INTO doc(key,val) VALUES(?,?) "
+                                   "ON CONFLICT(key) DO NOTHING", (k, default))
+                # recorded, so readers' snapshots learn the key exists (an
+                # org_tx's guard exempts exactly this insert; see orgtx)
+                if changes is not None and getattr(cur, "rowcount", 0) != 0:
+                    changes.doc_upserts.append(k)
             dict.__setitem__(d, k, json.loads(default))
             new_doc[k] = default
     for k in known_doc - set(new_doc) - LAZY_SECTIONS - set(ROWED):
