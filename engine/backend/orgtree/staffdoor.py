@@ -240,3 +240,99 @@ def staff_body(tx: pgdoor.AgentTx) -> Any:
 
 
 pgdoor.declare("orgtree_staff", staff_spec, body=staff_body, when=_staff_on_door)
+
+
+# --------------------------------- quick staff (the ticket menu's Staff…)
+
+# MEASURED (scratch probe_quickstaff_rows.py, every mode + the undo): the
+# staffing writes the hire's rows plus the USER's outbox log (quick staff
+# acts as the user); a request writes the docket, the assignee's mail and
+# the outbox; the undo writes the docket, the recipient's mail and its logs.
+QS_LOGS = HIRE_LOGS + ("user_outbox",)
+QS_SECTIONS = ("work_items",) + HIRE_SECTIONS
+
+
+def quick_staff_rows(org: Any, wid: str, tier: Any = None, effort: Any = None,
+                     account: Any = None) -> pgdoor.TxSpec:
+    """The rows one quick-staff click holds, from an org document. A ticket
+    that is not stageable (not backlogged, archived, gone) needs only the
+    docket: the body then replays a receipt or refuses, writing nothing
+    else. A request locks the assignee (it is mailed); an immediate staffing
+    is `orgtree_staff`'s rows with the user as the actor."""
+    from . import quickstaff
+    base = pgdoor.TxSpec(sections=QS_SECTIONS, logs=QS_LOGS)
+    try:
+        item, ctx = quickstaff.context(org, wid)
+    except LedgerError:
+        return base
+    if ctx["mode"] == "request":
+        nid = str((ctx["owner"] or {}).get("node") or "")
+        return pgdoor.TxSpec(nodes=(nid,) if nid in org.nodes else (),
+                             sections=QS_SECTIONS, logs=QS_LOGS)
+    if not tier:
+        return base                      # the body refuses: no model chosen
+    s = staff_rows(org, USER, quickstaff.staff_args(org, item, ctx, str(tier),
+                                                    effort, account))
+    return pgdoor.TxSpec(nodes=s.nodes, sections=s.sections,
+                         share_sections=s.share_sections, logs=QS_LOGS)
+
+
+def quick_staff_spec(snapshot: Any, body: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
+    return quick_staff_rows(snapshot, a["wid"], body.tier, body.effort,
+                            body.account)
+
+
+def quick_staff_body(tx: pgdoor.OpTx) -> Any:
+    """`api._quick_staff_locked` on the locked rows, re-deriving them from the
+    LOCKED document first (a name taken, an assignee retired or the staffing
+    behaviour changed since the snapshot widens before anything is written).
+    Returns (result, undo, drive); a replayed receipt leaves through
+    `pgdoor._Replay`, so the transaction rolls back instead of committing an
+    empty write."""
+    from . import api
+    b, p = tx.body, tx.pre
+    need = quick_staff_rows(tx.org, tx.args["wid"], b.tier, b.effort, b.account)
+    missing = [n for n in need.nodes if n not in tx.spec.nodes]
+    if missing:
+        raise pgdoor.Widen(nodes=missing)
+    drive: list[str] = []
+    result, undo, replayed = api._quick_staff_locked(
+        tx.org, tx.slug, tx.args["wid"], b, p["request_id"], p["selection"],
+        p["snap"], p.get("harness"), drive)
+    if replayed:
+        raise pgdoor._Replay(result)
+    check_created(tx.spec, str(result.get("node") or ""))
+    return result, undo, drive
+
+
+pgdoor.declare("quick_staff", quick_staff_spec, body=quick_staff_body)
+
+
+def quick_staff_undo_rows(org: Any, undo: dict[str, Any]) -> pgdoor.TxSpec:
+    """The undo's rows: the docket, the request's recipient (its mail is
+    retracted) and the owner being restored (an ownership write notifies)."""
+    nodes = tuple(dict.fromkeys(
+        n for n in (str(undo.get("node") or ""), str(undo.get("owner") or ""))
+        if n and n in org.nodes))
+    return pgdoor.TxSpec(nodes=nodes, sections=QS_SECTIONS, logs=QS_LOGS)
+
+
+def quick_staff_undo_spec(snapshot: Any, body: Any,
+                          a: dict[str, Any]) -> pgdoor.TxSpec:
+    return quick_staff_undo_rows(snapshot, a["undo"])
+
+
+def quick_staff_undo_body(tx: pgdoor.OpTx) -> bool:
+    """`api._quick_staff_undo_locked` on the locked rows. When it declines
+    (the item moved on), nothing was written and the transaction rolls back
+    through `pgdoor._Replay` rather than committing an empty write."""
+    from . import api
+    a = tx.args
+    if not api._quick_staff_undo_locked(tx.org, a["wid"], a["request_id"],
+                                        a["nid"], a["undo"]):
+        raise pgdoor._Replay(False)
+    return True
+
+
+pgdoor.declare("quick_staff_undo", quick_staff_undo_spec,
+               body=quick_staff_undo_body)
