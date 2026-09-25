@@ -712,5 +712,100 @@ class Swap(unittest.TestCase):
         self.assertGreaterEqual(len(calls), 3)
 
 
+class Scope(unittest.TestCase):
+    """lifecycle_tx.set_scope: the legacy `Org.set_scope` on `_scope_plan`."""
+
+    def build(self, slug):
+        org = store.create_org(slug)
+        org.hire(ledger.USER, None, "luna", 6, "root")
+        org.hire(ledger.USER, "root", "luna", 2, "mid")
+        org.hire(ledger.USER, "mid", "luna", 0, "leaf")
+        org.hire(ledger.USER, "root", "luna", 0, "side")
+        store.save_org(org)
+
+    def setUp(self):
+        self.slug = "pg3a-sc-" + str(time.time_ns())
+        self.build(self.slug)
+
+    def tearDown(self):
+        store._POOL.close_all(self.slug)
+
+    def view(self, slug):
+        o = store.load_org(slug)
+        return ({k: (v["scope"], v.get("charter")) for k, v in o.nodes.items()},
+                o.d.get("dirs"), o.d.get("default_tools"), o.d.get("permission_mode"),
+                sorted((k, len(v)) for k, v in (o.d.get("notices") or {}).items()),
+                [e["op"] for e in o.d["events"]][-2:])
+
+    def parity(self, actor, nid, **kw):
+        twin = "pg3a-sc-twin-" + str(time.time_ns())
+        self.build(twin)
+        with store.DOC_LOCK:
+            o = store.load_org(twin)
+            legacy = o.set_scope(actor, nid, **kw)
+            store.save_org(o)
+        mine = lifecycle_tx.set_scope(self.slug, actor, nid, **kw)
+        self.assertEqual(mine, legacy)
+        self.assertEqual(self.view(self.slug), self.view(twin))
+        store._POOL.close_all(twin)
+        return mine
+
+    def test_a_charter_change_locks_only_the_node(self):
+        o = store.load_org(self.slug)
+        upd, share, secs, ssecs, _ = lifecycle_tx._scope_plan(
+            o, ledger.USER, "leaf", {"charter": "x"}, True)
+        self.assertEqual(upd, {"leaf"})
+        self.assertEqual(share, {"mid", "root"})
+        self.assertEqual((secs, ssecs), (("notices",), ()))
+        self.parity(ledger.USER, "leaf", charter="a new charter")
+
+    def test_narrowing_tools_sweeps_the_subtree(self):
+        tools = dict(store.load_org(self.slug).node("mid")["scope"]["tools"])
+        tools["web"] = False
+        self.parity(ledger.USER, "mid", tools=tools)
+        self.assertFalse(store.load_org(self.slug).node("leaf")["scope"]["tools"].get("web"))
+
+    def test_a_top_level_folder_grant_is_absorbed_by_the_org(self):
+        import tempfile as _t
+        d = _t.mkdtemp(prefix="pg3a-sc-dir-")
+        r = self.parity(ledger.USER, "root", add_dirs=[{"path": d, "mode": "rw"}])
+        self.assertTrue(any("organization now holds" in w for w in r["warnings"]))
+
+    def test_a_raised_leaf_grant_cascades_up_the_path(self):
+        import tempfile as _t
+        d = _t.mkdtemp(prefix="pg3a-sc-dir-")
+        r = self.parity(ledger.USER, "leaf", add_dirs=[{"path": d, "mode": "ro"}])
+        self.assertIn("mid", r.get("cascaded") or [])
+
+    def test_an_agent_retool_shares_the_org_grants(self):
+        o = store.load_org(self.slug)
+        _u, _s, secs, ssecs, _ = lifecycle_tx._scope_plan(
+            o, "root", "leaf", {"tools": {}}, False)
+        self.assertEqual(secs, ("notices",))
+        self.assertIn("dirs", ssecs)
+        self.assertIn("kiosk", ssecs)
+        self.parity("root", "leaf", charter="set by the parent")
+
+    def test_every_section_a_capability_change_writes_is_needed(self):
+        import tempfile as _t
+        d = _t.mkdtemp(prefix="pg3a-sc-dir-")
+        real = lifecycle_tx._scope_plan
+        for drop in ("dirs", "notices"):
+            def smaller(org, actor, nid, kw, may_raise, drop=drop):
+                u, s, secs, ss, lg = real(org, actor, nid, kw, may_raise)
+                return u, s, tuple(x for x in secs if x != drop), ss, lg
+            with patch.object(lifecycle_tx, "_scope_plan", smaller):
+                with self.assertRaises(orgtx.UnlockedWrite, msg=drop):
+                    lifecycle_tx.set_scope(self.slug, ledger.USER, "root",
+                                           add_dirs=[{"path": d, "mode": "rw"}])
+        self.assertNotIn(d, [x["path"] for x in store.load_org(self.slug).d.get("dirs") or []])
+
+    def test_a_refused_retool_writes_nothing(self):
+        before = self.view(self.slug)
+        with self.assertRaises(ledger.LedgerError):
+            lifecycle_tx.set_scope(self.slug, "side", "leaf", charter="not mine")
+        self.assertEqual(self.view(self.slug), before)
+
+
 if __name__ == "__main__":
     unittest.main()
