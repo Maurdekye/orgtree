@@ -145,11 +145,11 @@ class ContractCoverage(unittest.TestCase):
     # W1-W8 (coordinator-approved plan 2026-09-24 21:57Z; the rules are decision 1 on the W1 item): map only when
     # every operation reaching a witness has a contract, exclude only what source reading shows is not an org-state
     # operation, otherwise stay pending with a reason that names the owner
-    W1_EXCLUDED = {("api.py", 122), ("api.py", 124), ("api.py", 14634), ("api.py", 14635), ("api.py", 14638),
-                   ("api.py", 901), ("api.py", 928), ("api.py", 1565), ("disk.py", 226), ("sandbox.py", 891),
+    W1_EXCLUDED = {("api.py", 124), ("api.py", 126), ("api.py", 14636), ("api.py", 14637), ("api.py", 14640),
+                   ("api.py", 903), ("api.py", 930), ("api.py", 1567), ("disk.py", 226), ("sandbox.py", 891),
                    ("sandbox.py", 1031), ("sandbox.py", 1040), ("turnread.py", 44)}
     # the 4 stderr pumps feed the failure path, which can freeze a node (W1 review fix)
-    W1_PENDING = {("api.py", 1394), ("antigravityrun.py", 760), ("codexrun.py", 587), ("warmpool.py", 344),
+    W1_PENDING = {("api.py", 1396), ("antigravityrun.py", 760), ("codexrun.py", 587), ("warmpool.py", 344),
                   ("antigravityrun.py", 762), ("codexrun.py", 589), ("warmpool.py", 346), ("warmpool.py", 667)}
 
     def test_w1_plumbing_registrations_are_triaged(self):
@@ -177,7 +177,7 @@ class ContractCoverage(unittest.TestCase):
                   | {("gitworkspace.py", n) for n in (482, 1114, 1136, 1140)}
                   | {("toolwait.py", 88)})    # P01 F6 mapped supervisor.py 35326 and 35351, the transcript cards
     # the EXACT route each client-process exclusion calls (W8 review finding f1: 'a route' is not 'the route')
-    W8_CLIENT_ROUTES = {("mcptool.py", 2315): ("api.py", 11006, "/api/agent")}
+    W8_CLIENT_ROUTES = {("mcptool.py", 2315): ("api.py", 11008, "/api/agent")}
 
     def test_w8_machine_client_and_presentation_dispatch_is_triaged(self):
         # W1-W8 rules (decision 1 on the W1 item) with rule 2 as sharpened (decision 2 there); an HTTP-client
@@ -220,7 +220,7 @@ class ContractCoverage(unittest.TestCase):
                   | {("net.py", 1387), ("net.py", 1389), ("sandbox.py", 1195)}
                   | {("supervisor.py", n) for n in (192, 6417, 6567, 17366, 17480, 17790, 17936, 18872, 18986, 20246, 31539)}
                   | {("warmpool.py", n) for n in (1446, 2249, 2809, 2948)})
-    S2K_EXCLUDED = {("antigravity_provenance.py", 325), ("antigravity_provenance.py", 328), ("api.py", 1338),
+    S2K_EXCLUDED = {("antigravity_provenance.py", 325), ("antigravity_provenance.py", 328), ("api.py", 1340),
                     ("liveness.py", 228)}
 
     def test_w2_provider_and_machine_workers_are_triaged(self):
@@ -268,7 +268,7 @@ class ContractCoverage(unittest.TestCase):
 
     W3_EXCLUDED = {("startup.py", 52)}
     # (the external-chat handle sweeper, supervisor.start_extern_sweeper, left with the retirement's second stage)
-    W3_PENDING = ({("api.py", 5620), ("api.py", 6011), ("assistant_messages.py", 193), ("desktop_import_jobs.py", 270),
+    W3_PENDING = ({("api.py", 5622), ("api.py", 6013), ("assistant_messages.py", 193), ("desktop_import_jobs.py", 270),
                    ("desktop_maintenance.py", 159), ("halt.py", 827), ("halt.py", 1006), ("maildrain.py", 359),
                    ("staffcache.py", 230), ("startup.py", 45), ("toolwait.py", 239), ("toolwait.py", 327),
                    ("transcript_ingest.py", 101)}

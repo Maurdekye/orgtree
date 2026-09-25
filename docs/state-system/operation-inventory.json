@@ -13,7 +13,7 @@
     "exact_effect_contracts": "pending per-entry review"
   },
   "summary": {
-    "modules": 128,
+    "modules": 129,
     "registration_sites": 334,
     "registration_kinds": {
       "callback": 5,
@@ -81,7 +81,7 @@
     },
     {
       "path": "engine/backend/orgtree/api.py",
-      "normalized_source_sha256": "2291c7c5bdd90bbd0152a697368051aff26798484dfb6e5ba1246b71160ceec1"
+      "normalized_source_sha256": "fce3482cd0becd37ab0f78db49884119a6e92e4d8f0ee539a04f1c8fc9140343"
     },
     {
       "path": "engine/backend/orgtree/apikey_accounts.py",
@@ -380,6 +380,10 @@
       "normalized_source_sha256": "24784c6138a1a67a8ed52290f51661bf09d78bbea06689546f090c39e0690d4c"
     },
     {
+      "path": "engine/backend/orgtree/p03_door.py",
+      "normalized_source_sha256": "08cde3537d0edbb4150bbef6ee67a1969ba08f701b46cfb9175895ceaba11a5e"
+    },
+    {
       "path": "engine/backend/orgtree/profiling.py",
       "normalized_source_sha256": "f1a4a843d1789279b8c8bb658571f42debe2e6dc1a91662ae3ff603833f4cc8e"
     },
@@ -583,8 +587,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "<module>",
-        "line": 122,
-        "end_line": 122,
+        "line": 124,
+        "end_line": 124,
         "syntax_sha256": "507bec074e48b2c5a7fe65a536f711170066226d3da35eea5d63f0efa448929c"
       },
       "mechanism": "app.include_router",
@@ -598,8 +602,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "<module>",
-        "line": 124,
-        "end_line": 124,
+        "line": 126,
+        "end_line": 126,
         "syntax_sha256": "13ed3c52c312c3445d8e0ddca06b01b83189ce9fcdf50f4337b65feee9f68054"
       },
       "mechanism": "app.include_router",
@@ -613,8 +617,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "profile_timing",
-        "line": 747,
-        "end_line": 747,
+        "line": 749,
+        "end_line": 749,
         "syntax_sha256": "4ac9b794712f1366b64f7d427e7c45495c3b07d3d67e120595a330fb44c8a6bf"
       },
       "receiver": "app",
@@ -632,8 +636,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "profile_timing",
-        "line": 748,
-        "end_line": 748,
+        "line": 750,
+        "end_line": 750,
         "syntax_sha256": "edc30b0f59ec4e62f40c8a2c6d4f243174e83eec5b80fd7ca4059ed1f8bf072e"
       },
       "receiver": "app",
@@ -651,8 +655,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "state_access_diagnostics",
-        "line": 783,
-        "end_line": 783,
+        "line": 785,
+        "end_line": 785,
         "syntax_sha256": "655cc15dc87a263d4f2c8b4086849a78c0d4268d2ab7703926afcdb8ecf99a87"
       },
       "receiver": "app",
@@ -670,8 +674,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "state_access_control",
-        "line": 795,
-        "end_line": 795,
+        "line": 797,
+        "end_line": 797,
         "syntax_sha256": "9c09b7bebd465ab92f833c4273093a5b39506f60d56d3934ebd1d0fa014ee680"
       },
       "receiver": "app",
@@ -689,8 +693,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "slow_requests",
-        "line": 802,
-        "end_line": 802,
+        "line": 804,
+        "end_line": 804,
         "syntax_sha256": "20d19747cac9da0734a297894aab6d34c500872374e5c212f690377fddefefd1"
       },
       "receiver": "app",
@@ -708,8 +712,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "operation_census",
-        "line": 817,
-        "end_line": 818,
+        "line": 819,
+        "end_line": 820,
         "syntax_sha256": "be72efc8d78a0f84021b9b01772d45e64d842ebad655c44bab9c20cbd3731086"
       },
       "receiver": "app",
@@ -727,8 +731,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "operation_census_control",
-        "line": 844,
-        "end_line": 845,
+        "line": 846,
+        "end_line": 847,
         "syntax_sha256": "5c7b942cfc0669aa087b06158ce76b4c3556a1195b6966f34c5801a87097b5d0"
       },
       "receiver": "app",
@@ -746,8 +750,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "operation_census_reset",
-        "line": 870,
-        "end_line": 871,
+        "line": 872,
+        "end_line": 873,
         "syntax_sha256": "bb845a99edcc2185bd586602d1405477f5dd81be690a080577fe50176cd114c2"
       },
       "receiver": "app",
@@ -765,8 +769,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "profile_timing_control",
-        "line": 886,
-        "end_line": 886,
+        "line": 888,
+        "end_line": 888,
         "syntax_sha256": "7d190d09abfc2ef87766f83325d82c6306f486a9864ad5c44b70bebb7a8004da"
       },
       "receiver": "app",
@@ -784,8 +788,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "profile_timing_control",
-        "line": 887,
-        "end_line": 887,
+        "line": 889,
+        "end_line": 889,
         "syntax_sha256": "e8506656340df32e3580d18e9022f5dabdf0add37403366c8dea31b42707df5a"
       },
       "receiver": "app",
@@ -803,8 +807,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_validation_error",
-        "line": 901,
-        "end_line": 901,
+        "line": 903,
+        "end_line": 903,
         "syntax_sha256": "9cbd0c2c18f06ef88c8c63e365faa4fa0032d80717b8c77ec8dbc2e401eb040d"
       },
       "receiver": "app",
@@ -820,8 +824,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_unhandled_error",
-        "line": 928,
-        "end_line": 928,
+        "line": 930,
+        "end_line": 930,
         "syntax_sha256": "85ea840362ee852a3b684e8d1e217eb74052fae65ce196692bf397de84cf8092"
       },
       "receiver": "app",
@@ -837,8 +841,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_wire_notify",
-        "line": 1394,
-        "end_line": 1394,
+        "line": 1396,
+        "end_line": 1396,
         "syntax_sha256": "237c34a1be7be04f9b633b06f44afed8cc8d972962df90af8ef9c558b8215b4e"
       },
       "receiver": "app",
@@ -856,8 +860,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_cancel_startup",
-        "line": 1565,
-        "end_line": 1565,
+        "line": 1567,
+        "end_line": 1567,
         "syntax_sha256": "250a97a0d50e7f8ac8a87ac909c4aa0cae631f0dc6a9b0e257476a2ccbdbad8c"
       },
       "receiver": "app",
@@ -875,8 +879,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "orgs_list",
-        "line": 1751,
-        "end_line": 1751,
+        "line": 1753,
+        "end_line": 1753,
         "syntax_sha256": "a689734a8110f88cc6a811095a59d0b8ea20393a60b85036ae3c1877b8035220"
       },
       "receiver": "app",
@@ -894,8 +898,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "bridge_credential_status",
-        "line": 1817,
-        "end_line": 1817,
+        "line": 1819,
+        "end_line": 1819,
         "syntax_sha256": "11bffddb5b60dafd0e971faa9661e9c7facff8240634a1c4368d20ace2080ff0"
       },
       "receiver": "app",
@@ -913,8 +917,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "bridge_credential_rotate",
-        "line": 1823,
-        "end_line": 1823,
+        "line": 1825,
+        "end_line": 1825,
         "syntax_sha256": "8d8cc085120ff9e60bf81819a520b2f88d3d9d189c2d0d7b0f03d56c71981a9a"
       },
       "receiver": "app",
@@ -932,8 +936,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "orgs_create",
-        "line": 1840,
-        "end_line": 1840,
+        "line": 1842,
+        "end_line": 1842,
         "syntax_sha256": "75c48485a87384b40ea06efddd7bcd5ecea0a025517d9ca084204f1dee2fe149"
       },
       "receiver": "app",
@@ -951,8 +955,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "orgs_delete",
-        "line": 1994,
-        "end_line": 1994,
+        "line": 1996,
+        "end_line": 1996,
         "syntax_sha256": "1d751150901c9a22f93c6442e73fd746958288c6b362b0d5b650b6a9c9862775"
       },
       "receiver": "app",
@@ -970,8 +974,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "net_probe",
-        "line": 2033,
-        "end_line": 2033,
+        "line": 2035,
+        "end_line": 2035,
         "syntax_sha256": "e213828924422520e5b0ff54bef116e87b2297eff3e067d22c85f474d507a689"
       },
       "receiver": "app",
@@ -989,8 +993,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "org_net",
-        "line": 2052,
-        "end_line": 2052,
+        "line": 2054,
+        "end_line": 2054,
         "syntax_sha256": "6db08205be0016be8cad2ec9e8662e7bc80f245df4e76cdb655ff06173c24914"
       },
       "receiver": "app",
@@ -1008,8 +1012,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "org_tree",
-        "line": 2569,
-        "end_line": 2569,
+        "line": 2571,
+        "end_line": 2571,
         "syntax_sha256": "1c3c2f55eb3e43c769f377c8308fc3be10e77dda21d84a733b39c73f2704a91c"
       },
       "receiver": "app",
@@ -1027,8 +1031,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "org_node_detail",
-        "line": 2626,
-        "end_line": 2626,
+        "line": 2628,
+        "end_line": 2628,
         "syntax_sha256": "bf936760272352298af7384571e1c1df6280f83f722e5944fb570996283b8cc3"
       },
       "receiver": "app",
@@ -1046,8 +1050,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "defaults_get",
-        "line": 3319,
-        "end_line": 3319,
+        "line": 3321,
+        "end_line": 3321,
         "syntax_sha256": "1374c841f1da5c344c07f0e63e647de1fa9e748937f5a246bc3c015f6e886a4d"
       },
       "receiver": "app",
@@ -1065,8 +1069,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "defaults_set",
-        "line": 3329,
-        "end_line": 3329,
+        "line": 3331,
+        "end_line": 3331,
         "syntax_sha256": "d447c3d9e00fc96f4da3c4e801e0f1e8829ecc76a1c5d556fafd62e978f37b67"
       },
       "receiver": "app",
@@ -1084,8 +1088,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "org_settings",
-        "line": 3392,
-        "end_line": 3392,
+        "line": 3394,
+        "end_line": 3394,
         "syntax_sha256": "c5bb1470e400473c2a13f10888a48f969b9c4d7c4e79635f279783ce5f6a4668"
       },
       "receiver": "app",
@@ -1103,8 +1107,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "org_kiosk",
-        "line": 3646,
-        "end_line": 3646,
+        "line": 3648,
+        "end_line": 3648,
         "syntax_sha256": "6d4db1af998e4b6c3a100b929b0a77a751e7e23225641e4fd3ba0ad8c22281f3"
       },
       "receiver": "app",
@@ -1122,8 +1126,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "org_hire_defaults",
-        "line": 3759,
-        "end_line": 3759,
+        "line": 3761,
+        "end_line": 3761,
         "syntax_sha256": "b00e3a730178312bd755e800303d211e9a89b15d7dc89141716572b51e282c91"
       },
       "receiver": "app",
@@ -1141,8 +1145,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "node_scope",
-        "line": 3809,
-        "end_line": 3809,
+        "line": 3811,
+        "end_line": 3811,
         "syntax_sha256": "f45b3f4bdd75a750682bf61b17510f169fe78e7209fea1b36affd569dd9305fa"
       },
       "receiver": "app",
@@ -1160,8 +1164,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "fs_list",
-        "line": 3855,
-        "end_line": 3855,
+        "line": 3857,
+        "end_line": 3857,
         "syntax_sha256": "8ea6d96abe398b562b7a9e2929ec56f051f522ac4982c38b02664f41ddef344e"
       },
       "receiver": "app",
@@ -1179,8 +1183,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "charters_list",
-        "line": 3977,
-        "end_line": 3977,
+        "line": 3979,
+        "end_line": 3979,
         "syntax_sha256": "e2c77cdca7de22e2dcc92b4c916d79c9499643d0fbebdd9062877871f0833156"
       },
       "receiver": "app",
@@ -1198,8 +1202,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "charter_template_dirs_info",
-        "line": 4212,
-        "end_line": 4212,
+        "line": 4214,
+        "end_line": 4214,
         "syntax_sha256": "ed4bfc64bb6f50a0c48054ae746a10e746c496b157083233af74488affcda028"
       },
       "receiver": "app",
@@ -1217,8 +1221,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "charter_template_dirs_save",
-        "line": 4225,
-        "end_line": 4225,
+        "line": 4227,
+        "end_line": 4227,
         "syntax_sha256": "5d944c1eb125371b59aa5db5317cbb8cb0a686dd6d583b1c8d5c2b2a71caaf13"
       },
       "receiver": "app",
@@ -1236,8 +1240,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "charters_populate",
-        "line": 4246,
-        "end_line": 4246,
+        "line": 4248,
+        "end_line": 4248,
         "syntax_sha256": "c09c63ffb423f397e8b3e3742d10096a854f8942aafd1877d30305c077f8869a"
       },
       "receiver": "app",
@@ -1255,8 +1259,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "charters_open",
-        "line": 4275,
-        "end_line": 4275,
+        "line": 4277,
+        "end_line": 4277,
         "syntax_sha256": "9c4cc073e409911eb0ea57b83e1f708589e7eba53d4988b29c46d3ecc590caa8"
       },
       "receiver": "app",
@@ -1274,8 +1278,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "charters_save",
-        "line": 4308,
-        "end_line": 4308,
+        "line": 4310,
+        "end_line": 4310,
         "syntax_sha256": "b4f4c21149bc3abbfa212e497b830e319d3034707716342f5d7e49110fedcf2b"
       },
       "receiver": "app",
@@ -1293,8 +1297,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "mcp_servers",
-        "line": 4337,
-        "end_line": 4337,
+        "line": 4339,
+        "end_line": 4339,
         "syntax_sha256": "99ef71b535af06ffe154eab3f38a52ef6ff3ac8ed4e8f3d72566584db8735695"
       },
       "receiver": "app",
@@ -1312,8 +1316,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "claude_usage",
-        "line": 4350,
-        "end_line": 4350,
+        "line": 4352,
+        "end_line": 4352,
         "syntax_sha256": "8a865e224a6822e53e59aaa18df72d48fa694f3916bca760a76dbd6547e8aa43"
       },
       "receiver": "app",
@@ -1331,8 +1335,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "claude_usage_peek",
-        "line": 4368,
-        "end_line": 4368,
+        "line": 4370,
+        "end_line": 4370,
         "syntax_sha256": "819177004ed5fabc21bca1b1d93a2c4c6b900c35785a588927e7335ff9f5e957"
       },
       "receiver": "app",
@@ -1350,8 +1354,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "codex_usage",
-        "line": 4374,
-        "end_line": 4374,
+        "line": 4376,
+        "end_line": 4376,
         "syntax_sha256": "54cc28b1ae69502963f5d024f45a96d079228bbba62dcb83661c0d9618dcd472"
       },
       "receiver": "app",
@@ -1369,8 +1373,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "codex_usage_peek",
-        "line": 4386,
-        "end_line": 4386,
+        "line": 4388,
+        "end_line": 4388,
         "syntax_sha256": "785731b79f928b9cfb8562d62da5beb4defd20ff4f6f0d52a18bc00e2a88a3a4"
       },
       "receiver": "app",
@@ -1388,8 +1392,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "antigravity_usage",
-        "line": 4392,
-        "end_line": 4392,
+        "line": 4394,
+        "end_line": 4394,
         "syntax_sha256": "8ea7fba183098f339a0edaf22d4786372d4595c4d5c0fc80ada4bb6d688cd5b1"
       },
       "receiver": "app",
@@ -1407,8 +1411,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "antigravity_usage_peek",
-        "line": 4404,
-        "end_line": 4404,
+        "line": 4406,
+        "end_line": 4406,
         "syntax_sha256": "5b1b23113545cd0b17313e669be0b51c4e4eae804452bfe5c0771ebfd2417aaa"
       },
       "receiver": "app",
@@ -1426,8 +1430,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "openrouter_usage",
-        "line": 4410,
-        "end_line": 4410,
+        "line": 4412,
+        "end_line": 4412,
         "syntax_sha256": "5ba5d42fc7437d8ccb618c1664176f27f9f4c0b959017d042c2bf53a4a48fcfb"
       },
       "receiver": "app",
@@ -1445,8 +1449,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "openrouter_usage_peek",
-        "line": 4423,
-        "end_line": 4423,
+        "line": 4425,
+        "end_line": 4425,
         "syntax_sha256": "71f98f34d8914205d171a24e9ee76b69e0c1f57f2730cfd6533e8bf03b135981"
       },
       "receiver": "app",
@@ -1464,8 +1468,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "accounts_readout",
-        "line": 4451,
-        "end_line": 4451,
+        "line": 4453,
+        "end_line": 4453,
         "syntax_sha256": "66c780c71e75fee8518d898b556212eb9d334e4266e5cbb848a96880755da39a"
       },
       "receiver": "app",
@@ -1483,8 +1487,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "accounts_add_key",
-        "line": 4464,
-        "end_line": 4464,
+        "line": 4466,
+        "end_line": 4466,
         "syntax_sha256": "1c7f9c6610086e1682876cd3795b8cbda3533f3ee60a7dde32680f0f007b4562"
       },
       "receiver": "app",
@@ -1502,8 +1506,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "accounts_delete_key",
-        "line": 4485,
-        "end_line": 4485,
+        "line": 4487,
+        "end_line": 4487,
         "syntax_sha256": "261f658257d81d41ba8765d290f7abd62111cc3a76e51e805c6f40dbb7fe6246"
       },
       "receiver": "app",
@@ -1521,8 +1525,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "accounts_key_order",
-        "line": 4494,
-        "end_line": 4494,
+        "line": 4496,
+        "end_line": 4496,
         "syntax_sha256": "5ad2784967be3c4899353b547d25ecdd663ba0828259cd3c57c343dbf65a17d7"
       },
       "receiver": "app",
@@ -1540,8 +1544,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "accounts_usage_all",
-        "line": 4503,
-        "end_line": 4503,
+        "line": 4505,
+        "end_line": 4505,
         "syntax_sha256": "361f5b281f3cac2ab769727ba416982cd5e99d55ac71568c01f1443eac946ef6"
       },
       "receiver": "app",
@@ -1559,8 +1563,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "accounts_usage_one",
-        "line": 4513,
-        "end_line": 4513,
+        "line": 4515,
+        "end_line": 4515,
         "syntax_sha256": "2d06a7accc95090fe3310061bcba9a34ed52beb3b90d1b2135829704456974e4"
       },
       "receiver": "app",
@@ -1578,8 +1582,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "host_info",
-        "line": 4523,
-        "end_line": 4523,
+        "line": 4525,
+        "end_line": 4525,
         "syntax_sha256": "d633314e6169e899789885a59086dba5e19a3618c039ea081f79e032ea20cbe3"
       },
       "receiver": "app",
@@ -1597,8 +1601,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "providers_info",
-        "line": 4697,
-        "end_line": 4697,
+        "line": 4699,
+        "end_line": 4699,
         "syntax_sha256": "b90f03fa4b021adda7c7ec0443624be1833009fe56202fb933f64fe5ea145561"
       },
       "receiver": "app",
@@ -1616,8 +1620,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "provider_preference",
-        "line": 4741,
-        "end_line": 4741,
+        "line": 4743,
+        "end_line": 4743,
         "syntax_sha256": "f2ed78bd2e1d06853b4b0815dda8f301dffd57301f8fd3f8c7d958567d8eeeb9"
       },
       "receiver": "app",
@@ -1635,8 +1639,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "provider_apikey_fallback",
-        "line": 4765,
-        "end_line": 4765,
+        "line": 4767,
+        "end_line": 4767,
         "syntax_sha256": "86dbac4a8f45c86a596a77a92652f7423e30674351822a1c2b41ec572c452061"
       },
       "receiver": "app",
@@ -1654,8 +1658,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "provider_subscription_inference",
-        "line": 4783,
-        "end_line": 4783,
+        "line": 4785,
+        "end_line": 4785,
         "syntax_sha256": "6ed55f679233eb2ba71fc17a25a602e72a7cd8604ba49be7465863f139a3ae5f"
       },
       "receiver": "app",
@@ -1673,8 +1677,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "openrouter_status",
-        "line": 4845,
-        "end_line": 4845,
+        "line": 4847,
+        "end_line": 4847,
         "syntax_sha256": "b293522c69d62c427dc7434139fadbef471d78759f92aa1d455f6929358e490b"
       },
       "receiver": "app",
@@ -1692,8 +1696,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "openrouter_set_key",
-        "line": 4853,
-        "end_line": 4853,
+        "line": 4855,
+        "end_line": 4855,
         "syntax_sha256": "9b1bd98e8ad86fc528597da3eb6f04b2451e9f372a62a881a9c84534acc9d4f4"
       },
       "receiver": "app",
@@ -1711,8 +1715,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "openrouter_set_harness",
-        "line": 4872,
-        "end_line": 4872,
+        "line": 4874,
+        "end_line": 4874,
         "syntax_sha256": "5c71a78772220eabb31ec0c8fe0a7e2adcbc349b5c3da320d732ddf0b2833b67"
       },
       "receiver": "app",
@@ -1730,8 +1734,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "openrouter_clear_key",
-        "line": 4906,
-        "end_line": 4906,
+        "line": 4908,
+        "end_line": 4908,
         "syntax_sha256": "71c6d348cd152fb3601ce8107489808aa41ee81cb341c5400487a2bcaeda2301"
       },
       "receiver": "app",
@@ -1749,8 +1753,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "openrouter_models",
-        "line": 4917,
-        "end_line": 4917,
+        "line": 4919,
+        "end_line": 4919,
         "syntax_sha256": "a4911aef9d561631d06a78e3c94e10945cf4f7f72eafaa9bb35d74399947a4a4"
       },
       "receiver": "app",
@@ -1768,8 +1772,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "openrouter_favorite",
-        "line": 4941,
-        "end_line": 4941,
+        "line": 4943,
+        "end_line": 4943,
         "syntax_sha256": "64438b01b362bbe2adba21823712e07e018b6a45720e511c018880210906c202"
       },
       "receiver": "app",
@@ -1787,8 +1791,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "runtime_preference_info",
-        "line": 4989,
-        "end_line": 4989,
+        "line": 4991,
+        "end_line": 4991,
         "syntax_sha256": "bc54faeafe90c5c0856a39ee5b3aa242b237b03257ee6c9ad0437b2b440ed267"
       },
       "receiver": "app",
@@ -1806,8 +1810,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "runtime_preference",
-        "line": 5002,
-        "end_line": 5002,
+        "line": 5004,
+        "end_line": 5004,
         "syntax_sha256": "6873ec7fbda647651ae3edaa3105e11a67f756d348b6c90ce6f180c82839c2d3"
       },
       "receiver": "app",
@@ -1825,8 +1829,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "accounts_list",
-        "line": 5115,
-        "end_line": 5115,
+        "line": 5117,
+        "end_line": 5117,
         "syntax_sha256": "7cc6405df238afdd7873ae945a171b4fcea8f47e438701a0395fc88db30d266f"
       },
       "receiver": "app",
@@ -1844,8 +1848,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "accounts_create",
-        "line": 5161,
-        "end_line": 5161,
+        "line": 5163,
+        "end_line": 5163,
         "syntax_sha256": "a99cf655433fde26983da898bd448ac6874f195d02906f022b9fd47260742358"
       },
       "receiver": "app",
@@ -1863,8 +1867,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "accounts_identity",
-        "line": 5229,
-        "end_line": 5229,
+        "line": 5231,
+        "end_line": 5231,
         "syntax_sha256": "e31031c86c4dbc485fb1167bc19ec66aab14731f832bfb33ca17a81cb2003997"
       },
       "receiver": "app",
@@ -1882,8 +1886,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "accounts_usage",
-        "line": 5273,
-        "end_line": 5273,
+        "line": 5275,
+        "end_line": 5275,
         "syntax_sha256": "3079d3e61612d441562caff10a29f370265b309a8a79d0713281befce7cb16c0"
       },
       "receiver": "app",
@@ -1901,8 +1905,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "accounts_remove",
-        "line": 5313,
-        "end_line": 5313,
+        "line": 5315,
+        "end_line": 5315,
         "syntax_sha256": "1474726854c717c969963679634ed3723bab3f4c7dc21876e61615d19fcf7fae"
       },
       "receiver": "app",
@@ -1920,8 +1924,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "accounts_remove",
-        "line": 5337,
-        "end_line": 5339,
+        "line": 5339,
+        "end_line": 5341,
         "syntax_sha256": "803cd9ebe4e6f15df5489b71b46fcde4067133a2d9c6265e6d0af1700fadf7d5"
       },
       "mechanism": "asyncio.to_thread",
@@ -1935,8 +1939,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "accounts_enabled",
-        "line": 5357,
-        "end_line": 5357,
+        "line": 5359,
+        "end_line": 5359,
         "syntax_sha256": "c7f6fbcc570b6e74bf0d8ecc457e699ae8068638b83f7730d81175712a1c8714"
       },
       "receiver": "app",
@@ -1954,8 +1958,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "accounts_marks",
-        "line": 5374,
-        "end_line": 5374,
+        "line": 5376,
+        "end_line": 5376,
         "syntax_sha256": "cbdd5194e5b8576f569ed9dd6e5b619f900e23c78b0b0300fe82af2beb1df9f5"
       },
       "receiver": "app",
@@ -1973,8 +1977,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "accounts_mark_clear",
-        "line": 5396,
-        "end_line": 5396,
+        "line": 5398,
+        "end_line": 5398,
         "syntax_sha256": "14191ee74ea39a3ae4c1ffb756a36716ba1075f1c10d57127cc3ebe98acaeefa"
       },
       "receiver": "app",
@@ -1992,8 +1996,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "node_account_assign",
-        "line": 5419,
-        "end_line": 5419,
+        "line": 5421,
+        "end_line": 5421,
         "syntax_sha256": "0b6dd873240a8daa787b19753f49c7b165295930c941a227a074ae3cc2fd08d7"
       },
       "receiver": "app",
@@ -2011,8 +2015,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "node_reorder",
-        "line": 5437,
-        "end_line": 5437,
+        "line": 5439,
+        "end_line": 5439,
         "syntax_sha256": "0422bfdef0e2b949e1b0d0c88fac5d662a13f5b574291a4e5f49947d136ccdaa"
       },
       "receiver": "app",
@@ -2030,8 +2034,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "node_message",
-        "line": 5501,
-        "end_line": 5501,
+        "line": 5503,
+        "end_line": 5503,
         "syntax_sha256": "fd7af3f427f289c5396ed74a962837932cc86ba24182f627165679112e6173a0"
       },
       "receiver": "app",
@@ -2049,8 +2053,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "node_message",
-        "line": 5620,
-        "end_line": 5620,
+        "line": 5622,
+        "end_line": 5622,
         "syntax_sha256": "d35c119968b2fd29b23a5d09d45b09fc3488ff2df22c98dd95ed0c0f25bb97b4"
       },
       "mechanism": "threading.Thread",
@@ -2063,8 +2067,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "node_steer",
-        "line": 5803,
-        "end_line": 5803,
+        "line": 5805,
+        "end_line": 5805,
         "syntax_sha256": "774e69cb9eb6b880145925eafe4b209b305c1e3383d1875978f8a28dd67dfbda"
       },
       "receiver": "app",
@@ -2082,8 +2086,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "node_steer_ack",
-        "line": 5852,
-        "end_line": 5852,
+        "line": 5854,
+        "end_line": 5854,
         "syntax_sha256": "a82e608bd3a53569d950b7f0f10b7481ada829fdecdba7c307faeb1e54cf9fed"
       },
       "receiver": "app",
@@ -2101,8 +2105,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "node_steer_state",
-        "line": 5860,
-        "end_line": 5860,
+        "line": 5862,
+        "end_line": 5862,
         "syntax_sha256": "2a80d3f3e6fda1a6391b60bbb36014209b161672cd5fc6b110d136e1919ae731"
       },
       "receiver": "app",
@@ -2120,8 +2124,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "node_interrupt",
-        "line": 5872,
-        "end_line": 5872,
+        "line": 5874,
+        "end_line": 5874,
         "syntax_sha256": "1718de641103891224886aedfde6f68de01cbef9dae22d4fbed57057419a2038"
       },
       "receiver": "app",
@@ -2139,8 +2143,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "node_halt",
-        "line": 5907,
-        "end_line": 5907,
+        "line": 5909,
+        "end_line": 5909,
         "syntax_sha256": "6ca1c9b644b4a3c5a383dfde7c9dda72578e1715a99982f33615c7a8fa2c8c22"
       },
       "receiver": "app",
@@ -2158,8 +2162,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "node_unhalt",
-        "line": 5923,
-        "end_line": 5923,
+        "line": 5925,
+        "end_line": 5925,
         "syntax_sha256": "1356958a3ced42249dc49cba0a604a8eb5b7a7b406fd5af9760fccb78ccfac0b"
       },
       "receiver": "app",
@@ -2177,8 +2181,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "node_process",
-        "line": 5935,
-        "end_line": 5935,
+        "line": 5937,
+        "end_line": 5937,
         "syntax_sha256": "2828f4f26a6b7beb5443b32389565a95c922c3dfb43f4ec3ad24c5026055f7a5"
       },
       "receiver": "app",
@@ -2196,8 +2200,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "node_compact",
-        "line": 5964,
-        "end_line": 5964,
+        "line": 5966,
+        "end_line": 5966,
         "syntax_sha256": "03a7ad0fa8432cefda078dd384d5c579cce7ffa325a282da6ac968ae6cbdc6e8"
       },
       "receiver": "app",
@@ -2215,8 +2219,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "node_compact",
-        "line": 6011,
-        "end_line": 6011,
+        "line": 6013,
+        "end_line": 6013,
         "syntax_sha256": "d35c119968b2fd29b23a5d09d45b09fc3488ff2df22c98dd95ed0c0f25bb97b4"
       },
       "mechanism": "threading.Thread",
@@ -2229,8 +2233,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "lineage_recover",
-        "line": 6015,
-        "end_line": 6015,
+        "line": 6017,
+        "end_line": 6017,
         "syntax_sha256": "d8d2a3172459adc4e0cc70f9188e941027573927b2a09604b5f46af7b77bb753"
       },
       "receiver": "app",
@@ -2248,8 +2252,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "lineage_drop_phantom",
-        "line": 6039,
-        "end_line": 6039,
+        "line": 6041,
+        "end_line": 6041,
         "syntax_sha256": "1010758881253d33fb3832e61fe4bf71a2854340673db995d97ae7fbb838e58b"
       },
       "receiver": "app",
@@ -2267,8 +2271,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "org_dissolve_all",
-        "line": 6063,
-        "end_line": 6063,
+        "line": 6065,
+        "end_line": 6065,
         "syntax_sha256": "9bcc5923cd5799ed07e332576f3aff1c58fae295a3082bebe03e2ae4d317f7ec"
       },
       "receiver": "app",
@@ -2286,8 +2290,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "org_killswitch",
-        "line": 6081,
-        "end_line": 6081,
+        "line": 6083,
+        "end_line": 6083,
         "syntax_sha256": "e7b452f2f7402917479ef4e36906237df882e67ac87f97c7e2b84592bb7e6926"
       },
       "receiver": "app",
@@ -2305,8 +2309,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "org_killswitch_release",
-        "line": 6102,
-        "end_line": 6102,
+        "line": 6104,
+        "end_line": 6104,
         "syntax_sha256": "a6e87591f2c26ee8f440a5f5acc94a52daa5f27650e447a394ae206982185214"
       },
       "receiver": "app",
@@ -2324,8 +2328,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "org_resume",
-        "line": 6117,
-        "end_line": 6117,
+        "line": 6119,
+        "end_line": 6119,
         "syntax_sha256": "ac937ea525924875056b53e5df0b7f6f8e1d3506de3092fdcee1ef468f57c450"
       },
       "receiver": "app",
@@ -2343,8 +2347,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "credit_request_decide",
-        "line": 6149,
-        "end_line": 6149,
+        "line": 6151,
+        "end_line": 6151,
         "syntax_sha256": "df29c97271d1f98bd10787f948893bbdac4500533f81eadeb14dcbff6b9a4554"
       },
       "receiver": "app",
@@ -2362,8 +2366,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "remote_control",
-        "line": 6199,
-        "end_line": 6199,
+        "line": 6201,
+        "end_line": 6201,
         "syntax_sha256": "f1d562a3fab5888bdcd3632e6fd31b40030663be8634d7cea6ab075251deef16"
       },
       "receiver": "app",
@@ -2381,8 +2385,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "documents_list",
-        "line": 6230,
-        "end_line": 6230,
+        "line": 6232,
+        "end_line": 6232,
         "syntax_sha256": "4694b1e41221cda61d1b1097730f82672bb42443561520a59ff7018521881867"
       },
       "receiver": "app",
@@ -2400,8 +2404,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "document_get",
-        "line": 6259,
-        "end_line": 6259,
+        "line": 6261,
+        "end_line": 6261,
         "syntax_sha256": "a1150592a2d7b57764cb438f746fc859630f0a24c98dbcca9a0b1cfa39ec8520"
       },
       "receiver": "app",
@@ -2419,8 +2423,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "document_download",
-        "line": 6284,
-        "end_line": 6284,
+        "line": 6286,
+        "end_line": 6286,
         "syntax_sha256": "4a757477a161da4b95b55884a096d17fa03f3c6c4f9740a3512b54deb046eb00"
       },
       "receiver": "app",
@@ -2438,8 +2442,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "document_mockup",
-        "line": 6376,
-        "end_line": 6376,
+        "line": 6378,
+        "end_line": 6378,
         "syntax_sha256": "25505a28b1eb6d1b4c543dfb0abcc030a48849663f2b736db446cf6d3f67f58a"
       },
       "receiver": "app",
@@ -2457,8 +2461,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "document_dismiss",
-        "line": 6420,
-        "end_line": 6420,
+        "line": 6422,
+        "end_line": 6422,
         "syntax_sha256": "d8cb98c7a1da362171cb846fd72238327b49b0318c8a2597afe677013a790174"
       },
       "receiver": "app",
@@ -2476,8 +2480,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "repair_rename",
-        "line": 6445,
-        "end_line": 6445,
+        "line": 6447,
+        "end_line": 6447,
         "syntax_sha256": "1613ea8814979f5a09cdc99fff0926d580276d44b6a1c5aa08d8b750bb8f0fec"
       },
       "receiver": "app",
@@ -2495,8 +2499,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "staffing_options",
-        "line": 6505,
-        "end_line": 6505,
+        "line": 6507,
+        "end_line": 6507,
         "syntax_sha256": "c69156be69d18dcc3b75b45eacbc0c969a98e4b06d1c0b2467a6552bfecb901e"
       },
       "receiver": "app",
@@ -2514,8 +2518,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "staffing_options_refresh",
-        "line": 6528,
-        "end_line": 6528,
+        "line": 6530,
+        "end_line": 6530,
         "syntax_sha256": "fca957251d76b4d2ae57f51f6e026239c7fdd4fcccacc4b93f7650a54e0ffe51"
       },
       "receiver": "app",
@@ -2533,8 +2537,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "quick_staff_preview",
-        "line": 6543,
-        "end_line": 6543,
+        "line": 6545,
+        "end_line": 6545,
         "syntax_sha256": "bfd37e39b17064ebe1f7c47bb0114ca692db52fbd25eb5844a13313d53d4e1f9"
       },
       "receiver": "app",
@@ -2552,8 +2556,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "quick_staff_select",
-        "line": 6633,
-        "end_line": 6633,
+        "line": 6635,
+        "end_line": 6635,
         "syntax_sha256": "8476bc1671cfbbc6674de6e6d5a7030a0bfd3920a415704a85a42a4942b75861"
       },
       "receiver": "app",
@@ -2571,8 +2575,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "work_identity_migrate",
-        "line": 6887,
-        "end_line": 6887,
+        "line": 6889,
+        "end_line": 6889,
         "syntax_sha256": "5b2702ea1ad1020dedc46a9a60080f51d6bcbbc4dcc910ea39c8f35f1393853a"
       },
       "receiver": "app",
@@ -2590,8 +2594,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "work_items_list",
-        "line": 6908,
-        "end_line": 6908,
+        "line": 6910,
+        "end_line": 6910,
         "syntax_sha256": "fa5adb3f004637b460e6d2f73cf2ac0902a28009294382c3d876bbb05524b398"
       },
       "receiver": "app",
@@ -2609,8 +2613,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "work_item_get",
-        "line": 6927,
-        "end_line": 6927,
+        "line": 6929,
+        "end_line": 6929,
         "syntax_sha256": "74e05e704dc9ba119a10661ecf9c377edb3919397207c14d46213d72a4378e14"
       },
       "receiver": "app",
@@ -2628,8 +2632,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "work_item_reply",
-        "line": 6942,
-        "end_line": 6942,
+        "line": 6944,
+        "end_line": 6944,
         "syntax_sha256": "b06fa66af968af91c030942f7b89a99bc530332a407e38f1c56e01c914d4c53f"
       },
       "receiver": "app",
@@ -2647,8 +2651,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "work_item_dismiss",
-        "line": 7107,
-        "end_line": 7107,
+        "line": 7109,
+        "end_line": 7109,
         "syntax_sha256": "e5ea7fa1008dd3e081bbf47f69b99409b1e0a8386b2216a346dece07c694ad1c"
       },
       "receiver": "app",
@@ -2666,8 +2670,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "work_item_accept",
-        "line": 7157,
-        "end_line": 7157,
+        "line": 7159,
+        "end_line": 7159,
         "syntax_sha256": "00f73aa1ab4cdc4fbfe165de4116edabc3a66fa9ed1a85c300830bb5e5a0a48c"
       },
       "receiver": "app",
@@ -2685,8 +2689,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "work_item_delete",
-        "line": 7182,
-        "end_line": 7182,
+        "line": 7184,
+        "end_line": 7184,
         "syntax_sha256": "c389d8423d5f4061f6914affa49cf1fed91650245bda28dc948ccc62b40b9bc2"
       },
       "receiver": "app",
@@ -2704,8 +2708,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "work_item_attach",
-        "line": 7231,
-        "end_line": 7231,
+        "line": 7233,
+        "end_line": 7233,
         "syntax_sha256": "0ce6678cfbde254ae829139694b3de77aff0d323dea229d58ae663b2f374a0a8"
       },
       "receiver": "app",
@@ -2723,8 +2727,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "work_item_attachment_file",
-        "line": 7294,
-        "end_line": 7294,
+        "line": 7296,
+        "end_line": 7296,
         "syntax_sha256": "5126038e671d5dcee5b1492e8e76e35c1e22b712b57e63aee85a15579f6551b3"
       },
       "receiver": "app",
@@ -2742,8 +2746,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "work_item_artifact_file",
-        "line": 7483,
-        "end_line": 7483,
+        "line": 7485,
+        "end_line": 7485,
         "syntax_sha256": "5cf42fb6946bbeac20fcdfb4f1999a89bc52809741e42438a6977d49fb8cf89f"
       },
       "receiver": "app",
@@ -2761,8 +2765,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "work_item_detach",
-        "line": 7508,
-        "end_line": 7508,
+        "line": 7510,
+        "end_line": 7510,
         "syntax_sha256": "ac1885eaa8147d3d0f6ce25af31d24c307c94e3eaa1a0125f9cf44b7b0488e53"
       },
       "receiver": "app",
@@ -2780,8 +2784,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "ask_answer",
-        "line": 8576,
-        "end_line": 8576,
+        "line": 8578,
+        "end_line": 8578,
         "syntax_sha256": "c422e911a81ee8b99368af8bc7bf026766745eb1bfcd394092ed166b964ec9d1"
       },
       "receiver": "app",
@@ -2799,8 +2803,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "batch_resolve",
-        "line": 8626,
-        "end_line": 8626,
+        "line": 8628,
+        "end_line": 8628,
         "syntax_sha256": "a61ea291f7ec967f30cd484e1958689af90f6832a9f439fb9f3dbe73030b095d"
       },
       "receiver": "app",
@@ -2818,8 +2822,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "watchdog_action",
-        "line": 8666,
-        "end_line": 8666,
+        "line": 8668,
+        "end_line": 8668,
         "syntax_sha256": "1c51e8c6733bab27eaa7ed151ac2d053088eae2a7143f0532ed368bba4fde6ce"
       },
       "receiver": "app",
@@ -2837,8 +2841,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "node_unstick",
-        "line": 8680,
-        "end_line": 8680,
+        "line": 8682,
+        "end_line": 8682,
         "syntax_sha256": "386a68fca50f80abc055d8f92cf0337420defb1b050d0d78f8af50019afc6798"
       },
       "receiver": "app",
@@ -2856,8 +2860,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "node_continue_on",
-        "line": 8868,
-        "end_line": 8868,
+        "line": 8870,
+        "end_line": 8870,
         "syntax_sha256": "e8e11dafa606df90e61c8da2beecb5e721cd68804a7a818bab05973d3dd81949"
       },
       "receiver": "app",
@@ -2875,8 +2879,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "user_inbox",
-        "line": 8891,
-        "end_line": 8891,
+        "line": 8893,
+        "end_line": 8893,
         "syntax_sha256": "075be9e3b83c6eadd675fb222a08dbf583336b87200d17f1d4b915956ad08c91"
       },
       "receiver": "app",
@@ -2894,8 +2898,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "user_inbox_read",
-        "line": 8911,
-        "end_line": 8911,
+        "line": 8913,
+        "end_line": 8913,
         "syntax_sha256": "d897c5aba5c83e55f5b16c3476ad8bd2801ddd8579c421647c0e340abad27be4"
       },
       "receiver": "app",
@@ -2913,8 +2917,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "org_inbox_entries",
-        "line": 8937,
-        "end_line": 8937,
+        "line": 8939,
+        "end_line": 8939,
         "syntax_sha256": "fd2067deb0dcabf7f26046fbc8e50595c6c4e488e71e545fb413baa921fac454"
       },
       "receiver": "app",
@@ -2932,8 +2936,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "mail_one",
-        "line": 8964,
-        "end_line": 8964,
+        "line": 8966,
+        "end_line": 8966,
         "syntax_sha256": "dbaba04b59cdbd947a44e5554c2d2dc5f4ea42e89d978d53438a5b581218e846"
       },
       "receiver": "app",
@@ -2951,8 +2955,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "org_inbox_read",
-        "line": 9012,
-        "end_line": 9012,
+        "line": 9014,
+        "end_line": 9014,
         "syntax_sha256": "972498562d25bf025a73a69b117d3462695d448960ee3e81c4aac631928e6bc3"
       },
       "receiver": "app",
@@ -2970,8 +2974,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "org_inbox_upload",
-        "line": 9059,
-        "end_line": 9059,
+        "line": 9061,
+        "end_line": 9061,
         "syntax_sha256": "d5c6e55fa4245875349eeec8f4a5c90dbc2f2ce79b19c8edd41c00f39963c16d"
       },
       "receiver": "app",
@@ -2989,8 +2993,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "org_inbox_send",
-        "line": 9087,
-        "end_line": 9087,
+        "line": 9089,
+        "end_line": 9089,
         "syntax_sha256": "01439066242cf84115d5208bdc6103f70de57ce6d59cdc1f63c04d431aa86d0f"
       },
       "receiver": "app",
@@ -3008,8 +3012,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "user_inbox_clear",
-        "line": 9165,
-        "end_line": 9165,
+        "line": 9167,
+        "end_line": 9167,
         "syntax_sha256": "6d54805cb4b82c712fd8b062a5b933ea6d55b1659d4e94529916f04a23083734"
       },
       "receiver": "app",
@@ -3027,8 +3031,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "crash_report",
-        "line": 9208,
-        "end_line": 9208,
+        "line": 9210,
+        "end_line": 9210,
         "syntax_sha256": "f357dc796238e6fcabec51bfd44e3b06ee1ec4403eb48fd9541b1fefa68f1ec1"
       },
       "receiver": "app",
@@ -3046,8 +3050,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "crash_reports_list",
-        "line": 9261,
-        "end_line": 9261,
+        "line": 9263,
+        "end_line": 9263,
         "syntax_sha256": "f55ea36a88d4c3764ac706603bf58b73ec849431956d8570ec7d5d2c822be654"
       },
       "receiver": "app",
@@ -3065,8 +3069,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "node_history",
-        "line": 9275,
-        "end_line": 9275,
+        "line": 9277,
+        "end_line": 9277,
         "syntax_sha256": "835b83eef9cfab6f66b6ed11ff671ae4556904f239771eee245b7d62b72a215c"
       },
       "receiver": "app",
@@ -3084,8 +3088,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "node_scratch",
-        "line": 9336,
-        "end_line": 9336,
+        "line": 9338,
+        "end_line": 9338,
         "syntax_sha256": "da5243513a5b2a1c9885f828bc0d4dd1a926858b8347fafe1cc6280a55a0d901"
       },
       "receiver": "app",
@@ -3103,8 +3107,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "orgmd_get",
-        "line": 9377,
-        "end_line": 9377,
+        "line": 9379,
+        "end_line": 9379,
         "syntax_sha256": "0ab0184a70cc47735607dcb9c75fa3ac91a16f9d031c5efea210c8ca0d713a7d"
       },
       "receiver": "app",
@@ -3122,8 +3126,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "orgmd_put",
-        "line": 9411,
-        "end_line": 9411,
+        "line": 9413,
+        "end_line": 9413,
         "syntax_sha256": "72b98046817edb7fe70cd0fc16ac531341159c3b930d4806cabc5978952c3a27"
       },
       "receiver": "app",
@@ -3141,8 +3145,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "user_audience",
-        "line": 9467,
-        "end_line": 9467,
+        "line": 9469,
+        "end_line": 9469,
         "syntax_sha256": "49fb193c6f5f8d63d3b70d0861d476b25262b800efeb1dc10ddde478f54ca6b5"
       },
       "receiver": "app",
@@ -3160,8 +3164,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "audiences_list",
-        "line": 9492,
-        "end_line": 9492,
+        "line": 9494,
+        "end_line": 9494,
         "syntax_sha256": "53c30f2df6f87f5f0f190e4c3f8f9404e9eb7aeb683e53894ca79bb2ab086277"
       },
       "receiver": "app",
@@ -3179,8 +3183,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "anthropic_proxy",
-        "line": 9530,
-        "end_line": 9531,
+        "line": 9532,
+        "end_line": 9533,
         "syntax_sha256": "016eef0105290f64dde1b425cb63f15fbdf0ccc646fe2d5472394e6e7d801356"
       },
       "receiver": "app",
@@ -3198,8 +3202,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_agent_call_route",
-        "line": 11006,
-        "end_line": 11006,
+        "line": 11008,
+        "end_line": 11008,
         "syntax_sha256": "82b270029b3629bdec1560ab71fe7ba3f721dc6e5722d144eb53f1a66236e1a6"
       },
       "receiver": "app",
@@ -3217,8 +3221,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "node_upload",
-        "line": 12790,
-        "end_line": 12790,
+        "line": 12792,
+        "end_line": 12792,
         "syntax_sha256": "05e37c88f856bcb8b428449e3677a0049abab1e9ae8efab1cf8c70f26d9c5d4e"
       },
       "receiver": "app",
@@ -3236,8 +3240,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "node_file",
-        "line": 13190,
-        "end_line": 13190,
+        "line": 13192,
+        "end_line": 13192,
         "syntax_sha256": "8fdb2b666c0fee715329b05847911a346937434b480691526dcb59ecebc55e23"
       },
       "receiver": "app",
@@ -3255,8 +3259,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "disk_list",
-        "line": 13299,
-        "end_line": 13299,
+        "line": 13301,
+        "end_line": 13301,
         "syntax_sha256": "a4fa33bcce3bc35308161d311655f87d367d8f615d652d9e7e2df91fe51b75fb"
       },
       "receiver": "app",
@@ -3274,8 +3278,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "disk_dir",
-        "line": 13354,
-        "end_line": 13354,
+        "line": 13356,
+        "end_line": 13356,
         "syntax_sha256": "d24bbc3de8775da164d445bc66f8fea982b55df38d2b07cecce92e54229ffa65"
       },
       "receiver": "app",
@@ -3293,8 +3297,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "disk_file",
-        "line": 13390,
-        "end_line": 13390,
+        "line": 13392,
+        "end_line": 13392,
         "syntax_sha256": "c5bb25766e808f74409e4ab4c1b957ebdaaa3f7f16b4a3b6f6ee5624b228588b"
       },
       "receiver": "app",
@@ -3312,8 +3316,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "disk_delete",
-        "line": 13432,
-        "end_line": 13432,
+        "line": 13434,
+        "end_line": 13434,
         "syntax_sha256": "37875c83ee650c192e2c5334014235f2350693e8828381e654c5f403940ae738"
       },
       "receiver": "app",
@@ -3331,8 +3335,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "disk_resize",
-        "line": 13518,
-        "end_line": 13518,
+        "line": 13520,
+        "end_line": 13520,
         "syntax_sha256": "c73454558cda8c39efae8b8b4afc0b317933b549c820e0885625d499ac7fa994"
       },
       "receiver": "app",
@@ -3350,8 +3354,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "disk_resize_apply",
-        "line": 13568,
-        "end_line": 13568,
+        "line": 13570,
+        "end_line": 13570,
         "syntax_sha256": "eb221aac49920e06635b76112114dbb54ccff01b627fc0a250fc24e6321d5a5b"
       },
       "receiver": "app",
@@ -3369,8 +3373,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "sweep_legacy_preview",
-        "line": 13633,
-        "end_line": 13633,
+        "line": 13635,
+        "end_line": 13635,
         "syntax_sha256": "7d3ab6ec691d40b2dc1d7a1825ca3e29fb6e0fefd682374856f467d024f15b68"
       },
       "receiver": "app",
@@ -3388,8 +3392,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "sweep_legacy",
-        "line": 13653,
-        "end_line": 13653,
+        "line": 13655,
+        "end_line": 13655,
         "syntax_sha256": "a301de627f075836c2f0829f9fb91f775c24165a934765c68ae4df3ac8a74a64"
       },
       "receiver": "app",
@@ -3407,8 +3411,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_node_chat_route",
-        "line": 13683,
-        "end_line": 13683,
+        "line": 13685,
+        "end_line": 13685,
         "syntax_sha256": "2a143cbca1dfb3f012e8952c39040b45655cdd2acb446f318879fd10e7baeac9"
       },
       "receiver": "app",
@@ -3426,8 +3430,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "retained_reply_events",
-        "line": 13860,
-        "end_line": 13860,
+        "line": 13862,
+        "end_line": 13862,
         "syntax_sha256": "9dbe3600d198f41c4d68f12b8cacc7d89beaa44888d7e5a05f8f213277a1eff6"
       },
       "receiver": "app",
@@ -3445,8 +3449,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "clear_reply_events",
-        "line": 13868,
-        "end_line": 13868,
+        "line": 13870,
+        "end_line": 13870,
         "syntax_sha256": "159196bef8082b349e81435bc4a4013d6448ad72c2acd52b8b1baaf876198b8f"
       },
       "receiver": "app",
@@ -3464,8 +3468,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "node_mail_retract",
-        "line": 13879,
-        "end_line": 13879,
+        "line": 13881,
+        "end_line": 13881,
         "syntax_sha256": "2cd55552f8903ed5cbf8c6054b9806efe1e79527c4e84080acdd40cd58338068"
       },
       "receiver": "app",
@@ -3483,8 +3487,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "node_tool_image",
-        "line": 13897,
-        "end_line": 13897,
+        "line": 13899,
+        "end_line": 13899,
         "syntax_sha256": "1e911e87c03764214be48b32d7fe2381c9f9fde572f4039e7e913a73103645c8"
       },
       "receiver": "app",
@@ -3502,8 +3506,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "node_inbox",
-        "line": 13941,
-        "end_line": 13941,
+        "line": 13943,
+        "end_line": 13943,
         "syntax_sha256": "c21e68e2f576e66430cfaaab9853ae8f37a51dc947401164e15a48508d92b1d4"
       },
       "receiver": "app",
@@ -3521,8 +3525,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "org_events",
-        "line": 13999,
-        "end_line": 13999,
+        "line": 14001,
+        "end_line": 14001,
         "syntax_sha256": "6f493fdf2056d154f7c72bd53763da8b70b8bb22328672a0991957cabf56701b"
       },
       "receiver": "app",
@@ -3540,8 +3544,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "org_op",
-        "line": 14274,
-        "end_line": 14274,
+        "line": 14276,
+        "end_line": 14276,
         "syntax_sha256": "2c9442cf12b8c05a553bfc2262b02f7eb99bb374774978143cd22a8215847816"
       },
       "receiver": "app",
@@ -3559,8 +3563,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "org_ws",
-        "line": 14620,
-        "end_line": 14620,
+        "line": 14622,
+        "end_line": 14622,
         "syntax_sha256": "4b38e54bd02e8451d96346a208734d8b19b665b16f321b5eedebf3736ee02683"
       },
       "receiver": "app",
@@ -3578,8 +3582,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "<module>",
-        "line": 14634,
-        "end_line": 14634,
+        "line": 14636,
+        "end_line": 14636,
         "syntax_sha256": "0d56481a36564bcc15bc61f9c3ed57ead713dd6ae2440ddd2036751e3e52da80"
       },
       "mechanism": "app.include_router",
@@ -3593,8 +3597,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "<module>",
-        "line": 14635,
-        "end_line": 14635,
+        "line": 14637,
+        "end_line": 14637,
         "syntax_sha256": "a81df973e8a9415546a7c76005b5ffe3f11d0f7d79cc0c3a3a3f2c7cb9a05efb"
       },
       "mechanism": "app.router.add_event_handler",
@@ -3608,8 +3612,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "<module>",
-        "line": 14638,
-        "end_line": 14639,
+        "line": 14640,
+        "end_line": 14641,
         "syntax_sha256": "6221dbb40625f0567615b79e864456539d28922a32ba7740019774919be402dc"
       },
       "mechanism": "app.mount",
@@ -3623,8 +3627,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "spa",
-        "line": 14641,
-        "end_line": 14641,
+        "line": 14643,
+        "end_line": 14643,
         "syntax_sha256": "4ab7ef45817e7e1224a14ab3128d6934f9fca9f990ee20d0ef935f39c5d9d379"
       },
       "receiver": "app",
@@ -6402,8 +6406,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12225,
-        "end_line": 12225,
+        "line": 12227,
+        "end_line": 12227,
         "syntax_sha256": "8d80289381ee38d42703e9a4944330197c34f23bcdfd76baacce825f726ac530"
       },
       "names": [
@@ -6417,8 +6421,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_op_unwrap",
-        "line": 10809,
-        "end_line": 10809,
+        "line": 10811,
+        "end_line": 10811,
         "syntax_sha256": "3f268ef306000955de12a05e706b407f8a8532e26f53707e116f13b31dae4b1f"
       },
       "names": [
@@ -6432,8 +6436,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11150,
-        "end_line": 11150,
+        "line": 11152,
+        "end_line": 11152,
         "syntax_sha256": "fe942b7461f2f3750cd0085294c851a06ea70fe5aa1d0d05768dbb78ddb44375"
       },
       "names": [
@@ -6447,8 +6451,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11175,
-        "end_line": 11175,
+        "line": 11177,
+        "end_line": 11177,
         "syntax_sha256": "7e8b7605e163e517a8b3d8ff542c451ff331d38a5e3107ef110a7e425ea7731c"
       },
       "names": [
@@ -6462,8 +6466,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11213,
-        "end_line": 11214,
+        "line": 11215,
+        "end_line": 11216,
         "syntax_sha256": "c4f2269f997146834a22959fe98bcf1815d9fab6869837ad7cc413c9ff2be330"
       },
       "names": [
@@ -6477,8 +6481,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11186,
-        "end_line": 11187,
+        "line": 11188,
+        "end_line": 11189,
         "syntax_sha256": "f472e3454d36fb4f77a7e0cbb544126a5faf6a1a650b6f8f2a2cfeff36688b5f"
       },
       "names": [
@@ -6492,8 +6496,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11129,
-        "end_line": 11129,
+        "line": 11131,
+        "end_line": 11131,
         "syntax_sha256": "d31c3e32afef87224332cbeb3877ee005ce1a6b49387c32aeb84223b8d8a29f3"
       },
       "names": [
@@ -6507,8 +6511,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "remote_control",
-        "line": 6208,
-        "end_line": 6208,
+        "line": 6210,
+        "end_line": 6210,
         "syntax_sha256": "9ef663ef554f949bb1b9dd4d581cc0afdd7de8bb44fb3505a9af6ef60d0e1526"
       },
       "kind": "action",
@@ -6522,8 +6526,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "remote_control",
-        "line": 6210,
-        "end_line": 6210,
+        "line": 6212,
+        "end_line": 6212,
         "syntax_sha256": "7d6b26baa0b3bc6cf9799d848252e5c6c359e2a28031701ac3a7ea7aee468d62"
       },
       "kind": "action",
@@ -6537,8 +6541,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_attach_ref",
-        "line": 7635,
-        "end_line": 7635,
+        "line": 7637,
+        "end_line": 7637,
         "syntax_sha256": "b00b451c4fc38aa860781b1b0375ddbe7f77e1963469c2f13190406d69c15c0a"
       },
       "kind": "tool",
@@ -6554,8 +6558,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_attach_ref",
-        "line": 7641,
-        "end_line": 7641,
+        "line": 7643,
+        "end_line": 7643,
         "syntax_sha256": "493f5204f7687d3c4c71a61df6c7f636133147387f4d09be7535c40fcdd084e8"
       },
       "kind": "tool",
@@ -6569,8 +6573,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_work_expected_rev_route",
-        "line": 7904,
-        "end_line": 7904,
+        "line": 7906,
+        "end_line": 7906,
         "syntax_sha256": "ec17a2b47ca5a2a3ae204f598d017436be5e7e04cf9e1c8c23106508de04b8ac"
       },
       "kind": "action",
@@ -6585,8 +6589,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_work_refuse_unused",
-        "line": 7975,
-        "end_line": 7975,
+        "line": 7977,
+        "end_line": 7977,
         "syntax_sha256": "5597089e03c94379db23fac37bff2258351270bb413061beda9e4a771621e07d"
       },
       "kind": "action",
@@ -6600,8 +6604,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_work_read_call",
-        "line": 8211,
-        "end_line": 8211,
+        "line": 8213,
+        "end_line": 8213,
         "syntax_sha256": "ec17a2b47ca5a2a3ae204f598d017436be5e7e04cf9e1c8c23106508de04b8ac"
       },
       "kind": "action",
@@ -6616,8 +6620,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_work_read_call",
-        "line": 8213,
-        "end_line": 8213,
+        "line": 8215,
+        "end_line": 8215,
         "syntax_sha256": "03029ac63978392dcef8d19309432508c6312c3b513f3d606fa861acce87358c"
       },
       "kind": "action",
@@ -6631,8 +6635,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_work_read_call",
-        "line": 8218,
-        "end_line": 8218,
+        "line": 8220,
+        "end_line": 8220,
         "syntax_sha256": "8a4af4796c305c2fd015cc0a8ffb50b7864c8848b8ef3e56feaf89e5f3efa9a9"
       },
       "kind": "action",
@@ -6647,8 +6651,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_work_read_call",
-        "line": 8222,
-        "end_line": 8222,
+        "line": 8224,
+        "end_line": 8224,
         "syntax_sha256": "dbb250466857a48ab828faa4a19a2ace07bf1baef4422ce7104e15ec237b98f9"
       },
       "kind": "action",
@@ -6662,8 +6666,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_work_read_call",
-        "line": 8225,
-        "end_line": 8225,
+        "line": 8227,
+        "end_line": 8227,
         "syntax_sha256": "8e8576c470c2952c68982376dcb5d7333f196b2f1d1345ebe903da19dd30b042"
       },
       "kind": "action",
@@ -6677,8 +6681,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_work_read_call",
-        "line": 8252,
-        "end_line": 8252,
+        "line": 8254,
+        "end_line": 8254,
         "syntax_sha256": "fbd7b5108676fdd766f80e381ec02211438d6b976f533ddec88d026ea67e05bf"
       },
       "kind": "action",
@@ -6692,8 +6696,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_work_mutate_action",
-        "line": 8325,
-        "end_line": 8325,
+        "line": 8327,
+        "end_line": 8327,
         "syntax_sha256": "3360cfc0849e8e14da6c9c24b7e86066592e320190694814bf5eb2eeee8daa94"
       },
       "kind": "action",
@@ -6707,8 +6711,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_work_mutate_action",
-        "line": 8338,
-        "end_line": 8338,
+        "line": 8340,
+        "end_line": 8340,
         "syntax_sha256": "7a5e1c72c1f108c71c081ce76adc53e75f3802c21199dcfb494128f3f12662e4"
       },
       "kind": "action",
@@ -6722,8 +6726,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_work_mutate_action",
-        "line": 8390,
-        "end_line": 8390,
+        "line": 8392,
+        "end_line": 8392,
         "syntax_sha256": "fdf0780cdaec96a1f669cc50397c2c1ae11334d05cfdb4b4584baba6c4f24b29"
       },
       "kind": "action",
@@ -6737,8 +6741,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_work_mutate_action",
-        "line": 8421,
-        "end_line": 8421,
+        "line": 8423,
+        "end_line": 8423,
         "syntax_sha256": "c7f5d70f1d3961566aad86f6aab3d08a0718c263bbb5fcc0c763b630adda94a3"
       },
       "kind": "action",
@@ -6752,8 +6756,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_work_mutate_action",
-        "line": 8423,
-        "end_line": 8423,
+        "line": 8425,
+        "end_line": 8425,
         "syntax_sha256": "f3d613dc0e597eea352f5d27ff82d775a39bade59fe35494296fa8f81c247983"
       },
       "kind": "action",
@@ -6768,8 +6772,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_work_mutate_action",
-        "line": 8426,
-        "end_line": 8426,
+        "line": 8428,
+        "end_line": 8428,
         "syntax_sha256": "de542b268926ae79ae45f1e8861b14463a6e237910e92ecba1f8a6bd27ec8363"
       },
       "kind": "action",
@@ -6783,8 +6787,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_work_mutate_action",
-        "line": 8435,
-        "end_line": 8436,
+        "line": 8437,
+        "end_line": 8438,
         "syntax_sha256": "3803266edaa59729150ed35126425c37b2d0aa7de97fec6c3d0babad7431dcb6"
       },
       "kind": "action",
@@ -6801,8 +6805,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_work_mutate_action",
-        "line": 8442,
-        "end_line": 8442,
+        "line": 8444,
+        "end_line": 8444,
         "syntax_sha256": "ef5a84cc33cfdfdb4fb8b383e650329460dffeb8b13f0466ec22878c1c12a1ad"
       },
       "kind": "action",
@@ -6817,8 +6821,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_work_mutate_action",
-        "line": 8445,
-        "end_line": 8445,
+        "line": 8447,
+        "end_line": 8447,
         "syntax_sha256": "d3eab96dd6ed67d3f8ba86a05bde2c062cf9dbd5e14332dbe6bbc126dda47b82"
       },
       "kind": "action",
@@ -6833,8 +6837,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_work_mutate_action",
-        "line": 8451,
-        "end_line": 8451,
+        "line": 8453,
+        "end_line": 8453,
         "syntax_sha256": "639280242ceb842efd6377ca99435d049be4e9019ed995461ac56cdeeeb00d18"
       },
       "kind": "action",
@@ -6849,8 +6853,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_work_mutate_action",
-        "line": 8454,
-        "end_line": 8454,
+        "line": 8456,
+        "end_line": 8456,
         "syntax_sha256": "42810bb739181b966e415acefefcde11ac562af1e74a1e8e6c29ac618980aee4"
       },
       "kind": "action",
@@ -6864,8 +6868,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_work_mutate_action",
-        "line": 8457,
-        "end_line": 8457,
+        "line": 8459,
+        "end_line": 8459,
         "syntax_sha256": "5597089e03c94379db23fac37bff2258351270bb413061beda9e4a771621e07d"
       },
       "kind": "action",
@@ -6879,8 +6883,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_work_mutate_action",
-        "line": 8485,
-        "end_line": 8485,
+        "line": 8487,
+        "end_line": 8487,
         "syntax_sha256": "3ae6c5eca0523f6e4eb6f9157f0e9a9cb068f3772a7736d838313d924e57ccd6"
       },
       "kind": "action",
@@ -6894,8 +6898,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_work_mutate_action",
-        "line": 8489,
-        "end_line": 8489,
+        "line": 8491,
+        "end_line": 8491,
         "syntax_sha256": "7ce39f8dce85f5fea63b6aff23a72b78639d023a3184ec01da115f89c5ff1b76"
       },
       "kind": "action",
@@ -6909,8 +6913,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_work_mutate_action",
-        "line": 8491,
-        "end_line": 8491,
+        "line": 8493,
+        "end_line": 8493,
         "syntax_sha256": "e625325f2a2ad8616629d7c1659d0a05db6dc4b176f36518dc93cd64af685eb1"
       },
       "kind": "action",
@@ -6924,8 +6928,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_work_mutate_action",
-        "line": 8495,
-        "end_line": 8495,
+        "line": 8497,
+        "end_line": 8497,
         "syntax_sha256": "4da3515f3fca3a5e293decea7c2c2f8d91238e8950173b94323aa1ce84e9a297"
       },
       "kind": "action",
@@ -6939,8 +6943,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_work_mutate_action",
-        "line": 8499,
-        "end_line": 8499,
+        "line": 8501,
+        "end_line": 8501,
         "syntax_sha256": "813b31cbda7b56a37d86e3b52d52574e712dc5cfd4d5247c34dd7f89bb5e817a"
       },
       "kind": "action",
@@ -6954,8 +6958,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_work_mutate_action",
-        "line": 8504,
-        "end_line": 8504,
+        "line": 8506,
+        "end_line": 8506,
         "syntax_sha256": "0902064d7963505c79c0c00ab9a94fade0f0efcda46147d0023d9f869d75c959"
       },
       "kind": "action",
@@ -6969,8 +6973,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_work_mutate_action",
-        "line": 8509,
-        "end_line": 8509,
+        "line": 8511,
+        "end_line": 8511,
         "syntax_sha256": "95bb5b675d3003708fb4c05bcb5a65fc479e152aa205131d7cc0f42ae208b781"
       },
       "kind": "action",
@@ -6984,8 +6988,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_work_mutate_action",
-        "line": 8515,
-        "end_line": 8515,
+        "line": 8517,
+        "end_line": 8517,
         "syntax_sha256": "6d6c0efca6007552fd701810ea8007344b822244c237274957c2fc806ccd6be9"
       },
       "kind": "action",
@@ -6999,8 +7003,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_work_mutate_action",
-        "line": 8533,
-        "end_line": 8533,
+        "line": 8535,
+        "end_line": 8535,
         "syntax_sha256": "b65a2875139dd6edeefbb24233097e5871e72f895d466ab0158e832164bd147c"
       },
       "kind": "action",
@@ -7014,8 +7018,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_work_mutate_action",
-        "line": 8536,
-        "end_line": 8536,
+        "line": 8538,
+        "end_line": 8538,
         "syntax_sha256": "8241bca8af1c6d84c50d369fda484baeb44373676d9d639eb2d8b220dd7d24f0"
       },
       "kind": "action",
@@ -7029,8 +7033,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_work_mutate_action",
-        "line": 8538,
-        "end_line": 8538,
+        "line": 8540,
+        "end_line": 8540,
         "syntax_sha256": "7a94eba3edc17551c5af43eb97beba44c3e3202a33064128205f34dcd7e860db"
       },
       "kind": "action",
@@ -7044,8 +7048,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_work_mutate_action",
-        "line": 8549,
-        "end_line": 8549,
+        "line": 8551,
+        "end_line": 8551,
         "syntax_sha256": "3680adfc1fecd98602c4526e76f9297b991f5c7a7fb162b0e03c12a84320077b"
       },
       "kind": "action",
@@ -7059,8 +7063,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_work_mutate_action",
-        "line": 8551,
-        "end_line": 8551,
+        "line": 8553,
+        "end_line": 8553,
         "syntax_sha256": "8db534a09e7dce54871ee58f97201590fec729adc6d3f3fd5f19441d5abbc52d"
       },
       "kind": "action",
@@ -7074,8 +7078,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "user_audience",
-        "line": 9474,
-        "end_line": 9474,
+        "line": 9476,
+        "end_line": 9476,
         "syntax_sha256": "61b43d9fe4ecc9c9b761f1253b984d61b5f3ffc08bda22aa5f6cb9f51a345d79"
       },
       "kind": "action",
@@ -7089,8 +7093,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "user_audience",
-        "line": 9476,
-        "end_line": 9476,
+        "line": 9478,
+        "end_line": 9478,
         "syntax_sha256": "a08919dbe92a83482577709a83b5b92ae90ab5b81c74ca13a8f32be399a3d089"
       },
       "kind": "action",
@@ -7104,8 +7108,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "user_audience",
-        "line": 9478,
-        "end_line": 9478,
+        "line": 9480,
+        "end_line": 9480,
         "syntax_sha256": "f08ddf2edffaa157adb80e83ac9e35325ebb8dc4233f105a85f9eef57dfa1c8b"
       },
       "kind": "action",
@@ -7119,8 +7123,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_desktop_relaunch_args",
-        "line": 9811,
-        "end_line": 9811,
+        "line": 9813,
+        "end_line": 9813,
         "syntax_sha256": "ece4dba2968e20c0bbf65ad501ed157dbcd18786f3c644a39c3378fc40f7b8b5"
       },
       "kind": "tool",
@@ -7134,8 +7138,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_staff_call",
-        "line": 10440,
-        "end_line": 10440,
+        "line": 10442,
+        "end_line": 10442,
         "syntax_sha256": "4a22e07b154320fc5405ba988f8943828b41026184b10e4db6c44a21f3291ffe"
       },
       "kind": "action",
@@ -7150,8 +7154,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_staff_call",
-        "line": 10444,
-        "end_line": 10444,
+        "line": 10446,
+        "end_line": 10446,
         "syntax_sha256": "7a5e1c72c1f108c71c081ce76adc53e75f3802c21199dcfb494128f3f12662e4"
       },
       "kind": "action",
@@ -7165,8 +7169,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_staff_call",
-        "line": 10463,
-        "end_line": 10463,
+        "line": 10465,
+        "end_line": 10465,
         "syntax_sha256": "3360cfc0849e8e14da6c9c24b7e86066592e320190694814bf5eb2eeee8daa94"
       },
       "kind": "action",
@@ -7180,8 +7184,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_op_post_expected",
-        "line": 10674,
-        "end_line": 10674,
+        "line": 10676,
+        "end_line": 10676,
         "syntax_sha256": "de85a5c111fb691201a7af48b9feb0d1b6e47afa9d7849d0217896965a3d6318"
       },
       "kind": "tool",
@@ -7197,8 +7201,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_agent_call_route",
-        "line": 11057,
-        "end_line": 11057,
+        "line": 11059,
+        "end_line": 11059,
         "syntax_sha256": "172f14e2e2f69796abe73b5d96093f949261c59e00bfc5734b6dafa268d20f8d"
       },
       "kind": "tool",
@@ -7212,8 +7216,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11129,
-        "end_line": 11129,
+        "line": 11131,
+        "end_line": 11131,
         "syntax_sha256": "d31c3e32afef87224332cbeb3877ee005ce1a6b49387c32aeb84223b8d8a29f3"
       },
       "kind": "tool",
@@ -7227,8 +7231,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11135,
-        "end_line": 11135,
+        "line": 11137,
+        "end_line": 11137,
         "syntax_sha256": "7ccf588cfb1279ccb6ce263bc4ec670a5ba0f128c9052afa794b6c525c39735c"
       },
       "kind": "tool",
@@ -7242,8 +7246,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11202,
-        "end_line": 11202,
+        "line": 11204,
+        "end_line": 11204,
         "syntax_sha256": "cf9d902edab32aaae34cc8f81e49e95ce2b67b041743c64a499e629262014ee6"
       },
       "kind": "tool",
@@ -7257,8 +7261,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11208,
-        "end_line": 11208,
+        "line": 11210,
+        "end_line": 11210,
         "syntax_sha256": "42374950edde0036dcd56990490ec38fb04255c674fef2297a003e376e86553b"
       },
       "kind": "tool",
@@ -7273,8 +7277,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11213,
-        "end_line": 11214,
+        "line": 11215,
+        "end_line": 11216,
         "syntax_sha256": "c4f2269f997146834a22959fe98bcf1815d9fab6869837ad7cc413c9ff2be330"
       },
       "kind": "tool",
@@ -7291,8 +7295,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11222,
-        "end_line": 11222,
+        "line": 11224,
+        "end_line": 11224,
         "syntax_sha256": "619f43ca767c574dff9f92deba1b9197a9d861e704e74961011dffd32f6b9938"
       },
       "kind": "tool",
@@ -7306,8 +7310,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11232,
-        "end_line": 11232,
+        "line": 11234,
+        "end_line": 11234,
         "syntax_sha256": "cb8d595fdff8aae42a72e97af5244065a53276c17c1af5d088198d31b952e10a"
       },
       "kind": "tool",
@@ -7321,8 +7325,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11234,
-        "end_line": 11234,
+        "line": 11236,
+        "end_line": 11236,
         "syntax_sha256": "bf1c55a5b3a2f656d6ff1fe8abc7329dec775709bdb3825744ee5ea9a08a3fd6"
       },
       "kind": "tool",
@@ -7336,8 +7340,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11291,
-        "end_line": 11293,
+        "line": 11293,
+        "end_line": 11295,
         "syntax_sha256": "238f55d9729d32f197dbb054baf9d89fffce1459d54febc3de1f44103123de51"
       },
       "kind": "tool",
@@ -7355,8 +7359,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11302,
-        "end_line": 11302,
+        "line": 11304,
+        "end_line": 11304,
         "syntax_sha256": "ebc41a76d8552faee1e83c6bdf19db96272cb8a91cfbc99f5799179f3f734e6a"
       },
       "kind": "tool",
@@ -7370,8 +7374,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11310,
-        "end_line": 11310,
+        "line": 11312,
+        "end_line": 11312,
         "syntax_sha256": "29b157e9f881b52e7f795e806e3bc1a99a090642db2271a55a13226570e043cc"
       },
       "kind": "tool",
@@ -7385,8 +7389,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11335,
-        "end_line": 11335,
+        "line": 11337,
+        "end_line": 11337,
         "syntax_sha256": "7ccf588cfb1279ccb6ce263bc4ec670a5ba0f128c9052afa794b6c525c39735c"
       },
       "kind": "tool",
@@ -7400,8 +7404,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11339,
-        "end_line": 11339,
+        "line": 11341,
+        "end_line": 11341,
         "syntax_sha256": "172f14e2e2f69796abe73b5d96093f949261c59e00bfc5734b6dafa268d20f8d"
       },
       "kind": "tool",
@@ -7415,8 +7419,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11389,
-        "end_line": 11389,
+        "line": 11391,
+        "end_line": 11391,
         "syntax_sha256": "79736de6d10b0a687eb99b007105cfc515918035f23bfedc916c1e1738fd4575"
       },
       "kind": "tool",
@@ -7430,8 +7434,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11398,
-        "end_line": 11398,
+        "line": 11400,
+        "end_line": 11400,
         "syntax_sha256": "630d00d0a581aecf13fd1686b1950ee1e138811eba815e8f2c17aaf5b42c3983"
       },
       "kind": "tool",
@@ -7445,8 +7449,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11405,
-        "end_line": 11405,
+        "line": 11407,
+        "end_line": 11407,
         "syntax_sha256": "9e733c7644d8d6542c310d92c2f3268d8a5010eac3a40e9f3e1edde2befc9ac5"
       },
       "kind": "tool",
@@ -7461,8 +7465,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11436,
-        "end_line": 11436,
+        "line": 11438,
+        "end_line": 11438,
         "syntax_sha256": "6c2c5ff4a13a4c8ed84ccc5c3446ec815fb979ffe1a7133c3bc770309a67d550"
       },
       "kind": "tool",
@@ -7476,8 +7480,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11464,
-        "end_line": 11464,
+        "line": 11466,
+        "end_line": 11466,
         "syntax_sha256": "60aedfa379e60f7a9194bb0928142ac08ad35e82a7119bbeffc81e62540c4ebf"
       },
       "kind": "tool",
@@ -7491,8 +7495,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11527,
-        "end_line": 11527,
+        "line": 11529,
+        "end_line": 11529,
         "syntax_sha256": "fe7251f44a11e1a209b415ee7ba2ee9279896ed225a9c8820e72d6b01d10d2c2"
       },
       "kind": "tool",
@@ -7506,8 +7510,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11629,
-        "end_line": 11629,
+        "line": 11631,
+        "end_line": 11631,
         "syntax_sha256": "8dd66a513ab66ac05cf4b7b8870e732747917ecc991d12699d36c631e4bd8f68"
       },
       "kind": "tool",
@@ -7521,8 +7525,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11630,
-        "end_line": 11630,
+        "line": 11632,
+        "end_line": 11632,
         "syntax_sha256": "9cf5a41ed71432a7c693b2fe77a435ff8272d5e89b7f8e595140bbeb9f64c8ca"
       },
       "kind": "tool",
@@ -7536,8 +7540,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11658,
-        "end_line": 11658,
+        "line": 11660,
+        "end_line": 11660,
         "syntax_sha256": "0a7f439ab01fe4b11e5a755aa5de2950120acf040ad74ec1f79c76425485b25f"
       },
       "kind": "tool",
@@ -7552,8 +7556,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11664,
-        "end_line": 11664,
+        "line": 11666,
+        "end_line": 11666,
         "syntax_sha256": "69f2d4a135ad89d5b5ddae0485f86f8fee6f516077696ae6fe56693728b714d7"
       },
       "kind": "tool",
@@ -7567,8 +7571,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11676,
-        "end_line": 11676,
+        "line": 11678,
+        "end_line": 11678,
         "syntax_sha256": "e2a70822d5c0180950fa1163faf1a7d9e4375f4e0736e4de9723a20dedefb96e"
       },
       "kind": "tool",
@@ -7583,8 +7587,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11696,
-        "end_line": 11696,
+        "line": 11698,
+        "end_line": 11698,
         "syntax_sha256": "d0d68bee629641a82192e41cc9c92c13ee7f4c69884b910fbff0f0b4ce0df015"
       },
       "kind": "tool",
@@ -7598,8 +7602,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11835,
-        "end_line": 11835,
+        "line": 11837,
+        "end_line": 11837,
         "syntax_sha256": "2b937148a7e2c102fd21159d31fe84462c41ffd0d8ef049d77e3454890a9e308"
       },
       "kind": "tool",
@@ -7613,8 +7617,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11862,
-        "end_line": 11862,
+        "line": 11864,
+        "end_line": 11864,
         "syntax_sha256": "b28c3ddd3cf5a0360cb8917f98d18c1ab045e32eefff5feedf72263f7f630fa3"
       },
       "kind": "tool",
@@ -7628,8 +7632,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11865,
-        "end_line": 11865,
+        "line": 11867,
+        "end_line": 11867,
         "syntax_sha256": "c560a2bf12bbc74f199d7f06b16f7fa35165cb576bc253306877dea1bdaf5afa"
       },
       "kind": "tool",
@@ -7643,8 +7647,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11867,
-        "end_line": 11867,
+        "line": 11869,
+        "end_line": 11869,
         "syntax_sha256": "3360cfc0849e8e14da6c9c24b7e86066592e320190694814bf5eb2eeee8daa94"
       },
       "kind": "action",
@@ -7658,8 +7662,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11942,
-        "end_line": 11942,
+        "line": 11944,
+        "end_line": 11944,
         "syntax_sha256": "fbd7b5108676fdd766f80e381ec02211438d6b976f533ddec88d026ea67e05bf"
       },
       "kind": "action",
@@ -7673,8 +7677,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11967,
-        "end_line": 11967,
+        "line": 11969,
+        "end_line": 11969,
         "syntax_sha256": "02d664f35b044957d93265b2e98310f1fadf6a55a8bba0fa19ec79e3dafc54f0"
       },
       "kind": "tool",
@@ -7688,8 +7692,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11974,
-        "end_line": 11974,
+        "line": 11976,
+        "end_line": 11976,
         "syntax_sha256": "5583c1c23390b0137459dc9a8e179b00eabe9eccfdb8138111cfdc6540104a3e"
       },
       "kind": "tool",
@@ -7703,8 +7707,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 11984,
-        "end_line": 11984,
+        "line": 11986,
+        "end_line": 11986,
         "syntax_sha256": "79736de6d10b0a687eb99b007105cfc515918035f23bfedc916c1e1738fd4575"
       },
       "kind": "tool",
@@ -7718,8 +7722,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12014,
-        "end_line": 12015,
+        "line": 12016,
+        "end_line": 12017,
         "syntax_sha256": "800f568d63f9573d63d9da3d0abff41c160682e786670db33cce424058b8cb30"
       },
       "kind": "tool",
@@ -7734,8 +7738,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12069,
-        "end_line": 12069,
+        "line": 12071,
+        "end_line": 12071,
         "syntax_sha256": "af370973eabf0f5f152568eef4061b574a3c3c4f012159644828c66b74d4ceaf"
       },
       "kind": "tool",
@@ -7749,8 +7753,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12071,
-        "end_line": 12071,
+        "line": 12073,
+        "end_line": 12073,
         "syntax_sha256": "aadf4548bedf7ea88ee5b1d24a89792bb592e2b36493bb0935f65a5eab7a5637"
       },
       "kind": "tool",
@@ -7764,8 +7768,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12078,
-        "end_line": 12078,
+        "line": 12080,
+        "end_line": 12080,
         "syntax_sha256": "42374950edde0036dcd56990490ec38fb04255c674fef2297a003e376e86553b"
       },
       "kind": "tool",
@@ -7780,8 +7784,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12096,
-        "end_line": 12096,
+        "line": 12098,
+        "end_line": 12098,
         "syntax_sha256": "dce1919c3cb2a44aa01c7c2eb79f9fd9a207f109b99ac3cb3a3b3857d3e67c13"
       },
       "kind": "tool",
@@ -7795,8 +7799,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12098,
-        "end_line": 12098,
+        "line": 12100,
+        "end_line": 12100,
         "syntax_sha256": "cef2c7c619df56c14b55df1a0675185c02da0f3d770594b36528cf8f84ce135c"
       },
       "kind": "tool",
@@ -7810,8 +7814,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12103,
-        "end_line": 12103,
+        "line": 12105,
+        "end_line": 12105,
         "syntax_sha256": "78e17e9dd4e8f4cfdad74cd8e7d9792cdad175c3ab46811bc24ea3d1086c3ede"
       },
       "kind": "action",
@@ -7827,8 +7831,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12106,
-        "end_line": 12106,
+        "line": 12108,
+        "end_line": 12108,
         "syntax_sha256": "9bfcf5344c0d63f47db0221f9efbd98250e69bd7d9bec6756136577408f1b555"
       },
       "kind": "action",
@@ -7842,8 +7846,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12121,
-        "end_line": 12121,
+        "line": 12123,
+        "end_line": 12123,
         "syntax_sha256": "cc426f8665724d814923b2c238b0dbd19696649032b3711eb9eb0a548f700413"
       },
       "kind": "action",
@@ -7857,8 +7861,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12132,
-        "end_line": 12132,
+        "line": 12134,
+        "end_line": 12134,
         "syntax_sha256": "aed704857a3c78c76dc554198fff1c4a9b907bdc2f05fefd6e6e8a73e6ecbc2c"
       },
       "kind": "tool",
@@ -7872,8 +7876,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12139,
-        "end_line": 12139,
+        "line": 12141,
+        "end_line": 12141,
         "syntax_sha256": "78e17e9dd4e8f4cfdad74cd8e7d9792cdad175c3ab46811bc24ea3d1086c3ede"
       },
       "kind": "action",
@@ -7889,8 +7893,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12142,
-        "end_line": 12142,
+        "line": 12144,
+        "end_line": 12144,
         "syntax_sha256": "9bfcf5344c0d63f47db0221f9efbd98250e69bd7d9bec6756136577408f1b555"
       },
       "kind": "action",
@@ -7904,8 +7908,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12168,
-        "end_line": 12168,
+        "line": 12170,
+        "end_line": 12170,
         "syntax_sha256": "cc426f8665724d814923b2c238b0dbd19696649032b3711eb9eb0a548f700413"
       },
       "kind": "action",
@@ -7919,8 +7923,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12184,
-        "end_line": 12184,
+        "line": 12186,
+        "end_line": 12186,
         "syntax_sha256": "b1603ad24e2b846e65a3069e7c09677001af2f60d6c4d1521c6be70f9ef85a32"
       },
       "kind": "tool",
@@ -7934,8 +7938,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12186,
-        "end_line": 12186,
+        "line": 12188,
+        "end_line": 12188,
         "syntax_sha256": "78e17e9dd4e8f4cfdad74cd8e7d9792cdad175c3ab46811bc24ea3d1086c3ede"
       },
       "kind": "action",
@@ -7951,8 +7955,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12197,
-        "end_line": 12197,
+        "line": 12199,
+        "end_line": 12199,
         "syntax_sha256": "9bfcf5344c0d63f47db0221f9efbd98250e69bd7d9bec6756136577408f1b555"
       },
       "kind": "action",
@@ -7966,8 +7970,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12199,
-        "end_line": 12199,
+        "line": 12201,
+        "end_line": 12201,
         "syntax_sha256": "cc426f8665724d814923b2c238b0dbd19696649032b3711eb9eb0a548f700413"
       },
       "kind": "action",
@@ -7981,8 +7985,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12211,
-        "end_line": 12211,
+        "line": 12213,
+        "end_line": 12213,
         "syntax_sha256": "d17483ffd6c235f3883d2af589a2502e7ab56a9235b26304ed9a0e5787bffe93"
       },
       "kind": "tool",
@@ -7996,8 +8000,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12214,
-        "end_line": 12214,
+        "line": 12216,
+        "end_line": 12216,
         "syntax_sha256": "c8c62134b423961bd6fda7c47cd26de707c8b3a69276b4b552bc3d22f97cecbd"
       },
       "kind": "tool",
@@ -8011,8 +8015,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12222,
-        "end_line": 12222,
+        "line": 12224,
+        "end_line": 12224,
         "syntax_sha256": "e77436428752541684a16c5c99e50360b67b6a5b444d9da2bec061d88aef6274"
       },
       "kind": "tool",
@@ -8026,8 +8030,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12225,
-        "end_line": 12225,
+        "line": 12227,
+        "end_line": 12227,
         "syntax_sha256": "8d80289381ee38d42703e9a4944330197c34f23bcdfd76baacce825f726ac530"
       },
       "kind": "tool",
@@ -8041,8 +8045,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12260,
-        "end_line": 12260,
+        "line": 12262,
+        "end_line": 12262,
         "syntax_sha256": "1e85f7e0158aedd5ede92cd5f968b7bd45f5b9df7c0f7e34ebaaa53735173ffb"
       },
       "kind": "tool",
@@ -8056,8 +8060,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12333,
-        "end_line": 12333,
+        "line": 12335,
+        "end_line": 12335,
         "syntax_sha256": "69f2d4a135ad89d5b5ddae0485f86f8fee6f516077696ae6fe56693728b714d7"
       },
       "kind": "tool",
@@ -8071,8 +8075,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12337,
-        "end_line": 12337,
+        "line": 12339,
+        "end_line": 12339,
         "syntax_sha256": "1906a5b62178a545e08737d69953afffc50ca33082261ab9b764823230b100c9"
       },
       "kind": "tool",
@@ -8086,8 +8090,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12345,
-        "end_line": 12345,
+        "line": 12347,
+        "end_line": 12347,
         "syntax_sha256": "8dd66a513ab66ac05cf4b7b8870e732747917ecc991d12699d36c631e4bd8f68"
       },
       "kind": "tool",
@@ -8101,8 +8105,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12348,
-        "end_line": 12348,
+        "line": 12350,
+        "end_line": 12350,
         "syntax_sha256": "9cf5a41ed71432a7c693b2fe77a435ff8272d5e89b7f8e595140bbeb9f64c8ca"
       },
       "kind": "tool",
@@ -8116,8 +8120,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12353,
-        "end_line": 12353,
+        "line": 12355,
+        "end_line": 12355,
         "syntax_sha256": "1edfaf5ec567c136d858d8070b2e3a0928570943ec481a6729e0889058e4838f"
       },
       "kind": "tool",
@@ -8131,8 +8135,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12391,
-        "end_line": 12391,
+        "line": 12393,
+        "end_line": 12393,
         "syntax_sha256": "029a7eed9e3a9cb4099161fe9ef688e8d38e295477bfac228dd9504529d7c221"
       },
       "kind": "tool",
@@ -8146,8 +8150,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12394,
-        "end_line": 12394,
+        "line": 12396,
+        "end_line": 12396,
         "syntax_sha256": "2c5614cf093ba87c3bf54522eb8ee5d2c1a229a85499415bf59c47bc89c20d17"
       },
       "kind": "tool",
@@ -8161,8 +8165,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12397,
-        "end_line": 12397,
+        "line": 12399,
+        "end_line": 12399,
         "syntax_sha256": "73dbfabef3337931c3c81e063f3f79e5101cfb8c68c86475b51cff130d849dae"
       },
       "kind": "tool",
@@ -8176,8 +8180,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12422,
-        "end_line": 12422,
+        "line": 12424,
+        "end_line": 12424,
         "syntax_sha256": "5402b47ef9f05a798be11b4fa6c0933c2def5b3024ed0ba0b3ae7d96c2f53fb8"
       },
       "kind": "tool",
@@ -8191,8 +8195,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12426,
-        "end_line": 12426,
+        "line": 12428,
+        "end_line": 12428,
         "syntax_sha256": "dba27829eb8a04f6dbbb7ee22f160ba4af6a2bebb3aa3cba83a5fe84456c1da3"
       },
       "kind": "tool",
@@ -8206,8 +8210,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12428,
-        "end_line": 12428,
+        "line": 12430,
+        "end_line": 12430,
         "syntax_sha256": "c44a0f000b6ef4d1ff14b07c0d438639908c7e767ce2b2d3d66bd9ea78589ea1"
       },
       "kind": "tool",
@@ -8221,8 +8225,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12473,
-        "end_line": 12473,
+        "line": 12475,
+        "end_line": 12475,
         "syntax_sha256": "83a6fc197f7b853059978711b9e1695a4ee1fb95076c5da87b50b75cc1ccd008"
       },
       "kind": "tool",
@@ -8236,8 +8240,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12523,
-        "end_line": 12523,
+        "line": 12525,
+        "end_line": 12525,
         "syntax_sha256": "7126399e451f4eca6a6af82da5b2730010581689042b7d35f84500f768840fed"
       },
       "kind": "tool",
@@ -8251,8 +8255,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12525,
-        "end_line": 12525,
+        "line": 12527,
+        "end_line": 12527,
         "syntax_sha256": "93f416feae4198124ee00f768437db75ae5e228e4fe82de55ce9e6d586f81281"
       },
       "kind": "action",
@@ -8266,8 +8270,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12528,
-        "end_line": 12528,
+        "line": 12530,
+        "end_line": 12530,
         "syntax_sha256": "54c6f8f6d42eb494cdf864034cb72bcf37d100a877b3778bd100ddfd48d073bb"
       },
       "kind": "action",
@@ -8281,8 +8285,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12531,
-        "end_line": 12531,
+        "line": 12533,
+        "end_line": 12533,
         "syntax_sha256": "72c27d718e9891fb782ba74124e0f2fdde0a79e470eb244caa3f1491389a3efc"
       },
       "kind": "action",
@@ -8296,8 +8300,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12534,
-        "end_line": 12534,
+        "line": 12536,
+        "end_line": 12536,
         "syntax_sha256": "187f783858b06c0590b5b7bb66f2e046b99d13784a1d26bfd0ed025f722dda10"
       },
       "kind": "action",
@@ -8311,8 +8315,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12537,
-        "end_line": 12537,
+        "line": 12539,
+        "end_line": 12539,
         "syntax_sha256": "90bc190a6f8308e98975cb9371606c609f8bbccbbb4cd74a16f8e97436cab72c"
       },
       "kind": "action",
@@ -8326,8 +8330,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12542,
-        "end_line": 12542,
+        "line": 12544,
+        "end_line": 12544,
         "syntax_sha256": "df9dbcc96d9cbfb1e73db0c8fb2d2595fc455b072978aaf3bd97277b8523e7ef"
       },
       "kind": "tool",
@@ -8341,8 +8345,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12556,
-        "end_line": 12556,
+        "line": 12558,
+        "end_line": 12558,
         "syntax_sha256": "cd045e9277e9365ece5bd39488856b5838223f5733762039bafb48f9ed144109"
       },
       "kind": "tool",
@@ -8356,8 +8360,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "agent_call",
-        "line": 12686,
-        "end_line": 12687,
+        "line": 12688,
+        "end_line": 12689,
         "syntax_sha256": "64cad2dde17c63dcc900872708b4e8ffe5faabdc118e247b4a09293e32f33f2f"
       },
       "kind": "tool",
@@ -8374,8 +8378,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "org_op",
-        "line": 14302,
-        "end_line": 14302,
+        "line": 14304,
+        "end_line": 14304,
         "syntax_sha256": "32ca252a1e45c8683fd1aa6522d1bd69795a318f3eaae8653c28e32d4cad1f06"
       },
       "kind": "action",
@@ -8389,8 +8393,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "org_op",
-        "line": 14326,
-        "end_line": 14326,
+        "line": 14328,
+        "end_line": 14328,
         "syntax_sha256": "69523d1532fb0678f37a8fb8213587940a760ec854c83551bbf526db9c2d78f1"
       },
       "kind": "action",
@@ -8404,8 +8408,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "org_op",
-        "line": 14345,
-        "end_line": 14345,
+        "line": 14347,
+        "end_line": 14347,
         "syntax_sha256": "3d73d954befd77256d70c64db7638a8be31932b5b92e32cc0b6eb5a18ceb66b1"
       },
       "kind": "action",
@@ -8421,8 +8425,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "org_op",
-        "line": 14349,
-        "end_line": 14349,
+        "line": 14351,
+        "end_line": 14351,
         "syntax_sha256": "71ffce1d73c0e844a1e86f334f26413c9a6066db2307eb3b0a0d72fd36b7b882"
       },
       "kind": "action",
@@ -8436,8 +8440,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "org_op",
-        "line": 14360,
-        "end_line": 14360,
+        "line": 14362,
+        "end_line": 14362,
         "syntax_sha256": "427f9ca22ed612d7c75e6890dcb6b27a61eda7fc962894aa26c5c1a071452e46"
       },
       "kind": "action",
@@ -8451,8 +8455,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "org_op",
-        "line": 14368,
-        "end_line": 14368,
+        "line": 14370,
+        "end_line": 14370,
         "syntax_sha256": "a225e1754190dff9c9e2d13d93e65357ae5225179fe57261e7fb4ea2f68caa79"
       },
       "kind": "action",
@@ -8470,8 +8474,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_org_op_locked",
-        "line": 14406,
-        "end_line": 14406,
+        "line": 14408,
+        "end_line": 14408,
         "syntax_sha256": "427f9ca22ed612d7c75e6890dcb6b27a61eda7fc962894aa26c5c1a071452e46"
       },
       "kind": "action",
@@ -8485,8 +8489,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_org_op_locked",
-        "line": 14506,
-        "end_line": 14506,
+        "line": 14508,
+        "end_line": 14508,
         "syntax_sha256": "76dd8257e9c4cb53d3522089f7d4ef32923f0c8caa956f2624e66cf9bc0b9bf8"
       },
       "kind": "action",
@@ -8500,8 +8504,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_org_op_locked",
-        "line": 14508,
-        "end_line": 14508,
+        "line": 14510,
+        "end_line": 14510,
         "syntax_sha256": "ae1be0b9707120898c54ee46303e9a077eb549af5844b72cbe5b72dd623a9c4e"
       },
       "kind": "action",
@@ -8515,8 +8519,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_org_op_locked",
-        "line": 14513,
-        "end_line": 14513,
+        "line": 14515,
+        "end_line": 14515,
         "syntax_sha256": "1a81fc419da5f6d5958b8ef54d63071c93caf6cab658880c06fb0905bdba5887"
       },
       "kind": "action",
@@ -8530,8 +8534,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_org_op_locked",
-        "line": 14533,
-        "end_line": 14533,
+        "line": 14535,
+        "end_line": 14535,
         "syntax_sha256": "02397914a776fd02291236f2c9069b6966bfde02ddb8d4f165db2b08ab980768"
       },
       "kind": "action",
@@ -8545,8 +8549,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_org_op_locked",
-        "line": 14549,
-        "end_line": 14549,
+        "line": 14551,
+        "end_line": 14551,
         "syntax_sha256": "0704ee1a0b6c20b94113a5c84518c48f3d9e72b171db6cb5a1f9f11f7a65ae0d"
       },
       "kind": "action",
@@ -8560,8 +8564,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_org_op_locked",
-        "line": 14551,
-        "end_line": 14551,
+        "line": 14553,
+        "end_line": 14553,
         "syntax_sha256": "eff2e1b7d75de125eaddb5d84db21d65472aae3dfa29717054550d98528100c6"
       },
       "kind": "action",
@@ -8575,8 +8579,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_org_op_locked",
-        "line": 14554,
-        "end_line": 14554,
+        "line": 14556,
+        "end_line": 14556,
         "syntax_sha256": "2348cf8b9ecb04a4ecd5d9702adb2634490c7807a3d12fb61704f13ea4b8ffcc"
       },
       "kind": "action",
@@ -8590,8 +8594,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_org_op_locked",
-        "line": 14558,
-        "end_line": 14558,
+        "line": 14560,
+        "end_line": 14560,
         "syntax_sha256": "32ca252a1e45c8683fd1aa6522d1bd69795a318f3eaae8653c28e32d4cad1f06"
       },
       "kind": "action",
@@ -8605,8 +8609,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_org_op_locked",
-        "line": 14592,
-        "end_line": 14592,
+        "line": 14594,
+        "end_line": 14594,
         "syntax_sha256": "736ab3bf1f8d36366a960bf6e86162b56a9b8a9723b305d13927022e0136ba31"
       },
       "kind": "action",
@@ -8620,8 +8624,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_org_op_locked",
-        "line": 14594,
-        "end_line": 14594,
+        "line": 14596,
+        "end_line": 14596,
         "syntax_sha256": "fed8da730ca307ca67cfbeb4af978482ef045f499d2b538bb5c57a413cd0c55f"
       },
       "kind": "action",
@@ -8635,8 +8639,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_org_op_locked",
-        "line": 14598,
-        "end_line": 14598,
+        "line": 14600,
+        "end_line": 14600,
         "syntax_sha256": "c4dd3b56ae4b0fd5b2ea761952b690565e21530289a1dd573bc14ad48f5acd54"
       },
       "kind": "action",
@@ -8650,8 +8654,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_org_op_locked",
-        "line": 14600,
-        "end_line": 14600,
+        "line": 14602,
+        "end_line": 14602,
         "syntax_sha256": "b4b7580e0db74c33f296dc8daaca155f7725decf0b3bb65b318667595b1f63fb"
       },
       "kind": "action",
@@ -8665,8 +8669,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_org_op_locked",
-        "line": 14602,
-        "end_line": 14602,
+        "line": 14604,
+        "end_line": 14604,
         "syntax_sha256": "99e69a3b2cf0b30bfd3eebe51853558d99a9ef156d2a755e5cc47a434a376f7f"
       },
       "kind": "action",
@@ -9953,8 +9957,8 @@
       "source": {
         "path": "engine/backend/orgtree/api.py",
         "symbol": "_share_url",
-        "line": 1338,
-        "end_line": 1338,
+        "line": 1340,
+        "end_line": 1340,
         "syntax_sha256": "d1d7476c1e030f52215e7073381b4f4b122719f4eb1f404aa0515d92a9588450"
       },
       "factory": "s.connect",
@@ -10167,386 +10171,386 @@
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "_recover_startup",
-      "line": 1505,
-      "end_line": 1505,
+      "line": 1507,
+      "end_line": 1507,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "_recover_startup",
-      "line": 1527,
-      "end_line": 1527,
+      "line": 1529,
+      "end_line": 1529,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "orgs_create",
-      "line": 1911,
-      "end_line": 1911,
+      "line": 1913,
+      "end_line": 1913,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "orgs_create",
-      "line": 1918,
-      "end_line": 1918,
+      "line": 1920,
+      "end_line": 1920,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "orgs_create",
-      "line": 1972,
-      "end_line": 1972,
+      "line": 1974,
+      "end_line": 1974,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "orgs_create",
-      "line": 1984,
-      "end_line": 1984,
+      "line": 1986,
+      "end_line": 1986,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "org_net",
-      "line": 2072,
-      "end_line": 2072,
+      "line": 2074,
+      "end_line": 2074,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "org_net",
-      "line": 2087,
-      "end_line": 2087,
+      "line": 2089,
+      "end_line": 2089,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "org_settings",
-      "line": 3402,
-      "end_line": 3402,
+      "line": 3404,
+      "end_line": 3404,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "org_kiosk",
-      "line": 3651,
-      "end_line": 3651,
+      "line": 3653,
+      "end_line": 3653,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "node_reorder",
-      "line": 5439,
-      "end_line": 5439,
+      "line": 5441,
+      "end_line": 5441,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "_validate_steer_actor",
-      "line": 5793,
-      "end_line": 5793,
+      "line": 5795,
+      "end_line": 5795,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "org_dissolve_all",
-      "line": 6066,
-      "end_line": 6066,
+      "line": 6068,
+      "end_line": 6068,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "credit_request_decide",
-      "line": 6159,
-      "end_line": 6159,
+      "line": 6161,
+      "end_line": 6161,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "credit_request_decide",
-      "line": 6164,
-      "end_line": 6164,
+      "line": 6166,
+      "end_line": 6166,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "document_dismiss",
-      "line": 6423,
-      "end_line": 6423,
+      "line": 6425,
+      "end_line": 6425,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "repair_rename",
-      "line": 6460,
-      "end_line": 6460,
+      "line": 6462,
+      "end_line": 6462,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "staffing_options",
-      "line": 6521,
-      "end_line": 6521,
+      "line": 6523,
+      "end_line": 6523,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "quick_staff_preview",
-      "line": 6554,
-      "end_line": 6554,
+      "line": 6556,
+      "end_line": 6556,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "_quick_staff_undo",
-      "line": 6607,
-      "end_line": 6607,
+      "line": 6609,
+      "end_line": 6609,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "quick_staff_select",
-      "line": 6659,
-      "end_line": 6659,
+      "line": 6661,
+      "end_line": 6661,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "work_identity_migrate",
-      "line": 6891,
-      "end_line": 6891,
+      "line": 6893,
+      "end_line": 6893,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "work_item_reply",
-      "line": 6977,
-      "end_line": 6977,
+      "line": 6979,
+      "end_line": 6979,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "work_item_dismiss",
-      "line": 7112,
-      "end_line": 7112,
+      "line": 7114,
+      "end_line": 7114,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "work_item_accept",
-      "line": 7161,
-      "end_line": 7161,
+      "line": 7163,
+      "end_line": 7163,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "work_item_delete",
-      "line": 7188,
-      "end_line": 7188,
+      "line": 7190,
+      "end_line": 7190,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "work_item_attach._store_attachment",
-      "line": 7255,
-      "end_line": 7255,
+      "line": 7257,
+      "end_line": 7257,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "work_item_detach",
-      "line": 7512,
-      "end_line": 7512,
+      "line": 7514,
+      "end_line": 7514,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "_work_receipt_call",
-      "line": 8064,
-      "end_line": 8064,
+      "line": 8066,
+      "end_line": 8066,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "_work_receipt_call",
-      "line": 8109,
-      "end_line": 8109,
+      "line": 8111,
+      "end_line": 8111,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "_work_read_call",
-      "line": 8229,
-      "end_line": 8229,
+      "line": 8231,
+      "end_line": 8231,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "_work_read_call",
-      "line": 8234,
-      "end_line": 8234,
+      "line": 8236,
+      "end_line": 8236,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "watchdog_action",
-      "line": 8669,
-      "end_line": 8669,
+      "line": 8671,
+      "end_line": 8671,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "node_unstick",
-      "line": 8688,
-      "end_line": 8688,
+      "line": 8690,
+      "end_line": 8690,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "_continue_on_account",
-      "line": 8768,
-      "end_line": 8768,
+      "line": 8770,
+      "end_line": 8770,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "_continue_on_account",
-      "line": 8810,
-      "end_line": 8810,
+      "line": 8812,
+      "end_line": 8812,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "org_inbox_read",
-      "line": 9015,
-      "end_line": 9015,
+      "line": 9017,
+      "end_line": 9017,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "org_inbox_send",
-      "line": 9111,
-      "end_line": 9111,
+      "line": 9113,
+      "end_line": 9113,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "user_inbox_clear",
-      "line": 9169,
-      "end_line": 9169,
+      "line": 9171,
+      "end_line": 9171,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "crash_report",
-      "line": 9241,
-      "end_line": 9241,
+      "line": 9243,
+      "end_line": 9243,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "user_audience",
-      "line": 9471,
-      "end_line": 9471,
+      "line": 9473,
+      "end_line": 9473,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "_forced_self_restart",
-      "line": 10594,
-      "end_line": 10594,
+      "line": 10596,
+      "end_line": 10596,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "_forced_self_restart",
-      "line": 10613,
-      "end_line": 10613,
+      "line": 10615,
+      "end_line": 10615,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "_op_lookup_call",
-      "line": 10906,
-      "end_line": 10906,
+      "line": 10908,
+      "end_line": 10908,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "agent_call",
-      "line": 11429,
-      "end_line": 11429,
+      "line": 11431,
+      "end_line": 11431,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "agent_call",
-      "line": 11456,
-      "end_line": 11456,
+      "line": 11458,
+      "end_line": 11458,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "agent_call",
-      "line": 11487,
-      "end_line": 11487,
+      "line": 11489,
+      "end_line": 11489,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "agent_call",
-      "line": 11500,
-      "end_line": 11500,
+      "line": 11502,
+      "end_line": 11502,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "agent_call",
-      "line": 11551,
-      "end_line": 11551,
+      "line": 11553,
+      "end_line": 11553,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "agent_call",
-      "line": 11581,
-      "end_line": 11581,
+      "line": 11583,
+      "end_line": 11583,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "_disk_doc_update",
-      "line": 13506,
-      "end_line": 13506,
+      "line": 13508,
+      "end_line": 13508,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "clear_reply_events",
-      "line": 13872,
-      "end_line": 13872,
+      "line": 13874,
+      "end_line": 13874,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "node_mail_retract",
-      "line": 13883,
-      "end_line": 13883,
+      "line": 13885,
+      "end_line": 13885,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "org_op",
-      "line": 14293,
-      "end_line": 14293,
+      "line": 14295,
+      "end_line": 14295,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {
       "path": "engine/backend/orgtree/api.py",
       "symbol": "org_op",
-      "line": 14361,
-      "end_line": 14361,
+      "line": 14363,
+      "end_line": 14363,
       "syntax_sha256": "ca8dea9a9905631ad7002fc323f1c65438c534860c5e56fb88f57a4eed513c26"
     },
     {

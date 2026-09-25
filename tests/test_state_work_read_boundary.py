@@ -77,7 +77,7 @@ class BoundaryBinding(unittest.TestCase):
         # S3 ruling 2: the card (36 actions) is the P05 work family; its selectors wait with it
         registry = contracts.load(ROOT / 'docs/state-system/operation-contracts.json')
         rows = {r['id'][:8]: r for g in ('entries', 'dispatch') for r in registry[g]}
-        for wid in ('53052a77', '58225fdc', 'f797075e', 'b2e49e97', 'c5c737b3'):
+        for wid in ('53052a77', 'c76282f4', 'c770c3e7', 'b2e49e97', 'c5c737b3'):
             with self.subTest(witness=wid):
                 self.assertEqual((rows[wid]['disposition'], rows[wid]['contracts']), ('pending', []))
                 self.assertIn('S3 ruling 2', rows[wid]['reason'])
