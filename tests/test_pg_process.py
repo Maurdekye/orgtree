@@ -135,7 +135,7 @@ class BracketTests(unittest.TestCase):
         owned.stop()
 
     def test_an_unmarked_root_is_refused_before_anything_runs(self) -> None:
-        with self.assertRaisesRegex(BracketError, "not a disposable prototype root"):
+        with self.assertRaisesRegex(BracketError, "neither a disposable prototype root"):
             bracket.start_for_engine(self.root, self.configured(), self.migrator)
         self.assertEqual(self.calls(), [])
         self.assertEqual(len(self.refusals), 1, "every refusal writes the event-log line")
@@ -301,6 +301,139 @@ class BracketTests(unittest.TestCase):
         owned.stop()
 
 
+    # -- plan decision 18.1: ORGTREE_STORE, else <root>/store-backend.json,
+    #    else SQLite; the engine's own root served only after the cutover
+
+    def cutover(self, root: Path, backend: str = "postgres", **extra: object) -> None:
+        record = {"schema": bracket.CUTOVER_SCHEMA, "backend": backend, **extra}
+        (root / bracket.CUTOVER_FILE).write_text(json.dumps(record), encoding="utf-8")
+
+    def unset_store(self, **extra: str) -> dict:
+        env = self.configured(**extra)
+        env.pop(bracket.STORE_ENV)
+        return env
+
+    # -- the choice
+
+    def test_no_record_and_no_variable_is_sqlite_and_nothing_runs(self) -> None:
+        self.mark()
+        env = self.unset_store(ORGTREE_PG_CONNINFO="stale")
+        self.assertIsNone(bracket.start_for_engine(self.root, env, self.migrator))
+        self.assertEqual(self.calls(), [])
+        self.assertNotIn(bracket.CONNINFO_ENV, env)
+        self.assertNotIn(bracket.STORE_ENV, env)
+        self.assertEqual(bracket.chosen_backend(self.root, env), "sqlite")
+
+    def test_a_record_choosing_postgres_runs_the_bracket_and_tells_the_store(self) -> None:
+        self.mark()
+        self.cutover(self.root)
+        env = self.unset_store()
+        owned = bracket.start_for_engine(self.root, env, self.migrator)
+        self.assertIsNotNone(owned)
+        self.assertEqual(env[bracket.STORE_ENV], "postgres", "the store must follow the record")
+        self.assertIn(bracket.CONNINFO_ENV, env)
+        owned.stop()
+
+    def test_a_record_choosing_sqlite_is_inert(self) -> None:
+        self.mark()
+        self.cutover(self.root, "sqlite")
+        self.assertIsNone(bracket.start_for_engine(self.root, self.unset_store(), self.migrator))
+        self.assertEqual(self.calls(), [])
+
+    def test_the_variable_wins_over_the_record(self) -> None:
+        self.mark()
+        self.cutover(self.root)
+        self.assertIsNone(bracket.start_for_engine(self.root, self.configured(ORGTREE_STORE="sqlite"), self.migrator))
+        self.assertEqual(self.calls(), [])
+
+    def test_a_record_that_is_not_ours_refuses_rather_than_guessing(self) -> None:
+        self.mark()
+        for text, why in (("{not json", "not valid JSON"),
+                          (json.dumps({"backend": "postgres"}), "is not a orgtree.store-backend/v1"),
+                          (json.dumps({"schema": bracket.CUTOVER_SCHEMA, "backend": "mysql"}), "unknown backend"),
+                          ("[]", "is not a orgtree.store-backend/v1")):
+            (self.root / bracket.CUTOVER_FILE).write_text(text, encoding="utf-8")
+            with self.assertRaisesRegex(BracketError, why):
+                bracket.start_for_engine(self.root, self.unset_store(), self.migrator)
+        self.assertEqual(self.calls(), [])
+        self.assertEqual(len(self.refusals), 4, "every refusal writes the event-log line")
+
+    # -- product mode
+
+    def product_root(self) -> tuple[Path, dict]:
+        """The engine's own data root, in a non-agent environment, cut over
+        and bound."""
+        root = Path(self.env["APPDATA"]) / "Orgtree v2" / "data"
+        self.cutover(root)
+        (root / bracket.PRODUCT_FILE).write_text("{}", encoding="utf-8")
+        env = self.unset_store(ORGTREE_DATA=str(root))
+        env.pop("ORGTREE_AGENT_PARENT_DATA")
+        return root, env
+
+    def test_the_engines_own_root_is_served_in_product_mode_after_the_cutover(self) -> None:
+        root, env = self.product_root()
+        owned = bracket.start_for_engine(root, env, self.migrator)
+        self.assertTrue(owned.product)
+        self.assertEqual(self.cmds(), ["status", "init", "start", "attach"])
+        self.assertTrue(all("--product" in c["args"] for c in self.calls()), self.calls())
+        owned.stop()
+        self.assertEqual(self.calls()[-1]["args"][:1] + self.calls()[-1]["args"][-1:], ["stop", "--product"])
+
+    def test_a_prototype_root_is_never_run_with_product(self) -> None:
+        self.mark()
+        owned = bracket.start_for_engine(self.root, self.configured(), self.migrator)
+        self.assertFalse(owned.product)
+        owned.stop()
+        self.assertTrue(all("--product" not in c["args"] for c in self.calls()))
+
+    def test_the_engines_own_root_is_refused_without_a_cutover_record(self) -> None:
+        root, env = self.product_root()
+        (root / bracket.CUTOVER_FILE).unlink()
+        env[bracket.STORE_ENV] = "postgres"
+        with self.assertRaisesRegex(BracketError, "no cutover record choosing it"):
+            bracket.start_for_engine(root, env, self.migrator)
+        self.assertEqual(self.calls(), [])
+
+    def test_the_engines_own_root_is_refused_without_the_binding(self) -> None:
+        root, env = self.product_root()
+        (root / bracket.PRODUCT_FILE).unlink()
+        with self.assertRaisesRegex(BracketError, "no product binding"):
+            bracket.start_for_engine(root, env, self.migrator)
+        self.assertEqual(self.calls(), [])
+
+    def test_product_mode_is_refused_in_an_agent_session(self) -> None:
+        root, env = self.product_root()
+        for var, value in (("ORGTREE_AGENT_PARENT_DATA", root), ("ORGTREE_AGENT_LEGACY_DATA", root.parent)):
+            with self.assertRaisesRegex(BracketError, "overlaps protected location " + var):
+                bracket.start_for_engine(root, {**env, var: str(value)}, self.migrator)
+        self.assertEqual(self.calls(), [])
+
+    def test_product_mode_is_refused_inside_the_installed_app(self) -> None:
+        pf = self.tmp / "pf"
+        root = pf / "Orgtree" / "data"
+        root.mkdir(parents=True)
+        self.cutover(root)
+        (root / bracket.PRODUCT_FILE).write_text("{}", encoding="utf-8")
+        env = self.unset_store(ORGTREE_DATA=str(root), ProgramFiles=str(pf))
+        with self.assertRaisesRegex(BracketError, "overlaps protected location %ProgramFiles%"):
+            bracket.start_for_engine(root, env, self.migrator)
+        self.assertEqual(self.calls(), [])
+
+    def test_a_cut_over_root_that_is_not_orgtree_data_is_refused(self) -> None:
+        root, env = self.product_root()
+        env["ORGTREE_DATA"] = str(self.root)
+        with self.assertRaisesRegex(BracketError, "nor the engine's own ORGTREE_DATA"):
+            bracket.start_for_engine(root, env, self.migrator)
+        self.assertEqual(self.calls(), [])
+
+    def test_the_deny_list_is_the_rust_guards(self) -> None:
+        rust = (Path(bracket.__file__).resolve().parent / "native" / "prototype-guard" / "src" / "product.rs").read_text(encoding="utf-8")
+        start = rust.index("pub const PRODUCT_DENY")
+        body = rust[rust.index("[", rust.index("=", start)):rust.index("];", start)]
+        labels = tuple(x.replace("\\\\", "\\") for x in __import__("re").findall(r'"((?:[^"\\]|\\.)*)"', body))
+        self.assertEqual(labels, bracket.PRODUCT_DENY)
+
+
 class RefusalLineTests(unittest.TestCase):
     def test_the_refusal_line_uses_the_shared_helper_and_never_raises(self) -> None:
         spec_module = bracket.REFUSAL_MODULE
@@ -322,7 +455,7 @@ class RefusalLineTests(unittest.TestCase):
         try:
             env = {bracket.STORE_ENV: "postgres", "APPDATA": str(tmp / "a")}
             with mock.patch.object(bracket, "REFUSAL_MODULE", tmp / "missing.py"):
-                with self.assertRaisesRegex(BracketError, "not a disposable prototype root"):
+                with self.assertRaisesRegex(BracketError, "neither a disposable prototype root"):
                     bracket.start_for_engine(tmp, env)
         finally:
             import shutil
