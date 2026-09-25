@@ -52,6 +52,9 @@ SETTINGS_SECTIONS = (
 #: net sealing) and the audiences the multi-holder refusal counts
 SETTINGS_SHARE = ("kiosk", "audiences")
 SETTINGS_LOGS = ("events", "notice_log")
+#: Org.heal_plan_stamps (the startup one-shot): its migration mark and the
+#: org default it heals (plus every node row)
+HEAL_SECTIONS = ("_migrations", "permission_mode")
 #: what POST /defaults writes (Org.set_hire_defaults)
 DEFAULTS_SECTIONS = ("default_tools", "default_visibility", "permission_mode",
                      "default_account")

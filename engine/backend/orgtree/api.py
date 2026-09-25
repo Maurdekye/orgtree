@@ -1529,11 +1529,13 @@ def _recover_startup() -> None:
     for o in store.list_orgs():
         healed: list[str] | None = None
         try:
-            with store.DOC_LOCK:
-                horg = store.load_org(o["slug"])
-                healed = horg.heal_plan_stamps()
-                if healed is not None:
-                    store.save_org(horg)
+            # PG-3f: the one-shot heal sweeps every node, so every node row
+            # plus the two sections it writes; never DOC_LOCK
+            from . import settingstx
+            healed = settingstx.whole_org_tx(
+                o["slug"], lambda tx: tx.org.heal_plan_stamps(),
+                sections=settingstx.HEAL_SECTIONS,
+                logs=settingstx.SETTINGS_LOGS)
         except Exception as e:                       # noqa: BLE001
             print(f"[orgtree] {o['slug']}: plan-stamp heal failed ({e})")
         if healed:

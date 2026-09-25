@@ -404,6 +404,71 @@ class KioskWholeOrg(unittest.TestCase):
         self._check()
 
 
+class SettingsRoute(unittest.TestCase):
+    def test_dir_revoke_and_fable_clear_with_doc_lock_held(self) -> None:
+        from unittest import mock
+        from orgtree import ledger
+        global _n
+        _n += 1
+        extra = str(Path(_temp.name) / f'extra{_n}')
+        os.makedirs(extra, exist_ok=True)
+        org = store.create_org(f'pg3f-s{_n}', extra_dirs=[extra])
+        slug = org.d['slug']
+        org.hire(ledger.USER, None, 'haiku', 20, 'top',
+                 add_dirs=[{'path': os.path.normpath(extra), 'mode': 'rw'}],
+                 tools=NO_TOOLS, charter='fixture')
+        org.d['fable_lock'] = {'at': 't', 'reason': 'fixture', 'until_ts': 9e12}
+        org.nodes['top']['limit_locked'] = True
+        store.save_org(org)
+        store.save_org(store.load_org(slug))
+        with mock.patch.object(api, 'hub_changed', return_value=None), \
+                mock.patch.object(net, 'kick', return_value=None):
+            with _Held(lambda: store.DOC_LOCK):
+                done, out, _t = _run(lambda: api.org_settings(
+                    slug, api.Settings(org_dirs=[], clear_fable_lock=True)), FREE_S)
+                self.assertTrue(done, '/settings waited on DOC_LOCK')
+        self.assertFalse(isinstance(out[0], BaseException), out)
+        d = _doc(slug)
+        self.assertEqual([x['path'] for x in d['dirs']], [d['workspace']])
+        self.assertNotIn(os.path.normpath(extra),
+                         [x['path'] for x in d['nodes']['top']['scope']['add_dirs']])
+        self.assertFalse(d.get('fable_lock'))
+        self.assertFalse(d['nodes']['top'].get('limit_locked'))
+
+
+class PlanStampHeal(unittest.TestCase):
+    """The startup heal's row set (api._recover_startup runs exactly this
+    call per org)."""
+
+    def test_heal_lands_with_doc_lock_held(self) -> None:
+        from orgtree import ledger, settingstx
+        global _n
+        _n += 1
+        org = store.create_org(f'pg3f-h{_n}')
+        slug = org.d['slug']
+        org.hire(ledger.USER, None, 'haiku', 20, 'top', add_dirs=[],
+                 tools=NO_TOOLS, charter='fixture')
+        store.save_org(org)
+        org = store.load_org(slug)
+        org.d['permission_mode'] = 'plan'
+        org.nodes['top']['scope']['permission_mode'] = 'plan'
+        org.d.setdefault('_migrations', {}).pop('pm_plan_stamp_heal', None)
+        store.save_org(org)
+        store.save_org(store.load_org(slug))
+        with _Held(lambda: store.DOC_LOCK):
+            done, out, _t = _run(lambda: settingstx.whole_org_tx(
+                slug, lambda tx: tx.org.heal_plan_stamps(),
+                sections=settingstx.HEAL_SECTIONS,
+                logs=settingstx.SETTINGS_LOGS), FREE_S)
+            self.assertTrue(done, 'the heal waited on DOC_LOCK')
+        self.assertFalse(isinstance(out[0], BaseException), out)
+        self.assertEqual(sorted(out[0]), ['<org default>', 'top'])
+        d = _doc(slug)
+        self.assertEqual(d['permission_mode'], 'acceptEdits')
+        self.assertEqual(d['nodes']['top']['scope']['permission_mode'], 'acceptEdits')
+        self.assertIn('pm_plan_stamp_heal', d['_migrations'])
+
+
 class Semantics(unittest.TestCase):
     def test_disk_none_pops_and_other_keys_survive(self) -> None:
         slug = _fresh_org(disk={'size_mb': 4096, 'pending_size_mb': 5000})
