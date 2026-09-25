@@ -19,6 +19,7 @@ import os
 import sys
 import tempfile
 import threading
+import traceback
 import unittest
 from unittest.mock import patch
 
@@ -100,6 +101,11 @@ def _finishes(fn, timeout: float = WAIT_S) -> tuple[bool, list]:
     t = threading.Thread(target=run, daemon=True)
     t.start()
     t.join(timeout)
+    if t.is_alive():
+        # say WHERE it is stuck, so a failure names the lock it waits on
+        frame = sys._current_frames().get(t.ident)
+        if frame is not None:
+            out.append("".join(traceback.format_stack(frame)[-6:]))
     return (not t.is_alive()), out
 
 
@@ -113,7 +119,7 @@ class NeverWaitsOnDocLock(unittest.TestCase):
     def _assert_free_of_doc_lock(self, fn):
         with _Holder(lambda: store.DOC_LOCK):
             done, out = _finishes(fn)
-        self.assertTrue(done, "the writer waited on DOC_LOCK")
+        self.assertTrue(done, f"the writer waited on DOC_LOCK: {out}")
         if out and isinstance(out[0], BaseException):
             raise out[0]
         return out[0] if out else None
@@ -441,7 +447,7 @@ class WorkingCacheKeepalive(unittest.TestCase):
                              return_value={"total_cost_usd": 0.25}),                 patch.object(sup, "_working_cache_fork_id", return_value="fork-ka"),                 patch.object(sup, "_cache_refresh_receipt", return_value=None):
             with _Holder(lambda: store.DOC_LOCK):
                 done, out = _finishes(lambda: sup._working_cache_read(self.slug, "worker"))
-        self.assertTrue(done, "the keepalive waited on DOC_LOCK")
+        self.assertTrue(done, f"the keepalive waited on DOC_LOCK: {out}")
         self.assertFalse(out and isinstance(out[0], BaseException), out)
         n = _node(self.slug, "worker")
         self.assertAlmostEqual(float(n.get("cost_usd") or 0), 0.25)
